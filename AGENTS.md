@@ -127,7 +127,7 @@ CrateState {
         property_values: [Entity], files: [Entity],
     },
     scanned_files: [{ path, filename, size, mime_type,
-        suggested_role, confidence, reviewed_by_user }],
+        reviewed_by_user }],
     validation: {
         base_passed: bool, isa_passed: bool, tox_passed: bool,
         required_issues: [str], should_issues: [str], may_issues: [str],
@@ -135,7 +135,7 @@ CrateState {
     mit_assessment: { module_scores: { m: { completed, total } }, overall_score },
     fair_assessment: { indicator_results, dsm_level },
     checkpoint: { next_actions: [str], completed_checkpoints: [str],
-                  reasoning_log: [{"step", "action", "result"}] },
+                  reasoning_log: [{"step", "action", "tool", "result", "timestamp"}] },
     iteration_count: int, max_iterations: int, stuck: bool,
 }
 ```
@@ -336,10 +336,11 @@ Input comes in tiers of readiness. The agent should prefer the most structured f
 
 ### ARC Working Layout & Output
 
-**ARC (Annotated Research Context)** is not an input format and is **not optional** — scaffolding it is a mandatory first step in every session. Early in the run (after files are scanned and assays identified), the builder creates an empty ARC folder tree from the VHP4Safety ARC template at `arc/arc-template/` and uses it as *the* organizing structure that imposes the first layer of order on otherwise unstructured input: every scanned file is sorted into the correct ARC bucket and bound to the `LabProcess` it belongs to. This early structure is what makes downstream drafting, classification, and validation tractable. The same tree is the deliverable at the end — the `arc_writer.py` component projects CrateState entities onto it and emits the populated ARC alongside `ro-crate-metadata.json`.
+**ARC (Annotated Research Context)** is not an input format and is **not optional** — it *is* the output. The RO-Crate *is* a directory with an `ro-crate-metadata.json` at its root, and that directory follows the ARC layout. The `arc_writer.py` component projects CrateState entities onto the VHP4Safety ARC template at `arc/arc-template/` and populates the ARC tree. Since the ARC tree *is* the crate, the output is a single self-describing directory:
 
 ```
-<accession_arc>/
+<accession_arc>/               RO-Crate root directory
+├── ro-crate-metadata.json     RO-Crate metadata (describes everything in the ARC)
 ├── isa.investigation.xlsx      generic ARC investigation table (optional)
 ├── studies/<study>/
 │   ├── isa.study.xlsx          generic ARC study table (optional)
@@ -397,8 +398,17 @@ Every identifier verified against source. Never fabricate.
 ### D6: Field-Level Completion Tracking
 Per-field, per-entity completion using MIT YAML as reference. Enables precise resume and accurate scoring.
 
-### D7: ARC Scaffold as Mandatory First Structure
-Every session scaffolds the ARC folder tree up front and sorts scanned files into it (binding each to its `LabProcess`). This is not optional output — it is the first structure imposed on unstructured input and the substrate for all downstream drafting, classification, and validation. ARC is the working layout, not an input format.
+### D7: ARC as Output, Not Input
+The ARC folder structure is not scaffolded upfront. The agent builds a raw file inventory (path, size, mime type, first rows) during initialization, then progressively binds files to `LabProcess` instances as annotations emerge through conversation and HITL. The ARC tree is produced as an output by `arc_writer.py` once entity annotations are complete. ARC is a delivery format, not a working layout.
+
+### D8: Observability via Reasoning Log
+Every tool call, state change, and reasoning step is recorded in `CrateState.checkpoint.reasoning_log` as a structured event: `{"step": int, "action": str, "tool": str, "result": str, "timestamp": datetime}`. This log enables:
+- **Live status** for web UIs (`get_status()` returns current phase, entity counts, MIT scores, iteration count, last action)
+- **Session replay** for debugging — re-run the tool calls from the log against the same state
+- **Progress tracking** — number of entities drafted, fields filled vs total, validation pass/fail counts
+- **Diagnostics** — which lookups failed, which HITL checkpoints were rejected, how often the agent got stuck
+
+The reasoning log is persisted with the session and survives resume. A future web UI can tail or stream this log without changing the builder's internals — the data structure is already there.
 
 ## 12. Project Structure
 

@@ -25,16 +25,15 @@ The system:
 7. Produces a final, valid RO-Crate with full provenance tracking
 
 ## User Stories
-0. As a toxicology researcher, I want to use natural language to describe my experiment, so that the builder can draft the RO-Crate entities for me and I don't have to learn the technical details of RO-Crate structure or JSON-LD contexts.
-1. As a toxicology researcher, I want to point the builder at a raw data directory, so that files are classified and I can describe the experiment conversationally.
-2. As a toxicology researcher, I want to enter a DOI, so that the builder fetches publication metadata from Crossref and populates the ScholarlyArticle entity.
-3. As a toxicology researcher, I want to enter a compound name, so that the builder looks up SMILES, InChIKey, formula, and CAS from PubChem and fills the MolecularEntity.
-4. As a toxicology researcher, I want to provide a Cellosaurus accession (CVCL_xxxx), so that the builder resolves species, organ, tissue, and sex for the cell line sample.
-5. As a toxicology researcher, I want to reference an AOP-Wiki ID, so that the builder resolves the AOP graph (key events, relationships) as DefinedTerm annotations.
-6. As a toxicology researcher, I want to look up an ontology term (e.g., BAO query), so that the builder finds the correct IRI for measurement methods and techniques.
-7. As a toxicology researcher, I want to enter a person's ORCID, so that the builder resolves name, affiliation, and ROR from ORCID/ROR APIs.
-8. As a toxicology researcher, I want the agent to never fabricate identifiers, so that I can trust every ID in the crate is verified at its source.
-9.  As a toxicology researcher, I want to review the agent's file classifications before drafting begins, so that I can correct mismatches.
+1. As a toxicology researcher, I want to use natural language to describe my experiment, so that the builder can draft the RO-Crate entities for me without requiring technical knowledge of RO-Crate or JSON-LD.
+2. As a toxicology researcher, I want to point the builder at a raw data directory, so that the builder scans the folder and I can describe the experiment conversationally.
+3. As a toxicology researcher, I want to enter a DOI, so that the builder fetches publication metadata from Crossref and populates the ScholarlyArticle entity.
+4. As a toxicology researcher, I want to enter a compound name, so that the builder looks up SMILES, InChIKey, formula, and CAS from PubChem and fills the MolecularEntity.
+5. As a toxicology researcher, I want to provide a Cellosaurus accession (CVCL_xxxx), so that the builder resolves species, organ, tissue, and sex for the cell line sample.
+6. As a toxicology researcher, I want to reference an AOP-Wiki ID, so that the builder resolves the AOP graph (key events, relationships) as DefinedTerm annotations.
+7. As a toxicology researcher, I want to look up an ontology term (e.g., BAO query), so that the builder finds the correct IRI for measurement methods and techniques.
+8. As a toxicology researcher, I want to enter a person's ORCID, so that the builder resolves name, affiliation, and ROR from ORCID/ROR APIs.
+9. As a toxicology researcher, I want the agent to never fabricate identifiers, so that I can trust every ID in the crate is verified at its source.
 10. As a toxicology researcher, I want to review each drafted entity before it's committed, so that I can approve, edit, or reject the agent's work.
 11. As a toxicology researcher, I want to see a validation report after drafting, so that I know which REQUIRED fields are still missing and what SHOULD/MAY improvements are available.
 12. As a toxicology researcher, I want the builder to block crate assembly if there are any REQUIRED validation failures, so that I never produce an invalid RO-Crate.
@@ -45,7 +44,7 @@ The system:
 17. As a toxicology researcher, I want to resume a saved session, so that the agent picks up from its last checkpoint with full context.
 18. As a toxicology researcher, I want to run validation on the assembled crate before finalization, so that I catch any issues introduced during assembly.
 19. As a toxicology researcher, I want the agent to detect when it's stuck and escalate to me for guidance.
-20. As a toxicology researcher, I want my unstructured files to be sorted into an ARC folder structure from the start, so that the builder imposes a consistent, navigable layout on my data and produces an ARC alongside the RO-Crate.
+20. As a toxicology researcher, I want the final output to be an ARC directory (which *is* the RO-Crate), so that the `ro-crate-metadata.json` at its root describes every file already organized in studies, assays, datasets, and protocols.
 21. As a developer integrating this builder, I want to understand the toolbox interface, so that I can add new tools or input readers without changing the agent loop.
 22. As a developer extending the system, I want field-level completion metadata on every entity, so that I can build custom UIs that show exactly what's missing.
 ## Implementation Decisions
@@ -85,6 +84,9 @@ State auto-saves to `sessions/<session_id>/` at every milestone. The saved `crat
 ### HITL Checkpoints
 The agent presents to the human at checkpoints: file scan review, entity draft review, identifier verification, validation gates, MIT score review, pre-finalization, and when stuck. User response options: Approve, Edit, Reject with explanation, Skip. All feedback logged in entity `_provenance`.
 
+### Observability via Reasoning Log
+Every tool call, state change, and reasoning step is recorded in `CrateState.checkpoint.reasoning_log` as a structured event: `{step, action, tool, result, timestamp}`. This enables live status for web UIs (`get_status()` returns phase, entity counts, MIT scores, iteration count, last action), session replay for debugging, progress tracking, and diagnostics. The reasoning log is persisted with the session and survives resume. A future web UI can tail or stream this log without changing the builder's internals — the data structure already supports it.
+
 ### Lookup Pattern
 All lookups follow: return `{found: bool, data: dict, error: str | None}`, never throw, LRU cached, rate-limited. Multi-strategy for chemicals: try name -> CAS -> ChEBI, then ask user.
 
@@ -121,7 +123,7 @@ No existing tests in the codebase — this is the first testing effort. `profile
 - **Web API / Frontend**: The builder is a Python library. FastAPI or Streamlit frontend is future work.
 - **Multi-user workflows**: Provenance model supports single-user only. Multi-persona collaboration is future work.
 - **MCP integration**: The toolbox architecture is MCP-ready but MCP server registration is future work.
-- **ARC workflow/run execution**: The builder scaffolds an ARC folder layout in-session to organize files and emits it as output, but executing ARC `workflows/` and `runs/` (running the analysis tools themselves) is out of scope.
+- **ARC workflow/run execution**: The builder produces an ARC directory as output (which *is* the RO-Crate), but executing the ARC `workflows/` and `runs/` (running the analysis tools themselves) is out of scope.
 - **Custom profile loading**: Additional profiles beyond ISA-Tox are future work.
 - **Batch processing**: Each session is isolated. Parallel sessions straightforward but not implemented.
 - **Non-toxicology domains**: The MIT YAML and SHACL shapes are specific to *in vitro* toxicology.
