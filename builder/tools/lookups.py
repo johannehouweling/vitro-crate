@@ -1,0 +1,215 @@
+"""Unified lookup interface for the ISA-Tox RO-Crate Builder.
+
+Wraps the existing lookup API clients (PubChem, Cellosaurus, AOP-Wiki,
+BAO/OLS, ORCID, ROR, Crossref) into a consistent ``{found, data, error}``
+interface. Each function is LRU-cached and rate-limited.
+
+Multi-strategy lookups:
+    - lookup_compound: tries name → CAS → PubChem CID
+"""
+
+from __future__ import annotations
+
+import functools
+import logging
+import time
+from typing import Any
+
+from lookups.aopwiki import lookup_aop as lookup_aop_wiki
+from lookups.bao import lookup_bao_term as lookup_bao_term_ols
+from lookups.cellosaurus import lookup_cellosaurus
+from lookups.crossref import lookup_doi as lookup_doi_crossref
+from lookups.orcid import lookup_orcid as lookup_orcid_api
+from lookups.pubchem import lookup_pubchem
+from lookups.ror import search_ror
+
+logger = logging.getLogger(__name__)
+
+# Standard return type for all lookup functions
+LOOKUP_RESULT = dict[str, Any]  # {"found": bool, "data": dict, "error": str | None}
+
+
+def _success(data: dict) -> dict[str, Any]:
+    """Wrap successful lookup data into the standard result format."""
+    return {"found": True, "data": data, "error": None}
+
+
+def _failure(error: str) -> dict[str, Any]:
+    """Wrap a failure into the standard result format."""
+    return {"found": False, "data": {}, "error": error}
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_compound(name: str) -> dict[str, Any]:
+    """Look up a chemical compound by name via PubChem.
+
+    Args:
+        name: Compound name (e.g. "Silychristin A").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if compound was found.
+            data: Dict with cas, smiles, inchikey, inchi, formula, mass,
+                  iupac_name, pubchem_cid keys (or empty dict).
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_pubchem(name)
+        if result and result.get("pubchem_cid"):
+            return _success(result)
+        return _failure(f"Compound '{name}' not found in PubChem")
+    except Exception as exc:
+        logger.exception("PubChem lookup failed for '%s'", name)
+        return _failure(f"PubChem lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_cell_line(accession: str) -> dict[str, Any]:
+    """Look up a cell line by its Cellosaurus accession.
+
+    Args:
+        accession: Cellosaurus accession, e.g. "CVCL_0631".
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if cell line was found.
+            data: Dict with name, identifier, url, and optionally
+                  alternateName, taxonomicRange, disease, etc.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_cellosaurus(accession)
+        if result and result.get("name"):
+            return _success(result)
+        return _failure(f"Cell line '{accession}' not found in Cellosaurus")
+    except Exception as exc:
+        logger.exception("Cellosaurus lookup failed for '%s'", accession)
+        return _failure(f"Cellosaurus lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_aop(aop_id: str) -> dict[str, Any]:
+    """Look up an Adverse Outcome Pathway by its AOP-Wiki identifier.
+
+    Args:
+        aop_id: Numeric AOP identifier, e.g. "610" or 42.
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if AOP was found.
+            data: Dict with "aop", "events", "relationships" keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_aop_wiki(str(aop_id))
+        if result and result.get("aop"):
+            return _success(result)
+        return _failure(f"AOP '{aop_id}' not found in AOP-Wiki")
+    except Exception as exc:
+        logger.exception("AOP-Wiki lookup failed for '%s'", aop_id)
+        return _failure(f"AOP-Wiki lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_bao_term(query: str) -> dict[str, Any]:
+    """Search the BioAssay Ontology for a term matching the query.
+
+    Args:
+        query: Free-text description (e.g. "gene expression assay").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if a matching term was found.
+            data: Dict with @id, @type, name, termCode keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_bao_term_ols(query)
+        if result and result.get("@id"):
+            return _success(result)
+        return _failure(f"No BAO term found for '{query}'")
+    except Exception as exc:
+        logger.exception("BAO/OLS lookup failed for '%s'", query)
+        return _failure(f"BAO/OLS lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_orcid(orcid_id: str) -> dict[str, Any]:
+    """Look up a person by their ORCID iD.
+
+    Args:
+        orcid_id: Bare ORCID iD, e.g. "0000-0001-6004-8653".
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if ORCID record was found (always True for valid
+                   ORCID format; ORCID returns a minimal fallback).
+            data: Dict with @id, @type, identifier, name, givenName,
+                  familyName, affiliation_name, affiliation_ror keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_orcid_api(orcid_id)
+        if result and "name" in result:
+            return _success(result)
+        # ORCID returns a fallback dict even on 404, so check for @id
+        if result and result.get("@id"):
+            return _success(result)
+        return _failure(f"ORCID lookup failed for '{orcid_id}'")
+    except Exception as exc:
+        logger.exception("ORCID lookup failed for '%s'", orcid_id)
+        return _failure(f"ORCID lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_ror(name: str) -> dict[str, Any]:
+    """Search the Research Organization Registry for an organization by name.
+
+    Args:
+        name: Organization name (e.g. "Maastricht University").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if an organization was found.
+            data: Dict with @id, @type, name, url, identifier keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = search_ror(name)
+        if result and result.get("@id"):
+            return _success(result)
+        return _failure(f"No ROR organization found for '{name}'")
+    except Exception as exc:
+        logger.exception("ROR lookup failed for '%s'", name)
+        return _failure(f"ROR lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_doi(doi: str) -> dict[str, Any]:
+    """Look up a publication by its DOI via Crossref.
+
+    Args:
+        doi: DOI string (e.g. "10.1016/j.tox.2021.152898").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if the DOI was resolved.
+            data: Dict with @id, @type, name, headline, author,
+                  datePublished, url, identifier keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_doi_crossref(doi)
+        if result and result.get("name"):
+            return _success(result)
+        return _failure(f"DOI '{doi}' not found in Crossref")
+    except Exception as exc:
+        logger.exception("Crossref lookup failed for '%s'", doi)
+        return _failure(f"Crossref lookup failed: {exc}")
