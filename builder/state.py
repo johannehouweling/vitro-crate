@@ -491,6 +491,8 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "File": "files",
 }
 
+# CellLineSample shares the samples collection with Sample, so deduplicate
+# collection names while preserving declaration order.
 ENTITY_COLLECTION_NAMES: tuple[str, ...] = tuple(
     dict.fromkeys(ENTITY_TYPE_MAP.values())
 )
@@ -549,6 +551,8 @@ class EntityStore:
         """Return all entities, optionally filtered by type."""
         if entity_type is not None:
             coll = self._collection_for_type(entity_type)
+            # Sample and CellLineSample share the same collection, so filter on the
+            # actual entity type when a specific type is requested.
             return [entity for entity in coll.values() if entity.type == entity_type]
 
         result: list[Entity] = []

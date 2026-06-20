@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from builder.state import CrateState, Entity, EntityProvenance, EntityStore
+from builder.state import CrateState, Entity, EntityProvenance, EntityStore, EntityType
 
 
-def _entity(entity_id: str, entity_type: str, **fields: str) -> Entity:
+def _entity(entity_id: str, entity_type: EntityType, **fields: str) -> Entity:
     return Entity(
         entity_id=entity_id,
-        type=entity_type,  # type: ignore[arg-type]
+        type=entity_type,
         fields=fields,
         _provenance=EntityProvenance(created_by="llm"),
     )
