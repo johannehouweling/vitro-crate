@@ -29,11 +29,20 @@ def _detect_mime_type(file_path: Path) -> str:
     Returns:
         A MIME type string.
     """
-    # First try mimetypes based on extension
+    # Prefer content-based detection (magic bytes) when available.
+    try:
+        import magic  # type: ignore[import-not-found]
+
+        detected = magic.from_file(str(file_path), mime=True)
+        if detected:
+            return detected
+    except Exception:
+        pass
+
+    # Fallback: guess from extension
     mime_type, _ = mimetypes.guess_type(str(file_path))
     if mime_type:
         return mime_type
-
     # Fallback: try content sniffing for common text formats
     try:
         with file_path.open("rb") as f:
