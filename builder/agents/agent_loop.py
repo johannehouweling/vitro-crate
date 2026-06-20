@@ -306,10 +306,67 @@ def run_interactive_agent(
         except Exception:
             console.print(f"[green]{content}[/green]")
 
-    # ── Greeting ────────────────────────────────────────────────────────
+    # ── Resume summary vs fresh greeting ────────────────────────────────
+    entity_count = len(engine.state.list_entities())
+    file_count = len(engine.state.scanned_files)
+    is_resume = entity_count > 0 or file_count > 0
+
+    if is_resume:
+        # Build a rich summary panel
+        from rich.table import Table
+        summary = Table.grid(padding=(0, 2))
+        summary.add_column(style="bold", width=16)
+        summary.add_column(style="white")
+
+        summary.add_row("Session:", f"[cyan]{engine.state.session_id}[/cyan]")
+        summary.add_row("Entities:", f"[green]{entity_count}[/green]")
+        summary.add_row("Files:", f"[green]{file_count}[/green]")
+
+        mit = getattr(engine.state, "mit_assessment", None)
+        if mit and getattr(mit, "overall_score", None) is not None:
+            summary.add_row("MIT score:", f"[yellow]{mit.overall_score:.0%}[/yellow]")
+
+        val = engine.state.validation
+        val_status = []
+        if val.base_passed:    val_status.append("[green]base[/green]")
+        else:                  val_status.append("[red]base[/red]")
+        if val.isa_passed:     val_status.append("[green]ISA[/green]")
+        else:                  val_status.append("[red]ISA[/red]")
+        if val.tox_passed:     val_status.append("[green]ISA-Tox[/green]")
+        else:                  val_status.append("[red]ISA-Tox[/red]")
+        summary.add_row("Validation:", "  ".join(val_status))
+
+        if val.required_issues:
+            summary.add_row("Issues:", f"[red]{len(val.required_issues)} REQUIRED[/red]")
+
+        # Per-type entity breakdown
+        counts: dict[str, int] = {}
+        for e in engine.state.list_entities():
+            typ = getattr(e, "type", "Unknown")
+            counts[typ] = counts.get(typ, 0) + 1
+        if counts:
+            parts = ", ".join(f"[cyan]{k}[/cyan]={v}" for k, v in sorted(counts.items()))
+            summary.add_row("Breakdown:", parts)
+
+        console.print(Panel(summary, title="[yellow]Resumed Session[/yellow]", border_style="yellow"))
+        console.print()
+
+        # Tell the LLM about the current state so it can give a contextual greeting
+        greeting_prompt = (
+            f"The user has resumed a session with {entity_count} entities and {file_count} scanned files. "
+            f"Validation: base={'pass' if val.base_passed else 'fail'}, "
+            f"ISA={'pass' if val.isa_passed else 'fail'}, "
+            f"Tox={'pass' if val.tox_passed else 'fail'}. "
+            f"Required issues: {len(val.required_issues)}. "
+            f"Entity breakdown: {counts}. "
+            f"Briefly welcome them back and summarise what has been done and what the next logical step is."
+        )
+    else:
+        greeting_prompt = "Greet the user and tell them what you can help build."
+
     try:
         result = app.invoke(
-            {"messages": [HumanMessage(content="Greet the user and tell them what you can help build.")]},
+            {"messages": [HumanMessage(content=greeting_prompt)]},
             thread_config,
         )
         reply = _extract_reply(result)
