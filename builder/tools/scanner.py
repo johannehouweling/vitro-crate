@@ -78,10 +78,12 @@ def scan_files(path: str) -> list[FileClassification]:
         return []
 
     results: list[FileClassification] = []
-    for entry in sorted(dir_path.iterdir()):
+    for entry in sorted(dir_path.rglob("*")):
         if not entry.is_file():
             continue
-        if entry.name.startswith("."):
+        # Skip hidden files/dirs anywhere in the relative path
+        rel_parts = entry.relative_to(dir_path).parts
+        if any(p.startswith(".") for p in rel_parts):
             continue
         results.append(
             FileClassification(
