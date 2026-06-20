@@ -17,3 +17,4 @@ input/
 
 .pytest_cache/
 .mypy_cache/
+.claude/CLAUDE.md

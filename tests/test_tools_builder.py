@@ -75,3 +75,36 @@ class TestBuildCrate:
         assert result["success"] is False
         assert result["error"] is not None
         assert result["crate_path"] == ""
+
+    def test_uses_rocrate_py_metadata_descriptor(self):
+        """build_crate assembles via ro-crate-py, not a hand-rolled dict.
+
+        ro-crate-py always emits a self-describing RO-Crate Metadata Descriptor
+        entity (@id ro-crate-metadata.json, @type CreativeWork) whose conformsTo
+        names the RO-Crate 1.1 spec and whose `about` points at the root. A
+        hand-rolled graph does not produce this, so its presence proves the
+        library is doing the assembly.
+        """
+        state = CrateState()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = str(Path(tmpdir) / "crate")
+            result = build_crate(state, output_path)
+
+            assert result["success"] is True
+            with open(Path(output_path) / "ro-crate-metadata.json") as f:
+                metadata = json.load(f)
+
+            descriptor = next(
+                e for e in metadata["@graph"]
+                if e.get("@id") == "ro-crate-metadata.json"
+            )
+            assert descriptor.get("@type") == "CreativeWork"
+            assert descriptor.get("about") == {"@id": "./"}
+            conforms = descriptor.get("conformsTo")
+            conforms_ids = (
+                [conforms.get("@id")] if isinstance(conforms, dict)
+                else [c.get("@id") for c in conforms or []]
+            )
+            # ro-crate-py stamps the descriptor with the RO-Crate spec it conforms
+            # to; the exact minor version is pinned explicitly in Step 2.
+            assert any("w3id.org/ro/crate" in cid for cid in conforms_ids)

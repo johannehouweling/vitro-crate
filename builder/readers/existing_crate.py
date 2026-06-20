@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import CrateState, Entity, EntityProvenance, EntityType
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,37 @@ _VALID_TYPES = frozenset({
     "Sample", "MolecularEntity", "CellLineSample", "Person",
     "Organization", "Publication", "DefinedTerm", "PropertyValue", "File",
 })
+_DATASET_SUBTYPES = frozenset({"Investigation", "Study", "Assay"})
+
+
+def _crate_type(node: dict) -> EntityType | None:
+    """Map a graph node's @type/additionalType to a CrateState entity type.
+
+    A valid ISA-Tox crate types Investigation/Study/Assay as ``Dataset`` +
+    ``additionalType`` and the cell-based test system as ``Sample`` +
+    ``additionalType "CellLine"``; LabProcess subtypes keep ``@type LabProcess``
+    with the subtype carried in ``additionalType``. Returns None for nodes that
+    are not reconstructable CrateState entities (e.g. Profile descriptors).
+    """
+    t = node.get("@type")
+    primary = t[0] if isinstance(t, list) else t
+    add = node.get("additionalType")
+    if isinstance(add, list):
+        add = add[0] if add else None
+
+    if primary == "Dataset":
+        return add if add in _DATASET_SUBTYPES else None
+    if primary == "LabProcess":
+        return "LabProcess"
+    if primary == "Sample":
+        return "CellLineSample" if add == "CellLine" else "Sample"
+    if primary == "ScholarlyArticle":
+        return "Publication"
+    if primary == "MediaObject":
+        return "File"
+    if primary in _VALID_TYPES:
+        return primary
+    return None
 
 
 def read_existing_crate(crate_dir: str) -> CrateState:
@@ -50,27 +81,28 @@ def read_existing_crate(crate_dir: str) -> CrateState:
         graph = data.get("@graph", [])
         for node in graph:
             node_id = node.get("@id", "")
-            node_type = node.get("@type", "")
 
-            if node_id == "./" or node_type == "Dataset":
-                state.metadata.title = node.get("name", state.metadata.title)
-                state.metadata.description = node.get("description", state.metadata.description)
-                state.metadata.accession = node.get("identifier", state.metadata.accession)
+            # Only the Root Data Entity (@id "./") describes the crate as a whole;
+            # the metadata descriptor is skipped. Study/Assay are real entities.
+            if node_id == "./":
+                md = state.metadata
+                md.title = node.get("name", md.title)
+                md.description = node.get("description", md.description)
+                md.accession = node.get("identifier", md.accession)
+                continue
+            if node_id == "ro-crate-metadata.json":
                 continue
 
-            if not node_type:
+            ctype = _crate_type(node)
+            if ctype is None:
                 continue
 
-            primary_type = node_type[0] if isinstance(node_type, list) else node_type
-            if primary_type in ("CreativeWork", None):
-                continue
-            if primary_type not in _VALID_TYPES:
-                continue
-
+            # Recover the local entity_id by stripping a single leading '#'.
+            entity_id = node_id[1:] if node_id.startswith("#") else node_id
             fields = {k: v for k, v in node.items() if not k.startswith("@")}
             entity = Entity(
-                entity_id=node_id,
-                type=primary_type,
+                entity_id=entity_id,
+                type=ctype,
                 fields=fields,
                 _provenance=EntityProvenance(created_by="scanner"),
             )
