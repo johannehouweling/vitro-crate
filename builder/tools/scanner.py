@@ -120,9 +120,20 @@ def read_file_sample(path: str, lines: int = 20) -> str | None:
     if not file_path.is_file():
         return None
 
+    # Skip very large files
+    try:
+        if file_path.stat().st_size > 100 * 1024 * 1024:
+            logger.info("Skipping file sample (>100MB): %s", path)
+            return None
+    except OSError:
+        return None
+
+    # Skip binary files
+    if _detect_mime_type(file_path) == "application/octet-stream":
+        return None
+
     try:
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
-            sample_lines: list[str] = []
             for _ in range(lines):
                 line = f.readline()
                 if not line:
