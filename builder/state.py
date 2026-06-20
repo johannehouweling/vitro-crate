@@ -244,6 +244,56 @@ class FileClassification:
             reviewed_by_user=data.get("reviewed_by_user", False),
         )
 
+@dataclass
+class ArchivePreview:
+    """Preview metadata for a zip archive without extracting it.
+
+    Attributes:
+        path: Absolute path to the archive file.
+        filename: Base name of the archive file.
+        size_bytes: Size of the archive in bytes.
+        size_mb: Size of the archive in megabytes.
+        entry_count: Number of entries inside the archive.
+        entries: List of dicts with keys ``path``, ``size``, ``is_dir``.
+        message: Human-readable summary message.
+        error: Error message if the archive could not be read (None on success).
+    """
+
+    path: str
+    filename: str
+    size_bytes: int
+    size_mb: float
+    entry_count: int
+    entries: list[dict[str, Any]]
+    message: str
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "filename": self.filename,
+            "size_bytes": self.size_bytes,
+            "size_mb": self.size_mb,
+            "entry_count": self.entry_count,
+            "entries": self.entries,
+            "message": self.message,
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ArchivePreview:
+        return cls(
+            path=data["path"],
+            filename=data["filename"],
+            size_bytes=data["size_bytes"],
+            size_mb=data["size_mb"],
+            entry_count=data["entry_count"],
+            entries=data.get("entries", []),
+            message=data["message"],
+            error=data.get("error"),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Report dataclasses
 # ---------------------------------------------------------------------------
