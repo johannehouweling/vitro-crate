@@ -57,15 +57,14 @@ class TestEntityStore:
         store.add_entity(sample)
         store.add_entity(cell_line)
 
-        assert store.samples == {
-            "sample_001": sample,
-            "cell_001": cell_line,
-        }
+        assert store.list_entities("Sample") == [sample]
+        assert store.list_entities("CellLineSample") == [cell_line]
         assert {entity.entity_id for entity in store.list_entities()} == {
             "sample_001",
             "cell_001",
         }
-        assert store.list_entities("CellLineSample") == [cell_line]
+        assert store.get_entity("sample_001") is sample
+        assert store.get_entity("cell_001") is cell_line
 
     def test_remove_entity_removes_from_underlying_collection(self):
         store = EntityStore()

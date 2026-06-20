@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -491,8 +492,11 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "File": "files",
 }
 
+ENTITY_COLLECTION_COUNTS = Counter(ENTITY_TYPE_MAP.values())
 SHARED_COLLECTION_ENTITY_TYPES: frozenset[str] = frozenset(
-    {"Sample", "CellLineSample"}
+    entity_type
+    for entity_type, collection_name in ENTITY_TYPE_MAP.items()
+    if ENTITY_COLLECTION_COUNTS[collection_name] > 1
 )
 
 # CellLineSample is modeled as a subtype of Sample and stored in the same
