@@ -2,6 +2,7 @@
 
 Usage:
     python -m main [--input <path>] [--output <path>] [--resume <session_id>]
+    python -m main --interactive [--input <path>] [--provider openai|anthropic]
 """
 
 from __future__ import annotations
@@ -9,7 +10,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 from builder.engine import AgentEngine
 
@@ -51,6 +51,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Enable debug logging",
     )
+    parser.add_argument(
+        "--interactive", "-I",
+        action="store_true",
+        help="Run in interactive agent mode (requires LangChain extra + API key)",
+    )
+    parser.add_argument(
+        "--provider", "-p",
+        type=str, default=None,
+        choices=["openai", "anthropic"],
+        help="LLM provider for interactive mode (auto-detected from env if omitted)",
+    )
     return parser.parse_args(argv)
 
 
@@ -91,6 +102,14 @@ def main(argv: list[str] | None = None) -> int:
         entity_count,
     )
 
+    # Interactive agent mode — enter the LangChain REPL
+    if args.interactive:
+        from builder.agents.agent_loop import run_interactive_agent
+
+        run_interactive_agent(engine, provider=args.provider)
+        return 0
+
+    # Batch / info mode — print summary and exit
     status = engine.get_status()
     logger.debug("Status: %s", status)
 

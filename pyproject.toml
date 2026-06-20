@@ -12,6 +12,13 @@ dependencies = [
     "openpyxl>=3.1.0",
 ]
 
+[project.optional-dependencies]
+langchain = [
+    "langchain>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+]
+
 [dependency-groups]
 dev = [
     "hindsight-all>=0.8.3",
