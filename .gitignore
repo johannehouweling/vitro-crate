@@ -12,3 +12,5 @@ __pycache__/
 .clinerules/
 skills-lock.json
 sessions/
+
+input/
