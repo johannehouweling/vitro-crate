@@ -166,13 +166,25 @@ Generate metadata entities from files, conversation, or existing metadata. Each 
 **Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample, LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis), Person, Organization, Publication.
 
 ### 4.3 Builder
-Assembles the RO-Crate using `ro-crate-py` (`profiles/models/isa.py`, `profiles/models/tox.py`, `profiles/context.py`). Can produce partial crates at any point.
+Assembles the RO-Crate using [`ro-crate-py`](https://github.com/ResearchObject/ro-crate-py) (`profiles/models/isa.py`, `profiles/models/tox.py`, `profiles/context.py`). Can produce partial crates at any point.
 
 ### 4.4 Validator
-Runs three-pass SHACL validation via `profiles/validator.py`. Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY (informational).
+Runs three-pass SHACL validation via `profiles/validator.py`, which wraps [`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator) — the official RO-Crate validation library. Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY (informational).
 
 ### 4.5 MIT & FAIR Assessors
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce scores, not pass/fail.
+
+### 4.6 External RO-Crate Packages
+
+This project builds on the existing RO-Crate Python ecosystem rather than reinventing crate assembly, validation, or entity models:
+
+| Package | PyPI | What it provides | How we use it |
+|---------|------|-----------------|---------------|
+| [`ro-crate-py`](https://github.com/ResearchObject/ro-crate-py) | `uv add rocrate`<br>(import `rocrate`) | Official Python SDK for creating and manipulating RO-Crates. Provides `ROCrate`, `ContextEntity`, `File`, and other base entity classes. | The entity model classes in `profiles/models/isa.py` and `profiles/models/tox.py` subclass `rocrate.model.ContextEntity` and `rocrate.model.File`. The builder uses `ROCrate` to assemble the crate and serialise `ro-crate-metadata.json`. |
+| [`rocrate-validator`](https://github.com/crs4/rocrate-validator) | `uv add roc-validator`<br>(import `rocrate_validator`) | Official SHACL-based validation library. Supports multi-profile validation (base RO-Crate → ISA → domain extensions) with severity levels. | `profiles/validator.py` wraps this in three passes (RO-Crate 1.1, ISA, ISA-Tox), suppressing inherited-profile duplicates so each pass reports only its own layer. |
+| [`rocrate-wizard`](https://github.com/ResearchObject/rocrate-wizard) *(external frontend)* | TBD | Frontend/UI layer that uses this backend (vitro-crate) to provide a user-facing RO-Crate builder. | This repo is the dependency — `rocrate-wizard` imports from `vitro-crate` and adds the web UI/CLI on top. Referenced in the ARC template's conversion workflow. |
+
+These packages are imported directly — we do not fork or vendor them. Version requirements are declared in `pyproject.toml`.
 
 ## 5. The Agent Toolbox
 
@@ -301,9 +313,42 @@ Automatically at: after file scanning, after each entity draft, after HITL check
 ## 9. Input & Output Formats
 
 ### Input Formats
-| Format | Structure | Example |
-|--------|-----------|---------|
-| BioStudies JSON | High | `input/metadata/S-VHPS21.json` |
+
+Input comes in three tiers of readiness. The agent should prefer the most structured form available:
+
+| Format | Curation level | Description |
+|--------|---------------|-------------|
+| **BioStudies JSON** | High — curated by a data steward | A `S-VHPSxx.json` PageTab record from BioStudies. Already validated, with structured Investigation/Study metadata, people, publications, and accession. The agent should reuse every field it can and only ask for missing domain details. |
+| **Directory with metadata files** | Medium — partial structure | An unstructured research folder that happens to contain some metadata files (README, `.json`, `.yaml`, `.csv`) alongside raw data. The scanner identifies these by role; the agent drafts entities from whatever structured content it finds. |
+| **Unstructured directory** | Low — raw data only | The worst case: a folder of research data with no accompanying metadata. All entities must be drafted from scratch through conversation with the user (file scanning, lookups, and HITL checkpoints). This is the most common real-world scenario. |
+
+**Guiding principle:** Meet the input where it is. If a BioStudies JSON is present, use it as the backbone and enrich it. If nothing is present, build everything from conversation and lookups. Never discard curated metadata.
+
+### Output Formats
+
+**ARC (Annotated Research Context)** — the preferred output when writing from CrateState. The `arc_writer.py` component projects entities onto the VHP4Safety ARC template at `arc/arc-template/`:
+
+```
+<S-VHPSxx_arc>/
+├── S-VHPSxx.pagetab.json       BioStudies PageTab record — study/investigation metadata
+├── isa.investigation.xlsx      generic ARC investigation table (optional)
+├── studies/<study>/
+│   ├── isa.study.xlsx          generic ARC study table (optional)
+│   ├── protocols/              SHARED protocols: starting material/data → samples
+│   └── resources/              external data the study references
+├── assays/<assay>/
+│   ├── ToxTemp_<assay>.md      test-method description (authoritative per assay)
+│   ├── isa.assay.xlsx          generic ARC assay table (optional)
+│   ├── dataset/
+│   │   ├── raw_data/           raw instrument output
+│   │   └── processed_data/     analysed results
+│   └── protocols/              assay-specific protocols: samples → measurement
+├── workflows/<wf>/             reusable analysis scripts/tools + environment
+└── runs/<run>/                 parameters + inputs for one execution of a workflow
+```
+
+The `arc_writer` maps CrateState entities (`Investigation`, `Study`, `Assay`, `LabProcess`, `Sample`, `File`) onto this directory structure. Each assay gets a `ToxTemp_<assay>.md` derived from LabProcess metadata. Protocols are exported from `LabProtocol` entities. Raw and processed data files are placed under `dataset/raw_data/` and `dataset/processed_data/` based on their `File.role`.
+
 ## 10. Lookup Services
 
 All lookups follow a consistent pattern: return `{found: bool, data: dict, error: str | None}`, never throw, LRU cached, with rate limiting.
