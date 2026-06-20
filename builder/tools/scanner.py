@@ -68,12 +68,23 @@ def _detect_mime_type(file_path: Path) -> str:
     return "application/octet-stream"
 
 
+_TABULAR_MIME_TYPES = {
+    "text/csv",
+    "text/tab-separated-values",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+_TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls"}
+
+
 def scan_files(path: str) -> list[FileClassification]:
     """Scan a directory and return a raw file inventory.
 
     Examines input directory and builds a raw file inventory (path, size,
-    mime type). Returns an empty list for empty or non-existent directories.
-    Skips hidden files (names starting with '.').
+    mime type, and first_rows for tabular files). Returns an empty list for
+    empty or non-existent directories. Skips hidden files (names starting
+    with '.').
 
     Args:
         path: Path to the directory to scan.
@@ -94,12 +105,19 @@ def scan_files(path: str) -> list[FileClassification]:
         rel_parts = entry.relative_to(dir_path).parts
         if any(p.startswith(".") for p in rel_parts):
             continue
+        mime = _detect_mime_type(entry)
+        first_rows: list[str] | None = None
+        if mime in _TABULAR_MIME_TYPES or entry.suffix.lower() in _TABULAR_SUFFIXES:
+            sample = read_file_sample(str(entry), lines=20)
+            if sample is not None:
+                first_rows = sample.splitlines()
         results.append(
             FileClassification(
                 path=str(entry),
                 filename=entry.name,
                 size=entry.stat().st_size,
-                mime_type=_detect_mime_type(entry),
+                mime_type=mime,
+                first_rows=first_rows,
             )
         )
     logger.info("Scanned %s — found %d files", path, len(results))
@@ -133,6 +151,7 @@ def read_file_sample(path: str, lines: int = 20) -> str | None:
         return None
 
     try:
+        sample_lines: list[str] = []
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
             for _ in range(lines):
                 line = f.readline()

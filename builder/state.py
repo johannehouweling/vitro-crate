@@ -211,6 +211,8 @@ class FileClassification:
         filename: Base name of the file.
         size: File size in bytes.
         mime_type: Detected MIME type.
+        first_rows: Preview of the first rows for CSV/TSV/XLSX files (None for
+            other formats or when the preview could not be read).
         reviewed_by_user: Whether a human has reviewed this classification.
     """
 
@@ -218,6 +220,7 @@ class FileClassification:
     filename: str
     size: int
     mime_type: str
+    first_rows: list[str] | None = None
     reviewed_by_user: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -226,6 +229,7 @@ class FileClassification:
             "filename": self.filename,
             "size": self.size,
             "mime_type": self.mime_type,
+            "first_rows": self.first_rows,
             "reviewed_by_user": self.reviewed_by_user,
         }
 
@@ -236,6 +240,7 @@ class FileClassification:
             filename=data["filename"],
             size=data["size"],
             mime_type=data["mime_type"],
+            first_rows=data.get("first_rows"),
             reviewed_by_user=data.get("reviewed_by_user", False),
         )
 

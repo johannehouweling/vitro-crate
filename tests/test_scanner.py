@@ -54,6 +54,37 @@ class TestScanFiles:
         assert fc.filename == "data.csv"
         assert fc.mime_type == "text/csv"
 
+    def test_csv_file_has_first_rows_populated(self, tmp_path):
+        """scan_files populates first_rows for CSV files."""
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("col1,col2,col3\n1,2,3\n4,5,6\n")
+
+        result = scan_files(str(tmp_path))
+
+        fc = result[0]
+        assert fc.first_rows is not None
+        assert fc.first_rows[0] == "col1,col2,col3"
+        assert fc.first_rows[1] == "1,2,3"
+
+    def test_text_file_has_no_first_rows(self, tmp_path):
+        """scan_files does not populate first_rows for plain text files."""
+        (tmp_path / "readme.txt").write_text("hello world\n")
+
+        result = scan_files(str(tmp_path))
+
+        assert result[0].first_rows is None
+
+    def test_tsv_file_has_first_rows_populated(self, tmp_path):
+        """scan_files populates first_rows for TSV files."""
+        tsv_file = tmp_path / "data.tsv"
+        tsv_file.write_text("col1\tcol2\n1\t2\n3\t4\n")
+
+        result = scan_files(str(tmp_path))
+
+        fc = result[0]
+        assert fc.first_rows is not None
+        assert fc.first_rows[0] == "col1\tcol2"
+
     def test_nonexistent_directory_returns_empty_list(self, tmp_path):
         """scan_files on a non-existent directory should return [] gracefully."""
         nonexistent = tmp_path / "does_not_exist"
