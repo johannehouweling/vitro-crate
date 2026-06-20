@@ -106,7 +106,7 @@ CrateState {
     session_id: str, created_at: datetime, updated_at: datetime,
     metadata: {
         title: str | None, description: str | None, accession: str | None,
-        input_type: "arc" | "biostudies" | "directory" | "conversation",
+        input_type: "directory" | "conversation",
         input_path: str | None, output_path: str | None,
     },
     entities: {
@@ -314,23 +314,21 @@ Automatically at: after file scanning, after each entity draft, after HITL check
 
 ### Input Formats
 
-Input comes in three tiers of readiness. The agent should prefer the most structured form available:
+Input comes in tiers of readiness. The agent should prefer the most structured form available:
 
 | Format | Curation level | Description |
 |--------|---------------|-------------|
-| **BioStudies JSON** | High — curated by a data steward | A `S-VHPSxx.json` PageTab record from BioStudies. Already validated, with structured Investigation/Study metadata, people, publications, and accession. The agent should reuse every field it can and only ask for missing domain details. |
-| **Directory with metadata files** | Medium — partial structure | An unstructured research folder that happens to contain some metadata files (README, `.json`, `.yaml`, `.csv`) alongside raw data. The scanner identifies these by role; the agent drafts entities from whatever structured content it finds. |
+| **Directory with metadata files** | Medium — partial structure | A research folder that contains some metadata files (README, `.json`, `.yaml`, `.csv`, or other records) alongside raw data. The scanner identifies these by role and the agent drafts entities from whatever structured content they hold — **regardless of the metadata file's format or schema**. Any such file is treated as a generic metadata source, not a special-cased input type. |
 | **Unstructured directory** | Low — raw data only | The worst case: a folder of research data with no accompanying metadata. All entities must be drafted from scratch through conversation with the user (file scanning, lookups, and HITL checkpoints). This is the most common real-world scenario. |
 
-**Guiding principle:** Meet the input where it is. If a BioStudies JSON is present, use it as the backbone and enrich it. If nothing is present, build everything from conversation and lookups. Never discard curated metadata.
+**Guiding principle:** Meet the input where it is. Read every metadata file present and reuse every field it can, whatever its structure; if nothing is present, build everything from conversation and lookups. Never discard curated metadata.
 
-### Output Formats
+### ARC Working Layout & Output
 
-**ARC (Annotated Research Context)** — the preferred output when writing from CrateState. The `arc_writer.py` component projects entities onto the VHP4Safety ARC template at `arc/arc-template/`:
+**ARC (Annotated Research Context)** is not an input format — it is scaffolded *inside the session*. Early in the run (after files are scanned and assays identified), the builder creates an empty ARC folder tree from the VHP4Safety ARC template at `arc/arc-template/` and uses it as the organizing structure: scanned files are sorted into the correct ARC buckets and bound to the `LabProcess` they belong to. The same tree is the deliverable at the end — the `arc_writer.py` component projects CrateState entities onto it and emits the populated ARC alongside `ro-crate-metadata.json`.
 
 ```
-<S-VHPSxx_arc>/
-├── S-VHPSxx.pagetab.json       BioStudies PageTab record — study/investigation metadata
+<accession_arc>/
 ├── isa.investigation.xlsx      generic ARC investigation table (optional)
 ├── studies/<study>/
 │   ├── isa.study.xlsx          generic ARC study table (optional)
@@ -418,8 +416,8 @@ vitro-crate/
 │   │   ├── validation.py, mit_assessment.py
 │   │   ├── fair_assessment.py, session.py
 │   ├── readers/                 Input readers
-│   │   ├── biostudies.py, arc_reader.py
-│   │   ├── existing_crate.py, directory.py
+│   │   ├── metadata_files.py, existing_crate.py
+│   │   ├── directory.py
 │   ├── writers/                 Output writers
 │   │   ├── rocrate_writer.py, arc_writer.py
 │   └── agents/                  LLM config
