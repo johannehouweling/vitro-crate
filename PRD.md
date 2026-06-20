@@ -45,7 +45,7 @@ The system:
 17. As a toxicology researcher, I want to resume a saved session, so that the agent picks up from its last checkpoint with full context.
 18. As a toxicology researcher, I want to run validation on the assembled crate before finalization, so that I catch any issues introduced during assembly.
 19. As a toxicology researcher, I want the agent to detect when it's stuck and escalate to me for guidance.
-20. As a toxicology researcher, I want to optionally produce an ARC folder alongside the RO-Crate, so that I can work with both formats.
+20. As a toxicology researcher, I want my unstructured files to be sorted into an ARC folder structure from the start, so that the builder imposes a consistent, navigable layout on my data and produces an ARC alongside the RO-Crate.
 21. As a developer integrating this builder, I want to understand the toolbox interface, so that I can add new tools or input readers without changing the agent loop.
 22. As a developer extending the system, I want field-level completion metadata on every entity, so that I can build custom UIs that show exactly what's missing.
 ## Implementation Decisions

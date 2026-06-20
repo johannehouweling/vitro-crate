@@ -325,7 +325,7 @@ Input comes in tiers of readiness. The agent should prefer the most structured f
 
 ### ARC Working Layout & Output
 
-**ARC (Annotated Research Context)** is not an input format — it is scaffolded *inside the session*. Early in the run (after files are scanned and assays identified), the builder creates an empty ARC folder tree from the VHP4Safety ARC template at `arc/arc-template/` and uses it as the organizing structure: scanned files are sorted into the correct ARC buckets and bound to the `LabProcess` they belong to. The same tree is the deliverable at the end — the `arc_writer.py` component projects CrateState entities onto it and emits the populated ARC alongside `ro-crate-metadata.json`.
+**ARC (Annotated Research Context)** is not an input format and is **not optional** — scaffolding it is a mandatory first step in every session. Early in the run (after files are scanned and assays identified), the builder creates an empty ARC folder tree from the VHP4Safety ARC template at `arc/arc-template/` and uses it as *the* organizing structure that imposes the first layer of order on otherwise unstructured input: every scanned file is sorted into the correct ARC bucket and bound to the `LabProcess` it belongs to. This early structure is what makes downstream drafting, classification, and validation tractable. The same tree is the deliverable at the end — the `arc_writer.py` component projects CrateState entities onto it and emits the populated ARC alongside `ro-crate-metadata.json`.
 
 ```
 <accession_arc>/
@@ -385,6 +385,9 @@ Every identifier verified against source. Never fabricate.
 
 ### D6: Field-Level Completion Tracking
 Per-field, per-entity completion using MIT YAML as reference. Enables precise resume and accurate scoring.
+
+### D7: ARC Scaffold as Mandatory First Structure
+Every session scaffolds the ARC folder tree up front and sorts scanned files into it (binding each to its `LabProcess`). This is not optional output — it is the first structure imposed on unstructured input and the substrate for all downstream drafting, classification, and validation. ARC is the working layout, not an input format.
 
 ## 12. Project Structure
 
