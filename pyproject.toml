@@ -1,14 +1,31 @@
 [project]
 name = "vitro-crate"
 version = "0.1.0"
-description = "Add your description here"
+description = "ISA-Tox RO-Crate Builder — LLM-assisted creation of profile-conformant RO-Crates for in vitro toxicology data"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "rocrate>=0.9.0",
+    "roc-validator>=0.1.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0",
+    "openpyxl>=3.1.0",
+]
 
 [dependency-groups]
 dev = [
     "hindsight-all>=0.8.3",
     "hindsight-cline>=0.2.0",
     "ty>=0.0.51",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ipykernel>=7.3.0",
+    "nbformat>=5.10.4",
 ]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
