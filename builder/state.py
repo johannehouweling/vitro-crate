@@ -462,7 +462,7 @@ class ReasoningLog:
         return entry
 
     def add_step(self, action: str, tool: str, result: str) -> ReasoningStep:
-        """Backward-compatible alias for log_reasoning()."""
+        """Permanent alias for log_reasoning() for compatibility."""
         return self.log_reasoning(action, tool, result)
 
     def mark_stuck(self, reason: str) -> ReasoningStep:
@@ -498,7 +498,7 @@ class ReasoningLog:
             stuck=data.get("stuck", False),
         )
 
-# Backward-compatible alias while call sites migrate to the extracted name.
+# Permanent backward-compatible alias for existing Checkpoint imports.
 Checkpoint = ReasoningLog
 
 # Entity type → collection name mapping (module-level constant)
@@ -641,7 +641,7 @@ class CrateState:
 
     @property
     def iteration_count(self) -> int:
-        """Return the delegated iteration count."""
+        """Return the delegated iteration count for existing callers."""
         return self.checkpoint.iteration_count
 
     @iteration_count.setter
@@ -650,7 +650,7 @@ class CrateState:
 
     @property
     def max_iterations(self) -> int:
-        """Return the delegated maximum iteration count."""
+        """Return the delegated maximum iteration count for existing callers."""
         return self.checkpoint.max_iterations
 
     @max_iterations.setter
@@ -659,7 +659,7 @@ class CrateState:
 
     @property
     def stuck(self) -> bool:
-        """Return the delegated stuck flag."""
+        """Return the delegated stuck flag for existing callers."""
         return self.checkpoint.stuck
 
     @stuck.setter
@@ -719,16 +719,19 @@ class CrateState:
 
         checkpoint_data = data.get("checkpoint", {})
         checkpoint = ReasoningLog.from_dict(checkpoint_data)
-        if "iteration_count" not in checkpoint_data:
-            checkpoint.iteration_count = data.get(
-                "iteration_count", checkpoint.iteration_count
-            )
-        if "max_iterations" not in checkpoint_data:
-            checkpoint.max_iterations = data.get(
-                "max_iterations", checkpoint.max_iterations
-            )
-        if "stuck" not in checkpoint_data:
-            checkpoint.stuck = data.get("stuck", checkpoint.stuck)
+
+        def _legacy_reasoning_value(field_name: str, default: Any) -> Any:
+            if field_name in checkpoint_data:
+                return checkpoint_data[field_name]
+            return data.get(field_name, default)
+
+        checkpoint.iteration_count = _legacy_reasoning_value(
+            "iteration_count", checkpoint.iteration_count
+        )
+        checkpoint.max_iterations = _legacy_reasoning_value(
+            "max_iterations", checkpoint.max_iterations
+        )
+        checkpoint.stuck = _legacy_reasoning_value("stuck", checkpoint.stuck)
 
         return cls(
             session_id=data.get("session_id", ""),
