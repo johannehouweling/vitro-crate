@@ -418,7 +418,7 @@ def run_interactive_agent(
                 "[yellow]Could not reach the LLM.[/yellow]\n"
                 "Check your [bold]SSL_CERT_FILE[/bold] and [bold]VITRO_API_BASE[/bold] settings.\n"
                 "The session is saved — you can resume later with "
-                f"[cyan]--session {engine.state.session_id}[/cyan]",
+                f"[cyan]--resume {engine.state.session_id}[/cyan]",
                 border_style="yellow",
             )
         )
