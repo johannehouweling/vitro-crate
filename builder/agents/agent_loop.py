@@ -280,10 +280,16 @@ def run_interactive_agent(
     def _extract_reply(state: dict) -> str:
         """Pull the last AIMessage content from the agent state."""
         msgs = state.get("messages", [])
-        if msgs:
-            last = msgs[-1]
-            if hasattr(last, "content") and last.content:
-                return str(last.content)
+        # Walk backwards to find an AI message (not tool results)
+        for msg in reversed(msgs):
+            if hasattr(msg, "content") and msg.content:
+                # Skip messages from "tool" role
+                role = getattr(msg, "type", "") or ""
+                if role == "ai" or (isinstance(msg, AIMessage)):
+                    return str(msg.content)
+                # Also accept the very last message if it has content
+                if msg is msgs[-1]:
+                    return str(msg.content)
         return ""
 
     def _print_reply(content: str) -> None:
@@ -354,6 +360,44 @@ def run_interactive_agent(
     else:
         greeting_prompt = "Greet the user and tell them what you can help build."
 
+    def _print_resume_fallback() -> None:
+        """Print a resume fallback with next-step suggestions."""
+        suggestions = (
+            "Try asking to:\n"
+            "  • [cyan]list entities[/cyan] — see all drafted items\n"
+            "  • [cyan]run validation[/cyan] — check for missing fields\n"
+            "  • [cyan]assess MIT[/cyan] — check Minimum Information coverage\n"
+            "  • [cyan]draft[/cyan] <entity type> — add more entities\n"
+            "  • [cyan]build crate[/cyan] — assemble the RO-Crate"
+        )
+        if val.required_issues:
+            suggestions = (
+                f"There are [red]{len(val.required_issues)} REQUIRED validation issues[/red].\n"
+                "Try asking to [cyan]validate[/cyan] to see them."
+            )
+        console.print(
+            Panel(
+                f"[bold]Welcome back![/bold]\n"
+                f"You have [bold cyan]{entity_count}[/bold cyan] entities drafted "
+                f"across {len(counts)} types.\n"
+                f"[dim]{suggestions}[/dim]",
+                border_style="green",
+            )
+        )
+
+    def _print_fresh_fallback() -> None:
+        """Print a fresh-start fallback with next-step suggestions."""
+        console.print(
+            Panel(
+                "[bold]Hello![/bold] I can help you build an ISA-Tox RO-Crate.\n"
+                "Try asking me to:\n"
+                "  • [cyan]draft an Investigation[/cyan] — start a new project\n"
+                "  • [cyan]scan[/cyan] a data directory — import files\n"
+                "  • [cyan]help[/cyan] — see all available tools",
+                border_style="green",
+            )
+        )
+
     try:
         result = app.invoke(
             {"messages": [HumanMessage(content=greeting_prompt)]},
@@ -362,8 +406,26 @@ def run_interactive_agent(
         reply = _extract_reply(result)
         if reply:
             _print_reply(reply)
+        else:
+            if is_resume:
+                _print_resume_fallback()
+            else:
+                _print_fresh_fallback()
     except Exception as exc:
         logger.debug("Greeting skipped: %s", exc)
+        console.print(
+            Panel(
+                "[yellow]Could not reach the LLM.[/yellow]\n"
+                "Check your [bold]SSL_CERT_FILE[/bold] and [bold]VITRO_API_BASE[/bold] settings.\n"
+                "The session is saved — you can resume later with "
+                f"[cyan]--session {engine.state.session_id}[/cyan]",
+                border_style="yellow",
+            )
+        )
+        if is_resume:
+            _print_resume_fallback()
+        else:
+            _print_fresh_fallback()
 
     # ── Goodbye helper ──────────────────────────────────────────────────
 
@@ -391,7 +453,7 @@ def run_interactive_agent(
 
         from pathlib import Path
         if Path("sessions").is_dir():
-            t.add_row("Resume:", f"python -m main [cyan]--session {session_id}[/cyan] [dim]--interactive[/dim]")
+            t.add_row("Resume:", f"python -m main [cyan]--resume {session_id}[/cyan] [dim]--interactive[/dim]")
 
         console.print(Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow"))
         console.print()
