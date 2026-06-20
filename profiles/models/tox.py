@@ -1,7 +1,7 @@
-from rocrate.model import ContextEntity
+from rocrate.model import ContextEntity, File
 from rocrate.rocrate import ROCrate
-from rocrate_wizard.core.models.isa import (  # ty: ignore[unresolved-import]
-    File,
+
+from profiles.models.isa import (
     LabProcess,
     LabProtocol,
     ParameterValue,

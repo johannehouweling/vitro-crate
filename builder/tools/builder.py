@@ -1,34 +1,33 @@
-"""Tool that assembles a ROCrate directory from CrateState entity data.
+"""Tool that assembles an RO-Crate directory from CrateState entity data.
 
-For now, this is a scaffold that creates the output directory structure and
-writes a minimal ro-crate-metadata.json from state data. Full ROCrate assembly
-via rocrate-py comes later.
+The crate is assembled with `ro-crate-py` (the official RO-Crate SDK): a
+`ROCrate` is created, the ISA-Tox JSON-LD context is attached, and the entity
+graph is built by `builder/tools/_crate_mapping.py` (which maps each CrateState
+entity onto its ISA-Tox domain-model class, resolves cross-entity references, and
+wires the Investigation → Study → Assay → LabProcess graph). `crate.write()` then
+serialises a valid `ro-crate-metadata.json`.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
+from rocrate.rocrate import ROCrate
+
 from builder.state import CrateState
+from builder.tools._crate_mapping import populate_crate
+from profiles.context import ISA_TOX_CONTEXT
 
 logger = logging.getLogger(__name__)
 
-ISA_TOX_CONTEXT = [
-    {
-        "@vocab": "http://schema.org/",
-        "schema": "http://schema.org/",
-    }
-]
-
 
 def build_crate(state: CrateState, output_path: str) -> dict[str, Any]:
-    """Build (or scaffold) an RO-Crate from CrateState.
+    """Build an RO-Crate from CrateState using ro-crate-py.
 
-    Creates the output directory, writes a minimal ro-crate-metadata.json
-    from state data, and returns a result dict.
+    Creates the output directory, assembles a `ROCrate` from the state, and
+    writes `ro-crate-metadata.json` plus any payload.
 
     Args:
         state: The current CrateState to build from.
@@ -42,47 +41,21 @@ def build_crate(state: CrateState, output_path: str) -> dict[str, Any]:
     """
     try:
         if not output_path:
-            return {"success": False, "crate_path": output_path, "error": "Empty output path"}
+            return {
+                "success": False,
+                "crate_path": output_path,
+                "error": "Empty output path",
+            }
 
         output_dir = Path(output_path)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build minimal ro-crate-metadata.json
-        root_id = "./"
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate)
+        crate.write(str(output_dir))
 
-        # Root dataset entry
-        root_dataset: dict[str, Any] = {
-            "@id": root_id,
-            "@type": "Dataset",
-        }
-
-        if state.metadata.title:
-            root_dataset["name"] = state.metadata.title
-        if state.metadata.description:
-            root_dataset["description"] = state.metadata.description
-        if state.metadata.accession:
-            root_dataset["identifier"] = state.metadata.accession
-
-        # Add entities from state as graph nodes
-        graph_entries: list[dict[str, Any]] = [root_dataset]
-        for entity in state.list_entities():
-            entry: dict[str, Any] = {
-                "@id": entity.entity_id,
-                "@type": entity.type,
-            }
-            entry.update(entity.fields)
-            graph_entries.append(entry)
-
-        metadata: dict[str, Any] = {
-            "@context": ISA_TOX_CONTEXT,
-            "@graph": graph_entries,
-        }
-
-        metadata_path = output_dir / "ro-crate-metadata.json"
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2, default=str)
-
-        logger.info("Crate scaffold created at %s", output_path)
+        logger.info("Crate built at %s", output_path)
         return {"success": True, "crate_path": output_path, "error": None}
 
     except OSError as e:

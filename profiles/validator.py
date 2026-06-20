@@ -23,9 +23,10 @@ from pathlib import Path
 from rocrate_validator import models, services
 from rocrate_validator.services import DEFAULT_PROFILES_PATH
 
-# src/rocrate_wizard/core/validator.py -> repo root is four parents up.
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-SHAPES_DIR = REPO_ROOT / "profiles" / "shapes"
+# This file lives at <repo>/profiles/validator.py, so the repo root is two
+# parents up and the SHACL shapes are the sibling ``shapes`` directory.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SHAPES_DIR = Path(__file__).resolve().parent / "shapes"
 
 
 def _patch_bundled_isa_ontology() -> None:
