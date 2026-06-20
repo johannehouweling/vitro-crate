@@ -47,7 +47,7 @@ class TestEntityStore:
         }
         assert store.list_entities("Study") == [study]
 
-    def test_cell_line_sample_uses_samples_collection_without_duplicate_listing(self):
+    def test_cell_line_sample_stored_in_samples_collection(self):
         store = EntityStore()
         sample = _entity("sample_001", "Sample", name="Sample")
         cell_line = _entity("cell_001", "CellLineSample", name="HepG2")

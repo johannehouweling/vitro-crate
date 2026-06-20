@@ -551,9 +551,13 @@ class EntityStore:
         """Return all entities, optionally filtered by type."""
         if entity_type is not None:
             coll = self._collection_for_type(entity_type)
-            # Sample and CellLineSample share the same collection, so filter on the
-            # actual entity type when a specific type is requested.
-            return [entity for entity in coll.values() if entity.type == entity_type]
+            if entity_type in {"Sample", "CellLineSample"}:
+                # Sample and CellLineSample share the same collection, so filter
+                # on the actual entity type when one of those types is requested.
+                return [
+                    entity for entity in coll.values() if entity.type == entity_type
+                ]
+            return list(coll.values())
 
         result: list[Entity] = []
         for coll_name in ENTITY_COLLECTION_NAMES:
