@@ -462,7 +462,7 @@ class ReasoningLog:
         return entry
 
     def add_step(self, action: str, tool: str, result: str) -> ReasoningStep:
-        """Permanent alias for log_reasoning() for compatibility."""
+        """Backward-compatible alias; new code should use log_reasoning()."""
         return self.log_reasoning(action, tool, result)
 
     def mark_stuck(self, reason: str) -> ReasoningStep:
@@ -720,18 +720,22 @@ class CrateState:
         checkpoint_data = data.get("checkpoint", {})
         checkpoint = ReasoningLog.from_dict(checkpoint_data)
 
-        def _legacy_reasoning_value(field_name: str, default: Any) -> Any:
+        def _get_reasoning_field_with_fallback(
+            field_name: str, default: Any
+        ) -> Any:
             if field_name in checkpoint_data:
                 return checkpoint_data[field_name]
             return data.get(field_name, default)
 
-        checkpoint.iteration_count = _legacy_reasoning_value(
+        checkpoint.iteration_count = _get_reasoning_field_with_fallback(
             "iteration_count", checkpoint.iteration_count
         )
-        checkpoint.max_iterations = _legacy_reasoning_value(
+        checkpoint.max_iterations = _get_reasoning_field_with_fallback(
             "max_iterations", checkpoint.max_iterations
         )
-        checkpoint.stuck = _legacy_reasoning_value("stuck", checkpoint.stuck)
+        checkpoint.stuck = _get_reasoning_field_with_fallback(
+            "stuck", checkpoint.stuck
+        )
 
         return cls(
             session_id=data.get("session_id", ""),
