@@ -22,6 +22,7 @@ This project uses **test-driven development (TDD)**. Write the test before the i
 
 - **Framework:** `pytest`
 - **Run tests:** `uv run pytest`
+- **Run typechecker:** `uv run ty`
 - **Run with coverage:** `uv run pytest --cov=builder`
 - **Test location:** `tests/` directory, mirroring the `builder/` structure.
 
@@ -64,6 +65,9 @@ This repo is designed to be worked on by both humans and AI coding agents. The `
 When an AI agent makes changes, it should:
 1. Read `AGENTS.md` to understand the architecture.
 2. Follow the guidelines of the tdd (test-driven development) skill for any new functionality.
+   1. Start with a failing test first
+   2. Implement the minimal feature that makes the test pass
+   3. And incrementally build the full feature in this fashion
 3. Update `AGENTS.md` if the design changes.
 4. Leave `CONTRIBUTING.md` conventions intact.
 5. Update `README.md` if anything of note is added or needs changing.
