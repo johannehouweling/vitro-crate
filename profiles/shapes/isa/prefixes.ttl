@@ -1,0 +1,26 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+
+# SHACL prefix declarations for SPARQL-based constraints
+isa:sparqlPrefixes
+    sh:declare [
+        sh:prefix "bioschemas" ;
+        sh:namespace "https://bioschemas.org/"^^xsd:anyURI ;
+    ] ;
+    sh:declare [
+        sh:prefix "isa" ;
+        sh:namespace "https://w3id.org/ro/crate/isa/1.0/"^^xsd:anyURI ;
+    ] ;
+    sh:declare [
+        sh:prefix "schema" ;
+        sh:namespace "http://schema.org/"^^xsd:anyURI ;
+    ] ;
+    sh:declare [
+        sh:prefix "sh" ;
+        sh:namespace "http://www.w3.org/ns/shacl#"^^xsd:anyURI ;
+    ] ;
+    sh:declare [
+        sh:prefix "xsd" ;
+        sh:namespace "http://www.w3.org/2001/XMLSchema#"^^xsd:anyURI ;
+    ] .

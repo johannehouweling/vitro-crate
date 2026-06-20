@@ -1,0 +1,46 @@
+# ISA RO-Crate Profile - SHACL Shapes (SHOULD / RECOMMENDED)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:StudyShape
+    a sh:NodeShape ;
+    sh:name "Study" ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select "SELECT DISTINCT ?this WHERE { ?this <http://schema.org/additionalType> \"Study\" . }" ;
+    ] ;
+    sh:property [
+        sh:path schema:creator ;
+        sh:class schema:Person ;
+        sh:message "Add at least one schema:creator linking to a schema:Person entity who performed the study" ;
+    ] ;
+    sh:property [
+        sh:path schema:description ;
+        sh:datatype xsd:string ;
+        sh:message "Add a schema:description (xsd:string) to the Study" ;
+    ] ;
+    sh:property [
+        sh:path schema:about ;
+        sh:class bioschemas:LabProcess ;
+        sh:message "Add schema:about linking to bioschemas:LabProcess entities describing experimental processes" ;
+    ] ;
+    sh:property [
+        sh:path schema:dateCreated ;
+        sh:or ( [ sh:datatype xsd:date ] [ sh:datatype xsd:dateTime ] [ sh:datatype xsd:string ] ) ;
+        sh:message "Add a schema:dateCreated (ISO 8601 date string) indicating when the Study was created" ;
+    ] ;
+    sh:property [
+        sh:path schema:datePublished ;
+        sh:or ( [ sh:datatype xsd:date ] [ sh:datatype xsd:dateTime ] [ sh:datatype xsd:string ] ) ;
+        sh:message "Add a schema:datePublished (ISO 8601 date string) indicating when the Study was published" ;
+    ] ;
+    sh:property [
+        sh:path schema:hasPart ;
+        sh:or ( [ sh:class schema:Dataset ] [ sh:class schema:MediaObject ] ) ;
+        sh:message "Add schema:hasPart linking to schema:Dataset (Assay) or schema:MediaObject (data file) entities" ;
+    ] .

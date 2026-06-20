@@ -1,0 +1,23 @@
+# ISA RO-Crate Profile - SHACL Shapes (SHOULD / RECOMMENDED)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:CommentShape
+    a sh:NodeShape ;
+    sh:targetClass schema:Comment ;
+    sh:name "Comment" ;
+    sh:property [
+        sh:path schema:name ;
+        sh:datatype xsd:string ;
+        sh:message "Add a schema:name (xsd:string) to the Comment" ;
+    ] ;
+    sh:property [
+        sh:path schema:text ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:text (xsd:string) with the comment content" ;
+    ] .

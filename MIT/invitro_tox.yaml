@@ -1,0 +1,3901 @@
+modules:
+- id: general_information
+  name: General Information
+  sections:
+  - id: null
+    name: null
+    parameters:
+    - name: Experiment name
+      id: experiment_name
+      description: Short and descriptive title [OECD GD 211]
+      synonyms:
+      - Scientific issue
+      - Assay name
+      - Title
+      alternative_definition: Descriptive full-text title [ToxTemp]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:name;Study:name;Assay:name
+    - name: Study description
+      id: study_description
+      description: A description of why you did the experiment, what you hoped to see. This should be a 2-3 sentence description
+        that would explain what this experiment is to someone other than you. [MIFlowCyt]
+      synonyms:
+      - Study purpose
+      - Description
+      - Summary
+      - Abstract
+      alternative_definition: Provide a summary of the assay features. E.g. “the effects of a chemical irritant on the opacity
+        and permeability of a freshly isolated bovine cornea can be used to measure eye irritancy.” [OECD GD 211]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: Study:description
+    - name: Date
+      id: date
+      description: 'Report the date of the first version of the method decription (day/month/year). Example: “5 August 2013”
+        [OECD GD 211]'
+      synonyms:
+      - Year
+      - Date of the publication
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:datePublished
+    - name: Version number
+      id: version_number
+      description: Indicate the date (day/month/year) of any update of the MD. The MD can be updated for a number of reasons
+        such as additions of new information or corrections to the existing information. Summarise briefly which information
+        has been updated.  [OECD GD 211]. For protocols, semantic versioning and fork tracking via dynamic repositories (e.g.,
+        protocols.io) are encouraged.
+      synonyms: []
+      alternative_definition: Version number and date of deposition; Summary of introduced changes in comparison to previous
+        version(s) [ToxTemp]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:dateModified
+    - name: Organizations
+      id: organizations
+      description: Organization(s) performing the experiment. [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:sourceOrganization
+    - name: Experimenter(s)
+      id: experimenters
+      description: Name and email of contact person, Name of further persons involved [ToxTemp]. CRediT-style role attribution
+        (conceptualisation, methodology, investigation, analysis, etc.) is encouraged.
+      synonyms:
+      - Corresponding person
+      - Name and acronym of the test depositor
+      alternative_definition: The scientist that performed this experiment. [4DN] Primary researcher [MIFlowCyt] Names and
+        contact details [OECD GD 211] Assay developer(s)/Laboratory and contact details [OECD GD 211]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:author
+    - name: Time point
+      id: time_point
+      description: Date and time (range) of the experiment [OECD GD 211]. Range form (start–end) is acceptable to capture
+        the study time-frame.
+      synonyms:
+      - Study time-frame
+      - study period start
+      - study period end
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: Study:temporalCoverage
+    - name: Data access
+      id: data_access
+      description: 'Availability of data: e.g., open access or restricted data access'
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: Investigation:conditionsOfAccess
+      value_sets:
+      - Z03
+    - name: PubMed IDs
+      id: pubmed_ids
+      description: A numeric PubMed ID of a publication associated with this experiment or a comma-separated list on multiple
+        numeric PubMed IDs if multiple publications are related to this experiment. [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:citation
+    - name: PMC IDs
+      id: pmc_ids
+      description: A PMC publication identifier (i.e., PMCxxxxxxxx) of a publication associated with this experiment, or a
+        comma-separated list of multiple PMC IDs if multiple publications are related to this experiment. [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:citation
+    - name: DOI
+      id: doi
+      description: DOI stands for Digital Object Identifier. It is a unique ID to correspond to an electronic document such
+        as an electronic journal article. Note, not all electronic journal articles have a DOI.  However, you may come across
+        this ID on a journal article page, on a publisher's website, in a record in a database such as PubMed, or in a citation
+        in a bibliography.  Some citation styles include the DOI at the end of the citation. [Health and science library].
+        Protocol DOIs (e.g., from protocols.io) are valid uses of this field for citing the procedure itself.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: true
+      crate_slot: Investigation:citation
+    - name: Reference(s) to main scientific papers
+      id: references_to_main_scientific_papers
+      description: List of bibliographic references to papers that explain assay development [OECD GD 211]
+      synonyms:
+      - References list
+      alternative_definition: Availability of key publications [ToxTemp]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: Investigation:citation
+    - name: Test type
+      id: test_type
+      description: e.g., in vivo, or in vitro, ex vivo, in chemico, in silico
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: Investigation:keywords
+      value_sets:
+      - IntEff_InfoType
+    - name: Endpoint(s)
+      id: endpoints
+      description: Define the specific endpoint(s) of the test system that you use for toxicity testing (e.g., cytotoxicity,
+        cell migration, etc.). Indicate whether cytotoxicity is the primary endpoint.What are secondary/further endpoints?Also
+        describe here potential reference/normalization endpoints (e.g. cytotoxicity, protein content, housekeeping gene expression)
+        that are used for normalization of the primary endpoint. [ToxTemp]
+      synonyms: []
+      alternative_definition: The recorded observation coming from an in chemico method, an in vitro assay or an in vivo assay
+        [OECD]
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: Assay:char
+      value_sets:
+      - IntEff_AddAnalysis
+    - name: Availability  of  information
+      id: availability_of_information
+      description: 'Indicate whether the assay is proprietary  or  non-proprietary  (to  what  extent  is  the  assay  method  transferable  or  contains
+        proprietary  elements)  and  specify  (if  possible)  what  kind  of  information  about  the  assay  cannot  be disclosed  or  is  not  available  (e.g.,  chemical  reference  sets  (training  or  test  sets),  prediction  model).
+        Example: “The assay is non-proprietary, but the training and test sets are not available”; “The model is proprietary,
+        and the prediction model and associated data sets are confidential”; “Company XYZ’s in vitro model for sensitisation
+        may be transferable but the prediction model is confidential”. Obviously ensuring scientific confidence in an assay
+        is facilitated if all information is transparent and can be disclosed. [OECD GD 211]'
+      synonyms:
+      - Method transfer
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Study:char
+    - name: Information about the throughput of the assay
+      id: information_about_the_throughput_of_the_assay
+      description: Indicate the throughput of the assay to provide an indication of likely resource intensity e.g., low (manual
+        assay, one chemical tested at a time), lowmoderate, moderate, moderate-high, high throughput (e.g., in 96 well-plate
+        and higher), and qualify with e.g., approximate number of chemicals/concentrations per run. If appropriate indicate
+        whether a manual assay could be run in a higher throughput mode. [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Study:char
+    - name: Status of the method
+      id: status_of_the_method
+      description: 'i)  Development  status:  Indicate  if  the  assay  is  still  under  development,  and  the  estimated  timeline  for
+        completion as far as possible; ii) Known uses: summarise the current and/or past use of the assay by different laboratories;
+        iii) Evaluation study: summarise the main conclusions or refer to individual protocol if available; iv)  Validation  study:  indicate  participation  in  a  formal  validation  study/studies  and  summarise  the
+        conclusions and their outcomes or refer to the individual protocol if available; v)  Regulatory  use:  provide  details  of  any
+        potential regulatory  application and  of  the toxicological hazard endpoint being addressed by the assay [OECD GD
+        211] If applicable: what is the status of the standardised assay, research, new method etc., is there an (S)OP? Reference
+        to the SOP'
+      synonyms:
+      - validation approach
+      - prospective validation
+      - retrospective validation
+      - prevalidation
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Study:char
+    - name: Standards followed
+      id: standards_followed
+      description: Standards followed such as good cell culture practice [OECD GD 211] Information about qualifier, guideline,
+        standards and deviations [OECD]
+      synonyms:
+      - GLP compliance statement
+      - OECD TG alignment
+      - OECD Test Guideline
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: Investigation:char
+      value_sets:
+      - IntEff_Qualifier
+      - IntEff_Method
+      - Z40
+      - IntEff_OtherQuality
+    - name: Funding
+      id: funding
+      description: List all funding sources (including grant number) and the role of the funder(s) in the study. [ARRIVE]
+      synonyms: []
+      alternative_definition: You may reference funding sources for this experiment.  [MIFlowCyt]
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: Investigation:funder
+    - name: Abbreviations and definitions
+      id: abbreviations_and_definitions
+      description: Used abbrevations and definitions of specific terminology
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Study:char
+    - name: Supplementary Information
+      id: supplementary_information
+      description: Name of the attached document(s) with remarks about content
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: Investigation:hasPart
+      value_sets:
+      - PG6-61157
+    - name: Test method sponsor
+      id: test_method_sponsor
+      description: Entity that has proposed a test method for incorporation into a Test Guideline, responsible for organising
+        and providing all available information to the validation/review body.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Submitting party / national coordinator
+      id: submitting_party
+      description: Party through which the test method is submitted to OECD (Member country NC, EU/EC, BIAC industry association,
+        or invited expert via NC).
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Submission date
+      id: submission_date
+      description: Date the test method submission package was provided for peer review / regulatory consideration.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Quality assurance / quality control procedures
+      id: quality_assurance_procedures
+      description: QA/QC procedures to which the original data and derived values are subjected; management process for adherence
+        to laboratory testing standards.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Cost and time of conducting the test
+      id: practical_considerations
+      description: Cost and time involved in conducting a study using the proposed test method, compared to reference test
+        method(s).
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Peer review status
+      id: peer_review_status
+      description: Peer review is often a prerequisite for regulatory consideration of research data; reporting of peer-review
+        status supports reliability assessment.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Pre-registration of protocol
+      id: preregistration
+      description: Pre-registration of protocols (e.g., in study registries such as clinical trial registries or animal study
+        registries) reduces publication bias and increases transparency.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+- id: chemical_information
+  name: Chemical Information
+  sections:
+  - id: chemical_description_and_generation_procedure
+    name: Chemical description and generation procedure
+    parameters:
+    - name: Compound name
+      id: compound_name
+      description: Used designation / name in the present work, standardized name of the nanomaterial (OECD)
+      synonyms:
+      - Material name
+      - Nanomaterial
+      - Compound designation
+      - Substance
+      - chemical name
+      - formulation name
+      - product name
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: MolecularEntity:name
+      iri: http://purl.obolibrary.org/obo/NCIT_C96972
+      iri_label: Chemical Name
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: CAS Registry Number
+      id: cas_registry_number
+      description: It is a unique numeric identifier, designates only one substance, has no chemical significance, represents
+        a link to a wealth of information about a specific chemical substance [CAS REGISTRY and CAS Registry Number FAQs]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: MolecularEntity:identifier
+      iri: http://semanticscience.org/resource/CHEMINF_000446
+      iri_label: CAS registry number
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: enm:10.0
+    - name: Sample source
+      id: sample_source
+      description: Origin (who has produced/provided) of the sample
+      synonyms:
+      - supplier
+      - source of substance
+      - chemical supplier
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: true
+      crate_slot: MolecularEntity:char
+      iri: http://www.ebi.ac.uk/efo/EFO_0004443
+      iri_label: material supplier
+      iri_predicate: skos:broadMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: efo:3.91.0
+    - name: Hazards
+      id: hazards
+      description: Information about material safety. Physical hazards, e.g. nanoscale metal powders are very reactive and
+        may have a high potential to explode (self-ignite). See also safety data sheet (SDS)
+      synonyms:
+      - Flammability
+      - Explosion
+      - SDS
+      - safety data sheet
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+      iri: http://purl.obolibrary.org/obo/NCIT_C73538
+      iri_label: Hazard
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: Chemical class
+      id: chemical_class
+      description: Chemical class to which each test substance belongs.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+    - name: Product class
+      id: product_class
+      description: Product class to which each test substance belongs.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+    - name: Batch / lot number
+      id: batch_lot_number
+      description: All laboratories should use, to the extent possible, the same batch of a test chemical; lot-to-lot consistency
+        should be described.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: MolecularEntity:char
+      iri: http://purl.obolibrary.org/obo/NCIT_C101672
+      iri_label: Lot or Batch Number Production Identifier
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+  - id: chemical_composition
+    name: Chemical composition
+    parameters:
+    - name: Structural formula
+      id: structural_formula
+      description: An empirical formula and molecular structure must be provided. [OECD]
+      synonyms:
+      - Molecular structure
+      alternative_definition: For the identification of chemical compounds
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:formula;MolecularEntity:smiles
+      iri: http://semanticscience.org/resource/CHEMINF_000042
+      iri_label: molecular formula
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: cheminf:2.1.0
+    - name: Purity
+      id: purity
+      description: Purity of each test substance; chemicals should be of highest available purity or of known composition.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+      iri: http://www.bioassayontology.org/bao#BAO_0002618
+      iri_label: purity
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: bao:2.8.19
+    - name: Mixture constituents and relative concentrations
+      id: mixture_composition
+      description: In the case of mixtures, the constituents and their relative concentrations should be stated whenever possible.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: MolecularEntity:char
+      iri: http://purl.obolibrary.org/obo/CHEBI_60004
+      iri_label: mixture
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: chebi:252
+  - id: sample_preparation
+    name: Sample preparation
+    parameters:
+    - name: Procedure description
+      id: procedure_description
+      description: The suitability of the sample preparation methodology for the intended purpose. (OECD)
+      synonyms: []
+      alternative_definition: Dispersion of as prepared or delivered NM in media used for biological experiments (DaNa)
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: MolecularEntity:char
+      iri: http://purl.obolibrary.org/obo/NCIT_C201324
+      iri_label: Procedure Description
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: Weight or volume of sample dispatched
+      id: sample_quantity
+      description: Weight or volume of the sample of test chemical dispatched to the participating laboratory.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Storage instructions / conditions
+      id: storage_conditions
+      description: Storage instructions for the test chemical; chemicals should be stable under defined storage conditions
+        for at least the duration of the validation study.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+    - name: Nanomaterial dispersion/aggregation measures
+      id: nanomaterial_dispersion
+      description: For nanomaterial studies, particle size, shape and surface charge must be considered and appropriate measures
+        taken to ensure homogeneous dispersion and avoid particle aggregation.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+  - id: physical_chemical_characteristics
+    name: Physical chemical characteristics
+    parameters:
+    - name: Physical and chemical characteristics
+      id: physical_chemical_properties
+      description: 'Physico-chemical data such as pH, volatility, stability, solubility, chemical reactivity, provided for
+        each test chemical. Includes nanomaterial-specific facets where applicable: particle size and size distribution, shape,
+        surface area, surface charge, and surface treatment.'
+      synonyms:
+      - size
+      - particle size
+      - surface charge
+      - surface area
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+      iri: http://semanticscience.org/resource/CHEMINF_000025
+      iri_label: physical descriptor
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: enm:10.0
+    - name: Stability of test substance in test medium
+      id: stability_in_test_medium
+      description: Stability of each test substance under the test conditions and test medium. Where degradation occurs, identify
+        and quantify degradation products.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+    - name: Sorption/bioavailability considerations
+      id: sorption_bioavailability_considerations
+      description: Sorption to plastic plates, PDMS absorption, or binding to albumin/serum can reduce bioavailability; such
+        physicochemical-driven exposure effects should be evaluated (e.g., with computational models).
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+  - id: null
+    name: null
+    parameters:
+    - name: Analytical verification of test item identity
+      id: test_item_identity_verification
+      description: Analytical verification of the test item should be conducted at study initiation and termination (and during,
+        for longer studies) to verify substance identity and stability.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+- id: biological_model_information
+  name: Biological Model Information
+  sections:
+  - id: model_characterization_in_vitro_general_information
+    name: Model characterization in vitro > General information
+    parameters:
+    - name: Cell name
+      id: cell_line_name
+      description: Immortalized (naturally or engineered), genetically uniform tissue cells able to reproduce indefinitely
+        in standard culture conditions. [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: CellLineSample:name
+      iri_predicate: none
+      iri_justification: semapv:ManualMappingCuration
+      value_sets:
+      - IntEff_Identity
+    - name: Type of test system
+      id: test_system_category
+      description: Category of the test system used (e.g. cell line, primary cells, tissue, bacteria, yeast), per IUCLID IntEff_Type.
+        Carried by the cell-based test system's sampleType.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: true
+      crate_slot: CellLineSample:sampleType
+      value_sets:
+      - IntEff_Type
+    - name: Cell line origin
+      id: cell_line_origin
+      description: For each cell line, include in the Methods section a statement that specifies the source of the cell lines.
+        Are any cell lines used in this paper listed in the database of commonly misidentified cell lines maintained by ICLAC
+        (also available in NCBI Biosample)? [Nature]
+      synonyms:
+      - Cell line database
+      - Cell line source
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: true
+        toxtemp: true
+        nature: true
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://purl.obolibrary.org/obo/CLO_0037290
+      iri_label: cell line cell origin
+      iri_predicate: skos:relatedMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: clo:2.1.188
+    - name: Provider name
+      id: provider_name
+      description: Name of vendor or lab (provider) that supplied the cell line [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://purl.obolibrary.org/obo/NCIT_C90473
+      iri_label: Test Subject Supplier
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: Provider Catalog ID
+      id: provider_catalog_id
+      description: ID or catalogue number or name assigned to the cell line by the vendor or provider [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://purl.obolibrary.org/obo/NCIT_C99286
+      iri_label: Catalog Number
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: Provider Batch ID
+      id: provider_batch_id
+      description: Vendor/Provider Batch ID number; Batch or lot number assigned to the cell line by the vendor or provider
+        [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Organism
+      id: organism
+      description: Organism of origin; a controlled vocabulary describing the organism from which the cell line was derived
+        (e.g. Homo sapiens, Mus musculus, etc.)  [LINCS]
+      synonyms:
+      - species of origin
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:taxonomicRange
+      iri: http://purl.obolibrary.org/obo/NCIT_C14250
+      iri_label: Organism
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: Organ
+      id: organ
+      description: Organ of origin; controlled terms describing the organ from which cell line is derived; (e.g. lung, mammary
+        gland etc.)  [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://purl.obolibrary.org/obo/UBERON_0000062
+      iri_label: organ
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: uberon:2026-04-01
+      value_sets:
+      - IntEff_Organ
+    - name: Tissue
+      id: tissue
+      description: Tissue of origin; A controlled vocabulary describing the tissue from which the cell line was derived [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://purl.obolibrary.org/obo/UBERON_0000479
+      iri_label: tissue
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: uberon:2026-04-01
+      value_sets:
+      - PG6-60235
+    - name: Cell type
+      id: cell_line_cell_type
+      description: A controlled vocabulary describing the cell type from which a cell line was derived, e.g. epithelial like,
+        fibroblast-like, lymphoblast like, hematopoietic, mesenchymal, neural, etc. This provides information about cell morphology.
+        Also sometimes referred to as cell morphology [LINCS]
+      synonyms:
+      - Morphology
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://www.ebi.ac.uk/efo/EFO_0000324
+      iri_label: cell type
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: efo:3.91.0
+    - name: Cell type detail
+      id: cell_type_detail
+      description: Additional description of cell type (histology) that is not available in CL, but may be known from other
+        sources like ATCC [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Growth properties
+      id: growth_properties
+      description: A controlled vocabulary describing the growth properties of the cell line (e.g. adherent, suspension) [LINCS]
+      synonyms:
+      - Culture properties [ATCC]
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://www.bioassayontology.org/bao#BAO_0002099
+      iri_label: cell growth property
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: bao:2.8.19
+    - name: Donor sex
+      id: donor_sex
+      description: Describes sex of the organism from which the cell was obtained [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Donor age
+      id: donor_age
+      description: The age of the donor [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Phenotype
+      id: phenotype
+      description: ''
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://www.bioassayontology.org/bao#BAO_0002542
+      iri_label: cell phenotype
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: bao:2.8.19
+    - name: Genotype
+      id: genotype
+      description: ''
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://www.ebi.ac.uk/efo/EFO_0000513
+      iri_label: genotype
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: efo:3.91.0
+    - name: Donor ethnicity
+      id: donor_ethnicity
+      description: For human cells, the ethnicity of the donor [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Donor health status
+      id: donor_health_status
+      description: Controlled vocabulary describing the health status of the donor [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Disease
+      id: disease
+      description: If the cell line came from a particular diseased tissue, the disease should be noted in terms of a controlled
+        vocabulary (e.g. breast cancer, colon cancer, not diseased, etc.) [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Disease details
+      id: disease_details
+      description: Additional description of a disease related to the cell line that may not be available in the disease ontology
+        above [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Known mutations
+      id: known_mutations
+      description: Mutations inherent (from the donor) in the cell line, captured explicitly; e.g. if reference is not available
+        [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://purl.obolibrary.org/obo/NCIT_C45576
+      iri_label: Mutation Abnormality
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: Mutation citations
+      id: mutation_citations
+      description: Mutations inherent in certain cell lines; from a reference [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Molecular features
+      id: molecular_features
+      description: Relevant molecular and morphological features of the Cell Line [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Genetic modification
+      id: genetic_modification
+      description: This field specifies any stable constructs as well as any genetic modifications (mutations, translocations)
+        introduced into this cell line (e.g. H2B-mCherry integrated at the AAVS1 Safe Harbor locus). Details of the procedures
+        used to generate this line (e.g. CRISPR/Cas9-mediated transformation) should be described and appropriate citations
+        provided in the Production Details field [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://www.ebi.ac.uk/efo/EFO_0000510
+      iri_label: genetic modification
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: efo:3.91.0
+      value_sets:
+      - IntEff_GenMod
+    - name: Recommended culture conditions
+      id: recommended_culture_conditions
+      description: A description of the standard tissue culture conditions (media, supplements, culture dish treatment) used
+        to maintain the cell line. Description of culture dish treatment conditions would include information about coating
+        of culture dish with fibronectin, collagen, etc., prior to cell plating. If special culture vessels are required to
+        grow the cells, these should also be mentioned, and details provided [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Related projects
+      id: related_projects
+      description: Other projects in which the cell line has been studied / used; A controlled vocabulary describing other
+        large-scale projects in which the cell line has been used (e.g. ENCODE, TCGA, ICBP, Epigenomics, etc.) [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Verification reference profile
+      id: verification_reference_profile
+      description: Expected STR (reference) profile of the cell line based on provider information, if available [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Reference source
+      id: reference_source
+      description: This field specifies a catalog entry or database record for this cell line at a cell type collection, if
+        available, or an established external source [LINCS]
+      synonyms:
+      - RRID
+      - Research Resource Identifier
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:identifier
+    - name: Cell markers
+      id: cell_markers
+      description: A controlled vocabulary describing the markers used to isolate / identify the cell type [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Gonsome code
+      id: gonsome_code
+      description: List of the sex chromosomes (gonosome) of the sample e.g. XX, XY, XXY [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Disease site onset
+      id: disease_site_onset
+      description: Site of disease onset in primary cell donor [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Disease age onset
+      id: disease_age_onset
+      description: Age of disease onset in primary cell donor (in years) [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Donor disease duration
+      id: donor_disease_duration
+      description: Age of death of primary cell donor (in years) [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Cell relevant citations
+      id: cell_relevant_citations
+      description: List of references (with PMIDs) of relevance to cell line derivation, etc. [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+  - id: model_characterization_in_vitro_custom_fields
+    name: Model characterization in vitro > Custom fields
+    parameters:
+    - name: Culture conditions
+      id: culture_conditions
+      description: A description of the culture conditions that were used and are suitable for this type of cell [LINCS]
+      synonyms:
+      - Cell culture method
+      alternative_definition: Precise cell culture method [Drasler]
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+      iri: http://purl.obolibrary.org/obo/BTO_0000216
+      iri_label: culture condition
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: bto:2021-10-26
+    - name: Cell culturing material
+      id: cell_culturing_material
+      description: Detailed description of the source and providers of the materials (cell culture plastic device)
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Media preparation
+      id: media_preparation
+      description: Detailed description of the source and providers of the reagents
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Cell seeding details
+      id: cell_seeding_details
+      description: The number of cells seeded, percentage confluency at the start of an experiment, and time between seeding
+        and experimentation should be reported for cell culture experiments. For experiments involving multiple cell types
+        (e.g. co-culture, tumour spheroids), the number of non-target (e.g. healthy) cells and the number of target (e.g.
+        diseased) cells should be reported. Ideally, however, the number of cells for each cell type present should be reported.
+        [MIRIBEL]
+      synonyms:
+      - seeding density
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+      iri: http://purl.obolibrary.org/obo/MSIO_0000062
+      iri_label: cell seeding density
+      iri_predicate: skos:broadMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: msio:1.0.1
+    - name: Mycoplasma testing
+      id: mycoplasma_testing
+      description: Have the cell lines been tested for mycoplasma contamination? In this checklist, indicate on which page
+        (or section and paragraph) the information can be found. [Nature]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Cell line authentication
+      id: cell_line_authentication
+      description: Have the cell lines been authenticated? If so, by which method? [Nature]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Passage number
+      id: passage_number
+      description: The number of times, if any that the cells have been re-plated and allowed to grow back to confluency or
+        to some maximum density if using suspension cultures. [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+      iri: http://www.ebi.ac.uk/efo/EFO_0007061
+      iri_label: passage number
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: efo:3.91.0
+    - name: Cell growth
+      id: cell_growth
+      description: Description before and during the test performance [Drasler]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+      iri: http://purl.obolibrary.org/obo/NCIT_C16402
+      iri_label: Cell Growth
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: ncit:26.02d
+    - name: Morphology
+      id: morphology
+      description: Description before and during the test performance [Drasler]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+      iri: http://purl.obolibrary.org/obo/PATO_0010006
+      iri_label: cell morphology
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: pato:2025-05-14
+    - name: Justification of biological model
+      id: justification_of_biological_model
+      description: If applicable, give brief summary and references for the prediction model; Consider the intended purpose
+        of the prediction model [OECD GD 211]
+      synonyms:
+      - Cell culture choice
+      alternative_definition: A justification of the selected cell culture. [Deagle]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: Study:char
+    - name: Biological fluid characterization
+      id: biological_fluid_characterization
+      description: For example, when investigating protein adsorption onto nanoparticles dispersed in blood serum, pertinent
+        aspects of the blood serum should be characterised (e.g., protein concentrations and differences between donors used
+        in study) [MIRIBEL]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Scaffolds / matrices for 3D models
+      id: scaffolds_matrices
+      description: For complex in vitro models (organoids, spheroids, OoC, MPS, 3D bioprinting), matrices or scaffolds used
+        (e.g., Matrigel, collagen, fibrin gel) should be reported.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Device manufacturing materials
+      id: device_materials
+      description: For MPS/OoC devices, the materials used for manufacturing (e.g., PDMS or other polymers) should be reported,
+        as they can influence compound absorption.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProtocol:labEquipment
+  - id: cell_differentiation
+    name: Cell differentiation
+    parameters:
+    - name: Cell name
+      id: differentiated_cell_name
+      description: The name of the iPSCs that were differentiated [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Cell type
+      id: differentiated_cell_type
+      description: Cell type of the differentiated cell. A cell type is a distinct morphological or functional form of cell.
+        Examples are epithelial, glial etc. [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Differentiation
+      id: differentiation
+      description: Description before and during the test performance [Drasler]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+      iri: http://purl.obolibrary.org/obo/GO_0030154
+      iri_label: cell differentiation
+      iri_predicate: skos:closeMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: cl:2026-06-08
+    - name: Differentiation protocol
+      id: differentiation_protocol
+      description: The protocol that was used to differentiate the cells [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProtocol:description
+      iri: http://purl.obolibrary.org/obo/OBI_0000272
+      iri_label: protocol
+      iri_predicate: skos:broadMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: obi:2026-05-08
+    - name: Transient modifications
+      id: transient_modifications
+      description: Transient transfection or viral transduction [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+      iri: http://purl.obolibrary.org/obo/CLO_0000004
+      iri_label: cell line cell modification
+      iri_predicate: skos:broadMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: clo:2.1.188
+    - name: Days post differentiation
+      id: days_post_differentiation
+      description: The number of days after the initiation of differentiation [LINCS]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: true
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+- id: exposure_information
+  name: Exposure Information
+  sections:
+  - id: exposure_information
+    name: Exposure Information
+    parameters:
+    - name: Exposure
+      id: exposure
+      description: Route of administration / exposure e.g. aerosol, dispersion, oral gavage, intravenous
+      synonyms:
+      - Administration
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: true
+      crate_slot: LabProcessExposure:param
+    - name: Vehicles
+      id: vehicles
+      description: Dispersing agent
+      synonyms:
+      - solvents
+      - diluents
+      - test article vehicles
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+      value_sets:
+      - PG6-60362
+    - name: Incubation time
+      id: incubation_time
+      description: Incubation time, exposure time or duration and frequency of treatment
+      synonyms:
+      - Exposure time
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+    - name: Readout frequency
+      id: readout_frequency
+      description: Details on sampling
+      synonyms:
+      - Measuring timepoint/s
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Dose
+      id: dose
+      description: administered dose, the initially added dose
+      synonyms:
+      - Concentration
+      - concentrations tested
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+      value_sets:
+      - PG6-60377
+    - name: Dose settings
+      id: dose_settings
+      description: Number of doses/concentrations, testing range
+      synonyms:
+      - Concentration settings
+      - concentrations tested
+      - concentration spacing
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+      value_sets:
+      - PG6-60377
+    - name: Dose justification
+      id: dose_justification
+      description: Doses selected should be anchored by known human exposures; conversions from human exposures<-> in vitro
+        exposures are suggested (via e.g. reverse dosimetry models). [Drasler]
+      synonyms:
+      - Dose selection
+      - concentration range justification
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+      value_sets:
+      - IntEff_ConcSelection
+    - name: Controls
+      id: controls
+      description: Chemical positive and negative controls need to be included in each assay and the use of NM-based negative
+        and positive controls is recommended. [Drasler]. For longitudinal control values across past runs (the historical-control
+        dataset itself), see the dedicated `historical_control_data` row.
+      synonyms:
+      - Reference material
+      - Positive and negative controls
+      - acceptable control ranges
+      - historical control data
+      alternative_definition: Reference materials are required as a benchmark control in toxicological studies in order to
+        check the correct performance of the test involving positive and negative controls. [BfR]
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+      value_sets:
+      - Z36
+      - PG6-60363
+      - IntEff_ControlItem
+    - name: Number of replicates
+      id: number_of_replicates
+      description: Number of technical and/or biological replicates. If replicates are not performed, provide a rationale
+        (GD 34 p.40 §104, p.51 §149).
+      synonyms:
+      - repeat experiments
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+      iri: http://www.ebi.ac.uk/efo/EFO_0000683
+      iri_label: replicate
+      iri_predicate: skos:broadMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: efo:3.91.0
+  - id: study_design
+    name: Study design
+    parameters:
+    - name: Specialized equipment needed
+      id: specialized_equipment_needed
+      description: mendatory needed specialized equipment, e.g. electron microscope, specific sonicator or cell culture material
+        etc.
+      synonyms:
+      - facilities
+      - major fixed equipment
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProtocol:labEquipment
+    - name: Specific  licenses
+      id: specific_licenses
+      description: e.g. permission to work with genetic modified organisms, license to use specific method/software
+      synonyms:
+      - Specific facilities
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+  - id: sample_preparation
+    name: Sample preparation
+    parameters:
+    - name: Sterilization
+      id: sterilization
+      description: Removal of microbial contamination from nanoparticles. Important parameter for attributing the properties
+        of the nanomaterial to toxic reactions that occur, including endotoxin removal.
+      synonyms:
+      - Biological contamination
+      - contamination control
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: MolecularEntity:char
+  - id: in_vitro
+    name: In vitro
+    parameters:
+    - name: Method(s)
+      id: methods
+      description: Descritpion of the used in vitro method
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:description
+    - name: Cellular model system
+      id: cellular_model_system
+      description: e.g 2D-, 3D-, Co-culture models. For complex models (organoids, spheroids, OoC, MPS), also capture dynamic
+        physiological features such as fluid flow rates and mechanical stretching.
+      synonyms: []
+      alternative_definition: NM response need to be assessed in multiple (at least three) different cell types and/or co-cultures.
+        [Drasler]
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: CellLineSample:char
+    - name: Culture dimensions
+      id: culture_dimensions
+      description: e.g.  type of well, volume of added media, surface of the well
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+    - name: Exposure conditions
+      id: exposure_conditions
+      description: 'Physical conditions of the test environment maintained during test item administration: temperature, humidity,
+        CO2 concentration, and the medium used (including its composition). Distinct from the steady-state maintenance conditions
+        of the cell line itself, which are captured by `culture_conditions` and `recommended_culture_conditions` in the Biological
+        Model module. The atomic parameters are also captured individually by their own GD 417 items (`incubation_temperature`,
+        `incubation_humidity`, `co2_concentration`, `culture_medium`); for the medium, the component-level identity (sources,
+        providers, supplements) lives in `media_preparation`. See GD 417 Table 2.1 p.21 and p.33 Sec 2.3.3 in vitro.'
+      synonyms:
+      - experimental exposure conditions
+      - in vitro exposure environment
+      - culture medium during exposure
+      - test medium
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+  - id: dose_metrics
+    name: Dose metrics
+    parameters:
+    - name: 'Units: mass or number concentration per cell'
+      id: units_mass_or_number_concentration_per_cell
+      description: It is recommended that all the three-mass metrics are reported (mass, surface area and number) [Drasler]
+      synonyms: []
+      alternative_definition: Dosimetry, delivered dose
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+    - name: Intracellular NM concentration
+      id: intracellular_nm_concentration
+      description: In the likelihood of intracellular NM alterations or dissolution, detection of intracellular NM concentration
+        is recommended.  [Drasler]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+    - name: Deposited dose on the cell surface
+      id: deposited_dose_on_the_cell_surface
+      description: Deposited dose on the cell surface needs to be calculated (specified methods or models).  [Drasler]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+    - name: Dosimetric conversions
+      id: dosimetric_conversions
+      description: Use of specific model systems e.g. Air-liquid interface (ALI) protocols for lung cell experiments may overcome
+        the issue with suspension cultures by a direct deposition of a NM onto the lung cell surface. Use of ALI (and barrier
+        protocols) avoids the need for many dosimetric conversions since most of the aerosolization systems can measure the
+        deposited NM concentration on-line thus allowing to obtain a dose-related effect (Braakhuis et al., 2016) [Drasler]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+    - name: Effective (bioavailable) concentration measurement
+      id: effective_bioavailable_concentration
+      description: To determine bioavailability during the experiment, the effective concentration of the test item should
+        be measured to aid interpretation of results.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+  - id: null
+    name: null
+    parameters:
+    - name: Analytical verification of nominal concentrations
+      id: analytical_concentration_verification
+      description: Ideally, nominal concentrations should be analytically verified; for chemically unstable substances more
+        frequent analyses may be needed.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessExposure:param
+- id: endpoint_read_out_information
+  name: Endpoint Read Out Information
+  sections:
+  - id: test_methods
+    name: Test methods
+    parameters:
+    - name: Method(s)
+      id: analytical_method
+      description: Overview on analytical method(s) to assess test endpoint(s) [ToxTemp]
+      synonyms:
+      - Method(s)
+      alternative_definition: Describe the response and its measurement [OECD GD 211]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: Assay:measurementMethod
+    - name: Type of method
+      id: type_of_method
+      description: e.g. Quantitative or qualitative
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: true
+      crate_slot: LabProcessEndpointReadout:param
+      value_sets:
+      - PG6-60380
+    - name: Test method purpose
+      id: test_method_purpose
+      description: What is the claimed purpose and rationale for intended use of method, e.g. alternative to an existing method,
+        screening, provision of novel information in regulatory decision-making, mechanistic information, adjunct test, replacement,
+        etc.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Endpoint(s) of the test method
+      id: endpoints_of_the_test_method
+      description: Response here makes reference to any biological effect, process or activity that can be measured [OECD
+        GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+      iri: http://www.bioassayontology.org/bao#BAO_0000179
+      iri_label: endpoint
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: bao:2.8.19
+      value_sets:
+      - IntEff_Object
+      - IntEff_AddAnalysis
+    - name: Scientific principle of the method
+      id: scientific_principle_of_the_method
+      description: Provide scientific rationale; Description of scientific principle; Biological/physiological basis and relevance;
+        Mechanistic basis; Is anchor point an AOP? [OECD GD 211]
+      synonyms: []
+      alternative_definition: Features of the in vitro test system that reflect the in vivo tissue [ToxTemp]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: Assay:char
+    - name: (Potential) linkage to AOPs
+      id: potential_linkage_to_aops
+      description: Link to KE (key event) or MIE (molecular initiating event)? Which AO might be modelled? If no AOP present,
+        give link between mechanism the assay measures and resulting hazard endpoint [OECD GD 211]. Per the IUCLID OHT 201
+        schema, the AOP-aligned Process/Object/Action triplet (with GO/PR/CHEBI ontology annotations from the AOP Wiki, see
+        Ives et al. 2017) is a structured population pattern for this row.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: Assay:keyEvent;Study:aop
+      value_sets:
+      - IntEff_Reason
+      - IntEff_Process
+      - IntEff_Object
+      - IntEff_Action
+    - name: Method uses
+      id: method_uses
+      description: 'Known uses: used in different laboratories? [OECD GD 211]'
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Applicability of test method
+      id: applicability_of_test_method
+      description: Potential solubility issues with the test system, and solutions proposed to address the issue [OECD GD
+        211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Reagents
+      id: test_method_reagents
+      description: Add all reagents used in your experiment [MIFlowCyt]
+      synonyms: []
+      alternative_definition: For mixtures, report the composition [OECD GD 211]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProtocol:reagent
+    - name: Kit
+      id: kit
+      description: The kit used to perform this experiment, if applicable.  [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Mechanistic validation
+      id: mechanistic_validation
+      description: Indicate/summarize information on mechanistic validation, e.g. by omics approaches or by use of endpoint
+        specific controls [ToxTemp]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Experiment variables
+      id: experiment_variables
+      description: Experiment variables are attributes that differ between samples within an experiment due to pre-existing
+        differences in sample states or due to experimental manipulation of the samples (e.g., smoker versus non-smoker, IL-2
+        treatment versus no treatment, knockout versus wild-type, or variable number of transplanted stem cells).  [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Relation between assay-response and in vivo/biology/physiology
+      id: relation_between_assayresponse_and_in_vivobiologyphysiology
+      description: What is relation between assay-response and in vivo/biology/physiology? [OECD GD 211]
+      synonyms: []
+      alternative_definition: Features of the test system that reflect the in vivo tissue [ToxTemp]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Robustness of the method
+      id: robustness_of_the_method
+      description: Reliability of the experimental results, Within-laboratory repeatability and reproducibility, Between laboratory
+        transferability and reproducibility [OECD GD 211]. Historical control data referenced as evidence of robustness lives
+        in the dedicated `historical_control_data` row.
+      synonyms:
+      - historical control data
+      - intra-laboratory repeatability
+      - intra-laboratory reproducibility
+      - inter-laboratory reproducibility
+      - inter-laboratory transferability
+      - method transfer
+      - ring test
+      - inter-laboratory study
+      - Applicability of test method
+      alternative_definition: Accurate and repeatable through validation [merged from the Exposure Information / Study design
+        row 'Applicability of test method', a duplicate of this robustness/reliability concept].
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Reference chemicals/chemical libraries, rationale for their selection and other available information
+      id: reference_chemicalschemical_libraries_rationale_for_their_selection_and_other_available_information
+      description: Are results for the reference chemicals (i.e. the “training set” chemicals used in the development and
+        evaluation of the assay and its associated prediction model) free and publicly available in some form. If available,
+        what is rationale for their selection. [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessExposure:param
+      value_sets:
+      - IntEff_ControlItem
+    - name: Metabolic capacity of the test system
+      id: metabolic_capacity_of_the_test_system
+      description: Is the test system metabolically competent? Addition of an enzymatic fraction? [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: CellLineSample:char
+      value_sets:
+      - IntEff_Metabolic
+    - name: Method randomization
+      id: method_randomization
+      description: If a method of randomization was used to determine how samples/animals were allocated to experimental groups
+        and processed, describe it. For animal studies, include a statement about randomization even if no randomization was
+        used. [Nature]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Blinding
+      id: blinding
+      description: If the investigator was blinded to the group allocation during the experiment and/or when assessing the
+        outcome, state the extent of blinding. For animal studies, include a statement about blinding even if no blinding
+        was done. [Nature]
+      synonyms:
+      - coded substances
+      - coded chemicals
+      - blind testing
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Detailed test method protocol
+      id: detailed_protocol
+      description: Detailed, unambiguous step-by-step description of the test method including preparations, reagents, supplies,
+        equipment, and criteria/procedures for generating and evaluating test data; provided as appendix to submission. Distinct
+        from the `sops` row, which is for attaching the formal GLP SOP documents themselves.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProtocol:description
+    - name: Standard Operating Procedures (SOPs)
+      id: sops
+      description: Formal, written procedures describing in detail how specific routine and test-specific laboratory operations
+        are performed; required by GLP. For attachment of formal versioned SOP documents (per GLP). The descriptive narrative
+        of the test method belongs in `detailed_protocol`.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProtocol:url
+  - id: quality_and_acceptance_criteria
+    name: Quality and acceptance criteria
+    parameters:
+    - name: Acceptance criteria for source cell population
+      id: acceptance_criteria_for_source_cell_population
+      description: Acceptance criteria assessed at different stages of test system and method, furthermore, assessing variability
+        and troubleshooting. [ToxTemp]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Acceptance criteria for assessing test system at its start
+      id: acceptance_criteria_for_assessing_test_system_at_its_start
+      description: List the criteria and the results
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessCellCulture:param
+    - name: Acceptance criteria for the test system at the end of compound exposure
+      id: acceptance_criteria_for_the_test_system_at_the_end_of_compound_exposure
+      description: Criteria to accept or reject experimental data [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+      value_sets:
+      - IntEff_AccResults
+    - name: Raw data format
+      id: raw_data_format
+      description: (file) Format in which original data are created, e.g. .tiff, .txt, any equipemt specific format, hand
+        written notes etc.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: File:encodingFormat
+    - name: Internal data storage
+      id: internal_data_storage
+      description: e.g. computer's internal hard drive, external hard drive, cloud, electronical or handwritten labbook, ...
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Experimental system(s) used
+      id: experimental_systems_used
+      description: Experimental test system extensively documented at different stages. [ToxTemp]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Equipment used, calibration program
+      id: equipment_used_calibration_program
+      description: Covers both routine maintenance and calibration; report frequency and most recent date for each.
+      synonyms:
+      - instrument maintenance
+      - instrument calibration
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Availability of internal standards
+      id: availability_of_internal_standards
+      description: e.g. positive and negative controls
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Limit of detection and limit of quantification, detection range
+      id: limit_of_detection_and_limit_of_quantification_detection_range
+      description: e.g. upper and lower detection range/limits
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Cross-reference to related test methods
+      id: crossreference_to_related_test_methods
+      description: Related assays if known that may characterize the same key event [OECD GD 211]
+      synonyms:
+      - reference test method
+      - comparator method
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: Assay:char
+      value_sets:
+      - IntEff_Reason
+    - name: Additional quality control experiments
+      id: additional_quality_control_experiments
+      description: If another experiment was performed for the purposes of establishing quality control standards, that experiment
+        may be referenced. [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Standard data entry format
+      id: standard_data_entry_format
+      description: Standard format for data entry to be used by all participating laboratories, with clear directions on how
+        to report data and related information.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Source of in vivo / reference test data
+      id: reference_data_source
+      description: Source of the in vivo reference test method data (literature citation for published information, laboratory
+        study director, year generated for unpublished data).
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Reference test method protocol description
+      id: reference_protocol_description
+      description: Description of the protocol(s) employed to generate the in vivo reference test method or human data, including
+        any modifications and their potential impact.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+    - name: Quality of in vivo reference test data (GLP)
+      id: reference_data_quality
+      description: Description of the quality of the in vivo reference data, including extent of GLP compliance and use of
+        coded test chemicals.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: Assay:char
+  - id: instrument_information
+    name: Instrument information
+    parameters:
+    - name: Name
+      id: instrument_name
+      description: ''
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Manufacturer
+      id: manufacturer
+      description: ''
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+      iri: http://www.bioassayontology.org/bao#BAO_0002628
+      iri_label: instrumentation manufacturer
+      iri_predicate: skos:exactMatch
+      iri_justification: semapv:ManualMappingCuration
+      iri_source_version: bao:2.8.19
+    - name: Model number
+      id: model_number
+      description: The model number shall be sufficient if these uniquely specify the required instrument components. [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Type
+      id: type
+      description: ''
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+      value_sets:
+      - PG6-60361
+    - name: Instrument Settings
+      id: instrument_settings
+      description: e.g. microscope magnification, wavelength
+      synonyms:
+      - Default Instrument Settings
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Performance test
+      id: performance_test
+      description: e.g. Sensitivity, Signal to noise ratio, Linearity [Deagle]
+      synonyms:
+      - Quality control
+      - instrument validation
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Software and version
+      id: software_and_version
+      description: Name of software, provider and version number
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProtocol:computationalTool
+    - name: Data type
+      id: data_type
+      description: e.g. .czi, png, tiff, word, xls
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: File:encodingFormat
+  - id: sample_preparation
+    name: Sample preparation
+    parameters:
+    - name: Name
+      id: sample_name
+      description: A user assigned name for this sample [4DN]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Description
+      id: description
+      description: A description of the sample that was imaged in this case. [4DN]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Preparation
+      id: preparation
+      description: e.g.  special sample preparation [4DN]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Fixation
+      id: fixation
+      description: Fixation protocol of the specimen, e.g. methanol for 20 min
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Reagents
+      id: sample_prep_reagents
+      description: To show that antibodies were profiled for use in the system under study (assay and species), provide a
+        citation, catalog number and/or clone number, supplementary information or reference to an antibody validation profile
+        (e.g., Antibodypedia, 1DegreeBio). [Nature] Add all reagents used for sample preparation
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProtocol:reagent
+    - name: Antibody
+      id: antibody
+      description: The analyte detector is often an antibody (e.g., anti-CD25) that specifically binds the analyte [MIFlowCyt]
+      synonyms:
+      - Analyte detector
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Concentrations
+      id: concentrations
+      description: Concentration of the used antibody solution [NanoS-QM]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: true
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Reactivity of the antibody
+      id: reactivity_of_the_antibody
+      description: In a flow cytometry experiment, the analyte is often a cell surface protein e.g. CD25 [MIFlowCyt]
+      synonyms:
+      - Analyte
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Host  of the antibody
+      id: host_of_the_antibody
+      description: Host of first antibody (e.g. made in mouse, rat, goat, rabbit) and secondary antibody (e.g. anti mouse,
+        rat, goat, rabbit)
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: true
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Clonality  of the antibody
+      id: clonality_of_the_antibody
+      description: e.g. Monoclonal, polyclonal
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: true
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Fluorophores
+      id: fluorophores
+      description: e.g. Fluorescent dyes (fluorescent chemical compound that can re-emit light upon light excitation in certain
+        wavelengths) in order to track its interaction with specific antigens. Antigen (e.g. GAPDH, or reactivity against
+        certain subunit) [NanoS-QM]
+      synonyms:
+      - Analyte reporter
+      - Antibody conjugation
+      alternative_definition: The reporter is typically a fluorochrome (e.g., FITC)  [MIFlowCyt]
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Staining or fluorescence labeling technique
+      id: staining_or_fluorescence_labeling_technique
+      description: ''
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Manufacturer / Source
+      id: manufacturer_source
+      description: Manufacturer and catalog number [MIFlowCyt]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Mounting method
+      id: mounting_method
+      description: Including description of mounting medium
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+      crate_slot: LabProcessEndpointReadout:param
+    - name: Media type
+      id: media_type
+      description: Cells are alive, e.g. live cell imaging
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: true
+      crate_slot: LabProcessEndpointReadout:param
+- id: analysis_and_statistics
+  name: Analysis and Statistics
+  sections:
+  - id: data_analysis
+    name: Data analysis
+    parameters:
+    - name: Conclusion
+      id: conclusion
+      description: ''
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: true
+    - name: Data analysis
+      id: data_analysis
+      description: Comment on the response value in terms of a boundary or range to provide a context for interpretation.
+        [OECD GD 211]
+      synonyms:
+      - decision criteria
+      - classification criteria
+      - positive/negative/equivocal cutoffs
+      - DIP
+      - Data Interpretation Procedure
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: true
+      additional: false
+    - name: Explicit prediction model
+      id: explicit_prediction_model
+      description: Description of prediction model [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Raw data processing to summary data
+      id: raw_data_processing_to_summary_data
+      description: Description how the data is calculated [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+    - name: Raw data or distribution of values
+      id: raw_data_or_distribution_of_values
+      description: Is the raw data or distribution of values underlying the reported results provided? [MIRIBEL]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessDataAnalysis:param
+      value_sets:
+      - IntEff_AttachmentType
+    - name: Data Availability
+      id: data_availability
+      description: E.g. external documents [OECD GD 211] Reference to additional files of relevance [ToxTemp]
+      synonyms: []
+      alternative_definition: Please provide a Data Availability statement . Data availability statements should include,
+        where applicable, accession codes, other unique identifiers and associated web links for publicly available datasets,
+        and any conditions for access of non-publicly available datasets. Where figure source data are provided, statements
+        confirming this should be included in data availability statements. Please refer the data availability and data citations
+        policy of the "Nature" journal for detailed guidance on information that must be provided in this statement. [Nature]
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessDataAnalysis:param
+      value_sets:
+      - IntEff_AttachmentType
+    - name: Illustrations
+      id: illustrations
+      description: 'Show us the spread: bar charts with error bars are commonly used to depict numerical data, but they can
+        be misleading when sample sizes are small. Wherever possible, use graph types that include individual data points
+        to directly show the spread of the data. [Nature Communications]'
+      synonyms:
+      - Figure
+      - Table
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Curve fitting
+      id: curve_fitting
+      description: Explanation of the curve fitting process [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Validation of statistics
+      id: validation_of_statistics
+      description: Was cross-validation carried out? [OECD GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Details of data analysis
+      id: details_of_data_analysis
+      description: e.g. Image J cell counting
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Software name and version for algorithm
+      id: software_name_and_version_for_algorithm
+      description: Specify the name and the version of software applications (and date if relevant) used to derive the prediction
+        model or to undertake the statistical processing. [OECD GD 211]
+      synonyms:
+      - Prediction model generation
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Statistical analysis
+      id: statistical_analysis
+      description: Provide details of the statistical methods used for each analysis, including software used. Describe any
+        methods used to assess whether the data met the assumptions of the statistical approach, and what was done if the
+        assumptions were not met. [ARRIVE]
+      synonyms:
+      - Statistical methods
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+    - name: Unit of analysis for each dataset
+      id: unit_of_analysis_for_each_dataset
+      description: e.g. single animal, group of animals, single neuron [ARRIVE]
+      synonyms:
+      - Numbers analyzed
+      - experimental unit
+      alternative_definition: 'Define your n numbers: just stating ‘n = 5’ is no longer sufficient—it must be clear what your
+        n number refers to for each experiment. For example, did you do the experiment on five plants, on five tissue samples
+        from the same plant, or did you run the same sample for analysis five times over? You should be able to justify your
+        choice of sample size and statistical tests in the reporting summary. [Nature Communications]'
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Justification of statistical tests
+      id: justification_of_statistical_tests
+      description: For every figure, are statistical tests justified as appropriate? [Nature]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Estimation of variation
+      id: estimation_of_variation
+      description: Is there an estimate of variation within each group of data? [Nature]
+      synonyms:
+      - coefficient of variation
+      - standard deviation
+      - measures of variability
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Variance between groups
+      id: variance_between_groups
+      description: Is the variance similar between the groups that are being statistically compared? [Nature]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Methods to assess data
+      id: methods_to_assess_data
+      description: Describe any methods used to assess whether the data met the assumptions of the statistical approach. [ARRIVE]
+      synonyms:
+      - statistical methods
+      - non-statistical methods
+      - dose-response analysis
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Baseline data
+      id: baseline_data
+      description: For each experimental group, report relevant characteristics and health status of animals (e.g. weight,
+        microbiological status, and drug or test naïve) prior to treatment or testing. (This information can often be tabulated).
+        [ARRIVE]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Excluded data
+      id: excluded_data
+      description: Describe inclusion/exclusion criteria if samples or animals were excluded from the analysis. Were the criteria
+        pre-established? [Nature]
+      synonyms:
+      - outlier identification
+      - outlying values
+      - data exclusion reasons
+      alternative_definition: If any animals or data were not included in the analysis, explain why. [ARRIVE]
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: true
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+    - name: Outcomes and estimations
+      id: outcomes_and_estimations
+      description: Report the results for each analysis carried out, with a measure of precision (e.g. standard error or confidence
+        interval). [ARRIVE]. Per the IUCLID OHT 201 schema, the parameter_and_result flexible block (parameter name + numeric
+        value + unit + remarks, repeatable) is a structured population pattern for reporting per-parameter results.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessDataAnalysis:param
+      value_sets:
+      - IntEff_Parameter
+      - PG6-60377
+      - IntEff_ResultTM
+      - IntEff_Concentration
+    - name: Adverse events
+      id: adverse_events
+      description: Give details of all important adverse events in each experimental group. [ARRIVE]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Protocol modification
+      id: protocol_modification
+      description: Describe any modifications to the experimental protocols made to reduce adverse events. [ARRIVE]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessDataAnalysis:param
+      value_sets:
+      - Z08
+    - name: Dose-response relationship analysis
+      id: dose_response_analysis
+      description: Methods used to explore the dose-response relationship.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessDataAnalysis:param
+      value_sets:
+      - IntEff_Concentration
+    - name: Comparative test/reference data table
+      id: comparative_data_table
+      description: Table of test method results versus reference test method results (quantitative and categorical), for each
+        test substance (Table 4 template).
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Accuracy
+      id: accuracy
+      description: 'Closeness of agreement between test method results and accepted reference values; measure of test method
+        performance. Sub-metrics: sensitivity (proportion of positives correctly classified), specificity (proportion of negatives
+        correctly classified), positive predictivity, negative predictivity, false positive rate, false negative rate. Prevalence
+        (proportion of positives/negatives in the test set) provides context for interpreting these metrics. See GD 34 Annex
+        I, p.54 §158.'
+      synonyms:
+      - concordance
+      - predictive capacity
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Sample size
+      id: sample_size
+      description: 'Number of independent experimental units used for statistical analysis (the ''n'' that determines degrees
+        of freedom and underpins statistical power). For in vitro studies, this is typically the number of biological replicates
+        rather than technical replicates (pseudoreplicates). Pairs with `statistical_power`: power analysis requires sample
+        size as input, and sample size is what power analysis prescribes. Distinct from `number_of_replicates` (generic replicate
+        count) and `unit_of_analysis_for_each_dataset` (the type of unit). See GD 417 p.22 Table 2.1; p.29-30 Sec 2.3.1.'
+      synonyms:
+      - n
+      - statistical n
+      - sample n
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Statistical power
+      id: statistical_power
+      description: Statistical power considerations, including sample size overall and across subgroups, should be addressed
+        in the design.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Access to analysis code
+      id: analysis_code_access
+      description: Access to code used for data analysis / modelling (noted for computational studies, applicable to in vitro
+        bioinformatics workflows).
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Machine-readable results tables
+      id: machine_readable_results
+      description: Reporting of main results in machine-readable tables comprising relevant endpoints and statistical parameters
+        facilitates interpretation and data extraction.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+  - id: limitations_discussion_and_interpretation
+    name: Limitations, Discussion, and Interpretation
+    parameters:
+    - name: Interpretation
+      id: interpretation
+      description: Interpretation of data, observations
+      synonyms:
+      - Scientific implications
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessDataAnalysis:param
+      value_sets:
+      - IntEff_Observations
+    - name: Study objectives and hypotheses
+      id: study_objectives_and_hypotheses
+      description: What was the initial aim and/or hypothesis of the study?
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+    - name: Primary and secondary experimental outcomes
+      id: primary_and_secondary_experimental_outcomes
+      description: e.g. cell death, molecular markers, behavioral changes [ARRIVE]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Current theory and other relevant studies in literature
+      id: current_theory_and_other_relevant_studies_in_literature
+      description: What is the current theoretical background of this study, also taking other relevant studies into account?
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Study limitations
+      id: study_limitations
+      description: Comment on the study limitations including any potential sources of bias, any limitations of the animal
+        model, and the imprecision associated with the results. [ARRIVE] (Schulz et al. 2010)
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: true
+      additional: false
+      crate_slot: LabProcessDataAnalysis:param
+      value_sets:
+      - IntEff_Observations
+    - name: Method limitations
+      id: method_limitations
+      description: Known technical limitations and strengths; Specification of any known technical limitations or strengths
+        of running assay; The assay may not be technically applicable to certain types or class of chemicals. [OECD GD 211]
+      synonyms:
+      - Applicability of test method
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: true
+    - name: Limitations related to the data analysis
+      id: limitations_related_to_the_data_analysis
+      description: Explain the curve fitting process, the assumptions used to determine the goodness-of-fit and any limitations
+        related to the data analysis. Indicate whether statistics was used (e.g. leave-one-out or other statistics). [OECD
+        GD 211]
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: true
+        lincs: false
+        toxtemp: true
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Implications of the experiment
+      id: implications_of_the_experiment
+      description: 'Describe any implications of your experimental methods or findings, e.g. for the replacement, refinement
+        or reduction (the 3Rs) of the use of animals in research. [ARRIVE] or for regulatory processes of the nanomaterial.
+        For 3Rs assessment, structured elements per OECD GD 34 p.54-55 §163: databases searched, search strategy, search dates,
+        and basis for animal numbers.'
+      synonyms:
+      - 3Rs assessment
+      - Refinement, Reduction, Replacement assessment
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false
+    - name: Generalizability
+      id: generalizability
+      description: Comment on whether, and how, the findings of this study are likely to be translated to other species or
+        systems, including any relevance to human biology. [ARRIVE]
+      synonyms:
+      - Translation
+      - In vitro-in vivo extrapolation (IVIVE)
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Role in testing strategy / battery / tier
+      id: role_in_testing_strategy
+      description: Indicates where and how the proposed test method might be included in the overall safety/hazard assessment
+        process, including weight given relative to other tests in tier or battery.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+    - name: Advantages over existing methods
+      id: advantages_over_existing_methods
+      description: Description of advantages of the new method (speed, cost, reduced animal use, etc.) over methods it replaces
+        or complements.
+      synonyms: []
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: true
+        oecd_gd417: false
+        oecd_oht201: false
+      additional: false
+  - id: null
+    name: null
+    parameters:
+    - name: Historical control data
+      id: historical_control_data
+      description: Longitudinal dataset of control values (negative, positive, vehicle) from previous runs of the test method,
+        used as evidence of method reliability and to define acceptable ranges for current experiments. Typically attached
+        as a CSV/Excel table, a control chart, or summary statistics (mean, SD, CV). Distinct from `controls` (per-experiment
+        control descriptions) and `robustness_of_the_method` (the reliability narrative); historical control data is the underlying
+        dataset that feeds both. See GD 417 p.24 Sec 2.2.1.
+      synonyms:
+      - control charts
+      - historical baseline
+      - longitudinal control data
+      alternative_definition: ''
+      standards:
+        oecd_gd211: false
+        lincs: false
+        toxtemp: false
+        nature: false
+        oecd_gd34: false
+        oecd_gd417: true
+        oecd_oht201: false
+      additional: false

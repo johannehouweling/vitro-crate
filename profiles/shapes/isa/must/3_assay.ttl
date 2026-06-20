@@ -1,0 +1,22 @@
+# ISA RO-Crate Profile - SHACL Shapes (MUST / REQUIRED)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:AssayShape
+    a sh:NodeShape ;
+    sh:name "Assay" ;
+    sh:description "An ISA Assay within a Study" ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select "SELECT DISTINCT ?this WHERE { ?this <http://schema.org/additionalType> \"Assay\" . }" ;
+    ] ;
+    sh:property [
+        sh:path schema:identifier ;
+        sh:minCount 1 ;
+        sh:message "Add at least one schema:identifier (xsd:string or IRI) to the Assay" ;
+    ] .

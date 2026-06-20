@@ -1,0 +1,43 @@
+# ISA RO-Crate Profile - SHACL Shapes (COULD / OPTIONAL)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:LabProtocolShape
+    a sh:NodeShape ;
+    sh:targetClass bioschemas:LabProtocol ;
+    sh:name "LabProtocol" ;
+    sh:property [
+        sh:path schema:computationalTool ;
+        sh:or ( [ sh:class schema:DefinedTerm ] [ sh:class schema:PropertyValue ] [ sh:class schema:SoftwareApplication ] ) ;
+        sh:message "Add schema:computationalTool (schema:DefinedTerm, schema:PropertyValue, or schema:SoftwareApplication) for software used" ;
+    ] ;
+    sh:property [
+        sh:path schema:labEquipment ;
+        sh:or ( [ sh:class schema:DefinedTerm ] [ sh:class schema:PropertyValue ] [ sh:datatype xsd:string ] [ sh:nodeKind sh:IRI ] ) ;
+        sh:message "Add schema:labEquipment (schema:DefinedTerm, schema:PropertyValue, xsd:string, or IRI) for laboratory equipment" ;
+    ] ;
+    sh:property [
+        sh:path schema:reagent ;
+        sh:or ( [ sh:class schema:BioChemEntity ] [ sh:class schema:DefinedTerm ] [ sh:class schema:PropertyValue ] [ sh:datatype xsd:string ] [ sh:nodeKind sh:IRI ] ) ;
+        sh:message "Add schema:reagent (schema:BioChemEntity, schema:DefinedTerm, schema:PropertyValue, xsd:string, or IRI) for reagents used" ;
+    ] ;
+    sh:property [
+        sh:path schema:url ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Add a schema:url (IRI) pointing to external protocol resources" ;
+    ] ;
+    sh:property [
+        sh:path schema:version ;
+        sh:or ( [ sh:datatype xsd:string ] [ sh:datatype xsd:decimal ] ) ;
+        sh:message "Add schema:version (xsd:string or xsd:decimal) for protocol version tracking" ;
+    ] ;
+    sh:property [
+        sh:path schema:comment ;
+        sh:class schema:Comment ;
+        sh:message "Add schema:comment linking to schema:Comment entities" ;
+    ] .

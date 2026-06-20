@@ -1,0 +1,38 @@
+# ISA RO-Crate Profile - SHACL Shapes (COULD / OPTIONAL)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:PersonShape
+    a sh:NodeShape ;
+    sh:targetClass schema:Person ;
+    sh:name "Person" ;
+    sh:property [
+        sh:path schema:additionalName ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:additionalName (xsd:string) for a middle name or other name" ;
+    ] ;
+    sh:property [
+        sh:path schema:address ;
+        sh:or ( [ sh:class schema:PostalAddress ] [ sh:datatype xsd:string ] ) ;
+        sh:message "Add schema:address (schema:PostalAddress or xsd:string)" ;
+    ] ;
+    sh:property [
+        sh:path schema:disambiguatingDescription ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:disambiguatingDescription (xsd:string) for additional person details" ;
+    ] ;
+    sh:property [
+        sh:path schema:faxNumber ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:faxNumber (xsd:string)" ;
+    ] ;
+    sh:property [
+        sh:path schema:telephone ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:telephone (xsd:string)" ;
+    ] .

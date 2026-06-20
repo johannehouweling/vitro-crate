@@ -1,0 +1,4 @@
+# example processed results — replace with your data
+sample_id,concentration_uM,response_pct_control,sd
+S1,0,100.0,3.2
+S1,1,86.4,4.1

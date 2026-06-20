@@ -1,0 +1,26 @@
+# ISA Tox RO-Crate Profile - SHACL Shapes (SHOULD / RECOMMENDED)
+# Toxicology extension of the ISA RO-Crate Profile, version 0.1-draft
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+tox:CellLineSampleShape
+    a sh:NodeShape ;
+    sh:name "CellLineSample" ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select "SELECT DISTINCT ?this WHERE { ?this <http://schema.org/additionalType> \"CellLine\" . }" ;
+    ] ;
+    sh:property [
+        sh:path schema:identifier ;
+        sh:or ( [ sh:datatype xsd:string ] [ sh:nodeKind sh:IRI ] [ sh:class schema:PropertyValue ] ) ;
+        sh:message "Add a schema:identifier resolving the cell line to a Cellosaurus accession (e.g., CVCL_0027)" ;
+    ] ;
+    sh:property [
+        sh:path schema:additionalProperty ;
+        sh:class schema:PropertyValue ;
+        sh:message "Add schema:additionalProperty linking to schema:PropertyValue entities for characteristics (e.g., passage number, growth conditions)" ;
+    ] .

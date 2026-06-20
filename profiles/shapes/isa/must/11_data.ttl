@@ -1,0 +1,20 @@
+# ISA RO-Crate Profile - SHACL Shapes (MUST / REQUIRED)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:DataShape
+    a sh:NodeShape ;
+    sh:targetClass schema:MediaObject ;
+    sh:name "Data" ;
+    sh:description "A data file (MediaObject)" ;
+    sh:property [
+        sh:path schema:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Add a schema:name (xsd:string) with the file name" ;
+    ] .

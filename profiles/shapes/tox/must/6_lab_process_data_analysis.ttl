@@ -1,0 +1,32 @@
+# ISA Tox RO-Crate Profile - SHACL Shapes (MUST / REQUIRED)
+# Toxicology extension of the ISA RO-Crate Profile, version 0.1-draft
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+tox:LabProcessDataAnalysisShape
+    a sh:NodeShape ;
+    sh:name "LabProcessDataAnalysis" ;
+    sh:description "A data analysis process in a toxicology study" ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select "SELECT DISTINCT ?this WHERE { ?this <http://schema.org/additionalType> \"DataAnalysis\" . }" ;
+    ] ;
+    sh:property [
+        sh:path schema:object ;
+        sh:minCount 1 ;
+        sh:message "Add at least one schema:object linking to the raw-data schema:MediaObject (or bioschemas:Sample) inputs being analysed" ;
+    ] ;
+    sh:property [
+        sh:path schema:result ;
+        sh:minCount 1 ;
+        sh:message "Add at least one schema:result linking to the processed-data schema:MediaObject output files" ;
+    ] ;
+    sh:property [
+        sh:path schema:additionalProperty ;
+        sh:minCount 1 ;
+        sh:message "Add at least one schema:additionalProperty linking to schema:PropertyValue entities (e.g., Data Calculation and Statistics, Computational Tool)" ;
+    ] .

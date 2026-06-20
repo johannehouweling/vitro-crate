@@ -1,0 +1,9 @@
+@prefix prof: <http://www.w3.org/ns/dx/prof/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<https://w3id.org/ro/crate/isa-tox/1.0>
+    a prof:Profile ;
+    rdfs:label "ISA Tox RO-Crate Profile" ;
+    rdfs:comment "Toxicology extension of the ISA RO-Crate Profile, version 0.1-draft" ;
+    prof:hasToken "tox-rocrate" ;
+    prof:isProfileOf <https://w3id.org/ro/crate/isa/1.0> .

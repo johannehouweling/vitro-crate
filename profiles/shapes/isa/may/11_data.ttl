@@ -1,0 +1,38 @@
+# ISA RO-Crate Profile - SHACL Shapes (COULD / OPTIONAL)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:DataShape
+    a sh:NodeShape ;
+    sh:targetClass schema:MediaObject ;
+    sh:name "Data" ;
+    sh:property [
+        sh:path schema:comment ;
+        sh:class schema:Comment ;
+        sh:message "Add schema:comment linking to schema:Comment entities" ;
+    ] ;
+    sh:property [
+        sh:path schema:disambiguatingDescription ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:disambiguatingDescription (xsd:string) for the data type (e.g., Raw Data File, Derived Data File)" ;
+    ] ;
+    sh:property [
+        sh:path schema:encodingFormat ;
+        sh:or ( [ sh:datatype xsd:string ] [ sh:nodeKind sh:IRI ] ) ;
+        sh:message "Add schema:encodingFormat (xsd:string MIME type or IRI)" ;
+    ] ;
+    sh:property [
+        sh:path schema:hasPart ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Add schema:hasPart (IRI) for data fragment selectors" ;
+    ] ;
+    sh:property [
+        sh:path schema:usageInfo ;
+        sh:or ( [ sh:datatype xsd:string ] [ sh:nodeKind sh:IRI ] ) ;
+        sh:message "Add schema:usageInfo (xsd:string or IRI) describing the data fragment selector specification" ;
+    ] .

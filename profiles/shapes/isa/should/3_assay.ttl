@@ -1,0 +1,51 @@
+# ISA RO-Crate Profile - SHACL Shapes (SHOULD / RECOMMENDED)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:AssayShape
+    a sh:NodeShape ;
+    sh:name "Assay" ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select "SELECT DISTINCT ?this WHERE { ?this <http://schema.org/additionalType> \"Assay\" . }" ;
+    ] ;
+    sh:property [
+        sh:path schema:name ;
+        sh:datatype xsd:string ;
+        sh:message "Add a schema:name (xsd:string) with the Assay title" ;
+    ] ;
+    sh:property [
+        sh:path schema:description ;
+        sh:datatype xsd:string ;
+        sh:message "Add a schema:description (xsd:string) to the Assay" ;
+    ] ;
+    sh:property [
+        sh:path schema:about ;
+        sh:class bioschemas:LabProcess ;
+        sh:message "Add schema:about linking to bioschemas:LabProcess entities describing experimental processes" ;
+    ] ;
+    sh:property [
+        sh:path schema:creator ;
+        sh:class schema:Person ;
+        sh:message "Add at least one schema:creator linking to a schema:Person entity who performed the experiments" ;
+    ] ;
+    sh:property [
+        sh:path schema:hasPart ;
+        sh:class schema:MediaObject ;
+        sh:message "Add schema:hasPart linking to schema:MediaObject entities for resulting data files" ;
+    ] ;
+    sh:property [
+        sh:path schema:measurementMethod ;
+        sh:or ( [ sh:nodeKind sh:IRI ] [ sh:class schema:DefinedTerm ] ) ;
+        sh:message "Add a schema:measurementMethod (IRI or schema:DefinedTerm) describing the measurement type (e.g., Complexomics)" ;
+    ] ;
+    sh:property [
+        sh:path schema:measurementTechnique ;
+        sh:or ( [ sh:nodeKind sh:IRI ] [ sh:class schema:DefinedTerm ] ) ;
+        sh:message "Add a schema:measurementTechnique (IRI or schema:DefinedTerm) describing the technology used (e.g., mass spectrometry)" ;
+    ] .

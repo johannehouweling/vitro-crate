@@ -1,0 +1,91 @@
+# Faithful FAIRplus Data Stewardship Maturity Model (DSM) — the actual indicators.
+#
+# Source: FAIRplus Data-Maturity (github.com/fairplus/Data-Maturity), indicator text CC-BY 4.0.
+# Cite: FAIRplus Dataset Maturity (DSM) Model, https://fairplus.github.io/Data-Maturity/ (CC BY 4.0);
+#       itself derived from the RDA FAIR Data Maturity Model (doi:10.15497/rda00050).
+#
+# We implement the crate-intrinsically assessable Content (C) and Representation (R) indicators for
+# levels 1-4. The DSM's third category — Hosting (H) — and the enterprise Level 5 are NOT
+# crate-intrinsic; they are reported `na` (not assessable), never failed.
+#
+# Level rule (per the DSM): cumulative + per-category. A crate-intrinsic level N is awarded only
+# when every assessable C and R indicator at levels 1..N passes; the per-level, per-category
+# "% complete" is also reported (mirroring the DSM assessment sheet). `scope: full` = directly
+# decidable from the @graph; `scope: partial` = a presence/structure heuristic (true semantic
+# compliance would need external/content checks); `scope: na` = not crate-intrinsic.
+
+license: "CC-BY-4.0"
+source: "https://fairplus.github.io/Data-Maturity/"
+levels:
+  1: "Individual researcher"
+  2: "Project"
+  3: "Consortium"
+  4: "Institutional data commons"
+  5: "Enterprise"
+
+indicators:
+  # ---- Level 1 — findable, access info, machine-readable descriptor ----
+  - {id: DSM-1-C0, level: 1, category: C, scope: full, check: unique_id,
+     text: "Each Dataset is assigned a unique identifier"}
+  - {id: DSM-1-C1, level: 1, category: C, scope: full, check: study_summary,
+     text: "Dataset Descriptor includes a descriptive study/project summary"}
+  - {id: DSM-1-C2, level: 1, category: C, scope: full, check: dataset_metadata,
+     text: "Dataset Descriptor includes identifying + descriptive dataset-level metadata"}
+  - {id: DSM-1-C3, level: 1, category: C, scope: full, check: access_info,
+     text: "Dataset Descriptor contains access information for the Dataset"}
+  - {id: DSM-1-R0, level: 1, category: R, scope: full, check: has_descriptor,
+     text: "Dataset metadata is a formally identifiable Dataset Descriptor"}
+  - {id: DSM-1-R1, level: 1, category: R, scope: full, check: context_fields,
+     text: "Contextual metadata reported at summary level in the Descriptor"}
+  - {id: DSM-1-R2, level: 1, category: R, scope: full, check: dataset_hierarchy,
+     text: "Data organised into Dataset(s) created for FAIR sharing"}
+  - {id: DSM-1-R3, level: 1, category: R, scope: full, check: general_schema,
+     text: "Descriptor conforms to a general-purpose metadata schema"}
+  - {id: DSM-1-R4, level: 1, category: R, scope: full, check: descriptor_machine_readable,
+     text: "Dataset Descriptor available in machine-readable format"}
+  - {id: DSM-1-R5, level: 1, category: R, scope: full, check: data_machine_readable,
+     text: "Dataset(s) available in machine-readable format"}
+
+  # ---- Level 2 — field/value metadata, generic dataset model ----
+  - {id: DSM-2-C5, level: 2, category: C, scope: full, check: cross_dataset_refs,
+     text: "Descriptor references related Datasets + joining fields"}
+  - {id: DSM-2-C6, level: 2, category: C, scope: full, check: field_level_metadata,
+     text: "Descriptor includes field-level metadata (name, description, data type)"}
+  - {id: DSM-2-C7, level: 2, category: C, scope: full, check: value_level_metadata,
+     text: "Descriptor includes value-level metadata / data-dictionary reference"}
+  - {id: DSM-2-R3, level: 2, category: R, scope: full, check: generic_model,
+     text: "Descriptor formally represents the dataset model, extending a generic model"}
+  - {id: DSM-2-R5, level: 2, category: R, scope: full, check: data_structured,
+     text: "Dataset(s) available in a structured machine-readable format"}
+  - {id: DSM-2-C1, level: 2, category: C, scope: partial, check: domain_model,
+     text: "A locally-defined Domain Model describes study design + key entities"}
+  - {id: DSM-2-C2, level: 2, category: C, scope: na,
+     text: "Field values follow Tidy-Data principles (needs file-content inspection)"}
+
+  # ---- Level 3 — community standards, controlled terms, standard license ----
+  - {id: DSM-3-C5, level: 3, category: C, scope: full, check: resolvable_terms,
+     text: "Value-level metadata includes resolvable identifiers for standard terms"}
+  - {id: DSM-3-C7, level: 3, category: C, scope: full, check: standard_license,
+     text: "Descriptor references a standard reuse license"}
+  - {id: DSM-3-R3, level: 3, category: R, scope: full, check: domain_standard,
+     text: "Descriptor uses a community-defined / domain-specific metadata standard"}
+  - {id: DSM-3-C6, level: 3, category: C, scope: partial, check: standard_field_metadata,
+     text: "Descriptor includes standard-compliant field-level metadata"}
+  - {id: DSM-3-C4, level: 3, category: C, scope: partial, check: controlled_values,
+     text: "Textual field values standardised against domain controlled terminologies"}
+
+  # ---- Level 4 — semantic model, linked data (presence-heuristic) ----
+  - {id: DSM-4-R6, level: 4, category: R, scope: full, check: license_machine,
+     text: "License / permitted use encoded in machine-readable form"}
+  - {id: DSM-4-C4, level: 4, category: C, scope: partial, check: standard_identifiers,
+     text: "Domain-entity values assigned unique standard identifiers"}
+  - {id: DSM-4-R2, level: 4, category: R, scope: partial, check: linked_data,
+     text: "Dataset content semantically represented as Linked Data"}
+  - {id: DSM-4-R3, level: 4, category: R, scope: partial, check: semantic_model,
+     text: "The Semantic Data Model is represented using Linked Data"}
+  - {id: DSM-4-R4, level: 4, category: R, scope: partial, check: machine_interpretable,
+     text: "Metadata in machine-readable AND machine-interpretable format"}
+
+  # ---- Level 5 — enterprise master/reference data — not crate-intrinsic ----
+  - {id: DSM-5, level: 5, category: "-", scope: na,
+     text: "Enterprise master/reference data + managed metadata registry (not crate-intrinsic)"}

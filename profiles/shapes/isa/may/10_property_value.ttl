@@ -1,0 +1,33 @@
+# ISA RO-Crate Profile - SHACL Shapes (COULD / OPTIONAL)
+# Profile for ISA-based RO-Crates, version 1.0.0-draft.1
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa: <https://w3id.org/ro/crate/isa/1.0/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+isa:PropertyValueShape
+    a sh:NodeShape ;
+    sh:targetClass schema:PropertyValue ;
+    sh:name "PropertyValue" ;
+    sh:property [
+        sh:path schema:additionalType ;
+        sh:or ( [ sh:datatype xsd:string ] [ sh:nodeKind sh:IRI ] ) ;
+        sh:message "Add schema:additionalType (xsd:string or IRI) to classify this PropertyValue (e.g., ParameterValue, CharacteristicValue)" ;
+    ] ;
+    sh:property [
+        sh:path schema:unitCode ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Add schema:unitCode (IRI) linking to an ontology term for the unit" ;
+    ] ;
+    sh:property [
+        sh:path schema:unitText ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:unitText (xsd:string) with the unit name" ;
+    ] ;
+    sh:property [
+        sh:path schema:valueReference ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Add schema:valueReference (IRI) linking to an ontology term for the value" ;
+    ] .

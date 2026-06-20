@@ -1,0 +1,28 @@
+# ISA Tox RO-Crate Profile - SHACL Shapes (COULD / OPTIONAL)
+# Toxicology extension of the ISA RO-Crate Profile, version 0.1-draft
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+tox:MolecularEntityShape
+    a sh:NodeShape ;
+    sh:targetClass bioschemas:MolecularEntity ;
+    sh:name "MolecularEntity" ;
+    sh:property [
+        sh:path schema:inChI ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:inChI (xsd:string) for the compound structure" ;
+    ] ;
+    sh:property [
+        sh:path schema:molecularFormula ;
+        sh:datatype xsd:string ;
+        sh:message "Add schema:molecularFormula (xsd:string) for the compound" ;
+    ] ;
+    sh:property [
+        sh:path schema:url ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Add a schema:url (IRI) linking to an external entry (e.g., PubChem, ChEBI, CompoundWiki)" ;
+    ] .
