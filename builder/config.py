@@ -1,22 +1,42 @@
 """Persistent configuration for the ISA-Tox RO-Crate Builder.
 
-Stores LLM provider settings in ``~/.config/vitro-crate/config.toml``
-so users don't need to set environment variables manually.
+Stores LLM provider settings in a platform-appropriate config directory:
+
+- **Linux / macOS**: ``~/.config/vitro-crate/config.toml``
+    (also respects ``$XDG_CONFIG_HOME`` if set)
+- **Windows**: ``%APPDATA%\\vitro-crate\\config.toml``
 
 Precedence (highest to lowest):
     1. CLI flags (--provider, --model, --api-base)
-    2. Environment variables (VITRO_OPENAI_API_KEY, etc.)
+    2. Environment variables (VITRO_OPENAI_API_KEY, VITRO_MAX_RETRIES, etc.)
     3. Config file (~/.config/vitro-crate/config.toml)
 """
 
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
 
-CONFIG_DIR = Path.home() / ".config" / "vitro-crate"
+
+def _config_dir() -> Path:
+    """Return the platform-appropriate config directory for vitro-crate.
+
+    - On **Linux/macOS**: ``$XDG_CONFIG_HOME/vitro-crate``
+      or ``~/.config/vitro-crate`` (XDG Base Directory)
+    - On **Windows**: ``%APPDATA%\\vitro-crate``
+    """
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    else:
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / "vitro-crate"
+
+
+CONFIG_DIR = _config_dir()
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 
 DEFAULTS: dict[str, Any] = {}
@@ -82,6 +102,7 @@ def merge_with_env(config: dict[str, Any]) -> dict[str, Any]:
         ("openai", "model"): "VITRO_OPENAI_MODEL",
         ("anthropic", "api_key"): "VITRO_ANTHROPIC_API_KEY",
         ("anthropic", "model"): "VITRO_ANTHROPIC_MODEL",
+        ("_global", "max_retries"): "VITRO_MAX_RETRIES",
     }
     for (section, key), env_var in mapping.items():
         if env_var not in os.environ:
@@ -114,6 +135,7 @@ def describe_config() -> str:
         "VITRO_OPENAI_MODEL": os.environ.get("VITRO_OPENAI_MODEL") or "gpt-4o",
         "VITRO_ANTHROPIC_API_KEY": bool(os.environ.get("VITRO_ANTHROPIC_API_KEY")),
         "VITRO_ANTHROPIC_MODEL": os.environ.get("VITRO_ANTHROPIC_MODEL") or "",
+        "VITRO_MAX_RETRIES": os.environ.get("VITRO_MAX_RETRIES") or "3 (default)",
     }
     file_cfg = load_config()
     lines = ["Current LLM configuration:\n"]

@@ -108,6 +108,31 @@ uv run python -m main --interactive --provider openai --model gpt-4o-mini
 uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
 ```
 
+### Configuration file (pre-populated)
+
+Settings are stored in ``~/.config/vitro-crate/config.toml`` (Linux/macOS)
+or ``%APPDATA%\\vitro-crate\\config.toml`` (Windows).
+You can pre-populate this file so the builder doesn't prompt you on first run:
+
+```toml
+# ~/.config/vitro-crate/config.toml
+[openai]
+api_key = "sk-proj-..."
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"
+
+[anthropic]
+api_key = "sk-ant-..."
+model = "claude-sonnet-4-20250514"
+
+[_global]
+# How many times to retry LLM API calls on transient errors
+# (rate limits, 5xx, network blips)
+max_retries = 5
+```
+
+Environment variables (``VITRO_*``) always win over the config file.
+
 Once in the agent loop, you can type requests like:
 
 > *"Scan my data folder and draft an investigation"*
@@ -250,6 +275,7 @@ This works for ``requests``, ``httpx``, ``openai``, and all other HTTP clients.
 | `ANTHROPIC_API_KEY` | Fallback | — | Same, unprefixed fallback |
 | `VITRO_ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Model name for Anthropic |
 | `ANTHROPIC_MODEL` | Fallback | `claude-sonnet-4-20250514` | Same, unprefixed fallback |
+| `VITRO_MAX_RETRIES` | No | `3` | Max retry attempts for LLM API calls (configurable via ``[openai]`` / ``[anthropic]`` in config file) |
 
 For OpenAI-compatible providers (Ollama, LiteLLM, vLLM, etc.):
 - Set `VITRO_OPENAI_API_KEY` (any non-empty value works for Ollama)
