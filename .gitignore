@@ -14,3 +14,6 @@ skills-lock.json
 sessions/
 
 input/
+
+.pytest_cache/
+.mypy_cache/
