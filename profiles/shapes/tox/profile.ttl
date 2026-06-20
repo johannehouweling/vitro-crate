@@ -1,9 +1,25 @@
+# ISA-Tox RO-Crate Profile — profile descriptor.
+#
+# The toxicology (in vitro NAM) domain layer. It is an extension of the ISA
+# RO-Crate profile (bundled in roc-validator as `isa-ro-crate`), which is itself
+# an extension of RO-Crate 1.1. Validating against the `tox-ro-crate` token
+# transitively runs the isa-ro-crate and ro-crate checks as well.
+
+@prefix dct: <http://purl.org/dc/terms/> .
 @prefix prof: <http://www.w3.org/ns/dx/prof/> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 <https://w3id.org/ro/crate/isa-tox/1.0>
     a prof:Profile ;
-    rdfs:label "ISA Tox RO-Crate Profile" ;
-    rdfs:comment "Toxicology extension of the ISA RO-Crate Profile, version 0.1-draft" ;
-    prof:hasToken "tox-rocrate" ;
-    prof:isProfileOf <https://w3id.org/ro/crate/isa/1.0> .
+    rdfs:label "ISA-Tox RO-Crate Profile 1.0" ;
+    rdfs:comment "Toxicology (in vitro New Approach Methodology) domain extension of the ISA RO-Crate Profile."@en ;
+
+    # Extends the bundled ISA RO-Crate profile (token `isa-ro-crate`), which in
+    # turn extends RO-Crate 1.1.
+    prof:isProfileOf <https://github.com/nfdi4plants/isa-ro-crate-profile> ;
+    prof:isTransitiveProfileOf
+        <https://github.com/nfdi4plants/isa-ro-crate-profile> ,
+        <https://w3id.org/ro/crate/1.1> ;
+
+    prof:hasToken "tox-ro-crate" ;
+.

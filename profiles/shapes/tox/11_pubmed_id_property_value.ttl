@@ -1,0 +1,36 @@
+# PubMedID PropertyValue (folded ISA extra).
+# A PropertyValue named "PubMedID" MUST pin its propertyID to the OBI PubMed
+# identifier term.
+
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+tox:FindPubMedIDPropertyValues a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify PubMedID PropertyValues" ;
+    sh:targetClass schema:PropertyValue ;
+    sh:order 12 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:PubMedIDPropertyValue ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:name ; sh:hasValue "PubMedID" ; sh:minCount 1 ] ;
+        ] ;
+    ] .
+
+tox:PubMedIDPropertyValueMustHaveOBIPropertyID a sh:NodeShape ;
+    sh:name "PubMedID PropertyValue MUST carry the OBI PubMed propertyID" ;
+    sh:targetClass tox:PubMedIDPropertyValue ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:propertyID ;
+        sh:minCount 1 ;
+        sh:hasValue <http://purl.obolibrary.org/obo/OBI_0001617> ;
+        sh:message "A PubMedID PropertyValue MUST set schema:propertyID to OBI:0001617 (PubMed identifier)" ;
+        sh:severity sh:Violation ;
+    ] .

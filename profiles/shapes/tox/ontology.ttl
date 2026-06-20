@@ -1,46 +1,61 @@
+# ISA-Tox RO-Crate Profile — ontology of validation-internal discriminated types.
+#
+# These tox: classes exist ONLY in the validation graph. They are inferred by the
+# HiddenShape/TripleRule rules in the entity files (keyed on schema:additionalType
+# / @type) and used as sh:targetClass anchors. They are NEVER serialized into a
+# crate: crate entities stay typed with Schema.org / Bioschemas + an additionalType
+# discriminator, matching the ISA convention, the paper's "no new RDF classes" in
+# the published crate, and the MIT crate_slot keying. Each tox process/sample type
+# is declared a subclass of the corresponding isa-ro-crate class for semantics.
+
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <http://schema.org/> .
 @prefix bioschemas: <https://bioschemas.org/> .
+@prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 
 <https://w3id.org/ro/crate/isa-tox/1.0> rdf:type owl:Ontology ;
     owl:versionIRI <https://w3id.org/ro/crate/isa-tox/1.0> .
 
-# Base types used by this profile
+# Base types referenced by this profile.
+bioschemas:LabProcess rdf:type owl:Class ; rdfs:label "LabProcess"@en .
+bioschemas:MolecularEntity rdf:type owl:Class ; rdfs:label "MolecularEntity"@en .
+bioschemas:Sample rdf:type owl:Class ; rdfs:label "Sample"@en .
 
-bioschemas:LabProcess rdf:type owl:Class ;
-    rdfs:label "LabProcess"@en .
-
-bioschemas:MolecularEntity rdf:type owl:Class ;
-    rdfs:label "MolecularEntity"@en .
-
-bioschemas:Sample rdf:type owl:Class ;
-    rdfs:label "Sample"@en .
-
-# ISA Tox RO-Crate Profile - discriminated subtypes
-
+# Cell-based test system: a bioschemas:Sample (additionalType "CellLine").
 tox:CellLineSample rdf:type owl:Class ;
-    rdfs:subClassOf bioschemas:Sample ;
+    rdfs:subClassOf isa-ro-crate:Sample ;
     rdfs:comment "The cell-based test system (e.g., a cell line) in a toxicology study" ;
     rdfs:label "CellLineSample"@en .
 
+# Workflow processes, discriminated by additionalType on a bioschemas:LabProcess.
+tox:LabProcessCellCulture rdf:type owl:Class ;
+    rdfs:subClassOf isa-ro-crate:Process ;
+    rdfs:comment "A cell culture process in a toxicology study" ;
+    rdfs:label "LabProcessCellCulture"@en .
+
 tox:LabProcessExposure rdf:type owl:Class ;
-    rdfs:subClassOf bioschemas:LabProcess ;
+    rdfs:subClassOf isa-ro-crate:Process ;
     rdfs:comment "An exposure process in a toxicology study" ;
     rdfs:label "LabProcessExposure"@en .
 
 tox:LabProcessEndpointReadout rdf:type owl:Class ;
-    rdfs:subClassOf bioschemas:LabProcess ;
+    rdfs:subClassOf isa-ro-crate:Process ;
     rdfs:comment "An endpoint readout process in a toxicology study" ;
     rdfs:label "LabProcessEndpointReadout"@en .
 
-tox:LabProcessCellCulture rdf:type owl:Class ;
-    rdfs:subClassOf bioschemas:LabProcess ;
-    rdfs:comment "A cell culture process in a toxicology study" ;
-    rdfs:label "LabProcessCellCulture"@en .
-
 tox:LabProcessDataAnalysis rdf:type owl:Class ;
-    rdfs:subClassOf bioschemas:LabProcess ;
+    rdfs:subClassOf isa-ro-crate:Process ;
     rdfs:comment "A data analysis process in a toxicology study" ;
     rdfs:label "LabProcessDataAnalysis"@en .
+
+# Publication-identifier PropertyValues (folded-in ISA extras).
+tox:DOIPropertyValue rdf:type owl:Class ;
+    rdfs:subClassOf schema:PropertyValue ;
+    rdfs:label "DOIPropertyValue"@en .
+
+tox:PubMedIDPropertyValue rdf:type owl:Class ;
+    rdfs:subClassOf schema:PropertyValue ;
+    rdfs:label "PubMedIDPropertyValue"@en .

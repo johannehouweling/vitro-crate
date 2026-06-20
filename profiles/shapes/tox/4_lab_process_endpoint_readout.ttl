@@ -1,0 +1,44 @@
+# LabProcessEndpointReadout — endpoint readout process (endpoint read-out module).
+# A bioschemas:LabProcess discriminated by additionalType "EndpointReadout".
+# Consumes the condition table and yields the per-well raw measurements.
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+tox:FindEndpointReadoutProcesses a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify endpoint readout processes" ;
+    sh:targetClass bioschemas:LabProcess ;
+    sh:order 11 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessEndpointReadout ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:additionalType ; sh:hasValue "EndpointReadout" ; sh:minCount 1 ] ;
+        ] ;
+    ] .
+
+tox:EndpointReadoutRequirements a sh:NodeShape ;
+    sh:name "EndpointReadout process requirements" ;
+    sh:description "An endpoint readout MUST declare its measured output and parameters" ;
+    sh:targetClass tox:LabProcessEndpointReadout ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:result ;
+        sh:minCount 1 ;
+        sh:message "EndpointReadout process MUST have at least one schema:result (output measurement File)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:additionalProperty ;
+        sh:minCount 1 ;
+        sh:message "EndpointReadout process MUST have at least one schema:additionalProperty (e.g. Detection Instrument, Endpoint, Measured Entity)" ;
+        sh:severity sh:Violation ;
+    ] .

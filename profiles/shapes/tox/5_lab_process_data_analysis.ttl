@@ -1,0 +1,51 @@
+# LabProcessDataAnalysis — data analysis process (analysis module).
+# A bioschemas:LabProcess discriminated by additionalType "DataAnalysis".
+# Consumes raw/condition data and produces processed-data outputs.
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+tox:FindDataAnalysisProcesses a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify data analysis processes" ;
+    sh:targetClass bioschemas:LabProcess ;
+    sh:order 11 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessDataAnalysis ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:additionalType ; sh:hasValue "DataAnalysis" ; sh:minCount 1 ] ;
+        ] ;
+    ] .
+
+tox:DataAnalysisRequirements a sh:NodeShape ;
+    sh:name "DataAnalysis process requirements" ;
+    sh:description "A data analysis process MUST declare its input data, processed output, and parameters" ;
+    sh:targetClass tox:LabProcessDataAnalysis ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:object ;
+        sh:minCount 1 ;
+        sh:message "DataAnalysis process MUST have at least one schema:object (the raw/condition data being analysed)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:result ;
+        sh:minCount 1 ;
+        sh:message "DataAnalysis process MUST have at least one schema:result (processed-data output File)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:additionalProperty ;
+        sh:minCount 1 ;
+        sh:message "DataAnalysis process MUST have at least one schema:additionalProperty (e.g. Computational Tool, Data Calculation and Statistics)" ;
+        sh:severity sh:Violation ;
+    ] .
