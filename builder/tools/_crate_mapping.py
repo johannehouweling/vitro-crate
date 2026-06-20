@@ -18,6 +18,7 @@ local fragment; Files use a relative URI path.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 from rocrate.model import ContextEntity, DataEntity, File, Person
@@ -34,7 +35,9 @@ from profiles.models.tox import (
 )
 
 ROCRATE_SPEC = "https://w3id.org/ro/crate/1.1"
-PROFILE_ISA = "https://w3id.org/ro/crate/isa/1.0"
+# The ISA layer the tox profile actually extends (profiles/shapes/tox/profile.ttl
+# prof:isProfileOf) and that resolves — the w3id ISA permalink is not yet live.
+PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
 CELL_LINE_TERM_ID = "http://purl.obolibrary.org/obo/NCIT_C16403"
 
@@ -70,16 +73,19 @@ _STRUCT_FIELDS = frozenset({
     "process_type", "orcid", "ror", "pubchem_cid", "doi", "dest_path", "path",
     "contentUrl",
 })
-_DATASET_SUBTYPES = frozenset({"Investigation", "Study", "Assay"})
 
 
-def populate_crate(state: CrateState, crate: ROCrate) -> None:
-    """Populate `crate` from `state` using the ISA-Tox domain model."""
+def populate_crate(state: CrateState, crate: ROCrate, output_dir: Path) -> None:
+    """Populate `crate` from `state` using the ISA-Tox domain model.
+
+    output_dir is the crate root being written; the Exposure condition table is
+    materialised there as a (placeholder) CSV so it is a valid in-payload File.
+    """
     idx: dict[str, Any] = {}
     _populate_root_and_conformance(state, crate)
     _add_leaves(state, crate, idx)
     _add_structural(state, crate, idx)
-    _add_processes(state, crate, idx)
+    _add_processes(state, crate, idx, output_dir)
     _wire_mentions(state, idx)
 
 
@@ -305,7 +311,38 @@ def _synth_sample(
     return Sample(crate, identifier=ident, name=name, properties=props or None)
 
 
-def _add_processes(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
+_CONDITION_TABLE_HEADER = "cell_line,compound,concentration,unit,duration\n"
+
+
+def _synth_condition_table(
+    crate: ROCrate, output_dir: Path, exp_pid: str,
+    cells: list[Any], chems: list[Any]) -> File:
+    """The Exposure's result: the CSVW condition table (the per-well design table).
+
+    Modelled as a ``File`` (the CSV) that is also a ``csvw:Table`` — a bare
+    csvw:Table is rejected by the base ISA shape, which requires a process result
+    to be a File/Sample/BioSample. A header-only placeholder CSV is materialised
+    so the File is valid in-payload; per-row CSVW population (tableSchema columns
+    with valueUrl, CSV intake) is planned — see the wizard's
+    intake/condition_table.py. The table links (schema:about) the cell line(s) and
+    compound(s) it concerns, so the compound is connected to the Exposure THROUGH
+    its result (a MolecularEntity cannot be a process object under the ISA shape).
+    """
+    rel = f"data/{_slug(exp_pid)}_condition_table.csv"
+    dest = output_dir / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        dest.write_text(_CONDITION_TABLE_HEADER, encoding="utf-8")
+    table = crate.add(File(
+        crate, None, dest_path=rel,
+        properties={"@type": ["File", "csvw:Table"], "name": "Condition table"}))
+    for ent in list(cells) + list(chems):
+        table.append_to("about", ent)
+    return table
+
+
+def _add_processes(
+    state: CrateState, crate: ROCrate, idx: dict[str, Any], output_dir: Path) -> None:
     proto_cache: dict[str, Any] = {}
     for proc in state.list_entities("LabProcess"):
         f = proc.fields
@@ -314,7 +351,7 @@ def _add_processes(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> No
         name = f.get("name") or ptype or "Process"
         protocol = (_resolve_one(idx, f.get("labprotocol"))
                     or _synth_protocol(crate, f.get("assay_id"), proto_cache))
-        node = _build_process(crate, ptype, pid, name, f, protocol, idx)
+        node = _build_process(crate, ptype, pid, name, f, protocol, idx, output_dir)
         idx[proc.entity_id] = node
         assay = _resolve_one(idx, f.get("assay_id"))
         if assay is not None:
@@ -323,7 +360,7 @@ def _add_processes(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> No
 
 def _build_process(
     crate: ROCrate, ptype: str, pid: str, name: str,
-    f: dict[str, Any], protocol: Any, idx: dict[str, Any],
+    f: dict[str, Any], protocol: Any, idx: dict[str, Any], output_dir: Path,
 ) -> Any:
     samples = _resolve_many(idx, f.get("samples"))
     obj = _resolve_many(idx, f.get("object"))
@@ -349,22 +386,23 @@ def _build_process(
             result=out, labprotocol=protocol)
 
     if ptype == "Exposure":
-        # ISA forbids a MolecularEntity as a process object (objects MUST be
-        # File/Sample/BioSample — verified by the bundled isa-ro-crate shape), so
-        # the exposed compound is NOT placed in `object`. It is carried at the
-        # Study level (mentions/chemicals) and, in full crates, per-well by the
-        # Exposure's CSVW condition table — matching the paper and the wizard.
+        # The Exposure takes the cultured cell Sample(s) as object and emits the
+        # CSVW condition table as its result. ISA forbids a MolecularEntity as a
+        # process object (objects MUST be File/Sample/BioSample — bundled
+        # isa-ro-crate shape), so the compound is NOT in `object`; it is connected
+        # THROUGH the condition table (table --about--> MolecularEntity) and, at a
+        # glance, on the Study via schema:mentions. Per-well CSVW population
+        # (tableSchema columns + CSV intake) is planned — see the wizard's
+        # intake/condition_table.py.
         cells = samples or obj
-        out = result or [_synth_sample(
-            crate, pid + "_exposed", f"{name} (exposed)",
-            cells[0] if cells else None)]
+        chems = _resolve_many(idx, f.get("chemicals"))
+        out = result or [_synth_condition_table(crate, output_dir, pid, cells, chems)]
         return LabProcessExposure(
             crate, identifier=pid, name=name,
             duration=f.get("duration", "unknown"),
             cell_seeding_density=f.get("cell_seeding_density", "NA"),
             microplate=f.get("microplate", "unknown"),
-            samples=cells, labprotocol=protocol,
-            properties={"output": out})
+            samples=cells, labprotocol=protocol, result=out)
 
     if ptype == "EndpointReadout":
         return LabProcessEndpointReadout(

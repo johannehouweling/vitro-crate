@@ -26,6 +26,17 @@ def _pv(crate, name, value, property_id=None, unit=None):
 
 
 class LabProcessExposure(LabProcess):
+    """Exposure step (additionalType "Exposure").
+
+    object  = the cultured cell ``Sample``(s) being exposed.
+    result  = the CSVW condition table (a ``File`` that is also a ``csvw:Table``),
+              recording per well the cell line / compound / concentration /
+              duration. The exposed compound is NOT a process object — the base
+              ISA shape allows only File/Sample/BioSample, so the compound is
+              connected THROUGH the condition table (and shown at a glance on the
+              Study via schema:mentions), never via schema:object.
+    """
+
     def __init__(
         self,
         crate: ROCrate,
@@ -36,12 +47,17 @@ class LabProcessExposure(LabProcess):
         samples: list[Sample],
         labprotocol: LabProtocol,
         name: str = "Exposure",
+        result: list[Sample | File] | Sample | File | None = None,
         units: dict[str, str] | None = None,
         properties: dict | None = None,
         add: bool = True,
     ):
+        # ISA-Tox requires an Exposure to emit a schema:result (the CSVW condition
+        # table), so `result` is a first-class parameter here — symmetric with the
+        # other LabProcess subtypes — rather than only reachable through
+        # `properties`.
         u = units or {}
-        merged_properties = {
+        base_properties: dict = {
             "additionalType": "Exposure",
             "parameter": [
                 _pv(crate, "Exposure Duration", duration,
@@ -52,7 +68,10 @@ class LabProcessExposure(LabProcess):
                     "https://bioregistry.io/NCIT:C43377", u.get("Microplate")),
             ],
             "input": samples,
-        } | (properties or {})
+        }
+        if result is not None:
+            base_properties["output"] = result
+        merged_properties = base_properties | (properties or {})
         super().__init__(
             crate=crate,
             name = name,

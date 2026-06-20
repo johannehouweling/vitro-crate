@@ -76,7 +76,8 @@ class TestLabProcessSubtypes:
 
     def test_cell_culture(self, tmp_path):
         state = self._state_with_process(
-            "CellCulture", cell_line="cell_1", culture_medium="DMEM", result="sample_out",
+            "CellCulture", cell_line="cell_1", culture_medium="DMEM",
+            result="sample_out",
         )
         state.add_entity(
             _ent("cell_1", "CellLineSample", name="HepG2", accession="CVCL_0027"))
@@ -89,10 +90,10 @@ class TestLabProcessSubtypes:
         assert "#cell_1" in _ids(proc.get("input"))
         assert "#sample_out" in _ids(proc.get("output"))
 
-    def test_exposure_object_is_cells_not_compound(self, tmp_path):
+    def test_exposure_object_is_cells_result_is_condition_table(self, tmp_path):
         # ISA forbids a MolecularEntity as a process object (objects MUST be
-        # File/Sample/BioSample). The exposed compound is therefore NOT in
-        # `object`; it is linked at the Study level instead.
+        # File/Sample/BioSample). The compound is therefore NOT in `object`; the
+        # Exposure's result is the CSVW condition table, which links the compound.
         state = self._state_with_process(
             "Exposure", samples="sample_cult", chemicals="chem_1",
             duration="24h", microplate="96-well",
@@ -102,9 +103,19 @@ class TestLabProcessSubtypes:
         _, by_id = _build(state, tmp_path)
         proc = by_id["#proc_1"]
         assert proc["additionalType"] == "Exposure"
-        obj_ids = _ids(proc.get("input"))
-        assert "#sample_cult" in obj_ids               # the cells (Sample) — allowed
-        assert "#chem_1" not in obj_ids                # MolecularEntity — ISA-forbidden
+
+        obj_ids = _ids(proc.get("input"))           # input → schema:object
+        assert "#sample_cult" in obj_ids            # the cells (Sample) — allowed
+        assert "#chem_1" not in obj_ids             # MolecularEntity — ISA-forbidden
+
+        result_ids = _ids(proc.get("output"))       # output → schema:result (MUST)
+        assert result_ids, "Exposure MUST emit a result (the condition table)"
+        table = by_id[result_ids[0]]
+        # the result is the condition table: a File (ISA-valid result) + csvw:Table
+        tt = table["@type"] if isinstance(table["@type"], list) else [table["@type"]]
+        assert "File" in tt and "csvw:Table" in tt
+        # the compound is connected to the Exposure THROUGH the condition table
+        assert "#chem_1" in _ids(table.get("about"))
 
     def test_endpoint_readout_result_is_file(self, tmp_path):
         state = self._state_with_process(
@@ -204,9 +215,10 @@ class TestIdentifiersAndConformance:
         _, by_id = _build(state, tmp_path)
         descriptor = by_id["ro-crate-metadata.json"]
         conforms = _ids(descriptor.get("conformsTo"))
-        assert "https://w3id.org/ro/crate/isa/1.0" in conforms
         assert "https://w3id.org/ro/crate/isa-tox/1.0" in conforms
+        # ISA layer is declared with the IRI the shapes actually extend
+        assert "https://github.com/nfdi4plants/isa-ro-crate-profile" in conforms
         # each declared profile also exists as a Profile contextual entity
-        prof = by_id["https://w3id.org/ro/crate/isa/1.0"]
+        prof = by_id["https://github.com/nfdi4plants/isa-ro-crate-profile"]
         pt = prof["@type"]
         assert "Profile" in (pt if isinstance(pt, list) else [pt])

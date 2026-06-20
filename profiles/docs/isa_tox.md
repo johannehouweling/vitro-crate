@@ -120,18 +120,20 @@ array, and each referenced profile is declared as a `Profile` contextual entity.
   "@type": "CreativeWork",
   "conformsTo": [
     {"@id": "https://w3id.org/ro/crate/1.1"},
-    {"@id": "https://w3id.org/ro/crate/isa/1.0"},
+    {"@id": "https://github.com/nfdi4plants/isa-ro-crate-profile"},
     {"@id": "https://w3id.org/ro/crate/isa-tox/1.0"}
   ],
   "about": {"@id": "./"}
 }
 ```
 
-The referenced profiles are declared as contextual entities:
+The ISA layer is declared with the IRI the profile actually extends (see
+`profiles/shapes/tox/profile.ttl`, `prof:isProfileOf`); a stable `w3id.org/ro/crate/isa/…`
+permalink is not yet registered. The referenced profiles are declared as contextual entities:
 
 ```json
 {
-  "@id": "https://w3id.org/ro/crate/isa/1.0",
+  "@id": "https://github.com/nfdi4plants/isa-ro-crate-profile",
   "@type": ["CreativeWork", "Profile"],
   "name": "ISA RO-Crate Profile"
 },
@@ -223,9 +225,15 @@ for this step:
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
 ([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent exposing the cell-based test system to
-the chemical(s). It captures the experimental design: it takes the cultured cell [Sample](isa.md#sample) and the
-[MolecularEntity](#molecularentity---chemical) compound(s) as input, and SHOULD emit a normalised condition table (CSVW)
-as its result in which each row records a single well (cell line, compound, concentration, exposure duration).
+the chemical(s). It captures the experimental design: it takes the cultured cell [Sample](isa.md#sample)
+as its `object`, and emits a normalised condition table (CSVW) as its `result` in which each row records a single
+well (cell line, compound, concentration, exposure duration).
+
+> **Where the compound goes.** The [MolecularEntity](#molecularentity---chemical) compound is **not** a process
+> `object`: the inherited ISA [LabProcess](isa.md#labprocess) shape restricts `schema:object` (and `schema:result`)
+> to `File`/`Sample`/`BioSample`, so a `MolecularEntity` there fails validation. The compound is instead connected
+> **through the condition table** — the table's compound column resolves (CSVW `valueUrl`) to the `MolecularEntity`
+> `@id`, and the compound is also listed at a glance on the [Study](#) via `schema:mentions`.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -233,9 +241,9 @@ as its result in which each row records a single well (cell line, compound, conc
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
 |additionalType|MUST|Text|MUST be `"Exposure"`. Discriminator identifying this LabProcess as an exposure step.|
 |name|MUST|Text|The name of the process, e.g. "Exposure".|
-|object|MUST|[bioschemas.org/Sample](isa.md#sample), [MolecularEntity](#molecularentity---chemical) or [File](https://schema.org/MediaObject)|The input entities: the cell sample(s) being exposed and the compound(s) they are exposed to. At least one.|
+|object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one. (A `MolecularEntity` is **not** allowed here — see note above.)|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Exposure parameter(s); see expected values below. At least one.|
-|result|SHOULD|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The output (exposed) sample(s) and/or the condition table.|
+|result|MUST|[File](https://schema.org/MediaObject) (typed also as `csvw:Table`) or [bioschemas.org/Sample](isa.md#sample)|The CSVW condition table (a `File` that is also a `csvw:Table`) and/or the exposed sample(s). At least one.|
 |executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)

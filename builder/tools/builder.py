@@ -52,7 +52,7 @@ def build_crate(state: CrateState, output_path: str) -> dict[str, Any]:
 
         crate = ROCrate()
         crate.metadata.extra_contexts = ISA_TOX_CONTEXT
-        populate_crate(state, crate)
+        populate_crate(state, crate, output_dir)
         crate.write(str(output_dir))
 
         logger.info("Crate built at %s", output_path)
