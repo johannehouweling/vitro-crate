@@ -108,14 +108,21 @@ class AgentEngine:
         """
         scanner_tools: dict[str, Any] = {}
         try:
-            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs
-            scanner_tools = {"scan_files": sf, "read_file_sample": rfs}
+            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, unzip_file as uzf
+            scanner_tools = {"scan_files": sf, "read_file_sample": rfs, "unzip_file": uzf}
         except ImportError:
             pass
 
         if tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
             result = tool_fn(**kwargs)
+            # Auto-store scan results in state
+            if tool_name == "scan_files" and isinstance(result, list):
+                self.state.scanned_files = result
+                self.state.log_reasoning(
+                    "store_scan_results", "scan_files",
+                    f"Stored {len(result)} files in state",
+                )
         else:
             registry = self._build_registry()
             if tool_name not in registry:

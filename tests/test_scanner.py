@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
-from builder.tools.scanner import read_file_sample, scan_files
+from builder.tools.scanner import read_file_sample, scan_files, unzip_file
 
 
 class TestScanFiles:
@@ -106,6 +106,129 @@ class TestScanFiles:
 
         # Restore so cleanup works
         unreadable.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+
+
+class TestScanFilesArchive:
+    """Tests for scan_files when called on a zip archive."""
+
+    def test_zip_file_returns_archive_dict(self, tmp_path):
+        """scan_files on a .zip file returns a dict with _archive=True."""
+        import zipfile
+
+        zip_path = tmp_path / "data.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("file1.txt", "hello\n")
+            zf.writestr("file2.txt", "world\n")
+
+        result = scan_files(str(zip_path))
+
+        assert isinstance(result, dict)
+        assert result["_archive"] is True
+
+    def test_zip_archive_contains_metadata(self, tmp_path):
+        """scan_files archive result includes path, filename, size, entry_count."""
+        import zipfile
+
+        zip_path = tmp_path / "data.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("a.txt", "content\n")
+
+        result = scan_files(str(zip_path))
+
+        assert result["path"] == str(zip_path)
+        assert result["filename"] == "data.zip"
+        assert result["size_bytes"] > 0
+        assert result["entry_count"] == 1
+        assert "entries" in result
+        assert "message" in result
+
+    def test_zip_archive_entries_have_structure(self, tmp_path):
+        """scan_files archive entries contain path, size, is_dir."""
+        import zipfile
+
+        zip_path = tmp_path / "data.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("subdir/", b"")
+            zf.writestr("subdir/data.csv", "a,b\n1,2\n")
+
+        result = scan_files(str(zip_path))
+
+        entries = result["entries"]
+        assert len(entries) == 2
+        # Sort is: directories first, then files
+        assert entries[0]["is_dir"] is True
+        assert entries[0]["path"] == "subdir/"
+        assert entries[1]["path"] == "subdir/data.csv"
+        assert "size" in entries[1]
+
+    def test_corrupt_zip_returns_archive_dict_with_empty_entries(self, tmp_path):
+        """scan_files on a corrupt zip returns archive dict with empty entries."""
+        zip_path = tmp_path / "corrupt.zip"
+        zip_path.write_bytes(b"this is not a zip file")
+
+        result = scan_files(str(zip_path))
+
+        assert isinstance(result, dict)
+        assert result["_archive"] is True
+        assert result["entry_count"] == 0
+        assert result["entries"] == []
+
+
+class TestUnzipFile:
+    """Tests for the unzip_file function."""
+
+    def test_extracts_zip_to_temp_directory(self, tmp_path):
+        """unzip_file extracts a zip to a temp dir and returns extracted_to."""
+        import zipfile
+
+        zip_path = tmp_path / "data.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("hello.txt", "hello world\n")
+            zf.writestr("sub/nested.txt", "nested\n")
+
+        result = unzip_file(str(zip_path))
+
+        assert "extracted_to" in result
+        assert "entry_count" in result
+        assert "message" in result
+        assert result["entry_count"] == 2
+
+        extracted_dir = Path(result["extracted_to"])
+        assert (extracted_dir / "hello.txt").exists()
+        assert (extracted_dir / "sub/nested.txt").exists()
+        assert (extracted_dir / "hello.txt").read_text() == "hello world\n"
+
+    def test_extracts_to_specified_output_dir(self, tmp_path):
+        """unzip_file extracts to output_dir when provided."""
+        import zipfile
+
+        zip_path = tmp_path / "data.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("file.txt", "content\n")
+
+        output_dir = tmp_path / "extracted"
+        result = unzip_file(str(zip_path), output_dir=str(output_dir))
+
+        assert result["extracted_to"] == str(output_dir)
+        assert result["entry_count"] == 1
+        assert (output_dir / "file.txt").exists()
+
+    def test_nonexistent_zip_returns_error(self):
+        """unzip_file returns error dict for a non-existent file."""
+        result = unzip_file("/tmp/nonexistent_zip_xyz123/test.zip")
+
+        assert "error" in result
+        assert "not found" in result["error"].lower() or "does not exist" in result["message"].lower()
+
+    def test_corrupt_zip_returns_error(self, tmp_path):
+        """unzip_file returns error dict for a corrupt zip."""
+        zip_path = tmp_path / "corrupt.zip"
+        zip_path.write_bytes(b"not a zip archive")
+
+        result = unzip_file(str(zip_path))
+
+        assert "error" in result
+        assert "message" in result
 
 
 class TestReadFileSample:

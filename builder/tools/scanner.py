@@ -109,46 +109,37 @@ def _list_zip_contents(zip_path: Path) -> list[dict]:
     return contents
 
 
-def scan_files(path: str) -> list[FileClassification] | dict:
+def scan_files(path: str) -> list[FileClassification]:
     """Scan a directory or zip archive and return a file inventory.
 
     If *path* is a directory, walks it and returns a list of
     ``FileClassification`` records.  If *path* is a zip archive (``.zip``,
-    ``.tar.gz``, etc.), returns a dict with a ``_archive`` key so the agent
-    knows to ask the user before extracting.
+    ``.tar.gz``, etc.), it is automatically extracted to a temporary
+    directory and the extracted contents are scanned transparently.
 
     Args:
         path: Path to the directory **or** archive to inspect.
 
     Returns:
-        - A list of ``FileClassification`` records for directories.
-        - A dict with keys ``_archive``, ``path``, ``file_count``,
-          ``total_size``, ``contents`` for archives.
+        A list of ``FileClassification`` records.
     """
     target = Path(path)
 
-    # -- Archive case ----------------------------------------------------------
+    # -- Archive case: auto-extract and recurse --------------------------------
     if target.is_file() and _is_archive(target):
         contents = _list_zip_contents(target)
         size_mb = target.stat().st_size / (1024 * 1024)
         logger.info(
-            "Path %s is a zip archive (%.1f MB) with %d entries",
+            "Path %s is a zip archive (%.1f MB) with %d entries — auto-extracting",
             path, size_mb, len(contents),
         )
-        return {
-            "_archive": True,
-            "path": str(target),
-            "filename": target.name,
-            "size_bytes": target.stat().st_size,
-            "size_mb": round(size_mb, 1),
-            "entry_count": len(contents),
-            "entries": contents,
-            "message": (
-                f"The input is a zip archive ({target.name}, {size_mb:.1f} MB) "
-                f"containing {len(contents)} files. "
-                "Use the ``unzip_file`` tool to extract it before scanning."
-            ),
-        }
+        result = unzip_file(str(target))
+        if "error" in result:
+            logger.warning("Could not extract archive: %s", result["error"])
+            return []
+        extracted_dir = result["extracted_to"]
+        # Scan extracted directory recursively
+        return scan_files(extracted_dir)
 
     # -- Directory case --------------------------------------------------------
     if not target.is_dir():

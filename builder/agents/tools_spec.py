@@ -27,7 +27,8 @@ TOOL_SPECS = [
     {"name": "assess_fair_maturity", "description": "Score FAIR maturity from metadata", "parameters": {"type": "object", "properties": {}}},
     {"name": "save_session", "description": "Save session to disk", "parameters": {"type": "object", "properties": {"label": {"type": "string"}}}},
     {"name": "get_status", "description": "Get current session status", "parameters": {"type": "object", "properties": {}}},
-    {"name": "scan_files", "description": "Scan input directory for files", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "scan_files", "description": "Scan a directory or zip archive for files. Archives are auto-extracted to a temp dir and scanned transparently. Results are stored in the session state.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "unzip_file", "description": "Extract a zip archive to a directory. Returns the extraction path.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "output_dir": {"type": "string"}}, "required": ["path"]}},
     {"name": "verify_all_identifiers", "description": "Verify all filled identifiers in state", "parameters": {"type": "object", "properties": {}}},
 ]
 
