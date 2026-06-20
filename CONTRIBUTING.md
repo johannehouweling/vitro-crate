@@ -63,6 +63,7 @@ This repo is designed to be worked on by both humans and AI coding agents. The `
 
 When an AI agent makes changes, it should:
 1. Read `AGENTS.md` to understand the architecture.
-2. Follow the TDD workflow for any new functionality.
+2. Follow the guidelines of the tdd (test-driven development) skill for any new functionality.
 3. Update `AGENTS.md` if the design changes.
 4. Leave `CONTRIBUTING.md` conventions intact.
+5. Update `README.md` if anything of note is added or needs changing.
