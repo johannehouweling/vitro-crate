@@ -66,6 +66,16 @@ One step is **always** run as fixed initialization before the agent loop:
 1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows). No role classification, no ARC sorting — just a list of what's in the input directory.
 
 This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The ARC folder structure is not scaffolded upfront — it is produced as an output by `arc_writer.py` once entity annotations are complete.
+
+### Guard Rails: Approved Scan Roots
+The agent's `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set that records user-confirmed paths. When the agent calls `scan_files(path)`:
+1. The path is resolved to an absolute canonical form
+2. It is checked against the approved set — if not found, scanning is denied
+3. If it is a subdirectory of an approved root, scanning is allowed
+4. The user can approve new paths through HITL review (via `present_to_human` or the CLI) — this is the only way new roots get added
+
+This prevents the LLM agent from reaching into arbitrary locations on the user's filesystem and provides a clear audit trail of which directories the system has ever accessed.
+
 ## 2. Core Concepts
 
 ### Entity Model
@@ -128,6 +138,7 @@ CrateState {
     },
     scanned_files: [{ path, filename, size, mime_type,
         reviewed_by_user }],
+    approved_scan_roots: set[str],  # user-approved directory roots for file scanning
     validation: {
         base_passed: bool, isa_passed: bool, tox_passed: bool,
         required_issues: [str], should_issues: [str], may_issues: [str],
