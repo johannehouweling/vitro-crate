@@ -498,7 +498,7 @@ class ReasoningLog:
             stuck=data.get("stuck", False),
         )
 
-
+# Backward-compatible alias while call sites migrate to the extracted name.
 Checkpoint = ReasoningLog
 
 # Entity type → collection name mapping (module-level constant)
@@ -700,11 +700,7 @@ class CrateState:
             "validation": self.validation.to_dict(),
             "mit_assessment": self.mit_assessment.to_dict(),
             "fair_assessment": self.fair_assessment.to_dict(),
-            "checkpoint": {
-                "next_actions": list(self.checkpoint.next_actions),
-                "completed_checkpoints": list(self.checkpoint.completed_checkpoints),
-                "reasoning_log": [s.to_dict() for s in self.checkpoint.reasoning_log],
-            },
+            "checkpoint": self.checkpoint.to_dict(),
             "iteration_count": self.iteration_count,
             "max_iterations": self.max_iterations,
             "stuck": self.stuck,
@@ -721,14 +717,18 @@ class CrateState:
         def _entities_from_list(items: list[dict[str, Any]]) -> dict[str, Entity]:
             return {item["entity_id"]: Entity.from_dict(item) for item in items}
 
-        checkpoint = ReasoningLog.from_dict(data.get("checkpoint", {}))
-        checkpoint.iteration_count = data.get(
-            "iteration_count", checkpoint.iteration_count
-        )
-        checkpoint.max_iterations = data.get(
-            "max_iterations", checkpoint.max_iterations
-        )
-        checkpoint.stuck = data.get("stuck", checkpoint.stuck)
+        checkpoint_data = data.get("checkpoint", {})
+        checkpoint = ReasoningLog.from_dict(checkpoint_data)
+        if "iteration_count" not in checkpoint_data:
+            checkpoint.iteration_count = data.get(
+                "iteration_count", checkpoint.iteration_count
+            )
+        if "max_iterations" not in checkpoint_data:
+            checkpoint.max_iterations = data.get(
+                "max_iterations", checkpoint.max_iterations
+            )
+        if "stuck" not in checkpoint_data:
+            checkpoint.stuck = data.get("stuck", checkpoint.stuck)
 
         return cls(
             session_id=data.get("session_id", ""),

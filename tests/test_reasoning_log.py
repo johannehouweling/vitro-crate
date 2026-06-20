@@ -71,6 +71,9 @@ class TestCrateStateReasoningDelegation:
         assert data["checkpoint"]["next_actions"] == ["build_crate"]
         assert data["checkpoint"]["completed_checkpoints"] == ["files_scanned"]
         assert len(data["checkpoint"]["reasoning_log"]) == 2
+        assert data["checkpoint"]["iteration_count"] == 4
+        assert data["checkpoint"]["max_iterations"] == 7
+        assert data["checkpoint"]["stuck"] is True
         assert data["iteration_count"] == 4
         assert data["max_iterations"] == 7
         assert data["stuck"] is True
