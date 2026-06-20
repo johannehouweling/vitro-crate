@@ -165,9 +165,9 @@ class Entity:
         self, values: dict[str, Any], source: CompletionSource = "llm"
     ) -> None:
         """Set multiple fields at once, marking each as filled."""
-        for field, value in values.items():
-            self.fields[field] = value
-            self.set_field_status(field, "filled", source)
+        for field_name, value in values.items():
+            self.fields[field_name] = value
+            self.set_field_status(field_name, "filled", source)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this entity to a JSON-compatible dictionary."""
@@ -491,29 +491,14 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "File": "files",
 }
 
-
-# ===================================================================
-# CrateState - the top-level state container
-# ===================================================================
+ENTITY_COLLECTION_NAMES: tuple[str, ...] = tuple(
+    dict.fromkeys(ENTITY_TYPE_MAP.values())
+)
 
 
 @dataclass
-class CrateState:
-    """The single source of truth for the ISA-Tox RO-Crate Builder.
-
-    CrateState tracks all entities, scanned files, validation results,
-    assessment scores, and agent reasoning. It is serializable to/from
-    JSON for session persistence and resume.
-
-    Entity collections are stored as dict[str, Entity] keyed by
-    entity_id for fast lookup. The add_entity / get_entity / remove_entity
-    / list_entities methods provide the primary API for entity management.
-    """
-
-    session_id: str = ""
-    created_at: str = ""
-    updated_at: str = ""
-    metadata: CrateMetadata = field(default_factory=CrateMetadata)
+class EntityStore:
+    """Store entities grouped by collection and provide CRUD helpers."""
 
     investigations: dict[str, Entity] = field(default_factory=dict)
     studies: dict[str, Entity] = field(default_factory=dict)
@@ -528,20 +513,6 @@ class CrateState:
     defined_terms: dict[str, Entity] = field(default_factory=dict)
     property_values: dict[str, Entity] = field(default_factory=dict)
     files: dict[str, Entity] = field(default_factory=dict)
-
-    scanned_files: list[FileClassification] = field(default_factory=list)
-    approved_scan_roots: set[str] = field(default_factory=set)
-    validation: ValidationReport = field(default_factory=ValidationReport)
-    mit_assessment: MITReport = field(default_factory=MITReport)
-    fair_assessment: FAIRReport = field(default_factory=FAIRReport)
-    checkpoint: Checkpoint = field(default_factory=Checkpoint)
-    iteration_count: int = 0
-    max_iterations: int = 50
-    stuck: bool = False
-
-    # ------------------------------------------------------------------
-    # Entity management
-    # ------------------------------------------------------------------
 
     def _collection_for_type(self, entity_type: str) -> dict[str, Entity]:
         """Return the entity collection dict for a given entity type."""
@@ -558,7 +529,7 @@ class CrateState:
 
     def get_entity(self, entity_id: str) -> Entity | None:
         """Look up an entity by entity_id across all collections."""
-        for coll_name in ENTITY_TYPE_MAP.values():
+        for coll_name in ENTITY_COLLECTION_NAMES:
             coll: dict[str, Entity] = getattr(self, coll_name)
             if entity_id in coll:
                 return coll[entity_id]
@@ -566,7 +537,7 @@ class CrateState:
 
     def remove_entity(self, entity_id: str) -> bool:
         """Remove an entity by entity_id from whichever collection holds it."""
-        for coll_name in ENTITY_TYPE_MAP.values():
+        for coll_name in ENTITY_COLLECTION_NAMES:
             coll: dict[str, Entity] = getattr(self, coll_name)
             if entity_id in coll:
                 del coll[entity_id]
@@ -578,13 +549,89 @@ class CrateState:
         """Return all entities, optionally filtered by type."""
         if entity_type is not None:
             coll = self._collection_for_type(entity_type)
-            return list(coll.values())
+            return [entity for entity in coll.values() if entity.type == entity_type]
 
         result: list[Entity] = []
-        for coll_name in ENTITY_TYPE_MAP.values():
+        for coll_name in ENTITY_COLLECTION_NAMES:
             coll: dict[str, Entity] = getattr(self, coll_name)
             result.extend(coll.values())
         return result
+
+    def to_dict(self) -> dict[str, list[dict[str, Any]]]:
+        """Serialize entity collections to a JSON-compatible dictionary."""
+        return {
+            coll_name: [e.to_dict() for e in getattr(self, coll_name).values()]
+            for coll_name in ENTITY_COLLECTION_NAMES
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EntityStore:
+        """Deserialize an EntityStore from a dictionary."""
+
+        def _entities_from_list(items: list[dict[str, Any]]) -> dict[str, Entity]:
+            return {item["entity_id"]: Entity.from_dict(item) for item in items}
+
+        return cls(
+            **{
+                coll_name: _entities_from_list(data.get(coll_name, []))
+                for coll_name in ENTITY_COLLECTION_NAMES
+            }
+        )
+
+
+# ===================================================================
+# CrateState - the top-level state container
+# ===================================================================
+
+
+@dataclass
+class CrateState:
+    """The single source of truth for the ISA-Tox RO-Crate Builder.
+
+    CrateState tracks all entities, scanned files, validation results,
+    assessment scores, and agent reasoning. It is serializable to/from
+    JSON for session persistence and resume.
+
+    Entity collections live in an EntityStore keyed by entity_id for fast
+    lookup. The add_entity / get_entity / remove_entity / list_entities
+    methods provide the primary API for entity management.
+    """
+
+    session_id: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    metadata: CrateMetadata = field(default_factory=CrateMetadata)
+    entities: EntityStore = field(default_factory=EntityStore)
+
+    scanned_files: list[FileClassification] = field(default_factory=list)
+    approved_scan_roots: set[str] = field(default_factory=set)
+    validation: ValidationReport = field(default_factory=ValidationReport)
+    mit_assessment: MITReport = field(default_factory=MITReport)
+    fair_assessment: FAIRReport = field(default_factory=FAIRReport)
+    checkpoint: Checkpoint = field(default_factory=Checkpoint)
+    iteration_count: int = 0
+    max_iterations: int = 50
+    stuck: bool = False
+
+    # ------------------------------------------------------------------
+    # Entity management
+    # ------------------------------------------------------------------
+
+    def add_entity(self, entity: Entity) -> None:
+        """Add an entity to the correct collection based on its type."""
+        self.entities.add_entity(entity)
+
+    def get_entity(self, entity_id: str) -> Entity | None:
+        """Look up an entity by entity_id across all collections."""
+        return self.entities.get_entity(entity_id)
+
+    def remove_entity(self, entity_id: str) -> bool:
+        """Remove an entity by entity_id from whichever collection holds it."""
+        return self.entities.remove_entity(entity_id)
+
+    def list_entities(self, entity_type: str | None = None) -> list[Entity]:
+        """Return all entities, optionally filtered by type."""
+        return self.entities.list_entities(entity_type=entity_type)
     # ------------------------------------------------------------------
     # Completion & reasoning helpers
     # ------------------------------------------------------------------
@@ -616,25 +663,7 @@ class CrateState:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "metadata": self.metadata.to_dict(),
-            "entities": {
-                "investigations": [e.to_dict() for e in self.investigations.values()],
-                "studies": [e.to_dict() for e in self.studies.values()],
-                "assays": [e.to_dict() for e in self.assays.values()],
-                "lab_processes": [e.to_dict() for e in self.lab_processes.values()],
-                "protocols": [e.to_dict() for e in self.protocols.values()],
-                "samples": [e.to_dict() for e in self.samples.values()],
-                "molecular_entities": [
-                    e.to_dict() for e in self.molecular_entities.values()
-                ],
-                "people": [e.to_dict() for e in self.people.values()],
-                "organizations": [e.to_dict() for e in self.organizations.values()],
-                "publications": [e.to_dict() for e in self.publications.values()],
-                "defined_terms": [e.to_dict() for e in self.defined_terms.values()],
-                "property_values": [
-                    e.to_dict() for e in self.property_values.values()
-                ],
-                "files": [e.to_dict() for e in self.files.values()],
-            },
+            "entities": self.entities.to_dict(),
             "approved_scan_roots": list(self.approved_scan_roots),
             "scanned_files": [f.to_dict() for f in self.scanned_files],
             "validation": self.validation.to_dict(),
@@ -652,33 +681,12 @@ class CrateState:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CrateState:
         """Deserialize a CrateState from a dictionary."""
-        entities_data = data.get("entities", {})
-
-        def _entities_from_list(items: list[dict[str, Any]]) -> dict[str, Entity]:
-            return {item["entity_id"]: Entity.from_dict(item) for item in items}
-
         return cls(
             session_id=data.get("session_id", ""),
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
             metadata=CrateMetadata.from_dict(data.get("metadata", {})),
-            investigations=_entities_from_list(entities_data.get("investigations", [])),
-            studies=_entities_from_list(entities_data.get("studies", [])),
-            assays=_entities_from_list(entities_data.get("assays", [])),
-            lab_processes=_entities_from_list(entities_data.get("lab_processes", [])),
-            protocols=_entities_from_list(entities_data.get("protocols", [])),
-            samples=_entities_from_list(entities_data.get("samples", [])),
-            molecular_entities=_entities_from_list(
-                entities_data.get("molecular_entities", [])
-            ),
-            people=_entities_from_list(entities_data.get("people", [])),
-            organizations=_entities_from_list(entities_data.get("organizations", [])),
-            publications=_entities_from_list(entities_data.get("publications", [])),
-            defined_terms=_entities_from_list(entities_data.get("defined_terms", [])),
-            property_values=_entities_from_list(
-                entities_data.get("property_values", [])
-            ),
-            files=_entities_from_list(entities_data.get("files", [])),
+            entities=EntityStore.from_dict(data.get("entities", {})),
             approved_scan_roots=set(data.get("approved_scan_roots", [])),
             scanned_files=[
                 FileClassification.from_dict(f)
