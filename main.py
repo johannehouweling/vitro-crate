@@ -42,9 +42,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path for the output ARC directory (RO-Crate)",
     )
     parser.add_argument(
-        "--resume", "-r",
+        "--resume", "--session", "-r",
         type=str, default=None,
-        help="Session ID to resume",
+        help="Session ID to resume (e.g. 20260620_192039)",
     )
     parser.add_argument(
         "--verbose", "-v",

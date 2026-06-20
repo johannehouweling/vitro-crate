@@ -53,7 +53,7 @@ from builder.tools.management import (
     update_entity,
 )
 from builder.tools.mit_assessment import assess_mit_coverage
-from builder.tools.scanner import read_file_sample, scan_files
+from builder.tools.scanner import read_file_sample, scan_files, unzip_file
 from builder.tools.session import (
     get_hint,
     get_status,
@@ -97,6 +97,7 @@ __all__ = [
     "save_session",
     "scan_files",
     "set_entity_field",
+    "unzip_file",
     "update_entity",
     "validate",
     "verify_all_identifiers",

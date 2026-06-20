@@ -1,23 +1,27 @@
 """File scanning and classification tools for the ISA-Tox RO-Crate Builder.
 
-The scanner examines an input directory and builds a raw file inventory
-(path, size, mime type). It is called during session initialization,
-before the agent loop starts, to give the agent a picture of what files
-are available.
+The scanner examines an input directory (or zip archive) and builds a raw
+file inventory (path, size, mime type). It is called during session
+initialisation, before the agent loop starts, to give the agent a picture
+of what files are available.
 """
 
 from __future__ import annotations
 
 import logging
 import mimetypes
+import tempfile
+import zipfile
 from pathlib import Path
 
 from builder.state import FileClassification
 
 logger = logging.getLogger(__name__)
 
-# Initialise mimetypes so .txt → text/plain, .csv → text/csv, etc.
+# Initialise mimetypes so .txt -> text/plain, .csv -> text/csv, etc.
 mimetypes.init()
+
+_ZIP_EXTENSIONS = frozenset({".zip", ".tar", ".gz", ".tgz", ".tar.gz"})
 
 
 def _detect_mime_type(file_path: Path) -> str:
@@ -29,16 +33,6 @@ def _detect_mime_type(file_path: Path) -> str:
     Returns:
         A MIME type string.
     """
-    # Prefer content-based detection (magic bytes) when available.
-    try:
-        import magic  # type: ignore[import-not-found]
-
-        detected = magic.from_file(str(file_path), mime=True)
-        if detected:
-            return detected
-    except Exception:
-        pass
-
     # Fallback: guess from extension
     mime_type, _ = mimetypes.guess_type(str(file_path))
     if mime_type:
@@ -78,31 +72,95 @@ _TABULAR_MIME_TYPES = {
 _TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls"}
 
 
-def scan_files(path: str) -> list[FileClassification]:
-    """Scan a directory and return a raw file inventory.
+# ---------------------------------------------------------------------------
+# Archive helpers
+# ---------------------------------------------------------------------------
 
-    Examines input directory and builds a raw file inventory (path, size,
-    mime type, and first_rows for tabular files). Returns an empty list for
-    empty or non-existent directories. Skips hidden files (names starting
-    with '.').
+
+def _is_archive(path: Path) -> bool:
+    """Return True if *path* looks like a compressed archive."""
+    return path.suffix.lower() in _ZIP_EXTENSIONS or path.name.endswith(".tar.gz")
+
+
+def _list_zip_contents(zip_path: Path) -> list[dict]:
+    """Peek inside a zip archive and return metadata about its contents.
+
+    Returns a list of dicts with keys ``path``, ``size``, ``is_dir`` so the
+    agent can present a preview to the user without extracting.
+    """
+    contents: list[dict] = []
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for info in zf.infolist():
+                contents.append(
+                    {
+                        "path": info.filename,
+                        "size": info.file_size,
+                        "is_dir": info.is_dir(),
+                    }
+                )
+    except zipfile.BadZipFile:
+        logger.warning("Bad zip (corrupt?): %s", zip_path)
+        return []
+    except Exception:
+        logger.exception("Error reading zip: %s", zip_path)
+        return []
+    contents.sort(key=lambda c: (not c["is_dir"], c["path"]))
+    return contents
+
+
+def scan_files(path: str) -> list[FileClassification] | dict:
+    """Scan a directory or zip archive and return a file inventory.
+
+    If *path* is a directory, walks it and returns a list of
+    ``FileClassification`` records.  If *path* is a zip archive (``.zip``,
+    ``.tar.gz``, etc.), returns a dict with a ``_archive`` key so the agent
+    knows to ask the user before extracting.
 
     Args:
-        path: Path to the directory to scan.
+        path: Path to the directory **or** archive to inspect.
 
     Returns:
-        A list of FileClassification records.
+        - A list of ``FileClassification`` records for directories.
+        - A dict with keys ``_archive``, ``path``, ``file_count``,
+          ``total_size``, ``contents`` for archives.
     """
-    dir_path = Path(path)
-    if not dir_path.is_dir():
-        logger.warning("Directory not found: %s", path)
+    target = Path(path)
+
+    # -- Archive case ----------------------------------------------------------
+    if target.is_file() and _is_archive(target):
+        contents = _list_zip_contents(target)
+        size_mb = target.stat().st_size / (1024 * 1024)
+        logger.info(
+            "Path %s is a zip archive (%.1f MB) with %d entries",
+            path, size_mb, len(contents),
+        )
+        return {
+            "_archive": True,
+            "path": str(target),
+            "filename": target.name,
+            "size_bytes": target.stat().st_size,
+            "size_mb": round(size_mb, 1),
+            "entry_count": len(contents),
+            "entries": contents,
+            "message": (
+                f"The input is a zip archive ({target.name}, {size_mb:.1f} MB) "
+                f"containing {len(contents)} files. "
+                "Use the ``unzip_file`` tool to extract it before scanning."
+            ),
+        }
+
+    # -- Directory case --------------------------------------------------------
+    if not target.is_dir():
+        logger.warning("Path not found: %s", path)
         return []
 
     results: list[FileClassification] = []
-    for entry in sorted(dir_path.rglob("*")):
+    for entry in sorted(target.rglob("*")):
         if not entry.is_file():
             continue
         # Skip hidden files/dirs anywhere in the relative path
-        rel_parts = entry.relative_to(dir_path).parts
+        rel_parts = entry.relative_to(target).parts
         if any(p.startswith(".") for p in rel_parts):
             continue
         mime = _detect_mime_type(entry)
@@ -122,6 +180,57 @@ def scan_files(path: str) -> list[FileClassification]:
         )
     logger.info("Scanned %s — found %d files", path, len(results))
     return results
+
+
+def unzip_file(path: str, output_dir: str | None = None) -> dict:
+    """Extract a zip archive and return the path to the extracted directory.
+
+    The agent should call ``present_to_human`` before calling this tool for
+    large archives so the user can confirm.
+
+    Args:
+        path: Path to the zip file to extract.
+        output_dir: Optional output directory.  Defaults to a temporary dir.
+
+    Returns:
+        A dict with keys ``extracted_to``, ``entry_count``, and ``message``.
+    """
+    zip_path = Path(path)
+    if not zip_path.is_file():
+        return {
+            "error": f"File not found: {path}",
+            "message": "The file does not exist.",
+        }
+
+    if output_dir:
+        dest = Path(output_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+    else:
+        dest = Path(tempfile.mkdtemp(prefix=f"{zip_path.stem}_extracted_"))
+
+    extracted = 0
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(dest)
+            extracted = len(zf.infolist())
+    except zipfile.BadZipFile:
+        return {
+            "error": f"Cannot open {path} as a zip archive (corrupt?)",
+            "message": "The archive appears to be corrupt or not a valid zip.",
+        }
+    except Exception as exc:
+        logger.exception("Error extracting zip")
+        return {"error": str(exc), "message": f"Failed to extract: {exc}"}
+
+    logger.info("Extracted %s -> %s (%d entries)", path, dest, extracted)
+    return {
+        "extracted_to": str(dest),
+        "entry_count": extracted,
+        "message": (
+            f"Extracted {extracted} entries to {dest}. "
+            f"Use ``scan_files`` with path ``{dest}`` to inventory the contents."
+        ),
+    }
 
 
 def read_file_sample(path: str, lines: int = 20) -> str | None:

@@ -258,44 +258,115 @@ def run_interactive_agent(
         checkpointer=MemorySaver(),
     )
 
-    print()
-    print("=== ISA-Tox RO-Crate Builder \u2014 Interactive Agent ===")
-    print(f"Session:  {engine.state.session_id}")
-    print(f"Provider:  {provider or _detect_provider()}")
-    print(f"Tools:     {len(tools)} available")
-    print(f"Entities:  {len(engine.state.list_entities())}")
-    print("Type 'quit' or 'exit' to stop.")
-    print()
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    from rich.prompt import Prompt
+    from rich.layout import Layout
+
+    console = Console()
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=5),
+        Layout(name="body"),
+    )
+
+    # ── Header ──────────────────────────────────────────────────────────
+    provider_name = provider or _detect_provider()
+    entity_count = len(engine.state.list_entities())
+    header_text = (
+        f"[bold cyan]ISA-Tox RO-Crate Builder[/bold cyan]\n"
+        f"Session: [yellow]{engine.state.session_id}[/yellow]  "
+        f"Provider: [green]{provider_name}[/green]  "
+        f"Tools: [magenta]{len(tools)}[/magenta]  "
+        f"Entities: [cyan]{entity_count}[/cyan]"
+    )
+    console.print(Panel(header_text, border_style="blue"))
 
     # Use LangGraph's built-in thread tracking so the agent accumulates
     # conversation history automatically.
     thread_config = {"configurable": {"thread_id": engine.state.session_id}}
 
-    # Send a greeting so the LLM introduces itself and explains what it can do
+    def _extract_reply(state: dict) -> str:
+        """Pull the last AIMessage content from the agent state."""
+        msgs = state.get("messages", [])
+        if msgs:
+            last = msgs[-1]
+            if hasattr(last, "content") and last.content:
+                return str(last.content)
+        return ""
+
+    def _print_reply(content: str) -> None:
+        """Print an agent reply with Rich markdown rendering."""
+        if not content:
+            return
+        try:
+            md = Markdown(content)
+            console.print(Panel(md, border_style="green"))
+        except Exception:
+            console.print(f"[green]{content}[/green]")
+
+    # ── Greeting ────────────────────────────────────────────────────────
     try:
         result = app.invoke(
             {"messages": [HumanMessage(content="Greet the user and tell them what you can help build.")]},
             thread_config,
         )
-        if result and "messages" in result:
-            msgs = result["messages"]
-            if msgs:
-                last = msgs[-1]
-                if hasattr(last, "content") and last.content:
-                    print(f"Agent: {last.content}")
-        print()
+        reply = _extract_reply(result)
+        if reply:
+            _print_reply(reply)
     except Exception as exc:
         logger.debug("Greeting skipped: %s", exc)
 
+    # ── Goodbye helper ──────────────────────────────────────────────────
+
+    def _print_goodbye(state: Any) -> None:
+        """Print a goodbye message with resume instructions."""
+        session_id = getattr(state, "session_id", None) or engine.state.session_id
+        console.print()
+
+        from rich.table import Table
+        t = Table.grid(padding=(0, 1))
+        t.add_column(style="yellow bold", width=14)
+        t.add_column(style="white")
+        t.add_row("Session:", f"[cyan]{session_id}[/cyan]")
+
+        entities = state.list_entities() if hasattr(state, "list_entities") else []
+        if entities:
+            counts: dict[str, int] = {}
+            for e in entities:
+                typ = getattr(e, "type", "Unknown")
+                counts[typ] = counts.get(typ, 0) + 1
+            parts = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+            t.add_row("Entities:", parts)
+        else:
+            t.add_row("Entities:", "0")
+
+        from pathlib import Path
+        if Path("sessions").is_dir():
+            t.add_row("Resume:", f"python -m main [cyan]--session {session_id}[/cyan] [dim]--interactive[/dim]")
+
+        console.print(Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow"))
+        console.print()
+
+    # ── Main loop ───────────────────────────────────────────────────────
     while True:
         try:
-            user_input = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
+            # Rich Prompt: Ctrl+C clears the line, Ctrl+D triggers EOF
+            entity_count = len(engine.state.list_entities())
+            prompt_suffix = f"[bold cyan]You[/bold cyan] [dim]({entity_count} entities)[/dim]"
+            user_input = Prompt.ask(prompt_suffix).strip()
+        except (KeyboardInterrupt):
+            # Ctrl+C: clear the line and re-prompt
+            console.print()
+            continue
+        except (EOFError):
+            # Ctrl+D: exit
+            _print_goodbye(engine.state)
             break
 
         if user_input.lower() in ("quit", "exit", "q"):
-            print("Goodbye!")
+            _print_goodbye(engine.state)
             break
 
         if not user_input:
@@ -317,13 +388,9 @@ def run_interactive_agent(
                 {"messages": [HumanMessage(content=enriched_input)]},
                 thread_config,
             )
-            if result and "messages" in result:
-                msgs = result["messages"]
-                if msgs:
-                    last = msgs[-1]
-                    if hasattr(last, "content") and last.content:
-                        print(f"Agent: {last.content}")
-            print()
+            reply = _extract_reply(result)
+            if reply:
+                _print_reply(reply)
 
             try:
                 from builder.tools.session import save_session
@@ -333,8 +400,8 @@ def run_interactive_agent(
 
         except Exception as exc:
             logger.exception("Agent error")
-            print(f"[Error] {exc}")
-            print()
+            console.print(f"[red bold]Error:[/red bold] {exc}")
+            console.print()
 
 
 def _format_entity_summary(entities: list[Any]) -> str:
