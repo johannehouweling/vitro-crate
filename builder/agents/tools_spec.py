@@ -27,7 +27,8 @@ TOOL_SPECS = [
     {"name": "assess_fair_maturity", "description": "Score FAIR maturity from metadata", "parameters": {"type": "object", "properties": {}}},
     {"name": "save_session", "description": "Save session to disk", "parameters": {"type": "object", "properties": {"label": {"type": "string"}}}},
     {"name": "get_status", "description": "Get current session status", "parameters": {"type": "object", "properties": {}}},
-    {"name": "scan_files", "description": "Scan a directory or zip archive for files. Archives are auto-extracted to a temp dir and scanned transparently. Results are stored in the session state.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "scan_files", "description": "Scan a directory or zip archive for files. Archives are auto-extracted and scanned transparently. Results are stored in the session state.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "read_multiple_files", "description": "Read several files at once and return their contents. Use this instead of calling read_file_sample multiple times when you need to inspect a batch of files (e.g. all metadata files in an assay directory).", "parameters": {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}, "description": "List of file paths to read"}, "lines": {"type": "integer", "description": "Max lines per file (default 50)"}}, "required": ["paths"]}},
     {"name": "unzip_file", "description": "Extract a zip archive to a directory. Returns the extraction path.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "output_dir": {"type": "string"}}, "required": ["path"]}},
     {"name": "verify_all_identifiers", "description": "Verify all filled identifiers in state", "parameters": {"type": "object", "properties": {}}},
 ]

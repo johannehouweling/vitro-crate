@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import shutil
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -154,6 +156,9 @@ def scan_files(path: str) -> list[FileClassification]:
         rel_parts = entry.relative_to(target).parts
         if any(p.startswith(".") for p in rel_parts):
             continue
+        # Skip macOS resource fork metadata (__MACOSX folders in zips)
+        if any(p == "__MACOSX" for p in rel_parts):
+            continue
         mime = _detect_mime_type(entry)
         first_rows: list[str] | None = None
         if mime in _TABULAR_MIME_TYPES or entry.suffix.lower() in _TABULAR_SUFFIXES:
@@ -197,7 +202,9 @@ def unzip_file(path: str, output_dir: str | None = None) -> dict:
         dest = Path(output_dir)
         dest.mkdir(parents=True, exist_ok=True)
     else:
-        dest = Path(tempfile.mkdtemp(prefix=f"{zip_path.stem}_extracted_"))
+        # Extract next to the zip file by default — survives session resume
+        dest = zip_path.parent / f"{zip_path.stem}_extracted"
+        dest.mkdir(parents=True, exist_ok=True)
 
     extracted = 0
     try:
@@ -213,6 +220,9 @@ def unzip_file(path: str, output_dir: str | None = None) -> dict:
         logger.exception("Error extracting zip")
         return {"error": str(exc), "message": f"Failed to extract: {exc}"}
 
+    # Strip macOS resource-fork metadata (__MACOSX, ._ files) unless we're on macOS
+    _strip_macos_junk(dest)
+
     logger.info("Extracted %s -> %s (%d entries)", path, dest, extracted)
     return {
         "extracted_to": str(dest),
@@ -221,6 +231,73 @@ def unzip_file(path: str, output_dir: str | None = None) -> dict:
             f"Extracted {extracted} entries to {dest}. "
             f"Use ``scan_files`` with path ``{dest}`` to inventory the contents."
         ),
+    }
+
+
+def _strip_macos_junk(root: Path) -> None:
+    """Remove __MACOSX directories and ._ resource fork files from *root*.
+
+    These are macOS-specific metadata that get bundled into zips when
+    created on a Mac.  On Linux they are useless bloat; on macOS we
+    leave them alone since they may be meaningful to the system.
+    """
+    if sys.platform == "darwin":
+        return  # macOS — leave them be
+    if not root.is_dir():
+        return
+    for entry in list(root.rglob("*")):
+        # Remove __MACOSX directories and any ._ resource fork files
+        if "__MACOSX" in entry.parts:
+            try:
+                if entry.is_dir():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+                logger.debug("Removed macOS junk: %s", entry)
+            except OSError:
+                logger.warning("Could not remove macOS junk: %s", entry)
+
+
+def read_multiple_files(
+    paths: list[str],
+    *,
+    lines: int = 50,
+) -> dict:
+    """Read several files in one go and return their contents.
+
+    Use this tool when you need to inspect multiple files at once — for
+    example all the metadata files in an assay directory — rather than
+    calling ``read_file_sample`` for each individually.
+
+    Args:
+        paths: List of file paths to read (absolute or relative to cwd).
+        lines: Max lines to read per file (default 50).
+
+    Returns:
+        A dict with:
+        - ``files``: ``{path: content_or_error}``
+        - ``count``: number of files successfully read
+        - ``skipped``: list of paths that could not be read
+    """
+    results: dict[str, str] = {}
+    skipped: list[str] = []
+
+    for path in paths:
+        content = read_file_sample(path, lines=lines)
+        if content is not None:
+            results[path] = content
+        else:
+            skipped.append(path)
+
+    count = len(results)
+    msg = f"Read {count} file(s)"
+    if skipped:
+        msg += f" ({len(skipped)} skipped: {', '.join(skipped)})"
+    return {
+        "files": results,
+        "count": count,
+        "skipped": skipped,
+        "message": msg,
     }
 
 

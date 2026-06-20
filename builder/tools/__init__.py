@@ -53,7 +53,12 @@ from builder.tools.management import (
     update_entity,
 )
 from builder.tools.mit_assessment import assess_mit_coverage
-from builder.tools.scanner import read_file_sample, scan_files, unzip_file
+from builder.tools.scanner import (
+    read_file_sample,
+    read_multiple_files,
+    scan_files,
+    unzip_file,
+)
 from builder.tools.session import (
     get_hint,
     get_status,
@@ -92,6 +97,7 @@ __all__ = [
     "lookup_ror",
     "present_to_human",
     "read_file_sample",
+    "read_multiple_files",
     "remove_entity",
     "request_input",
     "save_session",

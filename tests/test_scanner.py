@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from builder.tools.scanner import read_file_sample, scan_files, unzip_file
+from builder.tools.scanner import (
+    read_file_sample,
+    read_multiple_files,
+    scan_files,
+    unzip_file,
+)
 
 
 class TestScanFiles:
@@ -109,10 +114,10 @@ class TestScanFiles:
 
 
 class TestScanFilesArchive:
-    """Tests for scan_files when called on a zip archive."""
+    """Tests for scanning zip archives (auto-extract behaviour)."""
 
-    def test_zip_file_returns_archive_dict(self, tmp_path):
-        """scan_files on a .zip file returns a dict with _archive=True."""
+    def test_zip_file_auto_extracts_to_file_list(self, tmp_path):
+        """scan_files on a .zip file auto-extracts and returns FileClassification list."""
         import zipfile
 
         zip_path = tmp_path / "data.zip"
@@ -122,11 +127,13 @@ class TestScanFilesArchive:
 
         result = scan_files(str(zip_path))
 
-        assert isinstance(result, dict)
-        assert result["_archive"] is True
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0].filename in ("file1.txt", "file2.txt")
+        assert result[0].size > 0
 
-    def test_zip_archive_contains_metadata(self, tmp_path):
-        """scan_files archive result includes path, filename, size, entry_count."""
+    def test_zip_archive_single_file(self, tmp_path):
+        """scan_files on a zip with one file returns one file record."""
         import zipfile
 
         zip_path = tmp_path / "data.zip"
@@ -135,15 +142,12 @@ class TestScanFilesArchive:
 
         result = scan_files(str(zip_path))
 
-        assert result["path"] == str(zip_path)
-        assert result["filename"] == "data.zip"
-        assert result["size_bytes"] > 0
-        assert result["entry_count"] == 1
-        assert "entries" in result
-        assert "message" in result
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].filename == "a.txt"
 
-    def test_zip_archive_entries_have_structure(self, tmp_path):
-        """scan_files archive entries contain path, size, is_dir."""
+    def test_zip_archive_preserves_nested_structure(self, tmp_path):
+        """scan_files on a nested zip returns all extracted files."""
         import zipfile
 
         zip_path = tmp_path / "data.zip"
@@ -153,26 +157,37 @@ class TestScanFilesArchive:
 
         result = scan_files(str(zip_path))
 
-        entries = result["entries"]
-        assert len(entries) == 2
-        # Sort is: directories first, then files
-        assert entries[0]["is_dir"] is True
-        assert entries[0]["path"] == "subdir/"
-        assert entries[1]["path"] == "subdir/data.csv"
-        assert "size" in entries[1]
+        assert isinstance(result, list)
+        assert len(result) == 1  # only the file, not the dir entry
+        assert result[0].filename == "data.csv"
 
-    def test_corrupt_zip_returns_archive_dict_with_empty_entries(self, tmp_path):
-        """scan_files on a corrupt zip returns archive dict with empty entries."""
+    def test_corrupt_zip_returns_empty_list(self, tmp_path):
+        """scan_files on a corrupt zip returns empty list."""
         zip_path = tmp_path / "corrupt.zip"
         zip_path.write_bytes(b"this is not a zip file")
 
         result = scan_files(str(zip_path))
 
-        assert isinstance(result, dict)
-        assert result["_archive"] is True
-        assert result["entry_count"] == 0
-        assert result["entries"] == []
+        assert isinstance(result, list)
+        assert result == []
 
+    def test_skips_macos_metadata_dirs(self, tmp_path):
+        """scan_files skips __MACOSX resource fork directories from Mac zips."""
+        import zipfile
+
+        zip_path = tmp_path / "mac_export.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("__MACOSX/._data.csv", b"\x00\x01")
+            zf.writestr("__MACOSX/subdir/._notes.txt", b"\x00\x02")
+            zf.writestr("data.csv", "a,b\n1,2\n")
+
+        result = scan_files(str(zip_path))
+
+        assert isinstance(result, list)
+        filenames = [f.filename for f in result]
+        assert "data.csv" in filenames
+        assert all("__MACOSX" not in f.path for f in result)
+        assert len(result) == 1  # only data.csv, not the macOS junk
 
 class TestUnzipFile:
     """Tests for the unzip_file function."""
@@ -258,3 +273,23 @@ class TestReadFileSample:
         result = read_file_sample(str(data_file), lines=5)
 
         assert result == "line1\nline2\nline3\nline4\nline5"
+
+
+class TestReadMultipleFiles:
+    """Tests for the read_multiple_files function."""
+
+    def test_returns_contents_of_multiple_files(self, tmp_path):
+        """read_multiple_files returns contents of each file keyed by path."""
+        a = tmp_path / "a.txt"
+        a.write_text("hello\n")
+        b = tmp_path / "b.txt"
+        b.write_text("world\n")
+
+        result = read_multiple_files([str(a), str(b)], lines=5)
+
+        assert result["count"] == 2
+        assert result["skipped"] == []
+        assert str(a) in result["files"]
+        assert str(b) in result["files"]
+        assert result["files"][str(a)] == "hello"
+        assert result["files"][str(b)] == "world"
