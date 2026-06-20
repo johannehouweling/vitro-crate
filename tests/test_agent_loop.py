@@ -168,6 +168,57 @@ class TestBuildChatModel:
                 os.environ["ANTHROPIC_API_KEY"] = old
             else:
                 os.environ.pop("ANTHROPIC_API_KEY", None)
+
+    def test_default_max_retries_is_three(self):
+        """_build_chat_model defaults to max_retries=3 for OpenAI."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        old = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        try:
+            model = _build_chat_model(provider="openai")
+            assert model.max_retries == 3
+        finally:
+            if old:
+                os.environ["OPENAI_API_KEY"] = old
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+
+    def test_custom_max_retries_passed_through(self):
+        """_build_chat_model passes custom max_retries to the model."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        old = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        try:
+            model = _build_chat_model(provider="openai", max_retries=5)
+            assert model.max_retries == 5
+        finally:
+            if old:
+                os.environ["OPENAI_API_KEY"] = old
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+
+    def test_max_retries_from_env_var(self):
+        """_build_chat_model reads VITRO_MAX_RETRIES from env when arg not given."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        old_key = os.environ.get("OPENAI_API_KEY")
+        old_retries = os.environ.pop("VITRO_MAX_RETRIES", None)
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        os.environ["VITRO_MAX_RETRIES"] = "7"
+        try:
+            model = _build_chat_model(provider="openai")
+            assert model.max_retries == 7
+        finally:
+            if old_key:
+                os.environ["OPENAI_API_KEY"] = old_key
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+            if old_retries is not None:
+                os.environ["VITRO_MAX_RETRIES"] = old_retries
+            else:
+                os.environ.pop("VITRO_MAX_RETRIES", None)
 class TestBuildLangchainTools:
     """Tests for building LangChain tools from the engine registry."""
 
@@ -222,6 +273,111 @@ class TestBuildLangchainTools:
         assert len(entities) == 1
         assert entities[0].fields.get("name") == "Test Investigation"
         assert entities[0].type == "Investigation"
+class TestToolSpinnerCallback:
+    """Tests for the _ToolSpinnerCallback that shows tool calls behind the spinner."""
+
+    def test_is_base_callback_handler(self):
+        """_ToolSpinnerCallback is a subclass of BaseCallbackHandler."""
+        from builder.agents.agent_loop import _ToolSpinnerCallback
+        from langchain_core.callbacks import BaseCallbackHandler
+
+        assert issubclass(_ToolSpinnerCallback, BaseCallbackHandler)
+
+    def test_on_tool_start_appends_to_base_text(self):
+        """on_tool_start preserves base_text and appends tool info."""
+        from builder.agents.agent_loop import _ToolSpinnerCallback
+
+        class FakeStatus:
+            def __init__(self):
+                self.last_text = ""
+                self.base_text = ""
+
+            def update(self, text: str) -> None:
+                self.last_text = text
+
+        status = FakeStatus()
+        status.base_text = "[yellow]intoxicating...[/yellow]"
+        cb = _ToolSpinnerCallback(status)
+
+        cb.on_tool_start({"name": "scan_files"}, "/data")
+
+        assert "intoxicating" in status.last_text
+        assert "scan_files" in status.last_text
+        assert "/data" in status.last_text
+
+    def test_on_tool_start_truncates_long_args(self):
+        """on_tool_start truncates arguments longer than 80 characters."""
+        from builder.agents.agent_loop import _ToolSpinnerCallback
+
+        class FakeStatus:
+            def __init__(self):
+                self.last_text = ""
+                self.base_text = ""
+
+            def update(self, text: str) -> None:
+                self.last_text = text
+
+        status = FakeStatus()
+        status.base_text = "[yellow]intoxicating...[/yellow]"
+        cb = _ToolSpinnerCallback(status)
+
+        long_args = "x" * 200
+        cb.on_tool_start({"name": "lookup_compound"}, long_args)
+
+        # The rendered text should be shorter than the full 200-char args
+        # because we truncate the args portion to 77 chars + "..."
+        assert len(status.last_text) < 200
+        # The base text is preserved
+        assert "intoxicating" in status.last_text
+        # The args content itself should be truncated
+        assert "xxx" in status.last_text  # leading chars present
+        assert "..." in status.last_text  # ellipsis present
+
+    def test_on_tool_start_includes_dim_formatting(self):
+        """on_tool_start uses dim style for the arguments portion."""
+        from builder.agents.agent_loop import _ToolSpinnerCallback
+
+        class FakeStatus:
+            def __init__(self):
+                self.last_text = ""
+                self.base_text = ""
+
+            def update(self, text: str) -> None:
+                self.last_text = text
+
+        status = FakeStatus()
+        status.base_text = "[yellow]intoxicating...[/yellow]"
+        cb = _ToolSpinnerCallback(status)
+
+        cb.on_tool_start({"name": "draft_investigation"}, "hints={'title': 'test'}")
+
+        # The tool name is in yellow markup, args in dim markup
+        assert "[yellow]" in status.last_text
+        assert "[/yellow]" in status.last_text
+        assert "[dim]" in status.last_text
+        assert "[/dim]" in status.last_text
+
+    def test_handles_empty_args(self):
+        """on_tool_start handles empty input_str gracefully."""
+        from builder.agents.agent_loop import _ToolSpinnerCallback
+
+        class FakeStatus:
+            def __init__(self):
+                self.last_text = ""
+                self.base_text = ""
+
+            def update(self, text: str) -> None:
+                self.last_text = text
+
+        status = FakeStatus()
+        status.base_text = "[yellow]intoxicating...[/yellow]"
+        cb = _ToolSpinnerCallback(status)
+
+        cb.on_tool_start({"name": "list_entities"}, "")
+
+        assert "list_entities" in status.last_text
+
+
 class TestMainInteractiveFlag:
     """Tests for the --interactive flag in main.py."""
 

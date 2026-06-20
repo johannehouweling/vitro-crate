@@ -10,6 +10,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
+from langchain_core.callbacks import BaseCallbackHandler
+
 from builder.agents.system_prompt import SYSTEM_PROMPT
 from builder.agents.tools_spec import TOOL_SPECS
 from builder.engine import AgentEngine
@@ -21,6 +23,37 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Spinner callback — shows tool calls behind the spinner
+# ---------------------------------------------------------------------------
+
+
+class _ToolSpinnerCallback(BaseCallbackHandler):
+    """LangChain callback that updates the Rich status spinner text
+    when the agent calls a tool, so users see what's happening behind
+    the ``intoxicating...`` message.
+
+    Expects the status to have a ``.base_text`` attribute set by the
+    caller (the random tox phrase) so we can append tool info to it."""
+
+    def __init__(self, status) -> None:
+        self.status = status
+        super().__init__()
+
+    def on_tool_start(
+        self,
+        serialized: dict[str, Any],
+        input_str: str,
+        **kwargs: Any,
+    ) -> None:
+        tool_name = serialized.get("name", "tool")
+        args = input_str if isinstance(input_str, str) else str(input_str)
+        if len(args) > 80:
+            args = args[:77] + "..."
+        base = getattr(self.status, "base_text", "")
+        self.status.update(f"{base} [yellow]{tool_name}[/yellow] [dim]({args})[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +181,7 @@ def _build_chat_model(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    max_retries: int | None = None,
 ) -> Any:
     """Build a LangChain chat model for the given or detected provider.
 
@@ -168,6 +202,10 @@ def _build_chat_model(
     Raises:
         RuntimeError: If no provider can be detected or the provider is unknown.
     """
+    if max_retries is None:
+        env_val = os.environ.get("VITRO_MAX_RETRIES")
+        max_retries = int(env_val) if env_val is not None else 3
+
     provider = provider or _detect_provider()
     if provider is None:
         raise RuntimeError(
@@ -196,7 +234,11 @@ def _build_chat_model(
             or os.environ.get("OPENAI_MODEL", "gpt-4o")
         )
 
-        kwargs: dict[str, Any] = {"model": resolved_model, "temperature": 0}
+        kwargs: dict[str, Any] = {
+            "model": resolved_model,
+            "temperature": 0,
+            "max_retries": max_retries,
+        }
         if api_key:
             kwargs["api_key"] = api_key
         if resolved_base:
@@ -216,7 +258,11 @@ def _build_chat_model(
             or os.environ.get("VITRO_ANTHROPIC_MODEL")
             or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
         )
-        kwargs: dict[str, Any] = {"model": resolved_model, "temperature": 0}
+        kwargs: dict[str, Any] = {
+            "model": resolved_model,
+            "temperature": 0,
+            "max_retries": max_retries,
+        }
         if api_key:
             kwargs["api_key"] = api_key
         return ChatAnthropic(**kwargs)
@@ -412,13 +458,18 @@ def run_interactive_agent(
         root_logger = logging.getLogger()
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
-        with console.status(
-            "[yellow]intoxicating...[/yellow]",
-            spinner="dots",
-        ):
+        greeting_phrase = "[yellow]intoxicating...[/yellow]"
+        status = console.status(greeting_phrase, spinner="dots")
+        status.base_text = greeting_phrase  # type: ignore[attr-defined]
+        spinner_cb = _ToolSpinnerCallback(status)
+        greeting_config = {
+            **thread_config,
+            "callbacks": [spinner_cb],
+        }
+        with status:
             result = app.invoke(
                 {"messages": [HumanMessage(content=greeting_prompt)]},
-                thread_config,
+                greeting_config,
             )
         root_logger.setLevel(old_root_level)
         reply = _extract_reply(result)
@@ -546,13 +597,19 @@ def run_interactive_agent(
             old_root_level = root_logger.level
             root_logger.setLevel(logging.ERROR)
 
-            with console.status(
-                f"[yellow]{random.choice(TOX_SPINNER_PHRASES)}...[/yellow]",
-                spinner="dots",
-            ):
+            # Create a fresh status + callback for this iteration
+            main_phrase = f"[yellow]{random.choice(TOX_SPINNER_PHRASES)}...[/yellow]"
+            main_status = console.status(main_phrase, spinner="dots")
+            main_status.base_text = main_phrase  # type: ignore[attr-defined]
+            main_spinner_cb = _ToolSpinnerCallback(main_status)
+            main_config = {
+                **thread_config,
+                "callbacks": [main_spinner_cb],
+            }
+            with main_status:
                 result = app.invoke(
                     {"messages": [HumanMessage(content=enriched_input)]},
-                    thread_config,
+                    main_config,
                 )
 
             root_logger.setLevel(old_root_level)
