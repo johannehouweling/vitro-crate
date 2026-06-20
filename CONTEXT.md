@@ -44,3 +44,8 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 - `lookups/` — external API clients (PubChem, Cellosaurus, AOP-Wiki, etc.)
 - `mit/invitro_tox.yaml` — Minimum Information for Toxicology checklist
 - `fair/indicators.yaml` — FAIR maturity indicators
+- `builder/state.py` — CrateState dataclass (the central data model)
+- `builder/engine.py` — AgentEngine orchestrator (runs tools, manages state)
+- `builder/agents/` — LangChain agent loop with TOOL_SPECS + system prompt
+- `builder/tools/` — All tool implementations (scanner, drafters, lookups, builder, validation, assessment, session)
+- `builder/config.py` — Persistent config (`~/.config/vitro-crate/config.toml`) for LLM provider settings

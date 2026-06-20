@@ -52,6 +52,15 @@ The system:
 ### Architecture: Toolbox, Not Graph
 The LLM agent is given a set of tools (file scanning, entity drafting, lookups, validation, assessment, session management) and decides the order of calls based on the current `CrateState`. No predefined workflow graph. Validation failures and HITL feedback can route the agent to any earlier stage. Max iterations and HITL escalation prevent infinite loops.
 
+### Priority Heuristic (Work in Layers)
+Although there is no graph, the agent should follow a **priority heuristic** that respects the validation hierarchy:
+1. **Priority 1** — Get to a buildable, validatable crate as fast as possible (base RO-Crate conformance)
+2. **Priority 2** — ISA structural completeness (Investigation → Study → Assay → Process)
+3. **Priority 3** — ISA-Tox domain extensions (MolecularEntity, CellLineSample, etc.)
+4. **Priority 4** — MIT / FAIR scoring and enrichment
+
+Base RO-Crate issues block ISA validation; ISA issues block ISA-Tox validation. The agent should build early, validate often, and fix lower layers before upper ones.
+
 ### CrateState: The Single Source of Truth
 All state lives in a serializable `CrateState` dataclass. It tracks: session metadata, all entities by type with field-level completion (`_completion`) and provenance (`_provenance`), scanned file classifications, three-pass validation results with REQUIRED/SHOULD/MAY separation, MIT per-module scores, FAIR indicator results + DSM level, checkpoint log (reasoning trace, next actions, completed checkpoints), iteration count, and stuck detection.
 
@@ -74,6 +83,9 @@ Before the agent loop starts, one step runs as a hard precondition:
 1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows of CSV/TSV/XLSX). No role classification, no ARC sorting — just a list of what's in the input directory.
 
 This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The ARC folder structure is not scaffolded upfront — it is produced as an output by `arc_writer.py` once entity annotations are complete.
+
+### Guard Rails: Approved Scan Roots
+The `scan_files` tool is restricted to directories the user has explicitly approved. Every session tracks `CrateState.approved_scan_roots`. When the agent calls `scan_files(path)`, the path must be within an approved root or the call is denied. New roots are added only through user approval (HITL or CLI input). This prevents the LLM agent from accessing arbitrary filesystem locations and provides a clear audit trail.
 
 ### Input Readers Are Format-Agnostic
 Each input format (unstructured folder containing research objects such as protocols, SOPs, publications, raw data, processed data, metadata, and other relevant resources to interpret the data, existing crate, directory, conversation) has a dedicated reader that converts to canonical entity state in `CrateState`. The core agent loop never touches input formats directly.

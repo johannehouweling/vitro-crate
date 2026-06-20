@@ -168,32 +168,79 @@ CrateState {
 }
 ```
 
-## 4. Pipeline Components
+## 4. Agent Priority Heuristic (Work in Layers)
+
+The agent's toolbox architecture means it is **not** guided by a predefined sequence of steps.
+However, the agent should follow a **priority heuristic** that ensures users see tangible
+progress quickly and that the validation hierarchy is respected:
 
 ```
-Input → Scanner → Drafter(s) → Builder → Validator → Assessor → Output
-                         ↑                   ↑
-                     HITL Review       Human fixes issues
+Priority 1  →  A valid, minimal RO-Crate (base RO-Crate conformance)
+Priority 2  →  ISA structural completeness (Investigation → Study → Assay → Process)
+Priority 3  →  ISA-Tox domain extensions (MolecularEntity, CellLineSample, etc.)
+Priority 4  →  MIT / FAIR scoring and enrichment
 ```
 
-### 4.1 Scanner
-Examines input directory and builds a raw file inventory (path, size, mime type, first rows of CSV/TSV/XLSX). Reports confidence levels for file type identification. Never reads entire large files into context. This inventory is the only precondition for the agent loop — the agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge.
+The key principle is **get to a buildable, validatable crate as fast as possible**.
+A half-filled crate that passes base RO-Crate validation is worth more than a
+perfectly detailed crate that doesn't build at all.
 
-### 4.2 Entity Drafters
-Generate metadata entities from files, conversation, or existing metadata. Each drafter collects hints, calls the LLM, and ensures identifiers come from lookups (never fabricated).
+### Validation Gate Ordering
 
-**Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample, LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis), Person, Organization, Publication.
+The three-pass validation in `profiles/validator.py` has a strict dependency:
+- **Base RO-Crate 1.1** must pass before ISA validation is meaningful
+- **ISA Profile** must pass before ISA-Tox validation is meaningful
+- **ISA-Tox Profile** depends on both lower layers
 
-### 4.4 Builder
-Assembles the RO-Crate using [`ro-crate-py`](https://github.com/ResearchObject/ro-crate-py) (`profiles/models/isa.py`, `profiles/models/tox.py`, `profiles/context.py`). Can produce partial crates at any point.
+If the agent tries to validate and gets `base_passed: false`, there is no point
+fixing ISA-Tox issues until the crate builds. The agent should:
 
-### 4.5 Validator
-Runs three-pass SHACL validation via `profiles/validator.py`, which wraps [`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator) — the official RO-Crate validation library. Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY (informational).
+1. Call `build_crate` early, even with minimal entities
+2. Fix base RO-Crate issues first (structural integrity)
+3. Then iterate on ISA issues
+4. Then iterate on ISA-Tox issues
+5. Report MIT/FAIR scores last, as optional improvements
 
-### 4.6 MIT & FAIR Assessors
-Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce scores, not pass/fail.
+This avoids the common pitfall of perfecting one entity type before verifying
+the crate can assemble at all.
 
-### 4.7 External RO-Crate Packages
+### Pipeline Components
+
+The components used by the agent are:
+
+#### Scanner (`builder/tools/scanner.py`)
+Examines an input directory (or zip archive) and builds a raw file inventory
+(path, size, mime type, first lines of readable files). Never reads entire
+large files into context. This inventory is the only precondition for the
+agent loop — the agent uses it during entity drafting to bind files to
+`LabProcess` instances as annotations emerge. Restricted by approved scan
+roots (see [Guard Rails](#guard-rails-approved-scan-roots) above).
+
+#### Entity Drafters (`builder/tools/drafters.py`)
+Generate metadata entities from files, conversation, or existing metadata.
+Each drafter collects hints, calls the LLM, and ensures identifiers come from
+lookups (never fabricated).
+
+**Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample,
+LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis), Person,
+Organization, Publication.
+
+#### Crate Builder (`builder/tools/builder.py`)
+Assembles the RO-Crate using [`ro-crate-py`](https://github.com/ResearchObject/ro-crate-py)
+(`profiles/models/isa.py`, `profiles/models/tox.py`, `profiles/context.py`).
+Can produce partial crates at any point.
+
+#### Validator (`builder/tools/validation.py`, `profiles/validator.py`)
+Runs three-pass SHACL validation via `profiles/validator.py`, which wraps
+[`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator).
+Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY
+(informational).
+
+#### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
+Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
+scores, not pass/fail.
+
+### External RO-Crate Packages
 
 This project builds on the existing RO-Crate Python ecosystem rather than reinventing crate assembly, validation, or entity models:
 
@@ -420,6 +467,9 @@ Every tool call, state change, and reasoning step is recorded in `CrateState.che
 - **Diagnostics** — which lookups failed, which HITL checkpoints were rejected, how often the agent got stuck
 
 The reasoning log is persisted with the session and survives resume. A future web UI can tail or stream this log without changing the builder's internals — the data structure is already there.
+
+### D9: Approved Scan Roots (Security Guard Rail)
+The `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set. When the agent calls `scan_files(path)`, the path is resolved to an absolute canonical form and checked against approved roots — if not found or within a subdirectory of one, scanning is denied. New roots are added only through user approval (HITL or CLI prompt at the `present_to_human` checkpoint). This prevents the LLM agent from accessing arbitrary filesystem locations and provides a clear audit trail. On macOS, this same mechanism protects user files. On Linux, it prevents scanning into `/proc`, `/sys`, or other system paths.
 
 ## 12. Project Structure
 
