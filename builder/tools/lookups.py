@@ -55,9 +55,26 @@ def lookup_compound(name: str) -> dict[str, Any]:
     """
     time.sleep(0.05)
     try:
-        result = lookup_pubchem(name)
-        if result and result.get("pubchem_cid"):
-            return _success(result)
+        # Multi-strategy: try as name first, then CAS/CID-style variants.
+        raw = name.strip()
+        candidates: list[str] = [raw]
+        lowered = raw.lower()
+        if lowered.startswith("cas "):
+            candidates.append(raw[4:].strip())
+        if lowered.startswith("cid "):
+            candidates.append(raw[4:].strip())
+        if lowered.startswith("pubchem:"):
+            candidates.append(raw.split(":", 1)[1].strip())
+
+        seen: set[str] = set()
+        for q in candidates:
+            if not q or q in seen:
+                continue
+            seen.add(q)
+            result = lookup_pubchem(q)
+            if result and result.get("pubchem_cid"):
+                return _success(result)
+
         return _failure(f"Compound '{name}' not found in PubChem")
     except Exception as exc:
         logger.exception("PubChem lookup failed for '%s'", name)
