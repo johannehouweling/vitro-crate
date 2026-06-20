@@ -75,10 +75,12 @@ def scaffold_arc(
 
 def _copy_template(template_dir: Path, output_dir: Path) -> None:
     """Copy template contents to output directory, preserving structure."""
-    for item in template_dir.iterdir():
-        if item.is_file() and item.name != "README.md":
-            shutil.copy2(item, output_dir / item.name)
-
+    shutil.copytree(
+        template_dir,
+        output_dir,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("README.md"),
+    )
 
 def _create_default_arc_structure(output_dir: Path) -> None:
     """Create a minimal default ARC directory structure."""
