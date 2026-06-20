@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import re
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -27,7 +28,7 @@ def lookup_pubchem(name: str) -> dict:
     or the request fails.
     """
     try:
-        r = requests.get(f"{_BASE}/{requests.utils.quote(name)}/JSON", timeout=10)
+        r = requests.get(f"{_BASE}/{quote(name)}/JSON", timeout=10)
         if r.status_code != 200:
             return {}
 
@@ -61,7 +62,7 @@ def lookup_pubchem(name: str) -> dict:
         # CAS numbers appear in the synonyms list
         time.sleep(0.2)  # stay under rate limit
         sr = requests.get(
-            f"{_BASE}/{requests.utils.quote(name)}/synonyms/JSON", timeout=10
+            f"{_BASE}/{quote(name)}/synonyms/JSON", timeout=10
         )
         cas = ""
         if sr.status_code == 200:

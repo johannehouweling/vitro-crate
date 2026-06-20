@@ -1,7 +1,13 @@
-from rocrate.rocrate import ROCrate
 from rocrate.model import ContextEntity
-
-from rocrate_wizard.core.models.isa import LabProcess, LabProtocol, ParameterValue, Sample, File, param_id
+from rocrate.rocrate import ROCrate
+from rocrate_wizard.core.models.isa import (  # ty: ignore[unresolved-import]
+    File,
+    LabProcess,
+    LabProtocol,
+    ParameterValue,
+    Sample,
+    param_id,
+)
 
 
 def _pv(crate, name, value, property_id=None, unit=None):

@@ -8,11 +8,17 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from builder.agents.system_prompt import SYSTEM_PROMPT
 from builder.agents.tools_spec import TOOL_SPECS
 from builder.engine import AgentEngine
+
+if TYPE_CHECKING:
+    from typing import cast
+
+    from pydantic import BaseModel
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +28,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _build_args_schema(name: str, params: dict) -> type | None:
+def _build_args_schema(
+    name: str, params: dict[str, Any]
+) -> type[BaseModel] | None:
     """Dynamically create a pydantic model from a JSON schema dict.
 
     Converts the ``parameters`` field of a TOOL_SPECS entry into a
@@ -87,9 +95,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
     langchain_tools: list[BaseTool] = []
 
     for spec in TOOL_SPECS:
-        name = spec["name"]
-        description = spec.get("description", "")
-        params = spec.get("parameters", {})
+        spec_dict = cast(dict[str, Any], spec)
+        name: str = cast(str, spec_dict["name"])
+        description: str = cast(str, spec_dict.get("description", ""))
+        params: dict[str, Any] = cast(dict[str, Any], spec_dict.get("parameters", {}))
 
         def _make_tool(tool_name: str, tool_desc: str, tool_params: dict) -> BaseTool:
             def _run(**kwargs: Any) -> Any:
@@ -242,8 +251,9 @@ def run_interactive_agent(
             a final response.
     """
     from langchain.agents import create_agent
-    from langgraph.checkpoint.memory import MemorySaver
     from langchain_core.messages import AIMessage, HumanMessage
+    from langchain_core.runnables import RunnableConfig
+    from langgraph.checkpoint.memory import MemorySaver
 
     tools = _build_langchain_tools(engine)
     llm = _build_chat_model(provider=provider, model=model, base_url=base_url)
@@ -275,7 +285,7 @@ def run_interactive_agent(
 
     # Use LangGraph's built-in thread tracking so the agent accumulates
     # conversation history automatically.
-    thread_config = {"configurable": {"thread_id": engine.state.session_id}}
+    thread_config = cast(RunnableConfig, {"configurable": {"thread_id": engine.state.session_id}})
 
     def _extract_reply(state: dict) -> str:
         """Pull the last AIMessage content from the agent state."""
@@ -403,7 +413,7 @@ def run_interactive_agent(
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
         with console.status(
-            f"[yellow]intoxicating...[/yellow]",
+            "[yellow]intoxicating...[/yellow]",
             spinner="dots",
         ):
             result = app.invoke(

@@ -61,7 +61,9 @@ class TestVerifyIdentifier:
         result = verify_identifier(state, "chem_001", "identifier")
 
         assert result["verified"] is True
-        assert chem.get_field_status("identifier").status == "verified"
+        completion = chem.get_field_status("identifier")
+        assert completion is not None
+        assert completion.status == "verified"
         assert "pubchem" in chem._provenance.lookups_used
 
     def test_clears_identifier_when_verification_fails(self, minimal_state, monkeypatch):
@@ -85,7 +87,9 @@ class TestVerifyIdentifier:
 
         assert result["verified"] is False
         assert "identifier" not in chem.fields
-        assert chem.get_field_status("identifier").status == "missing"
+        completion2 = chem.get_field_status("identifier")
+        assert completion2 is not None
+        assert completion2.status == "missing"
 
 
 class TestVerifyAllIdentifiers:

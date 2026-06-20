@@ -86,7 +86,7 @@ class FieldCompletion:
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> FieldCompletion:
-        return cls(status=data["status"], source=data["source"])  # type: ignore[arg-type]
+        return cls(status=data["status"], source=data["source"])  # ty: ignore[invalid-argument-type]
 
 
 @dataclass

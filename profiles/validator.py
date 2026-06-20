@@ -75,7 +75,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
 
     # --- Pass 1: base RO-Crate 1.1 ---
     settings = services.ValidationSettings(
-        rocrate_uri=crate_dir,
+        rocrate_uri=crate_dir,  # ty: ignore[unknown-argument]
         profile_identifier="ro-crate-1.1",
         requirement_severity=models.Severity.REQUIRED,
     )
@@ -97,7 +97,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
     # standalone base pass above), so we suppress inherited reporting and let each
     # pass cover only its own layer. Base coverage is NOT lost — pass 1 owns it.
     isa_settings = services.ValidationSettings(
-        rocrate_uri=crate_dir,
+        rocrate_uri=crate_dir,  # ty: ignore[unknown-argument]
         profile_identifier="isa-ro-crate",
         requirement_severity=models.Severity.OPTIONAL,
         disable_inherited_profiles_issue_reporting=True,
@@ -119,7 +119,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
     # Same inherited-reporting suppression as the ISA pass; this pass reports only
     # tox-specific shapes.
     tox_settings = services.ValidationSettings(
-        rocrate_uri=crate_dir,
+        rocrate_uri=crate_dir,  # ty: ignore[unknown-argument]
         profiles_path=DEFAULT_PROFILES_PATH,
         extra_profiles_path=SHAPES_DIR,
         profile_identifier="tox-ro-crate",
