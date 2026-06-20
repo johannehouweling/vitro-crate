@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from builder.state import CrateState
@@ -43,6 +44,8 @@ class AgentEngine:
             scanned = scan_files(input_path)
             self.state.scanned_files = scanned
             self.state.metadata.input_path = input_path
+            resolved = Path(input_path).resolve()
+            self.state.approved_scan_roots.add(str(resolved))
 
         if not self.state.session_id:
             self.state.session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -115,10 +118,22 @@ class AgentEngine:
 
         if tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
-            result = tool_fn(**kwargs)
-            # Auto-store scan results in state
+            # Inject approved roots for scan_files
+            tool_kwargs = dict(kwargs)
+            if tool_name == "scan_files":
+                tool_kwargs["approved_roots"] = (
+                    self.state.approved_scan_roots.copy()
+                    if self.state.approved_scan_roots
+                    else None
+                )
+            result = tool_fn(**tool_kwargs)
+            # Auto-store scan results in state, and register the scanned
+            # path as an approved root if none were set yet.
             if tool_name == "scan_files" and isinstance(result, list):
                 self.state.scanned_files = result
+                if not self.state.approved_scan_roots:
+                    resolved = Path(kwargs.get("path", "")).resolve()
+                    self.state.approved_scan_roots.add(str(resolved))
                 self.state.log_reasoning(
                     "store_scan_results", "scan_files",
                     f"Stored {len(result)} files in state",

@@ -13,7 +13,9 @@ from builder.tools.drafters import (
     draft_organization,
     draft_person,
     draft_process,
+    draft_protocol,
     draft_publication,
+    draft_sample,
     draft_study,
 )
 
@@ -265,3 +267,119 @@ class TestDraftProcessErrors:
         state = CrateState()
         with pytest.raises(ValueError, match="Invalid process_type"):
             draft_process(state, "assay_001", "InvalidType", {})
+
+
+class TestDraftProtocol:
+    """Tests for draft_protocol."""
+
+    def test_creates_entity_with_correct_type_and_auto_id(self):
+        """draft_protocol creates a LabProtocol entity with auto-generated entity_id."""
+        state = CrateState()
+        entity = draft_protocol(state, {"name": "MTT Assay Protocol"})
+
+        assert entity.type == "LabProtocol"
+        assert entity.entity_id.startswith("proto_")
+        assert entity.fields.get("name") == "MTT Assay Protocol"
+
+    def test_with_hints_populates_fields_and_completion(self):
+        """draft_protocol with hints populates fields and sets completion status."""
+        state = CrateState()
+        hints = {
+            "name": "Cell Culture Protocol",
+            "description": "Standard cell culture conditions",
+            "protocol_type": "cell_culture",
+            "version": "1.0",
+        }
+        entity = draft_protocol(state, hints)
+
+        assert entity.fields["name"] == "Cell Culture Protocol"
+        assert entity.fields["description"] == "Standard cell culture conditions"
+        assert entity.fields["protocol_type"] == "cell_culture"
+        assert entity.fields["version"] == "1.0"
+
+        for field in hints:
+            fc = entity.get_field_status(field)
+            assert fc is not None, f"Missing completion for {field}"
+            assert fc.status == "filled"
+            assert fc.source == "llm"
+
+        assert entity._provenance.created_by == "llm"
+
+    def test_defaults_to_untitled(self):
+        """draft_protocol uses 'Untitled Protocol' when no name is given."""
+        state = CrateState()
+        entity = draft_protocol(state, {})
+
+        assert entity.fields.get("name") == "Untitled Protocol"
+        assert entity.entity_id.startswith("proto_")
+
+    def test_entity_added_to_state(self):
+        """draft_protocol adds the entity to the state."""
+        state = CrateState()
+        entity = draft_protocol(state, {"name": "Test Protocol"})
+
+        retrieved = state.get_entity(entity.entity_id)
+        assert retrieved is entity
+
+
+class TestDraftSample:
+    """Tests for draft_sample."""
+
+    def test_creates_entity_with_correct_type_and_auto_id(self):
+        """draft_sample creates a Sample entity with auto-generated entity_id."""
+        state = CrateState()
+        entity = draft_sample(state, {"name": "Sample A"})
+
+        assert entity.type == "Sample"
+        assert entity.entity_id.startswith("sample_")
+        assert entity.fields.get("name") == "Sample A"
+
+    def test_with_hints_populates_fields_and_completion(self):
+        """draft_sample with hints populates fields and sets completion status."""
+        state = CrateState()
+        hints = {
+            "name": "HepG2 Passage 5",
+            "description": "HepG2 cells at passage 5 in 96-well plate",
+            "sample_type": "cell_lysate",
+            "collection_date": "2026-06-01",
+        }
+        entity = draft_sample(state, hints)
+
+        assert entity.fields["name"] == "HepG2 Passage 5"
+        assert entity.fields["description"] == "HepG2 cells at passage 5 in 96-well plate"
+        assert entity.fields["sample_type"] == "cell_lysate"
+        assert entity.fields["collection_date"] == "2026-06-01"
+
+        for field in hints:
+            fc = entity.get_field_status(field)
+            assert fc is not None, f"Missing completion for {field}"
+            assert fc.status == "filled"
+            assert fc.source == "llm"
+
+        assert entity._provenance.created_by == "llm"
+
+    def test_defaults_to_untitled(self):
+        """draft_sample uses 'Untitled Sample' when no name is given."""
+        state = CrateState()
+        entity = draft_sample(state, {})
+
+        assert entity.fields.get("name") == "Untitled Sample"
+        assert entity.entity_id.startswith("sample_")
+
+    def test_entity_added_to_state(self):
+        """draft_sample adds the entity to the state."""
+        state = CrateState()
+        entity = draft_sample(state, {"name": "Test Sample"})
+
+        retrieved = state.get_entity(entity.entity_id)
+        assert retrieved is entity
+
+    def test_can_link_to_protocol(self):
+        """draft_sample can store a protocol_id reference."""
+        state = CrateState()
+        entity = draft_sample(state, {"name": "Treated Sample", "protocol_id": "proto_mtt"})
+
+        assert entity.fields.get("protocol_id") == "proto_mtt"
+        fc = entity.get_field_status("protocol_id")
+        assert fc is not None
+        assert fc.status == "filled"

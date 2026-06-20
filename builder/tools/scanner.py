@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import os
 import shutil
 import sys
 import tempfile
@@ -111,7 +112,37 @@ def _list_zip_contents(zip_path: Path) -> list[dict]:
     return contents
 
 
-def scan_files(path: str) -> list[FileClassification]:
+def _safe_walk(root: Path) -> list[Path]:
+    """Recursively walk *root* skipping unreadable directories.
+
+    ``Path.rglob`` raises ``PermissionError`` on unreadable subdirectories
+    (e.g. ``/proc/*/map_files``).  This uses ``os.walk`` with an ``onerror``
+    handler that logs and continues rather than crashing.
+
+    Note that ``os.walk`` on Python 3.12+ raises ``PermissionError`` from
+    ``os.scandir`` by default, so the ``onerror`` callback is essential.
+    """
+    results: list[Path] = []
+
+    def _onerror(err: OSError) -> None:
+        logger.warning("Skipping unreadable directory: %s", err.filename or err)
+
+    try:
+        for dirpath_str, dirnames, filenames in os.walk(root, onerror=_onerror):
+            dirpath = Path(dirpath_str)
+            for name in filenames:
+                results.append(dirpath / name)
+    except PermissionError:
+        # os.walk's onerror catches PermissionError during scandir, but
+        # a top-level PermissionError on the root itself still bubbles.
+        logger.warning("Permission denied at root: %s", root)
+    return results
+
+
+def scan_files(
+    path: str,
+    approved_roots: set[str] | None = None,
+) -> list[FileClassification]:
     """Scan a directory or zip archive and return a file inventory.
 
     If *path* is a directory, walks it and returns a list of
@@ -119,13 +150,45 @@ def scan_files(path: str) -> list[FileClassification]:
     ``.tar.gz``, etc.), it is automatically extracted to a temporary
     directory and the extracted contents are scanned transparently.
 
+    .. security::
+
+       The scanner **only** accepts paths that descend from one of the
+       *approved_roots* — directories the user has explicitly permitted.
+       If *approved_roots* is ``None`` (the default) the first path scanned
+       is auto-approved and becomes the sole root for subsequent calls.
+
     Args:
         path: Path to the directory **or** archive to inspect.
+        approved_roots: Set of resolved absolute directory paths that are
+            allowed for scanning.  Pass ``None`` on the first call to
+            auto-approve the target.
 
     Returns:
         A list of ``FileClassification`` records.
     """
-    target = Path(path)
+    target = Path(path).resolve()
+
+    # -- Security guard: approved-roots check -----------------------------------
+    if approved_roots is not None:
+        if not any(
+            str(target) == r or str(target).startswith(r + "/")
+            for r in approved_roots
+        ):
+            logger.warning(
+                "Refusing to scan %s — not in approved roots: %s",
+                target, approved_roots,
+            )
+            return []
+
+    # -- Security guard: don't follow symlinks out of the resolved path ---------
+    _follows_symlinks = False
+    try:
+        _follows_symlinks = target.is_symlink()
+    except PermissionError:
+        pass
+    if _follows_symlinks:
+        logger.warning("Refusing to scan symlink: %s", target)
+        return []
 
     # -- Archive case: auto-extract and recurse --------------------------------
     if target.is_file() and _is_archive(target):
@@ -133,7 +196,7 @@ def scan_files(path: str) -> list[FileClassification]:
         size_mb = target.stat().st_size / (1024 * 1024)
         logger.info(
             "Path %s is a zip archive (%.1f MB) with %d entries — auto-extracting",
-            path, size_mb, len(contents),
+            target, size_mb, len(contents),
         )
         result = unzip_file(str(target))
         if "error" in result:
@@ -145,15 +208,23 @@ def scan_files(path: str) -> list[FileClassification]:
 
     # -- Directory case --------------------------------------------------------
     if not target.is_dir():
-        logger.warning("Path not found: %s", path)
+        logger.warning("Path not found: %s", target)
         return []
 
     results: list[FileClassification] = []
-    for entry in sorted(target.rglob("*")):
+    try:
+        all_entries = sorted(target.rglob("*"))
+    except PermissionError:
+        logger.warning("Permission denied scanning %s — recursing manually", target)
+        all_entries = sorted(_safe_walk(target))
+    for entry in all_entries:
         if not entry.is_file():
             continue
         # Skip hidden files/dirs anywhere in the relative path
-        rel_parts = entry.relative_to(target).parts
+        try:
+            rel_parts = entry.relative_to(target).parts
+        except ValueError:
+            continue
         if any(p.startswith(".") for p in rel_parts):
             continue
         # Skip macOS resource fork metadata (__MACOSX folders in zips)

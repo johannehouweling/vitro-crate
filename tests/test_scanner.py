@@ -293,3 +293,33 @@ class TestReadMultipleFiles:
         assert str(b) in result["files"]
         assert result["files"][str(a)] == "hello"
         assert result["files"][str(b)] == "world"
+
+
+class TestApprovedRoots:
+    """Tests for the approved-scan-roots guard in scan_files."""
+
+    def test_rejects_path_outside_approved_root(self, tmp_path):
+        """scan_files returns empty list when path is not under an approved root."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        outside = tmp_path / "secret"
+        outside.mkdir()
+        (outside / "bad.txt").write_text("nope\n")
+
+        # Only data_dir is approved
+        result = scan_files(str(outside), approved_roots={str(data_dir.resolve())})
+
+        assert result == []
+
+    def test_accepts_path_under_approved_root(self, tmp_path):
+        """scan_files scans subdirectories of an approved root."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        sub = data_dir / "sub"
+        sub.mkdir()
+        (sub / "file.csv").write_text("a,b,c\n1,2,3\n")
+
+        result = scan_files(str(sub), approved_roots={str(data_dir.resolve())})
+
+        assert len(result) == 1
+        assert result[0].filename == "file.csv"

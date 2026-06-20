@@ -212,6 +212,56 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     return entity
 
 
+def draft_protocol(state: CrateState, hints: dict) -> Entity:
+    """Create a LabProtocol entity from hints.
+
+    Args:
+        state: The crate state to add the entity to.
+        hints: Dictionary of field values to pre-populate.
+
+    Returns:
+        The newly created LabProtocol Entity.
+    """
+    merged_hints = dict(hints)
+    if "name" not in merged_hints:
+        merged_hints["name"] = "Untitled Protocol"
+    name = merged_hints["name"]
+    entity_id = _make_entity_id("proto", name, hints)
+    entity = Entity(
+        entity_id=entity_id,
+        type="LabProtocol",
+        _provenance=EntityProvenance(created_by="llm"),
+    )
+    entity.set_fields_from_dict(merged_hints, source="llm")
+    state.add_entity(entity)
+    return entity
+
+
+def draft_sample(state: CrateState, hints: dict) -> Entity:
+    """Create a Sample entity from hints.
+
+    Args:
+        state: The crate state to add the entity to.
+        hints: Dictionary of field values to pre-populate.
+
+    Returns:
+        The newly created Sample Entity.
+    """
+    merged_hints = dict(hints)
+    if "name" not in merged_hints:
+        merged_hints["name"] = "Untitled Sample"
+    name = merged_hints["name"]
+    entity_id = _make_entity_id("sample", name, hints)
+    entity = Entity(
+        entity_id=entity_id,
+        type="Sample",
+        _provenance=EntityProvenance(created_by="llm"),
+    )
+    entity.set_fields_from_dict(merged_hints, source="llm")
+    state.add_entity(entity)
+    return entity
+
+
 def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
     """Create an Organization entity.
 

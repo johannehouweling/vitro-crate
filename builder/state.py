@@ -530,6 +530,7 @@ class CrateState:
     files: dict[str, Entity] = field(default_factory=dict)
 
     scanned_files: list[FileClassification] = field(default_factory=list)
+    approved_scan_roots: set[str] = field(default_factory=set)
     validation: ValidationReport = field(default_factory=ValidationReport)
     mit_assessment: MITReport = field(default_factory=MITReport)
     fair_assessment: FAIRReport = field(default_factory=FAIRReport)
@@ -634,6 +635,7 @@ class CrateState:
                 ],
                 "files": [e.to_dict() for e in self.files.values()],
             },
+            "approved_scan_roots": list(self.approved_scan_roots),
             "scanned_files": [f.to_dict() for f in self.scanned_files],
             "validation": self.validation.to_dict(),
             "mit_assessment": self.mit_assessment.to_dict(),
@@ -677,6 +679,7 @@ class CrateState:
                 entities_data.get("property_values", [])
             ),
             files=_entities_from_list(entities_data.get("files", [])),
+            approved_scan_roots=set(data.get("approved_scan_roots", [])),
             scanned_files=[
                 FileClassification.from_dict(f)
                 for f in data.get("scanned_files", [])
