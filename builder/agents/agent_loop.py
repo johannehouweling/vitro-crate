@@ -261,7 +261,7 @@ def run_interactive_agent(
     from rich.console import Console
     from rich.panel import Panel
     from rich.markdown import Markdown
-    from rich.prompt import Prompt
+    
     from rich.layout import Layout
 
     console = Console()
@@ -399,10 +399,18 @@ def run_interactive_agent(
         )
 
     try:
-        result = app.invoke(
-            {"messages": [HumanMessage(content=greeting_prompt)]},
-            thread_config,
-        )
+        root_logger = logging.getLogger()
+        old_root_level = root_logger.level
+        root_logger.setLevel(logging.ERROR)
+        with console.status(
+            f"[yellow]intoxicating...[/yellow]",
+            spinner="dots",
+        ):
+            result = app.invoke(
+                {"messages": [HumanMessage(content=greeting_prompt)]},
+                thread_config,
+            )
+        root_logger.setLevel(old_root_level)
         reply = _extract_reply(result)
         if reply:
             _print_reply(reply)
@@ -461,16 +469,21 @@ def run_interactive_agent(
     # ── Main loop ───────────────────────────────────────────────────────
     while True:
         try:
-            # Rich Prompt: Ctrl+C clears the line, Ctrl+D triggers EOF
+            # Use console.input directly instead of Prompt.ask so we
+            # reliably get KeyboardInterrupt on Ctrl+C and EOFError on Ctrl+D.
             entity_count = len(engine.state.list_entities())
             prompt_suffix = f"[bold cyan]You[/bold cyan] [dim]({entity_count} entities)[/dim]"
-            user_input = Prompt.ask(prompt_suffix).strip()
-        except (KeyboardInterrupt):
+            user_input = console.input(prompt_suffix + " ").strip()
+            if user_input:
+                # Wrap user input in a grey panel
+                console.print(Panel(f"[white]{user_input}[/white]", border_style="grey50"))
+        except KeyboardInterrupt:
             # Ctrl+C: clear the line and re-prompt
             console.print()
             continue
-        except (EOFError):
+        except EOFError:
             # Ctrl+D: exit
+            console.print()
             _print_goodbye(engine.state)
             break
 
@@ -493,10 +506,46 @@ def run_interactive_agent(
         )
 
         try:
-            result = app.invoke(
-                {"messages": [HumanMessage(content=enriched_input)]},
-                thread_config,
-            )
+            import random
+
+            TOX_SPINNER_PHRASES = [
+                "intoxicating",
+                "culturing cells",
+                "diluting compounds",
+                "pipetting samples",
+                "calibrating instruments",
+                "incubating cultures",
+                "centrifuging lysates",
+                "quantifying endpoints",
+                "analysing chromatograms",
+                "normalising to control",
+                "consulting the tox literature",
+                "measuring cytotoxicity",
+                "checking dose-response",
+                "warming up the LC-MS",
+                "reviewing SOPs",
+                "in silico modelling",
+                "consulting PubChem",
+                "querying Cellosaurus",
+                "parsing ISA-Tox profile",
+                "brewing coffee for the researcher",
+            ]
+
+            # Temporarily mute WARNING+ logs to avoid interleaving with spinner
+            root_logger = logging.getLogger()
+            old_root_level = root_logger.level
+            root_logger.setLevel(logging.ERROR)
+
+            with console.status(
+                f"[yellow]{random.choice(TOX_SPINNER_PHRASES)}...[/yellow]",
+                spinner="dots",
+            ):
+                result = app.invoke(
+                    {"messages": [HumanMessage(content=enriched_input)]},
+                    thread_config,
+                )
+
+            root_logger.setLevel(old_root_level)
             reply = _extract_reply(result)
             if reply:
                 _print_reply(reply)
