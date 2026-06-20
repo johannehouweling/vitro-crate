@@ -41,6 +41,52 @@ class TestVerifyIdentifier:
         assert "not found" in result["message"].lower()
         assert result["suggested_fix"] is not None
 
+    def test_verifies_supported_identifier_field(self, minimal_state, monkeypatch):
+        """verify_identifier verifies known identifiers via lookup tools."""
+        state = minimal_state
+        chem = Entity(
+            entity_id="chem_001",
+            type="MolecularEntity",
+            fields={"identifier": "50-00-0"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        chem.set_field_status("identifier", "filled", "llm")
+        state.add_entity(chem)
+
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_compound",
+            lambda query: {"found": True, "data": {"pubchem_cid": "712"}, "error": None},
+        )
+
+        result = verify_identifier(state, "chem_001", "identifier")
+
+        assert result["verified"] is True
+        assert chem.get_field_status("identifier").status == "verified"
+        assert "pubchem" in chem._provenance.lookups_used
+
+    def test_clears_identifier_when_verification_fails(self, minimal_state, monkeypatch):
+        """verify_identifier clears unresolved identifier values."""
+        state = minimal_state
+        chem = Entity(
+            entity_id="chem_001",
+            type="MolecularEntity",
+            fields={"identifier": "not-real"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        chem.set_field_status("identifier", "filled", "llm")
+        state.add_entity(chem)
+
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_compound",
+            lambda query: {"found": False, "data": {}, "error": "not found"},
+        )
+
+        result = verify_identifier(state, "chem_001", "identifier")
+
+        assert result["verified"] is False
+        assert "identifier" not in chem.fields
+        assert chem.get_field_status("identifier").status == "missing"
+
 
 class TestVerifyAllIdentifiers:
     """Tests for the verify_all_identifiers function."""

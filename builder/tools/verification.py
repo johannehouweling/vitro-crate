@@ -1,20 +1,39 @@
-"""Identifier verification tools for the ISA-Tox RO-Crate Builder.
-
-Verification checks that identifiers resolve at their source by attempting
-to look them up. For now, all verifications are stubs that return
-unverified with an appropriate message.
-"""
+"""Identifier verification tools for the ISA-Tox RO-Crate Builder."""
 
 from __future__ import annotations
 
 from builder.state import CrateState
+from builder.tools.lookups import (
+    lookup_cell_line,
+    lookup_compound,
+    lookup_doi,
+    lookup_orcid,
+)
+
+
+def _select_verifier(entity_type: str, field: str):
+    """Return an appropriate lookup function for an identifier-like field."""
+    field_name = field.lower()
+    if entity_type == "MolecularEntity" and field_name in {
+        "identifier",
+        "cas",
+        "casrn",
+        "cas_number",
+        "pubchem_cid",
+        "inchikey",
+    }:
+        return lookup_compound, "pubchem"
+    if entity_type == "CellLineSample" and field_name in {"identifier", "accession"}:
+        return lookup_cell_line, "cellosaurus"
+    if entity_type == "Person" and field_name in {"identifier", "orcid"}:
+        return lookup_orcid, "orcid"
+    if entity_type == "Publication" and field_name in {"identifier", "doi"}:
+        return lookup_doi, "crossref"
+    return None, None
 
 
 def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     """Check that an identifier resolves at its source.
-
-    For now, this is a stub that returns verified=False with a message
-    indicating verification is not yet implemented.
 
     Args:
         state: The crate state containing the entity.
@@ -35,12 +54,51 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
             "suggested_fix": "Ensure the entity exists before verifying its fields.",
         }
 
+    value = entity.fields.get(field)
+    if value in (None, ""):
+        return {
+            "verified": False,
+            "entity_id": entity_id,
+            "field": field,
+            "message": f"No value present for {field} on {entity.type}",
+            "suggested_fix": "Provide an identifier value before verification.",
+        }
+
+    verifier, lookup_name = _select_verifier(entity.type, field)
+    if verifier is None:
+        return {
+            "verified": False,
+            "entity_id": entity_id,
+            "field": field,
+            "message": f"No verifier configured for {field} on {entity.type}",
+            "suggested_fix": None,
+        }
+
+    query = f"CID {value}" if field.lower() == "pubchem_cid" else str(value)
+    result = verifier(query)
+    if result.get("found"):
+        entity.set_field_status(field, "verified", "lookup")
+        if lookup_name and lookup_name not in entity._provenance.lookups_used:
+            entity._provenance.lookups_used.append(lookup_name)
+        return {
+            "verified": True,
+            "entity_id": entity_id,
+            "field": field,
+            "message": f"Verified {field} for {entity.type} via {lookup_name}",
+            "suggested_fix": None,
+        }
+
+    entity.fields.pop(field, None)
+    entity.set_field_status(field, "missing", "lookup")
     return {
         "verified": False,
         "entity_id": entity_id,
         "field": field,
-        "message": f"Verification not yet implemented for {field} on {entity.type}",
-        "suggested_fix": None,
+        "message": (
+            f"{field} could not be verified for {entity.type}; "
+            "value cleared from entity."
+        ),
+        "suggested_fix": "Provide a resolvable identifier and verify again.",
     }
 
 
