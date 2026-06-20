@@ -16,9 +16,16 @@ from builder.engine import AgentEngine
 logger = logging.getLogger(__name__)
 
 
-def setup_logging(verbose: bool = False) -> None:
-    """Configure logging for the builder."""
-    level = logging.DEBUG if verbose else logging.INFO
+def setup_logging(verbose: int = 0) -> None:
+    """Configure logging for the builder.
+
+    Levels:
+        0 = WARNING (only warnings and errors)
+        1 = INFO    (normal progress)
+        2 = DEBUG   (verbose/tool internals)
+    """
+    level_map = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}
+    level = level_map.get(verbose, logging.WARNING)
     logging.basicConfig(
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -48,8 +55,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--verbose", "-v",
-        action="store_true",
-        help="Enable debug logging",
+        action="count",
+        default=0,
+        help="Increase verbosity (-v = INFO, -vv = DEBUG)",
     )
     parser.add_argument(
         "--interactive", "-I",

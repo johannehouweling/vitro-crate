@@ -9,12 +9,12 @@ class TestParseArgs:
     """Tests for argument parsing."""
 
     def test_default_values(self):
-        """parse_args returns default None values when no args."""
+        """parse_args returns default values when no args."""
         args = parse_args([])
         assert args.input is None
         assert args.output is None
         assert args.resume is None
-        assert args.verbose is False
+        assert args.verbose == 0
 
     def test_input_flag(self):
         """parse_args parses --input flag."""
@@ -32,9 +32,11 @@ class TestParseArgs:
         assert args.resume == "session_123"
 
     def test_verbose_flag(self):
-        """parse_args parses --verbose flag."""
+        """parse_args parses --verbose flag (count, not bool)."""
         args = parse_args(["--verbose"])
-        assert args.verbose is True
+        assert args.verbose == 1
+        args2 = parse_args(["-vv"])
+        assert args2.verbose == 2
 
     def test_short_flags(self):
         """parse_args handles short flags (-i, -o, -r, -v)."""
@@ -42,7 +44,7 @@ class TestParseArgs:
         assert args.input == "/in"
         assert args.output == "/out"
         assert args.resume == "sess"
-        assert args.verbose is True
+        assert args.verbose == 1
 
 
 class TestMain:
