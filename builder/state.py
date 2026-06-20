@@ -491,8 +491,12 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "File": "files",
 }
 
-# CellLineSample shares the samples collection with Sample, so deduplicate
-# collection names while preserving declaration order.
+SHARED_COLLECTION_ENTITY_TYPES: frozenset[str] = frozenset(
+    {"Sample", "CellLineSample"}
+)
+
+# CellLineSample is modeled as a subtype of Sample and stored in the same
+# samples collection, so deduplicate collection names while preserving order.
 ENTITY_COLLECTION_NAMES: tuple[str, ...] = tuple(
     dict.fromkeys(ENTITY_TYPE_MAP.values())
 )
@@ -551,7 +555,7 @@ class EntityStore:
         """Return all entities, optionally filtered by type."""
         if entity_type is not None:
             coll = self._collection_for_type(entity_type)
-            if entity_type in {"Sample", "CellLineSample"}:
+            if entity_type in SHARED_COLLECTION_ENTITY_TYPES:
                 # Sample and CellLineSample share the same collection, so filter
                 # on the actual entity type when one of those types is requested.
                 return [

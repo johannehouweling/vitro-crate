@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityStore, EntityType
 
 
-def _entity(entity_id: str, entity_type: EntityType, **fields: str) -> Entity:
+def _entity(entity_id: str, entity_type: EntityType, **fields: Any) -> Entity:
     return Entity(
         entity_id=entity_id,
         type=entity_type,
