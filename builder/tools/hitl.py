@@ -37,10 +37,7 @@ def present_to_human(
         logger.info("HITL options: %s", options)
 
     # Simulate approval — in production this would block waiting for user input
-    return {
-        "action": "approved",
-        "comments": "",
-    }
+    return {"type": "approve"}
 
 
 def request_input(
