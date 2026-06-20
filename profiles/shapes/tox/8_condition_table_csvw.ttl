@@ -1,0 +1,56 @@
+# Condition-table CSVW typing (SHOULD).
+# The Exposure's condition table SHOULD be CSV-on-the-Web typed so each column
+# carries a datatype and an ontology propertyUrl (machine-actionable, and the
+# basis of the reproducibility-readiness metric).
+
+@prefix csvw: <http://www.w3.org/ns/csvw#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+
+# The Exposure result SHOULD include a CSVW-typed condition table.
+tox:ExposureShouldEmitCsvwConditionTable a sh:NodeShape ;
+    sh:name "Exposure SHOULD emit a CSVW condition table" ;
+    sh:description "An exposure's condition-table result SHOULD be CSVW-typed" ;
+    sh:targetClass tox:LabProcessExposure ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:result ;
+        sh:qualifiedValueShape [ sh:class csvw:Table ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "Exposure SHOULD emit a CSVW-typed condition table (csvw:Table) as a schema:result" ;
+        sh:severity sh:Warning ;
+    ] .
+
+# Any CSVW data table SHOULD declare a tableSchema typing its columns.
+tox:CsvwTableShouldHaveSchema a sh:NodeShape ;
+    sh:name "CSVW table SHOULD declare a tableSchema" ;
+    sh:description "A CSVW data table SHOULD declare a csvw:tableSchema" ;
+    sh:targetClass csvw:Table ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path csvw:tableSchema ;
+        sh:minCount 1 ;
+        sh:message "A CSVW data table SHOULD declare a csvw:tableSchema typing its columns" ;
+        sh:severity sh:Warning ;
+    ] .
+
+# Each CSVW column SHOULD carry a datatype and an ontology propertyUrl.
+tox:CsvwColumnShouldBeTyped a sh:NodeShape ;
+    sh:name "CSVW column SHOULD be typed and mapped" ;
+    sh:description "A CSVW column SHOULD carry a datatype and an ontology propertyUrl" ;
+    sh:targetClass csvw:Column ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path csvw:datatype ;
+        sh:minCount 1 ;
+        sh:message "CSVW column SHOULD declare a csvw:datatype" ;
+        sh:severity sh:Warning ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path csvw:propertyUrl ;
+        sh:minCount 1 ;
+        sh:message "CSVW column SHOULD declare a csvw:propertyUrl mapping it to an ontology term" ;
+        sh:severity sh:Warning ;
+    ] .

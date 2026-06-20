@@ -1,0 +1,51 @@
+# LabProcessExposure — exposure process (exposure module).
+# A bioschemas:LabProcess discriminated by additionalType "Exposure". Takes the
+# cultured cell Sample as input and emits the CSVW condition table as its result.
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+tox:FindExposureProcesses a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify exposure processes" ;
+    sh:targetClass bioschemas:LabProcess ;
+    sh:order 11 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessExposure ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:additionalType ; sh:hasValue "Exposure" ; sh:minCount 1 ] ;
+        ] ;
+    ] .
+
+tox:ExposureRequirements a sh:NodeShape ;
+    sh:name "Exposure process requirements" ;
+    sh:description "An exposure process MUST declare its input cells, condition-table result, and parameters" ;
+    sh:targetClass tox:LabProcessExposure ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:object ;
+        sh:minCount 1 ;
+        sh:message "Exposure process MUST have at least one schema:object (the cultured cell Sample being exposed)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:result ;
+        sh:minCount 1 ;
+        sh:message "Exposure process MUST have at least one schema:result (the per-well condition table)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:additionalProperty ;
+        sh:minCount 1 ;
+        sh:message "Exposure process MUST have at least one schema:additionalProperty (e.g. Exposure Duration, Cell Seeding Density)" ;
+        sh:severity sh:Violation ;
+    ] .

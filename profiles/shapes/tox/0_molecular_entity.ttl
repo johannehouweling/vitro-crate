@@ -1,0 +1,49 @@
+# MolecularEntity — the test/control chemical (material module).
+# Keyed directly by @type bioschemas:MolecularEntity (no additionalType
+# discriminator); chemicals are MolecularEntity, not ChemicalSubstance/Sample.
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+tox:MolecularEntityMustHaveName a sh:NodeShape ;
+    sh:name "MolecularEntity MUST have a name" ;
+    sh:description "A test/control compound MUST carry a name" ;
+    sh:targetClass bioschemas:MolecularEntity ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:not [ sh:hasValue "" ] ;
+        sh:message "MolecularEntity (test/control compound) MUST have a non-empty schema:name" ;
+        sh:severity sh:Violation ;
+    ] .
+
+tox:MolecularEntityShouldHaveIdentity a sh:NodeShape ;
+    sh:name "MolecularEntity SHOULD carry chemical identity" ;
+    sh:description "A compound SHOULD resolve to an authoritative resource and carry its structure" ;
+    sh:targetClass bioschemas:MolecularEntity ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:identifier ;
+        sh:minCount 1 ;
+        sh:message "MolecularEntity SHOULD have a schema:identifier (InChIKey, CAS, PubChem CID, ...) resolving the compound" ;
+        sh:severity sh:Warning ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:inChIKey ;
+        sh:minCount 1 ;
+        sh:message "MolecularEntity SHOULD have a schema:inChIKey for unambiguous structure lookup" ;
+        sh:severity sh:Warning ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:smiles ;
+        sh:minCount 1 ;
+        sh:message "MolecularEntity SHOULD have a schema:smiles structure string" ;
+        sh:severity sh:Warning ;
+    ] .

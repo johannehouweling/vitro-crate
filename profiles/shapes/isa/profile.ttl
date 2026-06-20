@@ -1,9 +1,0 @@
-@prefix prof: <http://www.w3.org/ns/dx/prof/> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-
-<https://w3id.org/ro/crate/isa/1.0>
-    a prof:Profile ;
-    rdfs:label "ISA RO-Crate Profile" ;
-    rdfs:comment "Profile for ISA-based RO-Crates, version 1.0.0-draft.1" ;
-    prof:hasToken "isa-rocrate" ;
-    prof:isProfileOf <https://w3id.org/ro/crate/1.1> .

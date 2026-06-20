@@ -1,0 +1,50 @@
+# LabProcessCellCulture — cell culture process (biological model preparation).
+# A bioschemas:LabProcess discriminated by additionalType "CellCulture".
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+tox:FindCellCultureProcesses a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify cell culture processes" ;
+    sh:targetClass bioschemas:LabProcess ;
+    sh:order 11 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessCellCulture ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:additionalType ; sh:hasValue "CellCulture" ; sh:minCount 1 ] ;
+        ] ;
+    ] .
+
+tox:CellCultureRequirements a sh:NodeShape ;
+    sh:name "CellCulture process requirements" ;
+    sh:description "A cell culture process MUST declare its input cells, output cultured sample, and parameters" ;
+    sh:targetClass tox:LabProcessCellCulture ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:object ;
+        sh:minCount 1 ;
+        sh:message "CellCulture process MUST have at least one schema:object (input cell-line Sample)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:result ;
+        sh:minCount 1 ;
+        sh:message "CellCulture process MUST have at least one schema:result (output cultured Sample)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:additionalProperty ;
+        sh:minCount 1 ;
+        sh:message "CellCulture process MUST have at least one schema:additionalProperty (e.g. Culture Medium)" ;
+        sh:severity sh:Violation ;
+    ] .

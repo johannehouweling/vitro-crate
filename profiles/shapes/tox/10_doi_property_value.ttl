@@ -1,0 +1,36 @@
+# DOI PropertyValue (folded ISA extra).
+# A PropertyValue named "DOI" MUST pin its propertyID to the OBI DOI term, so the
+# identifier scheme is machine-resolvable rather than a bare string.
+
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+tox:FindDOIPropertyValues a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify DOI PropertyValues" ;
+    sh:targetClass schema:PropertyValue ;
+    sh:order 12 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:DOIPropertyValue ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:name ; sh:hasValue "DOI" ; sh:minCount 1 ] ;
+        ] ;
+    ] .
+
+tox:DOIPropertyValueMustHaveOBIPropertyID a sh:NodeShape ;
+    sh:name "DOI PropertyValue MUST carry the OBI DOI propertyID" ;
+    sh:targetClass tox:DOIPropertyValue ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:propertyID ;
+        sh:minCount 1 ;
+        sh:hasValue <http://purl.obolibrary.org/obo/OBI_0002110> ;
+        sh:message "A DOI PropertyValue MUST set schema:propertyID to OBI:0002110 (digital object identifier)" ;
+        sh:severity sh:Violation ;
+    ] .

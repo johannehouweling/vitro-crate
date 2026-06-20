@@ -1,0 +1,56 @@
+# CellLineSample — the cell-based test system (biological model module).
+# A bioschemas:Sample discriminated by additionalType "CellLine", carrying a
+# sampleType DefinedTerm and a Cellosaurus identifier.
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+# Inference: type a Sample as tox:CellLineSample when additionalType == "CellLine".
+tox:FindCellLineSamples a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify cell-line samples within the RO-Crate" ;
+    sh:description "A Sample with additionalType 'CellLine' is the cell-based test system." ;
+    sh:targetClass bioschemas:Sample ;
+    sh:order 10 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:CellLineSample ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path schema:additionalType ;
+                sh:hasValue "CellLine" ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+    ] .
+
+tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
+    sh:name "CellLineSample MUST have a sampleType" ;
+    sh:description "The cell-based test system MUST be categorised via sampleType" ;
+    sh:targetClass tox:CellLineSample ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:sampleType ;
+        sh:minCount 1 ;
+        sh:class schema:DefinedTerm ;
+        sh:message "Cell-line Sample MUST have a schema:sampleType (a DefinedTerm) categorising the test system" ;
+        sh:severity sh:Violation ;
+    ] .
+
+tox:CellLineSampleShouldHaveIdentifier a sh:NodeShape ;
+    sh:name "CellLineSample SHOULD have a Cellosaurus identifier" ;
+    sh:description "The cell line SHOULD resolve to a Cellosaurus accession" ;
+    sh:targetClass tox:CellLineSample ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:identifier ;
+        sh:minCount 1 ;
+        sh:message "Cell-line Sample SHOULD have a schema:identifier resolving to a Cellosaurus accession (CVCL_...)" ;
+        sh:severity sh:Warning ;
+    ] .

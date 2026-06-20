@@ -1,0 +1,45 @@
+# Investigation strict descriptors (folded ISA extra).
+# The bundled isa-ro-crate profile leaves name/description/license/datePublished
+# on the root Investigation as commented-out (optional). The ISA-Tox profile
+# re-enables them as required, matching the general-information reporting module.
+
+@prefix ro-crate: <https://github.com/crs4/rocrate-validator/profiles/ro-crate/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
+    sh:name "Investigation MUST have core descriptors" ;
+    sh:description "The root Investigation MUST carry name, description, license and a published date" ;
+    sh:targetClass ro-crate:RootDataEntity ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:not [ sh:hasValue "" ] ;
+        sh:message "Investigation MUST have a non-empty schema:name (the study title)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:description ;
+        sh:minCount 1 ;
+        sh:message "Investigation MUST have a schema:description" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:license ;
+        sh:minCount 1 ;
+        sh:message "Investigation MUST specify a schema:license (use 'ALL RIGHTS RESERVED BY THE AUTHORS' if none available)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:datePublished ;
+        sh:minCount 1 ;
+        sh:message "Investigation MUST have a schema:datePublished" ;
+        sh:severity sh:Violation ;
+    ] .

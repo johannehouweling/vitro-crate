@@ -1,0 +1,22 @@
+# Study AOP annotation (SHOULD).
+# Each Study SHOULD situate its biology within the Adverse Outcome Pathway
+# framework by referencing a linked AOP (AOP-Wiki) via schema:mentions.
+
+@prefix aopwiki: <https://aopwiki.org/ontology/> .
+@prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+
+tox:StudyShouldReferenceAOP a sh:NodeShape ;
+    sh:name "Study SHOULD reference an Adverse Outcome Pathway" ;
+    sh:description "A Study SHOULD link to its Adverse Outcome Pathway (AOP-Wiki)" ;
+    sh:targetClass isa-ro-crate:Study ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:mentions ;
+        sh:qualifiedValueShape [ sh:class aopwiki:AdverseOutcomePathway ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "Study SHOULD reference a linked Adverse Outcome Pathway (AOP-Wiki) via schema:mentions" ;
+        sh:severity sh:Warning ;
+    ] .

@@ -1,0 +1,22 @@
+# Assay Key Event annotation (SHOULD).
+# The endpoint measured by each Assay SHOULD be annotated with the corresponding
+# AOP-Wiki Key Event, referenced via schema:mentions.
+
+@prefix aopwiki: <https://aopwiki.org/ontology/> .
+@prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+
+tox:AssayShouldReferenceKeyEvent a sh:NodeShape ;
+    sh:name "Assay SHOULD annotate its endpoint with a Key Event" ;
+    sh:description "An Assay SHOULD link its measured endpoint to the corresponding AOP-Wiki Key Event" ;
+    sh:targetClass isa-ro-crate:Assay ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:mentions ;
+        sh:qualifiedValueShape [ sh:class aopwiki:KeyEvent ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "Assay SHOULD annotate its measured endpoint with the corresponding AOP-Wiki Key Event via schema:mentions" ;
+        sh:severity sh:Warning ;
+    ] .
