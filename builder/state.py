@@ -165,9 +165,9 @@ class Entity:
         self, values: dict[str, Any], source: CompletionSource = "llm"
     ) -> None:
         """Set multiple fields at once, marking each as filled."""
-        for field, value in values.items():
-            self.fields[field] = value
-            self.set_field_status(field, "filled", source)
+        for field_name, value in values.items():
+            self.fields[field_name] = value
+            self.set_field_status(field_name, "filled", source)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this entity to a JSON-compatible dictionary."""
@@ -432,20 +432,26 @@ class ReasoningStep:
 
 
 @dataclass
-class Checkpoint:
-    """Agent progress tracking and reasoning log.
+class ReasoningLog:
+    """Agent progress tracking, reasoning log, and iteration state.
 
     Attributes:
         next_actions: List of suggested or pending next actions.
         completed_checkpoints: List of completed checkpoint identifiers.
         reasoning_log: Chronological log of all reasoning steps.
+        iteration_count: Number of tool-calling iterations completed.
+        max_iterations: Maximum tool-calling iterations allowed.
+        stuck: Whether the agent is currently marked as stuck.
     """
 
     next_actions: list[str] = field(default_factory=list)
     completed_checkpoints: list[str] = field(default_factory=list)
     reasoning_log: list[ReasoningStep] = field(default_factory=list)
+    iteration_count: int = 0
+    max_iterations: int = 50
+    stuck: bool = False
 
-    def add_step(self, action: str, tool: str, result: str) -> ReasoningStep:
+    def log_reasoning(self, action: str, tool: str, result: str) -> ReasoningStep:
         """Append a reasoning step to the log and return it."""
         step = len(self.reasoning_log) + 1
         ts = datetime.now(timezone.utc).isoformat()
@@ -455,15 +461,31 @@ class Checkpoint:
         self.reasoning_log.append(entry)
         return entry
 
+    def add_step(self, action: str, tool: str, result: str) -> ReasoningStep:
+        """Backward-compatible alias for log_reasoning()."""
+        return self.log_reasoning(action, tool, result)
+
+    def mark_stuck(self, reason: str) -> ReasoningStep:
+        """Mark the agent as stuck and record the reason."""
+        self.stuck = True
+        return self.log_reasoning("mark_stuck", "system", reason)
+
+    def is_stuck(self) -> bool:
+        """Return whether the agent is stuck or has exhausted iterations."""
+        return self.stuck or self.iteration_count >= self.max_iterations
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "next_actions": list(self.next_actions),
             "completed_checkpoints": list(self.completed_checkpoints),
             "reasoning_log": [s.to_dict() for s in self.reasoning_log],
+            "iteration_count": self.iteration_count,
+            "max_iterations": self.max_iterations,
+            "stuck": self.stuck,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Checkpoint:
+    def from_dict(cls, data: dict[str, Any]) -> ReasoningLog:
         reason_log = [
             ReasoningStep.from_dict(s) for s in data.get("reasoning_log", [])
         ]
@@ -471,7 +493,13 @@ class Checkpoint:
             next_actions=data.get("next_actions", []),
             completed_checkpoints=data.get("completed_checkpoints", []),
             reasoning_log=reason_log,
+            iteration_count=data.get("iteration_count", 0),
+            max_iterations=data.get("max_iterations", 50),
+            stuck=data.get("stuck", False),
         )
+
+
+Checkpoint = ReasoningLog
 
 # Entity type → collection name mapping (module-level constant)
 ENTITY_TYPE_MAP: dict[str, str] = {
@@ -534,10 +562,7 @@ class CrateState:
     validation: ValidationReport = field(default_factory=ValidationReport)
     mit_assessment: MITReport = field(default_factory=MITReport)
     fair_assessment: FAIRReport = field(default_factory=FAIRReport)
-    checkpoint: Checkpoint = field(default_factory=Checkpoint)
-    iteration_count: int = 0
-    max_iterations: int = 50
-    stuck: bool = False
+    checkpoint: ReasoningLog = field(default_factory=ReasoningLog)
 
     # ------------------------------------------------------------------
     # Entity management
@@ -604,7 +629,42 @@ class CrateState:
 
     def log_reasoning(self, action: str, tool: str, result: str) -> ReasoningStep:
         """Append a reasoning step to the checkpoint log."""
-        return self.checkpoint.add_step(action, tool, result)
+        return self.checkpoint.log_reasoning(action, tool, result)
+
+    def mark_stuck(self, reason: str) -> ReasoningStep:
+        """Mark the current state as stuck and record the reason."""
+        return self.checkpoint.mark_stuck(reason)
+
+    def is_stuck(self) -> bool:
+        """Return whether the state is stuck or has exhausted iterations."""
+        return self.checkpoint.is_stuck()
+
+    @property
+    def iteration_count(self) -> int:
+        """Return the delegated iteration count."""
+        return self.checkpoint.iteration_count
+
+    @iteration_count.setter
+    def iteration_count(self, value: int) -> None:
+        self.checkpoint.iteration_count = value
+
+    @property
+    def max_iterations(self) -> int:
+        """Return the delegated maximum iteration count."""
+        return self.checkpoint.max_iterations
+
+    @max_iterations.setter
+    def max_iterations(self, value: int) -> None:
+        self.checkpoint.max_iterations = value
+
+    @property
+    def stuck(self) -> bool:
+        """Return the delegated stuck flag."""
+        return self.checkpoint.stuck
+
+    @stuck.setter
+    def stuck(self, value: bool) -> None:
+        self.checkpoint.stuck = value
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
@@ -640,7 +700,11 @@ class CrateState:
             "validation": self.validation.to_dict(),
             "mit_assessment": self.mit_assessment.to_dict(),
             "fair_assessment": self.fair_assessment.to_dict(),
-            "checkpoint": self.checkpoint.to_dict(),
+            "checkpoint": {
+                "next_actions": list(self.checkpoint.next_actions),
+                "completed_checkpoints": list(self.checkpoint.completed_checkpoints),
+                "reasoning_log": [s.to_dict() for s in self.checkpoint.reasoning_log],
+            },
             "iteration_count": self.iteration_count,
             "max_iterations": self.max_iterations,
             "stuck": self.stuck,
@@ -656,6 +720,15 @@ class CrateState:
 
         def _entities_from_list(items: list[dict[str, Any]]) -> dict[str, Entity]:
             return {item["entity_id"]: Entity.from_dict(item) for item in items}
+
+        checkpoint = ReasoningLog.from_dict(data.get("checkpoint", {}))
+        checkpoint.iteration_count = data.get(
+            "iteration_count", checkpoint.iteration_count
+        )
+        checkpoint.max_iterations = data.get(
+            "max_iterations", checkpoint.max_iterations
+        )
+        checkpoint.stuck = data.get("stuck", checkpoint.stuck)
 
         return cls(
             session_id=data.get("session_id", ""),
@@ -687,10 +760,7 @@ class CrateState:
             validation=ValidationReport.from_dict(data.get("validation", {})),
             mit_assessment=MITReport.from_dict(data.get("mit_assessment", {})),
             fair_assessment=FAIRReport.from_dict(data.get("fair_assessment", {})),
-            checkpoint=Checkpoint.from_dict(data.get("checkpoint", {})),
-            iteration_count=data.get("iteration_count", 0),
-            max_iterations=data.get("max_iterations", 50),
-            stuck=data.get("stuck", False),
+            checkpoint=checkpoint,
         )
 
     @classmethod
