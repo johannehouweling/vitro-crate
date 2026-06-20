@@ -44,14 +44,26 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     }
 
 
-def verify_all_identifiers(state: CrateState) -> list[dict]:
-    """Run verify_identifier on every entity field marked as 'filled'.
+_IDENTIFIER_FIELDS = {
+    "identifier",
+    "cas",
+    "orcid",
+    "ror",
+    "doi",
+    "accession",
+    "pubchem_cid",
+}
 
-    Iterates over all entities in the state and checks each field that
-    has completion status "filled".
+
+def verify_all_identifiers(state: CrateState) -> list[dict]:
+    """Run verify_identifier on every identifier field marked as 'filled'.
+
+    Iterates over all entities in the state and checks each field whose
+    name is an identifier-like field (e.g. identifier, cas, orcid, ror,
+    doi, accession, pubchem_cid) with completion status "filled".
 
     Returns:
-        A list of verification result dicts (one per filled field).
+        A list of verification result dicts (one per qualifying filled field).
     """
     results: list[dict] = []
 
@@ -60,6 +72,8 @@ def verify_all_identifiers(state: CrateState) -> list[dict]:
             if fc.status == "filled":
                 # comp_key is "{type}:{field}" — extract the field name
                 field = comp_key.split(":", 1)[1]
+                if field not in _IDENTIFIER_FIELDS:
+                    continue
                 result = verify_identifier(state, entity.entity_id, field)
                 results.append(result)
 

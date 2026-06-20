@@ -46,26 +46,31 @@ class TestVerifyAllIdentifiers:
     """Tests for the verify_all_identifiers function."""
 
     def test_runs_across_all_entities(self, state_with_multiple_entities):
-        """verify_all_identifiers returns one result per entity field that is 'filled'."""
+        """verify_all_identifiers returns one result per identifier field that is 'filled',
+        and skips non-identifier fields such as title and description."""
         state = state_with_multiple_entities
 
-        # Mark some fields as filled on different entities
+        # Mark identifier-like and non-identifier fields as filled
         inv = state.get_entity("inv_001")
-        inv.set_field_status("title", "filled", "user")
-        inv.set_field_status("description", "filled", "llm")
+        inv.set_field_status("identifier", "filled", "user")
+        inv.set_field_status("doi", "filled", "llm")
+        inv.set_field_status("title", "filled", "llm")  # should be skipped
 
         study = state.get_entity("stu_001")
-        study.set_field_status("title", "filled", "llm")
+        study.set_field_status("accession", "filled", "llm")
+        study.set_field_status("description", "filled", "llm")  # should be skipped
 
         results = verify_all_identifiers(state)
 
-        # Should have 3 results (2 fields from inv, 1 from study)
+        # Only identifier-like fields (identifier, doi, accession) should produce results
         assert len(results) == 3
 
         entity_fields = {(r["entity_id"], r["field"]) for r in results}
-        assert ("inv_001", "title") in entity_fields
-        assert ("inv_001", "description") in entity_fields
-        assert ("stu_001", "title") in entity_fields
+        assert ("inv_001", "identifier") in entity_fields
+        assert ("inv_001", "doi") in entity_fields
+        assert ("stu_001", "accession") in entity_fields
+        assert ("inv_001", "title") not in entity_fields
+        assert ("stu_001", "description") not in entity_fields
 
         # All results should have the expected structure
         for r in results:
