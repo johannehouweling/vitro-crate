@@ -62,7 +62,7 @@ def read_existing_crate(crate_dir: str) -> CrateState:
                 continue
 
             primary_type = node_type[0] if isinstance(node_type, list) else node_type
-            if primary_type in ("CreativeWork", "File", None):
+            if primary_type in ("CreativeWork", None):
                 continue
             if primary_type not in _VALID_TYPES:
                 continue
