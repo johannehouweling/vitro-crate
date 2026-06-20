@@ -111,8 +111,8 @@ class AgentEngine:
         """
         scanner_tools: dict[str, Any] = {}
         try:
-            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, read_multiple_files as rmf, unzip_file as uzf
-            scanner_tools = {"scan_files": sf, "read_file_sample": rfs, "read_multiple_files": rmf, "unzip_file": uzf}
+            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, read_multiple_files as rmf, unzip_file as uzf, preview_archive as pa
+            scanner_tools = {"scan_files": sf, "read_file_sample": rfs, "read_multiple_files": rmf, "unzip_file": uzf, "preview_archive": pa}
         except ImportError:
             pass
 
@@ -129,7 +129,7 @@ class AgentEngine:
             result = tool_fn(**tool_kwargs)
             # Auto-store scan results in state, and register the scanned
             # path as an approved root if none were set yet.
-            if tool_name == "scan_files" and isinstance(result, list):
+            if tool_name == "scan_files":
                 self.state.scanned_files = result
                 if not self.state.approved_scan_roots:
                     resolved = Path(kwargs.get("path", "")).resolve()
@@ -170,7 +170,7 @@ class AgentEngine:
             Sorted list of all registered tool names.
         """
         registry = self._build_registry()
-        return sorted(set(list(registry.keys()) + ["scan_files", "read_file_sample"]))
+        return sorted(set(list(registry.keys()) + ["scan_files", "read_file_sample", "preview_archive"]))
 
     @property
     def is_stuck(self) -> bool:

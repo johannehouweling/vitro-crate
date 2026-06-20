@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from builder.tools.scanner import (
+    preview_archive,
     read_file_sample,
     read_multiple_files,
     scan_files,
@@ -188,6 +189,91 @@ class TestScanFilesArchive:
         assert "data.csv" in filenames
         assert all("__MACOSX" not in f.path for f in result)
         assert len(result) == 1  # only data.csv, not the macOS junk
+
+class TestPreviewArchive:
+    """Tests for the preview_archive function."""
+
+    def test_valid_zip_returns_archive_preview(self, tmp_path):
+        """preview_archive on a valid zip returns ArchivePreview with entries."""
+        import zipfile
+
+        zip_path = tmp_path / "data.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("file1.txt", "hello\n")
+            zf.writestr("file2.txt", "world\n")
+
+        result = preview_archive(str(zip_path))
+
+        assert result.error is None
+        assert result.filename == "data.zip"
+        assert result.size_bytes > 0
+        assert result.size_mb >= 0.0
+        assert result.entry_count == 2
+        assert len(result.entries) == 2
+        assert result.entries[0]["path"] in ("file1.txt", "file2.txt")
+        assert "data.zip" in result.message
+
+    def test_nonexistent_file_returns_error(self, tmp_path):
+        """preview_archive on a non-existent file returns error ArchivePreview."""
+        result = preview_archive(str(tmp_path / "nonexistent.zip"))
+
+        assert result.error is not None
+        assert "not found" in result.error.lower()
+        assert result.entry_count == 0
+        assert result.entries == []
+        assert result.size_bytes == 0
+
+    def test_corrupt_zip_returns_error(self, tmp_path):
+        """preview_archive on a corrupt zip returns error ArchivePreview."""
+        zip_path = tmp_path / "corrupt.zip"
+        zip_path.write_bytes(b"this is not a zip file")
+
+        result = preview_archive(str(zip_path))
+
+        assert result.error is not None
+        assert result.entry_count == 0
+        assert result.entries == []
+        assert result.size_bytes > 0
+
+    def test_nested_zip_shows_all_entries(self, tmp_path):
+        """preview_archive shows nested directory entries."""
+        import zipfile
+
+        zip_path = tmp_path / "nested.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("dir/", "")
+            zf.writestr("dir/file.csv", "a,b\n1,2\n")
+            zf.writestr("readme.txt", "hello\n")
+
+        result = preview_archive(str(zip_path))
+
+        assert result.error is None
+        assert result.entry_count == 3
+        paths = [e["path"] for e in result.entries]
+        assert "dir/" in paths
+        assert "dir/file.csv" in paths
+        assert "readme.txt" in paths
+
+    def test_to_dict_roundtrip(self, tmp_path):
+        """preview_archive result can round-trip through to_dict/from_dict."""
+        import zipfile
+
+        from builder.state import ArchivePreview
+
+        zip_path = tmp_path / "data.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("file.txt", "content\n")
+
+        result = preview_archive(str(zip_path))
+        data = result.to_dict()
+        restored = ArchivePreview.from_dict(data)
+
+        assert restored.path == result.path
+        assert restored.filename == result.filename
+        assert restored.entry_count == result.entry_count
+        assert restored.entries == result.entries
+        assert restored.error == result.error
+
 
 class TestUnzipFile:
     """Tests for the unzip_file function."""

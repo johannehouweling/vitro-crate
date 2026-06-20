@@ -54,6 +54,7 @@ from builder.tools.management import (
 )
 from builder.tools.mit_assessment import assess_mit_coverage
 from builder.tools.scanner import (
+    preview_archive,
     read_file_sample,
     read_multiple_files,
     scan_files,
@@ -96,6 +97,7 @@ __all__ = [
     "lookup_orcid",
     "lookup_ror",
     "present_to_human",
+    "preview_archive",
     "read_file_sample",
     "read_multiple_files",
     "remove_entity",

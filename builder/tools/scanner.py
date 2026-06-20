@@ -17,7 +17,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from builder.state import FileClassification
+from builder.state import ArchivePreview, FileClassification
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,73 @@ def _list_zip_contents(zip_path: Path) -> list[dict]:
         return []
     contents.sort(key=lambda c: (not c["is_dir"], c["path"]))
     return contents
+
+
+def preview_archive(path: str) -> ArchivePreview:
+    """Return metadata about a zip archive without extracting it.
+
+    Provides a preview of the archive's contents (entry paths, sizes, and
+    whether each entry is a directory) so the agent can present this to the
+    user before deciding to extract.
+
+    Handles gracefully:
+    - Non-existent files: returns an ArchivePreview with an error message
+      and an empty entries list.
+    - Corrupt/invalid zip files: returns an ArchivePreview with an error
+      message and an empty entries list.
+
+    Args:
+        path: Path to the zip archive to preview.
+
+    Returns:
+        An ``ArchivePreview`` dataclass with archive metadata.
+    """
+    archive_path = Path(path).resolve()
+
+    # Handle non-existent file
+    if not archive_path.is_file():
+        return ArchivePreview(
+            path=str(archive_path),
+            filename=archive_path.name,
+            size_bytes=0,
+            size_mb=0.0,
+            entry_count=0,
+            entries=[],
+            message=f"File not found: {path}",
+            error=f"File not found: {path}",
+        )
+
+    size_bytes = archive_path.stat().st_size
+    size_mb = size_bytes / (1024 * 1024)
+
+    # Use existing helper — returns [] on corrupt zips
+    entries = _list_zip_contents(archive_path)
+
+    if not entries and size_bytes > 0:
+        # _list_zip_contents returns [] for corrupt zips
+        return ArchivePreview(
+            path=str(archive_path),
+            filename=archive_path.name,
+            size_bytes=size_bytes,
+            size_mb=round(size_mb, 2),
+            entry_count=0,
+            entries=[],
+            message=f"Cannot read archive: {archive_path.name} (corrupt or unsupported format)",
+            error=f"Cannot read archive: {archive_path.name} (corrupt or unsupported format)",
+        )
+
+    return ArchivePreview(
+        path=str(archive_path),
+        filename=archive_path.name,
+        size_bytes=size_bytes,
+        size_mb=round(size_mb, 2),
+        entry_count=len(entries),
+        entries=entries,
+        message=(
+            f"Archive {archive_path.name}: {size_mb:.1f} MB, "
+            f"{len(entries)} entries"
+        ),
+    )
 
 
 def _safe_walk(root: Path) -> list[Path]:
