@@ -271,17 +271,7 @@ def run_interactive_agent(
         Layout(name="body"),
     )
 
-    # ── Header ──────────────────────────────────────────────────────────
     provider_name = provider or _detect_provider()
-    entity_count = len(engine.state.list_entities())
-    header_text = (
-        f"[bold cyan]ISA-Tox RO-Crate Builder[/bold cyan]\n"
-        f"Session: [yellow]{engine.state.session_id}[/yellow]  "
-        f"Provider: [green]{provider_name}[/green]  "
-        f"Tools: [magenta]{len(tools)}[/magenta]  "
-        f"Entities: [cyan]{entity_count}[/cyan]"
-    )
-    console.print(Panel(header_text, border_style="blue"))
 
     # Use LangGraph's built-in thread tracking so the agent accumulates
     # conversation history automatically.
