@@ -70,29 +70,18 @@ class AgentEngine:
         if cls._registry:
             return cls._registry
 
-        import builder.tools.builder as builder_mod
-        import builder.tools.drafters as draft
-        import builder.tools.fair_assessment as fair
-        import builder.tools.lookups as lookups
         import builder.tools.management as mgmt
-        import builder.tools.mit_assessment as mit
-        import builder.tools.session as session_mod
-        import builder.tools.validation as val_mod
+        import builder.tools.drafters as draft
+        import builder.tools.lookups as lookups
         import builder.tools.verification as verify
+        import builder.tools.builder as builder_mod
+        import builder.tools.validation as val_mod
+        import builder.tools.mit_assessment as mit
+        import builder.tools.fair_assessment as fair
+        import builder.tools.session as session_mod
 
         registry: dict[str, Any] = {}
-        modules = [
-            mgmt,
-            draft,
-            lookups,
-            verify,
-            builder_mod,
-            val_mod,
-            mit,
-            fair,
-            session_mod,
-        ]
-        for module in modules:
+        for module in [mgmt, draft, lookups, verify, builder_mod, val_mod, mit, fair, session_mod]:
             for name in dir(module):
                 obj = getattr(module, name)
                 if callable(obj) and not name.startswith("_"):
@@ -122,25 +111,8 @@ class AgentEngine:
         """
         scanner_tools: dict[str, Any] = {}
         try:
-            from builder.tools.scanner import (
-                read_file_sample as rfs,
-            )
-            from builder.tools.scanner import (
-                read_multiple_files as rmf,
-            )
-            from builder.tools.scanner import (
-                scan_files as sf,
-            )
-            from builder.tools.scanner import (
-                unzip_file as uzf,
-            )
-
-            scanner_tools = {
-                "scan_files": sf,
-                "read_file_sample": rfs,
-                "read_multiple_files": rmf,
-                "unzip_file": uzf,
-            }
+            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, read_multiple_files as rmf, unzip_file as uzf
+            scanner_tools = {"scan_files": sf, "read_file_sample": rfs, "read_multiple_files": rmf, "unzip_file": uzf}
         except ImportError:
             pass
 

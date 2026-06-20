@@ -165,9 +165,9 @@ class Entity:
         self, values: dict[str, Any], source: CompletionSource = "llm"
     ) -> None:
         """Set multiple fields at once, marking each as filled."""
-        for field_name, value in values.items():
-            self.fields[field_name] = value
-            self.set_field_status(field_name, "filled", source)
+        for field, value in values.items():
+            self.fields[field] = value
+            self.set_field_status(field, "filled", source)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this entity to a JSON-compatible dictionary."""
