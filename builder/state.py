@@ -492,8 +492,9 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "File": "files",
 }
 
-# Identify entity types that share an underlying collection name so
-# list_entities() can filter by concrete type when needed.
+# ENTITY_TYPE_MAP is a module-level constant; derive shared collection
+# information once at import time so list_entities() can filter by
+# concrete type when needed.
 COLLECTION_NAME_COUNTS = Counter(ENTITY_TYPE_MAP.values())
 SHARED_COLLECTION_ENTITY_TYPES: frozenset[str] = frozenset(
     entity_type
