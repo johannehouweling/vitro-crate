@@ -104,3 +104,25 @@ class TestAgentEngine:
         assert len(tools) > 0
         assert "draft_investigation" in tools
         assert "scan_files" in tools
+
+    def test_run_tool_read_multiple_files_registered(self):
+        """run_tool can call read_multiple_files via the engine."""
+        engine = AgentEngine()
+        engine.initialize()
+        import tempfile, os
+        a = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+        a.write("hello\nworld\n")
+        a.close()
+        b = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+        b.write("foo\nbar\n")
+        b.close()
+        try:
+            result = engine.run_tool("read_multiple_files", paths=[a.name, b.name])
+            assert result is not None
+            assert isinstance(result, dict)
+            assert result["count"] == 2
+            assert "hello" in result["files"][a.name]
+            assert "foo" in result["files"][b.name]
+        finally:
+            os.unlink(a.name)
+            os.unlink(b.name)

@@ -111,8 +111,8 @@ class AgentEngine:
         """
         scanner_tools: dict[str, Any] = {}
         try:
-            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, unzip_file as uzf
-            scanner_tools = {"scan_files": sf, "read_file_sample": rfs, "unzip_file": uzf}
+            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, read_multiple_files as rmf, unzip_file as uzf
+            scanner_tools = {"scan_files": sf, "read_file_sample": rfs, "read_multiple_files": rmf, "unzip_file": uzf}
         except ImportError:
             pass
 
