@@ -62,7 +62,83 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["openai", "anthropic"],
         help="LLM provider for interactive mode (auto-detected from env if omitted)",
     )
+    parser.add_argument(
+        "--model", "-m",
+        type=str, default=None,
+        help="Model name (e.g. gpt-4o-mini, llama3.2, claude-sonnet-4-20250514)",
+    )
+    parser.add_argument(
+        "--api-base", "-b",
+        type=str, default=None,
+        help="API base URL for OpenAI-compatible providers "
+             "(e.g. http://localhost:11434/v1 for Ollama). "
+             "Also read from VITRO_OPENAI_BASE_URL or OPENAI_BASE_URL env var.",
+    )
+    parser.add_argument(
+        "--configure",
+        action="store_true",
+        help="Run the interactive setup wizard to configure LLM provider",
+    )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        help="Show current LLM configuration and exit",
+    )
     return parser.parse_args(argv)
+
+
+def _run_setup_wizard() -> bool:
+    """Run the interactive config wizard.  Returns True if successful."""
+    from builder.config import interactive_setup
+    return interactive_setup()
+
+
+def _show_config() -> None:
+    """Print current configuration state."""
+    from builder.config import describe_config, is_configured
+    from builder.config import load_config, merge_with_env
+
+    cfg = load_config()
+    merge_with_env(cfg)
+    print(describe_config())
+    if not is_configured():
+        print()
+        print("No LLM provider is fully configured.")
+        print("Run with --configure to set one up interactively,")
+        print("or set VITRO_OPENAI_API_KEY / VITRO_ANTHROPIC_API_KEY env vars.")
+    print()
+
+
+def _ensure_configured() -> bool:
+    """Check config; if missing, offer to run the wizard.
+
+    Returns True if the user is ready to proceed (configured or skipped).
+    """
+    from builder.config import is_configured, merge_with_env, load_config
+
+    # Load config file and merge into env (env vars take priority)
+    cfg = load_config()
+    merge_with_env(cfg)
+
+    if is_configured():
+        return True
+
+    print()
+    print("No LLM provider is configured yet.")
+    print()
+    try:
+        answer = input(
+            "Would you like to set one up now? [Y/n]: "
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+
+    if answer in ("", "y", "yes"):
+        return _run_setup_wizard()
+
+    print("Skipping setup.  You can configure later with --configure.")
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -74,6 +150,22 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(args.verbose)
 
     logger.info("ISA-Tox RO-Crate Builder v0.1.0")
+
+    # --show-config: print and exit
+    if args.show_config:
+        _show_config()
+        return 0
+
+    # --configure: run the wizard
+    if args.configure:
+        if _run_setup_wizard():
+            return 0
+        return 1
+
+    # Ensure config is loaded before creating the engine
+    if args.interactive:
+        if not _ensure_configured():
+            return 1
 
     engine = AgentEngine()
 
@@ -106,7 +198,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.interactive:
         from builder.agents.agent_loop import run_interactive_agent
 
-        run_interactive_agent(engine, provider=args.provider)
+        run_interactive_agent(
+            engine,
+            provider=args.provider,
+            model=args.model,
+            base_url=args.api_base,
+        )
         return 0
 
     # Batch / info mode — print summary and exit

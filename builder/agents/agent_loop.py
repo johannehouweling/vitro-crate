@@ -22,6 +22,55 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _build_args_schema(name: str, params: dict) -> type | None:
+    """Dynamically create a pydantic model from a JSON schema dict.
+
+    Converts the ``parameters`` field of a TOOL_SPECS entry into a
+    pydantic ``BaseModel`` subclass that LangChain's ``StructuredTool``
+    uses to validate arguments and advertise the schema to the LLM.
+    Returns ``None`` (no schema) if the params dict is empty.
+    """
+    if not params or not isinstance(params, dict):
+        return None
+    properties = params.get("properties", {})
+    if not properties:
+        return None
+
+    from pydantic import BaseModel, Field, create_model
+
+    fields: dict[str, Any] = {}
+    required_set = set(params.get("required", []))
+
+    for field_name, field_schema in properties.items():
+        json_type = field_schema.get("type", "string")
+
+        # Map JSON Schema types to Python types
+        type_map: dict[str, type] = {
+            "string": str,
+            "integer": int,
+            "number": float,
+            "boolean": bool,
+            "array": list,
+            "object": dict,
+        }
+        py_type = type_map.get(json_type, str)
+
+        description = field_schema.get("description", "")
+
+        # If the field has enum values, use a Literal type
+        if "enum" in field_schema:
+            from typing import Literal
+            enum_vals = field_schema["enum"]
+            py_type = Literal[tuple(enum_vals)]  # type: ignore
+
+        if field_name in required_set:
+            fields[field_name] = (py_type, Field(..., description=description))
+        else:
+            fields[field_name] = (py_type | None, Field(None, description=description))
+
+    return create_model(f"{name}_args", **fields, __base__=BaseModel)
+
+
 def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
     """Build LangChain BaseTool instances from the engine's tool registry.
 
@@ -49,10 +98,14 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
             _run.__name__ = tool_name
             _run.__doc__ = tool_desc
 
+            # Build a StructuredTool from the JSON schema.  The args_schema
+            # is auto-generated from tool_params so the LLM knows the expected
+            # inputs and their types.
             return StructuredTool.from_function(
                 func=_run,
                 name=tool_name,
                 description=tool_desc,
+                args_schema=_build_args_schema(tool_name, tool_params),
                 infer_schema=False,
             )
 
@@ -70,20 +123,35 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 def _detect_provider() -> str | None:
     """Detect which LLM provider is available based on environment variables.
 
+    Checks ``VITRO_OPENAI_API_KEY`` / ``VITRO_ANTHROPIC_API_KEY`` first,
+    then falls back to the unprefixed ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY``.
+
     Returns ``"openai"``, ``"anthropic"``, or ``None`` if neither is configured.
     """
-    if os.environ.get("OPENAI_API_KEY"):
+    if os.environ.get("VITRO_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY"):
         return "openai"
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if os.environ.get("VITRO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
     return None
 
 
-def _build_chat_model(provider: str | None = None) -> Any:
+def _build_chat_model(
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+) -> Any:
     """Build a LangChain chat model for the given or detected provider.
+
+    Supports custom endpoints (OpenAI-compatible only — Ollama, LiteLLM,
+    local proxies, etc.) via the ``OPENAI_BASE_URL`` environment variable
+    or the ``base_url`` parameter.
 
     Args:
         provider: One of ``"openai"``, ``"anthropic"``.  If ``None``, auto-detect.
+        model: Model name override (e.g. ``"gpt-4o-mini"``, ``"llama3.2"``).
+            Falls back to provider defaults.
+        base_url: Custom API base URL for OpenAI-compatible providers.
+            Falls back to ``OPENAI_BASE_URL`` env var, then provider default.
 
     Returns:
         A LangChain ``BaseChatModel`` instance.
@@ -94,20 +162,55 @@ def _build_chat_model(provider: str | None = None) -> Any:
     provider = provider or _detect_provider()
     if provider is None:
         raise RuntimeError(
-            "No LLM provider configured. Set OPENAI_API_KEY or "
-            "ANTHROPIC_API_KEY environment variable, or pass "
+            "No LLM provider configured. Set VITRO_OPENAI_API_KEY "
+            "(or OPENAI_API_KEY) or VITRO_ANTHROPIC_API_KEY "
+            "(or ANTHROPIC_API_KEY) environment variable, or pass "
             "--provider openai|anthropic."
         )
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model="gpt-4o", temperature=0)
+        # VITRO_ prefixed env vars take priority, fall back to unprefixed
+        api_key = (
+            os.environ.get("VITRO_OPENAI_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+        )
+        resolved_base = (
+            base_url
+            or os.environ.get("VITRO_OPENAI_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+        )
+        resolved_model = (
+            model
+            or os.environ.get("VITRO_OPENAI_MODEL")
+            or os.environ.get("OPENAI_MODEL", "gpt-4o")
+        )
+
+        kwargs: dict[str, Any] = {"model": resolved_model, "temperature": 0}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if resolved_base:
+            kwargs["base_url"] = resolved_base
+
+        return ChatOpenAI(**kwargs)
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
+        api_key = (
+            os.environ.get("VITRO_ANTHROPIC_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+        )
+        resolved_model = (
+            model
+            or os.environ.get("VITRO_ANTHROPIC_MODEL")
+            or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+        )
+        kwargs: dict[str, Any] = {"model": resolved_model, "temperature": 0}
+        if api_key:
+            kwargs["api_key"] = api_key
+        return ChatAnthropic(**kwargs)
 
     raise RuntimeError(f"Unknown provider: {provider!r}. Use openai or anthropic.")
 # ---------------------------------------------------------------------------
@@ -118,6 +221,8 @@ def _build_chat_model(provider: str | None = None) -> Any:
 def run_interactive_agent(
     engine: AgentEngine,
     provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
     max_iterations: int = 50,
 ) -> None:
     """Run an interactive LangChain agent loop reading from stdin.
@@ -130,29 +235,27 @@ def run_interactive_agent(
     Args:
         engine: The AgentEngine with an initialized state.
         provider: Optional provider override (``"openai"`` / ``"anthropic"``).
+        model: Model name override (e.g. ``"gpt-4o-mini"``, ``"llama3.2"``).
+        base_url: Custom API base URL for OpenAI-compatible providers
+            (e.g. ``http://localhost:11434/v1`` for Ollama).
         max_iterations: Maximum tool-calling iterations before forcing
             a final response.
     """
-    from langchain.agents import AgentExecutor, create_tool_calling_agent
-    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain.agents import create_agent
+    from langgraph.checkpoint.memory import MemorySaver
+    from langchain_core.messages import AIMessage, HumanMessage
 
     tools = _build_langchain_tools(engine)
-    model = _build_chat_model(provider)
+    llm = _build_chat_model(provider=provider, model=model, base_url=base_url)
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        MessagesPlaceholder(variable_name="chat_history", optional=True),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-
-    agent = create_tool_calling_agent(model, tools, prompt)
-    executor = AgentExecutor(
-        agent=agent,
-        tools=tools,
-        verbose=True,
-        max_iterations=max_iterations,
-        handle_parsing_errors=True,
+    # Use the new LangChain 1.3+ create_agent graph API
+    # The system prompt is passed as the system_prompt kwarg;
+    # conversational memory is handled by the checkpointer.
+    app = create_agent(
+        llm,
+        tools,
+        system_prompt=SYSTEM_PROMPT,
+        checkpointer=MemorySaver(),
     )
 
     print()
@@ -163,6 +266,26 @@ def run_interactive_agent(
     print(f"Entities:  {len(engine.state.list_entities())}")
     print("Type 'quit' or 'exit' to stop.")
     print()
+
+    # Use LangGraph's built-in thread tracking so the agent accumulates
+    # conversation history automatically.
+    thread_config = {"configurable": {"thread_id": engine.state.session_id}}
+
+    # Send a greeting so the LLM introduces itself and explains what it can do
+    try:
+        result = app.invoke(
+            {"messages": [HumanMessage(content="Greet the user and tell them what you can help build.")]},
+            thread_config,
+        )
+        if result and "messages" in result:
+            msgs = result["messages"]
+            if msgs:
+                last = msgs[-1]
+                if hasattr(last, "content") and last.content:
+                    print(f"Agent: {last.content}")
+        print()
+    except Exception as exc:
+        logger.debug("Greeting skipped: %s", exc)
 
     while True:
         try:
@@ -186,12 +309,20 @@ def run_interactive_agent(
             f"Entities: {len(engine.state.list_entities())} | "
             f"Iterations: {engine.state.iteration_count}]\n"
             f"{entity_summary}\n\n"
-            f"User: {user_input}"
+            f"{user_input}"
         )
 
         try:
-            result = executor.invoke({"input": enriched_input})
-            print(f"Agent: {result['output']}")
+            result = app.invoke(
+                {"messages": [HumanMessage(content=enriched_input)]},
+                thread_config,
+            )
+            if result and "messages" in result:
+                msgs = result["messages"]
+                if msgs:
+                    last = msgs[-1]
+                    if hasattr(last, "content") and last.content:
+                        print(f"Agent: {last.content}")
             print()
 
             try:
