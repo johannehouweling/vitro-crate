@@ -10,4 +10,5 @@ dependencies = []
 dev = [
     "hindsight-all>=0.8.3",
     "hindsight-cline>=0.2.0",
+    "ty>=0.0.51",
 ]
