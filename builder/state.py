@@ -492,11 +492,13 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "File": "files",
 }
 
-ENTITY_COLLECTION_COUNTS = Counter(ENTITY_TYPE_MAP.values())
+# Identify entity types that share an underlying collection name so
+# list_entities() can filter by concrete type when needed.
+COLLECTION_NAME_COUNTS = Counter(ENTITY_TYPE_MAP.values())
 SHARED_COLLECTION_ENTITY_TYPES: frozenset[str] = frozenset(
     entity_type
     for entity_type, collection_name in ENTITY_TYPE_MAP.items()
-    if ENTITY_COLLECTION_COUNTS[collection_name] > 1
+    if COLLECTION_NAME_COUNTS[collection_name] > 1
 )
 
 # CellLineSample is modeled as a subtype of Sample and stored in the same
@@ -560,8 +562,8 @@ class EntityStore:
         if entity_type is not None:
             coll = self._collection_for_type(entity_type)
             if entity_type in SHARED_COLLECTION_ENTITY_TYPES:
-                # Sample and CellLineSample share the same collection, so filter
-                # on the actual entity type when one of those types is requested.
+                # Entity types that share a collection require filtering on the
+                # concrete type when one of those types is requested.
                 return [
                     entity for entity in coll.values() if entity.type == entity_type
                 ]
