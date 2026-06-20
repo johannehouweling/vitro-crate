@@ -50,6 +50,7 @@ This project uses **test-driven development (TDD)**. Write the test before the i
 - **Validation:** SHACL shapes in `profiles/shapes/`. Three-pass validation in `profiles/validator.py`.
 - **Sessions:** Persisted to `sessions/<session_id>/`. Never commit session data to the repo.
 - **Input data:** Example inputs live in `input/`. Never commit real experimental data.
+- Commits using conventional commit style with keywords like: `feat: <commit msg>`, `docs: <commit msg>`, `fix: <commit msg>`, `chore: <commit msg>` or `feat(<part>): <commit msg pertaining to part>`. Breaking changes are indicated with `feat!:` exclamation mark before the colon. 
 
 ## Pull Requests
 
