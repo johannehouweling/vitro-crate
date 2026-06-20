@@ -29,15 +29,20 @@ The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists re
 ```
                          Agent Loop
    LLM Agent ◄─────────────────────────────────────
-      │          Tools: scan_files, draft_entity, update_entity,
-      │          remove_entity, lookup_*, verify_identifier,
-      │          build_crate, validate, assess_mit, assess_fair,
-      │          present_to_human, save_session, get_status
+      │          Tools: draft_entity, update_entity, remove_entity,
+      │          lookup_*, verify_identifier, build_crate, validate,
+      │          assess_mit, assess_fair, present_to_human,
+      │          save_session, get_status
       ▼
    ┌──────────────────────┐
    │    CrateState         │── persists between sessions
    │  (serializable)       │
    └──────────────────────┘
+
+   Initialization (before agent loop):
+   ┌──────────────┐
+   │  scan_files  │ ──► agent loop (inventory only)
+   └──────────────┘
 
    Feedback loops:
    - Validation (MUST)  → agent re-drafts the failing entity
@@ -48,7 +53,7 @@ The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists re
 
 ### Toolbox, Not Graph
 
-The agent is **not** guided by a predefined workflow graph. Instead it:
+Within the agent loop, the agent is **not** guided by a predefined workflow graph. Instead it:
 
 1. Examines the current `CrateState` (what's been done, what's missing, validation results)
 2. Decides which tool to call next
@@ -56,6 +61,11 @@ The agent is **not** guided by a predefined workflow graph. Instead it:
 4. Repeats until the crate is complete or escalates to the human
 
 The orchestration is **emergent** — the agent dynamically routes itself based on context, feedback, and user input. A validation failure sends it back to drafting; an incomplete MIT score triggers more lookups.
+
+One step is **always** run as fixed initialization before the agent loop:
+1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows). No role classification, no ARC sorting — just a list of what's in the input directory.
+
+This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The ARC folder structure is not scaffolded upfront — it is produced as an output by `arc_writer.py` once entity annotations are complete.
 ## 2. Core Concepts
 
 ### Entity Model
@@ -156,25 +166,23 @@ Input → Scanner → Drafter(s) → Builder → Validator → Assessor → Outp
 ```
 
 ### 4.1 Scanner
-Examines input directory and classifies files by role. Reads file metadata and first rows for CSV/TSV/XLSX. Reports confidence levels. Never reads entire large files into context.
-
-**Categories:** raw_data, processed_data, condition_table, protocol, analysis_script, metadata, other.
+Examines input directory and builds a raw file inventory (path, size, mime type, first rows of CSV/TSV/XLSX). Reports confidence levels for file type identification. Never reads entire large files into context. This inventory is the only precondition for the agent loop — the agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge.
 
 ### 4.2 Entity Drafters
 Generate metadata entities from files, conversation, or existing metadata. Each drafter collects hints, calls the LLM, and ensures identifiers come from lookups (never fabricated).
 
 **Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample, LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis), Person, Organization, Publication.
 
-### 4.3 Builder
+### 4.4 Builder
 Assembles the RO-Crate using [`ro-crate-py`](https://github.com/ResearchObject/ro-crate-py) (`profiles/models/isa.py`, `profiles/models/tox.py`, `profiles/context.py`). Can produce partial crates at any point.
 
-### 4.4 Validator
+### 4.5 Validator
 Runs three-pass SHACL validation via `profiles/validator.py`, which wraps [`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator) — the official RO-Crate validation library. Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY (informational).
 
-### 4.5 MIT & FAIR Assessors
+### 4.6 MIT & FAIR Assessors
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce scores, not pass/fail.
 
-### 4.6 External RO-Crate Packages
+### 4.7 External RO-Crate Packages
 
 This project builds on the existing RO-Crate Python ecosystem rather than reinventing crate assembly, validation, or entity models:
 
@@ -188,11 +196,14 @@ These packages are imported directly — we do not fork or vendor them. Version 
 
 ## 5. The Agent Toolbox
 
-### File Tools
+### File & ARC Tools
+*These are called during session initialization, not by the LLM during the agent loop.*
 ```
 scan_files(path: str) → [FileClassification]
 read_file_sample(path: str, lines: int = 20) → str | None
+scaffold_arc(scanned_files: [FileClassification]) → ARCTree
 ```
+`scaffold_arc` creates the ARC folder tree from the template and sorts scanned files into the correct ARC buckets. Called after `scan_files` and before the agent loop starts.
 
 ### Entity Drafting Tools
 ```
@@ -414,9 +425,9 @@ vitro-crate/
 │   ├── state.py                 CrateState dataclass
 │   ├── engine.py                Agent orchestrator
 │   ├── tools/                   Tool implementations
-│   │   ├── scanner.py, drafters.py, management.py
-│   │   ├── lookups.py, verification.py, builder.py
-│   │   ├── validation.py, mit_assessment.py
+│   │   ├── scanner.py, scaffolder.py, drafters.py
+│   │   ├── management.py, lookups.py, verification.py
+│   │   ├── builder.py, validation.py, mit_assessment.py
 │   │   ├── fair_assessment.py, session.py
 │   ├── readers/                 Input readers
 │   │   ├── metadata_files.py, existing_crate.py

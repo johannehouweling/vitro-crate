@@ -16,7 +16,7 @@ Researchers lack a guided, interactive assistant that can:
 An LLM-agent-assisted builder backend that uses a **toolbox architecture** rather than a rigid pipeline. The agent (LLM) dynamically decides which tools to call based on the current `CrateState` — the single source of truth that tracks every entity, field completion status, validation results, and session progress.
 
 The system:
-1. Scans input (files, conversation, or existing crate), scaffolds an ARC folder structure at the start of the session, and classifies each file into its ARC bucket — binding it to the `LabProcess` it belongs to — while seeding an initial state
+1. Scans input to build a raw file inventory (path, size, mime type, first rows) — no role classification, no ARC sorting, just what's in the input — and seeds an initial state
 2. Drafts entities (Investigation, Study, Assay, MolecularEntity, CellLineSample, LabProcess types, People, Organizations, Publications) using LLM calls backed by verified lookups
 3. Validates continuously against the three-pass SHACL profile — MUST issues block progress, SHOULD/MAY issues guide improvement
 4. Scores MIT coverage (per-module completion percentages) and FAIR maturity (indicator-level pass/fail with DSM level)
@@ -70,8 +70,14 @@ All identifiers are verified against their source. The agent never fabricates. V
 - **MAY** = informational — noted for the user
 - **MIT/FAIR** = scores (not pass/fail) — presented as improvement suggestions
 
+### Fixed Initialization: scan_files
+Before the agent loop starts, one step runs as a hard precondition:
+1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows of CSV/TSV/XLSX). No role classification, no ARC sorting — just a list of what's in the input directory.
+
+This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The ARC folder structure is not scaffolded upfront — it is produced as an output by `arc_writer.py` once entity annotations are complete.
+
 ### Input Readers Are Format-Agnostic
-Each input format (unstructured folder containign research objects (e.g. protocols, sops, publications, raw data, processed data, metadata and other relevant recources to interpret the data), existing crate, directory, conversation) has a dedicated reader that converts to canonical entity state in `CrateState`. The core agent loop never touches input formats directly.
+Each input format (unstructured folder containing research objects such as protocols, SOPs, publications, raw data, processed data, metadata, and other relevant resources to interpret the data, existing crate, directory, conversation) has a dedicated reader that converts to canonical entity state in `CrateState`. The core agent loop never touches input formats directly.
 
 ### Session Persistence
 State auto-saves to `sessions/<session_id>/` at every milestone. The saved `crate_state.json` plus a partial `ro-crate-metadata.json` allow full session resume. Recovery path: if state is lost, reconstruct from the partial crate.
@@ -93,7 +99,7 @@ The following already exists in the codebase and will be used directly:
 - `mit/invitro_tox.yaml` — Complete MIT YAML (~3900 lines) with `crate_slot` mappings
 - `fair/indicators.yaml` and `fair/dsm_indicators.yaml` — FAIR maturity indicators
 - `arc/` — ARC template specification and template files
-- `input/raw/` — Example zip folders instrucutred search output with various file types and metadata, underlying one or more assays
+- `input/raw/` — Example zip folders (S-VHPS21.zip, S-VHPS22.zip, S-VHPS26.zip) containing search output with various file types and metadata across one or more assays
 
 ## Testing Decisions
 
