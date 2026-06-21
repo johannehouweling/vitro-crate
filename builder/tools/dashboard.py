@@ -208,7 +208,7 @@ def _build_token_table(
         "[dim]Cumulative[/dim]",
         str(total_in),
         str(total_out),
-        str(total_in + total_out),
+        str(int(total_in) + int(total_out)),
     )
 
     if last_request:
