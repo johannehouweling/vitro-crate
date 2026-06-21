@@ -129,7 +129,7 @@ class AgentEngine:
             result = tool_fn(**tool_kwargs)
             # Auto-store scan results in state, and register the scanned
             # path as an approved root if none were set yet.
-            if tool_name == "scan_files":
+            if tool_name == "scan_files" and isinstance(result, list):
                 self.state.scanned_files = result
                 if not self.state.approved_scan_roots:
                     resolved = Path(kwargs.get("path", "")).resolve()

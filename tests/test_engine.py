@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+
 from builder.engine import AgentEngine
 from builder.state import CrateState
 
@@ -109,7 +112,6 @@ class TestAgentEngine:
         """run_tool can call read_multiple_files via the engine."""
         engine = AgentEngine()
         engine.initialize()
-        import tempfile, os
         a = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
         a.write("hello\nworld\n")
         a.close()
@@ -126,3 +128,18 @@ class TestAgentEngine:
         finally:
             os.unlink(a.name)
             os.unlink(b.name)
+
+    def test_scan_files_non_list_result_does_not_overwrite_state(self, monkeypatch):
+        """run_tool preserves scanned_files if scan_files returns a non-list."""
+        engine = AgentEngine()
+        engine.state.scanned_files = ["existing"]
+
+        def fake_scan_files(**kwargs):
+            return None
+
+        monkeypatch.setattr("builder.tools.scanner.scan_files", fake_scan_files)
+
+        result = engine.run_tool("scan_files", path="/tmp/does-not-matter")
+
+        assert result is None
+        assert engine.state.scanned_files == ["existing"]
