@@ -273,8 +273,18 @@ class TestBuildLangchainTools:
         assert len(entities) == 1
         assert entities[0].fields.get("name") == "Test Investigation"
         assert entities[0].type == "Investigation"
+class _FakeSpinner:
+    """Records set_tool calls for callback tests."""
+
+    def __init__(self):
+        self.tools: list = []
+
+    def set_tool(self, name) -> None:
+        self.tools.append(name)
+
+
 class TestToolSpinnerCallback:
-    """Tests for the _ToolSpinnerCallback that shows tool calls behind the spinner."""
+    """The callback forwards the active tool name to the spinner."""
 
     def test_is_base_callback_handler(self):
         """_ToolSpinnerCallback is a subclass of BaseCallbackHandler."""
@@ -283,99 +293,55 @@ class TestToolSpinnerCallback:
 
         assert issubclass(_ToolSpinnerCallback, BaseCallbackHandler)
 
-    def test_on_tool_start_appends_to_base_text(self):
-        """on_tool_start preserves base_text and appends tool info."""
+    def test_on_tool_start_sets_tool_name(self):
+        """on_tool_start tells the spinner which tool is running."""
         from builder.agents.agent_loop import _ToolSpinnerCallback
 
-        class FakeStatus:
-            def __init__(self):
-                self.last_text = ""
-                self.base_text = ""
+        spinner = _FakeSpinner()
+        _ToolSpinnerCallback(spinner).on_tool_start({"name": "scan_files"}, "/data")
 
-            def update(self, text: str) -> None:
-                self.last_text = text
+        assert spinner.tools == ["scan_files"]
 
-        status = FakeStatus()
-        status.base_text = "[yellow]intoxicating...[/yellow]"
-        cb = _ToolSpinnerCallback(status)
-
-        cb.on_tool_start({"name": "scan_files"}, "/data")
-
-        assert "intoxicating" in status.last_text
-        assert "scan_files" in status.last_text
-        assert "/data" in status.last_text
-
-    def test_on_tool_start_truncates_long_args(self):
-        """on_tool_start truncates arguments longer than 80 characters."""
+    def test_on_tool_start_defaults_when_unnamed(self):
+        """A tool with no name falls back to a generic label."""
         from builder.agents.agent_loop import _ToolSpinnerCallback
 
-        class FakeStatus:
-            def __init__(self):
-                self.last_text = ""
-                self.base_text = ""
+        spinner = _FakeSpinner()
+        _ToolSpinnerCallback(spinner).on_tool_start({}, "")
 
-            def update(self, text: str) -> None:
-                self.last_text = text
+        assert spinner.tools == ["tool"]
 
-        status = FakeStatus()
-        status.base_text = "[yellow]intoxicating...[/yellow]"
-        cb = _ToolSpinnerCallback(status)
-
-        long_args = "x" * 200
-        cb.on_tool_start({"name": "lookup_compound"}, long_args)
-
-        # The rendered text should be shorter than the full 200-char args
-        # because we truncate the args portion to 77 chars + "..."
-        assert len(status.last_text) < 200
-        # The base text is preserved
-        assert "intoxicating" in status.last_text
-        # The args content itself should be truncated
-        assert "xxx" in status.last_text  # leading chars present
-        assert "..." in status.last_text  # ellipsis present
-
-    def test_on_tool_start_includes_dim_formatting(self):
-        """on_tool_start uses dim style for the arguments portion."""
+    def test_on_tool_end_clears_tool(self):
+        """on_tool_end clears the active tool (back to the thinking phrase)."""
         from builder.agents.agent_loop import _ToolSpinnerCallback
 
-        class FakeStatus:
-            def __init__(self):
-                self.last_text = ""
-                self.base_text = ""
+        spinner = _FakeSpinner()
+        cb = _ToolSpinnerCallback(spinner)
+        cb.on_tool_start({"name": "lookup_compound"}, "aspirin")
+        cb.on_tool_end("result")
 
-            def update(self, text: str) -> None:
-                self.last_text = text
+        assert spinner.tools == ["lookup_compound", None]
 
-        status = FakeStatus()
-        status.base_text = "[yellow]intoxicating...[/yellow]"
-        cb = _ToolSpinnerCallback(status)
 
-        cb.on_tool_start({"name": "draft_investigation"}, "hints={'title': 'test'}")
+class TestThinkingSpinner:
+    """The spinner renders the phrase, elapsed seconds, and active tool."""
 
-        # The tool name is in yellow markup, args in dim markup
-        assert "[yellow]" in status.last_text
-        assert "[/yellow]" in status.last_text
-        assert "[dim]" in status.last_text
-        assert "[/dim]" in status.last_text
+    def test_render_includes_phrase_and_elapsed(self):
+        from builder.agents.agent_loop import _ThinkingSpinner
+        from rich.console import Console
 
-    def test_handles_empty_args(self):
-        """on_tool_start handles empty input_str gracefully."""
-        from builder.agents.agent_loop import _ToolSpinnerCallback
+        sp = _ThinkingSpinner(Console(), "intoxicating")
+        text = sp._render()
+        assert "intoxicating" in text
+        assert "s)" in text  # elapsed seconds, e.g. "(0s)"
 
-        class FakeStatus:
-            def __init__(self):
-                self.last_text = ""
-                self.base_text = ""
+    def test_render_includes_tool_when_set(self):
+        from builder.agents.agent_loop import _ThinkingSpinner
+        from rich.console import Console
 
-            def update(self, text: str) -> None:
-                self.last_text = text
-
-        status = FakeStatus()
-        status.base_text = "[yellow]intoxicating...[/yellow]"
-        cb = _ToolSpinnerCallback(status)
-
-        cb.on_tool_start({"name": "list_entities"}, "")
-
-        assert "list_entities" in status.last_text
+        sp = _ThinkingSpinner(Console(), "intoxicating")
+        sp._tool = "scan_files"
+        assert "scan_files" in sp._render()
 
 
 class TestMainInteractiveFlag:
