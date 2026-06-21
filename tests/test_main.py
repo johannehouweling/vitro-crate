@@ -87,3 +87,23 @@ class TestMain:
         captured = capsys.readouterr()
         assert "ISA-Tox RO-Crate Builder" in captured.out
         assert result == 0
+
+    def test_dashboard_flag_calls_static_dashboard(self, monkeypatch):
+        """main() with --dashboard calls run_static_dashboard."""
+        called = []
+        import builder.tools.dashboard as d
+        monkeypatch.setattr(d, "run_static_dashboard",
+                            lambda *a, **kw: called.append(kw.get("session_id")))
+        result = main(["--dashboard"])
+        assert result == 0
+        assert called == [None]  # no session specified
+
+    def test_dashboard_flag_with_session(self, monkeypatch):
+        """main() with --dashboard and --resume passes session id to dashboard."""
+        called = []
+        import builder.tools.dashboard as d
+        monkeypatch.setattr(d, "run_static_dashboard",
+                            lambda *a, **kw: called.append(kw.get("session_id")))
+        result = main(["--dashboard", "--resume", "test_session"])
+        assert result == 0
+        assert called == ["test_session"]
