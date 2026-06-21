@@ -67,6 +67,45 @@ class TestBuildAgentGraph:
         assert "model" in node_names, f"Expected 'model' node, got {node_names}"
         assert "tools" in node_names, f"Expected 'tools' node, got {node_names}"
 
+    def test_tools_are_bound_to_model(self):
+        """The model MUST be given the tool schemas via bind_tools.
+
+        Regression guard for the #71 StateGraph migration: call_model invoked
+        a RAW, unbound llm, so with a real provider the model was never told
+        the tools exist, could never emit tool_calls, should_continue always
+        routed to END, and the agent silently degraded to a text-only chatbot
+        that narrates 'let me scan...' forever but never executes a tool.
+        """
+        from unittest.mock import MagicMock
+
+        from langchain_core.messages import AIMessage, HumanMessage
+        from langchain_core.tools import tool as langchain_tool
+
+        from builder.agents.agent_loop import _build_agent_graph
+
+        @langchain_tool
+        def dummy_tool(query: str) -> str:
+            """A dummy tool for testing."""
+            return f"result: {query}"
+
+        bound = MagicMock()
+        bound.invoke.return_value = AIMessage(content="ok")
+        mock_llm = MagicMock()
+        mock_llm.bind_tools.return_value = bound
+
+        app = _build_agent_graph(mock_llm, [dummy_tool])
+        app.invoke(
+            {"messages": [HumanMessage(content="hi")]},
+            {"configurable": {"thread_id": "bind-test-001"}},
+        )
+
+        # The tools must have been bound to the model...
+        mock_llm.bind_tools.assert_called_once()
+        bound_tools = mock_llm.bind_tools.call_args.args[0]
+        assert dummy_tool in bound_tools
+        # ...and the BOUND model (not the raw llm) must be the one invoked.
+        bound.invoke.assert_called()
+
     def test_should_continue_routes_to_tools_when_tool_calls_present(self):
         """should_continue returns 'tools' when last message has tool_calls."""
         from unittest.mock import MagicMock
