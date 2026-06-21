@@ -20,6 +20,68 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# ---------------------------------------------------------------------------
+# rocrate-validator compatibilty shim  (#57)
+# ---------------------------------------------------------------------------
+# The upstream get_config_path() resolves ../../pyproject.toml from the
+# rocrate_validator/utils/ directory, which in a pip/uv install lands at
+# site-packages/pyproject.toml (some other package's config).  That file
+# has no [tool.poetry] key, so get_version() raises KeyError on import.
+#
+# We paper this over by seeding sys.modules with a patched versioning
+# module *before* any rocrate_validator import triggers __init__.py's
+# ``__version__ = get_version()`` call.  The patched get_version returns
+# the version string from the package's own dist-info/METADATA so the
+# [tool][poetry] lookup is never reached.
+import sys as _sys
+import importlib.metadata as _metadata
+
+_rv_ver = _metadata.version("roc-validator")
+
+
+class _PatchedVersioning:
+    """Drop-in stand-in for rocrate_validator.utils.versioning."""
+    @staticmethod
+    def get_version() -> str:
+        return _rv_ver
+
+    @staticmethod
+    def get_min_python_version():
+        return (3, 9)
+
+    @staticmethod
+    def check_python_version() -> bool:
+        return _sys.version_info >= (3, 9)
+
+
+# Pre-seed so rocrate_validator/__init__.py finds this instead of the real
+# versioning module and never reaches the broken get_config() call.
+_sys.modules["rocrate_validator.utils.versioning"] = _PatchedVersioning  # type: ignore[attr-defined]
+
+import rocrate_validator.utils.config as _rv_config
+import rocrate_validator.utils.versioning as _rv_versioning
+
+# Now that the package is loaded, patch get_config too so any later
+# downstream call to get_version() (e.g. min-python-version checks) works.
+# The real versioning module is now importable (it was deferred), so we
+# read the dist-info version and inject it into the config cache.
+_orig_get_config = _rv_config.get_config
+
+
+def _patched_get_config() -> dict:
+    cfg = _orig_get_config()
+    if "tool" in cfg and "poetry" not in cfg["tool"]:
+        cfg.setdefault("tool", {})["poetry"] = {"version": _rv_ver}
+    return cfg
+
+
+_rv_config.get_config = _patched_get_config
+_rv_config._config = None
+# Restore the real versioning module for correct semantics downstream.
+_sys.modules["rocrate_validator.utils.versioning"] = _rv_versioning
+
+del _rv_config, _rv_versioning, _rv_ver, _sys, _metadata, _PatchedVersioning
+
 from rocrate_validator import models, services
 from rocrate_validator.services import DEFAULT_PROFILES_PATH
 
@@ -78,7 +140,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
     settings = services.ValidationSettings(
         rocrate_uri=crate_dir,  # ty: ignore[unknown-argument]
         profile_identifier="ro-crate-1.1",
-        requirement_severity=models.Severity.REQUIRED,
+        requirement_severity=models.Severity.OPTIONAL,
     )
     result = services.validate(settings)
     results.append(

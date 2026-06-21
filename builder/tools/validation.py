@@ -95,13 +95,13 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
 
         # Non-required issues go to should/may
         for issue in result.issues:
-            if issue.startswith("[REQUIRED]"):
+            if issue.startswith("[Required]"):
                 # Already in required_issues
                 pass
-            elif issue.startswith("[SHOULD]"):
+            elif issue.startswith("[Recommended]"):
                 if issue not in should_issues:
                     should_issues.append(issue)
-            elif issue.startswith("[MAY]"):
+            elif issue.startswith("[Optional]"):
                 if issue not in may_issues:
                     may_issues.append(issue)
 
