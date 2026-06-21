@@ -91,6 +91,65 @@ class TestVerifyIdentifier:
         assert completion2 is not None
         assert completion2.status == "missing"
 
+    def test_transient_failure_keeps_value(self, minimal_state, monkeypatch):
+        """A transient lookup failure must NOT delete the user's value."""
+        state = minimal_state
+        chem = Entity(
+            entity_id="chem_001",
+            type="MolecularEntity",
+            fields={"identifier": "50-00-0"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        chem.set_field_status("identifier", "filled", "llm")
+        state.add_entity(chem)
+
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_compound",
+            lambda query: {
+                "found": False,
+                "data": {},
+                "error": "PubChem temporarily unavailable (transient): timeout",
+                "transient": True,
+            },
+        )
+
+        result = verify_identifier(state, "chem_001", "identifier")
+
+        assert result["verified"] is False
+        # Value is preserved (NOT cleared) on a transient failure.
+        assert chem.fields["identifier"] == "50-00-0"
+        status = chem.get_field_status("identifier")
+        assert status is not None
+        assert status.status != "missing"
+
+    def test_transient_orcid_not_verified_and_kept(self, minimal_state, monkeypatch):
+        """A transient ORCID error is neither verified nor cleared (no false +)."""
+        state = minimal_state
+        person = Entity(
+            entity_id="p_001",
+            type="Person",
+            fields={"identifier": "0000-0001-6004-8653"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        person.set_field_status("identifier", "filled", "llm")
+        state.add_entity(person)
+
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_orcid",
+            lambda query: {
+                "found": False,
+                "data": {},
+                "error": "ORCID temporarily unavailable (transient): timeout",
+                "transient": True,
+            },
+        )
+
+        result = verify_identifier(state, "p_001", "identifier")
+
+        assert result["verified"] is False
+        assert person.fields["identifier"] == "0000-0001-6004-8653"
+        assert person.get_field_status("identifier").status != "missing"
+
 
 class TestVerifyAllIdentifiers:
     """Tests for the verify_all_identifiers function."""

@@ -88,6 +88,22 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
             "suggested_fix": None,
         }
 
+    # Transient lookup failure (timeout / 429 / 5xx): the source could not be
+    # reached, which is NOT evidence the identifier is wrong. Keep the user's
+    # value intact (status stays "filled") instead of destroying it.
+    if result.get("transient"):
+        return {
+            "verified": False,
+            "entity_id": entity_id,
+            "field": field,
+            "message": (
+                f"{field} for {entity.type} could not be verified right now — "
+                f"{lookup_name or 'the source'} is temporarily unavailable; "
+                "value kept."
+            ),
+            "suggested_fix": "Retry verification later.",
+        }
+
     entity.fields.pop(field, None)
     entity.set_field_status(field, "missing", "lookup")
     return {
