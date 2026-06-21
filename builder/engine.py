@@ -10,9 +10,12 @@ import inspect
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from builder.state import CrateState
+
+if TYPE_CHECKING:
+    from builder.tools.hitl import HumanInterface
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +30,24 @@ class AgentEngine:
 
     _registry: dict[str, Any] = {}
 
-    def __init__(self, state: CrateState | None = None):
-        """Initialize the engine with an optional existing state."""
+    def __init__(
+        self,
+        state: CrateState | None = None,
+        human_interface: HumanInterface | None = None,
+    ):
+        """Initialize the engine with optional state and HITL interface.
+
+        Args:
+            state: Existing CrateState to resume, or None for a fresh state.
+            human_interface: Adapter for human-in-the-loop interaction;
+                defaults to a non-interactive ``SimulatedHumanInterface``.
+        """
         self.state = state or CrateState()
+        if human_interface is None:
+            from builder.tools.hitl import SimulatedHumanInterface
+
+            human_interface = SimulatedHumanInterface()
+        self.human_interface = human_interface
         self._running = False
 
     # ------------------------------------------------------------------
@@ -116,7 +134,15 @@ class AgentEngine:
         except ImportError:
             pass
 
-        if tool_name in scanner_tools:
+        if tool_name == "present_to_human":
+            result = self.human_interface.present(
+                kwargs.get("context", ""), kwargs.get("options")
+            )
+        elif tool_name == "request_input":
+            result = self.human_interface.request_input(
+                kwargs.get("prompt", ""), kwargs.get("field_type", "text")
+            )
+        elif tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
             # Inject approved roots for scan_files
             tool_kwargs = dict(kwargs)
