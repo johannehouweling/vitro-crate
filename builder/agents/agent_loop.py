@@ -574,7 +574,8 @@ def run_interactive_agent(
         """
         if not content:
             return
-        console.print("[bold green]❯[/bold green] [dim green]assistant[/dim green]")
+        console.print()  # breathing room above the reply
+        console.print("[green]⏺[/green] [dim]assistant[/dim]")
         try:
             console.print(Padding(Markdown(content), (0, 0, 1, 2)))
         except Exception:
@@ -594,15 +595,19 @@ def run_interactive_agent(
         def _dot(ok: bool) -> str:
             return "[green]●[/green]" if ok else "[grey50]○[/grey50]"
 
+        sep = "[grey42]·[/grey42]"
         status = (
-            f"[dim]{engine.state.session_id}[/dim]   "
-            f"entities [cyan]{ec}[/cyan]   "
-            f"files [cyan]{fc}[/cyan]   "
-            f"{_dot(val.base_passed)} base  "
-            f"{_dot(val.isa_passed)} ISA  "
-            f"{_dot(val.tox_passed)} Tox"
+            f"[dim]{engine.state.session_id}[/dim]  {sep}  "
+            f"[dim]{ec} entities[/dim]  {sep}  "
+            f"[dim]{fc} files[/dim]  {sep}  "
+            f"{_dot(val.base_passed)} [dim]base[/dim]  "
+            f"{_dot(val.isa_passed)} [dim]ISA[/dim]  "
+            f"{_dot(val.tox_passed)} [dim]Tox[/dim]"
         )
-        console.rule(status, style="grey50", align="left")
+        # A dim, indented status line with breathing room above — lighter
+        # than a full-width rule, closer to the Claude Code aesthetic.
+        console.print()
+        console.print(Padding(status, (0, 0, 0, 1)))
 
     # ── Resume summary vs fresh greeting ────────────────────────────────
     entity_count = len(engine.state.list_entities())
