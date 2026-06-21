@@ -6,7 +6,6 @@ It coordinates tool calls, validation, HITL checkpoints, and session persistence
 
 from __future__ import annotations
 
-import inspect
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +15,7 @@ from builder.state import CrateState
 
 if TYPE_CHECKING:
     from builder.tools.hitl import HumanInterface
+    from builder.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class AgentEngine:
     session persistence.
     """
 
-    _registry: dict[str, Any] = {}
+    _registry: ToolRegistry | None = None
 
     def __init__(
         self,
@@ -83,29 +83,29 @@ class AgentEngine:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _build_registry(cls) -> dict[str, Any]:
-        """Build the tool registry by importing all tool functions."""
-        if cls._registry:
+    def _build_registry(cls) -> ToolRegistry:
+        """Return the shared ToolRegistry of explicitly registered tools.
+
+        Importing each tool module triggers its bottom-of-file
+        ``TOOL_REGISTRY.register(...)`` calls; imports are idempotent so this
+        is cached after the first call.
+        """
+        if cls._registry is not None:
             return cls._registry
 
-        import builder.tools.management as mgmt
-        import builder.tools.drafters as draft
-        import builder.tools.lookups as lookups
-        import builder.tools.verification as verify
-        import builder.tools.builder as builder_mod
-        import builder.tools.validation as val_mod
-        import builder.tools.mit_assessment as mit
-        import builder.tools.fair_assessment as fair
-        import builder.tools.session as session_mod
+        import builder.tools.builder  # noqa: F401
+        import builder.tools.drafters  # noqa: F401
+        import builder.tools.fair_assessment  # noqa: F401
+        import builder.tools.lookups  # noqa: F401
+        import builder.tools.management  # noqa: F401
+        import builder.tools.mit_assessment  # noqa: F401
+        import builder.tools.session  # noqa: F401
+        import builder.tools.validation  # noqa: F401
+        import builder.tools.verification  # noqa: F401
+        from builder.tools.registry import TOOL_REGISTRY
 
-        registry: dict[str, Any] = {}
-        for module in [mgmt, draft, lookups, verify, builder_mod, val_mod, mit, fair, session_mod]:
-            for name in dir(module):
-                obj = getattr(module, name)
-                if callable(obj) and not name.startswith("_"):
-                    registry[name] = obj
-        cls._registry = registry
-        return registry
+        cls._registry = TOOL_REGISTRY
+        return TOOL_REGISTRY
 
     # ------------------------------------------------------------------
     # Tool execution
@@ -166,16 +166,13 @@ class AgentEngine:
                 )
         else:
             registry = self._build_registry()
-            if tool_name not in registry:
+            spec = registry.get_spec(tool_name)
+            if spec is None:
                 raise ValueError(f"Unknown tool: {tool_name!r}")
-            tool_fn = registry[tool_name]
-
-            sig = inspect.signature(tool_fn)
-            params = list(sig.parameters.keys())
-            if params and params[0] == "state":
-                result = tool_fn(self.state, **kwargs)
+            if spec.takes_state:
+                result = spec.fn(self.state, **kwargs)
             else:
-                result = tool_fn(**kwargs)
+                result = spec.fn(**kwargs)
 
         self.state.iteration_count += 1
         self.state.log_reasoning(
@@ -196,7 +193,8 @@ class AgentEngine:
             Sorted list of all registered tool names.
         """
         registry = self._build_registry()
-        return sorted(set(list(registry.keys()) + ["scan_files", "read_file_sample", "preview_archive"]))
+        extra = ["scan_files", "read_file_sample", "preview_archive"]
+        return sorted(set(registry.list() + extra))
 
     @property
     def is_stuck(self) -> bool:

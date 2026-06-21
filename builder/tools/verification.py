@@ -136,3 +136,14 @@ def verify_all_identifiers(state: CrateState) -> list[dict]:
                 results.append(result)
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("verify_identifier", verify_identifier, takes_state=True)
+TOOL_REGISTRY.register(
+    "verify_all_identifiers", verify_all_identifiers, takes_state=True
+)

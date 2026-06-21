@@ -204,3 +204,15 @@ def save_session(state: CrateState, label: str = "") -> dict:
         "path": str(session_path),
         "error": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("get_status", get_status, takes_state=True)
+TOOL_REGISTRY.register("get_hint", get_hint, takes_state=True)
+TOOL_REGISTRY.register("save_session", save_session, takes_state=True)
+TOOL_REGISTRY.register("list_sessions", list_sessions, takes_state=False)
+TOOL_REGISTRY.register("load_session", load_session, takes_state=False)

@@ -113,3 +113,11 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
         should_issues=should_issues,
         may_issues=may_issues,
     )
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("validate", validate, takes_state=True)
