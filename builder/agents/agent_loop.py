@@ -515,15 +515,9 @@ def run_interactive_agent(
     from rich.console import Console
     from rich.panel import Panel
     from rich.markdown import Markdown
-    
-    from rich.layout import Layout
+    from rich.padding import Padding
 
     console = Console()
-    layout = Layout()
-    layout.split_column(
-        Layout(name="header", size=5),
-        Layout(name="body"),
-    )
 
     provider_name = provider or _detect_provider()
 
@@ -547,14 +541,42 @@ def run_interactive_agent(
         return ""
 
     def _print_reply(content: str) -> None:
-        """Print an agent reply with Rich markdown rendering."""
+        """Print an agent reply: a slim marker plus left-indented markdown.
+
+        Lighter than a full-width bordered panel so short answers don't get
+        a big box; markdown is indented two spaces under a green marker.
+        """
         if not content:
             return
+        console.print("[bold green]❯[/bold green] [dim green]assistant[/dim green]")
         try:
-            md = Markdown(content)
-            console.print(Panel(md, border_style="green"))
+            console.print(Padding(Markdown(content), (0, 0, 1, 2)))
         except Exception:
-            console.print(f"[green]{content}[/green]")
+            console.print(Padding(content, (0, 0, 1, 2)))
+
+    def _render_header() -> None:
+        """Print a compact one-line status header before each user prompt.
+
+        Re-rendered each turn (a recurring header rule rather than a pinned
+        bar, which would conflict with ``console.input``/``console.status``).
+        Shows session id, entity/file counts, and validation state.
+        """
+        ec = len(engine.state.list_entities())
+        fc = len(engine.state.scanned_files)
+        val = engine.state.validation
+
+        def _dot(ok: bool) -> str:
+            return "[green]●[/green]" if ok else "[grey50]○[/grey50]"
+
+        status = (
+            f"[dim]{engine.state.session_id}[/dim]   "
+            f"entities [cyan]{ec}[/cyan]   "
+            f"files [cyan]{fc}[/cyan]   "
+            f"{_dot(val.base_passed)} base  "
+            f"{_dot(val.isa_passed)} ISA  "
+            f"{_dot(val.tox_passed)} Tox"
+        )
+        console.rule(status, style="grey50", align="left")
 
     # ── Resume summary vs fresh greeting ────────────────────────────────
     entity_count = len(engine.state.list_entities())
@@ -728,14 +750,14 @@ def run_interactive_agent(
     # ── Main loop ───────────────────────────────────────────────────────
     while True:
         try:
+            # Compact status header above each prompt (counts live here now,
+            # so the prompt line stays clean).
+            _render_header()
             # Use console.input directly instead of Prompt.ask so we
             # reliably get KeyboardInterrupt on Ctrl+C and EOFError on Ctrl+D.
-            entity_count = len(engine.state.list_entities())
-            prompt_suffix = f"[bold cyan]You[/bold cyan] [dim]({entity_count} entities)[/dim]"
-            user_input = console.input(prompt_suffix + " ").strip()
-            if user_input:
-                # Wrap user input in a grey panel
-                console.print(Panel(f"[white]{user_input}[/white]", border_style="grey50"))
+            # console.input already echoes what the user types, so we do not
+            # re-print it (avoids the duplicated input box).
+            user_input = console.input("[bold cyan]❯ You[/bold cyan] ").strip()
         except KeyboardInterrupt:
             # Ctrl+C: clear the line and re-prompt
             console.print()
