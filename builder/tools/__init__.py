@@ -7,7 +7,6 @@ validate the CrateState.
 
 Tool categories:
     - scanner.py: File scanning and classification
-    - scaffolder.py: ARC folder structure scaffolding
     - drafters.py: Entity creation from hints
     - management.py: Entity CRUD operations
     - lookups.py: External API lookups (PubChem, Cellosaurus, etc.)
