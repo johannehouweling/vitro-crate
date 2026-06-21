@@ -115,7 +115,10 @@ class ProfilingLogger:
         if tool is not None:
             record["tool"] = tool
         if duration_ms is not None:
-            record["duration_ms"] = round(duration_ms, 1)
+            # Store the unrounded duration so sub-millisecond tool/node timings
+            # survive (rounding to 1 decimal collapsed fast calls to 0.0).
+            # Consumers round at display/analysis time (see docs/profiling.md).
+            record["duration_ms"] = duration_ms
         if iteration is not None:
             record["iteration"] = iteration
         if args is not None:
