@@ -5683,6 +5683,7 @@ dependencies = [
     { name = "rich" },
     { name = "roc-validator" },
     { name = "rocrate" },
+    { name = "watchfiles" },
 ]
 
 [package.optional-dependencies]
@@ -5718,6 +5719,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "roc-validator", specifier = ">=0.10.0" },
     { name = "rocrate", specifier = ">=0.15.0" },
+    { name = "watchfiles", specifier = ">=1.0.0" },
 ]
 provides-extras = ["langchain"]
 

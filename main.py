@@ -175,11 +175,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         return 1
 
-    # Dashboard mode — show profiler dashboard (before engine creation)
+    # Dashboard mode — show live-updating profiler dashboard (before engine creation)
     if args.dashboard:
-        from builder.tools.dashboard import run_static_dashboard
+        from builder.tools.dashboard import run_dashboard
 
-        run_static_dashboard(session_id=args.resume)
+        run_dashboard(session_id=args.resume)
         return 0
 
     # Ensure config is loaded before creating the engine

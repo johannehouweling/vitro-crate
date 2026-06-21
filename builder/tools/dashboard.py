@@ -287,6 +287,9 @@ def run_dashboard(session_id: str | None = None, refresh_interval: float = 2.0) 
 
     If *session_id* is None, uses the most recent session with profile data.
 
+    The display refreshes whenever ``profile.ndjson`` is modified — new tool
+    calls and node events appear in near-real-time.
+
     Press Ctrl+C to exit.
     """
     sessions = list_sessions_available()
@@ -304,24 +307,50 @@ def run_dashboard(session_id: str | None = None, refresh_interval: float = 2.0) 
         target = matches[0]
 
     profile_path = target["profile_path"]
-    from rich.console import Console
-    console = Console()
 
-    def _refresh() -> None:
-        records = read_profile(profile_path)
-        layout = format_session_summary(target["session_id"], records)
-        console.clear()
-        console.print(layout)
-
-    # Initial render
-    _refresh()
-
-    # Live watch loop
-    from watchfiles import watch
     try:
-        for _changes in watch(profile_path.parent, step=refresh_interval):
-            _refresh()
+        _run_live_dashboard(profile_path, target["session_id"], refresh_interval)
     except KeyboardInterrupt:
         pass
     finally:
         print("\nDashboard closed.")
+
+
+def _run_live_dashboard(
+    profile_path: Path,
+    session_id: str,
+    refresh_interval: float,
+) -> None:
+    """Inner live-dashboard loop with Rich ``Live`` display and file-watching."""
+    from rich.live import Live
+    from rich.console import Console
+
+    console = Console()
+    last_mtime: float = 0.0
+
+    def _build() -> Layout:
+        nonlocal last_mtime
+        # Re-read only if the file has changed (avoid pointless I/O)
+        try:
+            current_mtime = profile_path.stat().st_mtime
+        except OSError:
+            current_mtime = last_mtime
+        records = read_profile(profile_path) if current_mtime != last_mtime else []
+        last_mtime = current_mtime
+        return format_session_summary(session_id, records)
+
+    try:
+        from watchfiles import watch
+    except ImportError:
+        logger.warning(
+            "watchfiles not installed — dashboard will show a static snapshot. "
+            "Install with: uv add watchfiles"
+        )
+        console.print(_build())
+        return
+
+    with Live(_build(), console=console, refresh_per_second=1 / refresh_interval, screen=False) as live:
+        # watchfiles step is in milliseconds; convert from our seconds-based interval
+        step_ms = int(refresh_interval * 1000)
+        for _changes in watch(profile_path, step=step_ms):
+            live.update(_build())
