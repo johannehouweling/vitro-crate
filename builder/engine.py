@@ -129,7 +129,7 @@ class AgentEngine:
             result = tool_fn(**tool_kwargs)
             # Auto-store scan results in state, and register the scanned
             # path as an approved root if none were set yet.
-            if tool_name == "scan_files":
+            if tool_name == "scan_files" and isinstance(result, list):
                 self.state.scanned_files = result
                 if not self.state.approved_scan_roots:
                     resolved = Path(kwargs.get("path", "")).resolve()
@@ -179,12 +179,11 @@ class AgentEngine:
         Returns True if the stuck flag is set or if the iteration count
         has reached the maximum allowed.
         """
-        return self.state.stuck or self.state.iteration_count >= self.state.max_iterations
+        return self.state.is_stuck()
 
     def mark_stuck(self, reason: str) -> None:
         """Mark the current session as stuck with a reason."""
-        self.state.stuck = True
-        self.state.log_reasoning("mark_stuck", "system", reason)
+        self.state.mark_stuck(reason)
         logger.warning("Agent stuck: %s", reason)
 
     def get_status(self) -> dict:
