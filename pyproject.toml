@@ -32,12 +32,6 @@ dev = [
     "responses>=0.25.0",
     "ipykernel>=7.3.0",
     "nbformat>=5.10.4",
-    # Agent stack — required so the default `uv run` (and `uv run pytest`) can
-    # import builder.agents.agent_loop (LangChain providers + LangGraph graph).
-    "langchain>=0.3.0",
-    "langchain-openai>=0.3.0",
-    "langchain-anthropic>=0.3.0",
-    "langgraph>=0.2.0",
 ]
 
 [tool.ruff.lint]
