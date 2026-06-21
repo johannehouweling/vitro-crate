@@ -13,7 +13,7 @@ import re
 import time
 from urllib.parse import quote
 
-import requests
+from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name"
 _CAS_PATTERN = re.compile(r"^\d{2,7}-\d{2}-\d$")
@@ -24,15 +24,17 @@ def lookup_pubchem(name: str) -> dict:
     """Fetch chemical identifiers from PubChem by compound name.
 
     Returns a dict with keys: cas, smiles, inchikey, inchi, formula, mass,
-    iupac_name, pubchem_cid. Returns an empty dict if the compound is not found
-    or the request fails.
+    iupac_name, pubchem_cid. Returns an empty dict if the compound is not
+    found. Raises TransientLookupError if the compound request fails
+    transiently (timeout / connection / 429 / 5xx); the synonyms request is
+    best-effort and never fatal.
     """
     try:
-        r = requests.get(f"{_BASE}/{quote(name)}/JSON", timeout=10)
-        if r.status_code != 200:
+        compound_data = http_get_json(f"{_BASE}/{quote(name)}/JSON")
+        if compound_data is NOT_FOUND:
             return {}
 
-        compound = r.json()["PC_Compounds"][0]
+        compound = compound_data["PC_Compounds"][0]
         cid = str(compound["id"]["id"]["cid"])
 
         props: dict = {}
@@ -59,20 +61,23 @@ def lookup_pubchem(name: str) -> dict:
                 else:
                     props.setdefault("iupac_name", val.get("sval", ""))
 
-        # CAS numbers appear in the synonyms list
+        # CAS numbers appear in the synonyms list. This is best-effort
+        # enrichment: a transient/absent synonyms response must not lose the
+        # compound we already resolved.
         time.sleep(0.2)  # stay under rate limit
-        sr = requests.get(
-            f"{_BASE}/{quote(name)}/synonyms/JSON", timeout=10
-        )
         cas = ""
-        if sr.status_code == 200:
-            synonyms = (
-                sr.json()
-                .get("InformationList", {})
-                .get("Information", [{}])[0]
-                .get("Synonym", [])
-            )
-            cas = next((s for s in synonyms if _CAS_PATTERN.match(s)), "")
+        try:
+            syn_data = http_get_json(f"{_BASE}/{quote(name)}/synonyms/JSON")
+            if syn_data is not NOT_FOUND:
+                synonyms = (
+                    syn_data
+                    .get("InformationList", {})
+                    .get("Information", [{}])[0]
+                    .get("Synonym", [])
+                )
+                cas = next((s for s in synonyms if _CAS_PATTERN.match(s)), "")
+        except TransientLookupError:
+            pass  # synonyms are optional; keep the compound result
 
         return {
             "cas": cas,
@@ -85,5 +90,7 @@ def lookup_pubchem(name: str) -> dict:
             "pubchem_cid": cid,
         }
 
+    except TransientLookupError:
+        raise
     except Exception:
         return {}

@@ -16,6 +16,7 @@ import pytest
 import responses
 from requests.exceptions import ConnectionError, Timeout
 
+from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop
 from lookups.bao import lookup_bao_term
 from lookups.cellosaurus import lookup_cellosaurus
@@ -103,8 +104,8 @@ class TestPubChemContract:
             body=Timeout("Connection timed out"),
         )
 
-        result = lookup_pubchem("taxifolin")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            lookup_pubchem("taxifolin")
 
     @responses.activate
     def test_malformed_json_returns_empty(self):
@@ -117,8 +118,8 @@ class TestPubChemContract:
             content_type="application/json",
         )
 
-        result = lookup_pubchem("taxifolin")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            lookup_pubchem("taxifolin")
 
     @responses.activate
     def test_missing_synonyms_still_returns_compound(self):
@@ -200,8 +201,8 @@ class TestCellosaurusContract:
             body=Timeout("timed out"),
         )
 
-        result = lookup_cellosaurus("CVCL_0027")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            lookup_cellosaurus("CVCL_0027")
 
     @responses.activate
     def test_minimal_response_no_optional_fields(self):
@@ -305,8 +306,8 @@ class TestAOPWikiContract:
             body=ConnectionError("Connection refused"),
         )
 
-        result = lookup_aop("610")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            lookup_aop("610")
 
     @responses.activate
     def test_empty_events_still_returns_aop(self):
@@ -389,8 +390,8 @@ class TestBAOContract:
             body=Timeout("timed out"),
         )
 
-        result = lookup_bao_term("cell viability")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            lookup_bao_term("cell viability")
 
     @responses.activate
     def test_missing_iri_returns_empty(self):
@@ -445,9 +446,7 @@ class TestORCIDContract:
         )
 
         result = lookup_orcid("0000-0000-0000-0000")
-        assert result["@id"] == "https://orcid.org/0000-0000-0000-0000"
-        assert result["@type"] == "Person"
-        assert "givenName" not in result
+        assert result == {}
 
     @responses.activate
     def test_timeout_returns_fallback(self):
@@ -458,9 +457,8 @@ class TestORCIDContract:
             body=Timeout("timed out"),
         )
 
-        result = lookup_orcid("0000-0001-6004-8653")
-        assert result["@id"] == "https://orcid.org/0000-0001-6004-8653"
-        assert result["@type"] == "Person"
+        with pytest.raises(TransientLookupError):
+            lookup_orcid("0000-0001-6004-8653")
 
     @responses.activate
     def test_no_affiliation(self):
@@ -540,8 +538,8 @@ class TestRORContract:
             body=Timeout("timed out"),
         )
 
-        result = search_ror("Maastricht University")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            search_ror("Maastricht University")
 
     @responses.activate
     def test_server_error_returns_empty(self):
@@ -552,8 +550,8 @@ class TestRORContract:
             status=500,
         )
 
-        result = search_ror("Maastricht University")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            search_ror("Maastricht University")
 
 
 # ===========================================================================
@@ -620,8 +618,8 @@ class TestCrossrefContract:
             body=Timeout("timed out"),
         )
 
-        result = lookup_doi("10.1016/j.tox.2021.152898")
-        assert result == {}
+        with pytest.raises(TransientLookupError):
+            lookup_doi("10.1016/j.tox.2021.152898")
 
     @responses.activate
     def test_empty_title_and_authors(self):

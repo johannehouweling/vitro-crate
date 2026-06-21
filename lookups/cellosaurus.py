@@ -14,7 +14,7 @@ from __future__ import annotations
 import functools
 import time
 
-import requests
+from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://api.cellosaurus.org/cell-line"
 
@@ -45,11 +45,9 @@ def lookup_cellosaurus(accession: str) -> dict:
     """
     try:
         time.sleep(0.1)
-        r = requests.get(f"{_BASE}/{accession}?format=json", timeout=10)
-        if r.status_code != 200:
+        data = http_get_json(f"{_BASE}/{accession}?format=json")
+        if data is NOT_FOUND:
             return {}
-
-        data = r.json()
         # API wraps result: {"Cellosaurus": {"cell-line-list": [...]}}
         if "Cellosaurus" in data:
             cell_lines = data["Cellosaurus"].get("cell-line-list", [])
@@ -119,5 +117,7 @@ def lookup_cellosaurus(accession: str) -> dict:
 
         return result
 
+    except TransientLookupError:
+        raise
     except Exception:
         return {}

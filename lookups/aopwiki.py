@@ -13,7 +13,7 @@ from __future__ import annotations
 import functools
 import time
 
-import requests
+from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://aopwiki.org"
 
@@ -42,10 +42,9 @@ def _event_details(event_id: str) -> dict:
     """
     try:
         time.sleep(0.1)
-        r = requests.get(f"{_event_url(event_id)}.json", timeout=10)
-        if r.status_code != 200:
+        d = http_get_json(f"{_event_url(event_id)}.json")
+        if d is NOT_FOUND:
             return {}
-        d = r.json()
         out: dict = {}
         if d.get("short_name"):
             out["short_name"] = d["short_name"]
@@ -78,10 +77,9 @@ def lookup_aop(aop_id: str) -> dict:
     aop_url = f"{_BASE}/aops/{aop_id}"
     try:
         time.sleep(0.1)
-        r = requests.get(f"{aop_url}.json", timeout=15)
-        if r.status_code != 200:
+        data = http_get_json(f"{aop_url}.json", timeout=15)
+        if data is NOT_FOUND:
             return {}
-        data = r.json()
         # AOP-Wiki JSON may nest the payload under an "aop" key.
         if isinstance(data, dict) and "aop" in data:
             data = data["aop"]
@@ -159,5 +157,7 @@ def lookup_aop(aop_id: str) -> dict:
             aop["has_key_event_relationship"] = kers
 
         return {"aop": aop, "events": events, "relationships": relationships}
+    except TransientLookupError:
+        raise
     except Exception:
         return {}

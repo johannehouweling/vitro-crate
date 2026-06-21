@@ -10,7 +10,7 @@ from __future__ import annotations
 import functools
 import time
 
-import requests
+from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://pub.orcid.org/v3.0"
 _HEADERS = {"Accept": "application/json"}
@@ -27,21 +27,17 @@ def lookup_orcid(orcid_id: str) -> dict:
         dict with keys: @id, @type, identifier, name, givenName, familyName,
         affiliation_name (str), affiliation_ror (str, may be ""). The caller
         is responsible for creating an Organization entity from these fields.
-        On API failure returns a minimal dict with just @id and identifier.
+        Returns {} when the iD is not found. Raises TransientLookupError on a
+        transient API failure (timeout / connection / 429 / 5xx) so a momentary
+        outage is never mistaken for a resolved (or unresolvable) record.
     """
     orcid_url = f"https://orcid.org/{orcid_id}"
-    fallback = {
-        "@id": orcid_url,
-        "@type": "Person",
-        "identifier": orcid_url,
-    }
     try:
         time.sleep(0.1)
-        r = requests.get(f"{_BASE}/{orcid_id}/record", headers=_HEADERS, timeout=10)
-        if r.status_code != 200:
-            return fallback
+        data = http_get_json(f"{_BASE}/{orcid_id}/record", headers=_HEADERS)
+        if data is NOT_FOUND:
+            return {}
 
-        data = r.json()
         person = data.get("person", {})
         name_block = person.get("name") or {}
         given = (name_block.get("given-names") or {}).get("value", "")
@@ -78,5 +74,7 @@ def lookup_orcid(orcid_id: str) -> dict:
             "affiliation_name": affiliation_name,
             "affiliation_ror": affiliation_ror,
         }
+    except TransientLookupError:
+        raise
     except Exception:
-        return fallback
+        return {}

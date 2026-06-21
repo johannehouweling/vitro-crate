@@ -9,7 +9,7 @@ from __future__ import annotations
 import functools
 import time
 
-import requests
+from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://api.crossref.org/works"
 _HEADERS = {"User-Agent": "rocrate-wizard/0.1 (mailto:support@example.com)"}
@@ -26,7 +26,8 @@ def lookup_doi(doi: str) -> dict:
     Returns:
         dict with keys: @id, @type ("ScholarlyArticle"), name, author (list),
         datePublished, url, identifier.
-        Returns {} on failure.
+        Returns {} when the DOI is not found. Raises TransientLookupError on a
+        transient API failure (timeout / connection / 429 / 5xx).
     """
     doi = doi.strip()
     # Strip URL prefix if present
@@ -38,11 +39,11 @@ def lookup_doi(doi: str) -> dict:
     doi_url = f"https://doi.org/{doi}"
     try:
         time.sleep(0.1)
-        r = requests.get(f"{_BASE}/{doi}", headers=_HEADERS, timeout=10)
-        if r.status_code != 200:
+        data = http_get_json(f"{_BASE}/{doi}", headers=_HEADERS)
+        if data is NOT_FOUND:
             return {}
 
-        work = r.json().get("message", {})
+        work = data.get("message", {})
 
         # Title
         titles = work.get("title", [])
@@ -81,5 +82,7 @@ def lookup_doi(doi: str) -> dict:
             "datePublished": year,
             "url": url,
         }
+    except TransientLookupError:
+        raise
     except Exception:
         return {}
