@@ -156,7 +156,7 @@ def _build_node_table(
 
 def _build_token_summary(
     records: list[dict[str, Any]],
-) -> tuple[dict[str, int | float | str | None], dict[str, int | float | str | None] | None]:
+) -> tuple[dict[str, int | str | None], dict[str, int | str | None] | None]:
     """Aggregate token usage from ``node_end`` (model) events.
 
     Returns (totals, last_request) where each is a dict with keys:
@@ -166,7 +166,7 @@ def _build_token_summary(
     model_ends = [r for r in records if r.get("event") == "node_end" and r.get("node") == "model"]
     total_in = 0
     total_out = 0
-    last: dict[str, int | float | str | None] | None = None
+    last: dict[str, int | str | None] | None = None
     for me in model_ends:
         inp = me.get("input_tokens")
         out = me.get("output_tokens")
@@ -190,8 +190,8 @@ def _build_token_summary(
 
 
 def _build_token_table(
-    totals: dict[str, int | float | str | None],
-    last_request: dict[str, int | float | str | None] | None,
+    totals: dict[str, int | str | None],
+    last_request: dict[str, int | str | None] | None,
 ) -> Any:
     """Build a token usage table showing totals and last request."""
     from rich.table import Table

@@ -13,7 +13,7 @@ from builder.agents.tools_spec import TOOL_SPECS
 
 def _tool_names() -> set[str]:
     """Return the set of all tool names registered in TOOL_SPECS."""
-    return {spec["name"] for spec in TOOL_SPECS}
+    return {spec["name"] for spec in TOOL_SPECS}  # ty: ignore
 
 
 # Tool functions that are exported by builder.tools but deliberately omitted

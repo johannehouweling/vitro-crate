@@ -245,13 +245,13 @@ class TestTokenSummary:
 
     def test_build_token_table_renders(self) -> None:
         """_build_token_table produces a Rich Table with correct rows."""
-        totals = {
+        totals: dict[str, int | str | None] = {
             "input_tokens": 100,
             "output_tokens": 50,
             "total_tokens": 150,
             "model_name": "gpt-4o",
         }
-        last_request = {
+        last_request: dict[str, int | str | None] = {
             "input_tokens": 30,
             "output_tokens": 20,
             "total_tokens": 50,
@@ -273,7 +273,7 @@ class TestTokenSummary:
 
     def test_build_token_table_no_last_request(self) -> None:
         """Token table handles missing last request gracefully."""
-        totals = {
+        totals: dict[str, int | str | None] = {
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,

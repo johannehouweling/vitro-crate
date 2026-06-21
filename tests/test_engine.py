@@ -133,7 +133,7 @@ class TestAgentEngine:
     def test_scan_files_non_list_result_does_not_overwrite_state(self, monkeypatch):
         """run_tool preserves scanned_files if scan_files returns a non-list."""
         engine = AgentEngine()
-        engine.state.scanned_files = ["existing"]
+        engine.state.scanned_files = ["existing"]  # ty: ignore
 
         def fake_scan_files(**kwargs):
             return None
@@ -171,7 +171,7 @@ class TestScanApprovedRoots:
     def test_empty_scan_result_does_not_overwrite_state(self, monkeypatch):
         """A denied/empty scan must NOT wipe a populated inventory with zero."""
         engine = AgentEngine()
-        engine.state.scanned_files = ["existing1", "existing2"]
+        engine.state.scanned_files = ["existing1", "existing2"]  # ty: ignore
 
         monkeypatch.setattr("builder.tools.scanner.scan_files", lambda **kw: [])
 
