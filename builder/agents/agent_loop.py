@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -312,9 +313,91 @@ def should_continue(state: dict[str, Any]) -> str:
     return END
 
 
+def _tool_names_from_state(state: dict[str, Any]) -> list[str]:
+    """Return the tool names requested by the last AI message's tool_calls."""
+    messages = state.get("messages", [])
+    if not messages:
+        return []
+    tool_calls = getattr(messages[-1], "tool_calls", None) or []
+    return [tc.get("name", "") for tc in tool_calls]
+
+
+def _wrap_model_node(
+    call_model: Any, profiler: Any, iteration_getter: Any
+) -> Any:
+    """Wrap the model node to log ``node_start``/``node_end`` timing.
+
+    Returns *call_model* unchanged when no profiler is active, so the graph
+    (and existing tests) behave identically without instrumentation. Console
+    output is unaffected — all timing goes to ``profile.ndjson``.
+    """
+    if profiler is None:
+        return call_model
+
+    def timed_model_node(state: dict[str, Any]) -> dict[str, Any]:
+        iteration = iteration_getter()
+        messages_in = len(state.get("messages", []))
+        profiler.log_event(event="node_start", node="model", iteration=iteration)
+        start = perf_counter()
+        result = call_model(state)
+        duration_ms = (perf_counter() - start) * 1000.0
+        out_messages = result.get("messages", []) if isinstance(result, dict) else []
+        produced_tool_calls = any(
+            getattr(m, "tool_calls", None) for m in out_messages
+        )
+        profiler.log_event(
+            event="node_end",
+            node="model",
+            duration_ms=duration_ms,
+            iteration=iteration,
+            messages_in=messages_in,
+            messages_out=len(out_messages),
+            produced_tool_calls=bool(produced_tool_calls),
+        )
+        return result
+
+    return timed_model_node
+
+
+def _wrap_tools_node(
+    tool_node: Any, profiler: Any, iteration_getter: Any
+) -> Any:
+    """Wrap the tools node to log ``node_start``/``node_end`` timing.
+
+    Per-tool durations are already recorded by ``AgentEngine.run_tool`` (which
+    every LangChain tool calls); this wrapper records the overall batch plus the
+    tool names. Returns *tool_node* unchanged when no profiler is active.
+    """
+    if profiler is None:
+        return tool_node
+
+    def timed_tools_node(state: dict[str, Any]) -> Any:
+        tools_called = _tool_names_from_state(state)
+        profiler.log_event(
+            event="node_start",
+            node="tools",
+            iteration=iteration_getter(),
+            tools=tools_called,
+        )
+        start = perf_counter()
+        result = tool_node.invoke(state)
+        duration_ms = (perf_counter() - start) * 1000.0
+        profiler.log_event(
+            event="node_end",
+            node="tools",
+            duration_ms=duration_ms,
+            iteration=iteration_getter(),
+            tools=tools_called,
+        )
+        return result
+
+    return timed_tools_node
+
+
 def _build_agent_graph(
     llm: Any,
     tools: list[Any],
+    engine: AgentEngine | None = None,
 ) -> Any:
     """Build a compiled StateGraph replacing ``create_agent()``.
 
@@ -326,6 +409,9 @@ def _build_agent_graph(
     Args:
         llm: A LangChain chat model (with tools already bound).
         tools: List of LangChain BaseTool instances for the ToolNode.
+        engine: Optional engine; when it has an active profiler, the
+            ``"model"`` and ``"tools"`` nodes are wrapped with timing
+            instrumentation that writes to ``profile.ndjson``.
 
     Returns:
         A compiled ``CompiledStateGraph`` ready for ``.invoke()``.
@@ -335,6 +421,11 @@ def _build_agent_graph(
     from langgraph.prebuilt import ToolNode
 
     from langchain_core.messages import SystemMessage
+
+    profiler = engine.profiler if engine is not None else None
+    iteration_getter = (
+        (lambda: engine.state.iteration_count) if engine is not None else None
+    )
 
     def call_model(state: dict[str, Any]) -> dict[str, Any]:
         """Model node: prepend system prompt and invoke the LLM."""
@@ -351,8 +442,8 @@ def _build_agent_graph(
     # Use a typed state with add_messages reducer so ToolNode and model
     # both append to the message list rather than replacing it.
     graph: Any = StateGraph(AgentState)
-    graph.add_node("model", call_model)
-    graph.add_node("tools", tool_node)
+    graph.add_node("model", _wrap_model_node(call_model, profiler, iteration_getter))
+    graph.add_node("tools", _wrap_tools_node(tool_node, profiler, iteration_getter))
 
     # should_continue returns "tools" or END (the string "__end__").
     # Without a path_map, the return value is used as the destination node name.
@@ -399,7 +490,8 @@ def run_interactive_agent(
 
     # Build the explicit StateGraph instead of using create_agent()
     # The system prompt is prepended by the model node on every invocation.
-    app = _build_agent_graph(llm, tools)
+    # Passing the engine enables node-level timing → profile.ndjson.
+    app = _build_agent_graph(llm, tools, engine=engine)
 
     from rich.console import Console
     from rich.panel import Panel
