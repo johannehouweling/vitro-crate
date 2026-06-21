@@ -374,6 +374,7 @@ class TestBAOContract:
         result = lookup_bao_term("xyznonexistent")
         assert result == {}
 
+    @responses.activate
     def test_empty_query_returns_empty(self):
         """Empty string query returns empty dict without HTTP call."""
         result = lookup_bao_term("")
@@ -524,6 +525,7 @@ class TestRORContract:
         result = search_ror("NonexistentOrg12345")
         assert result == {}
 
+    @responses.activate
     def test_empty_name_returns_empty(self):
         """Empty name returns empty dict without HTTP call."""
         result = search_ror("")
