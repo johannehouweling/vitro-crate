@@ -35,9 +35,14 @@ def _success(data: dict) -> dict[str, Any]:
     return {"found": True, "data": data, "error": None}
 
 
-def _failure(error: str) -> dict[str, Any]:
-    """Wrap a failure into the standard result format."""
-    return {"found": False, "data": {}, "error": error}
+def _failure(error: str, transient: bool = False) -> dict[str, Any]:
+    """Wrap a failure into the standard result format.
+
+    ``transient=True`` marks a temporary outage (timeout / 429 / 5xx) as
+    distinct from a definitive not-found, so callers (e.g. verify_identifier)
+    can keep the user's value and retry rather than treat it as unresolved.
+    """
+    return {"found": False, "data": {}, "error": error, "transient": transient}
 
 
 @functools.lru_cache(maxsize=256)
@@ -78,7 +83,7 @@ def lookup_compound(name: str) -> dict[str, Any]:
 
         return _failure(f"Compound '{name}' not found in PubChem")
     except TransientLookupError as exc:
-        return _failure(f"PubChem temporarily unavailable (transient): {exc}")
+        return _failure(f"PubChem unavailable (transient): {exc}", transient=True)
     except Exception as exc:
         logger.exception("PubChem lookup failed for '%s'", name)
         return _failure(f"PubChem lookup failed: {exc}")
@@ -105,7 +110,7 @@ def lookup_cell_line(accession: str) -> dict[str, Any]:
             return _success(result)
         return _failure(f"Cell line '{accession}' not found in Cellosaurus")
     except TransientLookupError as exc:
-        return _failure(f"Cellosaurus temporarily unavailable (transient): {exc}")
+        return _failure(f"Cellosaurus unavailable (transient): {exc}", transient=True)
     except Exception as exc:
         logger.exception("Cellosaurus lookup failed for '%s'", accession)
         return _failure(f"Cellosaurus lookup failed: {exc}")
@@ -131,7 +136,7 @@ def lookup_aop(aop_id: str) -> dict[str, Any]:
             return _success(result)
         return _failure(f"AOP '{aop_id}' not found in AOP-Wiki")
     except TransientLookupError as exc:
-        return _failure(f"AOP-Wiki temporarily unavailable (transient): {exc}")
+        return _failure(f"AOP-Wiki unavailable (transient): {exc}", transient=True)
     except Exception as exc:
         logger.exception("AOP-Wiki lookup failed for '%s'", aop_id)
         return _failure(f"AOP-Wiki lookup failed: {exc}")
@@ -157,7 +162,7 @@ def lookup_bao_term(query: str) -> dict[str, Any]:
             return _success(result)
         return _failure(f"No BAO term found for '{query}'")
     except TransientLookupError as exc:
-        return _failure(f"BAO/OLS temporarily unavailable (transient): {exc}")
+        return _failure(f"BAO/OLS unavailable (transient): {exc}", transient=True)
     except Exception as exc:
         logger.exception("BAO/OLS lookup failed for '%s'", query)
         return _failure(f"BAO/OLS lookup failed: {exc}")
@@ -188,7 +193,7 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
             return _success(result)
         return _failure(f"ORCID lookup failed for '{orcid_id}'")
     except TransientLookupError as exc:
-        return _failure(f"ORCID temporarily unavailable (transient): {exc}")
+        return _failure(f"ORCID unavailable (transient): {exc}", transient=True)
     except Exception as exc:
         logger.exception("ORCID lookup failed for '%s'", orcid_id)
         return _failure(f"ORCID lookup failed: {exc}")
@@ -214,7 +219,7 @@ def lookup_ror(name: str) -> dict[str, Any]:
             return _success(result)
         return _failure(f"No ROR organization found for '{name}'")
     except TransientLookupError as exc:
-        return _failure(f"ROR temporarily unavailable (transient): {exc}")
+        return _failure(f"ROR unavailable (transient): {exc}", transient=True)
     except Exception as exc:
         logger.exception("ROR lookup failed for '%s'", name)
         return _failure(f"ROR lookup failed: {exc}")
@@ -241,7 +246,7 @@ def lookup_doi(doi: str) -> dict[str, Any]:
             return _success(result)
         return _failure(f"DOI '{doi}' not found in Crossref")
     except TransientLookupError as exc:
-        return _failure(f"Crossref temporarily unavailable (transient): {exc}")
+        return _failure(f"Crossref unavailable (transient): {exc}", transient=True)
     except Exception as exc:
         logger.exception("Crossref lookup failed for '%s'", doi)
         return _failure(f"Crossref lookup failed: {exc}")
