@@ -41,6 +41,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
+exclude = ["tests", "tests/*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

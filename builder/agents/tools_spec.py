@@ -304,6 +304,120 @@ TOOL_SPECS = [
             "required": ["path"],
         },
     },
+    {
+        "name": "bulk_set_fields",
+        "description": "Set multiple fields on an entity at once. Use this instead of calling update_entity or set_entity_field repeatedly.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "description": "ID of the entity to update"},
+                "fields": {
+                    "type": "object",
+                    "description": "Dictionary of field names to values (e.g. {\"name\": \"new name\", \"description\": \"new desc\"})",
+                },
+            },
+            "required": ["entity_id", "fields"],
+        },
+    },
+    {
+        "name": "draft_protocol",
+        "description": "Create a LabProtocol entity",
+        "parameters": {
+            "type": "object",
+            "properties": {"hints": {"type": "object"}},
+            "required": ["hints"],
+        },
+    },
+    {
+        "name": "draft_sample",
+        "description": "Create a Sample entity",
+        "parameters": {
+            "type": "object",
+            "properties": {"hints": {"type": "object"}},
+            "required": ["hints"],
+        },
+    },
+    {
+        "name": "get_hint",
+        "description": "Get a hint for the next recommended action based on current state",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_sessions",
+        "description": "List all saved sessions",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "load_session",
+        "description": "Load a previously saved session by session ID",
+        "parameters": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string", "description": "Session ID to load"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "present_to_human",
+        "description": "Present information to the human user for review and get their response. Use this when you need user input, approval, or guidance.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "context": {"type": "string", "description": "Context or information to present to the user"},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of options for the user to choose from",
+                },
+            },
+            "required": ["context"],
+        },
+    },
+    {
+        "name": "preview_archive",
+        "description": "Preview the contents of a zip archive without extracting it. Returns a list of member file paths and metadata.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "read_file_sample",
+        "description": "Read a sample of lines from a file. Use this instead of read_multiple_files when you need to inspect a single file's content.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file to read"},
+                "lines": {"type": "integer", "description": "Number of lines to read (default 20)"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "request_input",
+        "description": "Request a specific input value from the human user (e.g. a compound name, CAS number, or cell line accession). Use this when lookups fail and you need the user to provide information.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "The prompt describing what input is needed"},
+                "field_type": {"type": "string", "description": "Type of input expected (e.g. text, number, identifier)"},
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "set_entity_field",
+        "description": "Set a single field on an entity. For setting multiple fields at once, use bulk_set_fields instead.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "description": "ID of the entity to update"},
+                "field": {"type": "string", "description": "Field name to set"},
+                "value": {"type": "string", "description": "Value to set the field to"},
+            },
+            "required": ["entity_id", "field", "value"],
+        },
+    },
 ]
 
 __all__ = ["TOOL_SPECS"]

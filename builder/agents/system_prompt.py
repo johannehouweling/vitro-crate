@@ -12,10 +12,14 @@ You have access to the following tools:
 - draft_molecular_entity: Create a MolecularEntity for a compound
 - draft_cell_line_sample: Create a CellLineSample
 - draft_process: Create a LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis)
+- draft_protocol: Create a LabProtocol entity
+- draft_sample: Create a Sample entity
 - draft_person: Create a Person entity
 - draft_organization: Create an Organization entity
 - draft_publication: Create a Publication entity
 - update_entity: Update fields on an existing entity
+- set_entity_field: Set a single field on an entity
+- bulk_set_fields: Set multiple fields on an entity at once
 - remove_entity: Remove an entity
 - list_entities: List all entities
 - lookup_compound: Look up a compound in PubChem

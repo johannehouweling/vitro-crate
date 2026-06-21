@@ -22,6 +22,61 @@ def _tool_names() -> set[str]:
 _INTERNAL_TOOL_NAMES: set[str] | None = None
 
 
+def _get_registry_tool_names() -> set[str]:
+    """Return tool names registered in the shared TOOL_REGISTRY.
+
+    Imports all tool modules (triggering registration calls) and returns
+    the full set of registered tool names intended for LLM use.
+    """
+    import builder.tools.builder
+    import builder.tools.drafters
+    import builder.tools.fair_assessment
+    import builder.tools.management
+    import builder.tools.mit_assessment
+    import builder.tools.scanner
+    import builder.tools.session
+    import builder.tools.validation
+    import builder.tools.verification 
+    from builder.tools.registry import TOOL_REGISTRY
+
+    return set(TOOL_REGISTRY.list())
+
+
+def _get_engine_routable_llm_tools() -> set[str]:
+    """Return tool names that the engine routes specially (not via registry)
+    and that are intended to be callable by the LLM.
+
+    The engine has special routing for HITL tools and scanner tools.
+    Scanner tools like scan_files, read_file_sample, read_multiple_files,
+    unzip_file, and preview_archive are engine-routed and should be in
+    TOOL_SPECS (some already are). HITL tools present_to_human and
+    request_input must also be in TOOL_SPECS for the LLM to call them.
+    """
+    return {
+        "present_to_human",
+        "request_input",
+        "scan_files",
+        "read_file_sample",
+        "read_multiple_files",
+        "unzip_file",
+        "preview_archive",
+    }
+
+
+def _get_tool_names_from_system_prompt() -> set[str]:
+    """Extract tool names mentioned in the SYSTEM_PROMPT text.
+
+    Looks for backtick-quoted identifiers and dash-list items.
+    """
+    from builder.agents.system_prompt import SYSTEM_PROMPT
+
+    names: set[str] = set()
+    # Find backtick-quoted identifiers like `build_crate`
+    for m in re.finditer(r"`([a-z_]+)`", SYSTEM_PROMPT):
+        names.add(m.group(1))
+    return names
+
+
 def _get_internal_tool_names() -> set[str]:
     """Return tool-function names exported by builder.tools but NOT in TOOL_SPECS."""
     global _INTERNAL_TOOL_NAMES
@@ -106,5 +161,56 @@ def _import_module() -> object:
 
 # We need pytest for the fail helper
 import pytest  # noqa: E402
+
+
+def test_every_registry_tool_is_in_tool_specs():
+    """Every tool registered in TOOL_REGISTRY must appear in TOOL_SPECS.
+
+    The registry is the authoritative list of LLM-callable tools. If a tool
+    is registered but missing from TOOL_SPECS, the LLM cannot call it.
+    """
+    spec_names = _tool_names()
+    registry_names = _get_registry_tool_names()
+
+    missing = registry_names - spec_names
+    assert not missing, (
+        f"Tools registered in TOOL_REGISTRY but missing from TOOL_SPECS: "
+        f"{sorted(missing)}"
+    )
+
+
+def test_every_engine_routable_llm_tool_is_in_tool_specs():
+    """Every engine-routable tool intended for LLM use must appear in TOOL_SPECS.
+
+    The engine has special routing for HITL tools (present_to_human,
+    request_input) and scanner tools (scan_files, read_file_sample, etc.).
+    These tools are callable by the LLM but not in the registry. They still
+    need TOOL_SPECS entries so the LLM knows their schemas.
+    """
+    spec_names = _tool_names()
+    routable = _get_engine_routable_llm_tools()
+
+    missing = routable - spec_names
+    assert not missing, (
+        f"Engine-routable LLM tools missing from TOOL_SPECS: "
+        f"{sorted(missing)}"
+    )
+
+
+def test_every_system_prompt_tool_is_in_tool_specs():
+    """Every tool named in SYSTEM_PROMPT must appear in TOOL_SPECS.
+
+    If the system prompt tells the LLM about a tool that doesn't have a
+    schema in TOOL_SPECS, the LLM will be confused or unable to call it.
+    """
+    spec_names = _tool_names()
+    prompt_names = _get_tool_names_from_system_prompt()
+
+    missing = prompt_names - spec_names
+    assert not missing, (
+        f"Tools mentioned in SYSTEM_PROMPT but missing from TOOL_SPECS: "
+        f"{sorted(missing)}"
+    )
+
 
 __all__: list[str] = []
