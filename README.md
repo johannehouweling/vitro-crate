@@ -167,7 +167,10 @@ Options:
                          (e.g. http://localhost:11434/v1 for Ollama)
   -C, --configure        Run the interactive setup wizard to configure LLM provider
       --show-config      Show current LLM configuration and exit
-  -v, --verbose          Enable debug logging
+  -v, --verbose          Increase verbosity (-v = INFO, -vv = DEBUG)
+                            -v: INFO level — normal progress messages
+                            -vv: DEBUG level — tool internals, scanner
+                               timing, and profiling log output
 ```
 
 ---
@@ -211,6 +214,14 @@ uv run python -m main --interactive --model gpt-4o-mini
 ## Architecture
 
 See **[AGENTS.md](AGENTS.md)** for the full system design document.
+
+## Profiling
+
+See **[docs/profiling.md](docs/profiling.md)** for details on:
+- Running with `-vv` for debug logging and scanner timing
+- The `profile.ndjson` event schema (`tool_call`, `node_start`, `node_end`, etc.)
+- How to analyse profile logs with `jq`, `pandas`, or simple scripts
+- Troubleshooting interactive vs batch mode
 
 ---
 
