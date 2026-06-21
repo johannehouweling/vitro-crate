@@ -421,10 +421,11 @@ def _wrap_model_node(
             getattr(m, "tool_calls", None) for m in out_messages
         )
 
-        # Extract token usage from the LLM response
+        # Extract token usage and response text from the LLM response
         input_tokens: int | None = None
         output_tokens: int | None = None
         model_name: str | None = None
+        response_text: str | None = None
         if out_messages:
             last_msg = out_messages[-1]
             # Prefer the standardised usage_metadata (langchain-core >=0.3)
@@ -442,6 +443,13 @@ def _wrap_model_node(
                     output_tokens = tu.get("completion_tokens") or tu.get("output_tokens")
             model_name = getattr(last_msg, "response_metadata", None) or {}
             model_name = model_name.get("model_name") or model_name.get("model")
+            # Capture the model's reply text — truncate to avoid bloating profile
+            content = getattr(last_msg, "content", None)
+            if content:
+                text = str(content)
+                if len(text) > 2000:
+                    text = text[:1997] + "..."
+                response_text = text
 
         profiler.log_event(
             event="node_end",
@@ -454,6 +462,7 @@ def _wrap_model_node(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             model_name=model_name,
+            response_text=response_text,
         )
         return result
 

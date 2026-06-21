@@ -580,14 +580,20 @@ def read_file_sample(
 
 
 def extract_pdf_text(path: str) -> str | None:
-    """Extract text content from a PDF file using pypdf.
+    """Extract structured content from a PDF file using pdfplumber.
+
+    Returns text, tables, and image metadata in a structured format with
+    ``[Page N]``, ``[Text]``, ``[Table N]``, and ``[Image]`` section
+    markers so the LLM can understand the layout.  Tables are formatted
+    as markdown-like pipe-delimited rows.
 
     Args:
         path: Path to the PDF file.
 
     Returns:
-        The extracted text content as a string, or None if the file cannot
-        be read, is not a PDF, is password-protected, or exceeds 100 MB.
+        A structured string with page/section markers, or None if the file
+        cannot be read, is not a valid PDF, is password-protected, or
+        exceeds 100 MB.
     """
     file_path = Path(path)
     if not file_path.is_file():
@@ -603,33 +609,98 @@ def extract_pdf_text(path: str) -> str | None:
         return None
 
     try:
-        import pypdf
-
-        with file_path.open("rb") as f:
-            try:
-                reader = pypdf.PdfReader(f)
-            except pypdf.errors.PdfReadError:
-                logger.warning("Not a valid PDF or file is corrupt: %s", path)
-                return None
-
-            if reader.is_encrypted:
-                logger.warning("Password-protected PDF, cannot extract: %s", path)
-                return None
-
-            pages: list[str] = []
-            for page in reader.pages:
-                text = page.extract_text()
-                if text:
-                    pages.append(text)
-            return "\n".join(pages)
+        import pdfplumber
     except ImportError:
-        logger.error("pypdf is not installed. Install it with: uv add pypdf")
+        logger.error(
+            "pdfplumber is not installed. Install it with: uv add pdfplumber"
+        )
         return None
+
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            if len(pdf.pages) == 0:
+                return ""
+
+            output_parts: list[str] = []
+
+            for page_idx, page in enumerate(pdf.pages, start=1):
+                page_parts: list[str] = []
+                page_parts.append(f"[Page {page_idx}]")
+
+                # --- Extract text ---
+                text = page.extract_text(layout=True)
+                if text and text.strip():
+                    for line in text.strip().split("\n"):
+                        line = line.strip()
+                        if line:
+                            # pdfplumber encodes newlines as (cid:10) for some
+                            # fonts; replace them and any other CID sequences.
+                            line = line.replace("(cid:10)", " ")
+                            line = line.replace("(cid:13)", " ")
+                            line = line.strip()
+                            if line:
+                                page_parts.append(f"[Text] {line}")
+
+                # --- Extract tables ---
+                tables = page.extract_tables()
+                if tables:
+                    for table_idx, table_data in enumerate(tables, start=1):
+                        if not table_data:
+                            continue
+                        # Clean up: collapse None cells, strip whitespace
+                        cleaned_rows: list[list[str]] = []
+                        for row in table_data:
+                            cleaned = [
+                                (cell or "").strip() for cell in row
+                            ]
+                            if any(cleaned):
+                                cleaned_rows.append(cleaned)
+
+                        if not cleaned_rows:
+                            continue
+
+                        page_parts.append(
+                            f"[Table {table_idx} ({len(cleaned_rows)} rows)]"
+                        )
+                        # Headers
+                        header = cleaned_rows[0]
+                        page_parts.append("| " + " | ".join(header) + " |")
+                        # Separator
+                        page_parts.append(
+                            "| " + " | ".join("---" for _ in header) + " |"
+                        )
+                        # Data rows
+                        for row in cleaned_rows[1:]:
+                            page_parts.append(
+                                "| " + " | ".join(row) + " |"
+                            )
+
+                # --- Report images ---
+                images = page.images
+                if images:
+                    img_info: list[str] = []
+                    for img in images:
+                        w = img.get("width", 0)
+                        h = img.get("height", 0)
+                        img_info.append(
+                            f"  - Image ({w:.0f}x{h:.0f} pts)"
+                        )
+                    if img_info:
+                        page_parts.append(
+                            f"[Image] {len(images)} image(s) on this page"
+                        )
+                        page_parts.extend(img_info)
+
+                if page_parts:
+                    output_parts.append("\n".join(page_parts))
+
+            return "\n\n".join(output_parts)
+
     except PermissionError:
         logger.warning("Permission denied reading file: %s", path)
         return None
     except Exception:
-        logger.exception("Error extracting PDF text from: %s", path)
+        logger.exception("Error extracting PDF content from: %s", path)
         return None
 
 

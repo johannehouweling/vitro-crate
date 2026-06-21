@@ -2,6 +2,8 @@
 
 **LLM-assisted builder for profile-conformant RO-Crates of *in vitro* toxicology data.**
 
+[![CI](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml/badge.svg)](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml)
+
 The builder is a toolbox-based agent system that helps researchers create ISA-Tox profile-compliant RO-Crates. It uses a LangChain-powered LLM agent that dynamically decides which tools to call — entity drafting, lookups, validation, assessment — based on the current state of the crate.
 
 ---
@@ -244,9 +246,10 @@ See **[docs/profiling.md](docs/profiling.md)** for details on:
 ## Development
 
 See **[CONTRIBUTING.md](CONTRIBUTING.md)** for:
-- `uv sync --group dev --extra langchain --extra system-certs` — full dev setup
+- `uv sync --dev --extra langchain --extra system-certs` — full dev setup
 - `uv run pytest` — run tests
 - `uv run ty` — type checking
+- `uvx ruff check` — linting
 - Test-driven development workflow
 ## Corporate / Private CA Certificates
 

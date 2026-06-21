@@ -216,6 +216,11 @@ agent loop — the agent uses it during entity drafting to bind files to
 `LabProcess` instances as annotations emerge. Restricted by approved scan
 roots (see [Guard Rails](#guard-rails-approved-scan-roots) above).
 
+**Performance features (Issues #67–#69):**
+- `max_files` and `max_line_length` params limit result size and preview length
+- `read_file_sample` accepts `precomputed_size` and `already_text` to avoid redundant stat()/MIME syscalls
+- `_safe_walk` prunes hidden/`.git`/`__MACOSX` directories in-place via `os.walk` `dirnames[:]` mutation, avoiding the cost of descending and then filtering
+
 #### Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.
 Each drafter collects hints, calls the LLM, and ensures identifiers come from
@@ -420,6 +425,13 @@ Every tool call and graph node execution is automatically timed and recorded by 
 ### Verification Layer
 Checks that identifiers resolve at their source. Verification failures are REQUIRED — the identifier must be corrected or removed. Leaving a field empty is acceptable (shows up in MIT/FAIR scores but does not block).
 
+**Derivation (Issue #64):** The set of verifiable fields is no longer a hard-coded flat list.
+`verify_all_identifiers` and `_select_verifier` both derive from `_VERIFIABLE_FIELDS` — a
+frozenset of `(entity_type, field_name)` pairs — so they can never drift apart.
+`_IDENTIFIER_FIELDS` is kept as a legacy re-export derived automatically from the same
+source. Fields like `casrn`/`cas_number`/`inchikey` on `MolecularEntity` are now included,
+while fields like `ror` on `Organization` (which has no verifier) are correctly excluded.
+
 ## 7. Session Persistence & Resume
 
 ### Save Format
@@ -436,6 +448,12 @@ sessions/<session_id>/
 
 ### When Saving Happens
 Automatically at: after file scanning, after each entity draft, after HITL checkpoints, after validation, when approaching context limits, and on explicit user request.
+
+**Durability (Issue #53):** Session saves use an atomic-write strategy: write to a temp
+file in the same directory, `fsync` it, then `os.replace()` over the target. A SHA-256
+hash of the serialised state is computed before saving; if the hash is unchanged from the
+previous save, the write is skipped entirely (no-op). Failures are logged and surfaced
+to the agent loop, never silently swallowed.
 
 ### Resume Flow
 1. Load `crate_state.json` → restore `CrateState`
@@ -567,6 +585,19 @@ The reasoning log is persisted with the session and survives resume. A future we
 ### D9: Approved Scan Roots (Security Guard Rail)
 The `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set. When the agent calls `scan_files(path)`, the path is resolved to an absolute canonical form and checked against approved roots — if not found or within a subdirectory of one, scanning is denied. New roots are added only through user approval (HITL or CLI prompt at the `present_to_human` checkpoint). This prevents the LLM agent from accessing arbitrary filesystem locations and provides a clear audit trail. On macOS, this same mechanism protects user files. On Linux, it prevents scanning into `/proc`, `/sys`, or other system paths.
 
+### D10: State Brief Injected via System Prompt, Not Message History
+The per-turn state brief (session id, file/entity/iteration counts) is **not** appended to user
+messages. Instead, `call_model` calls `_build_system_prompt_with_state()` and prepends the
+result to the system prompt on every model invocation (Issue #66). Because the system prompt
+is re-created fresh each time rather than persisted in MemorySaver, it never accumulates
+duplicate metadata across turns. The LLM can still query full details via `get_status`.
+
+### D11: CI Workflow (GitHub Actions)
+A `.github/workflows/ci.yml` workflow runs on every push/PR to `main` (Issue #58). It executes
+`uv sync`, `ruff check`, `ty` (continue-on-error), and `pytest` (excluding slow integration
+tests). This prevents regressions from landing on `main` and keeps the SHACL validator-wiring
+test gated.
+
 ## 12. Project Structure
 
 Annotated with where new components would live:
@@ -574,6 +605,7 @@ Annotated with where new components would live:
 ```
 vitro-crate/
 ├── AGENTS.md                    This file
+├── .github/workflows/ci.yml     CI workflow (ruff, ty, pytest on push/PR)
 ├── pyproject.toml
 ├── profiles/                    Existing — domain profiles
 │   ├── context.py               JSON-LD context

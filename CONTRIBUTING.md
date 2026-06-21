@@ -11,9 +11,14 @@
 
 ```bash
 uv sync                        # install all dependencies (including dev)
+uv sync --dev --extra langchain  # with LLM agent support
 uv add <package>               # add a production dependency
 uv add --dev <package>         # add a dev dependency
 uv run <command>               # run a command in the venv
+uvx ruff check                 # lint (uv-managed ruff)
+uv run ty                      # type checking (Rust-based)
+uv run pytest                  # run tests
+uv run pytest --cov=builder    # with coverage
 ```
 
 ## Testing
@@ -23,6 +28,7 @@ This project uses **test-driven development (TDD)**. Write the test before the i
 - **Framework:** `pytest`
 - **Run tests:** `uv run pytest`
 - **Run typechecker:** `uv run ty`
+- **Run linter:** `uvx ruff check`
 - **Run with coverage:** `uv run pytest --cov=builder`
 - **Test location:** `tests/` directory, mirroring the `builder/` structure.
 
@@ -32,6 +38,16 @@ This project uses **test-driven development (TDD)**. Write the test before the i
 3. Write the minimal implementation to pass
 4. Confirm it passes
 5. Refactor if needed
+
+## CI
+
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
+1. `uv sync --dev --extra langchain` — install all dependencies
+2. `uvx ruff check` — lint
+3. `uv run ty` — type check (continue-on-error)
+4. `uv run pytest` — run tests (excluding slow integration tests)
+
+Merges to `main` are gated on a green CI run.
 
 ## Code Style
 
