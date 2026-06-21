@@ -137,7 +137,12 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
 
 
 def _mint_id(entity: Entity) -> str:
-    """A spec-correct @id: resolvable URI when available, else `#`-fragment."""
+    """A spec-correct @id: resolvable URI when available, else `#`-fragment.
+
+    Fragment @ids are type-qualified (``#Sample_my_cell``) so two entities
+    of different types sharing an ``entity_id`` produce distinct @ids and
+    ro-crate-py never silently merges them in the graph (see Issue #57).
+    """
     t, f, eid = entity.type, entity.fields, entity.entity_id
     if t == "Person" and f.get("orcid"):
         o = str(f["orcid"]).strip()
@@ -155,7 +160,7 @@ def _mint_id(entity: Entity) -> str:
             return d if d.startswith("http") else f"https://doi.org/{d}"
     if eid.startswith(("#", "http://", "https://", "./")) or "://" in eid:
         return eid
-    return "#" + eid
+    return "#" + _slug(t) + "_" + eid
 
 
 def _file_dest(fe: Entity) -> str:
@@ -166,7 +171,15 @@ def _file_dest(fe: Entity) -> str:
 
 
 def _resolve_many(idx: dict[str, Any], value: Any) -> list[Any]:
-    """Resolve an entity reference (id, {@id}, or list thereof) to crate entities."""
+    """Resolve an entity reference (id, {@id}, or list thereof) to crate entities.
+
+    Resolution order:
+    1. Exact match on ``key``
+    2. Strip a leading ``#`` and try again
+    3. Try type-qualified fragments (``#Sample_cell_01``) via ``_resolve_typed``
+       so references from state's bare ``entity_id`` can still resolve when
+       ``_mint_id`` has type-qualified the fragment (Issue #57).
+    """
     if value is None:
         return []
     items = value if isinstance(value, list) else [value]
@@ -178,12 +191,58 @@ def _resolve_many(idx: dict[str, Any], value: Any) -> list[Any]:
         ent = idx.get(key) or idx.get(str(key).lstrip("#"))
         if ent is not None:
             out.append(ent)
+            continue
+        # Fallback: try type-qualified lookup (bare entity_id → typed fragment)
+        for etype in _ENTITY_TYPES:
+            typed_key = f"{etype}:{key}"
+            frag_key = "#" + _slug(etype) + "_" + str(key).lstrip("#")
+            ent = idx.get(typed_key) or idx.get(frag_key)
+            if ent is not None:
+                out.append(ent)
+                break
     return out
+
+
+# Known entity types for typed-id resolution fallback.
+_ENTITY_TYPES = (
+    "Investigation",
+    "Study",
+    "Assay",
+    "LabProcess",
+    "LabProtocol",
+    "Sample",
+    "CellLineSample",
+    "MolecularEntity",
+    "Person",
+    "Organization",
+    "Publication",
+    "DefinedTerm",
+    "PropertyValue",
+    "File",
+)
 
 
 def _resolve_one(idx: dict[str, Any], value: Any) -> Any:
     found = _resolve_many(idx, value)
     return found[0] if found else None
+
+
+def _idx_add(idx: dict[str, Any], entity: Entity, node: Any) -> Any:
+    """Register ``node`` in ``idx`` under both bare and type-qualified keys.
+
+    The bare ``entity.entity_id`` key preserves backward compatibility for
+    cross-references that use bare entity IDs. The type-qualified key
+    ``{type}:{entity_id}`` guarantees uniqueness when two entity types
+    share the same ``entity_id`` (e.g. Sample and CellLineSample, Issue #57).
+
+    Returns ``node`` for chaining.
+    """
+    bare = entity.entity_id
+    typed = f"{entity.type}:{bare}"
+    idx[typed] = node
+    if bare not in idx:
+        idx[bare] = node
+    return node
 
 
 # ---------------------------------------------------------------------------
@@ -255,44 +314,60 @@ def _cell_line_term(crate: ROCrate) -> ContextEntity:
 
 def _add_leaves(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
     for org in state.list_entities("Organization"):
-        idx[org.entity_id] = crate.add(
-            ContextEntity(
-                crate,
-                _mint_id(org),
-                properties={"@type": "Organization", **_scalar_props(org)},
-            )
+        _idx_add(
+            idx,
+            org,
+            crate.add(
+                ContextEntity(
+                    crate,
+                    _mint_id(org),
+                    properties={"@type": "Organization", **_scalar_props(org)},
+                )
+            ),
         )
 
     for person in state.list_entities("Person"):
         node = crate.add(Person(crate, _mint_id(person), properties=_scalar_props(person)))
-        idx[person.entity_id] = node
+        _idx_add(idx, person, node)
         crate.root_dataset.append_to("author", node)
 
     for chem in state.list_entities("MolecularEntity"):
-        idx[chem.entity_id] = crate.add(
-            ContextEntity(
-                crate,
-                _mint_id(chem),
-                properties={"@type": "MolecularEntity", **_scalar_props(chem)},
-            )
+        _idx_add(
+            idx,
+            chem,
+            crate.add(
+                ContextEntity(
+                    crate,
+                    _mint_id(chem),
+                    properties={"@type": "MolecularEntity", **_scalar_props(chem)},
+                )
+            ),
         )
 
     for dt in state.list_entities("DefinedTerm"):
-        idx[dt.entity_id] = crate.add(
-            ContextEntity(
-                crate,
-                _mint_id(dt),
-                properties={"@type": "DefinedTerm", **_scalar_props(dt)},
-            )
+        _idx_add(
+            idx,
+            dt,
+            crate.add(
+                ContextEntity(
+                    crate,
+                    _mint_id(dt),
+                    properties={"@type": "DefinedTerm", **_scalar_props(dt)},
+                )
+            ),
         )
 
     for pv in state.list_entities("PropertyValue"):
-        idx[pv.entity_id] = crate.add(
-            ContextEntity(
-                crate,
-                _mint_id(pv),
-                properties={"@type": "PropertyValue", **_scalar_props(pv)},
-            )
+        _idx_add(
+            idx,
+            pv,
+            crate.add(
+                ContextEntity(
+                    crate,
+                    _mint_id(pv),
+                    properties={"@type": "PropertyValue", **_scalar_props(pv)},
+                )
+            ),
         )
 
     for pub in state.list_entities("Publication"):
@@ -303,48 +378,64 @@ def _add_leaves(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
                 properties={"@type": "ScholarlyArticle", **_scalar_props(pub)},
             )
         )
-        idx[pub.entity_id] = node
+        _idx_add(idx, pub, node)
         crate.root_dataset.append_to("citation", node)
 
     for fe in state.list_entities("File"):
-        idx[fe.entity_id] = crate.add(
-            File(
-                crate,
-                None,
-                dest_path=_file_dest(fe),
-                properties={"@type": "File", **_scalar_props(fe)},
-            )
+        _idx_add(
+            idx,
+            fe,
+            crate.add(
+                File(
+                    crate,
+                    None,
+                    dest_path=_file_dest(fe),
+                    properties={"@type": "File", **_scalar_props(fe)},
+                )
+            ),
         )
 
     for proto in state.list_entities("LabProtocol"):
-        idx[proto.entity_id] = crate.add(
-            ContextEntity(
-                crate,
-                _mint_id(proto),
-                properties={"@type": "LabProtocol", **_scalar_props(proto)},
-            )
+        _idx_add(
+            idx,
+            proto,
+            crate.add(
+                ContextEntity(
+                    crate,
+                    _mint_id(proto),
+                    properties={"@type": "LabProtocol", **_scalar_props(proto)},
+                )
+            ),
         )
 
     # Samples / CellLineSamples auto-add themselves (AutoAddContextEntity).
     cell_term: list[Any] = [None]
     for s in state.list_entities("Sample"):
-        idx[s.entity_id] = Sample(
-            crate,
-            identifier=_mint_id(s),
-            name=str(s.fields.get("name", "")),
-            properties=_scalar_props(s, skip=("name",)) or None,
+        _idx_add(
+            idx,
+            s,
+            Sample(
+                crate,
+                identifier=_mint_id(s),
+                name=str(s.fields.get("name", "")),
+                properties=_scalar_props(s, skip=("name",)) or None,
+            ),
         )
 
     for cl in state.list_entities("CellLineSample"):
         if cell_term[0] is None:
             cell_term[0] = _cell_line_term(crate)
-        idx[cl.entity_id] = CellLineSample(
-            crate,
-            identifier=_mint_id(cl),
-            name=str(cl.fields.get("name", "")),
-            sample_type=cell_term[0],
-            accession=cl.fields.get("accession"),
-            properties=_scalar_props(cl, skip=("name", "accession")) or None,
+        _idx_add(
+            idx,
+            cl,
+            CellLineSample(
+                crate,
+                identifier=_mint_id(cl),
+                name=str(cl.fields.get("name", "")),
+                sample_type=cell_term[0],
+                accession=cl.fields.get("accession"),
+                properties=_scalar_props(cl, skip=("name", "accession")) or None,
+            ),
         )
 
 
@@ -362,21 +453,21 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         }
         props.setdefault("identifier", inv.entity_id)  # ISA MUST: non-empty identifier
         node = crate.add(DataEntity(crate, _mint_id(inv), properties=props))
-        idx[inv.entity_id] = node
+        _idx_add(idx, inv, node)
         crate.root_dataset.append_to("hasPart", node)
 
     for st in state.list_entities("Study"):
         props = {"@type": "Dataset", "additionalType": "Study", **_scalar_props(st)}
         props.setdefault("identifier", st.entity_id)
         node = crate.add(DataEntity(crate, _mint_id(st), properties=props))
-        idx[st.entity_id] = node
+        _idx_add(idx, st, node)
         crate.root_dataset.append_to("hasPart", node)
 
     for asy in state.list_entities("Assay"):
         props = {"@type": "Dataset", "additionalType": "Assay", **_scalar_props(asy)}
         props.setdefault("identifier", asy.entity_id)
         node = crate.add(DataEntity(crate, _mint_id(asy), properties=props))
-        idx[asy.entity_id] = node
+        _idx_add(idx, asy, node)
         parent = _resolve_one(idx, asy.fields.get("study_id")) or crate.root_dataset
         parent.append_to("hasPart", node)
 
@@ -450,7 +541,7 @@ def _add_processes(
             crate, f.get("assay_id"), proto_cache
         )
         node = _build_process(crate, ptype, pid, name, f, protocol, idx, output_dir)
-        idx[proc.entity_id] = node
+        _idx_add(idx, proc, node)
         assay = _resolve_one(idx, f.get("assay_id"))
         if assay is not None:
             assay.append_to("about", node)

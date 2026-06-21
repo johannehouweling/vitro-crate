@@ -592,6 +592,15 @@ SHARED_COLLECTION_ENTITY_TYPES: frozenset[str] = frozenset(
 # samples collection, so deduplicate collection names while preserving order.
 ENTITY_COLLECTION_NAMES: tuple[str, ...] = tuple(dict.fromkeys(ENTITY_TYPE_MAP.values()))
 
+# Collection names that are shared by multiple entity types (e.g. "samples"
+# holds both Sample and CellLineSample) — used by EntityStore to do
+# type-qualified key lookups when the bare entity_id is not found (Issue #57).
+_SHARED_COLLECTION_NAMES: frozenset[str] = frozenset(
+    coll_name
+    for coll_name, count in COLLECTION_NAME_COUNTS.items()
+    if count > 1
+)
+
 
 @dataclass
 class EntityStore:
@@ -619,17 +628,36 @@ class EntityStore:
         return getattr(self, coll_name)
 
     def add_entity(self, entity: Entity) -> None:
-        """Add an entity to the correct collection based on its type."""
+        """Add an entity to the correct collection based on its type.
+
+        For collections shared by multiple entity types (e.g. ``samples``
+        holds both ``Sample`` and ``CellLineSample``), the storage key is
+        type-qualified (``{type}:{entity_id}``) to prevent silent overwrite
+        when two types happen to share an ``entity_id`` (Issue #57).
+        """
         coll = self._collection_for_type(entity.type)
-        coll[entity.entity_id] = entity
+        if entity.type in SHARED_COLLECTION_ENTITY_TYPES:
+            coll[f"{entity.type}:{entity.entity_id}"] = entity
+        else:
+            coll[entity.entity_id] = entity
         logger.debug("Added entity %s (%s)", entity.entity_id, entity.type)
 
     def get_entity(self, entity_id: str) -> Entity | None:
-        """Look up an entity by entity_id across all collections."""
+        """Look up an entity by entity_id across all collections.
+
+        For shared collections (e.g. ``samples`` holds both ``Sample`` and
+        ``CellLineSample``), also checks type-qualified storage keys
+        (``{type}:{entity_id}``) — see Issue #57.
+        """
         for coll_name in ENTITY_COLLECTION_NAMES:
             coll: dict[str, Entity] = getattr(self, coll_name)
             if entity_id in coll:
                 return coll[entity_id]
+            # For shared collections the key may be type-qualified
+            if coll_name in _SHARED_COLLECTION_NAMES:
+                for key, entity in coll.items():
+                    if key.endswith(f":{entity_id}"):
+                        return entity
         return None
 
     def remove_entity(self, entity_id: str) -> bool:
@@ -640,6 +668,13 @@ class EntityStore:
                 del coll[entity_id]
                 logger.debug("Removed entity %s", entity_id)
                 return True
+            if coll_name in _SHARED_COLLECTION_NAMES:
+                matching = [k for k in coll if k.endswith(f":{entity_id}")]
+                if matching:
+                    for k in matching:
+                        del coll[k]
+                    logger.debug("Removed entity %s (%d keys)", entity_id, len(matching))
+                    return True
         return False
 
     def list_entities(self, entity_type: str | None = None) -> list[Entity]:
@@ -667,14 +702,28 @@ class EntityStore:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EntityStore:
-        """Deserialize an EntityStore from a dictionary."""
+        """Deserialize an EntityStore from a dictionary.
 
-        def _entities_from_list(items: list[dict[str, Any]]) -> dict[str, Entity]:
+        For shared collections, uses type-qualified keys (``{type}:{entity_id}``)
+        to match the format ``add_entity`` uses — see Issue #57.
+        """
+
+        def _entities_from_list(
+            items: list[dict[str, Any]], is_shared: bool
+        ) -> dict[str, Entity]:
+            if is_shared:
+                return {
+                    f"{item['type']}:{item['entity_id']}": Entity.from_dict(item)
+                    for item in items
+                }
             return {item["entity_id"]: Entity.from_dict(item) for item in items}
 
         return cls(
             **{
-                coll_name: _entities_from_list(data.get(coll_name, []))
+                coll_name: _entities_from_list(
+                    data.get(coll_name, []),
+                    is_shared=(coll_name in _SHARED_COLLECTION_NAMES),
+                )
                 for coll_name in ENTITY_COLLECTION_NAMES
             }
         )

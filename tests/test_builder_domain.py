@@ -48,10 +48,10 @@ class TestStructuralDatasets:
         state.add_entity(_ent("assay_1", "Assay", name="My Assay", study_id="study_1"))
         _, by_id = _build(state, tmp_path)
 
-        assert by_id["#study_1"]["@type"] == "Dataset"
-        assert by_id["#study_1"]["additionalType"] == "Study"
-        assert by_id["#assay_1"]["@type"] == "Dataset"
-        assert by_id["#assay_1"]["additionalType"] == "Assay"
+        assert by_id["#Study_study_1"]["@type"] == "Dataset"
+        assert by_id["#Study_study_1"]["additionalType"] == "Study"
+        assert by_id["#Assay_assay_1"]["@type"] == "Dataset"
+        assert by_id["#Assay_assay_1"]["additionalType"] == "Assay"
 
     def test_haspart_wiring(self, tmp_path):
         state = CrateState()
@@ -60,8 +60,8 @@ class TestStructuralDatasets:
         _, by_id = _build(state, tmp_path)
 
         # root contains the study; study contains the assay
-        assert "#study_1" in _ids(by_id["./"].get("hasPart"))
-        assert "#assay_1" in _ids(by_id["#study_1"].get("hasPart"))
+        assert "#Study_study_1" in _ids(by_id["./"].get("hasPart"))
+        assert "#Assay_assay_1" in _ids(by_id["#Study_study_1"].get("hasPart"))
 
 
 class TestLabProcessSubtypes:
@@ -90,12 +90,12 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2", accession="CVCL_0027"))
         state.add_entity(_ent("sample_out", "Sample", name="cultured"))
         _, by_id = _build(state, tmp_path)
-        proc = by_id["#proc_1"]
+        proc = by_id["#LabProcess_proc_1"]
         assert proc["additionalType"] == "CellCulture"
         assert proc.get("executesLabProtocol")  # SHOULD, always synthesized
         # input → schema:object, output → schema:result (via the @context)
-        assert "#cell_1" in _ids(proc.get("input"))
-        assert "#sample_out" in _ids(proc.get("output"))
+        assert "#CellLineSample_cell_1" in _ids(proc.get("input"))
+        assert "#Sample_sample_out" in _ids(proc.get("output"))
 
     def test_exposure_object_is_cells_result_is_condition_table(self, tmp_path):
         # ISA forbids a MolecularEntity as a process object (objects MUST be
@@ -111,12 +111,12 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("sample_cult", "Sample", name="cultured"))
         state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
         _, by_id = _build(state, tmp_path)
-        proc = by_id["#proc_1"]
+        proc = by_id["#LabProcess_proc_1"]
         assert proc["additionalType"] == "Exposure"
 
         obj_ids = _ids(proc.get("input"))  # input → schema:object
-        assert "#sample_cult" in obj_ids  # the cells (Sample) — allowed
-        assert "#chem_1" not in obj_ids  # MolecularEntity — ISA-forbidden
+        assert "#Sample_sample_cult" in obj_ids  # the cells (Sample) — allowed
+        assert "#MolecularEntity_chem_1" not in obj_ids  # MolecularEntity — ISA-forbidden
 
         result_ids = _ids(proc.get("output"))  # output → schema:result (MUST)
         assert result_ids, "Exposure MUST emit a result (the condition table)"
@@ -125,7 +125,7 @@ class TestLabProcessSubtypes:
         tt = table["@type"] if isinstance(table["@type"], list) else [table["@type"]]
         assert "File" in tt and "csvw:Table" in tt
         # the compound is connected to the Exposure THROUGH the condition table
-        assert "#chem_1" in _ids(table.get("about"))
+        assert "#MolecularEntity_chem_1" in _ids(table.get("about"))
 
     def test_endpoint_readout_result_is_file(self, tmp_path):
         state = self._state_with_process(
@@ -145,7 +145,7 @@ class TestLabProcessSubtypes:
             )
         )
         _, by_id = _build(state, tmp_path)
-        proc = by_id["#proc_1"]
+        proc = by_id["#LabProcess_proc_1"]
         assert proc["additionalType"] == "EndpointReadout"
         assert "assays/a1/dataset/raw_data/raw.csv" in _ids(proc.get("output"))
 
@@ -160,7 +160,7 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("file_raw", "File", name="raw.csv", dest_path="raw.csv"))
         state.add_entity(_ent("file_proc", "File", name="out.csv", dest_path="out.csv"))
         _, by_id = _build(state, tmp_path)
-        proc = by_id["#proc_1"]
+        proc = by_id["#LabProcess_proc_1"]
         assert proc["additionalType"] == "DataAnalysis"
         assert "raw.csv" in _ids(proc.get("input"))
         assert "out.csv" in _ids(proc.get("output"))
@@ -169,13 +169,13 @@ class TestLabProcessSubtypes:
         state = self._state_with_process("CellCulture", cell_line="cell_1")
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
         _, by_id = _build(state, tmp_path)
-        assert "#proc_1" in _ids(by_id["#assay_1"].get("about"))
+        assert "#LabProcess_proc_1" in _ids(by_id["#Assay_assay_1"].get("about"))
 
     def test_protocol_synthesized_when_absent(self, tmp_path):
         state = self._state_with_process("CellCulture", cell_line="cell_1")
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
         _, by_id = _build(state, tmp_path)
-        proto_ref = _ids(by_id["#proc_1"].get("executesLabProtocol"))
+        proto_ref = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
         assert proto_ref
         proto = by_id[proto_ref[0]]
         assert proto["@type"] == "LabProtocol"
@@ -189,20 +189,20 @@ class TestOntologyAnnotations:
         state.add_entity(_ent("study_1", "Study", name="S", aop="aop_37"))
         state.add_entity(_ent("aop_37", "DefinedTerm", name="AOP 37"))
         _, by_id = _build(state, tmp_path)
-        assert "#aop_37" in _ids(by_id["#study_1"].get("aop"))
+        assert "#DefinedTerm_aop_37" in _ids(by_id["#Study_study_1"].get("aop"))
 
     def test_study_aop_inline_iri(self, tmp_path):
         state = CrateState()
         state.add_entity(_ent("study_1", "Study", name="S", aop="https://aopwiki.org/aops/37"))
         _, by_id = _build(state, tmp_path)
-        assert "https://aopwiki.org/aops/37" in _ids(by_id["#study_1"].get("aop"))
+        assert "https://aopwiki.org/aops/37" in _ids(by_id["#Study_study_1"].get("aop"))
 
     def test_assay_annotated_with_key_event(self, tmp_path):
         state = CrateState()
         state.add_entity(_ent("assay_1", "Assay", name="A", key_event="ke_55"))
         state.add_entity(_ent("ke_55", "DefinedTerm", name="KE 55"))
         _, by_id = _build(state, tmp_path)
-        assert "#ke_55" in _ids(by_id["#assay_1"].get("keyEvent"))
+        assert "#DefinedTerm_ke_55" in _ids(by_id["#Assay_assay_1"].get("keyEvent"))
 
 
 class TestIdentifiersAndConformance:
@@ -210,8 +210,9 @@ class TestIdentifiersAndConformance:
         state = CrateState()
         state.add_entity(_ent("study_1", "Study", name="S"))
         _, by_id = _build(state, tmp_path)
-        assert "#study_1" in by_id
-        assert "study_1" not in by_id  # bare id must not be emitted
+        assert "#Study_study_1" in by_id
+        # bare id must not be emitted (type-qualified fragment is used instead)
+        assert "study_1" not in by_id
 
     def test_person_uses_orcid_uri(self, tmp_path):
         state = CrateState()
