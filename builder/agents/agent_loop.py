@@ -671,7 +671,7 @@ def run_interactive_agent(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
-    max_iterations: int = 100,
+    max_iterations: int | None = None,
 ) -> None:
     """Run an interactive LangChain agent loop reading from stdin.
 
@@ -686,8 +686,9 @@ def run_interactive_agent(
         model: Model name override (e.g. ``"gpt-4o-mini"``, ``"llama3.2"``).
         base_url: Custom API base URL for OpenAI-compatible providers
             (e.g. ``http://localhost:11434/v1`` for Ollama).
-        max_iterations: Maximum tool-calling iterations before forcing
-            a final response.
+        max_iterations: Maximum tool-calling iterations. Falls back to
+            ``VITRO_MAX_ITERATIONS`` env var, then config file
+            ``[agent.max_iterations]``, then built-in default (100).
     """
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.runnables import RunnableConfig
@@ -708,6 +709,10 @@ def run_interactive_agent(
     console = Console()
 
     provider_name = provider or _detect_provider()
+
+    if max_iterations is None:
+        from builder.config import get_max_iterations
+        max_iterations = get_max_iterations()
 
     # Use LangGraph's built-in thread tracking so the agent accumulates
     # conversation history automatically. The recursion_limit bounds a single

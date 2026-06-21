@@ -19,6 +19,12 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
+
+def _default_max_iterations() -> int:
+    """Return the default max iterations from config (env / config file / built-in)."""
+    from builder.config import get_max_iterations
+    return get_max_iterations()
+
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -500,7 +506,7 @@ class ReasoningLog:
     completed_checkpoints: list[str] = field(default_factory=list)
     reasoning_log: list[ReasoningStep] = field(default_factory=list)
     iteration_count: int = 0
-    max_iterations: int = 100
+    max_iterations: int = field(default_factory=_default_max_iterations)
     stuck: bool = False
 
     def log_reasoning(self, action: str, tool: str, result: str) -> ReasoningStep:
@@ -546,7 +552,7 @@ class ReasoningLog:
             completed_checkpoints=data.get("completed_checkpoints", []),
             reasoning_log=reason_log,
             iteration_count=data.get("iteration_count", 0),
-            max_iterations=data.get("max_iterations", 100),
+            max_iterations=data.get("max_iterations", _default_max_iterations()),
             stuck=data.get("stuck", False),
         )
 

@@ -129,9 +129,25 @@ model = "claude-sonnet-4-20250514"
 # How many times to retry LLM API calls on transient errors
 # (rate limits, 5xx, network blips)
 max_retries = 5
+
+[agent]
+# Maximum tool-calling iterations per request before the agent
+# stops to avoid an endless loop. Increase for complex tasks,
+# decrease to catch runaway loops earlier. Default: 100.
+max_iterations = 100
 ```
 
-Environment variables (``VITRO_*``) always win over the config file.
+Environment variables (``VITRO_*``) always win over the config file:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| ``VITRO_OPENAI_API_KEY`` | API key for OpenAI / compatible providers | — |
+| ``VITRO_OPENAI_BASE_URL`` | API base URL override | ``https://api.openai.com/v1`` |
+| ``VITRO_OPENAI_MODEL`` | Model name for OpenAI | ``gpt-4o`` |
+| ``VITRO_ANTHROPIC_API_KEY`` | API key for Anthropic | — |
+| ``VITRO_ANTHROPIC_MODEL`` | Model name for Anthropic | ``claude-sonnet-4-20250514`` |
+| ``VITRO_MAX_RETRIES`` | LLM API retry count on transient errors | ``3`` |
+| ``VITRO_MAX_ITERATIONS`` | Max tool-calling iterations per request | ``100`` |
 
 Once in the agent loop, you can type requests like:
 

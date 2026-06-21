@@ -39,7 +39,33 @@ def _config_dir() -> Path:
 CONFIG_DIR = _config_dir()
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 
-DEFAULTS: dict[str, Any] = {}
+DEFAULTS: dict[str, Any] = {
+    "max_iterations": 100,
+}
+
+
+def get_max_iterations() -> int:
+    """Return the max tool-calling iterations, respecting precedence.
+
+    Precedence (highest to lowest):
+        1. Environment variable VITRO_MAX_ITERATIONS
+        2. Config file value [agent.max_iterations]
+        3. Built-in default (100)
+    """
+    env_val = os.environ.get("VITRO_MAX_ITERATIONS")
+    if env_val is not None:
+        try:
+            return int(env_val)
+        except (ValueError, TypeError):
+            pass
+    cfg = load_config()
+    cfg_val = cfg.get("agent", {}).get("max_iterations")
+    if cfg_val is not None:
+        try:
+            return int(cfg_val)
+        except (ValueError, TypeError):
+            pass
+    return DEFAULTS.get("max_iterations", 100)
 
 
 def ensure_config_dir() -> Path:
@@ -221,6 +247,7 @@ __all__ = [
     "is_configured",
     "describe_config",
     "interactive_setup",
+    "get_max_iterations",
     "CONFIG_DIR",
     "CONFIG_PATH",
 ]
