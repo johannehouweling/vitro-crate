@@ -8,9 +8,17 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from langchain_core.callbacks import BaseCallbackHandler
+from langgraph.graph import add_messages
+
+# Import Annotated from typing_extensions so it survives
+# from __future__ import annotations at module level.
+try:
+    from typing import Annotated as _Annotated
+except ImportError:
+    from typing_extensions import Annotated as _Annotated
 
 from builder.agents.system_prompt import SYSTEM_PROMPT
 from builder.agents.tools_spec import TOOL_SPECS
@@ -23,6 +31,19 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Agent graph state (TypedDict with add_messages reducer)
+# ---------------------------------------------------------------------------
+
+from typing import TypedDict
+from langchain_core.messages import BaseMessage
+
+
+class AgentState(TypedDict):
+    """State for the agent LangGraph — messages with automatic concatenation."""
+    messages: _Annotated[Sequence[BaseMessage], add_messages]  # type: ignore[valid-type]
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +290,80 @@ def _build_chat_model(
 
     raise RuntimeError(f"Unknown provider: {provider!r}. Use openai or anthropic.")
 # ---------------------------------------------------------------------------
+# Explicit StateGraph construction (replaces create_agent)
+# ---------------------------------------------------------------------------
+
+
+def should_continue(state: dict[str, Any]) -> str:
+    """Route to ``"tools"`` if the last AIMessage has tool_calls, else ``END``.
+
+    This is the conditional edge function for the LangGraph agent graph.
+    """
+    from langgraph.graph import END
+
+    messages = state.get("messages", [])
+    if not messages:
+        return END
+    last_message = messages[-1]
+    # LangGraph AIMessage stores tool_calls as an attribute
+    tool_calls = getattr(last_message, "tool_calls", None)
+    if tool_calls and len(tool_calls) > 0:
+        return "tools"
+    return END
+
+
+def _build_agent_graph(
+    llm: Any,
+    tools: list[Any],
+) -> Any:
+    """Build a compiled StateGraph replacing ``create_agent()``.
+
+    Creates an explicit graph with ``"model"`` and ``"tools"`` nodes,
+    with a conditional edge routing tool calls back to the model and
+    final answers to END. The system prompt is prepended on every
+    model invocation.
+
+    Args:
+        llm: A LangChain chat model (with tools already bound).
+        tools: List of LangChain BaseTool instances for the ToolNode.
+
+    Returns:
+        A compiled ``CompiledStateGraph`` ready for ``.invoke()``.
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+    from langgraph.graph import START, StateGraph
+    from langgraph.prebuilt import ToolNode
+
+    from langchain_core.messages import SystemMessage
+
+    def call_model(state: dict[str, Any]) -> dict[str, Any]:
+        """Model node: prepend system prompt and invoke the LLM."""
+        messages = state.get("messages", [])
+        # Prepend system prompt on every invocation
+        system_msg = SystemMessage(content=SYSTEM_PROMPT)
+        model_messages = [system_msg, *messages]
+        response = llm.invoke(model_messages)
+        # Return only the new response; the add_messages reducer appends it
+        return {"messages": [response]}
+
+    tool_node = ToolNode(tools)
+
+    # Use a typed state with add_messages reducer so ToolNode and model
+    # both append to the message list rather than replacing it.
+    graph: Any = StateGraph(AgentState)
+    graph.add_node("model", call_model)
+    graph.add_node("tools", tool_node)
+
+    # should_continue returns "tools" or END (the string "__end__").
+    # Without a path_map, the return value is used as the destination node name.
+    graph.add_conditional_edges("model", should_continue)
+    graph.add_edge("tools", "model")
+    graph.add_edge(START, "model")
+
+    return graph.compile(checkpointer=MemorySaver())
+
+
+# ---------------------------------------------------------------------------
 # Agent execution
 # ---------------------------------------------------------------------------
 
@@ -296,23 +391,15 @@ def run_interactive_agent(
         max_iterations: Maximum tool-calling iterations before forcing
             a final response.
     """
-    from langchain.agents import create_agent
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.runnables import RunnableConfig
-    from langgraph.checkpoint.memory import MemorySaver
 
     tools = _build_langchain_tools(engine)
     llm = _build_chat_model(provider=provider, model=model, base_url=base_url)
 
-    # Use the new LangChain 1.3+ create_agent graph API
-    # The system prompt is passed as the system_prompt kwarg;
-    # conversational memory is handled by the checkpointer.
-    app = create_agent(
-        llm,
-        tools,
-        system_prompt=SYSTEM_PROMPT,
-        checkpointer=MemorySaver(),
-    )
+    # Build the explicit StateGraph instead of using create_agent()
+    # The system prompt is prepended by the model node on every invocation.
+    app = _build_agent_graph(llm, tools)
 
     from rich.console import Console
     from rich.panel import Panel
