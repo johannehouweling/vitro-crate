@@ -409,3 +409,23 @@ class TestMainInteractiveFlag:
         args = parse_args(["-I", "-p", "anthropic"])
         assert args.interactive is True
         assert args.provider == "anthropic"
+
+class TestRecursionLimit:
+    """The documented max_iterations cap must map to LangGraph's recursion_limit
+    so a runaway tool loop stops at a controlled bound instead of LangGraph's
+    silent default of 25 super-steps (#56)."""
+
+    def test_doubles_max_iterations(self):
+        """Each tool iteration is ~2 super-steps (model + tools)."""
+        from builder.agents.agent_loop import _recursion_limit
+
+        assert _recursion_limit(50) == 100
+        assert _recursion_limit(25) == 50
+
+    def test_floors_at_two(self):
+        """A non-positive cap still allows the graph to run at least once."""
+        from builder.agents.agent_loop import _recursion_limit
+
+        assert _recursion_limit(0) == 2
+        assert _recursion_limit(1) == 2
+        assert _recursion_limit(-5) == 2
