@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import logging
 import os
-from time import perf_counter
+import threading
+from time import monotonic, perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -49,20 +50,69 @@ class AgentState(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# Spinner callback — shows tool calls behind the spinner
+# Thinking spinner — ticks elapsed seconds and shows the active tool
 # ---------------------------------------------------------------------------
 
 
+class _ThinkingSpinner:
+    """A Rich status spinner that ticks elapsed seconds while the agent works
+    and surfaces the active tool — Claude Code style.
+
+    Colour convention: green = the agent working (matches the ● reply marker),
+    dim = elapsed/meta, cyan = the active tool.
+    Used as a context manager around an ``app.invoke`` call; a daemon thread
+    refreshes the elapsed time roughly twice a second.
+    """
+
+    def __init__(self, console: Any, phrase: str) -> None:
+        self._console = console
+        self._phrase = phrase
+        self._tool: str | None = None
+        self._start = monotonic()
+        self._stop = threading.Event()
+        self._status = console.status(
+            self._render(), spinner="dots", spinner_style="green"
+        )
+        self._thread = threading.Thread(target=self._tick, daemon=True)
+
+    def _render(self) -> str:
+        elapsed = int(monotonic() - self._start)
+        line = f"[green]{self._phrase}…[/green] [dim]({elapsed}s)[/dim]"
+        if self._tool:
+            line += f"  [dim]·[/dim] [cyan]{self._tool}[/cyan]"
+        return line
+
+    def _tick(self) -> None:
+        while not self._stop.wait(0.5):
+            try:
+                self._status.update(self._render())
+            except Exception:
+                break
+
+    def set_tool(self, name: str | None) -> None:
+        """Show (or clear, with ``None``) the tool currently running."""
+        self._tool = name
+        try:
+            self._status.update(self._render())
+        except Exception:
+            pass
+
+    def __enter__(self) -> "_ThinkingSpinner":
+        self._status.__enter__()
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+        self._status.__exit__(*exc)
+
+
 class _ToolSpinnerCallback(BaseCallbackHandler):
-    """LangChain callback that updates the Rich status spinner text
-    when the agent calls a tool, so users see what's happening behind
-    the ``intoxicating...`` message.
+    """LangChain callback that surfaces the active tool on a _ThinkingSpinner."""
 
-    Expects the status to have a ``.base_text`` attribute set by the
-    caller (the random tox phrase) so we can append tool info to it."""
-
-    def __init__(self, status) -> None:
-        self.status = status
+    def __init__(self, spinner: _ThinkingSpinner) -> None:
+        self.spinner = spinner
         super().__init__()
 
     def on_tool_start(
@@ -71,12 +121,10 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
         input_str: str,
         **kwargs: Any,
     ) -> None:
-        tool_name = serialized.get("name", "tool")
-        args = input_str if isinstance(input_str, str) else str(input_str)
-        if len(args) > 80:
-            args = args[:77] + "..."
-        base = getattr(self.status, "base_text", "")
-        self.status.update(f"{base} [yellow]{tool_name}[/yellow] [dim]({args})[/dim]")
+        self.spinner.set_tool(serialized.get("name", "tool"))
+
+    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+        self.spinner.set_tool(None)
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +544,103 @@ def _build_agent_graph(
 # ---------------------------------------------------------------------------
 
 
+def _boxed_input(console: Any, label: str = "❯") -> str:
+    """Read one line of input inside a rounded box (Claude Code style).
+
+    Renders an ephemeral rounded box via prompt_toolkit; once submitted the
+    box is erased and the line is echoed into the transcript so it persists.
+    Falls back to ``console.input`` when stdin is not a TTY or prompt_toolkit
+    is unavailable. Raises ``KeyboardInterrupt`` (Ctrl+C) and ``EOFError``
+    (Ctrl+D on an empty line), matching ``input()``.
+    """
+    import sys
+
+    def _fallback() -> str:
+        return console.input(f"[bold cyan]{label} [/bold cyan]").strip()
+
+    if not sys.stdin.isatty():
+        return _fallback()
+    try:
+        from prompt_toolkit import Application
+        from prompt_toolkit.application.current import get_app
+        from prompt_toolkit.buffer import Buffer
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+        from prompt_toolkit.layout.controls import (
+            BufferControl,
+            FormattedTextControl,
+        )
+        from prompt_toolkit.styles import Style
+    except Exception:
+        return _fallback()
+
+    buf = Buffer(multiline=False)
+    outcome: dict[str, Any] = {"exc": None}
+    kb = KeyBindings()
+
+    @kb.add("enter")
+    def _(event: Any) -> None:
+        event.app.exit(result=buf.text)
+
+    @kb.add("c-c")
+    def _(event: Any) -> None:
+        outcome["exc"] = KeyboardInterrupt
+        event.app.exit(result="")
+
+    @kb.add("c-d")
+    def _(event: Any) -> None:
+        if not buf.text:
+            outcome["exc"] = EOFError
+            event.app.exit(result="")
+
+    def _hline(left: str, right: str):
+        def _get() -> list[tuple[str, str]]:
+            w = get_app().output.get_size().columns
+            return [("class:box", left + "─" * max(0, w - 2) + right)]
+        return _get
+
+    buf_window = Window(BufferControl(buffer=buf))
+    middle = VSplit(
+        [
+            Window(
+                FormattedTextControl(
+                    [("class:box", "│ "), ("class:prompt", f"{label} ")]
+                ),
+                width=4,
+            ),
+            buf_window,
+            Window(FormattedTextControl([("class:box", " │")]), width=2),
+        ],
+        height=1,
+    )
+    root = HSplit(
+        [
+            Window(FormattedTextControl(_hline("╭", "╮")), height=1),
+            middle,
+            Window(FormattedTextControl(_hline("╰", "╯")), height=1),
+        ]
+    )
+    style = Style.from_dict({"box": "fg:#5f5f5f", "prompt": "bold ansicyan"})
+    app: Any = Application(
+        layout=Layout(root, focused_element=buf_window),
+        key_bindings=kb,
+        style=style,
+        full_screen=False,
+    )
+    try:
+        text = app.run()
+    except Exception:
+        return _fallback()
+
+    if outcome["exc"] is not None:
+        raise outcome["exc"]
+    text = (text or "").strip()
+    if text:
+        # The box was ephemeral — echo the submitted line into the transcript.
+        console.print(f"[bold cyan]{label}[/bold cyan] {text}")
+    return text
+
+
 def run_interactive_agent(
     engine: AgentEngine,
     provider: str | None = None,
@@ -574,12 +719,25 @@ def run_interactive_agent(
         """
         if not content:
             return
-        console.print()  # breathing room above the reply
-        console.print("[green]⏺[/green] [dim]assistant[/dim]")
+        from rich.table import Table
+
         try:
-            console.print(Padding(Markdown(content), (0, 0, 1, 2)))
+            body: Any = Markdown(content)
         except Exception:
-            console.print(Padding(content, (0, 0, 1, 2)))
+            body = content
+
+        # Claude-Code style: the ● marker sits on the SAME line as the first
+        # line of the reply, and continuation lines align under it. A 2-wide
+        # gutter column holds the marker; the body column wraps beside it.
+        grid = Table.grid(padding=(0, 0))
+        grid.add_column(width=2, no_wrap=True)
+        grid.add_column(overflow="fold")
+        grid.add_row("[green]●[/green]", body)
+
+        console.print()  # breathing room above the reply
+        console.print()
+        console.print(grid)
+        console.print()  # ...and below
 
     def _render_header() -> None:
         """Print a compact one-line status header before each user prompt.
@@ -709,15 +867,12 @@ def run_interactive_agent(
         root_logger = logging.getLogger()
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
-        greeting_phrase = "[yellow]intoxicating...[/yellow]"
-        status = console.status(greeting_phrase, spinner="dots")
-        status.base_text = greeting_phrase  # type: ignore[attr-defined]
-        spinner_cb = _ToolSpinnerCallback(status)
+        spinner = _ThinkingSpinner(console, "intoxicating")
         greeting_config = {
             **thread_config,
-            "callbacks": [spinner_cb],
+            "callbacks": [_ToolSpinnerCallback(spinner)],
         }
-        with status:
+        with spinner:
             result = app.invoke(
                 {"messages": [HumanMessage(content=greeting_prompt)]},
                 greeting_config,
@@ -784,11 +939,10 @@ def run_interactive_agent(
             # Compact status header above each prompt (counts live here now,
             # so the prompt line stays clean).
             _render_header()
-            # Use console.input directly instead of Prompt.ask so we
-            # reliably get KeyboardInterrupt on Ctrl+C and EOFError on Ctrl+D.
-            # console.input already echoes what the user types, so we do not
-            # re-print it (avoids the duplicated input box).
-            user_input = console.input("[bold cyan]❯ You[/bold cyan] ").strip()
+            console.print()
+            # Rounded input box (Claude Code style); falls back to a plain
+            # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
+            user_input = _boxed_input(console)
         except KeyboardInterrupt:
             # Ctrl+C: clear the line and re-prompt
             console.print()
@@ -822,13 +976,13 @@ def run_interactive_agent(
 
             TOX_SPINNER_PHRASES = [
                 "intoxicating",
-                "blaming the intern",
+                "blaming the student",
                 "appeasing the cells",
                 "consoling the control",
-                "fighting Reviewer 2",
+                "fighting reviewer 2",
                 "haggling the IC50",
                 "bribing the curve",
-                "vortexing the dread",
+                "vortexing",
                 "rehydrating optimism",
                 "titrating patience",
                 "resuspending motivation",
@@ -859,16 +1013,13 @@ def run_interactive_agent(
             old_root_level = root_logger.level
             root_logger.setLevel(logging.ERROR)
 
-            # Create a fresh status + callback for this iteration
-            main_phrase = f"[yellow]{random.choice(TOX_SPINNER_PHRASES)}...[/yellow]"
-            main_status = console.status(main_phrase, spinner="dots")
-            main_status.base_text = main_phrase  # type: ignore[attr-defined]
-            main_spinner_cb = _ToolSpinnerCallback(main_status)
+            # Create a fresh thinking spinner + callback for this iteration
+            spinner = _ThinkingSpinner(console, random.choice(TOX_SPINNER_PHRASES))
             main_config = {
                 **thread_config,
-                "callbacks": [main_spinner_cb],
+                "callbacks": [_ToolSpinnerCallback(spinner)],
             }
-            with main_status:
+            with spinner:
                 result = app.invoke(
                     {"messages": [HumanMessage(content=enriched_input)]},
                     main_config,
