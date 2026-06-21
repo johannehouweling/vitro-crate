@@ -1,0 +1,29 @@
+{
+  "person": {
+    "name": {
+      "given-names": {"value": "Jan"},
+      "family-name": {"value": "de Vries"}
+    }
+  },
+  "activities-summary": {
+    "employments": {
+      "affiliation-group": [
+        {
+          "summaries": [
+            {
+              "employment-summary": {
+                "organization": {
+                  "name": "Maastricht University",
+                  "disambiguated-organization": {
+                    "disambiguation-source": "ROR",
+                    "disambiguated-organization-identifier": "https://ror.org/02jz4aj89"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

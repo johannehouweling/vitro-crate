@@ -1,0 +1,15 @@
+{
+  "status": "ok",
+  "message": {
+    "DOI": "10.1016/j.tox.2021.152898",
+    "title": ["Application of the adverse outcome pathway concept to in vitro nephrotoxicity assessment"],
+    "author": [
+      {"given": "Alice", "family": "Krebs", "ORCID": "https://orcid.org/0000-0001-1234-5678"},
+      {"given": "Bob", "family": "Smith"}
+    ],
+    "issued": {"date-parts": [[2021]]},
+    "URL": "https://doi.org/10.1016/j.tox.2021.152898",
+    "container-title": ["Toxicology"],
+    "publisher": "Elsevier"
+  }
+}

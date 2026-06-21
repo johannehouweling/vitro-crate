@@ -1,0 +1,14 @@
+{
+  "response": {
+    "numFound": 1,
+    "docs": [
+      {
+        "iri": "http://www.bioassayontology.org/bao#BAO_0003009",
+        "label": "cell viability assay",
+        "short_form": "BAO_0003009",
+        "ontology_name": "bao",
+        "description": ["An assay that measures cell viability."]
+      }
+    ]
+  }
+}

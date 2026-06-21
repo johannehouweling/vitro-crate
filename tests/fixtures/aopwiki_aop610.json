@@ -1,0 +1,21 @@
+{
+  "aop": {
+    "title": "Inhibition of the mitochondrial complex I of nigro-striatal neurons leads to parkinsonian motor deficits",
+    "short_name": "MC-I inhibition to Parkinsonism",
+    "aop_mies": [
+      {"event_id": 888, "event": "Binding of inhibitor, NADH-ubiquinone oxidoreductase (complex I)", "event_type": "MolecularInitiatingEvent"}
+    ],
+    "aop_kes": [
+      {"event_id": 177, "event": "Mitochondrial dysfunction", "event_type": "KeyEvent"},
+      {"event_id": 889, "event": "Degeneration of dopaminergic neurons", "event_type": "KeyEvent"}
+    ],
+    "aop_aos": [
+      {"event_id": 890, "event": "Parkinsonian motor deficits", "event_type": "AdverseOutcome"}
+    ],
+    "relationships": [
+      {"relation": 1120, "upstream_event_id": 888, "downstream_event_id": 177, "upstream_event": "Binding of inhibitor", "downstream_event": "Mitochondrial dysfunction"},
+      {"relation": 1121, "upstream_event_id": 177, "downstream_event_id": 889, "upstream_event": "Mitochondrial dysfunction", "downstream_event": "Degeneration of DA neurons"},
+      {"relation": 1122, "upstream_event_id": 889, "downstream_event_id": 890, "upstream_event": "Degeneration of DA neurons", "downstream_event": "Parkinsonian motor deficits"}
+    ]
+  }
+}
