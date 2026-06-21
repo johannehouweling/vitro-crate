@@ -348,6 +348,68 @@ class TestBuildLangchainTools:
         assert entities[0].fields.get("name") == "Test Investigation"
         assert entities[0].type == "Investigation"
 
+    def test_tool_body_error_returns_recoverable_message(self):
+        """A tool body exception (e.g. entity not found) should return a
+        recoverable error message, not propagate as an unhandled exception.
+
+        This test simulates calling set_entity_field with a non-existent entity_id,
+        which raises ValueError("Entity not found: ...") in management.py.
+        The LangChain tool wrapper should catch this and return a dict with
+        an 'error' key so the LLM can retry, rather than letting it propagate.
+        """
+        tools, tool_map, engine = self._build()
+
+        tool = tool_map["set_entity_field"]
+        # Calling set_entity_field with a non-existent ID should trigger
+        # ValueError("Entity not found: ...") in management.py
+        result = tool.invoke(
+            {"entity_id": "nonexistent_123", "field": "name", "value": "test"}
+        )
+
+        # The result should be a dict with an error message for the LLM
+        assert result is not None
+        assert isinstance(result, dict), (
+            f"Expected dict with 'error' key, got {type(result).__name__}: {result}"
+        )
+        assert "error" in result, f"Expected 'error' in result, got: {result}"
+        assert "nonexistent_123" in result["error"], (
+            f"Error should mention the entity_id, got: {result['error']}"
+        )
+
+    def test_tool_body_error_allows_self_correction(self):
+        """After a tool-body error, the agent should be able to call the same
+        tool again with corrected arguments and get a successful result.
+
+        This simulates the full self-correction cycle: first a bad call that
+        triggers an error, then a good call that succeeds.
+        """
+        tools, tool_map, engine = self._build()
+
+        # Now call set_entity_field with a bad ID — should get error, not exception
+        bad_call = tool_map["set_entity_field"].invoke(
+            {"entity_id": "bad_id_999", "field": "name", "value": "wrong"}
+        )
+        assert isinstance(bad_call, dict)
+        assert "error" in bad_call
+
+        # Now call with a valid entity ID after creating it — should succeed
+        draft_tool = tool_map["draft_investigation"]
+        draft_tool.invoke({"hints": {"name": "Test Investigation"}})
+        entities = engine.state.list_entities()
+        assert len(entities) == 1
+        entity_id = entities[0].entity_id
+
+        good_call = tool_map["set_entity_field"].invoke(
+            {"entity_id": entity_id, "field": "name", "value": "Updated Name"}
+        )
+        # The good call should succeed (not return an error dict)
+        assert good_call is None, f"Good call should succeed (return None), got: {good_call}"
+
+        # Verify the entity was actually updated
+        updated = engine.state.get_entity(entity_id)
+        assert updated is not None
+        assert updated.fields.get("name") == "Updated Name"
+
 
 class _FakeSpinner:
     """Records set_tool calls for callback tests."""
@@ -475,3 +537,6 @@ class TestRecursionLimit:
         assert _recursion_limit(0) == 2
         assert _recursion_limit(1) == 2
         assert _recursion_limit(-5) == 2
+
+
+

@@ -713,3 +713,16 @@ def summarize_scan_result(files: list[FileClassification], sample: int = 15) -> 
         f"Scan complete: {n} files found and stored in session state "
         f"(no need to scan again). Types: {types}. Sample: {shown}{more}."
     )
+
+
+# ---------------------------------------------------------------------------
+# Explicit ToolRegistry registration
+# ---------------------------------------------------------------------------
+
+from builder.tools.registry import TOOL_REGISTRY
+
+TOOL_REGISTRY.register(
+    "extract_pdf_text",
+    extract_pdf_text,
+    description="Extract structured content from a PDF file (text, tables, and image metadata)",
+)

@@ -166,6 +166,7 @@ class AgentEngine:
         _start = _time.perf_counter()
         scanner_tools: dict[str, Any] = {}
         try:
+            from builder.tools.scanner import extract_pdf_text as ept
             from builder.tools.scanner import preview_archive as pa
             from builder.tools.scanner import read_file_sample as rfs
             from builder.tools.scanner import read_multiple_files as rmf
@@ -173,6 +174,7 @@ class AgentEngine:
             from builder.tools.scanner import unzip_file as uzf
 
             scanner_tools = {
+                "extract_pdf_text": ept,
                 "scan_files": sf,
                 "read_file_sample": rfs,
                 "read_multiple_files": rmf,

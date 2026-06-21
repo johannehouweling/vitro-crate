@@ -203,7 +203,21 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
         def _make_tool(tool_name: str, tool_desc: str, tool_params: dict) -> BaseTool:
             def _run(**kwargs: Any) -> Any:
-                result = engine.run_tool(tool_name, **kwargs)
+                try:
+                    result = engine.run_tool(tool_name, **kwargs)
+                except (ValueError, KeyError, TypeError) as exc:
+                    # Recoverable tool-body exceptions are converted to a dict
+                    # with an 'error' key so the LLM receives them as a tool
+                    # message and can self-correct (e.g. retry with the right
+                    # entity_id) instead of the error propagating out of
+                    # app.invoke and aborting the entire turn.
+                    # Pydantic / arg-schema validation errors are already caught
+                    # by LangChain's ToolNode and fed back as ToolInvocationError
+                    # messages; this catches the tool-body exceptions that would
+                    # otherwise escape both the ToolNode and the model loop.
+                    # Genuinely fatal errors (SystemExit, KeyboardInterrupt) are
+                    # intentionally NOT caught so they propagate normally.
+                    return {"error": str(exc), "tool": tool_name}
                 # scan_files returns the full list[FileClassification] (already
                 # stored in state); hand the LLM a compact summary instead of
                 # the raw blob so it gets a clear success signal and does not
