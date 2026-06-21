@@ -12,6 +12,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from langchain_core.callbacks import BaseCallbackHandler
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import add_messages
 
 # Import Annotated from typing_extensions so it survives
@@ -186,6 +187,23 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
         langchain_tools.append(tool_fn)
 
     return langchain_tools
+
+
+# ---------------------------------------------------------------------------
+# Iteration safety net
+# ---------------------------------------------------------------------------
+
+
+def _recursion_limit(max_iterations: int) -> int:
+    """Map the documented tool-iteration cap to LangGraph's ``recursion_limit``.
+
+    Each tool iteration is roughly two super-steps (``model`` then ``tools``),
+    so the recursion limit is ``2 * max_iterations``. Floored at 2 so the graph
+    can always complete at least one model→tools→model cycle. Without this,
+    LangGraph applies its silent default of 25 super-steps and a runaway loop
+    raises an uncaught ``GraphRecursionError`` (#56).
+    """
+    return max(2, max_iterations * 2)
 
 
 # ---------------------------------------------------------------------------
@@ -528,8 +546,16 @@ def run_interactive_agent(
     provider_name = provider or _detect_provider()
 
     # Use LangGraph's built-in thread tracking so the agent accumulates
-    # conversation history automatically.
-    thread_config = cast(RunnableConfig, {"configurable": {"thread_id": engine.state.session_id}})
+    # conversation history automatically. The recursion_limit bounds a single
+    # turn's model/tools alternation so a runaway loop stops gracefully instead
+    # of hitting LangGraph's silent default of 25 super-steps (#56).
+    thread_config = cast(
+        RunnableConfig,
+        {
+            "configurable": {"thread_id": engine.state.session_id},
+            "recursion_limit": _recursion_limit(max_iterations),
+        },
+    )
 
     def _extract_reply(state: dict) -> str:
         """Pull the last AIMessage content from the agent state."""
@@ -821,6 +847,21 @@ def run_interactive_agent(
             except Exception:
                 pass
 
+        except GraphRecursionError:
+            # The turn hit the recursion_limit safety net — stop gracefully
+            # instead of surfacing a raw error, and persist the session.
+            root_logger.setLevel(old_root_level)
+            console.print(
+                "[yellow]I reached the step limit for this request[/yellow] and "
+                "stopped to avoid an endless loop. Your session is saved — try a "
+                "smaller or more specific request, or ask me to continue."
+            )
+            try:
+                from builder.tools.session import save_session
+                save_session(engine.state)
+            except Exception:
+                pass
+            console.print()
         except Exception as exc:
             logger.exception("Agent error")
             console.print(f"[red bold]Error:[/red bold] {exc}")
