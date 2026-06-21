@@ -9,7 +9,7 @@ from __future__ import annotations
 import functools
 import time
 
-import requests
+from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://api.ror.org/organizations"
 
@@ -23,17 +23,18 @@ def search_ror(name: str) -> dict:
 
     Returns:
         dict with keys: @id (ROR URL), @type, name, url.
-        Returns {} on failure or no match.
+        Returns {} on no match. Raises TransientLookupError on a transient API
+        failure (timeout / connection / 429 / 5xx).
     """
     if not name:
         return {}
     try:
         time.sleep(0.1)
-        r = requests.get(_BASE, params={"query": name}, timeout=10)
-        if r.status_code != 200:
+        data = http_get_json(_BASE, params={"query": name})
+        if data is NOT_FOUND:
             return {}
 
-        items = r.json().get("items", [])
+        items = data.get("items", [])
         if not items:
             return {}
 
@@ -57,5 +58,7 @@ def search_ror(name: str) -> dict:
             "url": url,
             "identifier": ror_id,
         }
+    except TransientLookupError:
+        raise
     except Exception:
         return {}

@@ -10,7 +10,7 @@ from __future__ import annotations
 import functools
 import time
 
-import requests
+from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://www.ebi.ac.uk/ols4/api/search"
 
@@ -25,21 +25,21 @@ def lookup_bao_term(query: str) -> dict:
 
     Returns:
         dict with keys: @id (BAO IRI), @type ("DefinedTerm"), name.
-        Returns {} if no match or on API failure.
+        Returns {} if no match. Raises TransientLookupError on a transient API
+        failure (timeout / connection / 429 / 5xx).
     """
     if not query:
         return {}
     try:
         time.sleep(0.1)
-        r = requests.get(
+        data = http_get_json(
             _BASE,
             params={"q": query, "ontology": "bao", "rows": 1},
-            timeout=10,
         )
-        if r.status_code != 200:
+        if data is NOT_FOUND:
             return {}
 
-        docs = r.json().get("response", {}).get("docs", [])
+        docs = data.get("response", {}).get("docs", [])
         if not docs:
             return {}
 
@@ -56,5 +56,7 @@ def lookup_bao_term(query: str) -> dict:
             "name": label,
             "termCode": top.get("short_form", ""),
         }
+    except TransientLookupError:
+        raise
     except Exception:
         return {}

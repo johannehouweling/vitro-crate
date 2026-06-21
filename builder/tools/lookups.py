@@ -15,6 +15,7 @@ import logging
 import time
 from typing import Any
 
+from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop as lookup_aop_wiki
 from lookups.bao import lookup_bao_term as lookup_bao_term_ols
 from lookups.cellosaurus import lookup_cellosaurus
@@ -76,6 +77,8 @@ def lookup_compound(name: str) -> dict[str, Any]:
                 return _success(result)
 
         return _failure(f"Compound '{name}' not found in PubChem")
+    except TransientLookupError as exc:
+        return _failure(f"PubChem temporarily unavailable (transient): {exc}")
     except Exception as exc:
         logger.exception("PubChem lookup failed for '%s'", name)
         return _failure(f"PubChem lookup failed: {exc}")
@@ -101,6 +104,8 @@ def lookup_cell_line(accession: str) -> dict[str, Any]:
         if result and result.get("name"):
             return _success(result)
         return _failure(f"Cell line '{accession}' not found in Cellosaurus")
+    except TransientLookupError as exc:
+        return _failure(f"Cellosaurus temporarily unavailable (transient): {exc}")
     except Exception as exc:
         logger.exception("Cellosaurus lookup failed for '%s'", accession)
         return _failure(f"Cellosaurus lookup failed: {exc}")
@@ -125,6 +130,8 @@ def lookup_aop(aop_id: str) -> dict[str, Any]:
         if result and result.get("aop"):
             return _success(result)
         return _failure(f"AOP '{aop_id}' not found in AOP-Wiki")
+    except TransientLookupError as exc:
+        return _failure(f"AOP-Wiki temporarily unavailable (transient): {exc}")
     except Exception as exc:
         logger.exception("AOP-Wiki lookup failed for '%s'", aop_id)
         return _failure(f"AOP-Wiki lookup failed: {exc}")
@@ -149,6 +156,8 @@ def lookup_bao_term(query: str) -> dict[str, Any]:
         if result and result.get("@id"):
             return _success(result)
         return _failure(f"No BAO term found for '{query}'")
+    except TransientLookupError as exc:
+        return _failure(f"BAO/OLS temporarily unavailable (transient): {exc}")
     except Exception as exc:
         logger.exception("BAO/OLS lookup failed for '%s'", query)
         return _failure(f"BAO/OLS lookup failed: {exc}")
@@ -178,6 +187,8 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
         if result and result.get("@id"):
             return _success(result)
         return _failure(f"ORCID lookup failed for '{orcid_id}'")
+    except TransientLookupError as exc:
+        return _failure(f"ORCID temporarily unavailable (transient): {exc}")
     except Exception as exc:
         logger.exception("ORCID lookup failed for '%s'", orcid_id)
         return _failure(f"ORCID lookup failed: {exc}")
@@ -202,6 +213,8 @@ def lookup_ror(name: str) -> dict[str, Any]:
         if result and result.get("@id"):
             return _success(result)
         return _failure(f"No ROR organization found for '{name}'")
+    except TransientLookupError as exc:
+        return _failure(f"ROR temporarily unavailable (transient): {exc}")
     except Exception as exc:
         logger.exception("ROR lookup failed for '%s'", name)
         return _failure(f"ROR lookup failed: {exc}")
@@ -227,6 +240,8 @@ def lookup_doi(doi: str) -> dict[str, Any]:
         if result and result.get("name"):
             return _success(result)
         return _failure(f"DOI '{doi}' not found in Crossref")
+    except TransientLookupError as exc:
+        return _failure(f"Crossref temporarily unavailable (transient): {exc}")
     except Exception as exc:
         logger.exception("Crossref lookup failed for '%s'", doi)
         return _failure(f"Crossref lookup failed: {exc}")
