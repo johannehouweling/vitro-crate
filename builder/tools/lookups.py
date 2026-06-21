@@ -230,3 +230,17 @@ def lookup_doi(doi: str) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("Crossref lookup failed for '%s'", doi)
         return _failure(f"Crossref lookup failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("lookup_compound", lookup_compound, takes_state=False)
+TOOL_REGISTRY.register("lookup_cell_line", lookup_cell_line, takes_state=False)
+TOOL_REGISTRY.register("lookup_aop", lookup_aop, takes_state=False)
+TOOL_REGISTRY.register("lookup_bao_term", lookup_bao_term, takes_state=False)
+TOOL_REGISTRY.register("lookup_orcid", lookup_orcid, takes_state=False)
+TOOL_REGISTRY.register("lookup_ror", lookup_ror, takes_state=False)
+TOOL_REGISTRY.register("lookup_doi", lookup_doi, takes_state=False)

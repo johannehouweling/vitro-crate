@@ -426,3 +426,13 @@ def _compute_dsm_level(state: CrateState, dsm_data: dict[str, Any] | None) -> in
             max_level = level
 
     return max_level
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register(
+    "assess_fair_maturity", assess_fair_maturity, takes_state=True
+)

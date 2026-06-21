@@ -121,3 +121,15 @@ def bulk_set_fields(
     for field, value in fields.items():
         entity.fields[field] = value
         entity.set_field_status(field, "filled", source)
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("list_entities", list_entities, takes_state=True)
+TOOL_REGISTRY.register("update_entity", update_entity, takes_state=True)
+TOOL_REGISTRY.register("remove_entity", remove_entity, takes_state=True)
+TOOL_REGISTRY.register("set_entity_field", set_entity_field, takes_state=True)
+TOOL_REGISTRY.register("bulk_set_fields", bulk_set_fields, takes_state=True)

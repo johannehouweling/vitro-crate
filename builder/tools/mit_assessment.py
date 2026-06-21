@@ -151,3 +151,11 @@ def assess_mit_coverage(state: CrateState) -> MITReport:
         module_scores=module_scores,
         overall_score=overall_score,
     )
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("assess_mit_coverage", assess_mit_coverage, takes_state=True)

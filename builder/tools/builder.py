@@ -64,3 +64,11 @@ def build_crate(state: CrateState, output_path: str) -> dict[str, Any]:
     except Exception as e:
         logger.error("Unexpected error building crate: %s", e)
         return {"success": False, "crate_path": output_path, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("build_crate", build_crate, takes_state=True)
