@@ -28,7 +28,12 @@ from rocrate.model import ContextEntity
 from rocrate.rocrate import ROCrate
 
 _BASE = "https://w3id.org/ro/crate/isa-tox/1.0/iuclid"
-_CATALOG = Path(__file__).resolve().parents[4] / "profiles" / "mit-data" / "oht201_value_sets.json"
+_CATALOG = (
+    Path(__file__).resolve().parents[1]
+    / "profiles"
+    / "mit-data"
+    / "oht201_value_sets.json"
+)
 _FUZZY_THRESHOLD = 0.86
 
 
