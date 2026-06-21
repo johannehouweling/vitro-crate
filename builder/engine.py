@@ -21,6 +21,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _directory_to_approve(scanned_path: str) -> str:
+    """Return the directory to add to ``approved_scan_roots`` for *scanned_path*.
+
+    The approved root must be a *directory*: the guard treats roots as
+    directory prefixes, and nothing can be a sub-path of a file, so approving
+    a file path is useless and denies every follow-up scan. The chosen
+    directory is the one whose contents are actually inventoried:
+
+    - a directory  -> the directory itself;
+    - an archive   -> its extraction directory (``<stem>_extracted``), **not**
+      the archive's parent — approving the parent would expose unrelated
+      sibling files, weakening the D9 approved-roots guard rail;
+    - any other file -> its parent directory.
+    """
+    from builder.tools.scanner import _is_archive
+
+    p = Path(scanned_path).resolve()
+    if p.is_dir():
+        return str(p)
+    if _is_archive(p):
+        # Mirror unzip_file's extraction layout: <parent>/<stem>_extracted
+        return str(p.parent / f"{p.stem}_extracted")
+    return str(p.parent)
+
+
 class AgentEngine:
     """Orchestrator for the LLM agent toolbox loop.
 
@@ -64,8 +89,10 @@ class AgentEngine:
             scanned = scan_files(input_path)
             self.state.scanned_files = scanned
             self.state.metadata.input_path = input_path
-            resolved = Path(input_path).resolve()
-            self.state.approved_scan_roots.add(str(resolved))
+            # Approve the directory whose contents we inventoried (the
+            # extraction dir for an archive), not the raw input path — see
+            # _directory_to_approve. Locks the guard even on an empty scan.
+            self.state.approved_scan_roots.add(_directory_to_approve(input_path))
 
         if not self.state.session_id:
             self.state.session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -165,14 +192,28 @@ class AgentEngine:
             # Auto-store scan results in state, and register the scanned
             # path as an approved root if none were set yet.
             if tool_name == "scan_files" and isinstance(result, list):
-                self.state.scanned_files = result
+                # Lock the guard to the scanned area on the first scan, even if
+                # it returned nothing — otherwise approved_scan_roots stays
+                # empty, run_tool keeps passing approved_roots=None, and the
+                # guard is effectively disabled (any path becomes scannable).
                 if not self.state.approved_scan_roots:
-                    resolved = Path(kwargs.get("path", "")).resolve()
-                    self.state.approved_scan_roots.add(str(resolved))
-                self.state.log_reasoning(
-                    "store_scan_results", "scan_files",
-                    f"Stored {len(result)} files in state",
-                )
+                    self.state.approved_scan_roots.add(
+                        _directory_to_approve(kwargs.get("path", ""))
+                    )
+                if result:
+                    self.state.scanned_files = result
+                    self.state.log_reasoning(
+                        "store_scan_results", "scan_files",
+                        f"Stored {len(result)} files in state",
+                    )
+                else:
+                    # Empty = denied root or empty/failed scan. Do NOT clobber
+                    # an existing inventory with zero — that tricked the agent
+                    # into endless re-scanning.
+                    self.state.log_reasoning(
+                        "scan_no_results", "scan_files",
+                        "Scan returned no files; keeping existing inventory",
+                    )
         else:
             registry = self._build_registry()
             spec = registry.get_spec(tool_name)
