@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import zipfile
+from collections import Counter
 from pathlib import Path
 
 from builder.state import ArchivePreview, FileClassification
@@ -498,6 +499,17 @@ def read_file_sample(path: str, lines: int = 20) -> str | None:
     if _detect_mime_type(file_path) == "application/octet-stream":
         return None
 
+    # Content-based binary guard: office formats (xlsx/xls) are zip/OLE2
+    # containers whose MIME type is *not* octet-stream, so the check above
+    # misses them and their raw bytes (PK\x03\x04…) would be read as mojibake.
+    # A NUL byte in the first chunk reliably marks a file as binary.
+    try:
+        with file_path.open("rb") as fb:
+            if b"\x00" in fb.read(8192):
+                return None
+    except OSError:
+        return None
+
     try:
         sample_lines: list[str] = []
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
@@ -513,3 +525,34 @@ def read_file_sample(path: str, lines: int = 20) -> str | None:
     except Exception:
         logger.exception("Error reading file sample: %s", path)
         return None
+
+
+def summarize_scan_result(
+    files: list[FileClassification], sample: int = 15
+) -> str:
+    """Return a compact, LLM-facing summary of a scan result.
+
+    The full inventory is stored in ``CrateState.scanned_files``; the agent
+    only needs a clear success signal plus a small sample — not the raw list of
+    hundreds/thousands of dataclass objects, which floods the context with no
+    obvious success cue and makes the agent re-scan in a loop.
+
+    Args:
+        files: The scanned ``FileClassification`` records.
+        sample: Maximum number of filenames to include in the sample.
+
+    Returns:
+        A short human/LLM-readable summary string.
+    """
+    n = len(files)
+    if n == 0:
+        return "Scan complete: 0 files found."
+
+    by_type = Counter(f.mime_type for f in files)
+    types = ", ".join(f"{mime} ({count})" for mime, count in by_type.most_common(8))
+    shown = ", ".join(f.filename for f in files[:sample])
+    more = f", +{n - sample} more" if n > sample else ""
+    return (
+        f"Scan complete: {n} files found and stored in session state "
+        f"(no need to scan again). Types: {types}. Sample: {shown}{more}."
+    )

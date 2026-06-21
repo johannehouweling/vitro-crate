@@ -157,7 +157,16 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
         def _make_tool(tool_name: str, tool_desc: str, tool_params: dict) -> BaseTool:
             def _run(**kwargs: Any) -> Any:
-                return engine.run_tool(tool_name, **kwargs)
+                result = engine.run_tool(tool_name, **kwargs)
+                # scan_files returns the full list[FileClassification] (already
+                # stored in state); hand the LLM a compact summary instead of
+                # the raw blob so it gets a clear success signal and does not
+                # re-scan in a loop.
+                if tool_name == "scan_files" and isinstance(result, list):
+                    from builder.tools.scanner import summarize_scan_result
+
+                    return summarize_scan_result(result)
+                return result
 
             _run.__name__ = tool_name
             _run.__doc__ = tool_desc
