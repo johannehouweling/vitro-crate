@@ -493,11 +493,10 @@ def _build_agent_graph(
     Returns:
         A compiled ``CompiledStateGraph`` ready for ``.invoke()``.
     """
+    from langchain_core.messages import SystemMessage
     from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import START, StateGraph
     from langgraph.prebuilt import ToolNode
-
-    from langchain_core.messages import SystemMessage
 
     profiler = engine.profiler if engine is not None else None
     iteration_getter = (
