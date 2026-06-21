@@ -169,6 +169,33 @@ class TestProfilingLogger:
             pl.close()
         finally:
             profiler_mod.SESSION_DIR = self._orig_dir
+
+    def test_all_profile_lines_have_required_fields(self, tmp_path):
+        """Every line in profile.ndjson has 'event' and 'timestamp' fields."""
+        pl = self._make_logger(tmp_path, "test-required-fields")
+        try:
+            pl.log_event("event_a", tool="tool_1", duration_ms=10.0, iteration=1)
+            pl.log_event("event_b", node="model")
+            pl.log_event("event_c", duration_ms=99.9, iteration=2)
+            pl.log_event("event_d", extra_field="xyz")
+            pl.log_tool_call("my_tool", duration_ms=500.0, iteration=3)
+            pl.log_event("event_e")
+
+            profile_path = tmp_path / "sessions" / "test-required-fields" / "profile.ndjson"
+            lines = profile_path.read_text().strip().splitlines()
+            assert len(lines) == 6, f"Expected 6 lines, got {len(lines)}"
+
+            for i, line in enumerate(lines):
+                record = json.loads(line)
+                assert "event" in record, f"Line {i} missing 'event': {line}"
+                assert "timestamp" in record, f"Line {i} missing 'timestamp': {line}"
+                assert isinstance(record["event"], str), f"Line {i} event is not str: {type(record['event'])}"
+                assert isinstance(record["timestamp"], str), f"Line {i} timestamp is not str: {type(record['timestamp'])}"
+        finally:
+            pl.close()
+            self._restore_dir()
+
+
 class TestProfilerEngineIntegration:
     """Tests for ProfilingLogger integration with AgentEngine."""
 
@@ -264,3 +291,5 @@ class TestProfilerEngineIntegration:
             assert len(lines) == 1
         finally:
             profiler_mod.SESSION_DIR = orig
+
+    
