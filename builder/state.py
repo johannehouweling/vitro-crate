@@ -500,7 +500,7 @@ class ReasoningLog:
     completed_checkpoints: list[str] = field(default_factory=list)
     reasoning_log: list[ReasoningStep] = field(default_factory=list)
     iteration_count: int = 0
-    max_iterations: int = 50
+    max_iterations: int = 100
     stuck: bool = False
 
     def log_reasoning(self, action: str, tool: str, result: str) -> ReasoningStep:
@@ -546,7 +546,7 @@ class ReasoningLog:
             completed_checkpoints=data.get("completed_checkpoints", []),
             reasoning_log=reason_log,
             iteration_count=data.get("iteration_count", 0),
-            max_iterations=data.get("max_iterations", 50),
+            max_iterations=data.get("max_iterations", 100),
             stuck=data.get("stuck", False),
         )
 

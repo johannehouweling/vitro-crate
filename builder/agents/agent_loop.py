@@ -420,6 +420,29 @@ def _wrap_model_node(
         produced_tool_calls = any(
             getattr(m, "tool_calls", None) for m in out_messages
         )
+
+        # Extract token usage from the LLM response
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+        model_name: str | None = None
+        if out_messages:
+            last_msg = out_messages[-1]
+            # Prefer the standardised usage_metadata (langchain-core >=0.3)
+            usage = getattr(last_msg, "usage_metadata", None)
+            if usage is not None:
+                input_tokens = usage.get("input_tokens")
+                output_tokens = usage.get("output_tokens")
+            # Fall back to response_metadata (provider-specific)
+            if input_tokens is None or output_tokens is None:
+                meta = getattr(last_msg, "response_metadata", None) or {}
+                tu = meta.get("token_usage") or meta.get("usage") or {}
+                if input_tokens is None:
+                    input_tokens = tu.get("prompt_tokens") or tu.get("input_tokens")
+                if output_tokens is None:
+                    output_tokens = tu.get("completion_tokens") or tu.get("output_tokens")
+            model_name = getattr(last_msg, "response_metadata", None) or {}
+            model_name = model_name.get("model_name") or model_name.get("model")
+
         profiler.log_event(
             event="node_end",
             node="model",
@@ -428,6 +451,9 @@ def _wrap_model_node(
             messages_in=messages_in,
             messages_out=len(out_messages),
             produced_tool_calls=bool(produced_tool_calls),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model_name=model_name,
         )
         return result
 
@@ -645,7 +671,7 @@ def run_interactive_agent(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
-    max_iterations: int = 50,
+    max_iterations: int = 100,
 ) -> None:
     """Run an interactive LangChain agent loop reading from stdin.
 

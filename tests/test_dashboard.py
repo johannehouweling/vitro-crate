@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 
 from builder.tools.dashboard import (
+    _build_token_summary,
+    _build_token_table,
     format_session_summary,
     list_sessions_available,
     read_profile,
@@ -131,6 +133,8 @@ class TestFormatSessionSummary:
         assert "scan_files" in output
         assert "draft_investigation" in output
         assert "model" in output
+        assert "Token Usage" in output  # new token summary table
+        assert "Cumulative" in output
 
     def test_format_session_summary_empty(self) -> None:
         """Shows no-data message for empty records."""
@@ -145,3 +149,76 @@ class TestFormatSessionSummary:
         output = capture.get()
         assert "empty-session" in output
         assert "profiling data" in output.lower() or "no data" in output.lower()
+
+
+class TestTokenSummary:
+    """_build_token_summary() and _build_token_table()."""
+
+    def test_build_token_summary_empty(self) -> None:
+        """No model_end events yields zeros and no last_request."""
+        totals, last = _build_token_summary([])
+        assert totals["input_tokens"] == 0
+        assert totals["output_tokens"] == 0
+        assert totals["total_tokens"] == 0
+        assert last is None
+
+    def test_build_token_summary_with_tokens(self) -> None:
+        """Aggregates input/output tokens across multiple model events."""
+        records = [
+            {"event": "node_end", "node": "model", "input_tokens": 100,
+             "output_tokens": 50, "model_name": "gpt-4o"},
+            {"event": "node_end", "node": "model", "input_tokens": 200,
+             "output_tokens": 80, "model_name": "gpt-4o"},
+            {"event": "node_end", "node": "tools"},  # should be ignored
+        ]
+        totals, last = _build_token_summary(records)
+        assert totals["input_tokens"] == 300
+        assert totals["output_tokens"] == 130
+        assert totals["total_tokens"] == 430
+        assert last is not None
+        assert last["input_tokens"] == 200
+        assert last["output_tokens"] == 80
+        assert last["model_name"] == "gpt-4o"
+
+    def test_build_token_summary_partial_tokens(self) -> None:
+        """Handles events with only input_tokens or output_tokens missing."""
+        records = [
+            {"event": "node_end", "node": "model", "input_tokens": 100},
+            {"event": "node_end", "node": "model", "output_tokens": 30},
+        ]
+        totals, last = _build_token_summary(records)
+        assert totals["input_tokens"] == 100
+        assert totals["output_tokens"] == 30
+        assert totals["total_tokens"] == 130
+
+    def test_build_token_table_renders(self) -> None:
+        """_build_token_table produces a Rich Table with correct rows."""
+        totals = {"input_tokens": 100, "output_tokens": 50,
+                  "total_tokens": 150, "model_name": "gpt-4o"}
+        last_request = {"input_tokens": 30, "output_tokens": 20,
+                        "total_tokens": 50, "model_name": "gpt-4o"}
+        table = _build_token_table(totals, last_request)
+        from rich.console import Console
+        console = Console(width=60)
+        with console.capture() as capture:
+            console.print(table)
+        output = capture.get()
+        assert "Token Usage" in output
+        assert "Cumulative" in output
+        assert "Last request" in output
+        assert "100" in output
+        assert "50" in output
+        assert "gpt-4o" in output
+
+    def test_build_token_table_no_last_request(self) -> None:
+        """Token table handles missing last request gracefully."""
+        totals = {"input_tokens": 0, "output_tokens": 0,
+                  "total_tokens": 0, "model_name": None}
+        table = _build_token_table(totals, None)
+        from rich.console import Console
+        console = Console(width=40)
+        with console.capture() as capture:
+            console.print(table)
+        output = capture.get()
+        assert "Cumulative" in output
+        assert "0" in output

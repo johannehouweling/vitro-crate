@@ -38,7 +38,7 @@ Every line in `profile.ndjson` is a JSON object with **required fields**:
 |-------|----------------|--------------|
 | `tool_call` | `tool`, `duration_ms`, `iteration`, `args` | After each tool execution completes |
 | `node_start` | `node`, `iteration` | When a graph node begins execution |
-| `node_end` | `node`, `duration_ms`, `iteration`, `messages_in`, `messages_out`, `produced_tool_calls`, `tools` | When a graph node finishes execution |
+| `node_end` | `node`, `duration_ms`, `iteration`, `messages_in`, `messages_out`, `produced_tool_calls`, `tools`, `input_tokens`, `output_tokens`, `model_name` | When a graph node finishes execution. For `"node": "model"` events, `input_tokens`, `output_tokens`, and `model_name` are populated from the LLM response's usage metadata (when available). |
 | `scan_progress` | `processed`, `total`, `duration_ms` | Every 100 files during scanning (DEBUG level only) |
 
 ### Example Lines
@@ -53,7 +53,8 @@ Every line in `profile.ndjson` is a JSON object with **required fields**:
 
 {"event": "node_end", "node": "model", "duration_ms": 1200.5,
  "timestamp": "2026-06-21T12:30:47", "iteration": 3,
- "messages_in": 5, "messages_out": 1, "produced_tool_calls": true}
+ "messages_in": 5, "messages_out": 1, "produced_tool_calls": true,
+ "input_tokens": 350, "output_tokens": 240, "model_name": "gpt-4o"}
 
 {"event": "scan_progress", "processed": 100, "total": 350,
  "duration_ms": 1234.5, "timestamp": "2026-06-21T12:30:45"}
