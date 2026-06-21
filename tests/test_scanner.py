@@ -381,6 +381,65 @@ class TestReadMultipleFiles:
         assert result["files"][str(b)] == "world"
 
 
+class TestScannerTiming:
+    """Tests for timing/progress instrumentation in scanner functions."""
+
+    def test_scan_files_logs_progress_and_elapsed(self, tmp_path, caplog):
+        """scan_files emits progress every 100 files and total elapsed at end."""
+        import logging
+        caplog.set_level(logging.DEBUG)
+
+        # Create 250 files so we cross the 100-file progress boundary twice
+        for i in range(250):
+            (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
+
+        result = scan_files(str(tmp_path))
+
+        assert len(result) == 250
+        # Should have at least "Progress: 100/..." and "Progress: 200/..."
+        progress_messages = [r for r in caplog.records if "Progress" in r.getMessage()]
+        assert len(progress_messages) >= 2, f"Expected >=2 Progress messages, got {len(progress_messages)}: {[r.getMessage() for r in progress_messages]}"
+
+        # Should have a final "Scan complete" summary
+        complete_messages = [r for r in caplog.records if "Scan complete" in r.getMessage()]
+        assert len(complete_messages) == 1
+        assert "in" in complete_messages[0].getMessage()
+
+    def test_scan_files_small_directory_no_progress(self, tmp_path, caplog):
+        """scan_files with fewer than 100 files does NOT emit progress."""
+        import logging
+        caplog.set_level(logging.DEBUG)
+
+        for i in range(3):
+            (tmp_path / f"file_{i}.txt").write_text(f"content {i}\n")
+
+        result = scan_files(str(tmp_path))
+
+        assert len(result) == 3
+        progress_messages = [r for r in caplog.records if "Progress" in r.getMessage()]
+        assert len(progress_messages) == 0, f"Expected no Progress messages for <100 files, got: {[r.getMessage() for r in progress_messages]}"
+
+        # But should still have the final summary
+        complete_messages = [r for r in caplog.records if "Scan complete" in r.getMessage()]
+        assert len(complete_messages) == 1
+
+    def test_read_multiple_files_logs_per_file_timing(self, tmp_path, caplog):
+        """read_multiple_files logs per-file elapsed time at DEBUG."""
+        import logging
+        caplog.set_level(logging.DEBUG)
+
+        a = tmp_path / "a.txt"
+        a.write_text("hello\n")
+        b = tmp_path / "b.txt"
+        b.write_text("world\n")
+
+        result = read_multiple_files([str(a), str(b)], lines=5)
+
+        # Should have at least one "Read" per-file log
+        read_messages = [r for r in caplog.records if "Read" in r.getMessage() and "in" in r.getMessage()]
+        assert len(read_messages) >= 2, f"Expected >=2 'Read ... in' messages, got {len(read_messages)}"
+
+
 class TestApprovedRoots:
     """Tests for the approved-scan-roots guard in scan_files."""
 

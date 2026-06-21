@@ -14,6 +14,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -284,6 +285,11 @@ def scan_files(
     except PermissionError:
         logger.warning("Permission denied scanning %s — recursing manually", target)
         all_entries = sorted(_safe_walk(target))
+
+    scan_start = time.monotonic()
+    processed = 0
+    total_candidates = len(all_entries)
+
     for entry in all_entries:
         if not entry.is_file():
             continue
@@ -312,7 +318,22 @@ def scan_files(
                 first_rows=first_rows,
             )
         )
-    logger.info("Scanned %s — found %d files", path, len(results))
+        processed += 1
+        if processed % 100 == 0:
+            elapsed = time.monotonic() - scan_start
+            logger.debug(
+                "Progress: %d/%d files... (%.1fs elapsed)",
+                processed,
+                total_candidates,
+                elapsed,
+            )
+
+    total_elapsed = time.monotonic() - scan_start
+    logger.info(
+        "Scan complete: %d files in %.2fs",
+        len(results),
+        total_elapsed,
+    )
     return results
 
 
@@ -419,15 +440,27 @@ def read_multiple_files(
     """
     results: dict[str, str] = {}
     skipped: list[str] = []
+    total_start = time.monotonic()
 
     for path in paths:
+        file_start = time.monotonic()
         content = read_file_sample(path, lines=lines)
+        file_elapsed = time.monotonic() - file_start
         if content is not None:
             results[path] = content
+            logger.debug("Read %s in %.3fs", path, file_elapsed)
         else:
             skipped.append(path)
+            logger.debug("Skipped %s in %.3fs", path, file_elapsed)
 
+    total_elapsed = time.monotonic() - total_start
     count = len(results)
+    logger.info(
+        "Read %d file(s) from %d path(s) in %.2fs",
+        count,
+        len(paths),
+        total_elapsed,
+    )
     msg = f"Read {count} file(s)"
     if skipped:
         msg += f" ({len(skipped)} skipped: {', '.join(skipped)})"
