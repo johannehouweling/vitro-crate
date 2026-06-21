@@ -13,7 +13,6 @@ import mimetypes
 import os
 import shutil
 import sys
-import tempfile
 import time
 import zipfile
 from collections import Counter
@@ -174,10 +173,7 @@ def preview_archive(path: str) -> ArchivePreview:
         size_mb=round(size_mb, 2),
         entry_count=len(entries),
         entries=entries,
-        message=(
-            f"Archive {archive_path.name}: {size_mb:.1f} MB, "
-            f"{len(entries)} entries"
-        ),
+        message=(f"Archive {archive_path.name}: {size_mb:.1f} MB, {len(entries)} entries"),
     )
 
 
@@ -256,13 +252,11 @@ def scan_files(
 
     # -- Security guard: approved-roots check -----------------------------------
     if approved_roots is not None:
-        if not any(
-            str(target) == r or str(target).startswith(r + "/")
-            for r in approved_roots
-        ):
+        if not any(str(target) == r or str(target).startswith(r + "/") for r in approved_roots):
             logger.warning(
                 "Refusing to scan %s — not in approved roots: %s",
-                target, approved_roots,
+                target,
+                approved_roots,
             )
             return []
 
@@ -282,7 +276,9 @@ def scan_files(
         size_mb = target.stat().st_size / (1024 * 1024)
         logger.info(
             "Path %s is a zip archive (%.1f MB) with %d entries — auto-extracting",
-            target, size_mb, len(contents),
+            target,
+            size_mb,
+            len(contents),
         )
         result = unzip_file(str(target))
         if "error" in result:
@@ -611,9 +607,7 @@ def extract_pdf_text(path: str) -> str | None:
     try:
         import pdfplumber
     except ImportError:
-        logger.error(
-            "pdfplumber is not installed. Install it with: uv add pdfplumber"
-        )
+        logger.error("pdfplumber is not installed. Install it with: uv add pdfplumber")
         return None
 
     try:
@@ -650,30 +644,22 @@ def extract_pdf_text(path: str) -> str | None:
                         # Clean up: collapse None cells, strip whitespace
                         cleaned_rows: list[list[str]] = []
                         for row in table_data:
-                            cleaned = [
-                                (cell or "").strip() for cell in row
-                            ]
+                            cleaned = [(cell or "").strip() for cell in row]
                             if any(cleaned):
                                 cleaned_rows.append(cleaned)
 
                         if not cleaned_rows:
                             continue
 
-                        page_parts.append(
-                            f"[Table {table_idx} ({len(cleaned_rows)} rows)]"
-                        )
+                        page_parts.append(f"[Table {table_idx} ({len(cleaned_rows)} rows)]")
                         # Headers
                         header = cleaned_rows[0]
                         page_parts.append("| " + " | ".join(header) + " |")
                         # Separator
-                        page_parts.append(
-                            "| " + " | ".join("---" for _ in header) + " |"
-                        )
+                        page_parts.append("| " + " | ".join("---" for _ in header) + " |")
                         # Data rows
                         for row in cleaned_rows[1:]:
-                            page_parts.append(
-                                "| " + " | ".join(row) + " |"
-                            )
+                            page_parts.append("| " + " | ".join(row) + " |")
 
                 # --- Report images ---
                 images = page.images
@@ -682,13 +668,9 @@ def extract_pdf_text(path: str) -> str | None:
                     for img in images:
                         w = img.get("width", 0)
                         h = img.get("height", 0)
-                        img_info.append(
-                            f"  - Image ({w:.0f}x{h:.0f} pts)"
-                        )
+                        img_info.append(f"  - Image ({w:.0f}x{h:.0f} pts)")
                     if img_info:
-                        page_parts.append(
-                            f"[Image] {len(images)} image(s) on this page"
-                        )
+                        page_parts.append(f"[Image] {len(images)} image(s) on this page")
                         page_parts.extend(img_info)
 
                 if page_parts:
@@ -704,9 +686,7 @@ def extract_pdf_text(path: str) -> str | None:
         return None
 
 
-def summarize_scan_result(
-    files: list[FileClassification], sample: int = 15
-) -> str:
+def summarize_scan_result(files: list[FileClassification], sample: int = 15) -> str:
     """Return a compact, LLM-facing summary of a scan result.
 
     The full inventory is stored in ``CrateState.scanned_files``; the agent

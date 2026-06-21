@@ -69,18 +69,25 @@ class TestLabProcessSubtypes:
         state = CrateState()
         state.add_entity(_ent("assay_1", "Assay", name="A"))
         state.add_entity(
-            _ent("proc_1", "LabProcess", name=process_type, process_type=process_type,
-                 assay_id="assay_1", **proc_fields)
+            _ent(
+                "proc_1",
+                "LabProcess",
+                name=process_type,
+                process_type=process_type,
+                assay_id="assay_1",
+                **proc_fields,
+            )
         )
         return state
 
     def test_cell_culture(self, tmp_path):
         state = self._state_with_process(
-            "CellCulture", cell_line="cell_1", culture_medium="DMEM",
+            "CellCulture",
+            cell_line="cell_1",
+            culture_medium="DMEM",
             result="sample_out",
         )
-        state.add_entity(
-            _ent("cell_1", "CellLineSample", name="HepG2", accession="CVCL_0027"))
+        state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2", accession="CVCL_0027"))
         state.add_entity(_ent("sample_out", "Sample", name="cultured"))
         _, by_id = _build(state, tmp_path)
         proc = by_id["#proc_1"]
@@ -95,8 +102,11 @@ class TestLabProcessSubtypes:
         # File/Sample/BioSample). The compound is therefore NOT in `object`; the
         # Exposure's result is the CSVW condition table, which links the compound.
         state = self._state_with_process(
-            "Exposure", samples="sample_cult", chemicals="chem_1",
-            duration="24h", microplate="96-well",
+            "Exposure",
+            samples="sample_cult",
+            chemicals="chem_1",
+            duration="24h",
+            microplate="96-well",
         )
         state.add_entity(_ent("sample_cult", "Sample", name="cultured"))
         state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
@@ -104,11 +114,11 @@ class TestLabProcessSubtypes:
         proc = by_id["#proc_1"]
         assert proc["additionalType"] == "Exposure"
 
-        obj_ids = _ids(proc.get("input"))           # input → schema:object
-        assert "#sample_cult" in obj_ids            # the cells (Sample) — allowed
-        assert "#chem_1" not in obj_ids             # MolecularEntity — ISA-forbidden
+        obj_ids = _ids(proc.get("input"))  # input → schema:object
+        assert "#sample_cult" in obj_ids  # the cells (Sample) — allowed
+        assert "#chem_1" not in obj_ids  # MolecularEntity — ISA-forbidden
 
-        result_ids = _ids(proc.get("output"))       # output → schema:result (MUST)
+        result_ids = _ids(proc.get("output"))  # output → schema:result (MUST)
         assert result_ids, "Exposure MUST emit a result (the condition table)"
         table = by_id[result_ids[0]]
         # the result is the condition table: a File (ISA-valid result) + csvw:Table
@@ -119,12 +129,21 @@ class TestLabProcessSubtypes:
 
     def test_endpoint_readout_result_is_file(self, tmp_path):
         state = self._state_with_process(
-            "EndpointReadout", samples="sample_x", result="file_raw",
-            endpoint="viability", detection_instrument="plate reader",
+            "EndpointReadout",
+            samples="sample_x",
+            result="file_raw",
+            endpoint="viability",
+            detection_instrument="plate reader",
         )
         state.add_entity(_ent("sample_x", "Sample", name="exposed"))
-        state.add_entity(_ent("file_raw", "File", name="raw.csv",
-                              dest_path="assays/a1/dataset/raw_data/raw.csv"))
+        state.add_entity(
+            _ent(
+                "file_raw",
+                "File",
+                name="raw.csv",
+                dest_path="assays/a1/dataset/raw_data/raw.csv",
+            )
+        )
         _, by_id = _build(state, tmp_path)
         proc = by_id["#proc_1"]
         assert proc["additionalType"] == "EndpointReadout"
@@ -132,8 +151,11 @@ class TestLabProcessSubtypes:
 
     def test_data_analysis(self, tmp_path):
         state = self._state_with_process(
-            "DataAnalysis", object="file_raw", result="file_proc",
-            software="R", data_processing="normalise",
+            "DataAnalysis",
+            object="file_raw",
+            result="file_proc",
+            software="R",
+            data_processing="normalise",
         )
         state.add_entity(_ent("file_raw", "File", name="raw.csv", dest_path="raw.csv"))
         state.add_entity(_ent("file_proc", "File", name="out.csv", dest_path="out.csv"))
@@ -171,8 +193,7 @@ class TestOntologyAnnotations:
 
     def test_study_aop_inline_iri(self, tmp_path):
         state = CrateState()
-        state.add_entity(_ent("study_1", "Study", name="S",
-                              aop="https://aopwiki.org/aops/37"))
+        state.add_entity(_ent("study_1", "Study", name="S", aop="https://aopwiki.org/aops/37"))
         _, by_id = _build(state, tmp_path)
         assert "https://aopwiki.org/aops/37" in _ids(by_id["#study_1"].get("aop"))
 
@@ -194,8 +215,7 @@ class TestIdentifiersAndConformance:
 
     def test_person_uses_orcid_uri(self, tmp_path):
         state = CrateState()
-        state.add_entity(_ent("person_1", "Person", name="Jane Doe",
-                              orcid="0000-0002-1825-0097"))
+        state.add_entity(_ent("person_1", "Person", name="Jane Doe", orcid="0000-0002-1825-0097"))
         _, by_id = _build(state, tmp_path)
         assert "https://orcid.org/0000-0002-1825-0097" in by_id
 

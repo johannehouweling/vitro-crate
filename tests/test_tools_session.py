@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
-import pytest
-
-from builder.state import CrateState, Entity, EntityProvenance, FileClassification
-
+from builder.state import CrateState, Entity, EntityProvenance
 
 # =========================================================================
 # save_session
@@ -134,7 +130,7 @@ class TestSaveSession:
         state_path = session_path / "crate_state.json"
 
         with open(state_path) as f:
-            initial_content = f.read()
+            f.read()
 
         # Modify state so change-detection does not skip
         entity.fields["title"] = "Updated"

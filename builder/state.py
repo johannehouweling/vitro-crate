@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 def _default_max_iterations() -> int:
     """Return the default max iterations from config (env / config file / built-in)."""
     from builder.config import get_max_iterations
+
     return get_max_iterations()
+
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -126,6 +128,7 @@ class EntityProvenance:
             lookups_used=data.get("lookups_used", []),
         )
 
+
 # ---------------------------------------------------------------------------
 # Entity
 # ---------------------------------------------------------------------------
@@ -191,12 +194,9 @@ class Entity:
     def from_dict(cls, data: dict[str, Any]) -> Entity:
         """Deserialize an entity from a dictionary."""
         completion = {
-            k: FieldCompletion.from_dict(v)
-            for k, v in data.get("_completion", {}).items()
+            k: FieldCompletion.from_dict(v) for k, v in data.get("_completion", {}).items()
         }
-        provenance = EntityProvenance.from_dict(
-            data.get("_provenance", {"created_by": "llm"})
-        )
+        provenance = EntityProvenance.from_dict(data.get("_provenance", {"created_by": "llm"}))
         return cls(
             entity_id=data["entity_id"],
             type=data["type"],  # type: ignore[arg-type]
@@ -204,6 +204,7 @@ class Entity:
             _completion=completion,
             _provenance=provenance,
         )
+
 
 # ---------------------------------------------------------------------------
 # FileClassification
@@ -251,6 +252,7 @@ class FileClassification:
             first_rows=data.get("first_rows"),
             reviewed_by_user=data.get("reviewed_by_user", False),
         )
+
 
 @dataclass
 class ArchivePreview:
@@ -394,6 +396,7 @@ class ValidationReport:
             may_issues=data.get("may_issues", []),
         )
 
+
 @dataclass
 class MITReport:
     """Coverage report from the MIT assessment.
@@ -445,6 +448,7 @@ class FAIRReport:
             indicator_results=data.get("indicator_results", []),
             dsm_level=data.get("dsm_level", 0),
         )
+
 
 # ---------------------------------------------------------------------------
 # Reasoning & Checkpoint
@@ -513,9 +517,7 @@ class ReasoningLog:
         """Append a reasoning step to the log and return it."""
         step = len(self.reasoning_log) + 1
         ts = datetime.now(timezone.utc).isoformat()
-        entry = ReasoningStep(
-            step=step, action=action, tool=tool, result=result, timestamp=ts
-        )
+        entry = ReasoningStep(step=step, action=action, tool=tool, result=result, timestamp=ts)
         self.reasoning_log.append(entry)
         return entry
 
@@ -544,9 +546,7 @@ class ReasoningLog:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ReasoningLog:
-        reason_log = [
-            ReasoningStep.from_dict(s) for s in data.get("reasoning_log", [])
-        ]
+        reason_log = [ReasoningStep.from_dict(s) for s in data.get("reasoning_log", [])]
         return cls(
             next_actions=data.get("next_actions", []),
             completed_checkpoints=data.get("completed_checkpoints", []),
@@ -590,9 +590,7 @@ SHARED_COLLECTION_ENTITY_TYPES: frozenset[str] = frozenset(
 
 # CellLineSample is modeled as a subtype of Sample and stored in the same
 # samples collection, so deduplicate collection names while preserving order.
-ENTITY_COLLECTION_NAMES: tuple[str, ...] = tuple(
-    dict.fromkeys(ENTITY_TYPE_MAP.values())
-)
+ENTITY_COLLECTION_NAMES: tuple[str, ...] = tuple(dict.fromkeys(ENTITY_TYPE_MAP.values()))
 
 
 @dataclass
@@ -651,9 +649,7 @@ class EntityStore:
             if entity_type in SHARED_COLLECTION_ENTITY_TYPES:
                 # Entity types that share a collection require filtering on the
                 # concrete type when one of those types is requested.
-                return [
-                    entity for entity in coll.values() if entity.type == entity_type
-                ]
+                return [entity for entity in coll.values() if entity.type == entity_type]
             return list(coll.values())
 
         result: list[Entity] = []
@@ -734,6 +730,7 @@ class CrateState:
     def list_entities(self, entity_type: str | None = None) -> list[Entity]:
         """Return all entities, optionally filtered by type."""
         return self.entities.list_entities(entity_type=entity_type)
+
     # ------------------------------------------------------------------
     # Completion & reasoning helpers
     # ------------------------------------------------------------------
@@ -789,6 +786,7 @@ class CrateState:
     @stuck.setter
     def stuck(self, value: bool) -> None:
         self.checkpoint.stuck = value
+
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
@@ -831,9 +829,7 @@ class StateSerializer:
     _encoders: dict[type, Callable[[Any], Any]] = {}
 
     @classmethod
-    def register_serializer(
-        cls, type_: type, fn: Callable[[Any], Any]
-    ) -> None:
+    def register_serializer(cls, type_: type, fn: Callable[[Any], Any]) -> None:
         """Register ``fn`` to encode instances of ``type_`` into JSON data."""
         cls._encoders[type_] = fn
 
@@ -900,10 +896,7 @@ class StateSerializer:
             metadata=CrateMetadata.from_dict(data.get("metadata", {})),
             entities=EntityStore.from_dict(data.get("entities", {})),
             approved_scan_roots=set(data.get("approved_scan_roots", [])),
-            scanned_files=[
-                FileClassification.from_dict(f)
-                for f in data.get("scanned_files", [])
-            ],
+            scanned_files=[FileClassification.from_dict(f) for f in data.get("scanned_files", [])],
             validation=ValidationReport.from_dict(data.get("validation", {})),
             mit_assessment=MITReport.from_dict(data.get("mit_assessment", {})),
             fair_assessment=FAIRReport.from_dict(data.get("fair_assessment", {})),

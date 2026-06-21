@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from builder.state import CrateState, ValidationReport
 
@@ -32,7 +31,7 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
         A ValidationReport with per-pass pass/fail and categorized issues.
     """
     try:
-        from profiles.validator import validate_crate, ValidationResult
+        from profiles.validator import ValidationResult, validate_crate
     except ImportError as e:
         logger.warning("Validation not available: %s", e)
         return ValidationReport(

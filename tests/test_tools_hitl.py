@@ -74,9 +74,7 @@ class TestEngineHumanInterfaceInjection:
         mock = MockHumanInterface()
         engine = AgentEngine(human_interface=mock)
 
-        result = engine.run_tool(
-            "present_to_human", context="Review", options=["Approve", "Edit"]
-        )
+        result = engine.run_tool("present_to_human", context="Review", options=["Approve", "Edit"])
 
         assert result == {
             "action": "edited",
@@ -89,9 +87,7 @@ class TestEngineHumanInterfaceInjection:
         mock = MockHumanInterface()
         engine = AgentEngine(human_interface=mock)
 
-        result = engine.run_tool(
-            "request_input", prompt="Enter DOI", field_type="identifier"
-        )
+        result = engine.run_tool("request_input", prompt="Enter DOI", field_type="identifier")
 
         assert result == {"value": "42", "skipped": False}
         assert mock.input_calls == [("Enter DOI", "identifier")]

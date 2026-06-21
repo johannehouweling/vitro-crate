@@ -1,37 +1,309 @@
+# ruff: noqa: E501
 """Tool specifications for LLM function calling."""
 
 TOOL_SPECS = [
-    {"name": "draft_investigation", "description": "Create Investigation entity", "parameters": {"type": "object", "properties": {"hints": {"type": "object"}}, "required": ["hints"]}},
-    {"name": "draft_study", "description": "Create Study entity linked to an investigation", "parameters": {"type": "object", "properties": {"investigation_id": {"type": "string"}, "hints": {"type": "object"}}, "required": ["investigation_id", "hints"]}},
-    {"name": "draft_assay", "description": "Create Assay entity linked to a study", "parameters": {"type": "object", "properties": {"study_id": {"type": "string"}, "hints": {"type": "object"}}, "required": ["study_id", "hints"]}},
-    {"name": "draft_molecular_entity", "description": "Create MolecularEntity from compound name", "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "hints": {"type": "object"}}, "required": ["name", "hints"]}},
-    {"name": "draft_cell_line_sample", "description": "Create CellLineSample from cell line name", "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "hints": {"type": "object"}}, "required": ["name", "hints"]}},
-    {"name": "draft_process", "description": "Create LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis)", "parameters": {"type": "object", "properties": {"assay_id": {"type": "string"}, "process_type": {"type": "string", "enum": ["CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"]}, "hints": {"type": "object"}}, "required": ["assay_id", "process_type", "hints"]}},
-    {"name": "draft_person", "description": "Create Person entity", "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "hints": {"type": "object"}}, "required": ["name", "hints"]}},
-    {"name": "draft_organization", "description": "Create Organization entity", "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "hints": {"type": "object"}}, "required": ["name", "hints"]}},
-    {"name": "draft_publication", "description": "Create Publication entity from DOI", "parameters": {"type": "object", "properties": {"doi": {"type": "string"}, "hints": {"type": "object"}}, "required": ["doi", "hints"]}},
-    {"name": "update_entity", "description": "Update fields on an entity", "parameters": {"type": "object", "properties": {"entity_id": {"type": "string"}, "patch": {"type": "object"}}, "required": ["entity_id", "patch"]}},
-    {"name": "remove_entity", "description": "Remove an entity by id", "parameters": {"type": "object", "properties": {"entity_id": {"type": "string"}}, "required": ["entity_id"]}},
-    {"name": "list_entities", "description": "List entities, optionally filtered by type", "parameters": {"type": "object", "properties": {"entity_type": {"type": "string"}}}},
-    {"name": "lookup_compound", "description": "Look up chemical compound via PubChem", "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
-    {"name": "lookup_cell_line", "description": "Look up cell line via Cellosaurus", "parameters": {"type": "object", "properties": {"accession": {"type": "string"}}, "required": ["accession"]}},
-    {"name": "lookup_aop", "description": "Look up AOP via AOP-Wiki", "parameters": {"type": "object", "properties": {"aop_id": {"type": "string"}}, "required": ["aop_id"]}},
-    {"name": "lookup_bao_term", "description": "Search BAO ontology via OLS", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
-    {"name": "lookup_orcid", "description": "Look up person via ORCID", "parameters": {"type": "object", "properties": {"orcid_id": {"type": "string"}}, "required": ["orcid_id"]}},
-    {"name": "lookup_ror", "description": "Search organization via ROR", "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
-    {"name": "lookup_doi", "description": "Look up publication via Crossref", "parameters": {"type": "object", "properties": {"doi": {"type": "string"}}, "required": ["doi"]}},
-    {"name": "verify_identifier", "description": "Check identifier resolves at source", "parameters": {"type": "object", "properties": {"entity_id": {"type": "string"}, "field": {"type": "string"}}, "required": ["entity_id", "field"]}},
-    {"name": "build_crate", "description": "Assemble the RO-Crate directory. Returns crate_path which you must pass to validate(). When output_path is omitted, defaults to sessions/<session_id>/working_crate/", "parameters": {"type": "object", "properties": {"output_path": {"type": "string", "description": "Where to write the crate directory (optional, defaults to sessions/<session_id>/working_crate/)"}}, "required": []}},
-    {"name": "validate", "description": "Run three-pass SHACL validation on a crate directory. Pass the crate_path returned by build_crate.", "parameters": {"type": "object", "properties": {"crate_path": {"type": "string", "description": "Path to the crate directory to validate (use the crate_path returned by build_crate)"}}, "required": ["crate_path"]}},
-    {"name": "assess_mit_coverage", "description": "Score MIT coverage from entity fields", "parameters": {"type": "object", "properties": {}}},
-    {"name": "assess_fair_maturity", "description": "Score FAIR maturity from metadata", "parameters": {"type": "object", "properties": {}}},
-    {"name": "save_session", "description": "Save session to disk", "parameters": {"type": "object", "properties": {"label": {"type": "string"}}}},
-    {"name": "get_status", "description": "Get current session status", "parameters": {"type": "object", "properties": {}}},
-    {"name": "scan_files", "description": "Scan a directory or zip archive for files. Archives are auto-extracted and scanned transparently. Results are stored in the session state.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
-    {"name": "read_multiple_files", "description": "Read several files at once and return their contents. Use this when you need to inspect a batch of files (e.g. all metadata files in an assay directory) rather than reading them one at a time.", "parameters": {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}, "description": "List of file paths to read"}, "lines": {"type": "integer", "description": "Max lines per file (default 50)"}}, "required": ["paths"]}},
-    {"name": "unzip_file", "description": "Extract a zip archive to a directory. Returns the extraction path.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "output_dir": {"type": "string"}}, "required": ["path"]}},
-    {"name": "verify_all_identifiers", "description": "Verify all filled identifiers in state", "parameters": {"type": "object", "properties": {}}},
-    {"name": "extract_pdf_text", "description": "Extract text content from a PDF file. Returns the full text as a string, or None if the file cannot be read, is not a valid PDF, is password-protected, or exceeds 100 MB.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the PDF file"}}, "required": ["path"]}},
+    {
+        "name": "draft_investigation",
+        "description": "Create Investigation entity",
+        "parameters": {
+            "type": "object",
+            "properties": {"hints": {"type": "object"}},
+            "required": ["hints"],
+        },
+    },
+    {
+        "name": "draft_study",
+        "description": "Create Study entity linked to an investigation",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "investigation_id": {"type": "string"},
+                "hints": {"type": "object"},
+            },
+            "required": ["investigation_id", "hints"],
+        },
+    },
+    {
+        "name": "draft_assay",
+        "description": "Create Assay entity linked to a study",
+        "parameters": {
+            "type": "object",
+            "properties": {"study_id": {"type": "string"}, "hints": {"type": "object"}},
+            "required": ["study_id", "hints"],
+        },
+    },
+    {
+        "name": "draft_molecular_entity",
+        "description": "Create MolecularEntity from compound name",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "required": ["name", "hints"],
+        },
+    },
+    {
+        "name": "draft_cell_line_sample",
+        "description": "Create CellLineSample from cell line name",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "required": ["name", "hints"],
+        },
+    },
+    {
+        "name": "draft_process",
+        "description": "Create LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assay_id": {"type": "string"},
+                "process_type": {
+                    "type": "string",
+                    "enum": [
+                        "CellCulture",
+                        "Exposure",
+                        "EndpointReadout",
+                        "DataAnalysis",
+                    ],
+                },
+                "hints": {"type": "object"},
+            },
+            "required": ["assay_id", "process_type", "hints"],
+        },
+    },
+    {
+        "name": "draft_person",
+        "description": "Create Person entity",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "required": ["name", "hints"],
+        },
+    },
+    {
+        "name": "draft_organization",
+        "description": "Create Organization entity",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "required": ["name", "hints"],
+        },
+    },
+    {
+        "name": "draft_publication",
+        "description": "Create Publication entity from DOI",
+        "parameters": {
+            "type": "object",
+            "properties": {"doi": {"type": "string"}, "hints": {"type": "object"}},
+            "required": ["doi", "hints"],
+        },
+    },
+    {
+        "name": "update_entity",
+        "description": "Update fields on an entity",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "patch": {"type": "object"},
+            },
+            "required": ["entity_id", "patch"],
+        },
+    },
+    {
+        "name": "remove_entity",
+        "description": "Remove an entity by id",
+        "parameters": {
+            "type": "object",
+            "properties": {"entity_id": {"type": "string"}},
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "list_entities",
+        "description": "List entities, optionally filtered by type",
+        "parameters": {
+            "type": "object",
+            "properties": {"entity_type": {"type": "string"}},
+        },
+    },
+    {
+        "name": "lookup_compound",
+        "description": "Look up chemical compound via PubChem",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "lookup_cell_line",
+        "description": "Look up cell line via Cellosaurus",
+        "parameters": {
+            "type": "object",
+            "properties": {"accession": {"type": "string"}},
+            "required": ["accession"],
+        },
+    },
+    {
+        "name": "lookup_aop",
+        "description": "Look up AOP via AOP-Wiki",
+        "parameters": {
+            "type": "object",
+            "properties": {"aop_id": {"type": "string"}},
+            "required": ["aop_id"],
+        },
+    },
+    {
+        "name": "lookup_bao_term",
+        "description": "Search BAO ontology via OLS",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "lookup_orcid",
+        "description": "Look up person via ORCID",
+        "parameters": {
+            "type": "object",
+            "properties": {"orcid_id": {"type": "string"}},
+            "required": ["orcid_id"],
+        },
+    },
+    {
+        "name": "lookup_ror",
+        "description": "Search organization via ROR",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "lookup_doi",
+        "description": "Look up publication via Crossref",
+        "parameters": {
+            "type": "object",
+            "properties": {"doi": {"type": "string"}},
+            "required": ["doi"],
+        },
+    },
+    {
+        "name": "verify_identifier",
+        "description": "Check identifier resolves at source",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "field": {"type": "string"},
+            },
+            "required": ["entity_id", "field"],
+        },
+    },
+    {
+        "name": "build_crate",
+        "description": "Assemble the RO-Crate directory. Returns crate_path which you must pass to validate(). When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "output_path": {
+                    "type": "string",
+                    "description": "Where to write the crate directory (optional, defaults to sessions/<session_id>/working_crate/)",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "validate",
+        "description": "Run three-pass SHACL validation on a crate directory. Pass the crate_path returned by build_crate.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "crate_path": {
+                    "type": "string",
+                    "description": "Path to the crate directory to validate (use the crate_path returned by build_crate)",
+                }
+            },
+            "required": ["crate_path"],
+        },
+    },
+    {
+        "name": "assess_mit_coverage",
+        "description": "Score MIT coverage from entity fields",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "assess_fair_maturity",
+        "description": "Score FAIR maturity from metadata",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "save_session",
+        "description": "Save session to disk",
+        "parameters": {"type": "object", "properties": {"label": {"type": "string"}}},
+    },
+    {
+        "name": "get_status",
+        "description": "Get current session status",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "scan_files",
+        "description": "Scan a directory or zip archive for files. Archives are auto-extracted and scanned transparently. Results are stored in the session state.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "read_multiple_files",
+        "description": "Read several files at once and return their contents. Use this when you need to inspect a batch of files (e.g. all metadata files in an assay directory) rather than reading them one at a time.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of file paths to read",
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "Max lines per file (default 50)",
+                },
+            },
+            "required": ["paths"],
+        },
+    },
+    {
+        "name": "unzip_file",
+        "description": "Extract a zip archive to a directory. Returns the extraction path.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "output_dir": {"type": "string"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "verify_all_identifiers",
+        "description": "Verify all filled identifiers in state",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "extract_pdf_text",
+        "description": "Extract structured content from a PDF file (text, tables, and image metadata). Returns a structured report with [Page N], [Text], [Table N], and [Image] markers, or None if the file cannot be read.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "Path to the PDF file"}},
+            "required": ["path"],
+        },
+    },
 ]
 
 __all__ = ["TOOL_SPECS"]

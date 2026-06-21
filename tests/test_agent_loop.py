@@ -81,6 +81,8 @@ class TestDetectProvider:
                 os.environ["ANTHROPIC_API_KEY"] = old_anthropic
             else:
                 os.environ.pop("ANTHROPIC_API_KEY", None)
+
+
 class TestFormatEntitySummary:
     """Tests for the entity summary formatter."""
 
@@ -155,9 +157,7 @@ class TestEnrichedInputNotAccumulated:
         # The brief is appended after the main system prompt with a \n---
         # separator. Find the brief section.
         assert "Session: sid" in prompt
-        assert len(prompt) < 200, (
-            f"State brief should be short, got {len(prompt)} chars"
-        )
+        assert len(prompt) < 200, f"State brief should be short, got {len(prompt)} chars"
 
     def test_user_input_not_wrapped_in_header(self):
         """run_interactive_agent must pass plain user_input as the
@@ -165,6 +165,7 @@ class TestEnrichedInputNotAccumulated:
         # This is a structural test — verify that the code path
         # no longer builds enriched_input with entity_summary.
         import inspect
+
         from builder.agents import agent_loop
 
         source = inspect.getsource(agent_loop.run_interactive_agent)
@@ -177,7 +178,12 @@ class TestEnrichedInputNotAccumulated:
             "_format_entity_summary should not be called for message enrichment"
         )
         # user_input should be used directly
-        assert "HumanMessage(content=user_input)" in source or '"messages": [HumanMessage(content=user_input)]' in source
+        assert (
+            "HumanMessage(content=user_input)" in source
+            or '"messages": [HumanMessage(content=user_input)]' in source
+        )
+
+
 class TestBuildChatModel:
     """Tests for the chat model builder."""
 
@@ -285,6 +291,8 @@ class TestBuildChatModel:
                 os.environ["VITRO_MAX_RETRIES"] = old_retries
             else:
                 os.environ.pop("VITRO_MAX_RETRIES", None)
+
+
 class TestBuildLangchainTools:
     """Tests for building LangChain tools from the engine registry."""
 
@@ -339,6 +347,8 @@ class TestBuildLangchainTools:
         assert len(entities) == 1
         assert entities[0].fields.get("name") == "Test Investigation"
         assert entities[0].type == "Investigation"
+
+
 class _FakeSpinner:
     """Records set_tool calls for callback tests."""
 
@@ -354,8 +364,9 @@ class TestToolSpinnerCallback:
 
     def test_is_base_callback_handler(self):
         """_ToolSpinnerCallback is a subclass of BaseCallbackHandler."""
-        from builder.agents.agent_loop import _ToolSpinnerCallback
         from langchain_core.callbacks import BaseCallbackHandler
+
+        from builder.agents.agent_loop import _ToolSpinnerCallback
 
         assert issubclass(_ToolSpinnerCallback, BaseCallbackHandler)
 
@@ -393,8 +404,9 @@ class TestThinkingSpinner:
     """The spinner renders the phrase, elapsed seconds, and active tool."""
 
     def test_render_includes_phrase_and_elapsed(self):
-        from builder.agents.agent_loop import _ThinkingSpinner
         from rich.console import Console
+
+        from builder.agents.agent_loop import _ThinkingSpinner
 
         sp = _ThinkingSpinner(Console(), "intoxicating")
         text = sp._render()
@@ -402,8 +414,9 @@ class TestThinkingSpinner:
         assert "s)" in text  # elapsed seconds, e.g. "(0s)"
 
     def test_render_includes_tool_when_set(self):
-        from builder.agents.agent_loop import _ThinkingSpinner
         from rich.console import Console
+
+        from builder.agents.agent_loop import _ThinkingSpinner
 
         sp = _ThinkingSpinner(Console(), "intoxicating")
         sp._tool = "scan_files"
@@ -441,6 +454,7 @@ class TestMainInteractiveFlag:
         args = parse_args(["-I", "-p", "anthropic"])
         assert args.interactive is True
         assert args.provider == "anthropic"
+
 
 class TestRecursionLimit:
     """The documented max_iterations cap must map to LangGraph's recursion_limit

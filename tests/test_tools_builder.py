@@ -96,14 +96,14 @@ class TestBuildCrate:
                 metadata = json.load(f)
 
             descriptor = next(
-                e for e in metadata["@graph"]
-                if e.get("@id") == "ro-crate-metadata.json"
+                e for e in metadata["@graph"] if e.get("@id") == "ro-crate-metadata.json"
             )
             assert descriptor.get("@type") == "CreativeWork"
             assert descriptor.get("about") == {"@id": "./"}
             conforms = descriptor.get("conformsTo")
             conforms_ids = (
-                [conforms.get("@id")] if isinstance(conforms, dict)
+                [conforms.get("@id")]
+                if isinstance(conforms, dict)
                 else [c.get("@id") for c in conforms or []]
             )
             # ro-crate-py stamps the descriptor with the RO-Crate spec it conforms
@@ -133,8 +133,6 @@ class TestBuildCrate:
         """
         state = CrateState()
         state.session_id = "test_default_path_001"
-
-        import builder.tools.builder as _builder_mod
 
         # Call without output_path — the function should supply a default
         with tempfile.TemporaryDirectory() as tmpdir:

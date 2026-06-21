@@ -111,9 +111,7 @@ def http_get_json(
             survived retries, or a 200 with a malformed JSON body.
     """
     try:
-        resp = get_session().get(
-            url, params=params, headers=headers, timeout=timeout
-        )
+        resp = get_session().get(url, params=params, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
         raise TransientLookupError(f"request error for {url}: {exc}") from exc
 
@@ -122,9 +120,7 @@ def http_get_json(
         try:
             return resp.json()
         except ValueError as exc:
-            raise TransientLookupError(
-                f"invalid JSON body from {url}: {exc}"
-            ) from exc
+            raise TransientLookupError(f"invalid JSON body from {url}: {exc}") from exc
     if code in _TRANSIENT_STATUS:
         raise TransientLookupError(f"HTTP {code} from {url} after retries")
     # 404 and any other non-retryable client/redirect status → definitive.

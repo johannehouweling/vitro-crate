@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from builder.state import Entity
 from builder.tools.management import (
     bulk_set_fields,
     list_entities,

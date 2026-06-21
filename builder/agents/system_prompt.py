@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """System prompt for the LLM agent."""
 
 SYSTEM_PROMPT = """You are an ISA-Tox RO-Crate Builder agent. Your role is to assist researchers in creating profile-conformant RO-Crates for in vitro toxicology data.

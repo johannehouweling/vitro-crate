@@ -70,8 +70,7 @@ def lookup_pubchem(name: str) -> dict:
             syn_data = http_get_json(f"{_BASE}/{quote(name)}/synonyms/JSON")
             if syn_data is not NOT_FOUND:
                 synonyms = (
-                    syn_data
-                    .get("InformationList", {})
+                    syn_data.get("InformationList", {})
                     .get("Information", [{}])[0]
                     .get("Synonym", [])
                 )

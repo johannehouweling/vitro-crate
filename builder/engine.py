@@ -104,7 +104,8 @@ class AgentEngine:
         self.profiler = ProfilingLogger(self.state.session_id)
 
         self.state.log_reasoning(
-            "initialize", "scan_files",
+            "initialize",
+            "scan_files",
             f"Scanned {len(self.state.scanned_files)} files",
         )
         self.state.checkpoint.completed_checkpoints.append("files_scanned")
@@ -165,15 +166,24 @@ class AgentEngine:
         _start = _time.perf_counter()
         scanner_tools: dict[str, Any] = {}
         try:
-            from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, read_multiple_files as rmf, unzip_file as uzf, preview_archive as pa
-            scanner_tools = {"scan_files": sf, "read_file_sample": rfs, "read_multiple_files": rmf, "unzip_file": uzf, "preview_archive": pa}
+            from builder.tools.scanner import preview_archive as pa
+            from builder.tools.scanner import read_file_sample as rfs
+            from builder.tools.scanner import read_multiple_files as rmf
+            from builder.tools.scanner import scan_files as sf
+            from builder.tools.scanner import unzip_file as uzf
+
+            scanner_tools = {
+                "scan_files": sf,
+                "read_file_sample": rfs,
+                "read_multiple_files": rmf,
+                "unzip_file": uzf,
+                "preview_archive": pa,
+            }
         except ImportError:
             pass
 
         if tool_name == "present_to_human":
-            result = self.human_interface.present(
-                kwargs.get("context", ""), kwargs.get("options")
-            )
+            result = self.human_interface.present(kwargs.get("context", ""), kwargs.get("options"))
         elif tool_name == "request_input":
             result = self.human_interface.request_input(
                 kwargs.get("prompt", ""), kwargs.get("field_type", "text")
@@ -203,7 +213,8 @@ class AgentEngine:
                 if result:
                     self.state.scanned_files = result
                     self.state.log_reasoning(
-                        "store_scan_results", "scan_files",
+                        "store_scan_results",
+                        "scan_files",
                         f"Stored {len(result)} files in state",
                     )
                 else:
@@ -211,7 +222,8 @@ class AgentEngine:
                     # an existing inventory with zero — that tricked the agent
                     # into endless re-scanning.
                     self.state.log_reasoning(
-                        "scan_no_results", "scan_files",
+                        "scan_no_results",
+                        "scan_files",
                         "Scan returned no files; keeping existing inventory",
                     )
         else:
@@ -289,4 +301,5 @@ class AgentEngine:
     def get_status(self) -> dict:
         """Return current engine/state status."""
         from builder.tools.session import get_status as gs
+
         return gs(self.state)

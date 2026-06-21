@@ -29,6 +29,7 @@ def _get_internal_tool_names() -> set[str]:
         return _INTERNAL_TOOL_NAMES
 
     import builder.tools as bt
+
     spec_names = _tool_names()
     _INTERNAL_TOOL_NAMES = set(bt.__all__) - spec_names
     return _INTERNAL_TOOL_NAMES
@@ -99,6 +100,7 @@ def test_no_tool_description_references_absent_tool():
 def _import_module() -> object:
     """Helper to import and return the tools_spec module for introspection."""
     import importlib
+
     return importlib.import_module("builder.agents.tools_spec")
 
 

@@ -39,9 +39,8 @@ class TestLookupCompound:
                 "iupac_name": "Silychristin A",
                 "pubchem_cid": "441764",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem)
         result = lookup_compound("Silychristin A")
         assert isinstance(result, dict)
         assert "found" in result
@@ -57,9 +56,8 @@ class TestLookupCompound:
     def test_returns_correct_structure_on_failure(self, monkeypatch):
         def mock_lookup_pubchem(name):
             return {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem)
         result = lookup_compound("NonexistentCompoundXYZ")
         assert isinstance(result, dict)
         assert result["found"] is False
@@ -71,9 +69,8 @@ class TestLookupCompound:
     def test_never_throws_exception(self, monkeypatch):
         def mock_lookup_pubchem(name):
             raise RuntimeError("API timeout")
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem)
         result = lookup_compound("ExplosiveChemical")
         assert result["found"] is False
         assert result["data"] == {}
@@ -81,6 +78,7 @@ class TestLookupCompound:
 
     def test_compound_multi_strategy(self, monkeypatch):
         calls = []
+
         def mock_lookup_pubchem(name_or_cas):
             calls.append(name_or_cas)
             if name_or_cas == "Silychristin A":
@@ -95,9 +93,8 @@ class TestLookupCompound:
                     "pubchem_cid": "441764",
                 }
             return {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem)
         result = lookup_compound("Silychristin A")
         assert result["found"] is True
         assert len(calls) == 1
@@ -105,6 +102,7 @@ class TestLookupCompound:
 
     def test_cache_hits_return_same_result(self, monkeypatch):
         call_count = 0
+
         def mock_lookup_pubchem(name):
             nonlocal call_count
             call_count += 1
@@ -118,9 +116,8 @@ class TestLookupCompound:
                 "mass": "30.03",
                 "iupac_name": "Formaldehyde",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem)
         r1 = lookup_compound("Formaldehyde")
         r2 = lookup_compound("Formaldehyde")
         r3 = lookup_compound("Formaldehyde")
@@ -149,16 +146,17 @@ class TestLookupCellLine:
                     "@type": "DefinedTerm",
                     "name": "Homo sapiens",
                 },
-                "disease": [{
-                    "@id": "http://purl.obolibrary.org/obo/NCIT_C21689",
-                    "@type": "DefinedTerm",
-                    "name": "hepatocellular carcinoma",
-                }],
+                "disease": [
+                    {
+                        "@id": "http://purl.obolibrary.org/obo/NCIT_C21689",
+                        "@type": "DefinedTerm",
+                        "name": "hepatocellular carcinoma",
+                    }
+                ],
                 "category": "Cancer cell line",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_cellosaurus", mock_lookup_cellosaurus
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_cellosaurus", mock_lookup_cellosaurus)
         result = lookup_cell_line("CVCL_0027")
         assert result["found"] is True
         assert result["data"]["name"] == "Hep G2"
@@ -167,9 +165,8 @@ class TestLookupCellLine:
     def test_returns_correct_structure_on_failure(self, monkeypatch):
         def mock_lookup_cellosaurus(accession):
             return {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_cellosaurus", mock_lookup_cellosaurus
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_cellosaurus", mock_lookup_cellosaurus)
         result = lookup_cell_line("CVCL_9999")
         assert result["found"] is False
         assert result["data"] == {}
@@ -178,9 +175,8 @@ class TestLookupCellLine:
     def test_never_throws_exception(self, monkeypatch):
         def mock_lookup_cellosaurus(accession):
             raise RuntimeError("API error")
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_cellosaurus", mock_lookup_cellosaurus
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_cellosaurus", mock_lookup_cellosaurus)
         result = lookup_cell_line("CVCL_0000")
         assert result["found"] is False
         assert result["data"] == {}
@@ -204,17 +200,18 @@ class TestLookupAOP:
                     "name": "Test AOP 610",
                     "identifier": "610",
                 },
-                "events": [{
-                    "@id": "https://aopwiki.org/events/1",
-                    "@type": "KeyEvent",
-                    "name": "Molecular event",
-                    "eventType": "Molecular Initiating Event",
-                }],
+                "events": [
+                    {
+                        "@id": "https://aopwiki.org/events/1",
+                        "@type": "KeyEvent",
+                        "name": "Molecular event",
+                        "eventType": "Molecular Initiating Event",
+                    }
+                ],
                 "relationships": [],
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop)
         result = lookup_aop("610")
         assert result["found"] is True
         assert result["data"]["aop"]["name"] == "Test AOP 610"
@@ -224,9 +221,8 @@ class TestLookupAOP:
     def test_returns_correct_structure_on_failure(self, monkeypatch):
         def mock_lookup_aop(aop_id):
             return {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop)
         result = lookup_aop("99999")
         assert result["found"] is False
         assert result["data"] == {}
@@ -235,9 +231,8 @@ class TestLookupAOP:
     def test_never_throws_exception(self, monkeypatch):
         def mock_lookup_aop(aop_id):
             raise RuntimeError("AOP-Wiki unavailable")
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop)
         result = lookup_aop("0")
         assert result["found"] is False
         assert result["data"] == {}
@@ -245,14 +240,17 @@ class TestLookupAOP:
 
     def test_accepts_numeric_string_or_int(self, monkeypatch):
         def mock_lookup_aop(aop_id):
-            return {
-                "aop": {"name": "AOP 42", "identifier": str(aop_id)},
-                "events": [],
-                "relationships": [],
-            } if str(aop_id) == "42" else {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop
-        )
+            return (
+                {
+                    "aop": {"name": "AOP 42", "identifier": str(aop_id)},
+                    "events": [],
+                    "relationships": [],
+                }
+                if str(aop_id) == "42"
+                else {}
+            )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop)
         result = lookup_aop("42")
         assert result["found"] is True
         assert result["data"]["aop"]["identifier"] == "42"
@@ -274,9 +272,8 @@ class TestLookupBAOTerm:
                 "name": "gene expression assay",
                 "termCode": "BAO_0000172",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_bao_term_ols", mock_lookup_bao
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_bao_term_ols", mock_lookup_bao)
         result = lookup_bao_term("gene expression assay")
         assert result["found"] is True
         assert result["data"]["name"] == "gene expression assay"
@@ -286,9 +283,8 @@ class TestLookupBAOTerm:
     def test_returns_correct_structure_on_failure(self, monkeypatch):
         def mock_lookup_bao(query):
             return {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_bao_term_ols", mock_lookup_bao
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_bao_term_ols", mock_lookup_bao)
         result = lookup_bao_term("nonexistent")
         assert result["found"] is False
         assert result["data"] == {}
@@ -297,9 +293,8 @@ class TestLookupBAOTerm:
     def test_never_throws_exception(self, monkeypatch):
         def mock_lookup_bao(query):
             raise RuntimeError("OLS unavailable")
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_bao_term_ols", mock_lookup_bao
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_bao_term_ols", mock_lookup_bao)
         result = lookup_bao_term("crash")
         assert result["found"] is False
         assert result["data"] == {}
@@ -326,9 +321,8 @@ class TestLookupOrcid:
                 "affiliation_name": "University of Example",
                 "affiliation_ror": "https://ror.org/012345678",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
         result = lookup_orcid("0000-0001-6004-8653")
         assert result["found"] is True
         assert result["data"]["name"] == "John Doe"
@@ -341,9 +335,8 @@ class TestLookupOrcid:
                 "@type": "Person",
                 "identifier": f"https://orcid.org/{orcid_id}",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
         result = lookup_orcid("0000-0000-0000-0000")
         assert result["found"] is True
         assert result["data"]["@id"] == "https://orcid.org/0000-0000-0000-0000"
@@ -352,9 +345,8 @@ class TestLookupOrcid:
     def test_never_throws_exception(self, monkeypatch):
         def mock_lookup_orcid(orcid_id):
             raise RuntimeError("ORCID unavailable")
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
         result = lookup_orcid("0000-1111-2222-3333")
         assert result["found"] is False
         assert result["data"] == {}
@@ -378,9 +370,8 @@ class TestLookupROR:
                 "url": "https://www.maastrichtuniversity.nl",
                 "identifier": "https://ror.org/02jz4aj89",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.search_ror", mock_search_ror
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.search_ror", mock_search_ror)
         result = lookup_ror("Maastricht University")
         assert result["found"] is True
         assert result["data"]["name"] == "Maastricht University"
@@ -389,9 +380,8 @@ class TestLookupROR:
     def test_returns_correct_structure_on_failure(self, monkeypatch):
         def mock_search_ror(name):
             return {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.search_ror", mock_search_ror
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.search_ror", mock_search_ror)
         result = lookup_ror("NonexistentOrganizationXYZ")
         assert result["found"] is False
         assert result["data"] == {}
@@ -400,9 +390,8 @@ class TestLookupROR:
     def test_never_throws_exception(self, monkeypatch):
         def mock_search_ror(name):
             raise RuntimeError("ROR unavailable")
-        monkeypatch.setattr(
-            "builder.tools.lookups.search_ror", mock_search_ror
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.search_ror", mock_search_ror)
         result = lookup_ror("crash")
         assert result["found"] is False
         assert result["data"] == {}
@@ -429,9 +418,8 @@ class TestLookupDOI:
                 "datePublished": "2021",
                 "url": "https://doi.org/10.1016/j.tox.2021.152898",
             }
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_doi_crossref", mock_lookup_doi
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_doi_crossref", mock_lookup_doi)
         result = lookup_doi("10.1016/j.tox.2021.152898")
         assert result["found"] is True
         assert result["data"]["name"] == "A test toxicology article"
@@ -442,9 +430,8 @@ class TestLookupDOI:
     def test_returns_correct_structure_on_failure(self, monkeypatch):
         def mock_lookup_doi(doi):
             return {}
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_doi_crossref", mock_lookup_doi
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_doi_crossref", mock_lookup_doi)
         result = lookup_doi("10.0000/nonexistent")
         assert result["found"] is False
         assert result["data"] == {}
@@ -453,9 +440,8 @@ class TestLookupDOI:
     def test_never_throws_exception(self, monkeypatch):
         def mock_lookup_doi(doi):
             raise RuntimeError("Crossref unavailable")
-        monkeypatch.setattr(
-            "builder.tools.lookups.lookup_doi_crossref", mock_lookup_doi
-        )
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_doi_crossref", mock_lookup_doi)
         result = lookup_doi("10.9999/crash")
         assert result["found"] is False
         assert result["data"] == {}

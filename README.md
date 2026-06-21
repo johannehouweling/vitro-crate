@@ -306,8 +306,30 @@ This works for ``requests``, ``httpx``, ``openai``, and all other HTTP clients.
 | `VITRO_ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Model name for Anthropic |
 | `ANTHROPIC_MODEL` | Fallback | `claude-sonnet-4-20250514` | Same, unprefixed fallback |
 | `VITRO_MAX_RETRIES` | No | `3` | Max retry attempts for LLM API calls (configurable via ``[openai]`` / ``[anthropic]`` in config file) |
+| `VITRO_MAX_ITERATIONS` | No | `100` | Max tool-calling iterations per request before the agent stops to avoid endless loops. Set in `[agent]` section of config file. |
 
 For OpenAI-compatible providers (Ollama, LiteLLM, vLLM, etc.):
 - Set `VITRO_OPENAI_API_KEY` (any non-empty value works for Ollama)
 - Set `VITRO_OPENAI_BASE_URL` to the provider's `/v1` endpoint
 - Set `VITRO_OPENAI_MODEL` to the model name the provider serves
+
+---
+
+## PDF Extraction Tool
+
+The builder includes a PDF extraction tool (`extract_pdf_text`) that reads scientific publications and extracts structured content:
+
+- **Text extraction** — all readable text content (via `pdfplumber`)
+- **Table detection** — tables with ruling lines are extracted as pipe-delimited markdown tables; aligned columnar text appears as `[Text]` entries
+- **Image metadata** — images are reported with their dimensions (width × height in points)
+- **Structured output** — content is formatted with `[Page N]`, `[Text]`, `[Table N]`, and `[Image]` section markers so the LLM agent can understand document layout
+- **Security guards** — files >100 MB are skipped; password-protected PDFs are rejected; invalid/corrupt PDFs return `None`
+
+This is useful when a research folder contains PDFs of related publications that contain experimental data (IC₅₀ values, cell viability stats, dosing information). The agent can call `extract_pdf_text` on any PDF in the approved scan root to extract information for entity drafting.
+
+```python
+from builder.tools.scanner import extract_pdf_text
+
+result = extract_pdf_text("/path/to/publication.pdf")
+# Returns: "[Page 1]\n[Text] Abstract\n[Text] ...\n[Table 1 (3 rows)]\n| Compound | IC50 | Cell Line |\n| --- | --- | --- |\n| ..."
+```

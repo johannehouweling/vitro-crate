@@ -6,17 +6,16 @@ ROCrate objects — just the state representation with completion tracking.
 
 from __future__ import annotations
 
-from typing import Any
-
 from builder.state import CrateState, Entity, EntityProvenance
 
-
-VALID_PROCESS_TYPES = frozenset({
-    "CellCulture",
-    "Exposure",
-    "EndpointReadout",
-    "DataAnalysis",
-})
+VALID_PROCESS_TYPES = frozenset(
+    {
+        "CellCulture",
+        "Exposure",
+        "EndpointReadout",
+        "DataAnalysis",
+    }
+)
 
 
 def _make_entity_id(prefix: str, name: str, hints: dict) -> str:
@@ -324,12 +323,8 @@ TOOL_REGISTRY.register("draft_assay", draft_assay, takes_state=True)
 TOOL_REGISTRY.register("draft_process", draft_process, takes_state=True)
 TOOL_REGISTRY.register("draft_protocol", draft_protocol, takes_state=True)
 TOOL_REGISTRY.register("draft_sample", draft_sample, takes_state=True)
-TOOL_REGISTRY.register(
-    "draft_molecular_entity", draft_molecular_entity, takes_state=True
-)
-TOOL_REGISTRY.register(
-    "draft_cell_line_sample", draft_cell_line_sample, takes_state=True
-)
+TOOL_REGISTRY.register("draft_molecular_entity", draft_molecular_entity, takes_state=True)
+TOOL_REGISTRY.register("draft_cell_line_sample", draft_cell_line_sample, takes_state=True)
 TOOL_REGISTRY.register("draft_person", draft_person, takes_state=True)
 TOOL_REGISTRY.register("draft_organization", draft_organization, takes_state=True)
 TOOL_REGISTRY.register("draft_publication", draft_publication, takes_state=True)

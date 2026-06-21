@@ -39,7 +39,7 @@ ISA_TOX_CONTEXT: list[dict] = [
         "object": "http://schema.org/object",
         # Friendly alias for a LabProcess's input(s).
         "input": "http://schema.org/object",
-        "labEquipment": "https://bioschemas.org/labEquipment",  
+        "labEquipment": "https://bioschemas.org/labEquipment",
         "reagent": "https://bioschemas.org/reagent",
         "computationalTool": "https://bioschemas.org/computationalTool",
         # Real schema.org PROPERTIES (the value is a DefinedTerm); previously these keys

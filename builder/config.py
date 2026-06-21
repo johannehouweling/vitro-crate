@@ -217,7 +217,10 @@ def interactive_setup() -> bool:
         api_key = input("API key (press Enter to skip if using env var): ").strip()
         if api_key:
             config["openai"]["api_key"] = api_key
-        base_url = input("API base URL [http://localhost:11434/v1]: ").strip() or "http://localhost:11434/v1"
+        base_url = (
+            input("API base URL [http://localhost:11434/v1]: ").strip()
+            or "http://localhost:11434/v1"
+        )
         config["openai"]["base_url"] = base_url
         model = input("Model name [llama3.2]: ").strip() or "llama3.2"
         config["openai"]["model"] = model
@@ -227,7 +230,9 @@ def interactive_setup() -> bool:
         api_key = input("Anthropic API key (sk-ant-...): ").strip()
         if api_key:
             config["anthropic"]["api_key"] = api_key
-        model = input("Model name [claude-sonnet-4-20250514]: ").strip() or "claude-sonnet-4-20250514"
+        model = (
+            input("Model name [claude-sonnet-4-20250514]: ").strip() or "claude-sonnet-4-20250514"
+        )
         config["anthropic"]["model"] = model
     else:
         print(f"Unknown provider: {provider!r}")

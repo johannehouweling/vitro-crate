@@ -17,8 +17,7 @@ composition is verified working as of roc-validator 0.10.0.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+import importlib.metadata as _metadata
 
 # ---------------------------------------------------------------------------
 # rocrate-validator compatibilty shim  (#57)
@@ -34,16 +33,18 @@ from pathlib import Path
 # the version string from the package's own dist-info/METADATA so the
 # [tool][poetry] lookup is never reached.
 import sys as _sys
-import importlib.metadata as _metadata
+from dataclasses import dataclass, field
+from pathlib import Path
 
 _rv_ver = _metadata.version("roc-validator")
 
 
 class _PatchedVersioning:
     """Drop-in stand-in for rocrate_validator.utils.versioning."""
+
     @staticmethod
     def get_version() -> str:
-        return _rv_ver
+        return _rv_ver  # noqa: F821 — defined above, used before `del` on line 85
 
     @staticmethod
     def get_min_python_version():
@@ -51,15 +52,15 @@ class _PatchedVersioning:
 
     @staticmethod
     def check_python_version() -> bool:
-        return _sys.version_info >= (3, 9)
+        return _sys.version_info >= (3, 9)  # noqa: F821 — same as above
 
 
 # Pre-seed so rocrate_validator/__init__.py finds this instead of the real
 # versioning module and never reaches the broken get_config() call.
 _sys.modules["rocrate_validator.utils.versioning"] = _PatchedVersioning  # type: ignore[attr-defined]
 
-import rocrate_validator.utils.config as _rv_config
-import rocrate_validator.utils.versioning as _rv_versioning
+import rocrate_validator.utils.config as _rv_config  # noqa: E402 — intentional bootstrap
+import rocrate_validator.utils.versioning as _rv_versioning  # noqa: E402
 
 # Now that the package is loaded, patch get_config too so any later
 # downstream call to get_version() (e.g. min-python-version checks) works.
@@ -71,7 +72,7 @@ _orig_get_config = _rv_config.get_config
 def _patched_get_config() -> dict:
     cfg = _orig_get_config()
     if "tool" in cfg and "poetry" not in cfg["tool"]:
-        cfg.setdefault("tool", {})["poetry"] = {"version": _rv_ver}
+        cfg.setdefault("tool", {})["poetry"] = {"version": _rv_ver}  # noqa: F821
     return cfg
 
 
@@ -82,8 +83,8 @@ _sys.modules["rocrate_validator.utils.versioning"] = _rv_versioning
 
 del _rv_config, _rv_versioning, _rv_ver, _sys, _metadata, _PatchedVersioning
 
-from rocrate_validator import models, services
-from rocrate_validator.services import DEFAULT_PROFILES_PATH
+from rocrate_validator import models, services  # noqa: E402 — see bootstrap above
+from rocrate_validator.services import DEFAULT_PROFILES_PATH  # noqa: E402
 
 # This file lives at <repo>/profiles/validator.py, so the repo root is two
 # parents up and the SHACL shapes are the sibling ``shapes`` directory.
@@ -120,10 +121,10 @@ _patch_bundled_isa_ontology()
 @dataclass
 class ValidationResult:
     profile: str
-    passed: bool                                       # no issues at ANY severity
-    issues: list[str] = field(default_factory=list)    # plain-English, all severities
+    passed: bool  # no issues at ANY severity
+    issues: list[str] = field(default_factory=list)  # plain-English, all severities
     required_issues: list[str] = field(default_factory=list)  # REQUIRED-severity only
-    passed_required: bool = True                       # no REQUIRED-severity issues
+    passed_required: bool = True  # no REQUIRED-severity issues
 
 
 def validate_crate(crate_dir: Path) -> list[ValidationResult]:

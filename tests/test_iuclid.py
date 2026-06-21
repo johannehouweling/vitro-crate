@@ -38,15 +38,14 @@ def _clear_catalog_cache():
 # Catalogue path & loader
 # ---------------------------------------------------------------------------
 
+
 class TestCatalogPath:
     """The catalogue path must point at the committed file inside the repo."""
 
     def test_catalog_path_resolves_under_repo_root(self):
         """_CATALOG sits under the repo root, not an ancestor of the repo."""
         repo_root = Path(iuclid.__file__).resolve().parents[1]
-        assert iuclid._CATALOG == (
-            repo_root / "profiles" / "mit-data" / "oht201_value_sets.json"
-        )
+        assert iuclid._CATALOG == (repo_root / "profiles" / "mit-data" / "oht201_value_sets.json")
 
     def test_catalog_loads_committed_file(self, tmp_path, monkeypatch):
         """_catalog() reads and parses the JSON catalogue at _CATALOG."""
@@ -72,14 +71,13 @@ class TestCatalogPath:
 # resolve()
 # ---------------------------------------------------------------------------
 
+
 class TestResolve:
     """Matching precedence: exact -> fuzzy -> open term -> uncoded."""
 
     @pytest.fixture(autouse=True)
     def _patch_terms(self, monkeypatch):
-        monkeypatch.setattr(
-            iuclid, "phrase_group_values", lambda pg: list(_SAMPLE_TERMS)
-        )
+        monkeypatch.setattr(iuclid, "phrase_group_values", lambda pg: list(_SAMPLE_TERMS))
 
     def test_unknown_phrase_group_returns_none(self, monkeypatch):
         """An unknown (empty) phrase group resolves to None."""
@@ -113,6 +111,7 @@ class TestResolve:
 # iuclid_term() entity emission
 # ---------------------------------------------------------------------------
 
+
 class TestIuclidTerm:
     """iuclid_term emits a schema:DefinedTerm or None for unknown groups."""
 
@@ -124,9 +123,7 @@ class TestIuclidTerm:
 
     def test_coded_match_emits_defined_term_with_termcode(self, monkeypatch):
         """A coded match emits a DefinedTerm carrying termCode + termset link."""
-        monkeypatch.setattr(
-            iuclid, "phrase_group_values", lambda pg: list(_SAMPLE_TERMS)
-        )
+        monkeypatch.setattr(iuclid, "phrase_group_values", lambda pg: list(_SAMPLE_TERMS))
         crate = ROCrate()
         term = iuclid.iuclid_term(crate, "Liver", "PG1")
 
@@ -139,9 +136,7 @@ class TestIuclidTerm:
 
     def test_open_term_carries_open_code_and_slugged_id(self, monkeypatch):
         """An open-term match keeps the open code but slugs the @id by value."""
-        monkeypatch.setattr(
-            iuclid, "phrase_group_values", lambda pg: list(_SAMPLE_TERMS)
-        )
+        monkeypatch.setattr(iuclid, "phrase_group_values", lambda pg: list(_SAMPLE_TERMS))
         crate = ROCrate()
         term = iuclid.iuclid_term(crate, "Spleen", "PG1")
 

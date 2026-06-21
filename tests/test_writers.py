@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from builder.writers.rocrate_writer import write_rocrate
-from builder.writers.arc_writer import write_arc
 from builder.state import CrateState, Entity, EntityProvenance
+from builder.writers.arc_writer import write_arc
+from builder.writers.rocrate_writer import write_rocrate
 
 
 class TestWriteRocrate:
@@ -28,7 +27,8 @@ class TestWriteRocrate:
         """write_rocrate returns correct entity_count."""
         state = CrateState()
         inv = Entity(
-            entity_id="inv_001", type="Investigation",
+            entity_id="inv_001",
+            type="Investigation",
             fields={"name": "Test"},
             _provenance=EntityProvenance(created_by="llm"),
         )
@@ -76,7 +76,8 @@ class TestWriteArc:
         """write_arc creates study directories for Study entities."""
         state = CrateState()
         study = Entity(
-            entity_id="study_001", type="Study",
+            entity_id="study_001",
+            type="Study",
             fields={"name": "My Study"},
             _provenance=EntityProvenance(created_by="llm"),
         )
@@ -91,7 +92,8 @@ class TestWriteArc:
         """write_arc creates assay directories with dataset subdirs for Assay entities."""
         state = CrateState()
         assay = Entity(
-            entity_id="assay_001", type="Assay",
+            entity_id="assay_001",
+            type="Assay",
             fields={"name": "My Assay"},
             _provenance=EntityProvenance(created_by="llm"),
         )

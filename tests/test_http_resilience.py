@@ -53,9 +53,7 @@ class TestHttpGetJson:
 
     @responses.activate
     def test_connection_error_raises_transient(self):
-        responses.add(
-            responses.GET, "https://api.test/x", body=ReqConnectionError("reset")
-        )
+        responses.add(responses.GET, "https://api.test/x", body=ReqConnectionError("reset"))
         with pytest.raises(TransientLookupError):
             http_get_json("https://api.test/x")
 
@@ -73,9 +71,7 @@ class TestHttpGetJson:
 
     @responses.activate
     def test_passes_params_and_headers(self):
-        responses.add(
-            responses.GET, "https://api.test/x", json={"ok": True}, status=200
-        )
+        responses.add(responses.GET, "https://api.test/x", json={"ok": True}, status=200)
         http_get_json(
             "https://api.test/x",
             params={"q": "v"},

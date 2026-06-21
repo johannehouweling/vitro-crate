@@ -6,10 +6,6 @@ with the expected node structure, routing behavior, and message flow.
 
 from __future__ import annotations
 
-from typing import Any
-
-import pytest
-
 
 class TestBuildAgentGraph:
     """Tests for the _build_agent_graph function."""
@@ -108,7 +104,6 @@ class TestBuildAgentGraph:
 
     def test_should_continue_routes_to_tools_when_tool_calls_present(self):
         """should_continue returns 'tools' when last message has tool_calls."""
-        from unittest.mock import MagicMock
 
         from langchain_core.messages import AIMessage
 
@@ -133,11 +128,10 @@ class TestBuildAgentGraph:
 
     def test_should_continue_routes_to_end_when_no_tool_calls(self):
         """should_continue returns END when last message has no tool_calls."""
+        from langchain_core.messages import AIMessage
         from langgraph.graph import END
 
         from builder.agents.agent_loop import should_continue
-
-        from langchain_core.messages import AIMessage
 
         ai_msg = AIMessage(content="Here is the answer.")
         state = {"messages": [ai_msg]}
@@ -147,11 +141,10 @@ class TestBuildAgentGraph:
 
     def test_should_continue_routes_to_end_when_empty_tool_calls(self):
         """should_continue returns END when tool_calls is empty list."""
+        from langchain_core.messages import AIMessage
         from langgraph.graph import END
 
         from builder.agents.agent_loop import should_continue
-
-        from langchain_core.messages import AIMessage
 
         ai_msg = AIMessage(content="Done.", tool_calls=[])
         state = {"messages": [ai_msg]}

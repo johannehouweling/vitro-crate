@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from builder.state import Entity, EntityProvenance
 from builder.tools.verification import (
     _IDENTIFIER_FIELDS,
@@ -60,7 +58,11 @@ class TestVerifyIdentifier:
 
         monkeypatch.setattr(
             "builder.tools.verification.lookup_compound",
-            lambda query: {"found": True, "data": {"pubchem_cid": "712"}, "error": None},
+            lambda query: {
+                "found": True,
+                "data": {"pubchem_cid": "712"},
+                "error": None,
+            },
         )
 
         result = verify_identifier(state, "chem_001", "identifier")
@@ -153,7 +155,9 @@ class TestVerifyIdentifier:
 
         assert result["verified"] is False
         assert person.fields["identifier"] == "0000-0001-6004-8653"
-        assert person.get_field_status("identifier").status != "missing"
+        field_status = person.get_field_status("identifier")
+        assert field_status is not None
+        assert field_status.status != "missing"
 
 
 class TestVerifyAllIdentifiers:
@@ -207,19 +211,11 @@ class TestVerifiableFieldSet:
         vf = _get_verifiable_fields()
         me_fields = {f for (t, f) in vf if t == "MolecularEntity"}
         assert "casrn" in me_fields, "casrn should be verifiable for MolecularEntity"
-        assert "cas_number" in me_fields, (
-            "cas_number should be verifiable for MolecularEntity"
-        )
+        assert "cas_number" in me_fields, "cas_number should be verifiable for MolecularEntity"
         assert "cas" in me_fields, "cas should be verifiable for MolecularEntity"
-        assert "inchikey" in me_fields, (
-            "inchikey should be verifiable for MolecularEntity"
-        )
-        assert "identifier" in me_fields, (
-            "identifier should be verifiable for MolecularEntity"
-        )
-        assert "pubchem_cid" in me_fields, (
-            "pubchem_cid should be verifiable for MolecularEntity"
-        )
+        assert "inchikey" in me_fields, "inchikey should be verifiable for MolecularEntity"
+        assert "identifier" in me_fields, "identifier should be verifiable for MolecularEntity"
+        assert "pubchem_cid" in me_fields, "pubchem_cid should be verifiable for MolecularEntity"
 
     def test_organization_ror_not_verifiable(self):
         """Organization has no verifier, so ror should not be in the set."""
@@ -268,7 +264,11 @@ class TestVerifiableFieldSet:
 
         monkeypatch.setattr(
             "builder.tools.verification.lookup_compound",
-            lambda query: {"found": True, "data": {"pubchem_cid": "712"}, "error": None},
+            lambda query: {
+                "found": True,
+                "data": {"pubchem_cid": "712"},
+                "error": None,
+            },
         )
 
         results = verify_all_identifiers(state)

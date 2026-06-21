@@ -36,16 +36,25 @@ def _state_content_hash(state: CrateState) -> str:
     """
     # Build a dict with the fields that represent actual content changes
     content = {
-        "entities": state.entities.to_dict() if hasattr(state.entities, "to_dict") else str(state.entities),
+        "entities": state.entities.to_dict()
+        if hasattr(state.entities, "to_dict")
+        else str(state.entities),
         "scanned_files": [
-            f.to_dict() if hasattr(f, "to_dict") else str(f)
-            for f in state.scanned_files
+            f.to_dict() if hasattr(f, "to_dict") else str(f) for f in state.scanned_files
         ],
         "approved_scan_roots": sorted(state.approved_scan_roots),
-        "validation": state.validation.to_dict() if hasattr(state.validation, "to_dict") else str(state.validation),
-        "mit_assessment": state.mit_assessment.to_dict() if hasattr(state.mit_assessment, "to_dict") else str(state.mit_assessment),
-        "fair_assessment": state.fair_assessment.to_dict() if hasattr(state.fair_assessment, "to_dict") else str(state.fair_assessment),
-        "checkpoint": state.checkpoint.to_dict() if hasattr(state.checkpoint, "to_dict") else str(state.checkpoint),
+        "validation": state.validation.to_dict()
+        if hasattr(state.validation, "to_dict")
+        else str(state.validation),
+        "mit_assessment": state.mit_assessment.to_dict()
+        if hasattr(state.mit_assessment, "to_dict")
+        else str(state.mit_assessment),
+        "fair_assessment": state.fair_assessment.to_dict()
+        if hasattr(state.fair_assessment, "to_dict")
+        else str(state.fair_assessment),
+        "checkpoint": state.checkpoint.to_dict()
+        if hasattr(state.checkpoint, "to_dict")
+        else str(state.checkpoint),
     }
     return hashlib.sha256(
         json.dumps(content, sort_keys=True, default=str).encode("utf-8")
@@ -87,12 +96,14 @@ def list_sessions() -> list[dict]:
                     created_at = data.get("created_at", "")
                     updated_at = data.get("updated_at", "")
                     entity_count = _count_entities(data)
-                    entries.append({
-                        "session_id": child.name,
-                        "created_at": created_at,
-                        "updated_at": updated_at,
-                        "entity_count": entity_count,
-                    })
+                    entries.append(
+                        {
+                            "session_id": child.name,
+                            "created_at": created_at,
+                            "updated_at": updated_at,
+                            "entity_count": entity_count,
+                        }
+                    )
                 except (json.JSONDecodeError, KeyError, FileNotFoundError):
                     continue
     return entries
@@ -178,7 +189,11 @@ def get_hint(state: CrateState) -> str:
         return "Start by drafting an Investigation"
 
     # Check for validation failures
-    if not state.validation.base_passed or not state.validation.isa_passed or not state.validation.tox_passed:
+    if (
+        not state.validation.base_passed
+        or not state.validation.isa_passed
+        or not state.validation.tox_passed
+    ):
         if state.validation.required_issues:
             issues = "; ".join(state.validation.required_issues[:3])
             return f"Fix REQUIRED validation issues: {issues}"

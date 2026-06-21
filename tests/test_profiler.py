@@ -17,6 +17,7 @@ class TestProfilingLogger:
         """Create a ProfilingLogger with SESSION_DIR overridden to tmp_path."""
         import builder.tools.profiler as profiler_mod
         from builder.tools.profiler import ProfilingLogger
+
         self._orig_dir = profiler_mod.SESSION_DIR
         profiler_mod.SESSION_DIR = tmp_path / "sessions"
         return ProfilingLogger(session_id)
@@ -24,7 +25,8 @@ class TestProfilingLogger:
     def _restore_dir(self):
         """Restore original SESSION_DIR."""
         import builder.tools.profiler as profiler_mod
-        if hasattr(self, '_orig_dir'):
+
+        if hasattr(self, "_orig_dir"):
             profiler_mod.SESSION_DIR = self._orig_dir
 
     def test_creates_profile_file(self, tmp_path):
@@ -63,8 +65,9 @@ class TestProfilingLogger:
         """log_tool_call writes a tool_call event with correct fields."""
         pl = self._make_logger(tmp_path, "test-003")
         try:
-            pl.log_tool_call("scan_files", duration_ms=5000.0, iteration=1,
-                             args="{'path': '/data'}")
+            pl.log_tool_call(
+                "scan_files", duration_ms=5000.0, iteration=1, args="{'path': '/data'}"
+            )
 
             profile_path = tmp_path / "sessions" / "test-003" / "profile.ndjson"
             lines = profile_path.read_text().strip().splitlines()
@@ -141,7 +144,6 @@ class TestProfilingLogger:
 
     def test_unwritable_dir_fallback(self, tmp_path, caplog):
         """ProfilingLogger degrades gracefully when sessions dir is unwritable."""
-        import os
         caplog.set_level(logging.WARNING)
         import builder.tools.profiler as profiler_mod
         from builder.tools.profiler import ProfilingLogger
@@ -160,8 +162,7 @@ class TestProfilingLogger:
             assert pl._silent
             assert pl._file is None
 
-            warnings = [r for r in caplog.records
-                        if "could not open" in r.getMessage().lower()]
+            warnings = [r for r in caplog.records if "could not open" in r.getMessage().lower()]
             assert len(warnings) >= 1
 
             pl.log_event("should_not_crash")
@@ -189,8 +190,12 @@ class TestProfilingLogger:
                 record = json.loads(line)
                 assert "event" in record, f"Line {i} missing 'event': {line}"
                 assert "timestamp" in record, f"Line {i} missing 'timestamp': {line}"
-                assert isinstance(record["event"], str), f"Line {i} event is not str: {type(record['event'])}"
-                assert isinstance(record["timestamp"], str), f"Line {i} timestamp is not str: {type(record['timestamp'])}"
+                assert isinstance(record["event"], str), (
+                    f"Line {i} event is not str: {type(record['event'])}"
+                )
+                assert isinstance(record["timestamp"], str), (
+                    f"Line {i} timestamp is not str: {type(record['timestamp'])}"
+                )
         finally:
             pl.close()
             self._restore_dir()
@@ -261,7 +266,7 @@ class TestProfilerEngineIntegration:
             lines = profile_path.read_text().strip().splitlines()
             assert len(lines) == 3
 
-            iterations = [json.loads(l)["iteration"] for l in lines]
+            iterations = [json.loads(line)["iteration"] for line in lines]
             assert iterations == [1, 2, 3]
         finally:
             profiler_mod.SESSION_DIR = orig
@@ -291,5 +296,3 @@ class TestProfilerEngineIntegration:
             assert len(lines) == 1
         finally:
             profiler_mod.SESSION_DIR = orig
-
-    

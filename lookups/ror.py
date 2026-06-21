@@ -39,7 +39,7 @@ def search_ror(name: str) -> dict:
             return {}
 
         best = items[0]
-        ror_id = best.get("id", "")          # e.g. "https://ror.org/02jz4aj89"
+        ror_id = best.get("id", "")  # e.g. "https://ror.org/02jz4aj89"
         # ROR v2: name may be under names list; v1: direct "name" field
         org_name = best.get("name") or name
         if not org_name:
@@ -48,7 +48,10 @@ def search_ror(name: str) -> dict:
                 org_name = names_list[0].get("value", name)
         # links is a list of {"type": ..., "value": url}
         links = best.get("links", [])
-        website = next((lk["value"] for lk in links if isinstance(lk, dict) and lk.get("type") == "website"), "")
+        website = next(
+            (lk["value"] for lk in links if isinstance(lk, dict) and lk.get("type") == "website"),
+            "",
+        )
         url = website or (links[0] if links and isinstance(links[0], str) else "")
 
         return {

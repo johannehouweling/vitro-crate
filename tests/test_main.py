@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from main import parse_args, main
+from main import main, parse_args
 
 
 class TestParseArgs:
@@ -77,6 +77,7 @@ class TestMain:
     def test_verbose_sets_debug_logging(self, caplog):
         """main() with --verbose enables debug logging."""
         import logging
+
         caplog.set_level(logging.DEBUG)
         result = main(["--verbose"])
         assert result == 0
@@ -92,8 +93,10 @@ class TestMain:
         """main() with --dashboard calls run_dashboard (live)."""
         called = []
         import builder.tools.dashboard as d
-        monkeypatch.setattr(d, "run_dashboard",
-                            lambda *a, **kw: called.append(kw.get("session_id")))
+
+        monkeypatch.setattr(
+            d, "run_dashboard", lambda *a, **kw: called.append(kw.get("session_id"))
+        )
         result = main(["--dashboard"])
         assert result == 0
         assert called == [None]  # no session specified
@@ -102,8 +105,10 @@ class TestMain:
         """main() with --dashboard and --resume passes session id to dashboard."""
         called = []
         import builder.tools.dashboard as d
-        monkeypatch.setattr(d, "run_dashboard",
-                            lambda *a, **kw: called.append(kw.get("session_id")))
+
+        monkeypatch.setattr(
+            d, "run_dashboard", lambda *a, **kw: called.append(kw.get("session_id"))
+        )
         result = main(["--dashboard", "--resume", "test_session"])
         assert result == 0
         assert called == ["test_session"]

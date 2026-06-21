@@ -148,10 +148,7 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
         "verified": False,
         "entity_id": entity_id,
         "field": field,
-        "message": (
-            f"{field} could not be verified for {entity.type}; "
-            "value cleared from entity."
-        ),
+        "message": (f"{field} could not be verified for {entity.type}; value cleared from entity."),
         "suggested_fix": "Provide a resolvable identifier and verify again.",
     }
 
@@ -159,9 +156,7 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
 # Legacy re-export — derived automatically from _get_verifiable_fields so it
 # always stays in sync. Only the flat field names are exposed here; the
 # authoritative pair-based set is _get_verifiable_fields().
-_IDENTIFIER_FIELDS: frozenset[str] = frozenset(
-    {f for (_t, f) in _get_verifiable_fields()}
-)
+_IDENTIFIER_FIELDS: frozenset[str] = frozenset({f for (_t, f) in _get_verifiable_fields()})
 
 
 def verify_all_identifiers(state: CrateState) -> list[dict]:
@@ -202,6 +197,4 @@ def verify_all_identifiers(state: CrateState) -> list[dict]:
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("verify_identifier", verify_identifier, takes_state=True)
-TOOL_REGISTRY.register(
-    "verify_all_identifiers", verify_all_identifiers, takes_state=True
-)
+TOOL_REGISTRY.register("verify_all_identifiers", verify_all_identifiers, takes_state=True)

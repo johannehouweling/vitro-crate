@@ -1,7 +1,10 @@
+# ruff: noqa: E501
 from __future__ import annotations
+
 import hashlib
 import re
 from pathlib import Path
+
 from rocrate.model import ContextEntity, File
 from rocrate.rocrate import ROCrate
 
@@ -26,9 +29,7 @@ class AutoAddContextEntity(ContextEntity):
         *args,
         **kwargs,
     ):
-        super().__init__(
-            crate, identifier=identifier, properties=properties, *args, **kwargs
-        )
+        super().__init__(crate, identifier=identifier, properties=properties, *args, **kwargs)
         if add:
             crate.add(self)
 
@@ -464,9 +465,7 @@ class Sample(AutoAddContextEntity):
             "name": name,
         }
         if additionalProperty is not None:
-            default_properties = default_properties | {
-                "additionalProperty": additionalProperty
-            }
+            default_properties = default_properties | {"additionalProperty": additionalProperty}
         # Merge default properties with user-provided properties (user properties override defaults)
         merged_properties = default_properties | (properties or {})
 

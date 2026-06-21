@@ -21,7 +21,7 @@ class TestSignalHandling:
         mock_input = MagicMock(
             side_effect=[
                 KeyboardInterrupt(),  # Ctrl+C on first try
-                "hello",              # normal input on second try
+                "hello",  # normal input on second try
             ]
         )
 
@@ -56,7 +56,7 @@ class TestSignalHandling:
         with patch.object(console, "input", mock_input):
             exited = False
             try:
-                raw = console.input("> ")
+                console.input("> ")
             except EOFError:
                 # Ctrl+D: exit
                 exited = True
@@ -85,7 +85,7 @@ class TestSignalHandling:
             side_effect=[
                 KeyboardInterrupt(),  # Ctrl+C
                 KeyboardInterrupt(),  # Ctrl+C again
-                EOFError(),           # Ctrl+D finally
+                EOFError(),  # Ctrl+D finally
             ]
         )
 
@@ -95,7 +95,7 @@ class TestSignalHandling:
 
             for _ in range(5):
                 try:
-                    raw = console.input("> ")
+                    console.input("> ")
                     break  # got input
                 except KeyboardInterrupt:
                     ctrl_c_count += 1

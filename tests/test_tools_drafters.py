@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from builder.state import CrateState, EntityProvenance
+from builder.state import CrateState
 from builder.tools.drafters import (
     draft_assay,
     draft_cell_line_sample,
@@ -111,8 +111,7 @@ class TestDraftCellLineSample:
         """draft_cell_line_sample creates a CellLineSample type entity."""
         state = CrateState()
         entity = draft_cell_line_sample(
-            state, "HepG2",
-            {"accession": "CVCL_0027", "species": "Homo sapiens"}
+            state, "HepG2", {"accession": "CVCL_0027", "species": "Homo sapiens"}
         )
 
         assert entity.type == "CellLineSample"
@@ -133,8 +132,10 @@ class TestDraftProcess:
         assay = draft_assay(state, study.entity_id, {"name": "Assay"})
 
         entity = draft_process(
-            state, assay.entity_id, "Exposure",
-            {"name": "24h Exposure", "duration": "24h"}
+            state,
+            assay.entity_id,
+            "Exposure",
+            {"name": "24h Exposure", "duration": "24h"},
         )
 
         assert entity.type == "LabProcess"
@@ -151,8 +152,9 @@ class TestDraftPerson:
         """draft_person creates a Person entity."""
         state = CrateState()
         entity = draft_person(
-            state, "John Doe",
-            {"orcid": "0000-0001-2345-6789", "affiliation": "University"}
+            state,
+            "John Doe",
+            {"orcid": "0000-0001-2345-6789", "affiliation": "University"},
         )
 
         assert entity.type == "Person"
@@ -169,8 +171,9 @@ class TestDraftOrganization:
         """draft_organization creates an Organization entity."""
         state = CrateState()
         entity = draft_organization(
-            state, "University of Testing",
-            {"ror": "https://ror.org/12345", "url": "https://test.edu"}
+            state,
+            "University of Testing",
+            {"ror": "https://ror.org/12345", "url": "https://test.edu"},
         )
 
         assert entity.type == "Organization"
@@ -187,8 +190,7 @@ class TestDraftPublication:
         """draft_publication creates a Publication entity from DOI + hints."""
         state = CrateState()
         entity = draft_publication(
-            state, "10.1234/example",
-            {"title": "A Study", "journal": "Test Journal"}
+            state, "10.1234/example", {"title": "A Study", "journal": "Test Journal"}
         )
 
         assert entity.type == "Publication"

@@ -62,8 +62,7 @@ def lookup_cellosaurus(accession: str) -> dict:
         primary = next((n for n in names if n.get("type") == "identifier"), None)
         name = primary.get("value", accession) if primary else accession
         alternate_names = [
-            n.get("value", "") for n in names
-            if n.get("type") == "synonym" and n.get("value")
+            n.get("value", "") for n in names if n.get("type") == "synonym" and n.get("value")
         ]
 
         result: dict = {"name": name, "identifier": url, "url": url}

@@ -33,7 +33,7 @@ def lookup_doi(doi: str) -> dict:
     # Strip URL prefix if present
     for prefix in ("https://doi.org/", "http://doi.org/", "doi:", "DOI:"):
         if doi.startswith(prefix):
-            doi = doi[len(prefix):]
+            doi = doi[len(prefix) :]
             break
 
     doi_url = f"https://doi.org/{doi}"

@@ -60,12 +60,27 @@ class LabProcessExposure(LabProcess):
         base_properties: dict = {
             "additionalType": "Exposure",
             "parameter": [
-                _pv(crate, "Exposure Duration", duration,
-                    "https://bioregistry.io/NCIT:C83280", u.get("Exposure Duration")),
-                _pv(crate, "Cell Seeding Density", cell_seeding_density,
-                    "http://purl.obolibrary.org/obo/MSIO_0000062", u.get("Cell Seeding Density")),
-                _pv(crate, "Microplate", microplate,
-                    "https://bioregistry.io/NCIT:C43377", u.get("Microplate")),
+                _pv(
+                    crate,
+                    "Exposure Duration",
+                    duration,
+                    "https://bioregistry.io/NCIT:C83280",
+                    u.get("Exposure Duration"),
+                ),
+                _pv(
+                    crate,
+                    "Cell Seeding Density",
+                    cell_seeding_density,
+                    "http://purl.obolibrary.org/obo/MSIO_0000062",
+                    u.get("Cell Seeding Density"),
+                ),
+                _pv(
+                    crate,
+                    "Microplate",
+                    microplate,
+                    "https://bioregistry.io/NCIT:C43377",
+                    u.get("Microplate"),
+                ),
             ],
             "input": samples,
         }
@@ -74,12 +89,13 @@ class LabProcessExposure(LabProcess):
         merged_properties = base_properties | (properties or {})
         super().__init__(
             crate=crate,
-            name = name,
+            name=name,
             identifier=identifier,
             labprotocol=labprotocol,
             properties=merged_properties,
             add=add,
         )
+
 
 class LabProcessEndpointReadout(LabProcess):
     def __init__(
@@ -103,25 +119,62 @@ class LabProcessEndpointReadout(LabProcess):
     ):
         u = units or {}
         parameter_values = [
-            _pv(crate, "Detection Instrument", detection_instrument,
-                "http://purl.obolibrary.org/obo/BAO_0000697", u.get("Detection Instrument")),
-            _pv(crate, "Instrument Manufacturer", instrument_manufacturer,
-                "http://purl.obolibrary.org/obo/BAO_0002628", u.get("Instrument Manufacturer")),
-            _pv(crate, "Measured Entity", measured_entity,
-                "http://purl.obolibrary.org/obo/BAO_0002001", u.get("Measured Entity")),
-            _pv(crate, "Technical replicate", technical_replicate,
-                "https://bioregistry.io/EFO:0002090", u.get("Technical replicate")),
-            _pv(crate, "Endpoint", endpoint,
-                "http://www.bioassayontology.org/bao#BAO_0000179", u.get("Endpoint")),
+            _pv(
+                crate,
+                "Detection Instrument",
+                detection_instrument,
+                "http://purl.obolibrary.org/obo/BAO_0000697",
+                u.get("Detection Instrument"),
+            ),
+            _pv(
+                crate,
+                "Instrument Manufacturer",
+                instrument_manufacturer,
+                "http://purl.obolibrary.org/obo/BAO_0002628",
+                u.get("Instrument Manufacturer"),
+            ),
+            _pv(
+                crate,
+                "Measured Entity",
+                measured_entity,
+                "http://purl.obolibrary.org/obo/BAO_0002001",
+                u.get("Measured Entity"),
+            ),
+            _pv(
+                crate,
+                "Technical replicate",
+                technical_replicate,
+                "https://bioregistry.io/EFO:0002090",
+                u.get("Technical replicate"),
+            ),
+            _pv(
+                crate,
+                "Endpoint",
+                endpoint,
+                "http://www.bioassayontology.org/bao#BAO_0000179",
+                u.get("Endpoint"),
+            ),
         ]
         if assay_kit is not None:
             parameter_values.append(
-                _pv(crate, "Assay Kit", assay_kit,
-                    "http://www.bioassayontology.org/bao#BAO_0000248", u.get("Assay Kit")))
+                _pv(
+                    crate,
+                    "Assay Kit",
+                    assay_kit,
+                    "http://www.bioassayontology.org/bao#BAO_0000248",
+                    u.get("Assay Kit"),
+                )
+            )
         if substrate is not None:
             parameter_values.append(
-                _pv(crate, "Substrate", substrate,
-                    "http://www.bioassayontology.org/bao#BAO_0003063", u.get("Substrate")))
+                _pv(
+                    crate,
+                    "Substrate",
+                    substrate,
+                    "http://www.bioassayontology.org/bao#BAO_0003063",
+                    u.get("Substrate"),
+                )
+            )
 
         merged_properties = {
             "additionalType": "EndpointReadout",
@@ -138,6 +191,8 @@ class LabProcessEndpointReadout(LabProcess):
             properties=merged_properties,
             add=add,
         )
+
+
 class LabProcessCellCulture(LabProcess):
     def __init__(
         self,
@@ -154,8 +209,12 @@ class LabProcessCellCulture(LabProcess):
         merged_properties = {
             "additionalType": "CellCulture",
             "parameter": [
-                _pv(crate, "Culture Medium", culture_medium,
-                    "http://www.bioassayontology.org/bao#BAO_0000114"),
+                _pv(
+                    crate,
+                    "Culture Medium",
+                    culture_medium,
+                    "http://www.bioassayontology.org/bao#BAO_0000114",
+                ),
             ],
             "input": cell_line,
             "output": result,
@@ -181,12 +240,13 @@ class LabProcessDataAnalysis(LabProcess):
     Parameter keys for which no authoritative ontology IRI is asserted are
     emitted without a propertyID rather than carrying a fabricated one.
     """
+
     def __init__(
         self,
         crate: ROCrate,
         identifier: str,
-        object: list[File],            # raw-data inputs being analysed
-        result: list[File],            # processed-data outputs
+        object: list[File],  # raw-data inputs being analysed
+        result: list[File],  # processed-data outputs
         labprotocol: LabProtocol,
         data_processing: str = "",
         software: str = "",
@@ -199,17 +259,23 @@ class LabProcessDataAnalysis(LabProcess):
     ):
         u = units or {}
         parameter_values = [
-            _pv(crate, "Data Calculation and Statistics", data_processing or "unknown",
-                unit=u.get("Data Calculation and Statistics")),
-            _pv(crate, "Computational Tool", software or "unknown",
-                unit=u.get("Computational Tool")),
+            _pv(
+                crate,
+                "Data Calculation and Statistics",
+                data_processing or "unknown",
+                unit=u.get("Data Calculation and Statistics"),
+            ),
+            _pv(
+                crate,
+                "Computational Tool",
+                software or "unknown",
+                unit=u.get("Computational Tool"),
+            ),
         ]
         if acceptance_criteria is not None:
-            parameter_values.append(
-                _pv(crate, "Acceptance Criteria", acceptance_criteria))
+            parameter_values.append(_pv(crate, "Acceptance Criteria", acceptance_criteria))
         if evaluation_criteria is not None:
-            parameter_values.append(
-                _pv(crate, "Evaluation Criteria", evaluation_criteria))
+            parameter_values.append(_pv(crate, "Evaluation Criteria", evaluation_criteria))
 
         merged_properties = {
             "additionalType": "DataAnalysis",
@@ -230,6 +296,7 @@ class LabProcessDataAnalysis(LabProcess):
 
 # Toxicology-specific Sample class for the Tox ISA RO-Crate Profile
 
+
 class CellLineSample(Sample):
     """The cell-based test system, modelled as a Sample carrying a categorical
     annotation via ``sampleType`` (a schema:DefinedTerm) and a cell-line identity
@@ -239,13 +306,14 @@ class CellLineSample(Sample):
 
     Part of the Tox ISA RO-Crate Profile extension.
     """
+
     def __init__(
         self,
         crate: ROCrate,
         identifier: str,
         name: str,
-        sample_type: ContextEntity,        # a schema:DefinedTerm node (e.g. "cell line")
-        accession: str | None = None,      # Cellosaurus accession, e.g. "CVCL_0027"
+        sample_type: ContextEntity,  # a schema:DefinedTerm node (e.g. "cell line")
+        accession: str | None = None,  # Cellosaurus accession, e.g. "CVCL_0027"
         additionalProperty: ParameterValue | None = None,
         properties: dict | None = None,
         add: bool = True,

@@ -10,11 +10,24 @@ from builder.state import CrateState, Entity, EntityProvenance, EntityType
 
 logger = logging.getLogger(__name__)
 
-_VALID_TYPES = frozenset({
-    "Investigation", "Study", "Assay", "LabProcess", "LabProtocol",
-    "Sample", "MolecularEntity", "CellLineSample", "Person",
-    "Organization", "Publication", "DefinedTerm", "PropertyValue", "File",
-})
+_VALID_TYPES = frozenset(
+    {
+        "Investigation",
+        "Study",
+        "Assay",
+        "LabProcess",
+        "LabProtocol",
+        "Sample",
+        "MolecularEntity",
+        "CellLineSample",
+        "Person",
+        "Organization",
+        "Publication",
+        "DefinedTerm",
+        "PropertyValue",
+        "File",
+    }
+)
 _DATASET_SUBTYPES = frozenset({"Investigation", "Study", "Assay"})
 
 
@@ -110,7 +123,8 @@ def read_existing_crate(crate_dir: str) -> CrateState:
 
         logger.info(
             "Read existing crate from %s — found %d entities",
-            crate_dir, len(state.list_entities()),
+            crate_dir,
+            len(state.list_entities()),
         )
         return state
 

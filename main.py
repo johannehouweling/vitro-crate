@@ -35,52 +35,65 @@ def setup_logging(verbose: int = 0) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="ISA-Tox RO-Crate Builder"
-    )
+    parser = argparse.ArgumentParser(description="ISA-Tox RO-Crate Builder")
     parser.add_argument(
-        "--input", "-i",
-        type=str, default=None,
+        "--input",
+        "-i",
+        type=str,
+        default=None,
         help="Path to input directory containing research data",
     )
     parser.add_argument(
-        "--output", "-o",
-        type=str, default=None,
+        "--output",
+        "-o",
+        type=str,
+        default=None,
         help="Path for the output ARC directory (RO-Crate)",
     )
     parser.add_argument(
-        "--resume", "--session", "-r",
-        type=str, default=None,
+        "--resume",
+        "--session",
+        "-r",
+        type=str,
+        default=None,
         help="Session ID to resume (e.g. 20260620_192039)",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="count",
         default=0,
         help="Increase verbosity (-v = INFO, -vv = DEBUG)",
     )
     parser.add_argument(
-        "--interactive", "-I",
+        "--interactive",
+        "-I",
         action="store_true",
         help="Run in interactive agent mode (requires LangChain extra + API key)",
     )
     parser.add_argument(
-        "--provider", "-p",
-        type=str, default=None,
+        "--provider",
+        "-p",
+        type=str,
+        default=None,
         choices=["openai", "anthropic"],
         help="LLM provider for interactive mode (auto-detected from env if omitted)",
     )
     parser.add_argument(
-        "--model", "-m",
-        type=str, default=None,
+        "--model",
+        "-m",
+        type=str,
+        default=None,
         help="Model name (e.g. gpt-4o-mini, llama3.2, claude-sonnet-4-20250514)",
     )
     parser.add_argument(
-        "--api-base", "-b",
-        type=str, default=None,
+        "--api-base",
+        "-b",
+        type=str,
+        default=None,
         help="API base URL for OpenAI-compatible providers "
-             "(e.g. http://localhost:11434/v1 for Ollama). "
-             "Also read from VITRO_OPENAI_BASE_URL or OPENAI_BASE_URL env var.",
+        "(e.g. http://localhost:11434/v1 for Ollama). "
+        "Also read from VITRO_OPENAI_BASE_URL or OPENAI_BASE_URL env var.",
     )
     parser.add_argument(
         "--configure",
@@ -93,7 +106,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Show current LLM configuration and exit",
     )
     parser.add_argument(
-        "--dashboard", "-D",
+        "--dashboard",
+        "-D",
         action="store_true",
         help="Show the profiler dashboard for the latest session (or --resume session)",
     )
@@ -103,13 +117,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _run_setup_wizard() -> bool:
     """Run the interactive config wizard.  Returns True if successful."""
     from builder.config import interactive_setup
+
     return interactive_setup()
 
 
 def _show_config() -> None:
     """Print current configuration state."""
-    from builder.config import describe_config, is_configured
-    from builder.config import load_config, merge_with_env
+    from builder.config import (
+        describe_config,
+        is_configured,
+        load_config,
+        merge_with_env,
+    )
 
     cfg = load_config()
     merge_with_env(cfg)
@@ -127,7 +146,7 @@ def _ensure_configured() -> bool:
 
     Returns True if the user is ready to proceed (configured or skipped).
     """
-    from builder.config import is_configured, merge_with_env, load_config
+    from builder.config import is_configured, load_config, merge_with_env
 
     # Load config file and merge into env (env vars take priority)
     cfg = load_config()
@@ -140,9 +159,7 @@ def _ensure_configured() -> bool:
     print("No LLM provider is configured yet.")
     print()
     try:
-        answer = input(
-            "Would you like to set one up now? [Y/n]: "
-        ).strip().lower()
+        answer = input("Would you like to set one up now? [Y/n]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -192,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.resume:
         logger.info("Resuming session: %s", args.resume)
         from builder.tools.session import load_session
+
         loaded = load_session(args.resume)
         if loaded is None:
             logger.error("Session not found: %s", args.resume)

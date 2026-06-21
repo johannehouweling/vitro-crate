@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 from unittest import mock
 
 from builder.tools.scanner import (
@@ -192,6 +191,7 @@ class TestScanFilesArchive:
         assert all("__MACOSX" not in f.path for f in result)
         assert len(result) == 1  # only data.csv, not the macOS junk
 
+
 class TestPreviewArchive:
     """Tests for the preview_archive function."""
 
@@ -321,7 +321,9 @@ class TestUnzipFile:
         result = unzip_file("/tmp/nonexistent_zip_xyz123/test.zip")
 
         assert "error" in result
-        assert "not found" in result["error"].lower() or "does not exist" in result["message"].lower()
+        assert (
+            "not found" in result["error"].lower() or "does not exist" in result["message"].lower()
+        )
 
     def test_corrupt_zip_returns_error(self, tmp_path):
         """unzip_file returns error dict for a corrupt zip."""
@@ -389,6 +391,7 @@ class TestScannerTiming:
     def test_scan_files_logs_progress_and_elapsed(self, tmp_path, caplog):
         """scan_files emits progress every 100 files and total elapsed at end."""
         import logging
+
         caplog.set_level(logging.DEBUG)
 
         # Create 250 files so we cross the 100-file progress boundary twice
@@ -400,7 +403,10 @@ class TestScannerTiming:
         assert len(result) == 250
         # Should have at least "Progress: 100/..." and "Progress: 200/..."
         progress_messages = [r for r in caplog.records if "Progress" in r.getMessage()]
-        assert len(progress_messages) >= 2, f"Expected >=2 Progress messages, got {len(progress_messages)}: {[r.getMessage() for r in progress_messages]}"
+        msgs = [r.getMessage() for r in progress_messages]
+        assert len(progress_messages) >= 2, (
+            f"Expected >=2 Progress messages, got {len(progress_messages)}: {msgs}"
+        )
 
         # Should have a final "Scan complete" summary
         complete_messages = [r for r in caplog.records if "Scan complete" in r.getMessage()]
@@ -410,6 +416,7 @@ class TestScannerTiming:
     def test_scan_files_small_directory_no_progress(self, tmp_path, caplog):
         """scan_files with fewer than 100 files does NOT emit progress."""
         import logging
+
         caplog.set_level(logging.DEBUG)
 
         for i in range(3):
@@ -419,7 +426,9 @@ class TestScannerTiming:
 
         assert len(result) == 3
         progress_messages = [r for r in caplog.records if "Progress" in r.getMessage()]
-        assert len(progress_messages) == 0, f"Expected no Progress messages for <100 files, got: {[r.getMessage() for r in progress_messages]}"
+        assert len(progress_messages) == 0, (
+            f"Expected no Progress messages for <100 files, got: {progress_messages}"
+        )
 
         # But should still have the final summary
         complete_messages = [r for r in caplog.records if "Scan complete" in r.getMessage()]
@@ -428,6 +437,7 @@ class TestScannerTiming:
     def test_read_multiple_files_logs_per_file_timing(self, tmp_path, caplog):
         """read_multiple_files logs per-file elapsed time at DEBUG."""
         import logging
+
         caplog.set_level(logging.DEBUG)
 
         a = tmp_path / "a.txt"
@@ -435,11 +445,15 @@ class TestScannerTiming:
         b = tmp_path / "b.txt"
         b.write_text("world\n")
 
-        result = read_multiple_files([str(a), str(b)], lines=5)
+        read_multiple_files([str(a), str(b)], lines=5)
 
         # Should have at least one "Read" per-file log
-        read_messages = [r for r in caplog.records if "Read" in r.getMessage() and "in" in r.getMessage()]
-        assert len(read_messages) >= 2, f"Expected >=2 'Read ... in' messages, got {len(read_messages)}"
+        read_messages = [
+            r for r in caplog.records if "Read" in r.getMessage() and "in" in r.getMessage()
+        ]
+        assert len(read_messages) >= 2, (
+            f"Expected >=2 'Read ... in' messages, got {len(read_messages)}"
+        )
 
 
 class TestApprovedRoots:
@@ -564,6 +578,7 @@ class TestMaxFilesCap:
     def test_max_files_logs_warning(self, tmp_path, caplog):
         """scan_files logs a warning when truncating due to max_files."""
         import logging
+
         caplog.set_level(logging.WARNING)
 
         for i in range(150):

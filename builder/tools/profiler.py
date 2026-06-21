@@ -52,9 +52,7 @@ class ProfilingLogger:
         self._silent = False  # degraded mode flag
 
         if not session_id:
-            logger.warning(
-                "ProfilingLogger: empty session_id — will not write profile.ndjson"
-            )
+            logger.warning("ProfilingLogger: empty session_id — will not write profile.ndjson")
             self._silent = True
             return
 
@@ -65,8 +63,7 @@ class ProfilingLogger:
             self._file = open(profile_path, "a")  # noqa: SIM115
         except OSError:
             logger.warning(
-                "ProfilingLogger: could not open %s/profile.ndjson — "
-                "profiling disabled",
+                "ProfilingLogger: could not open %s/profile.ndjson — profiling disabled",
                 session_path,
                 exc_info=True,
             )

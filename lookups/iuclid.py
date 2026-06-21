@@ -28,12 +28,7 @@ from rocrate.model import ContextEntity
 from rocrate.rocrate import ROCrate
 
 _BASE = "https://w3id.org/ro/crate/isa-tox/1.0/iuclid"
-_CATALOG = (
-    Path(__file__).resolve().parents[1]
-    / "profiles"
-    / "mit-data"
-    / "oht201_value_sets.json"
-)
+_CATALOG = Path(__file__).resolve().parents[1] / "profiles" / "mit-data" / "oht201_value_sets.json"
 _FUZZY_THRESHOLD = 0.86
 
 
@@ -66,7 +61,11 @@ def resolve(value: str, phrase_group: str) -> dict | None:
 
     for t in terms:
         if t.get("text", "").strip().lower() == vl:
-            return {"code": t.get("code", ""), "text": t.get("text", v), "freetext": False}
+            return {
+                "code": t.get("code", ""),
+                "text": t.get("text", v),
+                "freetext": False,
+            }
 
     texts = [t.get("text", "") for t in terms]
     close = difflib.get_close_matches(v, texts, n=1, cutoff=_FUZZY_THRESHOLD)
@@ -88,10 +87,16 @@ def _slug(text: str) -> str:
 def iuclid_termset(crate: ROCrate, phrase_group: str) -> ContextEntity:
     """Get-or-create the DefinedTermSet entity for a phrase group."""
     ts_id = f"{_BASE}/{phrase_group}"
-    return crate.add(ContextEntity(crate, ts_id, properties={
-        "@type": "DefinedTermSet",
-        "name": f"IUCLID phrase group {phrase_group}",
-    }))
+    return crate.add(
+        ContextEntity(
+            crate,
+            ts_id,
+            properties={
+                "@type": "DefinedTermSet",
+                "name": f"IUCLID phrase group {phrase_group}",
+            },
+        )
+    )
 
 
 def iuclid_term(crate: ROCrate, value: str, phrase_group: str):

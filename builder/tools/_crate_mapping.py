@@ -42,13 +42,37 @@ PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
 CELL_LINE_TERM_ID = "http://purl.obolibrary.org/obo/NCIT_C16403"
 
 # Fields that hold references to other entities (resolved via the index), not literals.
-_REF_FIELDS = frozenset({
-    "samples", "labprotocol", "cell_line", "object", "result", "input", "output",
-    "investigation_id", "study_id", "assay_id", "author", "mentions", "chemicals",
-    "cell_lines", "biological_models", "biologicalModels", "has_part", "hasPart",
-    "about", "aop", "organism", "anatomy", "key_event", "keyEvent", "key_events",
-    "derives_from", "derivesFrom",
-})
+_REF_FIELDS = frozenset(
+    {
+        "samples",
+        "labprotocol",
+        "cell_line",
+        "object",
+        "result",
+        "input",
+        "output",
+        "investigation_id",
+        "study_id",
+        "assay_id",
+        "author",
+        "mentions",
+        "chemicals",
+        "cell_lines",
+        "biological_models",
+        "biologicalModels",
+        "has_part",
+        "hasPart",
+        "about",
+        "aop",
+        "organism",
+        "anatomy",
+        "key_event",
+        "keyEvent",
+        "key_events",
+        "derives_from",
+        "derivesFrom",
+    }
+)
 
 # Study/Assay annotation fields that expand to schema:mentions via the @context
 # (paper §Methods: Study ← linked AOP; Assay endpoint ← corresponding Key Event).
@@ -69,10 +93,18 @@ _ASSAY_MENTION_FIELDS = {
     "mentions": "mentions",
 }
 # Discriminator / id-source fields consumed structurally, never emitted as literals.
-_STRUCT_FIELDS = frozenset({
-    "process_type", "orcid", "ror", "pubchem_cid", "doi", "dest_path", "path",
-    "contentUrl",
-})
+_STRUCT_FIELDS = frozenset(
+    {
+        "process_type",
+        "orcid",
+        "ror",
+        "pubchem_cid",
+        "doi",
+        "dest_path",
+        "path",
+        "contentUrl",
+    }
+)
 
 
 def populate_crate(state: CrateState, crate: ROCrate, output_dir: Path) -> None:
@@ -101,10 +133,7 @@ def _slug(text: str) -> str:
 def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     """Plain-value properties of an entity (references/discriminators removed)."""
     drop = _REF_FIELDS | _STRUCT_FIELDS | set(skip)
-    return {
-        k: v for k, v in entity.fields.items()
-        if k not in drop and not k.startswith("@")
-    }
+    return {k: v for k, v in entity.fields.items() if k not in drop and not k.startswith("@")}
 
 
 def _mint_id(entity: Entity) -> str:
@@ -182,84 +211,141 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     conforms: list[dict[str, str]] = [{"@id": ROCRATE_SPEC}]
     if state.validation.isa_passed:
         conforms.append({"@id": PROFILE_ISA})
-        crate.add(ContextEntity(crate, PROFILE_ISA, properties={
-            "@type": ["CreativeWork", "Profile"], "name": "ISA RO-Crate Profile"}))
+        crate.add(
+            ContextEntity(
+                crate,
+                PROFILE_ISA,
+                properties={
+                    "@type": ["CreativeWork", "Profile"],
+                    "name": "ISA RO-Crate Profile",
+                },
+            )
+        )
     if state.validation.tox_passed:
         conforms.append({"@id": PROFILE_ISATOX})
-        crate.add(ContextEntity(crate, PROFILE_ISATOX, properties={
-            "@type": ["CreativeWork", "Profile"],
-            "name": "ISA-Tox RO-Crate Profile", "version": "0.1.0-draft.1"}))
+        crate.add(
+            ContextEntity(
+                crate,
+                PROFILE_ISATOX,
+                properties={
+                    "@type": ["CreativeWork", "Profile"],
+                    "name": "ISA-Tox RO-Crate Profile",
+                    "version": "0.1.0-draft.1",
+                },
+            )
+        )
     crate.metadata["conformsTo"] = conforms
 
 
 def _cell_line_term(crate: ROCrate) -> ContextEntity:
     """The shared, resolvable 'cell line' DefinedTerm for CellLineSample.sampleType."""
-    return crate.add(ContextEntity(crate, CELL_LINE_TERM_ID, properties={
-        "@type": "DefinedTerm",
-        "name": "cell line",
-        "termCode": ["NCIT:C16403", "IUCLID:108174"],
-        "inDefinedTermSet": {"@id": "http://purl.obolibrary.org/obo/ncit.owl"},
-    }))
+    return crate.add(
+        ContextEntity(
+            crate,
+            CELL_LINE_TERM_ID,
+            properties={
+                "@type": "DefinedTerm",
+                "name": "cell line",
+                "termCode": ["NCIT:C16403", "IUCLID:108174"],
+                "inDefinedTermSet": {"@id": "http://purl.obolibrary.org/obo/ncit.owl"},
+            },
+        )
+    )
 
 
 def _add_leaves(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
     for org in state.list_entities("Organization"):
-        idx[org.entity_id] = crate.add(ContextEntity(
-            crate, _mint_id(org),
-            properties={"@type": "Organization", **_scalar_props(org)}))
+        idx[org.entity_id] = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(org),
+                properties={"@type": "Organization", **_scalar_props(org)},
+            )
+        )
 
     for person in state.list_entities("Person"):
-        node = crate.add(
-            Person(crate, _mint_id(person), properties=_scalar_props(person)))
+        node = crate.add(Person(crate, _mint_id(person), properties=_scalar_props(person)))
         idx[person.entity_id] = node
         crate.root_dataset.append_to("author", node)
 
     for chem in state.list_entities("MolecularEntity"):
-        idx[chem.entity_id] = crate.add(ContextEntity(
-            crate, _mint_id(chem),
-            properties={"@type": "MolecularEntity", **_scalar_props(chem)}))
+        idx[chem.entity_id] = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(chem),
+                properties={"@type": "MolecularEntity", **_scalar_props(chem)},
+            )
+        )
 
     for dt in state.list_entities("DefinedTerm"):
-        idx[dt.entity_id] = crate.add(ContextEntity(
-            crate, _mint_id(dt),
-            properties={"@type": "DefinedTerm", **_scalar_props(dt)}))
+        idx[dt.entity_id] = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(dt),
+                properties={"@type": "DefinedTerm", **_scalar_props(dt)},
+            )
+        )
 
     for pv in state.list_entities("PropertyValue"):
-        idx[pv.entity_id] = crate.add(ContextEntity(
-            crate, _mint_id(pv),
-            properties={"@type": "PropertyValue", **_scalar_props(pv)}))
+        idx[pv.entity_id] = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(pv),
+                properties={"@type": "PropertyValue", **_scalar_props(pv)},
+            )
+        )
 
     for pub in state.list_entities("Publication"):
-        node = crate.add(ContextEntity(
-            crate, _mint_id(pub),
-            properties={"@type": "ScholarlyArticle", **_scalar_props(pub)}))
+        node = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(pub),
+                properties={"@type": "ScholarlyArticle", **_scalar_props(pub)},
+            )
+        )
         idx[pub.entity_id] = node
         crate.root_dataset.append_to("citation", node)
 
     for fe in state.list_entities("File"):
-        idx[fe.entity_id] = crate.add(File(
-            crate, None, dest_path=_file_dest(fe),
-            properties={"@type": "File", **_scalar_props(fe)}))
+        idx[fe.entity_id] = crate.add(
+            File(
+                crate,
+                None,
+                dest_path=_file_dest(fe),
+                properties={"@type": "File", **_scalar_props(fe)},
+            )
+        )
 
     for proto in state.list_entities("LabProtocol"):
-        idx[proto.entity_id] = crate.add(ContextEntity(
-            crate, _mint_id(proto),
-            properties={"@type": "LabProtocol", **_scalar_props(proto)}))
+        idx[proto.entity_id] = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(proto),
+                properties={"@type": "LabProtocol", **_scalar_props(proto)},
+            )
+        )
 
     # Samples / CellLineSamples auto-add themselves (AutoAddContextEntity).
     cell_term: list[Any] = [None]
     for s in state.list_entities("Sample"):
         idx[s.entity_id] = Sample(
-            crate, identifier=_mint_id(s), name=str(s.fields.get("name", "")),
-            properties=_scalar_props(s, skip=("name",)) or None)
+            crate,
+            identifier=_mint_id(s),
+            name=str(s.fields.get("name", "")),
+            properties=_scalar_props(s, skip=("name",)) or None,
+        )
 
     for cl in state.list_entities("CellLineSample"):
         if cell_term[0] is None:
             cell_term[0] = _cell_line_term(crate)
         idx[cl.entity_id] = CellLineSample(
-            crate, identifier=_mint_id(cl), name=str(cl.fields.get("name", "")),
-            sample_type=cell_term[0], accession=cl.fields.get("accession"),
-            properties=_scalar_props(cl, skip=("name", "accession")) or None)
+            crate,
+            identifier=_mint_id(cl),
+            name=str(cl.fields.get("name", "")),
+            sample_type=cell_term[0],
+            accession=cl.fields.get("accession"),
+            properties=_scalar_props(cl, skip=("name", "accession")) or None,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -269,8 +355,11 @@ def _add_leaves(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
 
 def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
     for inv in state.list_entities("Investigation"):
-        props = {"@type": "Dataset", "additionalType": "Investigation",
-                 **_scalar_props(inv)}
+        props = {
+            "@type": "Dataset",
+            "additionalType": "Investigation",
+            **_scalar_props(inv),
+        }
         props.setdefault("identifier", inv.entity_id)  # ISA MUST: non-empty identifier
         node = crate.add(DataEntity(crate, _mint_id(inv), properties=props))
         idx[inv.entity_id] = node
@@ -292,18 +381,20 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         parent.append_to("hasPart", node)
 
 
-def _synth_protocol(
-    crate: ROCrate, assay_id: Any, cache: dict[str, Any]) -> ContextEntity:
+def _synth_protocol(crate: ROCrate, assay_id: Any, cache: dict[str, Any]) -> ContextEntity:
     key = str(assay_id) if assay_id else "_default"
     if key not in cache:
-        cache[key] = crate.add(ContextEntity(
-            crate, f"#protocol_{_slug(key)}",
-            properties={"@type": "LabProtocol", "name": f"Protocol for {key}"}))
+        cache[key] = crate.add(
+            ContextEntity(
+                crate,
+                f"#protocol_{_slug(key)}",
+                properties={"@type": "LabProtocol", "name": f"Protocol for {key}"},
+            )
+        )
     return cache[key]
 
 
-def _synth_sample(
-    crate: ROCrate, sid: str, name: str, derives_from: Any = None) -> Sample:
+def _synth_sample(crate: ROCrate, sid: str, name: str, derives_from: Any = None) -> Sample:
     props: dict[str, Any] = {}
     if derives_from is not None:
         props["derivesFrom"] = derives_from
@@ -315,8 +406,8 @@ _CONDITION_TABLE_HEADER = "cell_line,compound,concentration,unit,duration\n"
 
 
 def _synth_condition_table(
-    crate: ROCrate, output_dir: Path, exp_pid: str,
-    cells: list[Any], chems: list[Any]) -> File:
+    crate: ROCrate, output_dir: Path, exp_pid: str, cells: list[Any], chems: list[Any]
+) -> File:
     """The Exposure's result: the CSVW condition table (the per-well design table).
 
     Modelled as a ``File`` (the CSV) that is also a ``csvw:Table`` — a bare
@@ -333,24 +424,31 @@ def _synth_condition_table(
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():
         dest.write_text(_CONDITION_TABLE_HEADER, encoding="utf-8")
-    table = crate.add(File(
-        crate, None, dest_path=rel,
-        properties={"@type": ["File", "csvw:Table"], "name": "Condition table"}))
+    table = crate.add(
+        File(
+            crate,
+            None,
+            dest_path=rel,
+            properties={"@type": ["File", "csvw:Table"], "name": "Condition table"},
+        )
+    )
     for ent in list(cells) + list(chems):
         table.append_to("about", ent)
     return table
 
 
 def _add_processes(
-    state: CrateState, crate: ROCrate, idx: dict[str, Any], output_dir: Path) -> None:
+    state: CrateState, crate: ROCrate, idx: dict[str, Any], output_dir: Path
+) -> None:
     proto_cache: dict[str, Any] = {}
     for proc in state.list_entities("LabProcess"):
         f = proc.fields
         ptype = f.get("process_type") or f.get("additionalType") or ""
         pid = _mint_id(proc)
         name = f.get("name") or ptype or "Process"
-        protocol = (_resolve_one(idx, f.get("labprotocol"))
-                    or _synth_protocol(crate, f.get("assay_id"), proto_cache))
+        protocol = _resolve_one(idx, f.get("labprotocol")) or _synth_protocol(
+            crate, f.get("assay_id"), proto_cache
+        )
         node = _build_process(crate, ptype, pid, name, f, protocol, idx, output_dir)
         idx[proc.entity_id] = node
         assay = _resolve_one(idx, f.get("assay_id"))
@@ -359,8 +457,14 @@ def _add_processes(
 
 
 def _build_process(
-    crate: ROCrate, ptype: str, pid: str, name: str,
-    f: dict[str, Any], protocol: Any, idx: dict[str, Any], output_dir: Path,
+    crate: ROCrate,
+    ptype: str,
+    pid: str,
+    name: str,
+    f: dict[str, Any],
+    protocol: Any,
+    idx: dict[str, Any],
+    output_dir: Path,
 ) -> Any:
     samples = _resolve_many(idx, f.get("samples"))
     obj = _resolve_many(idx, f.get("object"))
@@ -381,9 +485,14 @@ def _build_process(
             label = f"Cultured ({name})"
             out = _synth_sample(crate, pid + "_cultured", label, cell_line)
         return LabProcessCellCulture(
-            crate, identifier=pid, name=name, cell_line=cell_line,
+            crate,
+            identifier=pid,
+            name=name,
+            cell_line=cell_line,
             culture_medium=f.get("culture_medium", "Standard medium"),
-            result=out, labprotocol=protocol)
+            result=out,
+            labprotocol=protocol,
+        )
 
     if ptype == "Exposure":
         # The Exposure takes the cultured cell Sample(s) as object and emits the
@@ -398,35 +507,53 @@ def _build_process(
         chems = _resolve_many(idx, f.get("chemicals"))
         out = result or [_synth_condition_table(crate, output_dir, pid, cells, chems)]
         return LabProcessExposure(
-            crate, identifier=pid, name=name,
+            crate,
+            identifier=pid,
+            name=name,
             duration=f.get("duration", "unknown"),
             cell_seeding_density=f.get("cell_seeding_density", "NA"),
             microplate=f.get("microplate", "unknown"),
-            samples=cells, labprotocol=protocol, result=out)
+            samples=cells,
+            labprotocol=protocol,
+            result=out,
+        )
 
     if ptype == "EndpointReadout":
         return LabProcessEndpointReadout(
-            crate, identifier=pid, name=name,
-            samples=(samples or obj or None), labprotocol=protocol,
+            crate,
+            identifier=pid,
+            name=name,
+            samples=(samples or obj or None),
+            labprotocol=protocol,
             result=result,
             detection_instrument=f.get("detection_instrument", "unknown"),
             instrument_manufacturer=f.get("instrument_manufacturer", "unknown"),
             measured_entity=f.get("measured_entity", "unknown"),
             technical_replicate=f.get("technical_replicate", "1"),
-            endpoint=f.get("endpoint", "unknown"))
+            endpoint=f.get("endpoint", "unknown"),
+        )
 
     if ptype == "DataAnalysis":
         return LabProcessDataAnalysis(
-            crate, identifier=pid, name=name,
-            object=(obj or samples), result=result, labprotocol=protocol,
+            crate,
+            identifier=pid,
+            name=name,
+            object=(obj or samples),
+            result=result,
+            labprotocol=protocol,
             data_processing=f.get("data_processing", ""),
-            software=f.get("software", ""))
+            software=f.get("software", ""),
+        )
 
     # Generic LabProcess (no domain discriminator).
     return LabProcess(
-        crate, identifier=pid, name=name, labprotocol=protocol,
+        crate,
+        identifier=pid,
+        name=name,
+        labprotocol=protocol,
         object=(obj or samples or None) or None,
-        result=(result or None) or None)
+        result=(result or None) or None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +567,7 @@ def _wire_mention(node: Any, prop: str, value: Any, idx: dict[str, Any]) -> None
     Each value may be a reference to an in-crate entity (resolved via the index),
     an inline ``{"@id": …}`` object, or a bare resolvable IRI (e.g. an AOP-Wiki id).
     """
-    for item in (value if isinstance(value, list) else [value]):
+    for item in value if isinstance(value, list) else [value]:
         if item is None:
             continue
         ent = _resolve_one(idx, item)

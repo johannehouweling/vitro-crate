@@ -51,8 +51,8 @@ def lookup_orcid(orcid_id: str) -> dict:
         affiliation_name = ""
         affiliation_ror = ""
         if groups:
-            summaries = (groups[0].get("summaries") or [{}])
-            emp = (summaries[0].get("employment-summary") or {})
+            summaries = groups[0].get("summaries") or [{}]
+            emp = summaries[0].get("employment-summary") or {}
             org = emp.get("organization") or {}
             affiliation_name = org.get("name", "")
             disambig = org.get("disambiguated-organization") or {}
@@ -60,7 +60,8 @@ def lookup_orcid(orcid_id: str) -> dict:
                 ror_value = disambig.get("disambiguated-organization-identifier", "")
                 if ror_value:
                     affiliation_ror = (
-                        ror_value if ror_value.startswith("http")
+                        ror_value
+                        if ror_value.startswith("http")
                         else f"https://ror.org/{ror_value}"
                     )
 

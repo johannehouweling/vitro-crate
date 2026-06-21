@@ -50,9 +50,7 @@ class HumanInterface(Protocol):
     (CLI prompt, Streamlit widget, FastAPI round-trip, test double, …).
     """
 
-    def present(
-        self, context: str, options: list[str] | None = None
-    ) -> HumanResponse:
+    def present(self, context: str, options: list[str] | None = None) -> HumanResponse:
         """Present content to the human and return their decision."""
         ...
 
@@ -68,9 +66,7 @@ class SimulatedHumanInterface:
     without blocking on a real user.
     """
 
-    def present(
-        self, context: str, options: list[str] | None = None
-    ) -> HumanResponse:
+    def present(self, context: str, options: list[str] | None = None) -> HumanResponse:
         """Log the presentation and return a simulated-approved response."""
         logger.info("HITL presentation: %s", context)
         if options:

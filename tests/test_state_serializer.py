@@ -21,16 +21,10 @@ def _populated_state() -> CrateState:
         updated_at="2026-01-02T00:00:00Z",
         metadata=CrateMetadata(title="Demo", description="A demo crate"),
     )
-    state.add_entity(
-        Entity(entity_id="inv-1", type="Investigation", fields={"name": "Inv"})
-    )
-    state.add_entity(
-        Entity(entity_id="mol-1", type="MolecularEntity", fields={"name": "Mol"})
-    )
+    state.add_entity(Entity(entity_id="inv-1", type="Investigation", fields={"name": "Inv"}))
+    state.add_entity(Entity(entity_id="mol-1", type="MolecularEntity", fields={"name": "Mol"}))
     state.scanned_files.append(
-        FileClassification(
-            path="/data/a.csv", filename="a.csv", size=10, mime_type="text/csv"
-        )
+        FileClassification(path="/data/a.csv", filename="a.csv", size=10, mime_type="text/csv")
     )
     state.approved_scan_roots.add("/data")
     state.validation.base_passed = True
@@ -122,9 +116,7 @@ class TestRegisterSerializer:
     def test_registered_encoder_overrides_component_serialization(self):
         original = dict(StateSerializer._encoders)
         try:
-            StateSerializer.register_serializer(
-                CrateMetadata, lambda m: {"sentinel": True}
-            )
+            StateSerializer.register_serializer(CrateMetadata, lambda m: {"sentinel": True})
             data = StateSerializer.to_dict(_populated_state())
             assert data["metadata"] == {"sentinel": True}
         finally:

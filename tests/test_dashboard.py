@@ -21,13 +21,28 @@ class TestReadProfile:
     def test_read_profile_parses_ndjson(self) -> None:
         """Parses known events correctly."""
         lines = [
-            {"event": "tool_call", "tool": "scan_files", "duration_ms": 1234.5,
-             "timestamp": "2026-06-21T12:30:45", "iteration": 3},
-            {"event": "node_start", "node": "model",
-             "timestamp": "2026-06-21T12:30:46"},
-            {"event": "node_end", "node": "model", "duration_ms": 6961.3,
-             "timestamp": "2026-06-21T12:30:47", "iteration": 3,
-             "messages_in": 5, "messages_out": 1, "produced_tool_calls": True},
+            {
+                "event": "tool_call",
+                "tool": "scan_files",
+                "duration_ms": 1234.5,
+                "timestamp": "2026-06-21T12:30:45",
+                "iteration": 3,
+            },
+            {
+                "event": "node_start",
+                "node": "model",
+                "timestamp": "2026-06-21T12:30:46",
+            },
+            {
+                "event": "node_end",
+                "node": "model",
+                "duration_ms": 6961.3,
+                "timestamp": "2026-06-21T12:30:47",
+                "iteration": 3,
+                "messages_in": 5,
+                "messages_out": 1,
+                "produced_tool_calls": True,
+            },
         ]
         with tempfile.NamedTemporaryFile(mode="w", suffix=".ndjson", delete=False) as f:
             for line in lines:
@@ -109,22 +124,47 @@ class TestFormatSessionSummary:
     def test_format_session_summary_contains_tables(self) -> None:
         """Returns a Layout with tool and node tables."""
         records = [
-            {"event": "tool_call", "tool": "scan_files", "duration_ms": 100.0,
-             "timestamp": "2026-06-21T12:30:45", "iteration": 1},
-            {"event": "tool_call", "tool": "scan_files", "duration_ms": 200.0,
-             "timestamp": "2026-06-21T12:30:46", "iteration": 2},
-            {"event": "tool_call", "tool": "draft_investigation", "duration_ms": 5.0,
-             "timestamp": "2026-06-21T12:30:47", "iteration": 3},
-            {"event": "node_start", "node": "model",
-             "timestamp": "2026-06-21T12:30:48"},
-            {"event": "node_end", "node": "model", "duration_ms": 1000.0,
-             "timestamp": "2026-06-21T12:30:49", "iteration": 3},
+            {
+                "event": "tool_call",
+                "tool": "scan_files",
+                "duration_ms": 100.0,
+                "timestamp": "2026-06-21T12:30:45",
+                "iteration": 1,
+            },
+            {
+                "event": "tool_call",
+                "tool": "scan_files",
+                "duration_ms": 200.0,
+                "timestamp": "2026-06-21T12:30:46",
+                "iteration": 2,
+            },
+            {
+                "event": "tool_call",
+                "tool": "draft_investigation",
+                "duration_ms": 5.0,
+                "timestamp": "2026-06-21T12:30:47",
+                "iteration": 3,
+            },
+            {
+                "event": "node_start",
+                "node": "model",
+                "timestamp": "2026-06-21T12:30:48",
+            },
+            {
+                "event": "node_end",
+                "node": "model",
+                "duration_ms": 1000.0,
+                "timestamp": "2026-06-21T12:30:49",
+                "iteration": 3,
+            },
         ]
         from rich.layout import Layout
+
         result = format_session_summary("test-session", records)
         assert isinstance(result, Layout)
 
         from rich.console import Console
+
         console = Console(width=100)
         with console.capture() as capture:
             console.print(result)
@@ -139,10 +179,12 @@ class TestFormatSessionSummary:
     def test_format_session_summary_empty(self) -> None:
         """Shows no-data message for empty records."""
         from rich.layout import Layout
+
         result = format_session_summary("empty-session", [])
         assert isinstance(result, Layout)
 
         from rich.console import Console
+
         console = Console(width=80)
         with console.capture() as capture:
             console.print(result)
@@ -165,10 +207,20 @@ class TestTokenSummary:
     def test_build_token_summary_with_tokens(self) -> None:
         """Aggregates input/output tokens across multiple model events."""
         records = [
-            {"event": "node_end", "node": "model", "input_tokens": 100,
-             "output_tokens": 50, "model_name": "gpt-4o"},
-            {"event": "node_end", "node": "model", "input_tokens": 200,
-             "output_tokens": 80, "model_name": "gpt-4o"},
+            {
+                "event": "node_end",
+                "node": "model",
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "model_name": "gpt-4o",
+            },
+            {
+                "event": "node_end",
+                "node": "model",
+                "input_tokens": 200,
+                "output_tokens": 80,
+                "model_name": "gpt-4o",
+            },
             {"event": "node_end", "node": "tools"},  # should be ignored
         ]
         totals, last = _build_token_summary(records)
@@ -193,12 +245,21 @@ class TestTokenSummary:
 
     def test_build_token_table_renders(self) -> None:
         """_build_token_table produces a Rich Table with correct rows."""
-        totals = {"input_tokens": 100, "output_tokens": 50,
-                  "total_tokens": 150, "model_name": "gpt-4o"}
-        last_request = {"input_tokens": 30, "output_tokens": 20,
-                        "total_tokens": 50, "model_name": "gpt-4o"}
+        totals = {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+            "model_name": "gpt-4o",
+        }
+        last_request = {
+            "input_tokens": 30,
+            "output_tokens": 20,
+            "total_tokens": 50,
+            "model_name": "gpt-4o",
+        }
         table = _build_token_table(totals, last_request)
         from rich.console import Console
+
         console = Console(width=60)
         with console.capture() as capture:
             console.print(table)
@@ -212,10 +273,15 @@ class TestTokenSummary:
 
     def test_build_token_table_no_last_request(self) -> None:
         """Token table handles missing last request gracefully."""
-        totals = {"input_tokens": 0, "output_tokens": 0,
-                  "total_tokens": 0, "model_name": None}
+        totals = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "model_name": None,
+        }
         table = _build_token_table(totals, None)
         from rich.console import Console
+
         console = Console(width=40)
         with console.capture() as capture:
             console.print(table)

@@ -9,24 +9,24 @@ RO-Crate builder.
 from __future__ import annotations
 
 from builder.state import (
+    Checkpoint,
+    CompletionSource,
+    CompletionStatus,
+    CrateMetadata,
     CrateState,
     Entity,
-    EntityStatus,
     EntityProvenance,
+    EntityStatus,
+    EntityType,
+    FAIRReport,
     FieldCompletion,
     FileClassification,
-    ReasoningStep,
-    ReasoningLog,
-    Checkpoint,
-    StateSerializer,
-    CrateMetadata,
-    ValidationReport,
-    MITReport,
-    FAIRReport,
-    EntityType,
-    CompletionStatus,
-    CompletionSource,
     InputType,
+    MITReport,
+    ReasoningLog,
+    ReasoningStep,
+    StateSerializer,
+    ValidationReport,
 )
 
 __version__ = "0.1.0"

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from builder.readers.directory import read_directory
-from builder.readers.metadata_files import read_metadata_files
 from builder.readers.existing_crate import read_existing_crate
+from builder.readers.metadata_files import read_metadata_files
 from builder.state import CrateState
 
 
@@ -55,8 +55,10 @@ class TestReadExistingCrate:
         # Build a crate first
         state = CrateState()
         from builder.state import Entity, EntityProvenance
+
         inv = Entity(
-            entity_id="inv_001", type="Investigation",
+            entity_id="inv_001",
+            type="Investigation",
             fields={"name": "Test Inv"},
             _provenance=EntityProvenance(created_by="llm"),
         )

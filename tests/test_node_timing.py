@@ -26,9 +26,7 @@ class _RecordingProfiler:
 
 
 def _events(profiler, event, node):
-    return [
-        e for e in profiler.events if e.get("event") == event and e.get("node") == node
-    ]
+    return [e for e in profiler.events if e.get("event") == event and e.get("node") == node]
 
 
 def _tc(name, cid="1"):
@@ -133,9 +131,7 @@ class TestWrapToolsNode:
 
 
 class TestGraphWiringWritesProfile:
-    def test_build_agent_graph_with_engine_writes_node_events(
-        self, tmp_path, monkeypatch
-    ):
+    def test_build_agent_graph_with_engine_writes_node_events(self, tmp_path, monkeypatch):
         import builder.tools.profiler as profiler_mod
         from builder.engine import AgentEngine
 
@@ -165,17 +161,10 @@ class TestGraphWiringWritesProfile:
 
         profile_file = tmp_path / engine.state.session_id / "profile.ndjson"
         assert profile_file.exists()
-        records = [
-            json.loads(line)
-            for line in profile_file.read_text().splitlines()
-            if line
-        ]
+        records = [json.loads(line) for line in profile_file.read_text().splitlines() if line]
 
         def _node(ev):
-            return [
-                r for r in records
-                if r.get("event") == ev and r.get("node") == "model"
-            ]
+            return [r for r in records if r.get("event") == ev and r.get("node") == "model"]
 
         model_starts = _node("node_start")
         model_ends = _node("node_end")

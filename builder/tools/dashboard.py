@@ -75,14 +75,16 @@ def list_sessions_available(base_dir: Path | None = None) -> list[dict[str, Any]
             continue
         size = profile_path.stat().st_size if profile_path.exists() else 0
         records = read_profile(profile_path) if size > 0 else []
-        sessions.append({
-            "session_id": child.name,
-            "path": child,
-            "profile_path": profile_path,
-            "event_count": len(records),
-            "last_event": records[-1].get("event") if records else None,
-            "file_size": size,
-        })
+        sessions.append(
+            {
+                "session_id": child.name,
+                "path": child,
+                "profile_path": profile_path,
+                "event_count": len(records),
+                "last_event": records[-1].get("event") if records else None,
+                "file_size": size,
+            }
+        )
     sessions.sort(key=lambda s: s["path"].stat().st_mtime, reverse=True)
     return sessions
 
@@ -92,7 +94,9 @@ def list_sessions_available(base_dir: Path | None = None) -> list[dict[str, Any]
 # ---------------------------------------------------------------------------
 
 
-def _build_tool_table(records: list[dict[str, Any]]) -> tuple[list[str], list[list[str]]]:
+def _build_tool_table(
+    records: list[dict[str, Any]],
+) -> tuple[list[str], list[list[str]]]:
     """Aggregate tool_call events into (headers, rows)."""
     tool_calls = [r for r in records if r.get("event") == "tool_call"]
     agg: dict[str, dict[str, float]] = {}
@@ -109,16 +113,20 @@ def _build_tool_table(records: list[dict[str, Any]]) -> tuple[list[str], list[li
     for tool, stats in sorted_tools:
         avg = stats["total"] / stats["count"] if stats["count"] else 0
         total_s = stats["total"] / 1000.0
-        rows.append([
-            tool,
-            str(stats["count"]),
-            f"{avg:.1f}",
-            f"{total_s:.2f}",
-        ])
+        rows.append(
+            [
+                tool,
+                str(stats["count"]),
+                f"{avg:.1f}",
+                f"{total_s:.2f}",
+            ]
+        )
     return headers, rows
 
 
-def _build_node_table(records: list[dict[str, Any]]) -> tuple[list[str], list[list[str]]]:
+def _build_node_table(
+    records: list[dict[str, Any]],
+) -> tuple[list[str], list[list[str]]]:
     """Aggregate node_end events into (headers, rows)."""
     node_ends = [r for r in records if r.get("event") == "node_end"]
     agg: dict[str, dict[str, float]] = {}
@@ -135,31 +143,30 @@ def _build_node_table(records: list[dict[str, Any]]) -> tuple[list[str], list[li
     for node, stats in sorted_nodes:
         avg = stats["total"] / stats["count"] if stats["count"] else 0
         total_s = stats["total"] / 1000.0
-        rows.append([
-            node,
-            str(stats["count"]),
-            f"{avg:.1f}",
-            f"{total_s:.2f}",
-        ])
+        rows.append(
+            [
+                node,
+                str(stats["count"]),
+                f"{avg:.1f}",
+                f"{total_s:.2f}",
+            ]
+        )
     return headers, rows
 
 
 def _build_token_summary(
     records: list[dict[str, Any]],
-) -> tuple[dict[str, int | float | None], dict[str, int | float | None] | None]:
+) -> tuple[dict[str, int | float | str | None], dict[str, int | float | str | None] | None]:
     """Aggregate token usage from ``node_end`` (model) events.
 
     Returns (totals, last_request) where each is a dict with keys:
         ``input_tokens``, ``output_tokens``, ``total_tokens``, ``model_name``.
     *totals* aggregates across all model calls; *last_request* is the most recent.
     """
-    model_ends = [
-        r for r in records
-        if r.get("event") == "node_end" and r.get("node") == "model"
-    ]
+    model_ends = [r for r in records if r.get("event") == "node_end" and r.get("node") == "model"]
     total_in = 0
     total_out = 0
-    last: dict[str, int | float | None] | None = None
+    last: dict[str, int | float | str | None] | None = None
     for me in model_ends:
         inp = me.get("input_tokens")
         out = me.get("output_tokens")
@@ -183,11 +190,12 @@ def _build_token_summary(
 
 
 def _build_token_table(
-    totals: dict[str, int | float | None],
-    last_request: dict[str, int | float | None] | None,
+    totals: dict[str, int | float | str | None],
+    last_request: dict[str, int | float | str | None] | None,
 ) -> Any:
     """Build a token usage table showing totals and last request."""
     from rich.table import Table
+
     table = Table(title="Token Usage", header_style="bold yellow")
     table.add_column("Scope")
     table.add_column("Input")
@@ -196,7 +204,6 @@ def _build_token_table(
 
     total_in = totals.get("input_tokens", 0) or 0
     total_out = totals.get("output_tokens", 0) or 0
-    model_name = totals.get("model_name") or "—"
     table.add_row(
         "[dim]Cumulative[/dim]",
         str(total_in),
@@ -220,6 +227,16 @@ def _build_token_table(
         )
 
     return table
+
+
+def _get_last_response(records: list[dict[str, Any]]) -> str | None:
+    """Return the response_text from the most recent model node_end event."""
+    for r in reversed(records):
+        if r.get("event") == "node_end" and r.get("node") == "model":
+            text = r.get("response_text")
+            if text:
+                return text
+    return None
 
 
 def _build_live_events(records: list[dict[str, Any]], max_lines: int = 20) -> list[str]:
@@ -252,8 +269,19 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 20) -> li
             elif out is not None:
                 tok_str = f"  [yellow]Δ{out} out[/yellow]"
 
-            if tok_str:
-                lines.append(f"{ts[11:19]}  node_end    {node}{dur_str}{tok_str}")
+            # Append response preview for model nodes
+            resp = r.get("response_text")
+            resp_str = ""
+            if resp:
+                # Show first line (or truncated first ~60 chars)
+                preview = resp.split("\n")[0][:60]
+                if len(resp) > 60 or "\n" in resp:
+                    preview += "…"
+                resp_str = f'  [green]"{preview}"[/green]'
+
+            extra = tok_str + resp_str
+            if extra:
+                lines.append(f"{ts[11:19]}  node_end    {node}{dur_str}{extra}")
             else:
                 lines.append(f"{ts[11:19]}  node_end    {node}{dur_str}")
         else:
@@ -272,20 +300,18 @@ class _NoDataPanel:
         return f"[bold yellow]Session:[/] {sid}\n\n[yellow]No profiling data available yet.[/]"
 
 
-def format_session_summary(
-    session_id: str, records: list[dict[str, Any]]
-) -> Any:
+def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> Any:
     """Build a Rich renderable summarising the profiler data.
 
     Returns a ``rich.layout.Layout`` with tool timing and node timing tables
     plus a live event tail. If *records* is empty, returns a placeholder
     layout saying no data is available.
     """
+    from rich.console import Group
     from rich.layout import Layout
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
-    from rich.console import Group
 
     layout = Layout()
     layout.split_column(
@@ -310,6 +336,7 @@ def format_session_summary(
     tool_headers, tool_rows = _build_tool_table(records)
     node_headers, node_rows = _build_node_table(records)
     token_totals, token_last = _build_token_summary(records)
+    last_response = _get_last_response(records)
     live_lines = _build_live_events(records)
 
     tool_table = Table(title="Tool Call Times", header_style="bold magenta")
@@ -332,13 +359,30 @@ def format_session_summary(
         border_style="dim",
     )
 
+    response_panel = None
+    if last_response:
+        # Truncate displayed text in the panel to avoid overwhelming the layout
+        display = last_response[:500]
+        if len(last_response) > 500:
+            display += "\n[dim]… (truncated)[/dim]"
+        response_panel = Panel(
+            display,
+            title="Last Agent Response",
+            border_style="green",
+            highlight=True,
+        )
+
     # Combine into body
     from rich.columns import Columns
-    body = Group(
+
+    body_parts = [
         Columns([tool_table, node_table], equal=True, expand=True),
         Columns([token_table], equal=False, expand=True),
-        live_panel,
-    )
+    ]
+    if response_panel:
+        body_parts.append(response_panel)
+    body_parts.append(live_panel)
+    body = Group(*body_parts)
     layout["body"].update(body)
     layout["footer"].update(Text(f"Last refresh: {now}", style="dim"))
 
@@ -353,6 +397,7 @@ def format_session_summary(
 def _render_static(session_id: str, records: list[dict[str, Any]]) -> None:
     """Render a one-shot summary to stdout."""
     from rich.console import Console
+
     console = Console()
     layout = format_session_summary(session_id, records)
     console.print(layout)
@@ -418,8 +463,9 @@ def _run_live_dashboard(
     refresh_interval: float,
 ) -> None:
     """Inner live-dashboard loop with Rich ``Live`` display and file-watching."""
-    from rich.live import Live
     from rich.console import Console
+    from rich.layout import Layout
+    from rich.live import Live
 
     console = Console()
     last_mtime: float = 0.0
@@ -445,7 +491,9 @@ def _run_live_dashboard(
         console.print(_build())
         return
 
-    with Live(_build(), console=console, refresh_per_second=1 / refresh_interval, screen=False) as live:
+    with Live(
+        _build(), console=console, refresh_per_second=1 / refresh_interval, screen=False
+    ) as live:
         # watchfiles step is in milliseconds; convert from our seconds-based interval
         step_ms = int(refresh_interval * 1000)
         for _changes in watch(profile_path, step=step_ms):

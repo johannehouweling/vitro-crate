@@ -79,7 +79,10 @@ class TestAssessFairMaturity:
         inv = Entity(
             entity_id="inv_001",
             type="Investigation",
-            fields={"name": "Test", "license": "https://creativecommons.org/licenses/by/4.0/"},
+            fields={
+                "name": "Test",
+                "license": "https://creativecommons.org/licenses/by/4.0/",
+            },
             _provenance=EntityProvenance(created_by="llm"),
         )
         inv.set_field_status("name", "filled", "llm")
@@ -90,7 +93,8 @@ class TestAssessFairMaturity:
 
         # Find the license indicator
         license_indicators = [
-            ind for ind in result.indicator_results
+            ind
+            for ind in result.indicator_results
             if "license" in ind["id"].lower() or ind["id"].endswith("R1.1-01M")
         ]
         if license_indicators:

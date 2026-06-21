@@ -59,6 +59,7 @@ class TestAgentEngine:
         engine = AgentEngine()
         engine.initialize()
         import pytest
+
         with pytest.raises(ValueError, match="Unknown tool"):
             engine.run_tool("nonexistent_tool_xyz")
 
@@ -172,9 +173,7 @@ class TestScanApprovedRoots:
         engine = AgentEngine()
         engine.state.scanned_files = ["existing1", "existing2"]
 
-        monkeypatch.setattr(
-            "builder.tools.scanner.scan_files", lambda **kw: []
-        )
+        monkeypatch.setattr("builder.tools.scanner.scan_files", lambda **kw: [])
 
         result = engine.run_tool("scan_files", path="/tmp/denied")
 

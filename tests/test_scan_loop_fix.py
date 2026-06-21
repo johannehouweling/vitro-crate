@@ -74,14 +74,14 @@ class TestSummarizeScanResult:
         s = summarize_scan_result(self._files(1468))
         assert isinstance(s, str)
         assert "1468" in s
-        assert "state" in s.lower()       # tells the LLM results are stored
-        assert len(s) < 2000              # not the giant raw blob
-        assert "1,2" not in s             # no first_rows content leaked
+        assert "state" in s.lower()  # tells the LLM results are stored
+        assert len(s) < 2000  # not the giant raw blob
+        assert "1,2" not in s  # no first_rows content leaked
 
     def test_bounded_sample_of_filenames(self):
         s = summarize_scan_result(self._files(1468), sample=15)
         assert "f0.csv" in s
-        assert "more" in s.lower()        # indicates truncation
+        assert "more" in s.lower()  # indicates truncation
 
     def test_empty_scan(self):
         s = summarize_scan_result([])
@@ -124,9 +124,7 @@ class TestScanToolWrapperReturnsSummary:
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
-        monkeypatch.setattr(
-            engine, "run_tool", lambda name, **kw: {"ok": True, "tool": name}
-        )
+        monkeypatch.setattr(engine, "run_tool", lambda name, **kw: {"ok": True, "tool": name})
         tools = _build_langchain_tools(engine)
         validate_tool = next(t for t in tools if t.name == "validate")
         result = validate_tool.invoke({"crate_path": "/x"})

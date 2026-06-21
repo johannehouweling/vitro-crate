@@ -9,7 +9,6 @@ at REQUIRED severity — the real end-to-end check.
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.builder import build_crate
@@ -36,21 +35,48 @@ def _representative_state() -> CrateState:
     state.metadata.title = "Demo Investigation"
     state.metadata.description = "A representative ISA-Tox crate"
     state.metadata.accession = "S-VHPS99"
-    state.add_entity(_ent("study_1", "Study", name="Hepatotoxicity study",
-                          aop="https://aopwiki.org/aops/37"))
-    state.add_entity(_ent("assay_1", "Assay", name="Viability assay",
-                          study_id="study_1",
-                          key_event="https://aopwiki.org/events/55"))
+    state.add_entity(
+        _ent(
+            "study_1",
+            "Study",
+            name="Hepatotoxicity study",
+            aop="https://aopwiki.org/aops/37",
+        )
+    )
+    state.add_entity(
+        _ent(
+            "assay_1",
+            "Assay",
+            name="Viability assay",
+            study_id="study_1",
+            key_event="https://aopwiki.org/events/55",
+        )
+    )
     state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
-    state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2",
-                          accession="CVCL_0027"))
-    state.add_entity(_ent("cc", "LabProcess", name="Cell Culture",
-                          process_type="CellCulture", assay_id="assay_1",
-                          cell_line="cell_1"))
-    state.add_entity(_ent("exp", "LabProcess", name="Exposure",
-                          process_type="Exposure", assay_id="assay_1",
-                          samples="cell_1", chemicals="chem_1",
-                          duration="24h", microplate="96-well"))
+    state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2", accession="CVCL_0027"))
+    state.add_entity(
+        _ent(
+            "cc",
+            "LabProcess",
+            name="Cell Culture",
+            process_type="CellCulture",
+            assay_id="assay_1",
+            cell_line="cell_1",
+        )
+    )
+    state.add_entity(
+        _ent(
+            "exp",
+            "LabProcess",
+            name="Exposure",
+            process_type="Exposure",
+            assay_id="assay_1",
+            samples="cell_1",
+            chemicals="chem_1",
+            duration="24h",
+            microplate="96-well",
+        )
+    )
     return state
 
 
@@ -64,6 +90,4 @@ def test_representative_crate_passes_all_three_required(tmp_path):
 
     assert len(results) == 3  # base RO-Crate, ISA, ISA-Tox
     for res in results:
-        assert res.passed_required, (
-            f"{res.profile} has REQUIRED issues: {res.required_issues}"
-        )
+        assert res.passed_required, f"{res.profile} has REQUIRED issues: {res.required_issues}"

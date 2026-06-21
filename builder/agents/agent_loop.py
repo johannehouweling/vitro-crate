@@ -33,6 +33,10 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 
+from typing import TypedDict
+
+from langchain_core.messages import BaseMessage
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,12 +44,10 @@ logger = logging.getLogger(__name__)
 # Agent graph state (TypedDict with add_messages reducer)
 # ---------------------------------------------------------------------------
 
-from typing import TypedDict
-from langchain_core.messages import BaseMessage
-
 
 class AgentState(TypedDict):
     """State for the agent LangGraph — messages with automatic concatenation."""
+
     messages: _Annotated[Sequence[BaseMessage], add_messages]  # type: ignore[valid-type]
 
 
@@ -70,9 +72,7 @@ class _ThinkingSpinner:
         self._tool: str | None = None
         self._start = monotonic()
         self._stop = threading.Event()
-        self._status = console.status(
-            self._render(), spinner="dots", spinner_style="green"
-        )
+        self._status = console.status(self._render(), spinner="dots", spinner_style="green")
         self._thread = threading.Thread(target=self._tick, daemon=True)
 
     def _render(self) -> str:
@@ -132,9 +132,7 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
 # ---------------------------------------------------------------------------
 
 
-def _build_args_schema(
-    name: str, params: dict[str, Any]
-) -> type[BaseModel] | None:
+def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | None:
     """Dynamically create a pydantic model from a JSON schema dict.
 
     Converts the ``parameters`` field of a TOOL_SPECS entry into a
@@ -172,6 +170,7 @@ def _build_args_schema(
         # If the field has enum values, use a Literal type
         if "enum" in field_schema:
             from typing import Literal
+
             enum_vals = field_schema["enum"]
             py_type = Literal[tuple(enum_vals)]  # type: ignore
 
@@ -192,9 +191,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
     try:
         from langchain_core.tools import BaseTool, StructuredTool
     except ImportError:
-        raise ImportError(
-            "langchain extra is required: pip install vitro-crate[langchain]"
-        )
+        raise ImportError("langchain extra is required: pip install vitro-crate[langchain]")
 
     langchain_tools: list[BaseTool] = []
 
@@ -316,14 +313,9 @@ def _build_chat_model(
         from langchain_openai import ChatOpenAI
 
         # VITRO_ prefixed env vars take priority, fall back to unprefixed
-        api_key = (
-            os.environ.get("VITRO_OPENAI_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-        )
+        api_key = os.environ.get("VITRO_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
         resolved_base = (
-            base_url
-            or os.environ.get("VITRO_OPENAI_BASE_URL")
-            or os.environ.get("OPENAI_BASE_URL")
+            base_url or os.environ.get("VITRO_OPENAI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
         )
         resolved_model = (
             model
@@ -346,10 +338,7 @@ def _build_chat_model(
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        api_key = (
-            os.environ.get("VITRO_ANTHROPIC_API_KEY")
-            or os.environ.get("ANTHROPIC_API_KEY")
-        )
+        api_key = os.environ.get("VITRO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
         resolved_model = (
             model
             or os.environ.get("VITRO_ANTHROPIC_MODEL")
@@ -365,6 +354,8 @@ def _build_chat_model(
         return ChatAnthropic(**kwargs)
 
     raise RuntimeError(f"Unknown provider: {provider!r}. Use openai or anthropic.")
+
+
 # ---------------------------------------------------------------------------
 # Explicit StateGraph construction (replaces create_agent)
 # ---------------------------------------------------------------------------
@@ -397,9 +388,7 @@ def _tool_names_from_state(state: dict[str, Any]) -> list[str]:
     return [tc.get("name", "") for tc in tool_calls]
 
 
-def _wrap_model_node(
-    call_model: Any, profiler: Any, iteration_getter: Any
-) -> Any:
+def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> Any:
     """Wrap the model node to log ``node_start``/``node_end`` timing.
 
     Returns *call_model* unchanged when no profiler is active, so the graph
@@ -417,9 +406,7 @@ def _wrap_model_node(
         result = call_model(state)
         duration_ms = (perf_counter() - start) * 1000.0
         out_messages = result.get("messages", []) if isinstance(result, dict) else []
-        produced_tool_calls = any(
-            getattr(m, "tool_calls", None) for m in out_messages
-        )
+        produced_tool_calls = any(getattr(m, "tool_calls", None) for m in out_messages)
 
         # Extract token usage and response text from the LLM response
         input_tokens: int | None = None
@@ -441,8 +428,8 @@ def _wrap_model_node(
                     input_tokens = tu.get("prompt_tokens") or tu.get("input_tokens")
                 if output_tokens is None:
                     output_tokens = tu.get("completion_tokens") or tu.get("output_tokens")
-            model_name = getattr(last_msg, "response_metadata", None) or {}
-            model_name = model_name.get("model_name") or model_name.get("model")
+            resp_meta: dict = getattr(last_msg, "response_metadata", None) or {}
+            model_name = resp_meta.get("model_name") or resp_meta.get("model")
             # Capture the model's reply text — truncate to avoid bloating profile
             content = getattr(last_msg, "content", None)
             if content:
@@ -469,9 +456,7 @@ def _wrap_model_node(
     return timed_model_node
 
 
-def _wrap_tools_node(
-    tool_node: Any, profiler: Any, iteration_getter: Any
-) -> Any:
+def _wrap_tools_node(tool_node: Any, profiler: Any, iteration_getter: Any) -> Any:
     """Wrap the tools node to log ``node_start``/``node_end`` timing.
 
     Per-tool durations are already recorded by ``AgentEngine.run_tool`` (which
@@ -557,9 +542,7 @@ def _build_agent_graph(
     from langgraph.prebuilt import ToolNode
 
     profiler = engine.profiler if engine is not None else None
-    iteration_getter = (
-        (lambda: engine.state.iteration_count) if engine is not None else None
-    )
+    iteration_getter = (lambda: engine.state.iteration_count) if engine is not None else None
 
     # Bind the tool schemas to the model so it can actually emit tool_calls.
     # Without this, the model is never told the tools exist: should_continue
@@ -571,6 +554,7 @@ def _build_agent_graph(
 
     def call_model(state: dict[str, Any]) -> dict[str, Any]:
         """Model node: prepend system prompt and invoke the tool-bound LLM."""
+        assert engine is not None, "AgentEngine must be set before call_model is invoked"
         messages = state.get("messages", [])
         # Prepend system prompt with lightweight state brief on every invocation.
         # The state brief is re-built each time so it never accumulates in
@@ -662,15 +646,14 @@ def _boxed_input(console: Any, label: str = "❯") -> str:
         def _get() -> list[tuple[str, str]]:
             w = get_app().output.get_size().columns
             return [("class:box", left + "─" * max(0, w - 2) + right)]
+
         return _get
 
     buf_window = Window(BufferControl(buffer=buf))
     middle = VSplit(
         [
             Window(
-                FormattedTextControl(
-                    [("class:box", "│ "), ("class:prompt", f"{label} ")]
-                ),
+                FormattedTextControl([("class:box", "│ "), ("class:prompt", f"{label} ")]),
                 width=4,
             ),
             buf_window,
@@ -742,16 +725,15 @@ def run_interactive_agent(
     app = _build_agent_graph(llm, tools, engine=engine)
 
     from rich.console import Console
-    from rich.panel import Panel
     from rich.markdown import Markdown
     from rich.padding import Padding
+    from rich.panel import Panel
 
     console = Console()
 
-    provider_name = provider or _detect_provider()
-
     if max_iterations is None:
         from builder.config import get_max_iterations
+
         max_iterations = get_max_iterations()
 
     # Use LangGraph's built-in thread tracking so the agent accumulates
@@ -845,6 +827,7 @@ def run_interactive_agent(
     if is_resume:
         # Build a rich summary panel
         from rich.table import Table
+
         summary = Table.grid(padding=(0, 2))
         summary.add_column(style="bold", width=16)
         summary.add_column(style="white")
@@ -859,12 +842,18 @@ def run_interactive_agent(
 
         val = engine.state.validation
         val_status = []
-        if val.base_passed:    val_status.append("[green]base[/green]")
-        else:                  val_status.append("[red]base[/red]")
-        if val.isa_passed:     val_status.append("[green]ISA[/green]")
-        else:                  val_status.append("[red]ISA[/red]")
-        if val.tox_passed:     val_status.append("[green]ISA-Tox[/green]")
-        else:                  val_status.append("[red]ISA-Tox[/red]")
+        if val.base_passed:
+            val_status.append("[green]base[/green]")
+        else:
+            val_status.append("[red]base[/red]")
+        if val.isa_passed:
+            val_status.append("[green]ISA[/green]")
+        else:
+            val_status.append("[red]ISA[/red]")
+        if val.tox_passed:
+            val_status.append("[green]ISA-Tox[/green]")
+        else:
+            val_status.append("[red]ISA-Tox[/red]")
         summary.add_row("Validation:", "  ".join(val_status))
 
         if val.required_issues:
@@ -879,18 +868,22 @@ def run_interactive_agent(
             parts = ", ".join(f"[cyan]{k}[/cyan]={v}" for k, v in sorted(counts.items()))
             summary.add_row("Breakdown:", parts)
 
-        console.print(Panel(summary, title="[yellow]Resumed Session[/yellow]", border_style="yellow"))
+        console.print(
+            Panel(summary, title="[yellow]Resumed Session[/yellow]", border_style="yellow")
+        )
         console.print()
 
         # Tell the LLM about the current state so it can give a contextual greeting
         greeting_prompt = (
-            f"The user has resumed a session with {entity_count} entities and {file_count} scanned files. "
+            f"The user has resumed a session with {entity_count} entities and "
+            f"{file_count} scanned files. "
             f"Validation: base={'pass' if val.base_passed else 'fail'}, "
             f"ISA={'pass' if val.isa_passed else 'fail'}, "
             f"Tox={'pass' if val.tox_passed else 'fail'}. "
             f"Required issues: {len(val.required_issues)}. "
             f"Entity breakdown: {counts}. "
-            f"Briefly welcome them back and summarise what has been done and what the next logical step is."
+            "Briefly welcome them back and summarise what has been done "
+            "and what the next logical step is."
         )
     else:
         greeting_prompt = "Greet the user and tell them what you can help build."
@@ -980,6 +973,7 @@ def run_interactive_agent(
         console.print()
 
         from rich.table import Table
+
         t = Table.grid(padding=(0, 1))
         t.add_column(style="yellow bold", width=14)
         t.add_column(style="white")
@@ -997,8 +991,12 @@ def run_interactive_agent(
             t.add_row("Entities:", "0")
 
         from pathlib import Path
+
         if Path("sessions").is_dir():
-            t.add_row("Resume:", f"python -m main [cyan]--resume {session_id}[/cyan] [dim]--interactive[/dim]")
+            t.add_row(
+                "Resume:",
+                f"python -m main [cyan]--resume {session_id}[/cyan] [dim]--interactive[/dim]",
+            )
 
         console.print(Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow"))
         console.print()
@@ -1098,11 +1096,10 @@ def run_interactive_agent(
 
             try:
                 from builder.tools.session import save_session
+
                 result = save_session(engine.state)
                 if not result.get("success", True):
-                    logger.warning(
-                        "Session save failed: %s", result.get("error", "Unknown error")
-                    )
+                    logger.warning("Session save failed: %s", result.get("error", "Unknown error"))
                     console.print(
                         "[dim]⚠ Session autosave failed: "
                         f"{result.get('error', 'Unknown error')}[/dim]"
@@ -1122,6 +1119,7 @@ def run_interactive_agent(
             )
             try:
                 from builder.tools.session import save_session
+
                 result = save_session(engine.state, always_write=True)
                 if not result.get("success", True):
                     logger.warning(

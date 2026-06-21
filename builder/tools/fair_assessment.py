@@ -15,12 +15,8 @@ from builder.state import CrateState, FAIRReport
 logger = logging.getLogger(__name__)
 
 # Path to the FAIR YAML files
-FAIR_INDICATORS_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "fair" / "indicators.yaml"
-)
-DSM_INDICATORS_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "fair" / "dsm_indicators.yaml"
-)
+FAIR_INDICATORS_PATH = Path(__file__).resolve().parent.parent.parent / "fair" / "indicators.yaml"
+DSM_INDICATORS_PATH = Path(__file__).resolve().parent.parent.parent / "fair" / "dsm_indicators.yaml"
 
 
 def _load_yaml(path: Path) -> dict[str, Any] | None:
@@ -124,9 +120,7 @@ def _check_license_machine(state: CrateState) -> bool:
 
 def _check_provenance(state: CrateState) -> bool:
     """Check that metadata includes provenance per community standards."""
-    return any(
-        e._provenance.created_by != "missing" for e in state.list_entities()
-    )
+    return any(e._provenance.created_by != "missing" for e in state.list_entities())
 
 
 def _check_conforms_to_profile(state: CrateState) -> bool:
@@ -138,10 +132,7 @@ def _check_conforms_to_profile(state: CrateState) -> bool:
 
 def _check_mit_coverage_indicator(state: CrateState) -> bool:
     """Check that MIT coverage is tracked (report present)."""
-    return (
-        state.mit_assessment.module_scores != {}
-        and state.mit_assessment.overall_score > 0
-    )
+    return state.mit_assessment.module_scores != {} and state.mit_assessment.overall_score > 0
 
 
 # DSM indicator checks
@@ -280,6 +271,8 @@ def _check_semantic_model(state: CrateState) -> bool:
 def _check_machine_interpretable(state: CrateState) -> bool:
     """Metadata in machine-readable AND machine-interpretable format."""
     return len(state.list_entities()) > 0
+
+
 # Map check names to functions
 FAIR_CHECKS: dict[str, Any] = {
     "root_global_id": _check_root_global_id,
@@ -353,23 +346,27 @@ def assess_fair_maturity(state: CrateState) -> FAIRReport:
             scope = indicator.get("scope", "")
 
             if scope == "out_of_scope":
-                indicator_results.append({
-                    "id": indicator.get("id", ""),
-                    "dimension": indicator.get("dimension", ""),
-                    "priority": indicator.get("priority", ""),
-                    "text": indicator.get("text", ""),
-                    "passed": None,
-                    "scope": "out_of_scope",
-                })
+                indicator_results.append(
+                    {
+                        "id": indicator.get("id", ""),
+                        "dimension": indicator.get("dimension", ""),
+                        "priority": indicator.get("priority", ""),
+                        "text": indicator.get("text", ""),
+                        "passed": None,
+                        "scope": "out_of_scope",
+                    }
+                )
             elif check_name in FAIR_CHECKS:
                 passed = FAIR_CHECKS[check_name](state)
-                indicator_results.append({
-                    "id": indicator.get("id", ""),
-                    "dimension": indicator.get("dimension", ""),
-                    "priority": indicator.get("priority", ""),
-                    "text": indicator.get("text", ""),
-                    "passed": passed,
-                })
+                indicator_results.append(
+                    {
+                        "id": indicator.get("id", ""),
+                        "dimension": indicator.get("dimension", ""),
+                        "priority": indicator.get("priority", ""),
+                        "text": indicator.get("text", ""),
+                        "passed": passed,
+                    }
+                )
 
     dsm_level = _compute_dsm_level(state, dsm_data)
 
@@ -433,6 +430,4 @@ def _compute_dsm_level(state: CrateState, dsm_data: dict[str, Any] | None) -> in
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
-TOOL_REGISTRY.register(
-    "assess_fair_maturity", assess_fair_maturity, takes_state=True
-)
+TOOL_REGISTRY.register("assess_fair_maturity", assess_fair_maturity, takes_state=True)

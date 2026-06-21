@@ -6,8 +6,6 @@ RECOMMENDED and OPTIONAL issues are properly surfaced (Issue #52).
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from builder.state import CrateState, ValidationReport
 from builder.tools.validation import validate
 
@@ -45,6 +43,7 @@ class TestValidate:
 
         # Simulate ImportError by patching the import inside the function
         import builtins
+
         original_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
@@ -75,9 +74,9 @@ class TestValidate:
         """validate() must classify issues using correct prefix matching
         for [Required], [Recommended], [Optional] so that should_issues
         and may_issues are properly populated."""
+        import profiles.validator as validator_mod
         from profiles.validator import ValidationResult
 
-        import profiles.validator as validator_mod
         original = validator_mod.validate_crate
 
         def patched_validate(crate_dir):
@@ -100,10 +99,12 @@ class TestValidate:
         validator_mod.validate_crate = patched_validate
 
         import sys as _sys
+
         _sys.modules.pop("builder.tools.validation", None)
 
         try:
             from builder.tools.validation import validate as fresh_validate
+
             state = CrateState()
             crate_dir = tmp_path / "placeholder"
             crate_dir.mkdir()
@@ -120,9 +121,9 @@ class TestValidate:
 
     def test_recommended_and_optional_not_misclassified_as_required(self, tmp_path):
         """RECOMMENDED and OPTIONAL issues must NOT end up in required_issues."""
+        import profiles.validator as validator_mod
         from profiles.validator import ValidationResult
 
-        import profiles.validator as validator_mod
         original = validator_mod.validate_crate
 
         def patched_validate(crate_dir):
@@ -142,10 +143,12 @@ class TestValidate:
         validator_mod.validate_crate = patched_validate
 
         import sys as _sys
+
         _sys.modules.pop("builder.tools.validation", None)
 
         try:
             from builder.tools.validation import validate as fresh_validate
+
             state = CrateState()
             crate_dir = tmp_path / "placeholder"
             crate_dir.mkdir()

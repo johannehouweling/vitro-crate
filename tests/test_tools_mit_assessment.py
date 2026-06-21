@@ -79,7 +79,9 @@ class TestAssessMITCoverage:
         state.add_entity(chem)
 
         inv = Entity(
-            entity_id="inv_001", type="Investigation", fields={},
+            entity_id="inv_001",
+            type="Investigation",
+            fields={},
             _provenance=EntityProvenance(created_by="llm"),
         )
         inv.fields["name"] = "Test Study"
@@ -101,7 +103,9 @@ class TestAssessMITCoverage:
 
         # Add a MolecularEntity with 2 fields (Chemical Information module)
         chem = Entity(
-            entity_id="chem_001", type="MolecularEntity", fields={},
+            entity_id="chem_001",
+            type="MolecularEntity",
+            fields={},
             _provenance=EntityProvenance(created_by="llm"),
         )
         chem.fields["name"] = "Test"

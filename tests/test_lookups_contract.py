@@ -36,6 +36,7 @@ def _load(name: str) -> dict:
 # Helpers to clear LRU caches between tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _clear_caches():
     """Clear all lookup LRU caches before each test."""
@@ -52,6 +53,7 @@ def _clear_caches():
 # ===========================================================================
 # PubChem
 # ===========================================================================
+
 
 class TestPubChemContract:
     """Contract tests for lookups/pubchem.py."""
@@ -145,6 +147,7 @@ class TestPubChemContract:
 # Cellosaurus
 # ===========================================================================
 
+
 class TestCellosaurusContract:
     """Contract tests for lookups/cellosaurus.py."""
 
@@ -209,13 +212,7 @@ class TestCellosaurusContract:
         """A cell line with only name-list parses without error."""
         minimal = {
             "Cellosaurus": {
-                "cell-line-list": [
-                    {
-                        "name-list": [
-                            {"type": "identifier", "value": "MinimalCell"}
-                        ]
-                    }
-                ]
+                "cell-line-list": [{"name-list": [{"type": "identifier", "value": "MinimalCell"}]}]
             }
         }
         responses.add(
@@ -234,6 +231,7 @@ class TestCellosaurusContract:
 # ===========================================================================
 # AOP-Wiki
 # ===========================================================================
+
 
 class TestAOPWikiContract:
     """Contract tests for lookups/aopwiki.py."""
@@ -274,9 +272,7 @@ class TestAOPWikiContract:
         assert len(result["events"]) == 4  # 1 MIE + 2 KE + 1 AO
         mie = next(e for e in result["events"] if e["identifier"] == "888")
         assert mie["eventType"] == "Molecular Initiating Event"
-        assert mie["short_name"] == (
-            "Binding of inhibitor, NADH-ubiquinone oxidoreductase"
-        )
+        assert mie["short_name"] == ("Binding of inhibitor, NADH-ubiquinone oxidoreductase")
         assert mie["biologicalOrganization"] == "Molecular"
         # Relationships
         assert len(result["relationships"]) == 3
@@ -342,6 +338,7 @@ class TestAOPWikiContract:
 # BAO / OLS
 # ===========================================================================
 
+
 class TestBAOContract:
     """Contract tests for lookups/bao.py."""
 
@@ -399,9 +396,14 @@ class TestBAOContract:
         responses.add(
             responses.GET,
             "https://www.ebi.ac.uk/ols4/api/search",
-            json={"response": {"numFound": 1, "docs": [
-                {"label": "something", "iri": ""},
-            ]}},
+            json={
+                "response": {
+                    "numFound": 1,
+                    "docs": [
+                        {"label": "something", "iri": ""},
+                    ],
+                }
+            },
             status=200,
         )
 
@@ -412,6 +414,7 @@ class TestBAOContract:
 # ===========================================================================
 # ORCID
 # ===========================================================================
+
 
 class TestORCIDContract:
     """Contract tests for lookups/orcid.py."""
@@ -489,6 +492,7 @@ class TestORCIDContract:
 # ROR
 # ===========================================================================
 
+
 class TestRORContract:
     """Contract tests for lookups/ror.py."""
 
@@ -557,6 +561,7 @@ class TestRORContract:
 # ===========================================================================
 # Crossref
 # ===========================================================================
+
 
 class TestCrossrefContract:
     """Contract tests for lookups/crossref.py."""
