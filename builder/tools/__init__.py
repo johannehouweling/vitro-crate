@@ -53,6 +53,7 @@ from builder.tools.management import (
 )
 from builder.tools.mit_assessment import assess_mit_coverage
 from builder.tools.scanner import (
+    extract_pdf_text,
     preview_archive,
     read_file_sample,
     read_multiple_files,
@@ -83,6 +84,7 @@ __all__ = [
     "draft_process",
     "draft_publication",
     "draft_study",
+    "extract_pdf_text",
     "get_hint",
     "get_status",
     "list_entities",

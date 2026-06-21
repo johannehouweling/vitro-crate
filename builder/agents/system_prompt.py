@@ -26,8 +26,8 @@ You have access to the following tools:
 - lookup_doi: Look up a publication in Crossref
 - verify_identifier: Verify an identifier resolves at its source
 - verify_all_identifiers: Verify all identifiers in the state
-- build_crate: Assemble the RO-Crate
-- validate: Run three-pass validation
+- build_crate: Assemble the RO-Crate (returns a crate_path)
+- validate: Run three-pass validation (pass the crate_path returned by build_crate)
 - assess_mit_coverage: Score MIT coverage
 - assess_fair_maturity: Score FAIR maturity
 - save_session: Save the session

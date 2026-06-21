@@ -32,6 +32,44 @@ def _select_verifier(entity_type: str, field: str):
     return None, None
 
 
+# ---------------------------------------------------------------------------
+# Single source of truth for verifiable (entity_type, field) pairs.
+# This is the *authoritative* set — both _select_verifier and
+# verify_all_identifiers derive from it, so they can never drift apart.
+# ---------------------------------------------------------------------------
+
+_VERIFIABLE_FIELDS: frozenset[tuple[str, str]] = frozenset(
+    [
+        # MolecularEntity fields that map to PubChem lookup
+        ("MolecularEntity", "identifier"),
+        ("MolecularEntity", "cas"),
+        ("MolecularEntity", "casrn"),
+        ("MolecularEntity", "cas_number"),
+        ("MolecularEntity", "pubchem_cid"),
+        ("MolecularEntity", "inchikey"),
+        # CellLineSample fields that map to Cellosaurus lookup
+        ("CellLineSample", "identifier"),
+        ("CellLineSample", "accession"),
+        # Person fields that map to ORCID lookup
+        ("Person", "identifier"),
+        ("Person", "orcid"),
+        # Publication fields that map to Crossref lookup
+        ("Publication", "identifier"),
+        ("Publication", "doi"),
+    ]
+)
+
+
+def _get_verifiable_fields() -> frozenset[tuple[str, str]]:
+    """Return the set of (entity_type, field) pairs that have a verifier.
+
+    This is the single source of truth for which identifier fields can be
+    auto-verified. Both ``verify_all_identifiers`` and ``_select_verifier``
+    are derived from this set.
+    """
+    return _VERIFIABLE_FIELDS
+
+
 def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     """Check that an identifier resolves at its source.
 
@@ -118,27 +156,31 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     }
 
 
-_IDENTIFIER_FIELDS = {
-    "identifier",
-    "cas",
-    "orcid",
-    "ror",
-    "doi",
-    "accession",
-    "pubchem_cid",
-}
+# Legacy re-export — derived automatically from _get_verifiable_fields so it
+# always stays in sync. Only the flat field names are exposed here; the
+# authoritative pair-based set is _get_verifiable_fields().
+_IDENTIFIER_FIELDS: frozenset[str] = frozenset(
+    {f for (_t, f) in _get_verifiable_fields()}
+)
 
 
 def verify_all_identifiers(state: CrateState) -> list[dict]:
-    """Run verify_identifier on every identifier field marked as 'filled'.
+    """Run verify_identifier on every verifiable field marked as 'filled'.
 
-    Iterates over all entities in the state and checks each field whose
-    name is an identifier-like field (e.g. identifier, cas, orcid, ror,
-    doi, accession, pubchem_cid) with completion status "filled".
+    Iterates over all entities in the state and checks each (entity_type, field)
+    pair that has a verifier configured, if the field's completion status is
+    "filled".
+
+    Unlike the previous implementation that used a flat hard-coded field-name
+    set, this version queries ``_get_verifiable_fields()`` — the single source
+    of truth shared with ``_select_verifier`` — so it never misses fields like
+    ``casrn``/``cas_number``/``inchikey`` on MolecularEntity, and never attempts
+    ``ror`` on Organization (which has no verifier).
 
     Returns:
         A list of verification result dicts (one per qualifying filled field).
     """
+    verifiable = _get_verifiable_fields()
     results: list[dict] = []
 
     for entity in state.list_entities():
@@ -146,7 +188,7 @@ def verify_all_identifiers(state: CrateState) -> list[dict]:
             if fc.status == "filled":
                 # comp_key is "{type}:{field}" — extract the field name
                 field = comp_key.split(":", 1)[1]
-                if field not in _IDENTIFIER_FIELDS:
+                if (entity.type, field) not in verifiable:
                     continue
                 result = verify_identifier(state, entity.entity_id, field)
                 results.append(result)

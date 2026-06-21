@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 
 from builder.state import Entity, EntityProvenance
-from builder.tools.verification import verify_all_identifiers, verify_identifier
+from builder.tools.verification import (
+    _IDENTIFIER_FIELDS,
+    _get_verifiable_fields,
+    verify_all_identifiers,
+    verify_identifier,
+)
 
 
 class TestVerifyIdentifier:
@@ -155,34 +160,163 @@ class TestVerifyAllIdentifiers:
     """Tests for the verify_all_identifiers function."""
 
     def test_runs_across_all_entities(self, state_with_multiple_entities):
-        """verify_all_identifiers returns one result per identifier field that is 'filled',
-        and skips non-identifier fields such as title and description."""
+        """verify_all_identifiers returns results only for (entity_type, field) pairs
+        that have an actual verifier configured, and skips non-identifier fields as
+        well as identifier fields on entity types without a verifier."""
         state = state_with_multiple_entities
 
-        # Mark identifier-like and non-identifier fields as filled
+        # Mark verifiable and non-verifiable fields as filled
+        # Investigation has no verifier, so its identifier field won't be attempted
         inv = state.get_entity("inv_001")
         inv.set_field_status("identifier", "filled", "user")
-        inv.set_field_status("doi", "filled", "llm")
         inv.set_field_status("title", "filled", "llm")  # should be skipped
 
-        study = state.get_entity("stu_001")
-        study.set_field_status("accession", "filled", "llm")
-        study.set_field_status("description", "filled", "llm")  # should be skipped
+        # MolecularEntity has a PubChem verifier — identifier and casrn are verifiable
+        chem = state.get_entity("chem_001")
+        chem.set_field_status("identifier", "filled", "llm")
+        chem.set_field_status("pubchem_cid", "filled", "llm")
+        chem.set_field_status("name", "filled", "llm")  # should be skipped
 
         results = verify_all_identifiers(state)
 
-        # Only identifier-like fields (identifier, doi, accession) should produce results
-        assert len(results) == 3
+        # Only (MolecularEntity, identifier) and (MolecularEntity, pubchem_cid) should
+        # produce results; Investigation fields have no verifier so they are skipped.
+        assert len(results) == 2
 
         entity_fields = {(r["entity_id"], r["field"]) for r in results}
-        assert ("inv_001", "identifier") in entity_fields
-        assert ("inv_001", "doi") in entity_fields
-        assert ("stu_001", "accession") in entity_fields
+        assert ("chem_001", "identifier") in entity_fields
+        assert ("chem_001", "pubchem_cid") in entity_fields
+        # Investigation has no verifier — fields are skipped
+        assert ("inv_001", "identifier") not in entity_fields
+        # Non-identifier fields are skipped
         assert ("inv_001", "title") not in entity_fields
-        assert ("stu_001", "description") not in entity_fields
+        assert ("chem_001", "name") not in entity_fields
 
         # All results should have the expected structure
         for r in results:
             assert "verified" in r
             assert "message" in r
             assert "suggested_fix" in r
+
+
+class TestVerifiableFieldSet:
+    """Tests that the verifiable field set is derived from _select_verifier."""
+
+    def test_molecular_entity_cas_fields_are_verifiable(self):
+        """casrn, cas_number, cas, and inchikey on MolecularEntity are included."""
+        vf = _get_verifiable_fields()
+        me_fields = {f for (t, f) in vf if t == "MolecularEntity"}
+        assert "casrn" in me_fields, "casrn should be verifiable for MolecularEntity"
+        assert "cas_number" in me_fields, (
+            "cas_number should be verifiable for MolecularEntity"
+        )
+        assert "cas" in me_fields, "cas should be verifiable for MolecularEntity"
+        assert "inchikey" in me_fields, (
+            "inchikey should be verifiable for MolecularEntity"
+        )
+        assert "identifier" in me_fields, (
+            "identifier should be verifiable for MolecularEntity"
+        )
+        assert "pubchem_cid" in me_fields, (
+            "pubchem_cid should be verifiable for MolecularEntity"
+        )
+
+    def test_organization_ror_not_verifiable(self):
+        """Organization has no verifier, so ror should not be in the set."""
+        vf = _get_verifiable_fields()
+        org_ror = ("Organization", "ror")
+        assert org_ror not in vf, (
+            "Organization ror should NOT be verifiable since no verifier exists"
+        )
+
+    def test_verifiable_fields_include_cell_line_fields(self):
+        """CellLineSample identifier and accession should be verifiable."""
+        vf = _get_verifiable_fields()
+        cl_fields = {f for (t, f) in vf if t == "CellLineSample"}
+        assert "identifier" in cl_fields
+        assert "accession" in cl_fields
+
+    def test_verifiable_fields_include_person_fields(self):
+        """Person identifier and orcid should be verifiable."""
+        vf = _get_verifiable_fields()
+        p_fields = {f for (t, f) in vf if t == "Person"}
+        assert "identifier" in p_fields
+        assert "orcid" in p_fields
+
+    def test_verifiable_fields_include_publication_fields(self):
+        """Publication identifier and doi should be verifiable."""
+        vf = _get_verifiable_fields()
+        pub_fields = {f for (t, f) in vf if t == "Publication"}
+        assert "identifier" in pub_fields
+        assert "doi" in pub_fields
+
+    def test_verify_all_identifiers_catches_casrn_and_inchikey(self, monkeypatch):
+        """verify_all_identifiers picks up casrn and inchikey as filled fields
+        on MolecularEntity and attempts verification."""
+        from builder.state import CrateState
+
+        state = CrateState()
+        chem = Entity(
+            entity_id="chem_001",
+            type="MolecularEntity",
+            fields={"casrn": "50-00-0", "inchikey": "WSFSSNUMVMOOMR-UHFFFAOYSA-N"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        chem.set_field_status("casrn", "filled", "llm")
+        chem.set_field_status("inchikey", "filled", "llm")
+        state.add_entity(chem)
+
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_compound",
+            lambda query: {"found": True, "data": {"pubchem_cid": "712"}, "error": None},
+        )
+
+        results = verify_all_identifiers(state)
+
+        result_fields = {(r["entity_id"], r["field"]) for r in results}
+        assert ("chem_001", "casrn") in result_fields, (
+            "casrn should be picked up by verify_all_identifiers"
+        )
+        assert ("chem_001", "inchikey") in result_fields, (
+            "inchikey should be picked up by verify_all_identifiers"
+        )
+
+    def test_organization_ror_not_in_verify_all_identifiers_results(self):
+        """Organization ror (with no verifier) produces no result from
+        verify_all_identifiers — no misleading 'No verifier configured' entry."""
+        from builder.state import CrateState
+
+        state = CrateState()
+        org = Entity(
+            entity_id="org_001",
+            type="Organization",
+            fields={"ror": "https://ror.org/123456"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        org.set_field_status("ror", "filled", "llm")
+        state.add_entity(org)
+
+        results = verify_all_identifiers(state)
+
+        ror_results = [r for r in results if r["field"] == "ror"]
+        assert len(ror_results) == 0, (
+            "Organization ror should produce NO results from verify_all_identifiers"
+        )
+
+    def test_sync_test_fails_if_drift_occurs(self):
+        """Ensure _IDENTIFIER_FIELDS (legacy set) and _get_verifiable_fields()
+        stay in sync — this test will fail if they drift apart, alerting
+        developers to update both."""
+        # Get the flat set of field names from _get_verifiable_fields
+        derived_fields = {f for (_t, f) in _get_verifiable_fields()}
+
+        # Every field in _IDENTIFIER_FIELDS that has a verifier should also
+        # appear in the derived set. (Fields like 'ror' that have NO verifier
+        # are excluded from the derived set.)
+        for field in _IDENTIFIER_FIELDS:
+            if field == "ror":
+                continue  # ror has no verifier; allowed to be missing
+            assert field in derived_fields, (
+                f"{field} is in _IDENTIFIER_FIELDS but NOT in derived "
+                f"verifiable fields — they must be kept in sync"
+            )

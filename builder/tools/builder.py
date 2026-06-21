@@ -23,7 +23,17 @@ from profiles.context import ISA_TOX_CONTEXT
 logger = logging.getLogger(__name__)
 
 
-def build_crate(state: CrateState, output_path: str) -> dict[str, Any]:
+def _default_crate_path(state: CrateState) -> str:
+    """Return a session-derived default crate path.
+
+    The convention is ``sessions/<session_id>/working_crate/``, which matches
+    the session persistence layout described in AGENTS.md.
+    """
+    session_id = state.session_id or "unknown"
+    return str(Path("sessions") / session_id / "working_crate")
+
+
+def build_crate(state: CrateState, output_path: str | None = None) -> dict[str, Any]:
     """Build an RO-Crate from CrateState using ro-crate-py.
 
     Creates the output directory, assembles a `ROCrate` from the state, and
@@ -32,20 +42,18 @@ def build_crate(state: CrateState, output_path: str) -> dict[str, Any]:
     Args:
         state: The current CrateState to build from.
         output_path: Path where the crate directory should be created.
+            When omitted, defaults to ``sessions/<session_id>/working_crate/``.
 
     Returns:
         A dict with keys:
             success (bool): Whether the crate was built successfully.
-            crate_path (str): The output path used.
+            crate_path (str): The output path used (can be passed directly
+                to :func:`validate`).
             error (str | None): Error message if success is False.
     """
     try:
         if not output_path:
-            return {
-                "success": False,
-                "crate_path": output_path,
-                "error": "Empty output path",
-            }
+            output_path = _default_crate_path(state)
 
         output_dir = Path(output_path)
         output_dir.mkdir(parents=True, exist_ok=True)

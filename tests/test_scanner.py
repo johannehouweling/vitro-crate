@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from unittest import mock
+
 from builder.tools.scanner import (
     preview_archive,
     read_file_sample,
@@ -468,3 +470,188 @@ class TestApprovedRoots:
 
         assert len(result) == 1
         assert result[0].filename == "file.csv"
+
+
+class TestPruneHiddenDirs:
+    """Tests for Issue #69: prune hidden/.git/__MACOSX subtrees during walk."""
+
+    def test_skips_git_directory_without_descending(self, tmp_path):
+        """scan_files skips .git/ subtree entirely when os.walk prunes dirnames."""
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git" / "objects").mkdir(parents=True)
+        (tmp_path / ".git" / "objects" / "abc123").write_text("fake pack\n")
+        (tmp_path / "data.txt").write_text("real data\n")
+
+        result = scan_files(str(tmp_path))
+
+        filenames = [f.filename for f in result]
+        assert "data.txt" in filenames
+        assert all(".git" not in f.path for f in result)
+        assert len(result) == 1
+
+    def test_skips_dot_hidden_dirs_without_descending(self, tmp_path):
+        """scan_files skips hidden directories (names starting with '.') entirely."""
+        (tmp_path / ".hidden_dir").mkdir()
+        (tmp_path / ".hidden_dir" / "secret.csv").write_text("a,b\n1,2\n")
+        (tmp_path / "visible.csv").write_text("c,d\n3,4\n")
+
+        result = scan_files(str(tmp_path))
+
+        filenames = [f.filename for f in result]
+        assert "visible.csv" in filenames
+        assert all(".hidden_dir" not in f.path for f in result)
+        assert len(result) == 1
+
+    def test_skips_macosx_dir_in_direct_scan(self, tmp_path):
+        """scan_files skips __MACOSX directories during os.walk."""
+        (tmp_path / "__MACOSX").mkdir()
+        (tmp_path / "__MACOSX" / "._junk.txt").write_text("junk\n")
+        (tmp_path / "real.csv").write_text("x,y\n1,2\n")
+
+        result = scan_files(str(tmp_path))
+
+        filenames = [f.filename for f in result]
+        assert "real.csv" in filenames
+        assert all("__MACOSX" not in f.path for f in result)
+        assert len(result) == 1
+
+    def test_hidden_subdir_in_nested_structure(self, tmp_path):
+        """Hidden subdirectories at any depth are pruned without descent."""
+        sub = tmp_path / "subdir"
+        sub.mkdir()
+        (sub / ".cache").mkdir()
+        (sub / ".cache" / "deep.txt").write_text("hidden\n")
+        (sub / "good.txt").write_text("visible\n")
+
+        result = scan_files(str(tmp_path))
+
+        assert all(".cache" not in f.path for f in result)
+        assert len(result) == 1
+        assert result[0].filename == "good.txt"
+
+    def test_skips_hidden_files_in_walk(self, tmp_path):
+        """Files with '.' prefix are still skipped (regression check)."""
+        (tmp_path / "visible.txt").write_text("hello\n")
+        (tmp_path / ".hidden.txt").write_text("shh\n")
+
+        result = scan_files(str(tmp_path))
+
+        assert len(result) == 1
+        assert result[0].filename == "visible.txt"
+
+
+class TestMaxFilesCap:
+    """Tests for Issue #68: cap scanned file count and first_rows preview size."""
+
+    def test_max_files_caps_result_count(self, tmp_path):
+        """scan_files respects max_files cap and truncates results."""
+        for i in range(150):
+            (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
+
+        result = scan_files(str(tmp_path), max_files=50)
+
+        assert len(result) == 50
+
+    def test_max_files_default_still_scans_all(self, tmp_path):
+        """scan_files with no max_files cap returns all files."""
+        for i in range(50):
+            (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
+
+        result = scan_files(str(tmp_path))
+
+        assert len(result) == 50
+
+    def test_max_files_logs_warning(self, tmp_path, caplog):
+        """scan_files logs a warning when truncating due to max_files."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        for i in range(150):
+            (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
+
+        scan_files(str(tmp_path), max_files=50)
+
+        warning_messages = [r for r in caplog.records if "max_files" in r.getMessage().lower()]
+        assert len(warning_messages) == 1
+
+    def test_first_rows_caps_line_length(self, tmp_path):
+        """scan_files caps each first_rows line to max_line_length characters."""
+        long_line = "x" * 500
+        csv_content = f"{long_line}\ncol1,col2\n1,2\n"
+        (tmp_path / "long.csv").write_text(csv_content)
+
+        result = scan_files(str(tmp_path), max_line_length=100)
+
+        fc = result[0]
+        assert fc.first_rows is not None
+        assert len(fc.first_rows[0]) == 100  # capped
+
+    def test_first_rows_default_no_cap(self, tmp_path):
+        """scan_files without max_line_length returns full lines."""
+        line = "x" * 300
+        (tmp_path / "data.csv").write_text(f"{line}\na,b\n")
+
+        result = scan_files(str(tmp_path))
+
+        fc = result[0]
+        assert fc.first_rows is not None
+        assert len(fc.first_rows[0]) == 300  # not capped
+
+    def test_first_rows_short_lines_unaffected(self, tmp_path):
+        """scan_files with max_line_length does not affect shorter lines."""
+        (tmp_path / "data.csv").write_text("a,b\n1,2\n3,4\n")
+
+        result = scan_files(str(tmp_path), max_line_length=100)
+
+        fc = result[0]
+        assert fc.first_rows is not None
+        assert fc.first_rows[0] == "a,b"
+
+
+class TestReducedStats:
+    """Tests for Issue #67: reduce redundant stat() and MIME calls during scanning."""
+
+    def test_mime_detected_once_per_file(self, tmp_path):
+        """scan_files does not call _detect_mime_type a second time for tabular sampling."""
+        from builder.tools.scanner import _detect_mime_type
+
+        (tmp_path / "data.csv").write_text("a,b\n1,2\n")
+
+        with mock.patch(
+            "builder.tools.scanner._detect_mime_type",
+            wraps=_detect_mime_type,
+        ) as mock_mime:
+            result = scan_files(str(tmp_path), max_files=100)
+
+        assert len(result) == 1
+        assert result[0].mime_type == "text/csv"
+        # _detect_mime_type should be called exactly once (during scan_files),
+        # not twice (scan_files + read_file_sample)
+        assert mock_mime.call_count == 1
+
+    def test_reduce_stats_maintains_first_rows(self, tmp_path):
+        """After reducing stat calls, first_rows for CSV files is still populated."""
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("col1,col2\n1,2\n3,4\n")
+
+        result = scan_files(str(tmp_path))
+
+        fc = result[0]
+        assert fc.first_rows is not None
+        assert fc.first_rows[0] == "col1,col2"
+
+    def test_read_file_sample_accepts_precomputed_info(self, tmp_path):
+        """read_file_sample accepts precomputed size and already_text flag to skip syscalls."""
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("a,b\n1,2\n")
+        stat_result = csv_file.stat()
+
+        sample = read_file_sample(
+            str(csv_file),
+            lines=5,
+            precomputed_size=stat_result.st_size,
+            already_text=True,
+        )
+
+        assert sample is not None
+        assert "a,b" in sample

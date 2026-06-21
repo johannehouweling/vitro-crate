@@ -495,6 +495,29 @@ def _wrap_tools_node(
     return timed_tools_node
 
 
+def _build_system_prompt_with_state(
+    session_id: str,
+    entity_count: int,
+    file_count: int,
+    iteration_count: int,
+) -> str:
+    """Build a lightweight state brief appended to the system prompt.
+
+    This is called on every model invocation (not persisted in history),
+    giving the LLM awareness of current session state without accumulating
+    duplicate metadata in MemorySaver.
+
+    Returns a single short line like:
+    ``[Session: sid | Files: 5 | Entities: 3 | Iteration: 42]``
+    """
+    return (
+        f"[Session: {session_id} | "
+        f"Files: {file_count} | "
+        f"Entities: {entity_count} | "
+        f"Iteration: {iteration_count}]"
+    )
+
+
 def _build_agent_graph(
     llm: Any,
     tools: list[Any],
@@ -540,8 +563,16 @@ def _build_agent_graph(
     def call_model(state: dict[str, Any]) -> dict[str, Any]:
         """Model node: prepend system prompt and invoke the tool-bound LLM."""
         messages = state.get("messages", [])
-        # Prepend system prompt on every invocation
-        system_msg = SystemMessage(content=SYSTEM_PROMPT)
+        # Prepend system prompt with lightweight state brief on every invocation.
+        # The state brief is re-built each time so it never accumulates in
+        # MemorySaver history (Issue #66).
+        state_brief = _build_system_prompt_with_state(
+            session_id=engine.state.session_id,
+            entity_count=len(engine.state.list_entities()),
+            file_count=len(engine.state.scanned_files),
+            iteration_count=engine.state.iteration_count,
+        )
+        system_msg = SystemMessage(content=f"{SYSTEM_PROMPT}\n\n{state_brief}")
         model_messages = [system_msg, *messages]
         response = model.invoke(model_messages)
         # Return only the new response; the add_messages reducer appends it
@@ -990,17 +1021,6 @@ def run_interactive_agent(
         if not user_input:
             continue
 
-        entity_summary = _format_entity_summary(engine.state.list_entities())
-
-        enriched_input = (
-            f"[Session: {engine.state.session_id} | "
-            f"Files: {len(engine.state.scanned_files)} | "
-            f"Entities: {len(engine.state.list_entities())} | "
-            f"Iterations: {engine.state.iteration_count}]\n"
-            f"{entity_summary}\n\n"
-            f"{user_input}"
-        )
-
         try:
             import random
 
@@ -1058,7 +1078,7 @@ def run_interactive_agent(
             }
             with spinner:
                 result = app.invoke(
-                    {"messages": [HumanMessage(content=enriched_input)]},
+                    {"messages": [HumanMessage(content=user_input)]},
                     main_config,
                 )
 
@@ -1069,9 +1089,18 @@ def run_interactive_agent(
 
             try:
                 from builder.tools.session import save_session
-                save_session(engine.state)
+                result = save_session(engine.state)
+                if not result.get("success", True):
+                    logger.warning(
+                        "Session save failed: %s", result.get("error", "Unknown error")
+                    )
+                    console.print(
+                        "[dim]⚠ Session autosave failed: "
+                        f"{result.get('error', 'Unknown error')}[/dim]"
+                    )
             except Exception:
-                pass
+                # Fallback: logging is best-effort
+                logger.exception("Unexpected error during session save")
 
         except GraphRecursionError:
             # The turn hit the recursion_limit safety net — stop gracefully
@@ -1084,9 +1113,14 @@ def run_interactive_agent(
             )
             try:
                 from builder.tools.session import save_session
-                save_session(engine.state)
+                result = save_session(engine.state, always_write=True)
+                if not result.get("success", True):
+                    logger.warning(
+                        "Session save on recursion error failed: %s",
+                        result.get("error", "Unknown error"),
+                    )
             except Exception:
-                pass
+                logger.exception("Unexpected error during session save on recursion")
             console.print()
         except Exception as exc:
             logger.exception("Agent error")

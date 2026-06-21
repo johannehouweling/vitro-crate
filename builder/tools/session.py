@@ -6,8 +6,11 @@ as interaction primitives for Human-in-the-Loop workflows.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +19,37 @@ from builder.state import CrateState
 logger = logging.getLogger(__name__)
 
 SESSION_DIR = Path("sessions")
+
+# ---------------------------------------------------------------------------
+# Change-detection: cached content hash of the last saved state so we can
+# skip writes when nothing changed.
+# ---------------------------------------------------------------------------
+_last_saved_state_hash: str | None = None
+
+
+def _state_content_hash(state: CrateState) -> str:
+    """Return a hash of the state's meaningful content, ignoring metadata timestamps.
+
+    This hash is used for change-detection: two saves with the same entities,
+    scanned files, approved roots, etc. (but different ``updated_at`` values)
+    will produce the same hash.
+    """
+    # Build a dict with the fields that represent actual content changes
+    content = {
+        "entities": state.entities.to_dict() if hasattr(state.entities, "to_dict") else str(state.entities),
+        "scanned_files": [
+            f.to_dict() if hasattr(f, "to_dict") else str(f)
+            for f in state.scanned_files
+        ],
+        "approved_scan_roots": sorted(state.approved_scan_roots),
+        "validation": state.validation.to_dict() if hasattr(state.validation, "to_dict") else str(state.validation),
+        "mit_assessment": state.mit_assessment.to_dict() if hasattr(state.mit_assessment, "to_dict") else str(state.mit_assessment),
+        "fair_assessment": state.fair_assessment.to_dict() if hasattr(state.fair_assessment, "to_dict") else str(state.fair_assessment),
+        "checkpoint": state.checkpoint.to_dict() if hasattr(state.checkpoint, "to_dict") else str(state.checkpoint),
+    }
+    return hashlib.sha256(
+        json.dumps(content, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def load_session(session_id: str) -> CrateState | None:
@@ -163,19 +197,48 @@ def get_hint(state: CrateState) -> str:
     return "Continue building the RO-Crate"
 
 
-def save_session(state: CrateState, label: str = "") -> dict:
+def save_session(state: CrateState, label: str = "", always_write: bool = False) -> dict:
     """Save CrateState to sessions/<session_id>/ directory.
 
-    Creates directory structure:
-    sessions/<session_id>/
-    ├── crate_state.json    # Serialized CrateState
-    └── session.log         # Agent reasoning trace
+    Uses an atomic write pattern: write to a temporary file in the same
+    directory, call os.fsync() to flush data to disk, then os.replace()
+    to atomically rename the temp file over the target.  This ensures
+    ``crate_state.json`` is never left in a partially-written state.
 
-    Returns {"success": bool, "session_id": str, "path": str, "error": str | None}
+    When the state content (entities, scanned files, approved roots,
+    validation/assessment/checkpoint data) is identical to the last saved
+    version the write is skipped (unless *always_write* is ``True``).
+    Metadata timestamps (``updated_at``, ``created_at``) are NOT considered
+    part of the "content" for change detection.
+
+    Creates directory structure::
+
+        sessions/<session_id>/
+        ├── crate_state.json    # Serialized CrateState
+        └── session.log         # Agent reasoning trace
+
+    Returns ``{"success": bool, "session_id": str, "path": str,
+    "error": str | None, "skipped": bool}``
     """
+    global _last_saved_state_hash
+
     # Assign session_id if not already set
     if not state.session_id:
         state.session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    # Change detection: hash the meaningful content (not timestamps)
+    content_hash = _state_content_hash(state)
+
+    if not always_write and _last_saved_state_hash == content_hash:
+        return {
+            "success": True,
+            "session_id": state.session_id,
+            "path": str(SESSION_DIR / state.session_id),
+            "error": None,
+            "skipped": True,
+        }
+
+    # Update timestamps for the write
     if not state.created_at:
         state.created_at = datetime.now(timezone.utc).isoformat()
     state.updated_at = datetime.now(timezone.utc).isoformat()
@@ -184,25 +247,61 @@ def save_session(state: CrateState, label: str = "") -> dict:
     session_path = SESSION_DIR / session_id
     session_path.mkdir(parents=True, exist_ok=True)
 
-    # Write crate_state.json
-    state_path = session_path / "crate_state.json"
-    with open(state_path, "w") as f:
-        f.write(state.to_json())
+    # Full JSON for the actual write (includes updated_at)
+    current_json = state.to_json()
 
-    # Write session.log
+    # Atomic write: temp file → fsync → os.replace
+    state_path = session_path / "crate_state.json"
+    try:
+        fd, tmp_path_str = tempfile.mkstemp(
+            dir=str(session_path),
+            prefix=".crate_state_tmp_",
+            suffix=".json",
+        )
+        try:
+            with os.fdopen(fd, "w") as tmp_file:
+                tmp_file.write(current_json)
+                tmp_file.flush()
+                os.fsync(fd)
+        except Exception:
+            try:
+                os.unlink(tmp_path_str)
+            except OSError:
+                pass
+            raise
+
+        os.replace(tmp_path_str, str(state_path))
+    except OSError as exc:
+        logger.error("Failed to save session %s: %s", session_id, exc)
+        return {
+            "success": False,
+            "session_id": session_id,
+            "path": str(session_path),
+            "error": str(exc),
+            "skipped": False,
+        }
+
+    # Remember the content hash for change detection
+    _last_saved_state_hash = content_hash
+
+    # Write session.log (best-effort)
     log_path = session_path / "session.log"
-    with open(log_path, "a") as f:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        action = f"save_session: saved state for {session_id}"
-        if label:
-            action += f" (label: {label})"
-        f.write(f"[{timestamp}] {action}\n")
+    try:
+        with open(log_path, "a") as f:
+            timestamp = datetime.now(timezone.utc).isoformat()
+            action = f"save_session: saved state for {session_id}"
+            if label:
+                action += f" (label: {label})"
+            f.write(f"[{timestamp}] {action}\n")
+    except OSError:
+        pass
 
     return {
         "success": True,
         "session_id": session_id,
         "path": str(session_path),
         "error": None,
+        "skipped": False,
     }
 
 

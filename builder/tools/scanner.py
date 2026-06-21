@@ -190,14 +190,25 @@ def _safe_walk(root: Path) -> list[Path]:
 
     Note that ``os.walk`` on Python 3.12+ raises ``PermissionError`` from
     ``os.scandir`` by default, so the ``onerror`` callback is essential.
+
+    Hidden and special directories (``.git``, ``__MACOSX``, dot-prefixed)
+    are pruned in-place during the walk so they are never descended.
     """
     results: list[Path] = []
 
     def _onerror(err: OSError) -> None:
         logger.warning("Skipping unreadable directory: %s", err.filename or err)
 
+    def _should_prune(dirname: str) -> bool:
+        """Return True if *dirname* should be skipped entirely."""
+        return dirname.startswith(".") or dirname == "__MACOSX"
+
     try:
         for dirpath_str, dirnames, filenames in os.walk(root, onerror=_onerror):
+            # Prune hidden and special directories in-place so os.walk
+            # never descends into them (Issue #69).
+            dirnames[:] = [d for d in dirnames if not _should_prune(d)]
+
             dirpath = Path(dirpath_str)
             for name in filenames:
                 results.append(dirpath / name)
@@ -211,6 +222,8 @@ def _safe_walk(root: Path) -> list[Path]:
 def scan_files(
     path: str,
     approved_roots: set[str] | None = None,
+    max_files: int = 0,
+    max_line_length: int = 0,
 ) -> list[FileClassification]:
     """Scan a directory or zip archive and return a file inventory.
 
@@ -231,6 +244,10 @@ def scan_files(
         approved_roots: Set of resolved absolute directory paths that are
             allowed for scanning.  Pass ``None`` on the first call to
             auto-approve the target.
+        max_files: Maximum number of files to return. 0 means unlimited.
+            When exceeded, the list is truncated and a warning is logged.
+        max_line_length: Maximum length for each ``first_rows`` line.
+            0 means unlimited. Longer lines are truncated.
 
     Returns:
         A list of ``FileClassification`` records.
@@ -282,10 +299,11 @@ def scan_files(
 
     results: list[FileClassification] = []
     try:
-        all_entries = sorted(target.rglob("*"))
-    except PermissionError:
-        logger.warning("Permission denied scanning %s — recursing manually", target)
+        # Use _safe_walk which prunes hidden/special dirs in-place (Issue #69)
         all_entries = sorted(_safe_walk(target))
+    except PermissionError:
+        logger.warning("Permission denied scanning %s", target)
+        return []
 
     scan_start = time.monotonic()
     processed = 0
@@ -294,27 +312,41 @@ def scan_files(
     for entry in all_entries:
         if not entry.is_file():
             continue
-        # Skip hidden files/dirs anywhere in the relative path
+
+        # Skip hidden files (names starting with '.')
+        if entry.name.startswith("."):
+            continue
+
+        # Compute stat and mime once per file (Issue #67)
         try:
-            rel_parts = entry.relative_to(target).parts
-        except ValueError:
+            st = entry.stat()
+            file_size = st.st_size
+        except OSError:
             continue
-        if any(p.startswith(".") for p in rel_parts):
-            continue
-        # Skip macOS resource fork metadata (__MACOSX folders in zips)
-        if any(p == "__MACOSX" for p in rel_parts):
-            continue
+
         mime = _detect_mime_type(entry)
+
+        # Check if this is a tabular file that should have first_rows
+        is_tabular = mime in _TABULAR_MIME_TYPES or entry.suffix.lower() in _TABULAR_SUFFIXES
         first_rows: list[str] | None = None
-        if mime in _TABULAR_MIME_TYPES or entry.suffix.lower() in _TABULAR_SUFFIXES:
-            sample = read_file_sample(str(entry), lines=20)
+        if is_tabular:
+            sample = read_file_sample(
+                str(entry),
+                lines=20,
+                precomputed_size=file_size,
+                already_text=True,
+            )
             if sample is not None:
-                first_rows = sample.splitlines()
+                lines = sample.splitlines()
+                if max_line_length > 0:
+                    lines = [line[:max_line_length] for line in lines]
+                first_rows = lines
+
         results.append(
             FileClassification(
                 path=str(entry),
                 filename=entry.name,
-                size=entry.stat().st_size,
+                size=file_size,
                 mime_type=mime,
                 first_rows=first_rows,
             )
@@ -328,6 +360,14 @@ def scan_files(
                 total_candidates,
                 elapsed,
             )
+
+        # Check max_files cap (Issue #68)
+        if max_files > 0 and len(results) >= max_files:
+            logger.warning(
+                "Reached max_files limit (%d) — truncating scan results",
+                max_files,
+            )
+            break
 
     total_elapsed = time.monotonic() - scan_start
     logger.info(
@@ -473,12 +513,22 @@ def read_multiple_files(
     }
 
 
-def read_file_sample(path: str, lines: int = 20) -> str | None:
+def read_file_sample(
+    path: str,
+    lines: int = 20,
+    precomputed_size: int | None = None,
+    already_text: bool = False,
+) -> str | None:
     """Read first N lines of a file for context without loading the whole thing.
 
     Args:
         path: Path to the file to sample.
         lines: Number of lines to read (default 20).
+        precomputed_size: Precomputed file size to avoid a stat() call.
+            When given, the size check uses this value instead of calling stat().
+        already_text: If True, skip MIME and binary-content detection because
+            the caller has already determined this is a text file. Avoids
+            redundant _detect_mime_type and content checks during scanning.
 
     Returns:
         A string with the first N lines, or None if the file cannot be read.
@@ -489,26 +539,28 @@ def read_file_sample(path: str, lines: int = 20) -> str | None:
 
     # Skip very large files
     try:
-        if file_path.stat().st_size > 100 * 1024 * 1024:
+        size = precomputed_size if precomputed_size is not None else file_path.stat().st_size
+        if size > 100 * 1024 * 1024:
             logger.info("Skipping file sample (>100MB): %s", path)
             return None
     except OSError:
         return None
 
-    # Skip binary files
-    if _detect_mime_type(file_path) == "application/octet-stream":
-        return None
+    if not already_text:
+        # Skip binary files
+        if _detect_mime_type(file_path) == "application/octet-stream":
+            return None
 
-    # Content-based binary guard: office formats (xlsx/xls) are zip/OLE2
-    # containers whose MIME type is *not* octet-stream, so the check above
-    # misses them and their raw bytes (PK\x03\x04…) would be read as mojibake.
-    # A NUL byte in the first chunk reliably marks a file as binary.
-    try:
-        with file_path.open("rb") as fb:
-            if b"\x00" in fb.read(8192):
-                return None
-    except OSError:
-        return None
+        # Content-based binary guard: office formats (xlsx/xls) are zip/OLE2
+        # containers whose MIME type is *not* octet-stream, so the check above
+        # misses them and their raw bytes (PK\x03\x04…) would be read as mojibake.
+        # A NUL byte in the first chunk reliably marks a file as binary.
+        try:
+            with file_path.open("rb") as fb:
+                if b"\x00" in fb.read(8192):
+                    return None
+        except OSError:
+            return None
 
     try:
         sample_lines: list[str] = []
@@ -524,6 +576,60 @@ def read_file_sample(path: str, lines: int = 20) -> str | None:
         return None
     except Exception:
         logger.exception("Error reading file sample: %s", path)
+        return None
+
+
+def extract_pdf_text(path: str) -> str | None:
+    """Extract text content from a PDF file using pypdf.
+
+    Args:
+        path: Path to the PDF file.
+
+    Returns:
+        The extracted text content as a string, or None if the file cannot
+        be read, is not a PDF, is password-protected, or exceeds 100 MB.
+    """
+    file_path = Path(path)
+    if not file_path.is_file():
+        return None
+
+    # Skip very large files
+    try:
+        size = file_path.stat().st_size
+        if size > 100 * 1024 * 1024:
+            logger.info("Skipping large PDF (>100MB): %s", path)
+            return None
+    except OSError:
+        return None
+
+    try:
+        import pypdf
+
+        with file_path.open("rb") as f:
+            try:
+                reader = pypdf.PdfReader(f)
+            except pypdf.errors.PdfReadError:
+                logger.warning("Not a valid PDF or file is corrupt: %s", path)
+                return None
+
+            if reader.is_encrypted:
+                logger.warning("Password-protected PDF, cannot extract: %s", path)
+                return None
+
+            pages: list[str] = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text:
+                    pages.append(text)
+            return "\n".join(pages)
+    except ImportError:
+        logger.error("pypdf is not installed. Install it with: uv add pypdf")
+        return None
+    except PermissionError:
+        logger.warning("Permission denied reading file: %s", path)
+        return None
+    except Exception:
+        logger.exception("Error extracting PDF text from: %s", path)
         return None
 
 

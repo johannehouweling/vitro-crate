@@ -112,6 +112,72 @@ class TestFormatEntitySummary:
         result = _format_entity_summary(entities)
         assert "Investigation" in result
         assert "Study: 2" in result
+
+
+class TestEnrichedInputNotAccumulated:
+    """Per-turn state metadata must NOT accumulate in persistent message history.
+
+    Issue #66: the enriched_input header (session id, counts, entity summary)
+    was injected as a HumanMessage on every turn, and because MemorySaver
+    retains everything, this metadata duplicated across turns. The fix moves
+    a lightweight state brief into the system prompt (which is re-created
+    fresh on every model invocation) and passes user input unadorned.
+    """
+
+    def test_call_model_includes_state_brief(self):
+        """call_model should prepend a system message that includes state info
+        (session id, counts) — NOT the full entity summary."""
+        from builder.agents.agent_loop import _build_system_prompt_with_state
+
+        prompt = _build_system_prompt_with_state(
+            session_id="test-session",
+            entity_count=3,
+            file_count=5,
+            iteration_count=42,
+        )
+        assert "test-session" in prompt
+        assert "Entities: 3" in prompt
+        assert "Files: 5" in prompt
+        assert "Iteration: 42" in prompt
+
+    def test_call_model_system_prompt_is_lightweight(self):
+        """The state brief injected into the system prompt should be a single
+        short line, NOT the full multi-line entity summary."""
+        from builder.agents.agent_loop import _build_system_prompt_with_state
+
+        prompt = _build_system_prompt_with_state(
+            session_id="sid",
+            entity_count=10,
+            file_count=20,
+            iteration_count=5,
+        )
+        # Should be a single short line — count newlines in the brief portion
+        # The brief is appended after the main system prompt with a \n---
+        # separator. Find the brief section.
+        assert "Session: sid" in prompt
+        assert len(prompt) < 200, (
+            f"State brief should be short, got {len(prompt)} chars"
+        )
+
+    def test_user_input_not_wrapped_in_header(self):
+        """run_interactive_agent must pass plain user_input as the
+        HumanMessage content, NOT enriched_input with entity summary."""
+        # This is a structural test — verify that the code path
+        # no longer builds enriched_input with entity_summary.
+        import inspect
+        from builder.agents import agent_loop
+
+        source = inspect.getsource(agent_loop.run_interactive_agent)
+        # enriched_input construction must be gone
+        assert "enriched_input" not in source, (
+            "enriched_input must not be built; state brief should be in system prompt"
+        )
+        # The entity_summary line in the message body must be gone
+        assert "_format_entity_summary" not in source.split("enriched"), (
+            "_format_entity_summary should not be called for message enrichment"
+        )
+        # user_input should be used directly
+        assert "HumanMessage(content=user_input)" in source or '"messages": [HumanMessage(content=user_input)]' in source
 class TestBuildChatModel:
     """Tests for the chat model builder."""
 

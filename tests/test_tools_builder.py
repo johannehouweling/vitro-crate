@@ -67,14 +67,15 @@ class TestBuildCrate:
             assert root.get("description") == "A description"
 
     def test_returns_error_on_invalid_path(self):
-        """build_crate returns error dict on failure."""
+        """build_crate returns error dict on failure (e.g. non-writable path)."""
         state = CrateState()
-        # An empty string path is invalid
-        result = build_crate(state, "")
+        state.session_id = "test_invalid_path"
+        # An empty string now uses the default, so use a path that will fail
+        # (root-owned dir without write permission)
+        result = build_crate(state, "/proc/0/crate")
 
         assert result["success"] is False
         assert result["error"] is not None
-        assert result["crate_path"] == ""
 
     def test_uses_rocrate_py_metadata_descriptor(self):
         """build_crate assembles via ro-crate-py, not a hand-rolled dict.
@@ -108,3 +109,39 @@ class TestBuildCrate:
             # ro-crate-py stamps the descriptor with the RO-Crate spec it conforms
             # to; the exact minor version is pinned explicitly in Step 2.
             assert any("w3id.org/ro/crate" in cid for cid in conforms_ids)
+
+    def test_build_crate_returns_crate_path_for_validate(self, monkeypatch):
+        """build_crate returns a crate_path that can be passed back to validate.
+
+        build_crate should document this. When output_path is given, the
+        returned crate_path matches it exactly.
+        """
+        state = CrateState()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = str(Path(tmpdir) / "my_crate")
+            result = build_crate(state, output_path)
+
+            assert result["success"] is True
+            # The returned crate_path must equal the output_path we passed,
+            # so it can be fed straight into validate().
+            assert result["crate_path"] == output_path
+
+    def test_build_crate_generates_default_crate_path_to_sessions(self, monkeypatch):
+        """build_crate uses a session-derived default when output_path is not given.
+
+        The default should be: sessions/<session_id>/working_crate/
+        """
+        state = CrateState()
+        state.session_id = "test_default_path_001"
+
+        import builder.tools.builder as _builder_mod
+
+        # Call without output_path — the function should supply a default
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monkeypatch.chdir(tmpdir)
+            result = build_crate(state)
+
+            assert result["success"] is True
+            expected = f"sessions/{state.session_id}/working_crate"
+            assert result["crate_path"] == expected
+            assert Path(expected).is_dir()
