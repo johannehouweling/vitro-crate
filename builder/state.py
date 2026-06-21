@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -788,26 +789,84 @@ class CrateState:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this CrateState to a JSON-compatible dictionary."""
-        return {
-            "session_id": self.session_id,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "metadata": self.metadata.to_dict(),
-            "entities": self.entities.to_dict(),
-            "approved_scan_roots": list(self.approved_scan_roots),
-            "scanned_files": [f.to_dict() for f in self.scanned_files],
-            "validation": self.validation.to_dict(),
-            "mit_assessment": self.mit_assessment.to_dict(),
-            "fair_assessment": self.fair_assessment.to_dict(),
-            "checkpoint": self.checkpoint.to_dict(),
-            "iteration_count": self.iteration_count,
-            "max_iterations": self.max_iterations,
-            "stuck": self.stuck,
-        }
+        return StateSerializer.to_dict(self)
 
     def to_json(self) -> str:
         """Serialize this CrateState to a JSON string."""
-        return json.dumps(self.to_dict(), indent=2, default=str)
+        return StateSerializer.to_json(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CrateState:
+        """Deserialize a CrateState from a dictionary."""
+        return StateSerializer.from_dict(data)
+
+    @classmethod
+    def from_json(cls, data: str) -> CrateState:
+        """Deserialize a CrateState from a JSON string."""
+        return StateSerializer.from_json(data)
+
+
+# ===================================================================
+# StateSerializer - JSON (de)serialization for CrateState
+# ===================================================================
+
+
+class StateSerializer:
+    """(De)serialize :class:`CrateState` to/from JSON-compatible structures.
+
+    Serialization of component values is driven by a type registry: any value
+    whose ``type()`` is registered is encoded by the registered callable;
+    otherwise a value's own ``to_dict()`` is used. New component types can be
+    supported by calling :meth:`register_serializer` rather than editing this
+    class. ``CrateState``'s ``to_dict``/``from_dict``/``to_json``/``from_json``
+    delegate here, so the extraction is transparent to existing callers.
+    """
+
+    _encoders: dict[type, Callable[[Any], Any]] = {}
+
+    @classmethod
+    def register_serializer(
+        cls, type_: type, fn: Callable[[Any], Any]
+    ) -> None:
+        """Register ``fn`` to encode instances of ``type_`` into JSON data."""
+        cls._encoders[type_] = fn
+
+    @classmethod
+    def _encode(cls, value: Any) -> Any:
+        """Encode a component value via the registry, else its ``to_dict()``."""
+        encoder = cls._encoders.get(type(value))
+        if encoder is not None:
+            return encoder(value)
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            return to_dict()
+        return value
+
+    @classmethod
+    def to_dict(cls, state: CrateState) -> dict[str, Any]:
+        """Serialize a CrateState to a JSON-compatible dictionary."""
+        return {
+            "session_id": state.session_id,
+            "created_at": state.created_at,
+            "updated_at": state.updated_at,
+            "metadata": cls._encode(state.metadata),
+            "entities": cls._encode(state.entities),
+            "approved_scan_roots": list(state.approved_scan_roots),
+            "scanned_files": [cls._encode(f) for f in state.scanned_files],
+            "validation": cls._encode(state.validation),
+            "mit_assessment": cls._encode(state.mit_assessment),
+            "fair_assessment": cls._encode(state.fair_assessment),
+            "checkpoint": cls._encode(state.checkpoint),
+            "iteration_count": state.iteration_count,
+            "max_iterations": state.max_iterations,
+            "stuck": state.stuck,
+        }
+
+    @classmethod
+    def to_json(cls, state: CrateState) -> str:
+        """Serialize a CrateState to a JSON string."""
+        return json.dumps(cls.to_dict(state), indent=2, default=str)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CrateState:
         """Deserialize a CrateState from a dictionary."""
@@ -828,7 +887,7 @@ class CrateState:
         )
         checkpoint.stuck = _reasoning_field_with_fallback("stuck", checkpoint.stuck)
 
-        return cls(
+        return CrateState(
             session_id=data.get("session_id", ""),
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
