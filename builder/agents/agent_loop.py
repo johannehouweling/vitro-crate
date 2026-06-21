@@ -416,8 +416,10 @@ def _build_agent_graph(
     model invocation.
 
     Args:
-        llm: A LangChain chat model (with tools already bound).
-        tools: List of LangChain BaseTool instances for the ToolNode.
+        llm: A LangChain chat model. The tools are bound to it internally
+            (via ``llm.bind_tools``) so the model can emit tool calls.
+        tools: List of LangChain BaseTool instances — bound to the model
+            for advertising and used by the ToolNode for execution.
         engine: Optional engine; when it has an active profiler, the
             ``"model"`` and ``"tools"`` nodes are wrapped with timing
             instrumentation that writes to ``profile.ndjson``.
@@ -436,13 +438,21 @@ def _build_agent_graph(
         (lambda: engine.state.iteration_count) if engine is not None else None
     )
 
+    # Bind the tool schemas to the model so it can actually emit tool_calls.
+    # Without this, the model is never told the tools exist: should_continue
+    # always routes to END, the ToolNode is unreachable, and the agent
+    # silently degrades to a text-only chatbot that narrates "let me scan..."
+    # but never executes a tool. (create_agent() bound tools internally;
+    # the explicit-graph migration dropped this and broke tool-calling.)
+    model = llm.bind_tools(tools) if tools else llm
+
     def call_model(state: dict[str, Any]) -> dict[str, Any]:
-        """Model node: prepend system prompt and invoke the LLM."""
+        """Model node: prepend system prompt and invoke the tool-bound LLM."""
         messages = state.get("messages", [])
         # Prepend system prompt on every invocation
         system_msg = SystemMessage(content=SYSTEM_PROMPT)
         model_messages = [system_msg, *messages]
-        response = llm.invoke(model_messages)
+        response = model.invoke(model_messages)
         # Return only the new response; the add_messages reducer appends it
         return {"messages": [response]}
 
