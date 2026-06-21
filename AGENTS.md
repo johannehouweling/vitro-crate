@@ -252,6 +252,99 @@ This project builds on the existing RO-Crate Python ecosystem rather than reinve
 
 These packages are imported directly — we do not fork or vendor them. Version requirements are declared in `pyproject.toml`.
 
+### Agent Graph (LangGraph / StateGraph)
+
+The `create_agent()` factory (from `langchain.agents` v1.3+, re-exported from `langchain.agents.factory`) builds a compiled **`StateGraph`** under the hood. This graph is the LangGraph execution engine that drives the tool-calling loop. The code in `builder/agents/agent_loop.py` (line ~310) passes the LLM, the tool list, the `system_prompt`, and a `MemorySaver` checkpointer to this factory, and the result is a `CompiledStateGraph` that we invoke via `app.invoke()`.
+
+#### Node Topology
+
+When tools are provided (the normal case), the compiled graph has exactly **four nodes**:
+
+| Node | Purpose |
+|------|---------|
+| `__start__` (built-in) | Entry point — LangGraph's standard pseudo-node. Transitions unconditionally to `model`. |
+| `model` | Calls the LLM with the current message list plus `system_prompt`. |
+| `tools` | Executes any tool calls produced by the model. |
+| `__end__` (built-in) | Terminal node — LangGraph's standard pseudo-node. Agent terminates here. |
+
+Without tools, the graph has only `__start__` → `model` → `__end__` (the `tools` node is simply not added).
+
+#### Edge Routing (Tool-Calling Loop)
+
+The edges form a classic ReAct (Reasoning + Acting) loop:
+
+```
+                        ┌──────────────────────────┐
+                        │                          │
+                        ▼                          │
+   __start__ ──► model ──► model_to_tools()?  ──► tools
+                     │                              │
+                     └──► END (if no tool_calls)    │
+                                                    │
+                              tools_to_model()? ◄───┘
+                                    │
+                                    └──► model (loop back)
+                                    └──► END (if return_direct)
+```
+
+The routing is governed by two conditional edge functions defined in `factory.py`:
+
+1. **_make_model_to_tools_edge(model_to_tools)** — runs after the `model` node (or the last `after_model` middleware):
+
+   - **Route to `tools`** (via `Send("tools", tool_call)`): If the last `AIMessage` has pending `tool_calls` that haven't been fulfilled yet.
+   - **Route to `__end__`** (the `exit_node`): If the model produced no `tool_calls` (classic termination condition), or if a `jump_to` directive or `structured_response` is present.
+   - **Route back to `model`**: If `tool_calls` exist but all have been handled (artificial tool message injection scenario — signals HITL/resume).
+
+2. **_make_tools_to_model_edge(tools_to_model)** — runs after the `tools` node:
+
+   - **Route to `model`**: Default — tool results need to be fed back to the LLM so it can decide the next action.
+   - **Route to `__end__`**: If *all* executed client-side tools have `return_direct=True`, or if a structured-output tool was executed (the schema has been filled).
+
+#### Termination Condition
+
+The loop terminates when the model produces an `AIMessage` with **zero tool calls**. This is checked in step 3 of `_make_model_to_tools_edge`:
+
+```python
+if len(last_ai_message.tool_calls) == 0:
+    return end_destination  # -> __end__
+```
+
+The recursion limit is set to 9,999 in the compiled graph config to prevent infinite loops.
+
+#### How `system_prompt` Gets Injected
+
+The factory converts `system_prompt` (str) to a `SystemMessage` at construction time (line ~948). This `SystemMessage` is stored as a closure variable in the `model_node` function. When `_execute_model_sync` runs, it **prepends** the system message to the message list:
+
+```python
+# factory.py, _execute_model_sync()
+messages = request.messages
+if request.system_message:
+    messages = [request.system_message, *messages]
+output = model_.invoke(messages)
+```
+
+This means the system prompt is **prepended on every model invocation**, not just the first — it appears at the front of the messages every time the loop iterates back to the model. The captured message trace confirms this ordering: `[system, human, ai(tool_calls), tool, system, ai(answer)]`.
+
+#### How `MemorySaver` Integrates
+
+The `MemorySaver` checkpointer is passed to `graph.compile()` at line ~1761. It does **not** add new nodes to the graph; it is a **checkpointing layer** that snapshots the full agent state (`messages` list, etc.) after each node execution. LangGraph uses the `thread_id` from `RunnableConfig` to key these checkpoints. On subsequent `invoke()` calls with the same `thread_id`, the graph resumes from the last checkpoint, providing conversational memory across turns.
+
+The `MemorySaver` does not affect routing or the node topology — it is purely a persistence mechanism for state snapshots.
+
+#### Graph in the No-Tools Case
+
+When `create_agent` is called without any tools (or with an empty list), the graph simplifies to:
+
+```
+__start__ ──► model ──► __end__
+```
+
+A direct edge connects `model` to `__end__` because there is no tool loop to manage. The `model` node still prepends `system_prompt` if provided.
+
+#### Current Status
+
+This is the **as-built internal graph structure** as of LangChain 1.3.10 / LangGraph (transitive). It is an opaque implementation detail — the graph is constructed entirely inside `create_agent()` and our code only sees the compiled `CompiledStateGraph` returned. Issue #37 will replace this factory-based graph with explicit, inspectable graph construction code, giving us control over node names, routing logic, and middleware integration.
+
 ## 5. The Agent Toolbox
 
 ### File & ARC Tools
