@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "id": "https://ror.org/02jz4aj89",
+      "name": "Maastricht University",
+      "links": [
+        {"type": "website", "value": "https://www.maastrichtuniversity.nl"}
+      ],
+      "country": {"country_name": "Netherlands", "country_code": "NL"}
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "name-list": [
+          {"type": "identifier", "value": "HepG2"},
+          {"type": "synonym", "value": "Hep G2"},
+          {"type": "synonym", "value": "Hep-G2"}
+        ],
+        "species-list": [
+          {"label": "Homo sapiens", "iri": "http://purl.obolibrary.org/obo/NCBITaxon_9606"}
+        ],
+        "disease-list": [
+          {"label": "Hepatoblastoma", "iri": "http://purl.obolibrary.org/obo/NCIT_C3728"}
+        ],
+        "derived-from-site-list": [
+          {
+            "site": {
+              "value": "Liver",
+              "xref-list": [
+                {"iri": "http://purl.obolibrary.org/obo/UBERON_0002107", "label": "liver"}
+              ]
+            }
+          }
+        ],
+        "sex": "Male",
+        "age": "15Y",
+        "category": "Cancer cell line",
+        "xref-list": [
+          {"database": "CLO", "iri": "http://purl.obolibrary.org/obo/CLO_0003703"},
+          {"database": "Wikidata", "iri": "https://www.wikidata.org/wiki/Q3512461"},
+          {"database": "ATCC", "iri": null}
+        ]
+      }
+    ]
+  }
+}
