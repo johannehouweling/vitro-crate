@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from builder.state import CrateState
+from builder.tools.profiler import ProfilingLogger
 
 if TYPE_CHECKING:
     from builder.tools.hitl import HumanInterface
@@ -49,6 +50,7 @@ class AgentEngine:
             human_interface = SimulatedHumanInterface()
         self.human_interface = human_interface
         self._running = False
+        self.profiler: ProfilingLogger | None = None
 
     # ------------------------------------------------------------------
     # Initialization
@@ -70,6 +72,9 @@ class AgentEngine:
         if not self.state.created_at:
             self.state.created_at = datetime.now(timezone.utc).isoformat()
         self.state.updated_at = datetime.now(timezone.utc).isoformat()
+
+        # Initialize the profiler now that we have a session_id
+        self.profiler = ProfilingLogger(self.state.session_id)
 
         self.state.log_reasoning(
             "initialize", "scan_files",
@@ -115,7 +120,8 @@ class AgentEngine:
         """Execute a tool by name with kwargs.
 
         Looks up the tool function from the registry and calls it.
-        Records the call in the reasoning log.
+        Records the call in the reasoning log and the profiling log
+        (if a profiler is active).
 
         Args:
             tool_name: Name of the tool to execute.
@@ -127,6 +133,9 @@ class AgentEngine:
         Raises:
             ValueError: If the tool name is not recognised.
         """
+        import time as _time
+
+        _start = _time.perf_counter()
         scanner_tools: dict[str, Any] = {}
         try:
             from builder.tools.scanner import scan_files as sf, read_file_sample as rfs, read_multiple_files as rmf, unzip_file as uzf, preview_archive as pa
@@ -180,7 +189,33 @@ class AgentEngine:
             tool_name,
             str(result)[:300] if result is not None else "None",
         )
+
+        # Record timing in the profiling log
+        if self.profiler is not None:
+            _duration = (_time.perf_counter() - _start) * 1000.0
+            _args_str: str | None = None
+            try:
+                _args_str = str(kwargs)[:500]
+            except Exception:
+                pass
+            self.profiler.log_tool_call(
+                tool_name=tool_name,
+                duration_ms=_duration,
+                iteration=self.state.iteration_count,
+                args=_args_str,
+            )
+
         return result
+
+    def close_profiler(self) -> None:
+        """Close the profiling log file, if open.
+
+        This method is idempotent — calling it multiple times or when
+        no profiler was ever created is safe.
+        """
+        if self.profiler is not None:
+            self.profiler.close()
+            self.profiler = None
 
     # ------------------------------------------------------------------
     # Status & introspection
