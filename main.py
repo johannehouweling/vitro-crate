@@ -92,6 +92,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Show current LLM configuration and exit",
     )
+    parser.add_argument(
+        "--dashboard", "-D",
+        action="store_true",
+        help="Show the profiler dashboard for the latest session (or --resume session)",
+    )
     return parser.parse_args(argv)
 
 
@@ -169,6 +174,13 @@ def main(argv: list[str] | None = None) -> int:
         if _run_setup_wizard():
             return 0
         return 1
+
+    # Dashboard mode — show profiler dashboard (before engine creation)
+    if args.dashboard:
+        from builder.tools.dashboard import run_static_dashboard
+
+        run_static_dashboard(session_id=args.resume)
+        return 0
 
     # Ensure config is loaded before creating the engine
     if args.interactive:
