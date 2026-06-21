@@ -379,6 +379,16 @@ Automatically at: after file scanning, after each entity draft, after HITL check
 3. Agent incorporates feedback and continues
 4. All feedback logged in entity `_provenance`
 
+### Interface Adapter
+HITL requests go through a `HumanInterface` protocol (`builder/tools/hitl.py`)
+injected into the engine via `AgentEngine(human_interface=...)`. It defines
+`present(context, options) → HumanResponse` and `request_input(prompt,
+field_type) → InputResponse`. The default `SimulatedHumanInterface`
+auto-approves and skips input for headless/batch runs; a frontend (Streamlit,
+FastAPI, CLI) supplies its own adapter without monkeypatching the tool
+functions. The module-level `present_to_human` / `request_input` functions
+remain as thin wrappers over a shared default simulator.
+
 ## 9. Input & Output Formats
 
 ### Input Formats
