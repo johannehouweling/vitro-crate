@@ -767,7 +767,8 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     from rich.columns import Columns
 
     body_parts = [
-        Columns([crate_panel, token_table, node_table], equal=True, expand=True),
+        crate_panel,
+        Columns([token_table, node_table], equal=True, expand=True),
     ]
     if response_panel:
         body_parts.append(response_panel)
