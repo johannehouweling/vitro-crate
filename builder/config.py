@@ -25,7 +25,8 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
-from datetime import datetime, timezone as _timezone_mod
+from datetime import datetime
+from datetime import timezone as _timezone_mod
 from pathlib import Path
 from typing import Any
 
@@ -172,8 +173,10 @@ def merge_with_env(config: dict[str, Any]) -> dict[str, Any]:
         ("openai", "api_key"): "VITRO_OPENAI_API_KEY",
         ("openai", "base_url"): "VITRO_OPENAI_BASE_URL",
         ("openai", "model"): "VITRO_OPENAI_MODEL",
+        ("openai", "model_provider"): "VITRO_OPENAI_MODEL_PROVIDER",
         ("anthropic", "api_key"): "VITRO_ANTHROPIC_API_KEY",
         ("anthropic", "model"): "VITRO_ANTHROPIC_MODEL",
+        ("anthropic", "model_provider"): "VITRO_ANTHROPIC_MODEL_PROVIDER",
         ("_global", "max_retries"): "VITRO_MAX_RETRIES",
     }
     for (section, key), env_var in mapping.items():
@@ -182,6 +185,60 @@ def merge_with_env(config: dict[str, Any]) -> dict[str, Any]:
             if val is not None:
                 os.environ[env_var] = str(val)
     return config
+
+
+def get_provider() -> str | None:
+    """Detect which LLM API family is configured.
+
+    Returns ``\"openai\"``, ``\"anthropic\"``, or *None* if neither is configured.
+    This distinguishes the *API protocol* (OpenAI-compatible vs Anthropic),
+    not the *model vendor*. For model-level provider disambiguation (e.g.
+    DeepSeek-via-Azure vs DeepSeek-native), use :func:`get_model_provider`.
+    """
+    if os.environ.get("VITRO_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    if os.environ.get("VITRO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    cfg = load_config()
+    if cfg.get("openai", {}).get("api_key"):
+        return "openai"
+    if cfg.get("anthropic", {}).get("api_key"):
+        return "anthropic"
+    return None
+
+
+def get_model_provider() -> str | None:
+    """Return the user-configured model vendor/provider for cost calculation.
+
+    Reads from the ``VITRO_OPENAI_MODEL_PROVIDER`` env var (or
+    ``VITRO_ANTHROPIC_MODEL_PROVIDER``) first, then falls back to the config
+    file's ``openai.model_provider`` or ``anthropic.model_provider``.
+
+    The value should be one of the LiteLLM pricing-JSON provider prefixes
+    (e.g. ``\"deepseek\"``, ``\"azure\"``, ``\"openai\"``, ``\"together\"``, etc.)
+    as configured during :func:`interactive_setup`.
+
+    Returns *None* if no model provider is configured — cost display will
+    be unavailable.
+    """
+    # Check env vars — the active API family determines which env var to read
+    family = get_provider()
+    if family == "openai":
+        val = os.environ.get("VITRO_OPENAI_MODEL_PROVIDER")
+        if val:
+            return val.strip().lower()
+    elif family == "anthropic":
+        val = os.environ.get("VITRO_ANTHROPIC_MODEL_PROVIDER")
+        if val:
+            return val.strip().lower()
+
+    # Fall back to config file
+    cfg = load_config()
+    if family == "openai":
+        return cfg.get("openai", {}).get("model_provider")
+    if family == "anthropic":
+        return cfg.get("anthropic", {}).get("model_provider")
+    return None
 
 
 def is_configured() -> bool:
@@ -271,6 +328,9 @@ def interactive_setup() -> bool:
         config["openai"]["base_url"] = base_url
         model = input("Model name [llama3.2]: ").strip() or "llama3.2"
         config["openai"]["model"] = model
+
+        # Ask for model vendor/provider for cost calculation
+        _ask_model_provider(config, section="openai")
     elif provider in ("2", "anthropic"):
         config["anthropic"] = {}
         print()
@@ -281,6 +341,8 @@ def interactive_setup() -> bool:
             input("Model name [claude-sonnet-4-20250514]: ").strip() or "claude-sonnet-4-20250514"
         )
         config["anthropic"]["model"] = model
+        # Anthropic is always served by Anthropic
+        config["anthropic"]["model_provider"] = "anthropic"
     else:
         print(f"Unknown provider: {provider!r}")
         return False
@@ -292,11 +354,58 @@ def interactive_setup() -> bool:
     return True
 
 
+def _ask_model_provider(config: dict[str, Any], section: str) -> None:
+    """Prompt the user to pick a model vendor/provider from the LiteLLM pricing
+    list.  The result is stored in ``config[section][\"model_provider\"]``.
+
+    Fetches the LiteLLM pricing JSON to extract unique provider prefixes.
+    Falls back to a basic prompt if the fetch fails.
+    """
+    try:
+        from builder.pricing import list_providers
+
+        providers = list_providers()
+        if providers:
+            print()
+            print("  Model vendor/provider (for cost calculation):")
+            for i, p in enumerate(providers, 1):
+                print(f"    {i:>2}) {p}")
+            try:
+                choice = input(f"  Choose [1-{len(providers)}, or press Enter for 'openai']: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                choice = ""
+            if choice:
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(providers):
+                        config[section]["model_provider"] = providers[idx]
+                        return
+                except (ValueError, IndexError):
+                    # Try as a raw name
+                    choice_lower = choice.lower().strip()
+                    provider_set = set(providers)
+                    if choice_lower in provider_set:
+                        config[section]["model_provider"] = choice_lower
+                        return
+                    print(f"  [dim]'{choice}' not recognised — using 'openai'[/dim]")
+            config[section]["model_provider"] = "openai"
+            return
+    except Exception:
+        pass
+
+    # Fallback: basic prompt
+    print()
+    mp = input("Model provider for cost tracking (e.g. openai, azure, deepseek, together) [openai]: ").strip().lower()
+    config[section]["model_provider"] = mp or "openai"
+
 __all__ = [
     "load_config",
     "save_config",
     "merge_with_env",
     "is_configured",
+    "get_provider",
+    "get_model_provider",
     "describe_config",
     "interactive_setup",
     "get_max_iterations",

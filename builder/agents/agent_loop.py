@@ -810,7 +810,8 @@ def run_interactive_agent(
 
         Re-rendered each turn (a recurring header rule rather than a pinned
         bar, which would conflict with ``console.input``/``console.status``).
-        Shows session id, entity/file counts, and validation state.
+        Shows session id, entity/file counts, validation state, and token
+        usage with estimated cost.
         """
         ec = len(engine.state.list_entities())
         fc = len(engine.state.scanned_files)
@@ -820,6 +821,38 @@ def run_interactive_agent(
             return "[green]●[/green]" if ok else "[grey50]○[/grey50]"
 
         sep = "[grey42]·[/grey42]"
+        # Token usage with estimated cost (read from profile.ndjson)
+        token_str = ""
+        try:
+            from builder.tools.dashboard import read_profile
+            from builder.tools.profiler import SESSION_DIR
+
+            profile_path = SESSION_DIR / engine.state.session_id / "profile.ndjson"
+            if profile_path.exists():
+                prof_records = read_profile(profile_path)
+                if prof_records:
+                    # Aggregate cumulative tokens
+                    model_ends = [
+                        r for r in prof_records
+                        if r.get("event") == "node_end" and r.get("node") == "model"
+                    ]
+                    total_in = sum(int(r.get("input_tokens", 0) or 0) for r in model_ends)
+                    total_out = sum(int(r.get("output_tokens", 0) or 0) for r in model_ends)
+                    last_model = (model_ends[-1].get("model_name") or "") if model_ends else ""
+                    if total_in + total_out > 0:
+                        from builder.config import get_model_provider
+                        from builder.pricing import compute_cost, format_cost
+
+                        mp = get_model_provider()
+                        cost_info = compute_cost(total_in, total_out, last_model, provider=mp)
+                        cost_str = f"@{format_cost(cost_info['total_cost'])}" if cost_info.get("total_cost") is not None else ""
+                        token_str = (
+                            f"  {sep}  [dim]tok {total_in}→{total_out} ({total_in + total_out})"
+                            f"{cost_str}[/dim]"
+                        )
+        except Exception:
+            pass
+
         status = (
             f"[dim]{engine.state.session_id}[/dim]  {sep}  "
             f"[dim]{ec} entities[/dim]  {sep}  "
@@ -827,6 +860,7 @@ def run_interactive_agent(
             f"{_dot(val.base_passed)} [dim]base[/dim]  "
             f"{_dot(val.isa_passed)} [dim]ISA[/dim]  "
             f"{_dot(val.tox_passed)} [dim]Tox[/dim]"
+            f"{token_str}"
         )
         # A dim, indented status line with breathing room above — lighter
         # than a full-width rule, closer to the Claude Code aesthetic.
