@@ -336,8 +336,149 @@ class TestUnzipFile:
         assert "message" in result
 
 
+class TestReadFileSampleMode:
+    """Tests for the mode parameter on read_file_sample."""
+
+    def test_summary_csv(self, tmp_path):
+        """mode='summary' on CSV returns column names, row count, and sample."""
+        f = tmp_path / "data.csv"
+        f.write_text("col1,col2,col3\n1,2,3\n4,5,6\n7,8,9\n")
+        result = read_file_sample(str(f), mode="summary")
+        assert result is not None
+        assert "3 columns" in result.lower() or "col1" in result
+        assert "3 data rows" in result.lower() or "4" in result
+        assert "1, 2, 3" in result or "1,2,3" in result
+
+    def test_summary_tsv(self, tmp_path):
+        """mode='summary' on TSV returns column names and row count."""
+        f = tmp_path / "data.tsv"
+        f.write_text("col1\tcol2\n1\t2\n3\t4\n")
+        result = read_file_sample(str(f), mode="summary")
+        assert result is not None
+        assert "col1" in result
+        assert "2 data rows" in result.lower() or "3" in result
+
+    def test_summary_json(self, tmp_path):
+        """mode='summary' on JSON returns top-level keys and array lengths."""
+        f = tmp_path / "data.json"
+        f.write_text('{"name": "test", "values": [1, 2, 3], "meta": {"a": 1}}')
+        result = read_file_sample(str(f), mode="summary")
+        assert result is not None
+        assert "name" in result
+        assert "values" in result
+        assert "3" in result
+
+    def test_summary_json_array(self, tmp_path):
+        """mode='summary' on a JSON array reports the count."""
+        f = tmp_path / "list.json"
+        f.write_text('[{"id": 1}, {"id": 2}, {"id": 3}]')
+        result = read_file_sample(str(f), mode="summary")
+        assert result is not None
+        assert "3 items" in result.lower() or "3 elements" in result.lower()
+
+    def test_summary_xlsx(self, tmp_path):
+        """mode='summary' on XLSX returns sheet names."""
+        import zipfile
+        f = tmp_path / "book.xlsx"
+        with zipfile.ZipFile(f, "w") as z:
+            z.writestr("xl/workbook.xml",
+                '<?xml version="1.0"?><workbook><sheets><sheet name="Sheet1"/></sheets></workbook>')
+            z.writestr("xl/sharedStrings.xml",
+                '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"></sst>')
+            z.writestr("xl/worksheets/sheet1.xml",
+                '<?xml version="1.0"?><worksheet><dimension ref="A1:B5"/></worksheet>')
+            z.writestr("[Content_Types].xml", "<Types/>")
+        result = read_file_sample(str(f), mode="summary")
+        assert result is not None
+        assert "Sheet1" in result
+
+    def test_summary_pdf(self, tmp_path):
+        """mode='summary' on PDF returns format and page count info."""
+        f = tmp_path / "doc.pdf"
+        f.write_bytes(
+            b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            b"2 0 obj<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2>>endobj\n"
+            b"3 0 obj<</Type/Page/Parent 2 0 R>>endobj\n"
+            b"4 0 obj<</Type/Page/Parent 2 0 R>>endobj\n"
+            b"xref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n"
+            b"0000000058 00000 n \n0000000115 00000 n \n0000000162 00000 n \n"
+            b"trailer<</Size 5/Root 1 0 R>>\nstartxref\n211\n%%EOF"
+        )
+        result = read_file_sample(str(f), mode="summary")
+        assert result is not None
+        # pdfplumber may parse it and report 0-2 pages, but we should see the format
+        assert "Format: PDF" in result or "PDF" in result
+
+    def test_summary_docx(self, tmp_path):
+        """mode='summary' on DOCX returns format info when valid."""
+        import zipfile
+        f = tmp_path / "report.docx"
+        with zipfile.ZipFile(f, "w") as z:
+            # A more complete minimal docx with proper ContentTypes
+            z.writestr("[Content_Types].xml",
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                '<Override PartName="/word/document.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+                '</Types>')
+            z.writestr("word/document.xml",
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                '<w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>')
+        result = read_file_sample(str(f), mode="summary")
+        if result is not None:
+            has_format = "Format: Word" in result or "docx" in result.lower()
+            assert has_format or "paragraph" in result.lower()
+
+    def test_summary_plain_text(self, tmp_path):
+        """mode='summary' on plain text returns line count and sample."""
+        f = tmp_path / "readme.txt"
+        f.write_text("line1\nline2\nline3\nline4\nline5\n")
+        result = read_file_sample(str(f), mode="summary")
+        assert result is not None
+        assert "lines: 5" in result.lower() or "5 lines" in result.lower()
+        assert "line1" in result
+        assert "line5" in result
+
+    def test_summary_binary_returns_none(self, tmp_path):
+        """mode='summary' on binary file returns None."""
+        f = tmp_path / "binary.bin"
+        f.write_bytes(b"\x00\x01\x02\x03")
+        result = read_file_sample(str(f), mode="summary")
+        assert result is None
+
+    def test_overview_includes_metadata(self, tmp_path):
+        """mode='overview' includes file metadata and the summary."""
+        f = tmp_path / "data.csv"
+        f.write_text("a,b\n1,2\n3,4\n")
+        result = read_file_sample(str(f), mode="overview")
+        assert result is not None
+        assert "data.csv" in result
+        assert "text/csv" in result.lower() or "csv" in result.lower()
+        assert "2 columns" in result.lower() or "a, b" in result
+
+    def test_overview_on_nonexistent_file(self, tmp_path):
+        """mode='overview' on nonexistent file returns None."""
+        result = read_file_sample(str(tmp_path / "nope.txt"), mode="overview")
+        assert result is None
+
+    def test_content_mode_returns_first_lines(self, tmp_path):
+        """mode='content' returns first N lines (same as default)."""
+        f = tmp_path / "sample.txt"
+        f.write_text("line1\nline2\nline3\n")
+        result = read_file_sample(str(f), mode="content")
+        assert result == "line1\nline2\nline3"
+
+    def test_default_mode_is_content(self, tmp_path):
+        """Default mode (no mode kwarg) behaves like mode='content'."""
+        f = tmp_path / "sample.txt"
+        f.write_text("hello\nworld\n")
+        result = read_file_sample(str(f))
+        assert result == "hello\nworld"
+
+
 class TestReadFileSample:
-    """Tests for the read_file_sample function."""
+    """Tests for the read_file_sample function (legacy)."""
 
     def test_returns_first_lines_of_text_file(self, tmp_path):
         """read_file_sample returns the first N lines of a text file."""

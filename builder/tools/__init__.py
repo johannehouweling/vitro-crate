@@ -34,6 +34,7 @@ from builder.tools.drafters import (
     draft_study,
 )
 from builder.tools.fair_assessment import assess_fair_maturity
+from builder.tools.file_readers import read_docx, read_excel, read_file
 from builder.tools.hitl import present_to_human, request_input
 from builder.tools.lookups import (
     lookup_aop,
@@ -99,6 +100,9 @@ __all__ = [
     "lookup_ror",
     "present_to_human",
     "preview_archive",
+    "read_docx",
+    "read_excel",
+    "read_file",
     "read_file_sample",
     "read_multiple_files",
     "remove_entity",

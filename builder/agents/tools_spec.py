@@ -383,14 +383,36 @@ TOOL_SPECS = [
     },
     {
         "name": "read_file_sample",
-        "description": "Read a sample of lines from a file. Use this instead of read_multiple_files when you need to inspect a single file's content.",
+        "description": "Read a sample from a file. Use mode 'content' (first N lines), 'summary' (file-type-aware overview like columns for CSV, keys for JSON, page count for PDF), or 'overview' (file metadata + summary). Use this instead of read_multiple_files when inspecting a single file.",
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to the file to read"},
-                "lines": {"type": "integer", "description": "Number of lines to read (default 20)"},
+                "lines": {"type": "integer", "description": "Number of lines to read in 'content' mode (default 20)"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["content", "summary", "overview"],
+                    "description": "Reading mode: 'content' (first N lines), 'summary' (file-type-aware summary), or 'overview' (file metadata + summary). Default 'content'.",
+                },
             },
             "required": ["path"],
+        },
+    },
+    {
+        "name": "read_multiple_files",
+        "description": "Read several files in one go. Each file is read with the same mode (content/summary/overview). Use this to inspect multiple files at once.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "paths": {"type": "array", "items": {"type": "string"}, "description": "List of file paths to read"},
+                "lines": {"type": "integer", "description": "Max lines per file in 'content' mode (default 50)"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["content", "summary", "overview"],
+                    "description": "Reading mode: 'content' (first N lines), 'summary' (file-type-aware summary), or 'overview' (file metadata + summary). Default 'content'.",
+                },
+            },
+            "required": ["paths"],
         },
     },
     {

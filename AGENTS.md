@@ -343,7 +343,10 @@ The `MemorySaver` does not affect routing or the node topology — it is purely 
 *These are called during session initialization, not by the LLM during the agent loop.*
 ```
 scan_files(path: str) → [FileClassification]
-read_file_sample(path: str, lines: int = 20) → str | None
+read_file_sample(path: str, lines: int = 20, mode: str = "content") → str | None
+  mode: "content" (first N lines), "summary" (file-type-aware), "overview" (metadata + summary)
+read_multiple_files(paths: list[str], lines: int = 50, mode: str = "content") → dict
+  mode: same options as read_file_sample
 scaffold_arc(scanned_files: [FileClassification]) → ARCTree
 ```
 `scaffold_arc` creates the ARC folder tree from the template and sorts scanned files into the correct ARC buckets. Called after `scan_files` and before the agent loop starts.

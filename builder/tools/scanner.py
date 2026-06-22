@@ -460,10 +460,256 @@ def _strip_macos_junk(root: Path) -> None:
                 logger.warning("Could not remove macOS junk: %s", entry)
 
 
+# ---------------------------------------------------------------------------
+# Summary helpers (used by read_file_sample with mode="summary")
+# ---------------------------------------------------------------------------
+
+_SUMMARY_MAX_LINES = 50
+
+
+def _summarize_csv(path: Path) -> str | None:
+    """Return a summary of a CSV/TSV file: columns, row count, sample."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            header = f.readline().strip()
+            if not header:
+                return None
+            columns = [c.strip() for c in header.replace("\t", ",").split(",")]
+            n_cols = len(columns)
+            data_rows = 0
+            sample_rows: list[str] = []
+            for line in f:
+                stripped = line.rstrip("\n")
+                data_rows += 1
+                if len(sample_rows) < 3:
+                    sample_rows.append(stripped)
+    except OSError:
+        return None
+
+    parts = [
+        "Format: CSV/TSV",
+        f"Columns ({n_cols}): {', '.join(columns)}",
+        f"Data rows: {data_rows}",
+    ]
+    if sample_rows:
+        parts.append("Sample rows:")
+        parts.extend(f"  {r}" for r in sample_rows)
+    return "\n".join(parts)
+
+
+def _summarize_json(path: Path) -> str | None:
+    """Return a summary of a JSON file: keys, array lengths, structure."""
+    import json as json_lib
+
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            raw = f.read(200_000)
+        data = json_lib.loads(raw)
+    except (json_lib.JSONDecodeError, OSError, ValueError):
+        return None
+
+    parts = ["Format: JSON"]
+
+    if isinstance(data, dict):
+        keys = list(data.keys())
+        parts.append(f"Top-level keys ({len(keys)}): {', '.join(keys)}")
+        for k in keys:
+            v = data[k]
+            if isinstance(v, list):
+                parts.append(f"  {k}: array[{len(v)}]")
+            elif isinstance(v, dict):
+                subkeys = list(v.keys())
+                parts.append(f"  {k}: object {{{', '.join(subkeys[:5])}}}")
+            elif isinstance(v, str):
+                preview = v[:80].replace("\n", " ")
+                parts.append(f'  {k}: string "{preview}"')
+            else:
+                parts.append(f"  {k}: {type(v).__name__} = {v}")
+    elif isinstance(data, list):
+        parts.append(f"Top-level array with {len(data)} items")
+        if data and isinstance(data[0], dict):
+            keys = list(data[0].keys())
+            parts.append(f"  Item keys: {', '.join(keys)}")
+    else:
+        parts.append(f"Top-level value: {type(data).__name__} = {data}")
+
+    return "\n".join(parts)
+
+
+def _summarize_xlsx(path: Path) -> str | None:
+    """Summary of XLSX: sheet names and row/col counts."""
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True, keep_links=False)
+    except Exception:
+        return None
+
+    parts = ["Format: Excel (.xlsx)"]
+    try:
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            col_count = 0
+            for row in ws.iter_rows(values_only=True):
+                col_count = len(row)
+                break
+            dim = ws.dimensions
+            if dim and dim != "A1":
+                parts.append(f"  {sheet_name}: ~{dim} ({col_count} cols)")
+            else:
+                parts.append(f"  {sheet_name}: unknown rows, {col_count} cols")
+    finally:
+        wb.close()
+
+    return "\n".join(parts)
+
+
+def _summarize_pdf(path: Path) -> str | None:
+    """Summary of PDF: page count, text length."""
+    # Try pdfplumber first
+    try:
+        import pdfplumber
+    except ImportError:
+        pdfplumber = None  # type: ignore[assignment]
+
+    if pdfplumber is not None:
+        try:
+            with pdfplumber.open(path) as pdf:
+                try:
+                    n_pages = len(pdf.pages)
+                except Exception:
+                    n_pages = 0
+                total_chars = 0
+                for page in pdf.pages:
+                    try:
+                        total_chars += len(page.extract_text() or "")
+                    except Exception:
+                        pass
+                return (
+                    f"Format: PDF\n"
+                    f"Pages: {n_pages}\n"
+                    f"Total text length: ~{total_chars} characters"
+                )
+        except Exception:
+            pass  # Fall through to the manual scan below
+
+    # Fallback: count /Type /Page entries manually
+    try:
+        with path.open("rb") as f:
+            content = f.read(10000)
+        page_count = content.count(b"/Type /Page") or content.count(b"/Type/Page")
+        if page_count:
+            return f"Format: PDF\nPages: ~{page_count}"
+    except OSError:
+        pass
+    return None
+
+
+def _summarize_docx(path: Path) -> str | None:
+    """Summary of DOCX: paragraph count, table count, sample."""
+    try:
+        from docx import Document  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+
+    try:
+        doc = Document(path)
+    except Exception:
+        return None
+
+    para_count = len(doc.paragraphs)
+    table_count = len(doc.tables)
+    total_chars = sum(len(p.text) for p in doc.paragraphs)
+
+    parts = [
+        "Format: Word (.docx)",
+        f"Paragraphs: {para_count}",
+        f"Tables: {table_count}",
+        f"Total text length: ~{total_chars} characters",
+    ]
+
+    sample_paras = []
+    for p in doc.paragraphs:
+        if p.text.strip():
+            sample_paras.append(p.text.strip()[:120])
+            if len(sample_paras) >= 3:
+                break
+    if sample_paras:
+        parts.append("Sample text:")
+        parts.extend(f"  {s}" for s in sample_paras)
+
+    return "\n".join(parts)
+
+
+def _summarize_text(path: Path) -> str | None:
+    """Summary of plain text: line count, char count, sample."""
+    try:
+        file_size = path.stat().st_size
+    except OSError:
+        return None
+
+    line_count = 0
+    sample_lines: list[str] = []
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line_count += 1
+                if len(sample_lines) < 5:
+                    sample_lines.append(line.rstrip("\n"))
+    except OSError:
+        return None
+
+    parts = [
+        "Format: Plain text",
+        f"Lines: {line_count}",
+        f"Size: {file_size} bytes",
+    ]
+    if sample_lines:
+        parts.append("Sample:")
+        parts.extend(f"  {s}" for s in sample_lines)
+    return "\n".join(parts)
+
+
+def _build_file_overview(path: str, file_path: Path, summary: str | None) -> str:
+    """Build an overview string with file metadata plus the summary."""
+    file_size = 0
+    mime_type = "unknown"
+    try:
+        file_size = file_path.stat().st_size
+        mime_type = _detect_mime_type(file_path)
+    except OSError:
+        pass
+
+    parts = [
+        f"File: {path}",
+        f"Size: {_format_size(file_size)}",
+        f"MIME type: {mime_type}",
+    ]
+    if summary:
+        parts.append("")
+        parts.append(summary)
+    return "\n".join(parts)
+
+
+def _format_size(size_bytes: int) -> str:
+    """Format bytes as human-readable string."""
+    if size_bytes == 0:
+        return "0 B"
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(size_bytes) < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
 def read_multiple_files(
     paths: list[str],
     *,
     lines: int = 50,
+    mode: str = "content",
 ) -> dict:
     """Read several files in one go and return their contents.
 
@@ -474,6 +720,8 @@ def read_multiple_files(
     Args:
         paths: List of file paths to read (absolute or relative to cwd).
         lines: Max lines to read per file (default 50).
+        mode: Reading mode - "content" (first N lines), "summary" (file-type-aware
+            summary), or "overview" (metadata + summary). Default "content".
 
     Returns:
         A dict with:
@@ -487,7 +735,7 @@ def read_multiple_files(
 
     for path in paths:
         file_start = time.monotonic()
-        content = read_file_sample(path, lines=lines)
+        content = read_file_sample(path, lines=lines, mode=mode)
         file_elapsed = time.monotonic() - file_start
         if content is not None:
             results[path] = content
@@ -520,25 +768,69 @@ def read_file_sample(
     lines: int = 20,
     precomputed_size: int | None = None,
     already_text: bool = False,
+    mode: str = "content",
 ) -> str | None:
-    """Read first N lines of a file for context without loading the whole thing.
+    """Read a sample from a file with optional mode-aware output.
 
     Args:
         path: Path to the file to sample.
-        lines: Number of lines to read (default 20).
+        lines: Number of lines to read (default 20). Used in "content" mode.
         precomputed_size: Precomputed file size to avoid a stat() call.
             When given, the size check uses this value instead of calling stat().
         already_text: If True, skip MIME and binary-content detection because
             the caller has already determined this is a text file. Avoids
             redundant _detect_mime_type and content checks during scanning.
+        mode: Reading mode:
+            - "content" (default): First N lines of the file (legacy behavior).
+            - "summary": File-type-aware summary (columns for CSV, keys for JSON,
+              sheet names for XLSX, page count for PDF, etc.).
+            - "overview": File metadata (name, size, MIME type) plus the summary.
 
     Returns:
-        A string with the first N lines, or None if the file cannot be read.
+        A string with the file content/summary, or None if the file cannot be read.
     """
     file_path = Path(path)
     if not file_path.is_file():
         return None
 
+    # For summary and overview modes, dispatch to type-aware summarizers
+    if mode in ("summary", "overview"):
+        # Determine MIME type for dispatch
+        try:
+            mime = _detect_mime_type(file_path)
+        except Exception:
+            mime = "application/octet-stream"
+
+        suffix = file_path.suffix.lower()
+
+        # Pick the right summarizer based on file type
+        summary: str | None = None
+
+        if suffix == ".csv" or suffix == ".tsv" or mime in _TABULAR_MIME_TYPES:
+            summary = _summarize_csv(file_path)
+        elif suffix == ".json":
+            summary = _summarize_json(file_path)
+        elif suffix == ".xlsx" or suffix == ".xls":
+            summary = _summarize_xlsx(file_path)
+        elif suffix == ".pdf":
+            summary = _summarize_pdf(file_path)
+        elif suffix == ".docx":
+            summary = _summarize_docx(file_path)
+        else:
+            # Try as plain text first, else binary check
+            try:
+                with file_path.open("rb") as fb:
+                    if b"\x00" in fb.read(8192):
+                        return None  # binary — no summary possible
+            except OSError:
+                return None
+            summary = _summarize_text(file_path)
+
+        if mode == "overview":
+            return _build_file_overview(path, file_path, summary)
+        return summary  # mode == "summary"
+
+    # Legacy "content" mode: first N lines
     # Skip very large files
     try:
         size = precomputed_size if precomputed_size is not None else file_path.stat().st_size
