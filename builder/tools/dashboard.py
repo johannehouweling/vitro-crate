@@ -258,6 +258,7 @@ _TOOL_ICONS: dict[str, str] = {
     "read_multiple_files": "\U0001f4c2", "preview_archive": "\U0001f4c2",
     "extract_pdf_text": "\U0001f4c4", "extract_pdf_tables": "\U0001f4c4",
     "verify_identifier": "\u2705", "verify_all_identifiers": "\u2705",
+    "build_and_validate": "\u2714\ufe0f", "export_crate": "\U0001f3ed",
     "build_crate": "\U0001f3ed", "validate": "\u2714\ufe0f",
     "assess_mit_coverage": "\U0001f52e", "assess_fair_maturity": "\U0001f52e",
     "save_session": "\U0001f4be", "load_session": "\U0001f4c1",
