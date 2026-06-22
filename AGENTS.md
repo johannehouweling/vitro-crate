@@ -415,12 +415,15 @@ a fix to a specific field:
 ```python
 {
   "ok": bool,                                  # no issues at the gate severity
-  "conformance": {"base": bool, "isa": bool, "tox": bool},
+  "conformance": {"base": bool, "isa": bool, "tox": bool},  # only the scoped key(s) when profile != "all"
   "issues": [
     {"entity_id", "property", "message", "fix", "severity", "profile"}, ...
   ],
 }
 ```
+
+`conformance` is keyed to the passes actually run: all three layers for
+`profile="all"`, or just the scoped layer when a single `profile` is given.
 
 `severity` (`required`|`recommended`|`optional`) is the gate that decides which
 SHACL checks run — `required` (the default) is fastest. `profile`

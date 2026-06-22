@@ -204,7 +204,7 @@ TOOL_SPECS = [
     },
     {
         "name": "build_and_validate",
-        "description": "Build the crate from the current state in memory and validate it in one step (no files written). This is the fast build/fix loop: use it on every iteration. Returns {ok, conformance:{base,isa,tox}, issues:[{entity_id, property, message, fix, severity, profile}]} — each issue is keyed to the entity and property that failed, so route your fix there. Fix REQUIRED issues bottom-up: base, then isa, then tox.",
+        "description": "Build the crate from the current state in memory and validate it in one step (no files written). This is the fast build/fix loop: use it on every iteration. Returns {ok, conformance, issues:[{entity_id, property, message, fix, severity, profile}]} — each issue is keyed to the entity and property that failed, so route your fix there. conformance maps each layer that ran to its REQUIRED pass/fail: {base,isa,tox} for profile='all', or just the scoped layer when you pass a single profile. Fix REQUIRED issues bottom-up: base, then isa, then tox.",
         "parameters": {
             "type": "object",
             "properties": {
