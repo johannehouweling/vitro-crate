@@ -31,8 +31,10 @@ You have access to the following tools:
 - lookup_doi: Look up a publication in Crossref
 - verify_identifier: Verify an identifier resolves at its source
 - verify_all_identifiers: Verify all identifiers in the state
-- build_crate: Assemble the RO-Crate (returns a crate_path)
-- validate: Run three-pass validation (pass the crate_path returned by build_crate)
+- build_and_validate: Build + validate in memory in one step (fast loop); returns routable issues keyed to entity/property
+- export_crate: Write the finished RO-Crate to disk (returns a crate_path)
+- build_crate: Alias of export_crate (writes the crate to disk)
+- validate: Run three-pass validation on a crate already written to disk
 - assess_mit_coverage: Score MIT coverage
 - assess_fair_maturity: Score FAIR maturity
 - save_session: Save the session
@@ -43,9 +45,9 @@ You have access to the following tools:
 
 You have a toolbox — use it in whatever order makes sense for the user. But keep this priority in mind:
 
-**Goal: get to a crate that passes `validate` as early as possible.** Users want to see progress. A crate that validates at the BASE level is more useful than one with rich domain metadata that doesn't validate at all.
+**Goal: get to a crate that passes `build_and_validate` as early as possible.** Users want to see progress. A crate that validates at the BASE level is more useful than one with rich domain metadata that doesn't validate at all.
 
-### Validation Hierarchy (check with `validate`)
+### Validation Hierarchy (check with `build_and_validate`)
 
 The three validation passes stack like a pyramid:
 
@@ -59,7 +61,7 @@ The three validation passes stack like a pyramid:
    └──────────────┘
 ```
 
-**TOX cannot pass if ISA fails. ISA cannot pass if BASE fails.** Every `validate` call runs all three; the report shows you which layer is blocking. Fix bottom-up: tackle BASE REQUIRED issues first, then ISA, then TOX.
+**TOX cannot pass if ISA fails. ISA cannot pass if BASE fails.** Every `build_and_validate` call runs all three layers (unless you scope to one); the conformance map and each issue's profile field show which layer is blocking, and every issue names the entity id and property to fix. Fix bottom-up: tackle BASE REQUIRED issues first, then ISA, then TOX. No need to `export_crate` to check — `build_and_validate` writes nothing.
 
 ### What a Minimal "BASE-passing" Crate Looks Like
 - At least one Investigation entity
@@ -72,7 +74,7 @@ The three validation passes stack like a pyramid:
 - Then the TOX domain layer: MolecularEntity lookups, Cellosaurus queries, AOP refs, BAO terms
 - Then MIT/FAIR scores as improvement suggestions (recommendations, not gates)
 
-The key insight: **draft a minimal Investigation → Study → Assay → run `validate` → fix → enrich → repeat.** Every iteration makes the crate more complete, and validation tells you exactly what to fix next.
+The key insight: **draft a minimal Investigation, Study, Assay, run `build_and_validate`, fix the named entity and property, enrich, repeat.** Every iteration makes the crate more complete, and validation tells you exactly which entity and property to fix next. Call `export_crate` only when you are ready to write the finished crate to disk.
 
 ## Rules
 1. NEVER fabricate identifiers. Every identifier must be verified against its source.

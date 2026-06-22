@@ -107,17 +107,28 @@ _STRUCT_FIELDS = frozenset(
 )
 
 
-def populate_crate(state: CrateState, crate: ROCrate, output_dir: Path) -> None:
+def populate_crate(
+    state: CrateState,
+    crate: ROCrate,
+    output_dir: Path | None = None,
+    *,
+    materialize_payload: bool = True,
+) -> None:
     """Populate `crate` from `state` using the ISA-Tox domain model.
 
     output_dir is the crate root being written; the Exposure condition table is
     materialised there as a (placeholder) CSV so it is a valid in-payload File.
+
+    When ``materialize_payload`` is False (the in-memory build_and_validate path,
+    #87) no payload file is written to disk — the condition-table File node is
+    still added to the graph so the metadata document validates, but its CSV is
+    not created. This keeps validation a zero-disk operation.
     """
     idx: dict[str, Any] = {}
     _populate_root_and_conformance(state, crate)
     _add_leaves(state, crate, idx)
     _add_structural(state, crate, idx)
-    _add_processes(state, crate, idx, output_dir)
+    _add_processes(state, crate, idx, output_dir, materialize_payload=materialize_payload)
     _wire_mentions(state, idx)
 
 
@@ -497,7 +508,13 @@ _CONDITION_TABLE_HEADER = "cell_line,compound,concentration,unit,duration\n"
 
 
 def _synth_condition_table(
-    crate: ROCrate, output_dir: Path, exp_pid: str, cells: list[Any], chems: list[Any]
+    crate: ROCrate,
+    output_dir: Path | None,
+    exp_pid: str,
+    cells: list[Any],
+    chems: list[Any],
+    *,
+    materialize_payload: bool = True,
 ) -> File:
     """The Exposure's result: the CSVW condition table (the per-well design table).
 
@@ -511,10 +528,14 @@ def _synth_condition_table(
     its result (a MolecularEntity cannot be a process object under the ISA shape).
     """
     rel = f"data/{_slug(exp_pid)}_condition_table.csv"
-    dest = output_dir / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if not dest.exists():
-        dest.write_text(_CONDITION_TABLE_HEADER, encoding="utf-8")
+    # Only touch disk when materialising payload for an on-disk export. The
+    # in-memory validate path (#87) skips the write; the File node below still
+    # carries dest_path=rel so the metadata graph is complete for validation.
+    if materialize_payload and output_dir is not None:
+        dest = output_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            dest.write_text(_CONDITION_TABLE_HEADER, encoding="utf-8")
     table = crate.add(
         File(
             crate,
@@ -529,7 +550,12 @@ def _synth_condition_table(
 
 
 def _add_processes(
-    state: CrateState, crate: ROCrate, idx: dict[str, Any], output_dir: Path
+    state: CrateState,
+    crate: ROCrate,
+    idx: dict[str, Any],
+    output_dir: Path | None,
+    *,
+    materialize_payload: bool = True,
 ) -> None:
     proto_cache: dict[str, Any] = {}
     for proc in state.list_entities("LabProcess"):
@@ -540,7 +566,10 @@ def _add_processes(
         protocol = _resolve_one(idx, f.get("labprotocol")) or _synth_protocol(
             crate, f.get("assay_id"), proto_cache
         )
-        node = _build_process(crate, ptype, pid, name, f, protocol, idx, output_dir)
+        node = _build_process(
+            crate, ptype, pid, name, f, protocol, idx, output_dir,
+            materialize_payload=materialize_payload,
+        )
         _idx_add(idx, proc, node)
         assay = _resolve_one(idx, f.get("assay_id"))
         if assay is not None:
@@ -555,7 +584,9 @@ def _build_process(
     f: dict[str, Any],
     protocol: Any,
     idx: dict[str, Any],
-    output_dir: Path,
+    output_dir: Path | None,
+    *,
+    materialize_payload: bool = True,
 ) -> Any:
     samples = _resolve_many(idx, f.get("samples"))
     obj = _resolve_many(idx, f.get("object"))
@@ -596,7 +627,12 @@ def _build_process(
         # intake/condition_table.py.
         cells = samples or obj
         chems = _resolve_many(idx, f.get("chemicals"))
-        out = result or [_synth_condition_table(crate, output_dir, pid, cells, chems)]
+        out = result or [
+            _synth_condition_table(
+                crate, output_dir, pid, cells, chems,
+                materialize_payload=materialize_payload,
+            )
+        ]
         return LabProcessExposure(
             crate,
             identifier=pid,

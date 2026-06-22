@@ -203,8 +203,42 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "build_and_validate",
+        "description": "Build the crate from the current state in memory and validate it in one step (no files written). This is the fast build/fix loop: use it on every iteration. Returns {ok, conformance:{base,isa,tox}, issues:[{entity_id, property, message, fix, severity, profile}]} — each issue is keyed to the entity and property that failed, so route your fix there. Fix REQUIRED issues bottom-up: base, then isa, then tox.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "severity": {
+                    "type": "string",
+                    "enum": ["required", "recommended", "optional"],
+                    "description": "Gate severity. 'required' (default) is fastest and surfaces only blocking issues; lower it to also see recommendations.",
+                },
+                "profile": {
+                    "type": "string",
+                    "enum": ["all", "base", "isa", "tox"],
+                    "description": "Which layer(s) to check. 'all' (default) runs base+isa+tox; scope to one layer to go faster while iterating.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "export_crate",
+        "description": "Write the finished RO-Crate to disk (the only step that touches disk). Use build_and_validate while iterating; call export_crate once the crate is conformant. Returns crate_path. When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "output_path": {
+                    "type": "string",
+                    "description": "Where to write the crate directory (optional, defaults to sessions/<session_id>/working_crate/)",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "build_crate",
-        "description": "Assemble the RO-Crate directory. Returns crate_path which you must pass to validate(). When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
+        "description": "Alias of export_crate: assemble and write the RO-Crate directory to disk. Returns crate_path. When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
         "parameters": {
             "type": "object",
             "properties": {
@@ -218,13 +252,13 @@ TOOL_SPECS = [
     },
     {
         "name": "validate",
-        "description": "Run three-pass SHACL validation on a crate directory. Pass the crate_path returned by build_crate.",
+        "description": "Run three-pass SHACL validation on a crate directory already written to disk. Prefer build_and_validate for the in-loop check; use this only to validate an existing crate_path from export_crate.",
         "parameters": {
             "type": "object",
             "properties": {
                 "crate_path": {
                     "type": "string",
-                    "description": "Path to the crate directory to validate (use the crate_path returned by build_crate)",
+                    "description": "Path to the crate directory to validate (use the crate_path returned by export_crate)",
                 }
             },
             "required": ["crate_path"],

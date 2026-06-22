@@ -30,9 +30,9 @@ The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists re
                          Agent Loop
    LLM Agent ◄─────────────────────────────────────
       │          Tools: draft_entity, update_entity, remove_entity,
-      │          lookup_*, verify_identifier, build_crate, validate,
-      │          assess_mit, assess_fair, present_to_human,
-      │          save_session, get_status
+      │          lookup_*, verify_identifier, build_and_validate,
+      │          export_crate, validate, assess_mit, assess_fair,
+      │          present_to_human, save_session, get_status
       ▼
    ┌──────────────────────┐
    │    CrateState         │── persists between sessions
@@ -239,7 +239,15 @@ Can produce partial crates at any point.
 Runs three-pass SHACL validation via `profiles/validator.py`, which wraps
 [`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator).
 Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY
-(informational).
+(informational). Two entry points:
+- `validate_crate(crate_dir)` validates a crate **on disk** and returns
+  prose `ValidationResult`s (used by the `validate(crate_path)` tool).
+- `validate_crate_dict(metadata_doc, severity, profile)` validates an
+  **in-memory** metadata document (the dict from `crate.metadata.generate()`)
+  via `services.validate_metadata_as_dict`, returning `DictValidationResult`s
+  whose `RoutableIssue`s carry the focus-node `entity_id`, failing `property`
+  IRI, `check_id`, `severity`, and `profile`. This backs `build_and_validate`
+  and is the no-disk fast path.
 
 #### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
@@ -390,9 +398,42 @@ verify_all_identifiers() → [VerificationResult]
 
 ### Crate Assembly & Validation Tools
 ```
-build_crate(output_path: str) → CrateBuildResult
+build_and_validate(severity="required", profile="all") → {ok, conformance, issues}
+export_crate(output_path: str) → CrateBuildResult
+build_crate(output_path: str) → CrateBuildResult     # back-compat alias of export_crate
 validate(crate_path: str) → ValidationReport
 ```
+
+`build_and_validate` is the agent's primary build/fix loop: it assembles the
+crate from `CrateState` **in memory** and validates the generated JSON-LD
+document directly via `rocrate_validator.services.validate_metadata_as_dict` —
+**no crate is written to disk and nothing is re-read** (the old
+`build_crate`→`validate` round-trip touched disk on every ReAct iteration). It
+returns issues keyed to the entity/property that failed so the agent can route
+a fix to a specific field:
+
+```python
+{
+  "ok": bool,                                  # no issues at the gate severity
+  "conformance": {"base": bool, "isa": bool, "tox": bool},
+  "issues": [
+    {"entity_id", "property", "message", "fix", "severity", "profile"}, ...
+  ],
+}
+```
+
+`severity` (`required`|`recommended`|`optional`) is the gate that decides which
+SHACL checks run — `required` (the default) is fastest. `profile`
+(`all`|`base`|`isa`|`tox`) scopes the passes; since the tox pass dominates
+wall-clock, the inner loop can validate a single profile at REQUIRED severity
+and run the full 3-pass sweep only as a gate. The three passes mirror
+`profiles/validator.validate_crate`, fed the metadata dict instead of a path.
+
+`export_crate` is the **only** tool that touches disk — call it once the crate
+is conformant to materialise the on-disk RO-Crate directory (payload included).
+`build_crate` remains as a back-compat alias. The in-memory assembly path
+(`assemble_crate(..., materialize_payload=False)`) skips writing the Exposure
+condition-table placeholder CSV so validation stays a zero-disk operation.
 
 ### Assessment Tools
 ```

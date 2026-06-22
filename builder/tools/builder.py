@@ -33,11 +33,43 @@ def _default_crate_path(state: CrateState) -> str:
     return str(Path("sessions") / session_id / "working_crate")
 
 
-def build_crate(state: CrateState, output_path: str | None = None) -> dict[str, Any]:
-    """Build an RO-Crate from CrateState using ro-crate-py.
+def assemble_crate(
+    state: CrateState,
+    output_dir: Path | None = None,
+    *,
+    materialize_payload: bool = True,
+) -> ROCrate:
+    """Assemble an in-memory `ROCrate` from CrateState — no disk write.
 
-    Creates the output directory, assembles a `ROCrate` from the state, and
-    writes `ro-crate-metadata.json` plus any payload.
+    This is the shared assembly step behind both :func:`export_crate` (which
+    then writes the crate to disk) and ``build_and_validate`` (which generates
+    the metadata document and validates it in memory). Splitting it out keeps
+    disk writes confined to :func:`export_crate`.
+
+    Args:
+        state: The CrateState to build from.
+        output_dir: Crate root, used only when payload is materialised. ``None``
+            for the pure in-memory path.
+        materialize_payload: When False, no payload file is written (see
+            :func:`builder.tools._crate_mapping.populate_crate`).
+
+    Returns:
+        A populated :class:`ROCrate`. Nothing is written unless the caller
+        invokes ``crate.write()``.
+    """
+    crate = ROCrate()
+    crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+    populate_crate(state, crate, output_dir, materialize_payload=materialize_payload)
+    return crate
+
+
+def export_crate(state: CrateState, output_path: str | None = None) -> dict[str, Any]:
+    """Assemble an RO-Crate from CrateState and write it to disk (ro-crate-py).
+
+    This is the only step that touches disk: it creates the output directory,
+    assembles a `ROCrate` from the state, and writes `ro-crate-metadata.json`
+    plus any payload. For a fast, zero-disk conformance check during the agent
+    loop, use ``build_and_validate`` instead.
 
     Args:
         state: The current CrateState to build from.
@@ -58,12 +90,10 @@ def build_crate(state: CrateState, output_path: str | None = None) -> dict[str, 
         output_dir = Path(output_path)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        crate = ROCrate()
-        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
-        populate_crate(state, crate, output_dir)
+        crate = assemble_crate(state, output_dir, materialize_payload=True)
         crate.write(str(output_dir))
 
-        logger.info("Crate built at %s", output_path)
+        logger.info("Crate exported to %s", output_path)
         return {"success": True, "crate_path": output_path, "error": None}
 
     except OSError as e:
@@ -74,9 +104,15 @@ def build_crate(state: CrateState, output_path: str | None = None) -> dict[str, 
         return {"success": False, "crate_path": output_path, "error": str(e)}
 
 
+def build_crate(state: CrateState, output_path: str | None = None) -> dict[str, Any]:
+    """Back-compat alias for :func:`export_crate` (the on-disk writer)."""
+    return export_crate(state, output_path)
+
+
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
+TOOL_REGISTRY.register("export_crate", export_crate, takes_state=True)
 TOOL_REGISTRY.register("build_crate", build_crate, takes_state=True)
