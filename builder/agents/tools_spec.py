@@ -294,25 +294,6 @@ TOOL_SPECS = [
         },
     },
     {
-        "name": "read_multiple_files",
-        "description": "Read several files at once and return their contents. Use this when you need to inspect a batch of files (e.g. all metadata files in an assay directory) rather than reading them one at a time.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "paths": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of file paths to read",
-                },
-                "lines": {
-                    "type": "integer",
-                    "description": "Max lines per file (default 50)",
-                },
-            },
-            "required": ["paths"],
-        },
-    },
-    {
         "name": "unzip_file",
         "description": "Extract a zip archive to a directory. Returns the extraction path.",
         "parameters": {
@@ -447,6 +428,39 @@ TOOL_SPECS = [
                 },
             },
             "required": ["paths"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": "Read a supported file in full by extension (txt, csv, json, xlsx, docx, md, pdf) and return its text content. Use read_file_sample instead when you only need a preview of a large file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file to read"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "read_excel",
+        "description": "Read an Excel .xlsx file and return its content as pipe-delimited text.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the .xlsx file to read"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "read_docx",
+        "description": "Read a Word .docx file and return its text content.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the .docx file to read"},
+            },
+            "required": ["path"],
         },
     },
     {
