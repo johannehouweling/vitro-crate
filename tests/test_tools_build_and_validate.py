@@ -101,3 +101,22 @@ class TestBuildAndValidateScoping:
     def test_required_severity_only_required_issues(self):
         report = build_and_validate(CrateState(), severity="required")
         assert all(i["severity"] == "required" for i in report["issues"])
+
+    def test_invalid_severity_surfaced_as_error(self):
+        """A bad severity is surfaced as a tool error, not a silent false pass."""
+        report = build_and_validate(CrateState(), severity="bogus")
+        assert report["ok"] is False
+        assert "error" in report
+
+    def test_none_args_fall_back_to_defaults(self):
+        """Weak models pass null for optional args explicitly; treat None as default.
+
+        DeepSeek-flash calls build_and_validate(severity=None, profile=None) rather
+        than omitting them, so None must behave like the defaults (all/required) and
+        NOT raise 'Unknown profile None'.
+        """
+        explicit_none = build_and_validate(CrateState(), severity=None, profile=None)
+        defaults = build_and_validate(CrateState())
+        assert "error" not in explicit_none
+        assert explicit_none["conformance"] == defaults["conformance"]
+        assert set(explicit_none["conformance"]) == {"base", "isa", "tox"}

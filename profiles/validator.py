@@ -225,7 +225,14 @@ def validate_crate_dict(
     Returns:
         One :class:`DictValidationResult` per pass run, in dependency order.
     """
-    gate = _SEVERITY_BY_NAME.get(severity, models.Severity.REQUIRED)
+    if severity not in _SEVERITY_BY_NAME:
+        # Fail loudly rather than silently falling back to the strictest gate,
+        # which would under-report recommended/optional issues as a false pass.
+        raise ValueError(
+            f"Unknown severity {severity!r}; expected one of "
+            f"{sorted(_SEVERITY_BY_NAME)}."
+        )
+    gate = _SEVERITY_BY_NAME[severity]
     if profile == "all":
         passes = ["base", "isa", "tox"]
     elif profile in _PROFILE_PASSES:

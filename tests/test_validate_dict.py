@@ -85,3 +85,20 @@ class TestValidateCrateDict:
         monkeypatch.chdir(tmp_path)
         validate_crate_dict(_minimal_doc())
         assert list(tmp_path.iterdir()) == []
+
+    def test_invalid_severity_raises(self):
+        """An unknown severity must fail loudly, not silently pick the strictest gate."""
+        import pytest
+
+        from profiles.validator import validate_crate_dict
+
+        with pytest.raises(ValueError):
+            validate_crate_dict(_minimal_doc(), severity="bogus")
+
+    def test_invalid_profile_raises(self):
+        import pytest
+
+        from profiles.validator import validate_crate_dict
+
+        with pytest.raises(ValueError):
+            validate_crate_dict(_minimal_doc(), profile="bogus")

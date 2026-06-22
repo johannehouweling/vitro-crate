@@ -187,6 +187,13 @@ def build_and_validate(
         profile}``. ``conformance`` reports REQUIRED-level pass/fail per layer
         validated; ``ok`` is True when there are no issues at the gate severity.
     """
+    # Weak models (e.g. DeepSeek-flash) emit explicit nulls for optional tool
+    # args instead of omitting them, so the function defaults never apply and a
+    # bare None would otherwise raise "Unknown profile None". Treat None as "use
+    # the default"; genuine typos (a non-None unknown string) still fail loudly.
+    severity = "required" if severity is None else severity
+    profile = "all" if profile is None else profile
+
     # Imported lazily (not at module top) so validate()'s ImportError handling
     # stays intact. profiles.validator installs the roc-validator bootstrap shim
     # + bundled-ISA-ontology patch on import; importing validate_crate_dict here
