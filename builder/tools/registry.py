@@ -47,7 +47,13 @@ class ToolRegistry:
         description: str = "",
         takes_state: bool = False,
     ) -> None:
-        """Register ``fn`` under ``name`` (overwrites any existing entry)."""
+        """Register ``fn`` under ``name`` (overwrites any existing entry).
+
+        Hint for developers: after adding a new tool here, also add an entry
+        in ``builder.tools.dashboard._TOOL_CATEGORIES`` so it appears under
+        the right category in the profiler dashboard.  Uncategorised tools
+        show up in a highlighted "Other" row with a logger warning.
+        """
         self._tools[name] = ToolSpec(
             name=name, fn=fn, description=description, takes_state=takes_state
         )

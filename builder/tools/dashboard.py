@@ -231,33 +231,172 @@ def _determine_phase_from_state(state: dict[str, Any]) -> str:
     return "initial"
 
 
+# ---------------------------------------------------------------------------
+# Tool categorisation for the aggregate table
+# ---------------------------------------------------------------------------
+# When adding new tools, add an entry here so they land in the right category.
+# Tools not listed here fall into "Other" -- visible in the dashboard but
+# flagged with a warning so we know to categorise them.
+
+_TOOL_CATEGORIES: dict[str, str] = {
+    # Drafting entities
+    "draft_investigation": "Drafting",
+    "draft_study": "Drafting",
+    "draft_assay": "Drafting",
+    "draft_process": "Drafting",
+    "draft_protocol": "Drafting",
+    "draft_sample": "Drafting",
+    "draft_molecular_entity": "Drafting",
+    "draft_cell_line_sample": "Drafting",
+    "draft_person": "Drafting",
+    "draft_organization": "Drafting",
+    "draft_publication": "Drafting",
+    "draft_defined_term": "Drafting",
+    "draft_property_value": "Drafting",
+    # Entity management
+    "list_entities": "Management",
+    "update_entity": "Management",
+    "remove_entity": "Management",
+    "set_entity_field": "Management",
+    "bulk_set_fields": "Management",
+    # Lookups
+    "lookup_compound": "Lookups",
+    "lookup_cell_line": "Lookups",
+    "lookup_aop": "Lookups",
+    "lookup_bao_term": "Lookups",
+    "lookup_orcid": "Lookups",
+    "lookup_ror": "Lookups",
+    "lookup_doi": "Lookups",
+    # File tools
+    "scan_files": "Files",
+    "read_file_sample": "Files",
+    "read_multiple_files": "Files",
+    "preview_archive": "Files",
+    "extract_pdf_text": "Files",
+    "extract_pdf_tables": "Files",
+    # Verification
+    "verify_identifier": "Verify",
+    "verify_all_identifiers": "Verify",
+    # Crate assembly & validation
+    "build_crate": "Crate",
+    "validate": "Crate",
+    # Assessment
+    "assess_mit_coverage": "Assess",
+    "assess_fair_maturity": "Assess",
+    # Session & HITL
+    "save_session": "Session",
+    "load_session": "Session",
+    "list_sessions": "Session",
+    "get_status": "Session",
+    "get_hint": "Session",
+    "present_to_human": "HITL",
+    "request_input": "HITL",
+}
+
+_CATEGORY_ORDER = [
+    "Drafting",
+    "Management",
+    "Lookups",
+    "Files",
+    "Verify",
+    "Crate",
+    "Assess",
+    "Session",
+    "HITL",
+    "Other",
+]
+
+_UNCATEGORISED = "Other"
+
+# Track which tools hit the fallback so we can log a warning once
+_seen_uncategorised: set[str] = set()
+
+
+def _tool_category(tool_name: str) -> str:
+    """Map a tool name to its display category.
+
+    Unknown tools land in "Other" and trigger a one-time warning so
+    the developer knows to add an entry to ``_TOOL_CATEGORIES``.
+    """
+    cat = _TOOL_CATEGORIES.get(tool_name, _UNCATEGORISED)
+    if cat is _UNCATEGORISED and tool_name not in _seen_uncategorised:
+        _seen_uncategorised.add(tool_name)
+        logger.warning(
+            "Uncategorised tool %r — add it to _TOOL_CATEGORIES in dashboard.py",
+            tool_name,
+        )
+    return cat
+
+
 def _build_tool_table(
     records: list[dict[str, Any]],
 ) -> tuple[list[str], list[list[str]]]:
-    """Aggregate tool_call events into (headers, rows)."""
+    """Aggregate tool_call events into grouped (headers, rows).
+
+    Tools are sorted into categories (Drafting, Lookups, Files, …). Each
+    category occupies a single row showing combined stats and the number
+    of tools within it.  The category name includes the sub-tool names in
+    dim text so you can see which tools are grouped without an interactive
+    expand.
+    """
     tool_calls = [r for r in records if r.get("event") == "tool_call"]
-    agg: dict[str, dict[str, float]] = {}
+
+    # Per-tool aggregate (same as before)
+    per_tool: dict[str, dict[str, float]] = {}
     for tc in tool_calls:
         tool = tc.get("tool", "unknown")
         dur = tc.get("duration_ms", 0.0) or 0.0
-        if tool not in agg:
-            agg[tool] = {"count": 0, "total": 0.0}
-        agg[tool]["count"] += 1
-        agg[tool]["total"] += dur
-    sorted_tools = sorted(agg.items(), key=lambda x: x[1]["total"], reverse=True)
+        if tool not in per_tool:
+            per_tool[tool] = {"count": 0, "total": 0.0}
+        per_tool[tool]["count"] += 1
+        per_tool[tool]["total"] += dur
+
+    # Group into categories
+    categories: dict[str, dict[str, Any]] = {}
+    for tool, stats in per_tool.items():
+        cat = _tool_category(tool)
+        if cat not in categories:
+            categories[cat] = {"count": 0, "total": 0.0, "tools": {}}
+        categories[cat]["count"] += stats["count"]
+        categories[cat]["total"] += stats["total"]
+        categories[cat]["tools"][tool] = stats
+
     headers = ["Tool", "Calls", "Avg (ms)", "Total (s)"]
-    rows = []
-    for tool, stats in sorted_tools:
-        avg = stats["total"] / stats["count"] if stats["count"] else 0
-        total_s = stats["total"] / 1000.0
+    rows: list[list[str]] = []
+
+    # Sort categories by _CATEGORY_ORDER, then by total time descending
+    def _cat_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float]:
+        cat_name, stats = item
+        try:
+            order = _CATEGORY_ORDER.index(cat_name)
+        except ValueError:
+            order = len(_CATEGORY_ORDER)
+        return (order, -stats["total"])
+
+    for cat_name, cat_stats in sorted(categories.items(), key=_cat_sort_key):
+        # Build a compact sub-tool label: "scan_files, read_file_sample, …"
+        sorted_subtools = sorted(
+            cat_stats["tools"].items(), key=lambda x: x[1]["total"], reverse=True
+        )
+        sub_labels = [f"[dim]{t}[/dim]" for t, _ in sorted_subtools]
+        tool_count = len(sub_labels)
+        label = f"{cat_name}  [dim]({tool_count})[/dim]"
+
+        avg = cat_stats["total"] / cat_stats["count"] if cat_stats["count"] else 0
+        total_s = cat_stats["total"] / 1000.0
+        # Highlight "Other" in yellow to draw attention to uncategorised tools
+        label_style = "[bold yellow]" if cat_name == _UNCATEGORISED else ""
+        if label_style:
+            label = f"{label_style}{cat_name}  [dim]({tool_count})[/dim][/bold yellow]"
         rows.append(
             [
-                tool,
-                str(stats["count"]),
+                label,
+                str(cat_stats["count"]),
                 f"{avg:.1f}",
                 f"{total_s:.2f}",
             ]
         )
+
     return headers, rows
 
 
@@ -391,22 +530,23 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 25) -> li
             dur = r.get("duration_ms")
             dur_str = f" {dur:.1f}ms" if dur is not None else ""
 
-            # Show tool arguments (truncated)
+            # Show tool arguments (truncated from front so filename is visible)
             args_raw = r.get("args")
             args_str = ""
             if args_raw:
-                preview = args_raw[:40]
+                preview = args_raw[-40:] if len(args_raw) > 40 else args_raw
                 if len(args_raw) > 40:
-                    preview += "…"
+                    preview = "…" + preview
                 args_str = f"  [dim]args: {preview}[/dim]"
 
-            # Show tool result (truncated)
+            # Show tool result (truncated from front so filename is visible)
             res_raw = r.get("result")
             res_str = ""
             if res_raw:
-                preview = str(res_raw)[:50]
-                if len(str(res_raw)) > 50:
-                    preview += "…"
+                res_str_val = str(res_raw)
+                preview = res_str_val[-50:] if len(res_str_val) > 50 else res_str_val
+                if len(res_str_val) > 50:
+                    preview = "…" + preview
                 res_str = f"  [cyan]→ {preview}[/cyan]"
 
             extra = args_str + res_str
@@ -496,16 +636,17 @@ def _build_conversation_flow(records: list[dict[str, Any]], max_steps: int = 8) 
             args_raw = r.get("args", "")
             args_preview = ""
             if args_raw:
-                args_preview = args_raw[:50]
+                args_preview = args_raw[-50:] if len(args_raw) > 50 else args_raw
                 if len(args_raw) > 50:
-                    args_preview += "…"
+                    args_preview = "…" + args_preview
 
             res_raw = r.get("result")
             res_str = ""
             if res_raw:
-                res_preview = str(res_raw)[:60]
-                if len(str(res_raw)) > 60:
-                    res_preview += "…"
+                res_str_val = str(res_raw)
+                res_preview = res_str_val[-60:] if len(res_str_val) > 60 else res_str_val
+                if len(res_str_val) > 60:
+                    res_preview = "…" + res_preview
                 res_str = f" → [cyan]{res_preview}[/cyan]"
 
             args_part = f" args: {args_preview}" if args_preview else ""
@@ -566,16 +707,25 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
 
     # Build tables
     tool_headers, tool_rows = _build_tool_table(records)
+    # Tool rows are grouped into ~10 categories so no capping needed.
+    # Split into two side-by-side tables to use horizontal space better.
+    half = (len(tool_rows) + 1) // 2
+    tool_table_left = Table(title="Tool Call Times", header_style="bold magenta")
+    for h in tool_headers:
+        tool_table_left.add_column(h)
+    for row in tool_rows[:half]:
+        tool_table_left.add_row(*row)
+
+    tool_table_right = Table(title="", header_style="bold magenta", show_header=False)
+    for h in tool_headers:
+        tool_table_right.add_column(h)
+    for row in tool_rows[half:]:
+        tool_table_right.add_row(*row)
+
     node_headers, node_rows = _build_node_table(records)
     token_totals, token_last = _build_token_summary(records)
     last_response = _get_last_response(records)
     live_lines = _build_live_events(records)
-
-    tool_table = Table(title="Tool Call Times", header_style="bold magenta")
-    for h in tool_headers:
-        tool_table.add_column(h)
-    for row in tool_rows:
-        tool_table.add_row(*row)
 
     node_table = Table(title="Node Timings", header_style="bold green")
     for h in node_headers:
@@ -613,17 +763,18 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
             highlight=True,
         )
 
-    # Combine into body
+    # Combine into body — tool table goes last so it doesn't push live feeds off-screen
     from rich.columns import Columns
 
     body_parts = [
-        Columns([crate_panel, token_table], equal=True, expand=True),
-        Columns([tool_table, node_table], equal=True, expand=True),
+        Columns([crate_panel, token_table, node_table], equal=True, expand=True),
     ]
     if response_panel:
         body_parts.append(response_panel)
     body_parts.append(live_panel)
     body_parts.append(conversation_panel)
+    # Tool table at the bottom — it accumulates rows and would push everything else down
+    body_parts.append(Columns([tool_table_left, tool_table_right], equal=True, expand=True))
     body = Group(*body_parts)
     layout["body"].update(body)
     layout["footer"].update(Text(f"Last refresh: {now}", style="dim"))
