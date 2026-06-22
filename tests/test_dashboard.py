@@ -173,8 +173,8 @@ class TestFormatSessionSummary:
         assert "scan_files" in output
         assert "draft_investigation" in output
         assert "model" in output
-        assert "Token Usage" in output  # new token summary table
-        assert "Cumulative" in output
+        assert "Token Usage" in output  # token summary line
+        assert "cumulative" in output
 
     def test_format_session_summary_empty(self) -> None:
         """Shows no-data message for empty records."""

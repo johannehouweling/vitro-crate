@@ -123,13 +123,12 @@ def _load_cratestate(session_id: str) -> dict[str, Any] | None:
 
 
 def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
-    """Build a Rich Panel summarising CrateState.
+    """Build a Rich Panel summarising CrateState (single-line, compact).
 
     Shows phase, entity counts, validation status, MIT score, iteration count.
     Returns a placeholder Panel when *state* is None.
     """
     from rich.panel import Panel
-    from rich.table import Table
     from rich.text import Text
 
     if state is None:
@@ -141,6 +140,15 @@ def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
 
     # Phase
     phase = _determine_phase_from_state(state)
+    phase_colors = {
+        "initial": "dim",
+        "scanning": "yellow",
+        "drafting": "cyan",
+        "validating": "magenta",
+        "complete": "green",
+        "stuck": "red",
+    }
+    pc = phase_colors.get(phase, "white")
 
     # Entity counts
     entities = state.get("entities", {})
@@ -152,6 +160,9 @@ def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
             if count > 0:
                 entity_counts.append((etype, count))
                 total += count
+    entity_parts = [f"{n}={c}" for n, c in entity_counts[:6]]
+    if len(entity_counts) > 6:
+        entity_parts.append(f"...+{total - sum(c for _, c in entity_counts[:6])}")
 
     # Validation status
     val = state.get("validation", {})
@@ -159,56 +170,45 @@ def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
     isa_ok = val.get("isa_passed", False)
     tox_ok = val.get("tox_passed", False)
     required_count = len(val.get("required_issues", []))
+    val_parts = [
+        f"{'✓' if base_ok else '✗'} Base",
+        f"{'✓' if isa_ok else '✗'} ISA",
+        f"{'✓' if tox_ok else '✗'} Tox",
+    ]
+    if base_ok and isa_ok and tox_ok:
+        val_color = "green"
+    elif required_count > 0:
+        val_color = "red"
+    else:
+        val_color = "yellow"
+    val_str = " ".join(val_parts)
+    if required_count > 0:
+        val_str += f"  [red]{required_count} REQUIRED[/red]"
 
     # MIT score
     mit = state.get("mit_assessment", {})
     mit_score = mit.get("overall_score", 0)
+    mit_color = "green" if mit_score >= 80 else "yellow" if mit_score >= 50 else "red"
 
     # Iteration
     iteration = state.get("iteration_count", 0)
     stuck = state.get("stuck", False)
 
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Key", style="bold cyan")
-    table.add_column("Value")
+    # One-line summary — all on a single rich Text
+    text = Text.assemble(
+        ("Phase: ", "bold cyan"),
+        (phase, pc),
+        ("  │  Entities: ", "bold cyan"),
+        (f"{total}  ({', '.join(f'{n}={c}' for n, c in entity_counts[:3])})", ""),
+        ("  │  Validation: ", "bold cyan"),
+        (val_str, val_color),
+        ("  │  MIT: ", "bold cyan"),
+        (f"{mit_score}%", mit_color),
+        ("  │  Iteration: ", "bold cyan"),
+        (f"{iteration}{' ⚠ STUCK' if stuck else ''}", "red" if stuck else "white"),
+    )
 
-    # Phase with colour
-    phase_colors = {
-        "initial": "dim",
-        "scanning": "yellow",
-        "drafting": "cyan",
-        "validating": "magenta",
-        "complete": "green",
-        "stuck": "red",
-    }
-    pc = phase_colors.get(phase, "white")
-    table.add_row("Phase", f"[{pc}]{phase}[/{pc}]")
-
-    # Entity summary
-    entity_parts = [f"{n}={c}" for n, c in entity_counts[:6]]
-    if len(entity_counts) > 6:
-        entity_parts.append(f"...+{total - sum(c for _, c in entity_counts[:6])}")
-    table.add_row("Entities", f"[cyan]{total}[/cyan]  ({', '.join(entity_parts)})")
-
-    # Validation
-    val_parts = []
-    val_parts.append(f"{'✓' if base_ok else '✗'} Base")
-    val_parts.append(f"{'✓' if isa_ok else '✗'} ISA")
-    val_parts.append(f"{'✓' if tox_ok else '✗'} Tox")
-    val_color = "green" if (base_ok and isa_ok and tox_ok) else "red" if required_count > 0 else "yellow"
-    table.add_row("Validation", f"[{val_color}]{'  '.join(val_parts)}[/{val_color}]")
-    if required_count > 0:
-        table.add_row("  Issues", f"[red]{required_count} REQUIRED[/red]")
-
-    # MIT
-    mit_color = "green" if mit_score >= 80 else "yellow" if mit_score >= 50 else "red"
-    table.add_row("MIT Score", f"[{mit_color}]{mit_score}%[/{mit_color}]")
-
-    # Iteration
-    it_color = "red" if stuck else "white"
-    table.add_row("Iteration", f"[{it_color}]{iteration}{' [red]STUCK[/red]' if stuck else ''}[/{it_color}]")
-
-    return Panel(table, title="CrateState Overview", border_style="blue")
+    return Panel(text, title="CrateState Overview", border_style="blue")
 
 
 def _determine_phase_from_state(state: dict[str, Any]) -> str:
@@ -328,20 +328,22 @@ def _tool_category(tool_name: str) -> str:
     return cat
 
 
-def _build_tool_table(
+def _build_tool_lines(
     records: list[dict[str, Any]],
-) -> tuple[list[str], list[list[str]]]:
-    """Aggregate tool_call events into grouped (headers, rows).
+    last_tool_name: str = "",
+) -> list[str]:
+    """Build compact per-tool display lines from tool_call events.
 
-    Tools are sorted into categories (Drafting, Lookups, Files, …). Each
-    category occupies a single row showing combined stats and the number
-    of tools within it.  The category name includes the sub-tool names in
-    dim text so you can see which tools are grouped without an interactive
-    expand.
+    Returns a list of Rich markup strings, one per tool that was called
+    at least once, sorted by total time descending.  The last tool that
+    was called is highlighted in cyan.
+
+    Format::
+        tool_name (3) ⏱123ms/⏱∑1123ms
     """
     tool_calls = [r for r in records if r.get("event") == "tool_call"]
 
-    # Per-tool aggregate (same as before)
+    # Per-tool aggregate
     per_tool: dict[str, dict[str, float]] = {}
     for tc in tool_calls:
         tool = tc.get("tool", "unknown")
@@ -351,53 +353,25 @@ def _build_tool_table(
         per_tool[tool]["count"] += 1
         per_tool[tool]["total"] += dur
 
-    # Group into categories
-    categories: dict[str, dict[str, Any]] = {}
-    for tool, stats in per_tool.items():
-        cat = _tool_category(tool)
-        if cat not in categories:
-            categories[cat] = {"count": 0, "total": 0.0, "tools": {}}
-        categories[cat]["count"] += stats["count"]
-        categories[cat]["total"] += stats["total"]
-        categories[cat]["tools"][tool] = stats
+    # Sort by total time descending
+    sorted_tools = sorted(
+        per_tool.items(), key=lambda x: x[1]["total"], reverse=True
+    )
 
-    headers = ["Tool", "Calls", "Avg (ms)", "Total (s)"]
-    rows: list[list[str]] = []
-
-    # Sort categories by _CATEGORY_ORDER, then by total time descending
-    def _cat_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float]:
-        cat_name, stats = item
-        try:
-            order = _CATEGORY_ORDER.index(cat_name)
-        except ValueError:
-            order = len(_CATEGORY_ORDER)
-        return (order, -stats["total"])
-
-    for cat_name, cat_stats in sorted(categories.items(), key=_cat_sort_key):
-        # Build a compact sub-tool label: "scan_files, read_file_sample, …"
-        sorted_subtools = sorted(
-            cat_stats["tools"].items(), key=lambda x: x[1]["total"], reverse=True
-        )
-        sub_labels = [f"[dim]{t}[/dim]" for t, _ in sorted_subtools]
-        tool_count = len(sub_labels)
-        label = f"{cat_name}  [dim]({tool_count})[/dim]"
-
-        avg = cat_stats["total"] / cat_stats["count"] if cat_stats["count"] else 0
-        total_s = cat_stats["total"] / 1000.0
-        # Highlight "Other" in yellow to draw attention to uncategorised tools
-        label_style = "[bold yellow]" if cat_name == _UNCATEGORISED else ""
-        if label_style:
-            label = f"{label_style}{cat_name}  [dim]({tool_count})[/dim][/bold yellow]"
-        rows.append(
-            [
-                label,
-                str(cat_stats["count"]),
-                f"{avg:.1f}",
-                f"{total_s:.2f}",
-            ]
+    lines: list[str] = []
+    for tool, stats in sorted_tools:
+        count = stats["count"]
+        total = stats["total"]
+        avg = total / count if count else 0
+        is_last = tool == last_tool_name
+        style = "bold cyan" if is_last else ""
+        open_tag = f"[{style}]" if style else ""
+        close_tag = f"[/{style}]" if style else ""
+        lines.append(
+            f"{open_tag}{tool} ({count}) ⏱{avg:.0f}ms/⏱∑{total:.0f}ms{close_tag}"
         )
 
-    return headers, rows
+    return lines
 
 
 def _build_node_table(
@@ -706,39 +680,54 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     crate_panel = _build_cratestate_panel(crate_state)
 
     # Build tables
-    tool_headers, tool_rows = _build_tool_table(records)
-    # Tool rows are grouped into ~10 categories so no capping needed.
-    # Split into two side-by-side tables to use horizontal space better.
-    half = (len(tool_rows) + 1) // 2
-    tool_table_left = Table(title="Tool Call Times", header_style="bold magenta")
-    for h in tool_headers:
-        tool_table_left.add_column(h)
-    for row in tool_rows[:half]:
-        tool_table_left.add_row(*row)
+    # Determine the last tool called for highlighting
+    tool_calls_events = [r for r in records if r.get("event") == "tool_call"]
+    last_tool_name = tool_calls_events[-1].get("tool", "") if tool_calls_events else ""
 
-    tool_table_right = Table(title="", header_style="bold magenta", show_header=False)
-    for h in tool_headers:
-        tool_table_right.add_column(h)
-    for row in tool_rows[half:]:
-        tool_table_right.add_row(*row)
+    tool_lines = _build_tool_lines(records, last_tool_name=last_tool_name)
 
     node_headers, node_rows = _build_node_table(records)
     token_totals, token_last = _build_token_summary(records)
     last_response = _get_last_response(records)
-    live_lines = _build_live_events(records)
 
-    node_table = Table(title="Node Timings", header_style="bold green")
-    for h in node_headers:
-        node_table.add_column(h)
-    for row in node_rows:
-        node_table.add_row(*row)
+    # Token usage + Node timings — inline text, no tables
+    tok_in = token_totals.get("input_tokens", 0) or 0
+    tok_out = token_totals.get("output_tokens", 0) or 0
+    tok_total = int(tok_in) + int(tok_out)
+    last_in = (token_last or {}).get("input_tokens")
+    last_out = (token_last or {}).get("output_tokens")
+    last_model = (token_last or {}).get("model_name") or ""
+    last_str = ""
+    if last_in is not None:
+        last_str = f"  · last {last_model}: {last_in}→{last_out} ({int(last_in) + int(last_out)})"
 
-    token_table = _build_token_table(token_totals, token_last)
+    # Compute costs — use get_model_provider for the model-specific vendor prefix
+    from builder.config import get_model_provider
+    from builder.pricing import compute_cost, format_cost
 
-    live_panel = Panel(
-        "\n".join(live_lines[-10:]),
-        title="Recent Events",
-        border_style="dim",
+    model_provider = get_model_provider()
+    cumulative_cost_info = compute_cost(int(tok_in), int(tok_out), str(last_model), provider=model_provider)
+    last_cost_str = ""
+    if last_in is not None and last_out is not None:
+        last_cost_info = compute_cost(int(last_in), int(last_out), str(last_model), provider=model_provider)
+        if last_cost_info.get("total_cost") is not None:
+            last_cost_str = f"@{format_cost(last_cost_info['total_cost'])}"
+    cost_str = ""
+    if cumulative_cost_info.get("total_cost") is not None:
+        cost_str = f"  · est ${format_cost(cumulative_cost_info['total_cost'])}"
+
+    node_parts = []
+    for node, calls, avg, total in node_rows:
+        node_parts.append(f"[bold]{node}[/bold] {calls}× {avg}ms  {total}s")
+    node_str = "  │  ".join(node_parts)
+
+    from rich.text import Text as RichText
+    summary_text = RichText.from_markup(
+        f"[bold yellow]Token Usage[/bold yellow]: cumulative {tok_in}→{tok_out} ({tok_total})"
+        f"[dim]{last_str}[/dim]"
+        f"[dim]{cost_str}[/dim]"
+        f"  [dim]║[/dim]  "
+        f"[bold green]Node Timings[/bold green]:  {node_str}"
     )
 
     # Conversation flow panel — shows the AgentState message round-trips
@@ -752,10 +741,8 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
 
     response_panel = None
     if last_response:
-        # Truncate displayed text in the panel to avoid overwhelming the layout
-        display = last_response[:500]
-        if len(last_response) > 500:
-            display += "\n[dim]… (truncated)[/dim]"
+        # Show only the first line — keeps the panel compact
+        display = last_response.split("\n")[0][:500]
         response_panel = Panel(
             display,
             title="Last Agent Response",
@@ -768,14 +755,19 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
 
     body_parts = [
         crate_panel,
-        Columns([token_table, node_table], equal=True, expand=True),
+        Panel(summary_text, border_style="dim", padding=(0, 0)),
     ]
     if response_panel:
         body_parts.append(response_panel)
-    body_parts.append(live_panel)
     body_parts.append(conversation_panel)
-    # Tool table at the bottom — it accumulates rows and would push everything else down
-    body_parts.append(Columns([tool_table_left, tool_table_right], equal=True, expand=True))
+    # Tool lines at the bottom — inline text per tool, sorted by frequency
+    tool_lines_wrapper = Panel(
+        "\n".join(tool_lines) if tool_lines else "[dim]no tool calls yet[/dim]",
+        title="Tool Call Times",
+        border_style="magenta",
+        padding=(0, 0),
+    )
+    body_parts.append(tool_lines_wrapper)
     body = Group(*body_parts)
     layout["body"].update(body)
     layout["footer"].update(Text(f"Last refresh: {now}", style="dim"))
