@@ -13,9 +13,11 @@ import logging
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
+
+import builder.config as _config
 
 logger = logging.getLogger(__name__)
 
@@ -516,7 +518,7 @@ class ReasoningLog:
     def log_reasoning(self, action: str, tool: str, result: str) -> ReasoningStep:
         """Append a reasoning step to the log and return it."""
         step = len(self.reasoning_log) + 1
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = _config.now().isoformat()
         entry = ReasoningStep(step=step, action=action, tool=tool, result=result, timestamp=ts)
         self.reasoning_log.append(entry)
         return entry

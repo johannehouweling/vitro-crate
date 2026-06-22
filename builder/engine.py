@@ -7,10 +7,10 @@ It coordinates tool calls, validation, HITL checkpoints, and session persistence
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import builder.config as _config
 from builder.state import CrateState
 from builder.tools.profiler import ProfilingLogger
 
@@ -95,10 +95,10 @@ class AgentEngine:
             self.state.approved_scan_roots.add(_directory_to_approve(input_path))
 
         if not self.state.session_id:
-            self.state.session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            self.state.session_id = _config.now().strftime("%Y%m%d_%H%M%S")
         if not self.state.created_at:
-            self.state.created_at = datetime.now(timezone.utc).isoformat()
-        self.state.updated_at = datetime.now(timezone.utc).isoformat()
+            self.state.created_at = _config.now().isoformat()
+        self.state.updated_at = _config.now().isoformat()
 
         # Initialize the profiler now that we have a session_id
         self.profiler = ProfilingLogger(self.state.session_id)
@@ -253,11 +253,21 @@ class AgentEngine:
                 _args_str = str(kwargs)[:500]
             except Exception:
                 pass
+            # Truncate result string to avoid bloating profile
+            _result_str: str | None = None
+            try:
+                res_text = str(result)
+                if len(res_text) > 500:
+                    res_text = res_text[:497] + "..."
+                _result_str = res_text if result is not None else "None"
+            except Exception:
+                _result_str = "<unprintable>"
             self.profiler.log_tool_call(
                 tool_name=tool_name,
                 duration_ms=_duration,
                 iteration=self.state.iteration_count,
                 args=_args_str,
+                result=_result_str,
             )
 
         return result

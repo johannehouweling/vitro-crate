@@ -4,6 +4,13 @@ Provides:
 - read_profile() — parse profile.ndjson into structured records
 - list_sessions_available() — find session directories with profile data
 - format_session_summary() — produce a Rich Layout from records
+  * CrateState overview panel (entity counts, validation, phase, MIT score)
+  * Tool timing table (aggregated per tool)
+  * Node timing table (aggregated per node)
+  * Token usage table (cumulative and last request)
+  * Last Agent Response panel (model reply text)
+  * Recent Events tail (with tool args & results)
+  * Conversation Flow panel (AgentState messages: user prompts, AI replies, tool returns)
 - run_dashboard() — live-tailing TUI using watchfiles
 - run_static_dashboard() — one-shot summary from a session
 """
@@ -12,9 +19,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import builder.config as _config
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +98,137 @@ def list_sessions_available(base_dir: Path | None = None) -> list[dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# Summary formatting
+# CrateState loading
 # ---------------------------------------------------------------------------
+
+
+def _load_cratestate(session_id: str) -> dict[str, Any] | None:
+    """Load the CrateState JSON for the given session.
+
+    Returns the parsed dict, or None if the file doesn't exist or is corrupt.
+    """
+    state_path = SESSION_DIR / session_id / "crate_state.json"
+    if not state_path.is_file():
+        return None
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Could not load crate_state.json for %s", session_id)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# CrateState overview panel
+# ---------------------------------------------------------------------------
+
+
+def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
+    """Build a Rich Panel summarising CrateState.
+
+    Shows phase, entity counts, validation status, MIT score, iteration count.
+    Returns a placeholder Panel when *state* is None.
+    """
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    if state is None:
+        return Panel(
+            "[dim]No CrateState data available.[/dim]",
+            title="CrateState Overview",
+            border_style="blue",
+        )
+
+    # Phase
+    phase = _determine_phase_from_state(state)
+
+    # Entity counts
+    entities = state.get("entities", {})
+    entity_counts: list[tuple[str, int]] = []
+    total = 0
+    for etype, coll in entities.items():
+        if isinstance(coll, list):
+            count = len(coll)
+            if count > 0:
+                entity_counts.append((etype, count))
+                total += count
+
+    # Validation status
+    val = state.get("validation", {})
+    base_ok = val.get("base_passed", False)
+    isa_ok = val.get("isa_passed", False)
+    tox_ok = val.get("tox_passed", False)
+    required_count = len(val.get("required_issues", []))
+
+    # MIT score
+    mit = state.get("mit_assessment", {})
+    mit_score = mit.get("overall_score", 0)
+
+    # Iteration
+    iteration = state.get("iteration_count", 0)
+    stuck = state.get("stuck", False)
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value")
+
+    # Phase with colour
+    phase_colors = {
+        "initial": "dim",
+        "scanning": "yellow",
+        "drafting": "cyan",
+        "validating": "magenta",
+        "complete": "green",
+        "stuck": "red",
+    }
+    pc = phase_colors.get(phase, "white")
+    table.add_row("Phase", f"[{pc}]{phase}[/{pc}]")
+
+    # Entity summary
+    entity_parts = [f"{n}={c}" for n, c in entity_counts[:6]]
+    if len(entity_counts) > 6:
+        entity_parts.append(f"...+{total - sum(c for _, c in entity_counts[:6])}")
+    table.add_row("Entities", f"[cyan]{total}[/cyan]  ({', '.join(entity_parts)})")
+
+    # Validation
+    val_parts = []
+    val_parts.append(f"{'✓' if base_ok else '✗'} Base")
+    val_parts.append(f"{'✓' if isa_ok else '✗'} ISA")
+    val_parts.append(f"{'✓' if tox_ok else '✗'} Tox")
+    val_color = "green" if (base_ok and isa_ok and tox_ok) else "red" if required_count > 0 else "yellow"
+    table.add_row("Validation", f"[{val_color}]{'  '.join(val_parts)}[/{val_color}]")
+    if required_count > 0:
+        table.add_row("  Issues", f"[red]{required_count} REQUIRED[/red]")
+
+    # MIT
+    mit_color = "green" if mit_score >= 80 else "yellow" if mit_score >= 50 else "red"
+    table.add_row("MIT Score", f"[{mit_color}]{mit_score}%[/{mit_color}]")
+
+    # Iteration
+    it_color = "red" if stuck else "white"
+    table.add_row("Iteration", f"[{it_color}]{iteration}{' [red]STUCK[/red]' if stuck else ''}[/{it_color}]")
+
+    return Panel(table, title="CrateState Overview", border_style="blue")
+
+
+def _determine_phase_from_state(state: dict[str, Any]) -> str:
+    """Determine the current build phase from CrateState dict."""
+    if state.get("stuck"):
+        return "stuck"
+    checkpoint = state.get("checkpoint", {})
+    completed = checkpoint.get("completed_checkpoints", [])
+    if "crate_built" in completed:
+        return "complete"
+    if "files_scanned" in completed:
+        return "drafting"
+    scanned_files = state.get("scanned_files", [])
+    if scanned_files:
+        return "scanning"
+    entities = state.get("entities", {})
+    for coll in entities.values():
+        if isinstance(coll, list) and len(coll) > 0:
+            return "drafting"
+    return "initial"
 
 
 def _build_tool_table(
@@ -239,8 +376,11 @@ def _get_last_response(records: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def _build_live_events(records: list[dict[str, Any]], max_lines: int = 20) -> list[str]:
-    """Build a list of formatted event lines for the live tail."""
+def _build_live_events(records: list[dict[str, Any]], max_lines: int = 25) -> list[str]:
+    """Build a list of formatted event lines for the live tail.
+
+    Enhanced to show tool arguments and results alongside timing.
+    """
     recent = records[-max_lines:] if len(records) > max_lines else records
     lines = []
     for r in recent:
@@ -250,7 +390,31 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 20) -> li
             tool = r.get("tool", "?")
             dur = r.get("duration_ms")
             dur_str = f" {dur:.1f}ms" if dur is not None else ""
-            lines.append(f"{ts[11:19]}  tool_call   {tool}{dur_str}")
+
+            # Show tool arguments (truncated)
+            args_raw = r.get("args")
+            args_str = ""
+            if args_raw:
+                preview = args_raw[:40]
+                if len(args_raw) > 40:
+                    preview += "…"
+                args_str = f"  [dim]args: {preview}[/dim]"
+
+            # Show tool result (truncated)
+            res_raw = r.get("result")
+            res_str = ""
+            if res_raw:
+                preview = str(res_raw)[:50]
+                if len(str(res_raw)) > 50:
+                    preview += "…"
+                res_str = f"  [cyan]→ {preview}[/cyan]"
+
+            extra = args_str + res_str
+            if extra:
+                lines.append(f"{ts[11:19]}  tool_call   {tool}{dur_str}{extra}")
+            else:
+                lines.append(f"{ts[11:19]}  tool_call   {tool}{dur_str}")
+
         elif evt == "node_start":
             node = r.get("node", "?")
             lines.append(f"{ts[11:19]}  node_start  {node}")
@@ -289,6 +453,70 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 20) -> li
     return lines
 
 
+def _build_conversation_flow(records: list[dict[str, Any]], max_steps: int = 8) -> list[str]:
+    """Reconstruct the AgentState message flow from profiling events.
+
+    Walks the record list in chronological order and emits lines for each
+    round-trip: ``user → model → tools → model → user → …``.
+
+    - ``user`` prompts are extracted from ``node_end`` model events that had
+      a large ``messages_in`` count (first message in the batch is the user).
+    - ``model`` replies come from ``node_end`` model ``response_text``.
+    - ``tool_calls`` show which tools the model asked to run, with args.
+    - ``tool results`` show the return values from ``tool_call`` ``result``.
+
+    Returns up to *max_steps* lines, newest last.
+    """
+    flow: list[str] = []
+    # Walk forward to build a timeline of user → AI → tool round-trips
+    for r in records:
+        evt = r.get("event", "")
+        ts = r.get("timestamp", "")
+        time_str = ts[11:19] if ts else ""
+
+        if evt == "node_end" and r.get("node") == "model":
+            resp = r.get("response_text")
+            if resp:
+                preview = resp.split("\n")[0][:80]
+                if len(resp) > 80 or "\n" in resp:
+                    preview += "…"
+                flow.append(f"[{time_str}] [bold green]AI:[/bold green] {preview}")
+
+            # Show what tools the model chose to call
+            produced = r.get("produced_tool_calls", False)
+            if produced:
+                # Look ahead for the tool_call events that follow
+                flow.append(f"[{time_str}] [yellow]→ requesting tools…[/yellow]")
+
+        elif evt == "tool_call":
+            tool = r.get("tool", "?")
+            dur = r.get("duration_ms")
+            dur_str = f" ({dur:.0f}ms)" if dur is not None else ""
+
+            args_raw = r.get("args", "")
+            args_preview = ""
+            if args_raw:
+                args_preview = args_raw[:50]
+                if len(args_raw) > 50:
+                    args_preview += "…"
+
+            res_raw = r.get("result")
+            res_str = ""
+            if res_raw:
+                res_preview = str(res_raw)[:60]
+                if len(str(res_raw)) > 60:
+                    res_preview += "…"
+                res_str = f" → [cyan]{res_preview}[/cyan]"
+
+            args_part = f" args: {args_preview}" if args_preview else ""
+            flow.append(f"[{time_str}] [magenta]⚡ {tool}[/magenta]{dur_str}{args_part}{res_str}")
+
+    # Keep only the most recent steps
+    if len(flow) > max_steps:
+        flow = flow[-max_steps:]
+    return flow
+
+
 class _NoDataPanel:
     """Placeholder rendered when there are no records."""
 
@@ -321,7 +549,7 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     )
 
     # Header
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = _config.now().strftime("%Y-%m-%d %H:%M:%S %Z")
     header_text = Text()
     header_text.append(" Agent Profiler Dashboard", style="bold cyan")
     header_text.append(f"  |  Session: {session_id}", style="cyan")
@@ -331,6 +559,10 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
         layout["body"].update(_NoDataPanel(session_id))
         layout["footer"].update(Text(f"Last refresh: {now}", style="dim"))
         return layout
+
+    # Load CrateState
+    crate_state = _load_cratestate(session_id)
+    crate_panel = _build_cratestate_panel(crate_state)
 
     # Build tables
     tool_headers, tool_rows = _build_tool_table(records)
@@ -354,9 +586,18 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     token_table = _build_token_table(token_totals, token_last)
 
     live_panel = Panel(
-        chr(92).join(live_lines[-10:]),
+        "\n".join(live_lines[-10:]),
         title="Recent Events",
         border_style="dim",
+    )
+
+    # Conversation flow panel — shows the AgentState message round-trips
+    conversation_lines = _build_conversation_flow(records)
+    conversation_panel = Panel(
+        "\n".join(conversation_lines),
+        title="Conversation Flow (AgentState)",
+        border_style="magenta",
+        highlight=True,
     )
 
     response_panel = None
@@ -376,12 +617,13 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     from rich.columns import Columns
 
     body_parts = [
+        Columns([crate_panel, token_table], equal=True, expand=True),
         Columns([tool_table, node_table], equal=True, expand=True),
-        Columns([token_table], equal=False, expand=True),
     ]
     if response_panel:
         body_parts.append(response_panel)
     body_parts.append(live_panel)
+    body_parts.append(conversation_panel)
     body = Group(*body_parts)
     layout["body"].update(body)
     layout["footer"].update(Text(f"Last refresh: {now}", style="dim"))
@@ -468,11 +710,14 @@ def _run_live_dashboard(
     from rich.live import Live
 
     console = Console()
+    session_path = profile_path.parent
+    crate_state_path = session_path / "crate_state.json"
     last_mtime: float = 0.0
+    last_crate_mtime: float = 0.0
 
     def _build() -> Layout:
-        nonlocal last_mtime
-        # Re-read only if the file has changed (avoid pointless I/O)
+        nonlocal last_mtime, last_crate_mtime
+        # Re-read profile only if changed (avoid pointless I/O)
         try:
             current_mtime = profile_path.stat().st_mtime
         except OSError:
@@ -496,5 +741,9 @@ def _run_live_dashboard(
     ) as live:
         # watchfiles step is in milliseconds; convert from our seconds-based interval
         step_ms = int(refresh_interval * 1000)
-        for _changes in watch(profile_path, step=step_ms):
+        # Watch both profile.ndjson and crate_state.json so CrateState updates too
+        watch_paths = [str(profile_path)]
+        if crate_state_path.exists():
+            watch_paths.append(str(crate_state_path))
+        for _changes in watch(*watch_paths, step=step_ms):
             live.update(_build())

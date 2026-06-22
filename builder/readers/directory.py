@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
+import builder.config as _config
 from builder.state import CrateState
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,8 @@ def read_directory(path: str) -> CrateState:
     scanned = scan_files(path)
     state.scanned_files = scanned
 
-    state.session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    state.created_at = datetime.now(timezone.utc).isoformat()
+    state.session_id = _config.now().strftime("%Y%m%d_%H%M%S")
+    state.created_at = _config.now().isoformat()
     state.updated_at = state.created_at
 
     logger.info("Read directory %s — found %d files", path, len(scanned))

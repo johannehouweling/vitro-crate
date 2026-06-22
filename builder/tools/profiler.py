@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import builder.config as _config
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +109,7 @@ class ProfilingLogger:
 
         record: dict[str, Any] = {
             "event": event,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": _config.now().isoformat(),
         }
         if tool is not None:
             record["tool"] = tool
@@ -141,14 +143,31 @@ class ProfilingLogger:
         duration_ms: float,
         iteration: int,
         args: str | None = None,
+        result: str | None = None,
     ) -> None:
-        """Convenience wrapper that logs a ``"tool_call"`` event."""
+        """Convenience wrapper that logs a ``"tool_call"`` event.
+
+        Parameters
+        ----------
+        tool_name:
+            Name of the tool that was called.
+        duration_ms:
+            Wall-clock execution time in milliseconds.
+        iteration:
+            Agent iteration counter at the time of the call.
+        args:
+            Stringified call arguments (truncated, see ``log_event``).
+        result:
+            Stringified tool return value (truncated to 500 chars to
+            avoid bloating the profile file).
+        """
         self.log_event(
             event="tool_call",
             tool=tool_name,
             duration_ms=duration_ms,
             iteration=iteration,
             args=args,
+            result=result,
         )
 
     def close(self) -> None:

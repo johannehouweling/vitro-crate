@@ -11,9 +11,9 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 
+import builder.config as _config
 from builder.state import CrateState
 
 logger = logging.getLogger(__name__)
@@ -239,7 +239,7 @@ def save_session(state: CrateState, label: str = "", always_write: bool = False)
 
     # Assign session_id if not already set
     if not state.session_id:
-        state.session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        state.session_id = _config.now().strftime("%Y%m%d_%H%M%S")
 
     # Change detection: hash the meaningful content (not timestamps)
     content_hash = _state_content_hash(state)
@@ -255,8 +255,8 @@ def save_session(state: CrateState, label: str = "", always_write: bool = False)
 
     # Update timestamps for the write
     if not state.created_at:
-        state.created_at = datetime.now(timezone.utc).isoformat()
-    state.updated_at = datetime.now(timezone.utc).isoformat()
+        state.created_at = _config.now().isoformat()
+    state.updated_at = _config.now().isoformat()
 
     session_id = state.session_id
     session_path = SESSION_DIR / session_id
@@ -303,7 +303,7 @@ def save_session(state: CrateState, label: str = "", always_write: bool = False)
     log_path = session_path / "session.log"
     try:
         with open(log_path, "a") as f:
-            timestamp = datetime.now(timezone.utc).isoformat()
+            timestamp = _config.now().isoformat()
             action = f"save_session: saved state for {session_id}"
             if label:
                 action += f" (label: {label})"

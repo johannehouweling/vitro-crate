@@ -10,6 +10,14 @@ Precedence (highest to lowest):
     1. CLI flags (--provider, --model, --api-base)
     2. Environment variables (VITRO_OPENAI_API_KEY, VITRO_MAX_RETRIES, etc.)
     3. Config file (~/.config/vitro-crate/config.toml)
+
+Timezone
+-------
+All timestamps in the application are localised to the configured timezone.
+The timezone is read from ``[display] timezone`` in config.toml, falling
+back to the ``VITRO_TIMEZONE`` environment variable, then to ``Europe/Amsterdam``.
+Use ``get_timezone()`` to retrieve the configured ``datetime.tzinfo`` and
+``now()`` to get the current localised timestamp.
 """
 
 from __future__ import annotations
@@ -17,6 +25,7 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
+from datetime import datetime, timezone as _timezone_mod
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +51,43 @@ CONFIG_PATH = CONFIG_DIR / "config.toml"
 DEFAULTS: dict[str, Any] = {
     "max_iterations": 100,
 }
+
+_DEFAULT_TIMEZONE = "Europe/Amsterdam"
+
+
+def get_timezone() -> _timezone_mod:
+    """Return the configured local timezone as a ``datetime.tzinfo``.
+
+    Precedence (highest to lowest):
+        1. Environment variable ``VITRO_TIMEZONE``
+        2. Config file value ``[display] timezone``
+        3. Built-in default ``Europe/Amsterdam``
+
+    Uses ``zoneinfo`` (Python 3.9+) which reads the IANA timezone database
+    from the OS. Falls back to UTC if the configured name is not found.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz_name: str | None = os.environ.get("VITRO_TIMEZONE")
+        if not tz_name:
+            cfg = load_config()
+            tz_name = cfg.get("display", {}).get("timezone")
+        if not tz_name:
+            tz_name = _DEFAULT_TIMEZONE
+        return ZoneInfo(tz_name)
+    except (KeyError, OSError, ModuleNotFoundError):
+        # Fallback to UTC if zoneinfo is not available or the zone is unknown
+        return _timezone_mod.utc
+
+
+def now() -> datetime:
+    """Return the current datetime localised to the configured timezone.
+
+    All timestamps in the application should use this function so they
+    are consistently in the user's preferred timezone.
+    """
+    return datetime.now(get_timezone())
 
 
 def get_max_iterations() -> int:
@@ -162,6 +208,7 @@ def describe_config() -> str:
         "VITRO_ANTHROPIC_API_KEY": bool(os.environ.get("VITRO_ANTHROPIC_API_KEY")),
         "VITRO_ANTHROPIC_MODEL": os.environ.get("VITRO_ANTHROPIC_MODEL") or "",
         "VITRO_MAX_RETRIES": os.environ.get("VITRO_MAX_RETRIES") or "3 (default)",
+        "VITRO_TIMEZONE": os.environ.get("VITRO_TIMEZONE") or "Europe/Amsterdam (default)",
     }
     file_cfg = load_config()
     lines = ["Current LLM configuration:\n"]
@@ -253,6 +300,8 @@ __all__ = [
     "describe_config",
     "interactive_setup",
     "get_max_iterations",
+    "get_timezone",
+    "now",
     "CONFIG_DIR",
     "CONFIG_PATH",
 ]
