@@ -845,7 +845,8 @@ def run_interactive_agent(
 
                         mp = get_model_provider()
                         cost_info = compute_cost(total_in, total_out, last_model, provider=mp)
-                        cost_str = f"@{format_cost(cost_info['total_cost'])}" if cost_info.get("total_cost") is not None else ""
+                        total_cost = cost_info.get("total_cost")
+                        cost_str = f"@{format_cost(total_cost)}" if total_cost is not None else ""
                         token_str = (
                             f"  {sep}  [dim]tok {total_in}→{total_out} ({total_in + total_out})"
                             f"{cost_str}[/dim]"

@@ -238,112 +238,57 @@ def _determine_phase_from_state(state: dict[str, Any]) -> str:
 # Tools not listed here fall into "Other" -- visible in the dashboard but
 # flagged with a warning so we know to categorise them.
 
-_TOOL_CATEGORIES: dict[str, str] = {
-    # Drafting entities
-    "draft_investigation": "Drafting",
-    "draft_study": "Drafting",
-    "draft_assay": "Drafting",
-    "draft_process": "Drafting",
-    "draft_protocol": "Drafting",
-    "draft_sample": "Drafting",
-    "draft_molecular_entity": "Drafting",
-    "draft_cell_line_sample": "Drafting",
-    "draft_person": "Drafting",
-    "draft_organization": "Drafting",
-    "draft_publication": "Drafting",
-    "draft_defined_term": "Drafting",
-    "draft_property_value": "Drafting",
-    # Entity management
-    "list_entities": "Management",
-    "update_entity": "Management",
-    "remove_entity": "Management",
-    "set_entity_field": "Management",
-    "bulk_set_fields": "Management",
-    # Lookups
-    "lookup_compound": "Lookups",
-    "lookup_cell_line": "Lookups",
-    "lookup_aop": "Lookups",
-    "lookup_bao_term": "Lookups",
-    "lookup_orcid": "Lookups",
-    "lookup_ror": "Lookups",
-    "lookup_doi": "Lookups",
-    # File tools
-    "scan_files": "Files",
-    "read_file_sample": "Files",
-    "read_multiple_files": "Files",
-    "preview_archive": "Files",
-    "extract_pdf_text": "Files",
-    "extract_pdf_tables": "Files",
-    # Verification
-    "verify_identifier": "Verify",
-    "verify_all_identifiers": "Verify",
-    # Crate assembly & validation
-    "build_crate": "Crate",
-    "validate": "Crate",
-    # Assessment
-    "assess_mit_coverage": "Assess",
-    "assess_fair_maturity": "Assess",
-    # Session & HITL
-    "save_session": "Session",
-    "load_session": "Session",
-    "list_sessions": "Session",
-    "get_status": "Session",
-    "get_hint": "Session",
-    "present_to_human": "HITL",
-    "request_input": "HITL",
+# Emoji icons per tool for compact display
+_TOOL_ICONS: dict[str, str] = {
+    "draft_investigation": "\U0001f4cb", "draft_study": "\U0001f4cb",
+    "draft_assay": "\U0001f4cb", "draft_process": "\U0001f4cb",
+    "draft_protocol": "\U0001f4cb", "draft_sample": "\U0001f4cb",
+    "draft_molecular_entity": "\U0001f4cb",
+    "draft_cell_line_sample": "\U0001f4cb", "draft_person": "\U0001f4cb",
+    "draft_organization": "\U0001f4cb", "draft_publication": "\U0001f4cb",
+    "draft_defined_term": "\U0001f4cb", "draft_property_value": "\U0001f4cb",
+    "list_entities": "\U0001f4cb", "update_entity": "\U0001f4cb",
+    "remove_entity": "\U0001f4cb", "set_entity_field": "\U0001f4cb",
+    "bulk_set_fields": "\U0001f4dd",
+    "lookup_compound": "\U0001f50d", "lookup_cell_line": "\U0001f50d",
+    "lookup_aop": "\U0001f50d", "lookup_bao_term": "\U0001f50d",
+    "lookup_orcid": "\U0001f50d", "lookup_ror": "\U0001f50d",
+    "lookup_doi": "\U0001f50d",
+    "scan_files": "\U0001f4c2", "read_file_sample": "\U0001f4c2",
+    "read_multiple_files": "\U0001f4c2", "preview_archive": "\U0001f4c2",
+    "extract_pdf_text": "\U0001f4c4", "extract_pdf_tables": "\U0001f4c4",
+    "verify_identifier": "\u2705", "verify_all_identifiers": "\u2705",
+    "build_crate": "\U0001f3ed", "validate": "\u2714\ufe0f",
+    "assess_mit_coverage": "\U0001f52e", "assess_fair_maturity": "\U0001f52e",
+    "save_session": "\U0001f4be", "load_session": "\U0001f4c1",
+    "list_sessions": "\U0001f4ca", "get_status": "\U0001f4ac",
+    "get_hint": "\U0001f4a1", "present_to_human": "\U0001f468\u200d\U0001f4bb",
+    "request_input": "\u2328\ufe0f",
 }
 
+# Category ordering for display groups
 _CATEGORY_ORDER = [
-    "Drafting",
-    "Management",
-    "Lookups",
-    "Files",
-    "Verify",
-    "Crate",
-    "Assess",
-    "Session",
-    "HITL",
-    "Other",
+    "Drafting", "Management", "Lookups", "Files",
+    "Verify", "Crate", "Assess", "Session", "HITL", "Other",
 ]
-
-_UNCATEGORISED = "Other"
-
-# Track which tools hit the fallback so we can log a warning once
-_seen_uncategorised: set[str] = set()
-
-
-def _tool_category(tool_name: str) -> str:
-    """Map a tool name to its display category.
-
-    Unknown tools land in "Other" and trigger a one-time warning so
-    the developer knows to add an entry to ``_TOOL_CATEGORIES``.
-    """
-    cat = _TOOL_CATEGORIES.get(tool_name, _UNCATEGORISED)
-    if cat is _UNCATEGORISED and tool_name not in _seen_uncategorised:
-        _seen_uncategorised.add(tool_name)
-        logger.warning(
-            "Uncategorised tool %r — add it to _TOOL_CATEGORIES in dashboard.py",
-            tool_name,
-        )
-    return cat
 
 
 def _build_tool_lines(
     records: list[dict[str, Any]],
     last_tool_name: str = "",
-) -> list[str]:
-    """Build compact per-tool display lines from tool_call events.
+) -> str:
+    """Build a compact single-line tool summary with emoji icons.
 
-    Returns a list of Rich markup strings, one per tool that was called
-    at least once, sorted by total time descending.  The last tool that
-    was called is highlighted in cyan.
+    Tools are sorted by total time descending, displayed with
+    category emoji icons.  The last-called tool is highlighted
+    in cyan.  Tools are separated by `` │ `` pipes for a sleek
+    look.
 
     Format::
-        tool_name (3) ⏱123ms/⏱∑1123ms
+        📋 validate (27) ⏱15s/∑398s │ 🔍 lookup_compound (6) ⏱0.8s/∑5.0s │ …
     """
     tool_calls = [r for r in records if r.get("event") == "tool_call"]
 
-    # Per-tool aggregate
     per_tool: dict[str, dict[str, float]] = {}
     for tc in tool_calls:
         tool = tc.get("tool", "unknown")
@@ -353,36 +298,33 @@ def _build_tool_lines(
         per_tool[tool]["count"] += 1
         per_tool[tool]["total"] += dur
 
-    # Sort by total time descending
     sorted_tools = sorted(
         per_tool.items(), key=lambda x: x[1]["total"], reverse=True
     )
 
-    lines: list[str] = []
+    parts: list[str] = []
     for tool, stats in sorted_tools:
         count = stats["count"]
-        total = stats["total"]
-        avg = total / count if count else 0
+        total_ms = stats["total"]
+        avg_ms = total_ms / count if count else 0
+        icon = _TOOL_ICONS.get(tool, "\u2699\ufe0f")
         is_last = tool == last_tool_name
         style = "bold cyan" if is_last else ""
         open_tag = f"[{style}]" if style else ""
         close_tag = f"[/{style}]" if style else ""
-        lines.append(
-            f"{open_tag}{tool} ({count}) ⏱{avg:.0f}ms/⏱∑{total:.0f}ms{close_tag}"
-        )
 
         # Format times: show whole seconds if >= 1000ms, else ms
         if total_ms >= 1000:
             total_s = total_ms / 1000.0
             if avg_ms >= 1000:
                 avg_s = avg_ms / 1000.0
-                time_part = f"{avg_s:.1f}s/{total_s:.1f}s"
+                time_part = f"\u23f1{avg_s:.1f}s/\u2211{total_s:.1f}s"
             else:
-                time_part = f"{avg_ms:.0f}ms/{total_s:.1f}s"
+                time_part = f"\u23f1{avg_ms:.0f}ms/\u2211{total_s:.1f}s"
         else:
-            time_part = f"{avg_ms:.0f}ms/{total_ms:.0f}ms"
+            time_part = f"\u23f1{avg_ms:.0f}ms/\u2211{total_ms:.0f}ms"
 
-        parts.append(f"{open_tag}{icon} {tool}[dim] ({count}) {time_part}[/dim]{close_tag}")
+        parts.append(f"{open_tag}{icon} {tool} ({count}) {time_part}{close_tag}")
 
     return " \u2502 ".join(parts)
 
@@ -666,7 +608,6 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     from rich.console import Group
     from rich.layout import Layout
     from rich.panel import Panel
-    from rich.table import Table
     from rich.text import Text
 
     layout = Layout()
@@ -719,15 +660,12 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     from builder.pricing import compute_cost, format_cost
 
     model_provider = get_model_provider()
-    cumulative_cost_info = compute_cost(int(tok_in), int(tok_out), str(last_model), provider=model_provider)
-    last_cost_str = ""
-    if last_in is not None and last_out is not None:
-        last_cost_info = compute_cost(int(last_in), int(last_out), str(last_model), provider=model_provider)
-        if last_cost_info.get("total_cost") is not None:
-            last_cost_str = f"@{format_cost(last_cost_info['total_cost'])}"
+    cumulative_cost_info = compute_cost(
+        int(tok_in), int(tok_out), str(last_model), provider=model_provider
+    )
     cost_str = ""
     if cumulative_cost_info.get("total_cost") is not None:
-        cost_str = f"  · est {format_cost(cumulative_cost_info['total_cost'])}"
+        cost_str = f"  · est ${format_cost(cumulative_cost_info['total_cost'])}"
 
     node_parts = []
     for node, calls, avg, total in node_rows:
@@ -763,9 +701,7 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
             highlight=True,
         )
 
-    # Combine into body — tool table goes last so it doesn't push live feeds off-screen
-    from rich.columns import Columns
-
+    # Combine into body — tool lines at the bottom
     body_parts = [
         crate_panel,
         Panel(summary_text, border_style="dim", padding=(0, 0)),
@@ -773,9 +709,9 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     if response_panel:
         body_parts.append(response_panel)
     body_parts.append(conversation_panel)
-    # Tool lines at the bottom — inline text per tool, sorted by frequency
+    # Tool lines at the bottom — compact one-line per tool summary
     tool_lines_wrapper = Panel(
-        "\n".join(tool_lines) if tool_lines else "[dim]no tool calls yet[/dim]",
+        tool_lines if tool_lines else "[dim]no tool calls yet[/dim]",
         title="Tool Call Times",
         border_style="magenta",
         padding=(0, 0),

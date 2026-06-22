@@ -371,7 +371,8 @@ def _ask_model_provider(config: dict[str, Any], section: str) -> None:
             for i, p in enumerate(providers, 1):
                 print(f"    {i:>2}) {p}")
             try:
-                choice = input(f"  Choose [1-{len(providers)}, or press Enter for 'openai']: ").strip()
+                prompt = f"  Choose [1-{len(providers)}, or press Enter for 'openai']: "
+                choice = input(prompt).strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 choice = ""
@@ -396,7 +397,8 @@ def _ask_model_provider(config: dict[str, Any], section: str) -> None:
 
     # Fallback: basic prompt
     print()
-    mp = input("Model provider for cost tracking (e.g. openai, azure, deepseek, together) [openai]: ").strip().lower()
+    prompt = "Model provider for cost tracking (e.g. openai, azure, deepseek, together) [openai]: "
+    mp = input(prompt).strip().lower()
     config[section]["model_provider"] = mp or "openai"
 
 __all__ = [
