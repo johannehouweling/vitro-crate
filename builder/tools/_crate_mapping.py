@@ -706,9 +706,21 @@ def _wire_mention(node: Any, prop: str, value: Any, idx: dict[str, Any]) -> None
             node.append_to(prop, {"@id": item})
 
 
+def _node_for(idx: dict[str, Any], entity: Entity) -> Any:
+    """Look up the graph node for ``entity`` by its type-qualified index key.
+
+    ``_idx_add`` always registers the ``{type}:{entity_id}`` key but the bare
+    ``entity_id`` key only when still free, so two entities of different types
+    sharing an ``entity_id`` collide on the bare slot. Resolve via the typed key
+    first (bare only as a defensive fallback) so annotations never land on the
+    wrong node (Issue #93, same class as #57).
+    """
+    return idx.get(f"{entity.type}:{entity.entity_id}") or idx.get(entity.entity_id)
+
+
 def _wire_mentions(state: CrateState, idx: dict[str, Any]) -> None:
     for st in state.list_entities("Study"):
-        node = idx.get(st.entity_id)
+        node = _node_for(idx, st)
         if node is None:
             continue
         for field, prop in _STUDY_MENTION_FIELDS.items():
@@ -716,7 +728,7 @@ def _wire_mentions(state: CrateState, idx: dict[str, Any]) -> None:
                 _wire_mention(node, prop, st.fields[field], idx)
 
     for asy in state.list_entities("Assay"):
-        node = idx.get(asy.entity_id)
+        node = _node_for(idx, asy)
         if node is None:
             continue
         for field, prop in _ASSAY_MENTION_FIELDS.items():
