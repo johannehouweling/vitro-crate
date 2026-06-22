@@ -204,6 +204,38 @@ class TestOntologyAnnotations:
         _, by_id = _build(state, tmp_path)
         assert "#DefinedTerm_ke_55" in _ids(by_id["#Assay_assay_1"].get("keyEvent"))
 
+    def test_mentions_resolve_by_typed_key_when_study_and_assay_share_id(self, tmp_path):
+        """Issue #93: with a Study and an Assay sharing an entity_id, each must
+        receive its own mention annotations.
+
+        ``_idx_add`` registers the bare ``entity_id`` key only for whichever
+        entity is added first (the Study, since structural datasets add studies
+        before assays). Resolving mentions via the bare key therefore mis-attached
+        the Assay's keyEvent to the Study node. Resolution must use the
+        type-qualified ``{type}:{entity_id}`` key instead.
+        """
+        state = CrateState()
+        state.add_entity(_ent("shared", "Study", name="S", aop="https://aopwiki.org/aops/37"))
+        state.add_entity(
+            _ent(
+                "shared",
+                "Assay",
+                name="A",
+                study_id="shared",
+                key_event="https://aopwiki.org/events/888",
+            )
+        )
+        _, by_id = _build(state, tmp_path)
+
+        study = by_id["#Study_shared"]
+        assay = by_id["#Assay_shared"]
+        # Each annotation lands on its own node…
+        assert "https://aopwiki.org/aops/37" in _ids(study.get("aop"))
+        assert "https://aopwiki.org/events/888" in _ids(assay.get("keyEvent"))
+        # …and not leaked onto the other node via the colliding bare key.
+        assert "https://aopwiki.org/events/888" not in _ids(study.get("keyEvent"))
+        assert "https://aopwiki.org/aops/37" not in _ids(assay.get("aop"))
+
 
 class TestIdentifiersAndConformance:
     def test_local_ids_are_hash_prefixed(self, tmp_path):
