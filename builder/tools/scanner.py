@@ -467,6 +467,20 @@ def _strip_macos_junk(root: Path) -> None:
 _SUMMARY_MAX_LINES = 50
 
 
+def _looks_binary(path: Path) -> bool:
+    """Return True if the file has a NUL byte in its first 8 KiB.
+
+    A reliable heuristic for binary content. Office formats (.xls/.xlsx) and
+    GraphPad files (.prism/.pzf) are binary containers that ``mimetypes`` may
+    mislabel as ``text/csv``; this guard stops them being read as mojibake text.
+    """
+    try:
+        with path.open("rb") as fb:
+            return b"\x00" in fb.read(8192)
+    except OSError:
+        return True
+
+
 def _summarize_csv(path: Path) -> str | None:
     """Return a summary of a CSV/TSV file: columns, row count, sample."""
     try:
@@ -552,15 +566,30 @@ def _summarize_xlsx(path: Path) -> str | None:
     try:
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
+            # read_only worksheets have no `.dimensions`; count by iterating
+            # (capped, so a huge sheet doesn't make the summary slow).
+            header: tuple = ()
             col_count = 0
-            for row in ws.iter_rows(values_only=True):
-                col_count = len(row)
-                break
-            dim = ws.dimensions
-            if dim and dim != "A1":
-                parts.append(f"  {sheet_name}: ~{dim} ({col_count} cols)")
-            else:
-                parts.append(f"  {sheet_name}: unknown rows, {col_count} cols")
+            row_count = 0
+            capped = False
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i == 0:
+                    header = row
+                    col_count = len(row)
+                row_count = i + 1
+                if i >= 2000:
+                    capped = True
+                    break
+            cols = ", ".join(str(c) for c in header if c is not None)
+            rows_label = f"{row_count}+" if capped else str(row_count)
+            line = f"  {sheet_name}: {rows_label} rows x {col_count} cols"
+            if cols:
+                line += f"; columns: {cols}"
+            parts.append(line)
+    except Exception:
+        # A malformed sheet must not crash (or escape) the summary.
+        if len(parts) == 1:
+            return None
     finally:
         wb.close()
 
@@ -806,9 +835,10 @@ def read_file_sample(
         # Pick the right summarizer based on file type
         summary: str | None = None
 
-        if suffix == ".csv" or suffix == ".tsv" or mime in _TABULAR_MIME_TYPES:
-            summary = _summarize_csv(file_path)
-        elif suffix == ".json":
+        # Dispatch by suffix to the binary-aware summarizers FIRST: office
+        # formats carry a tabular MIME, so the CSV branch below would otherwise
+        # claim them and read their zip/OLE2 header as mojibake "columns".
+        if suffix == ".json":
             summary = _summarize_json(file_path)
         elif suffix == ".xlsx" or suffix == ".xls":
             summary = _summarize_xlsx(file_path)
@@ -816,14 +846,17 @@ def read_file_sample(
             summary = _summarize_pdf(file_path)
         elif suffix == ".docx":
             summary = _summarize_docx(file_path)
+        elif suffix == ".csv" or suffix == ".tsv" or mime in _TABULAR_MIME_TYPES:
+            # A textual MIME (text/csv, ms-excel) can mislabel a binary file —
+            # e.g. GraphPad .prism/.pzf — which _summarize_csv would read as
+            # mojibake "Columns: PK\x03\x04…". Refuse binary content here.
+            if _looks_binary(file_path):
+                return None
+            summary = _summarize_csv(file_path)
         else:
             # Try as plain text first, else binary check
-            try:
-                with file_path.open("rb") as fb:
-                    if b"\x00" in fb.read(8192):
-                        return None  # binary — no summary possible
-            except OSError:
-                return None
+            if _looks_binary(file_path):
+                return None  # binary — no summary possible
             summary = _summarize_text(file_path)
 
         if mode == "overview":

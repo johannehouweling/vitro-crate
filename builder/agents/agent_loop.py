@@ -182,6 +182,25 @@ def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | N
     return create_model(f"{name}_args", **fields, __base__=BaseModel)
 
 
+def _unreadable_file_message(path: str) -> str:
+    """Actionable message for the LLM when read_file_sample can't return text.
+
+    read_file_sample returns a bare ``None`` for files that are missing, too
+    large, or binary (e.g. .xls/.xlsx Office containers, GraphPad .prism/.pzf).
+    A bare ``None`` gives the model nothing to act on, so a weak model re-calls
+    the tool forever and hits the iteration cap (#101). This turns it into a
+    clear "stop, do something else" signal.
+    """
+    name = (path or "").replace("\\", "/").rsplit("/", 1)[-1] or path or "the file"
+    return (
+        f"read_file_sample could not return text for '{name}'. It is missing, too "
+        f"large (>100MB), or binary — e.g. .xls/.xlsx are Office/zip containers and "
+        f".prism/.pzf are GraphPad Prism binaries. Do NOT retry read_file_sample on "
+        f"it. Use the scan preview already in state, try read_excel/read_file for "
+        f"spreadsheets or Office docs, or skip this file and continue drafting entities."
+    )
+
+
 def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
     """Build LangChain BaseTool instances from the engine's tool registry.
 
@@ -226,6 +245,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     from builder.tools.scanner import summarize_scan_result
 
                     return summarize_scan_result(result)
+                # read_file_sample returns None for missing/oversized/binary files;
+                # hand the LLM an actionable message so it stops re-calling it (#101).
+                if tool_name == "read_file_sample" and result is None:
+                    return _unreadable_file_message(kwargs.get("path", ""))
                 return result
 
             _run.__name__ = tool_name

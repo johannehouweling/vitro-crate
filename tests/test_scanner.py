@@ -377,19 +377,24 @@ class TestReadFileSampleMode:
         assert "3 items" in result.lower() or "3 elements" in result.lower()
 
     def test_summary_xlsx(self, tmp_path):
-        """mode='summary' on XLSX returns sheet names."""
-        import zipfile
+        """mode='summary' on a real XLSX returns the Excel format and sheet info.
+
+        Uses a valid workbook written by openpyxl rather than a hand-crafted zip:
+        the old fake passed only because the file was misrouted to the CSV
+        summarizer, which read the uncompressed zip bytes as mojibake text (#101).
+        """
+        import pytest
+        openpyxl = pytest.importorskip("openpyxl")
         f = tmp_path / "book.xlsx"
-        with zipfile.ZipFile(f, "w") as z:
-            z.writestr("xl/workbook.xml",
-                '<?xml version="1.0"?><workbook><sheets><sheet name="Sheet1"/></sheets></workbook>')
-            z.writestr("xl/sharedStrings.xml",
-                '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"></sst>')
-            z.writestr("xl/worksheets/sheet1.xml",
-                '<?xml version="1.0"?><worksheet><dimension ref="A1:B5"/></worksheet>')
-            z.writestr("[Content_Types].xml", "<Types/>")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.append(["colA", "colB"])
+        ws.append([1, 2])
+        wb.save(f)
         result = read_file_sample(str(f), mode="summary")
         assert result is not None
+        assert "Excel" in result
         assert "Sheet1" in result
 
     def test_summary_pdf(self, tmp_path):
