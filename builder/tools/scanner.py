@@ -326,11 +326,16 @@ def scan_files(
         is_tabular = mime in _TABULAR_MIME_TYPES or entry.suffix.lower() in _TABULAR_SUFFIXES
         first_rows: list[str] | None = None
         if is_tabular:
+            # For binary office formats (xlsx/xls) the extension says "tabular" but
+            # the content is a zip/OLE2 container — do NOT pass already_text=True
+            # because that bypasses the NUL-byte binary guard and the raw PK\x03\x04…
+            # bytes would be read as mojibake (Issue #51 regression).
+            _is_binary_ext = entry.suffix.lower() in {".xlsx", ".xls"}
             sample = read_file_sample(
                 str(entry),
                 lines=20,
                 precomputed_size=file_size,
-                already_text=True,
+                already_text=not _is_binary_ext,
             )
             if sample is not None:
                 lines = sample.splitlines()

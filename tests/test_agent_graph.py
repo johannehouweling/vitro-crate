@@ -24,6 +24,10 @@ class TestBuildAgentGraph:
         from langchain_core.tools import tool as langchain_tool
 
         from builder.agents.agent_loop import _build_agent_graph
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.initialize()
 
         @langchain_tool
         def dummy_tool(query: str) -> str:
@@ -33,7 +37,7 @@ class TestBuildAgentGraph:
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = mock_llm
 
-        app = _build_agent_graph(mock_llm, [dummy_tool])
+        app = _build_agent_graph(mock_llm, [dummy_tool], engine=engine)
 
         # Should have expected attributes of a compiled graph
         assert hasattr(app, "invoke")
@@ -46,6 +50,10 @@ class TestBuildAgentGraph:
         from langchain_core.tools import tool as langchain_tool
 
         from builder.agents.agent_loop import _build_agent_graph
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.initialize()
 
         @langchain_tool
         def dummy_tool(query: str) -> str:
@@ -55,7 +63,7 @@ class TestBuildAgentGraph:
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = mock_llm
 
-        app = _build_agent_graph(mock_llm, [dummy_tool])
+        app = _build_agent_graph(mock_llm, [dummy_tool], engine=engine)
 
         graph = app.get_graph()
         # In compiled graphs, nodes is a list of node names (strings)
@@ -78,6 +86,10 @@ class TestBuildAgentGraph:
         from langchain_core.tools import tool as langchain_tool
 
         from builder.agents.agent_loop import _build_agent_graph
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.initialize()
 
         @langchain_tool
         def dummy_tool(query: str) -> str:
@@ -89,7 +101,7 @@ class TestBuildAgentGraph:
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = bound
 
-        app = _build_agent_graph(mock_llm, [dummy_tool])
+        app = _build_agent_graph(mock_llm, [dummy_tool], engine=engine)
         app.invoke(
             {"messages": [HumanMessage(content="hi")]},
             {"configurable": {"thread_id": "bind-test-001"}},
@@ -160,6 +172,10 @@ class TestBuildAgentGraph:
         from langchain_core.tools import tool as langchain_tool
 
         from builder.agents.agent_loop import _build_agent_graph
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.initialize()
 
         @langchain_tool
         def dummy_tool(query: str) -> str:
@@ -171,7 +187,7 @@ class TestBuildAgentGraph:
         mock_llm.bind_tools.return_value = mock_llm
         mock_llm.invoke.return_value = AIMessage(content="Hello! I am the agent.")
 
-        app = _build_agent_graph(mock_llm, [dummy_tool])
+        app = _build_agent_graph(mock_llm, [dummy_tool], engine=engine)
 
         # Need thread_id for MemorySaver checkpointing
         config = {"configurable": {"thread_id": "test-thread-001"}}
