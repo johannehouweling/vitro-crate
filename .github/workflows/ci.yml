@@ -31,7 +31,7 @@ jobs:
         run: uvx ruff check
 
       - name: Type check (ty)
-        run: uv run ty
+        run: uv run ty check
         continue-on-error: true  # ty is a Rust-based type checker still evolving
 
       - name: Test (pytest)
