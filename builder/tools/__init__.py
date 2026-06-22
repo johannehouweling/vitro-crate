@@ -21,7 +21,7 @@ Tool categories:
 
 from __future__ import annotations
 
-from builder.tools.builder import build_crate
+from builder.tools.builder import build_crate, export_crate
 from builder.tools.drafters import (
     draft_assay,
     draft_cell_line_sample,
@@ -68,12 +68,13 @@ from builder.tools.session import (
     load_session,
     save_session,
 )
-from builder.tools.validation import validate
+from builder.tools.validation import build_and_validate, validate
 from builder.tools.verification import verify_all_identifiers, verify_identifier
 
 __all__ = [
     "assess_fair_maturity",
     "assess_mit_coverage",
+    "build_and_validate",
     "build_crate",
     "bulk_set_fields",
     "draft_assay",
@@ -85,6 +86,7 @@ __all__ = [
     "draft_process",
     "draft_publication",
     "draft_study",
+    "export_crate",
     "extract_pdf_text",
     "get_hint",
     "get_status",

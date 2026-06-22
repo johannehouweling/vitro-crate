@@ -127,6 +127,137 @@ class ValidationResult:
     passed_required: bool = True  # no REQUIRED-severity issues
 
 
+# ---------------------------------------------------------------------------
+# In-memory (no-disk) validation — routable per-entity feedback (#87)
+# ---------------------------------------------------------------------------
+
+# Layer key -> (profile_identifier, extra ValidationSettings kwargs). Mirrors the
+# three passes in validate_crate(); the only difference is the document is fed as
+# a dict via services.validate_metadata_as_dict instead of read from disk.
+_PROFILE_PASSES: dict[str, tuple[str, dict]] = {
+    "base": ("ro-crate-1.1", {}),
+    "isa": ("isa-ro-crate", {"disable_inherited_profiles_issue_reporting": True}),
+    "tox": (
+        "tox-ro-crate",
+        {
+            "profiles_path": DEFAULT_PROFILES_PATH,
+            "extra_profiles_path": SHAPES_DIR,
+            "disable_inherited_profiles_issue_reporting": True,
+        },
+    ),
+}
+
+# Severity name <-> roc-validator Severity enum.
+_SEVERITY_BY_NAME = {
+    "required": models.Severity.REQUIRED,
+    "recommended": models.Severity.RECOMMENDED,
+    "optional": models.Severity.OPTIONAL,
+}
+_SEVERITY_NAME = {v: k for k, v in _SEVERITY_BY_NAME.items()}
+
+
+@dataclass
+class RoutableIssue:
+    """A SHACL issue keyed to the entity/property that failed.
+
+    Unlike the prose strings in :class:`ValidationResult`, these fields let the
+    agent route a fix to a specific graph node and property.
+    """
+
+    entity_id: str | None  # focus-node @id (crate-relative, e.g. "./", "#id")
+    property: str | None  # failing property IRI (e.g. http://schema.org/name)
+    property_value: str | None  # the offending value, when reported
+    message: str  # human-readable SHACL message
+    severity: str  # "required" | "recommended" | "optional"
+    check_id: str | None  # check.identifier, e.g. "ro-crate-1.1_8.1"
+    profile: str  # "base" | "isa" | "tox"
+
+
+@dataclass
+class DictValidationResult:
+    """Result of one in-memory validation pass over a metadata document."""
+
+    profile: str  # "base" | "isa" | "tox"
+    passed: bool  # no issues at the gate severity
+    passed_required: bool  # no REQUIRED-severity issues
+    issues: list[RoutableIssue] = field(default_factory=list)
+
+
+def _routable_issue(issue, profile: str) -> RoutableIssue:
+    """Adapt a roc-validator CheckIssue to a :class:`RoutableIssue`."""
+
+    def _opt_str(value) -> str | None:
+        return str(value) if value is not None else None
+
+    return RoutableIssue(
+        entity_id=_opt_str(getattr(issue, "violatingEntity", None)),
+        property=_opt_str(getattr(issue, "violatingProperty", None)),
+        property_value=_opt_str(getattr(issue, "violatingPropertyValue", None)),
+        message=issue.message or str(issue),
+        severity=_SEVERITY_NAME.get(issue.severity, issue.severity.name.lower()),
+        check_id=getattr(getattr(issue, "check", None), "identifier", None),
+        profile=profile,
+    )
+
+
+def validate_crate_dict(
+    metadata_doc: dict,
+    *,
+    severity: str = "required",
+    profile: str = "all",
+) -> list[DictValidationResult]:
+    """Validate an in-memory RO-Crate metadata document — no disk round-trip.
+
+    ``metadata_doc`` is the ``{"@context", "@graph"}`` dict returned by
+    ``crate.metadata.generate()`` (ro-crate-py >=0.15 returns a dict, not JSON).
+    It is validated directly via ``services.validate_metadata_as_dict``; nothing
+    is written or read from disk.
+
+    Args:
+        metadata_doc: The RO-Crate metadata document as a dict.
+        severity: Gate severity ("required" | "recommended" | "optional"). At
+            "required" only REQUIRED-severity checks run (fastest, the inner-loop
+            default); lower the gate to also surface recommendations.
+        profile: "all" runs the base -> isa -> tox passes; "base"/"isa"/"tox"
+            runs a single pass (the tox pass dominates wall-clock, so scoping the
+            inner loop is the main speed lever).
+
+    Returns:
+        One :class:`DictValidationResult` per pass run, in dependency order.
+    """
+    gate = _SEVERITY_BY_NAME.get(severity, models.Severity.REQUIRED)
+    if profile == "all":
+        passes = ["base", "isa", "tox"]
+    elif profile in _PROFILE_PASSES:
+        passes = [profile]
+    else:
+        raise ValueError(
+            f"Unknown profile {profile!r}; expected one of 'all', 'base', 'isa', 'tox'."
+        )
+
+    results: list[DictValidationResult] = []
+    for key in passes:
+        profile_identifier, extra = _PROFILE_PASSES[key]
+        # rocrate_uri is required even on the dict path; its value is ignored when
+        # the document is supplied as a dict (base IRI resolves to "./").
+        settings = services.ValidationSettings(
+            rocrate_uri=".",  # ty: ignore[unknown-argument]
+            profile_identifier=profile_identifier,
+            requirement_severity=gate,
+            **extra,
+        )
+        result = services.validate_metadata_as_dict(metadata_doc, settings)
+        results.append(
+            DictValidationResult(
+                profile=key,
+                passed=not result.has_issues(),
+                passed_required=not result.has_issues(min_severity=models.Severity.REQUIRED),
+                issues=[_routable_issue(i, key) for i in result.get_issues()],
+            )
+        )
+    return results
+
+
 def validate_crate(crate_dir: Path) -> list[ValidationResult]:
     """Run all three validation passes against crate_dir.
 

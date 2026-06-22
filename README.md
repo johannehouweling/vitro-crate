@@ -159,6 +159,11 @@ Once in the agent loop, you can type requests like:
 > *"Build the crate and validate it"*
 > *"Assess MIT coverage"*
 
+While iterating, the agent checks conformance with `build_and_validate`, which
+assembles and validates the crate **in memory** (no files written) and returns
+issues keyed to the entity and property that failed. Only when the crate is
+conformant does it call `export_crate` to write the RO-Crate directory to disk.
+
 ### Batch / info mode
 
 ```bash

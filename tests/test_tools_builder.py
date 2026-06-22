@@ -7,7 +7,45 @@ import tempfile
 from pathlib import Path
 
 from builder.state import CrateState
-from builder.tools.builder import build_crate
+from builder.tools.builder import build_crate, export_crate
+
+
+class TestExportCrate:
+    """export_crate is the explicit disk-writer (the only step that touches disk)."""
+
+    def test_export_crate_writes_to_disk(self):
+        state = CrateState()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = str(Path(tmpdir) / "crate")
+            result = export_crate(state, output_path)
+
+            assert result["success"] is True
+            assert result["crate_path"] == output_path
+            metadata_path = Path(output_path) / "ro-crate-metadata.json"
+            assert metadata_path.exists()
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+            assert "@context" in metadata
+            assert "@graph" in metadata
+
+    def test_build_crate_is_export_crate_alias(self):
+        """build_crate stays as a back-compat alias for export_crate."""
+        state = CrateState()
+        state.metadata.title = "Alias check"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            via_build = build_crate(state, str(Path(tmpdir) / "a"))
+            via_export = export_crate(state, str(Path(tmpdir) / "b"))
+
+            assert via_build["success"] is via_export["success"] is True
+            graph_a = json.loads(
+                (Path(via_build["crate_path"]) / "ro-crate-metadata.json").read_text()
+            )["@graph"]
+            graph_b = json.loads(
+                (Path(via_export["crate_path"]) / "ro-crate-metadata.json").read_text()
+            )["@graph"]
+            roots_a = [e for e in graph_a if e.get("@type") == "Dataset"][0]
+            roots_b = [e for e in graph_b if e.get("@type") == "Dataset"][0]
+            assert roots_a.get("name") == roots_b.get("name") == "Alias check"
 
 
 class TestBuildCrate:
