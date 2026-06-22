@@ -213,4 +213,20 @@ def test_every_system_prompt_tool_is_in_tool_specs():
     )
 
 
+def test_no_duplicate_tool_names_in_tool_specs():
+    """TOOL_SPECS must not contain two entries with the same name.
+
+    A duplicate (e.g. an upgraded tool spec added without removing the old one)
+    is silently shadowed when specs are collapsed into a name->tool map, so the
+    LLM sees one schema while another spec's description is dead. The build then
+    disagrees with itself (see the read_multiple_files duplicate from the
+    file-readers change).
+    """
+    from collections import Counter
+
+    counts = Counter(spec["name"] for spec in TOOL_SPECS)  # ty: ignore
+    duplicates = {name: n for name, n in counts.items() if n > 1}
+    assert not duplicates, f"Duplicate tool names in TOOL_SPECS: {duplicates}"
+
+
 __all__: list[str] = []
