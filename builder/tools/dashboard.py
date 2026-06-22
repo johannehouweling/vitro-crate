@@ -371,7 +371,20 @@ def _build_tool_lines(
             f"{open_tag}{tool} ({count}) ⏱{avg:.0f}ms/⏱∑{total:.0f}ms{close_tag}"
         )
 
-    return lines
+        # Format times: show whole seconds if >= 1000ms, else ms
+        if total_ms >= 1000:
+            total_s = total_ms / 1000.0
+            if avg_ms >= 1000:
+                avg_s = avg_ms / 1000.0
+                time_part = f"{avg_s:.1f}s/{total_s:.1f}s"
+            else:
+                time_part = f"{avg_ms:.0f}ms/{total_s:.1f}s"
+        else:
+            time_part = f"{avg_ms:.0f}ms/{total_ms:.0f}ms"
+
+        parts.append(f"{open_tag}{icon} {tool}[dim] ({count}) {time_part}[/dim]{close_tag}")
+
+    return " \u2502 ".join(parts)
 
 
 def _build_node_table(
@@ -714,7 +727,7 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
             last_cost_str = f"@{format_cost(last_cost_info['total_cost'])}"
     cost_str = ""
     if cumulative_cost_info.get("total_cost") is not None:
-        cost_str = f"  · est ${format_cost(cumulative_cost_info['total_cost'])}"
+        cost_str = f"  · est {format_cost(cumulative_cost_info['total_cost'])}"
 
     node_parts = []
     for node, calls, avg, total in node_rows:
