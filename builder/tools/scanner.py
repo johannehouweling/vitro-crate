@@ -19,6 +19,7 @@ from collections import Counter
 from pathlib import Path
 
 from builder.state import ArchivePreview, FileClassification
+from builder.tools.registry import TOOL_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -723,8 +724,6 @@ def summarize_scan_result(files: list[FileClassification], sample: int = 15) -> 
 # ---------------------------------------------------------------------------
 # Explicit ToolRegistry registration
 # ---------------------------------------------------------------------------
-
-from builder.tools.registry import TOOL_REGISTRY
 
 TOOL_REGISTRY.register(
     "extract_pdf_text",
