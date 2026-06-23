@@ -78,6 +78,10 @@ export VITRO_OPENAI_BASE_URL="http://localhost:11434/v1"  # or OPENAI_BASE_URL
 
 # Optional: model name (default: gpt-4o)
 export VITRO_OPENAI_MODEL="llama3.2"           # or OPENAI_MODEL
+
+# Optional: cheap drafter model for bounded extraction (model tiering).
+# Unset = single model (the drafter uses VITRO_OPENAI_MODEL).
+export VITRO_OPENAI_DRAFTER_MODEL="gpt-4o-mini"
 ```
 
 #### Anthropic
@@ -88,6 +92,10 @@ export VITRO_ANTHROPIC_API_KEY="sk-ant-..."    # or ANTHROPIC_API_KEY
 
 # Optional: model name (default: claude-sonnet-4-20250514)
 export VITRO_ANTHROPIC_MODEL="claude-sonnet-4-20250514"  # or ANTHROPIC_MODEL
+
+# Optional: cheap drafter model for bounded extraction (model tiering).
+# Unset = single model (the drafter uses VITRO_ANTHROPIC_MODEL).
+export VITRO_ANTHROPIC_DRAFTER_MODEL="claude-haiku-4"
 ```
 
 ---
@@ -122,10 +130,14 @@ You can pre-populate this file so the builder doesn't prompt you on first run:
 api_key = "sk-proj-..."
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o"
+# Optional: cheap drafter model (model tiering). Omit for a single model.
+drafter_model = "gpt-4o-mini"
 
 [anthropic]
 api_key = "sk-ant-..."
 model = "claude-sonnet-4-20250514"
+# Optional: cheap drafter model (model tiering). Omit for a single model.
+drafter_model = "claude-haiku-4"
 
 [_global]
 # How many times to retry LLM API calls on transient errors
@@ -146,8 +158,10 @@ Environment variables (``VITRO_*``) always win over the config file:
 | ``VITRO_OPENAI_API_KEY`` | API key for OpenAI / compatible providers | — |
 | ``VITRO_OPENAI_BASE_URL`` | API base URL override | ``https://api.openai.com/v1`` |
 | ``VITRO_OPENAI_MODEL`` | Model name for OpenAI | ``gpt-4o`` |
+| ``VITRO_OPENAI_DRAFTER_MODEL`` | Cheap drafter model for OpenAI (model tiering) | — (uses ``VITRO_OPENAI_MODEL``) |
 | ``VITRO_ANTHROPIC_API_KEY`` | API key for Anthropic | — |
 | ``VITRO_ANTHROPIC_MODEL`` | Model name for Anthropic | ``claude-sonnet-4-20250514`` |
+| ``VITRO_ANTHROPIC_DRAFTER_MODEL`` | Cheap drafter model for Anthropic (model tiering) | — (uses ``VITRO_ANTHROPIC_MODEL``) |
 | ``VITRO_MAX_RETRIES`` | LLM API retry count on transient errors | ``3`` |
 | ``VITRO_MAX_ITERATIONS`` | Max tool-calling iterations per request | ``100`` |
 
@@ -306,10 +320,12 @@ This works for ``requests``, ``httpx``, ``openai``, and all other HTTP clients.
 | `OPENAI_BASE_URL` | Fallback | — | Same, unprefixed fallback |
 | `VITRO_OPENAI_MODEL` | No | `gpt-4o` | Model name for OpenAI-compatible providers |
 | `OPENAI_MODEL` | Fallback | `gpt-4o` | Same, unprefixed fallback |
+| `VITRO_OPENAI_DRAFTER_MODEL` | No | — (uses `VITRO_OPENAI_MODEL`) | Cheap drafter model (model tiering). Unset → single model, unchanged behaviour |
 | `VITRO_ANTHROPIC_API_KEY` | For Anthropic | — | Anthropic API key |
 | `ANTHROPIC_API_KEY` | Fallback | — | Same, unprefixed fallback |
 | `VITRO_ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Model name for Anthropic |
 | `ANTHROPIC_MODEL` | Fallback | `claude-sonnet-4-20250514` | Same, unprefixed fallback |
+| `VITRO_ANTHROPIC_DRAFTER_MODEL` | No | — (uses `VITRO_ANTHROPIC_MODEL`) | Cheap drafter model (model tiering). Unset → single model, unchanged behaviour |
 | `VITRO_MAX_RETRIES` | No | `3` | Max retry attempts for LLM API calls (configurable via ``[openai]`` / ``[anthropic]`` in config file) |
 | `VITRO_MAX_ITERATIONS` | No | `100` | Max tool-calling iterations per request before the agent stops to avoid endless loops. Set in `[agent]` section of config file. |
 

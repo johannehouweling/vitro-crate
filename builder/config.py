@@ -173,9 +173,11 @@ def merge_with_env(config: dict[str, Any]) -> dict[str, Any]:
         ("openai", "api_key"): "VITRO_OPENAI_API_KEY",
         ("openai", "base_url"): "VITRO_OPENAI_BASE_URL",
         ("openai", "model"): "VITRO_OPENAI_MODEL",
+        ("openai", "drafter_model"): "VITRO_OPENAI_DRAFTER_MODEL",
         ("openai", "model_provider"): "VITRO_OPENAI_MODEL_PROVIDER",
         ("anthropic", "api_key"): "VITRO_ANTHROPIC_API_KEY",
         ("anthropic", "model"): "VITRO_ANTHROPIC_MODEL",
+        ("anthropic", "drafter_model"): "VITRO_ANTHROPIC_DRAFTER_MODEL",
         ("anthropic", "model_provider"): "VITRO_ANTHROPIC_MODEL_PROVIDER",
         ("_global", "max_retries"): "VITRO_MAX_RETRIES",
     }
@@ -239,6 +241,39 @@ def get_model_provider() -> str | None:
     if family == "anthropic":
         return cfg.get("anthropic", {}).get("model_provider")
     return None
+
+
+def get_drafter_model() -> str | None:
+    """Return the configured *drafter* model name, or ``None`` if unset.
+
+    Model tiering (Issue #96) lets the cheap, bounded-extraction drafter use a
+    different model from the strong orchestrator. The drafter model is read for
+    the active API family:
+
+    - ``openai``    -> ``VITRO_OPENAI_DRAFTER_MODEL``
+    - ``anthropic`` -> ``VITRO_ANTHROPIC_DRAFTER_MODEL``
+
+    Precedence mirrors the primary-model knobs: the env var wins, then the
+    config-file value (``[openai] drafter_model`` / ``[anthropic]
+    drafter_model``).
+
+    Returns *None* when no drafter model is configured — callers MUST treat this
+    as "use the primary model", so the default is a strict no-op (single model,
+    identical to today's behaviour).
+    """
+    family = get_provider()
+    if family == "openai":
+        env_var = "VITRO_OPENAI_DRAFTER_MODEL"
+    elif family == "anthropic":
+        env_var = "VITRO_ANTHROPIC_DRAFTER_MODEL"
+    else:
+        return None
+
+    val = os.environ.get(env_var)
+    if val:
+        return val
+    cfg = load_config()
+    return cfg.get(family, {}).get("drafter_model")
 
 
 def is_configured() -> bool:
@@ -408,6 +443,7 @@ __all__ = [
     "is_configured",
     "get_provider",
     "get_model_provider",
+    "get_drafter_model",
     "describe_config",
     "interactive_setup",
     "get_max_iterations",

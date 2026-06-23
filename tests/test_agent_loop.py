@@ -293,6 +293,102 @@ class TestBuildChatModel:
                 os.environ.pop("VITRO_MAX_RETRIES", None)
 
 
+class TestModelTiering:
+    """Tests for the drafter model tier (Issue #96).
+
+    A distinct, cheap drafter model can be selected via
+    ``VITRO_OPENAI_DRAFTER_MODEL`` while the orchestrator keeps the primary
+    model. With no drafter model configured, the drafter role resolves to the
+    *same* model as the orchestrator — a strict no-op by default.
+    """
+
+    def _set_openai(self) -> dict[str, str | None]:
+        saved = {
+            "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
+            "VITRO_OPENAI_API_KEY": os.environ.get("VITRO_OPENAI_API_KEY"),
+            "VITRO_OPENAI_MODEL": os.environ.get("VITRO_OPENAI_MODEL"),
+            "OPENAI_MODEL": os.environ.get("OPENAI_MODEL"),
+            "VITRO_OPENAI_DRAFTER_MODEL": os.environ.get("VITRO_OPENAI_DRAFTER_MODEL"),
+        }
+        os.environ.pop("VITRO_OPENAI_API_KEY", None)
+        os.environ.pop("VITRO_OPENAI_MODEL", None)
+        os.environ.pop("OPENAI_MODEL", None)
+        os.environ.pop("VITRO_OPENAI_DRAFTER_MODEL", None)
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        return saved
+
+    def _restore(self, saved: dict[str, str | None]) -> None:
+        for var, val in saved.items():
+            if val is not None:
+                os.environ[var] = val
+            else:
+                os.environ.pop(var, None)
+
+    def test_drafter_role_uses_drafter_model_when_set(self):
+        """role='drafter' picks up VITRO_OPENAI_DRAFTER_MODEL."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        saved = self._set_openai()
+        os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
+        os.environ["VITRO_OPENAI_DRAFTER_MODEL"] = "gpt-4o-mini"
+        try:
+            model = _build_chat_model(provider="openai", role="drafter")
+            assert model.model_name == "gpt-4o-mini"
+        finally:
+            self._restore(saved)
+
+    def test_orchestrator_role_ignores_drafter_model(self):
+        """role='orchestrator' keeps the primary model even if a drafter is set."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        saved = self._set_openai()
+        os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
+        os.environ["VITRO_OPENAI_DRAFTER_MODEL"] = "gpt-4o-mini"
+        try:
+            model = _build_chat_model(provider="openai", role="orchestrator")
+            assert model.model_name == "gpt-4o"
+        finally:
+            self._restore(saved)
+
+    def test_drafter_role_falls_back_to_primary_when_unset(self):
+        """No-op by default: with no drafter model, the drafter == orchestrator."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        saved = self._set_openai()
+        os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
+        try:
+            orchestrator = _build_chat_model(provider="openai", role="orchestrator")
+            drafter = _build_chat_model(provider="openai", role="drafter")
+            assert drafter.model_name == orchestrator.model_name == "gpt-4o"
+        finally:
+            self._restore(saved)
+
+    def test_default_role_is_orchestrator(self):
+        """Calling without a role keeps today's behaviour (primary model)."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        saved = self._set_openai()
+        os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
+        os.environ["VITRO_OPENAI_DRAFTER_MODEL"] = "gpt-4o-mini"
+        try:
+            model = _build_chat_model(provider="openai")
+            assert model.model_name == "gpt-4o"
+        finally:
+            self._restore(saved)
+
+    def test_explicit_model_arg_overrides_role(self):
+        """An explicit model= wins over role-based resolution."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        saved = self._set_openai()
+        os.environ["VITRO_OPENAI_DRAFTER_MODEL"] = "gpt-4o-mini"
+        try:
+            model = _build_chat_model(provider="openai", model="llama3.2", role="drafter")
+            assert model.model_name == "llama3.2"
+        finally:
+            self._restore(saved)
+
+
 class TestBuildLangchainTools:
     """Tests for building LangChain tools from the engine registry."""
 
