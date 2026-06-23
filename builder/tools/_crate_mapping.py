@@ -277,33 +277,38 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
         crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
 
     # conformsTo lives on the metadata descriptor (RO-Crate 1.1 placement,
-    # isa_tox.md §Conformance) and asserts only layers the crate satisfies.
-    conforms: list[dict[str, str]] = [{"@id": ROCRATE_SPEC}]
-    if state.validation.isa_passed:
-        conforms.append({"@id": PROFILE_ISA})
-        crate.add(
-            ContextEntity(
-                crate,
-                PROFILE_ISA,
-                properties={
-                    "@type": ["CreativeWork", "Profile"],
-                    "name": "ISA RO-Crate Profile",
-                },
-            )
+    # isa_tox.md §Conformance). The crate declares the ISA + ISA-Tox profiles it
+    # TARGETS unconditionally — the three-layer (RO-Crate → ISA → ISA-Tox)
+    # duck-typing architecture rests on this declaration, and validation should
+    # be able to see the profiles a crate claims (Issue #89, "guidance over
+    # strictness"). Declaration is therefore independent of any prior validation
+    # pass; conformance is reported separately via build_and_validate (#87).
+    conforms: list[dict[str, str]] = [
+        {"@id": ROCRATE_SPEC},
+        {"@id": PROFILE_ISA},
+        {"@id": PROFILE_ISATOX},
+    ]
+    crate.add(
+        ContextEntity(
+            crate,
+            PROFILE_ISA,
+            properties={
+                "@type": ["CreativeWork", "Profile"],
+                "name": "ISA RO-Crate Profile",
+            },
         )
-    if state.validation.tox_passed:
-        conforms.append({"@id": PROFILE_ISATOX})
-        crate.add(
-            ContextEntity(
-                crate,
-                PROFILE_ISATOX,
-                properties={
-                    "@type": ["CreativeWork", "Profile"],
-                    "name": "ISA-Tox RO-Crate Profile",
-                    "version": "0.1.0-draft.1",
-                },
-            )
+    )
+    crate.add(
+        ContextEntity(
+            crate,
+            PROFILE_ISATOX,
+            properties={
+                "@type": ["CreativeWork", "Profile"],
+                "name": "ISA-Tox RO-Crate Profile",
+                "version": "0.1.0-draft.1",
+            },
         )
+    )
     crate.metadata["conformsTo"] = conforms
 
 

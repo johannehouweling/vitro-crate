@@ -252,14 +252,26 @@ class TestIdentifiersAndConformance:
         _, by_id = _build(state, tmp_path)
         assert "https://orcid.org/0000-0002-1825-0097" in by_id
 
-    def test_conformsto_gated_on_validation(self, tmp_path):
+    def test_conformsto_declares_isa_and_tox_unconditionally(self, tmp_path):
+        # Issue #89: a fresh crate (no validation passes recorded) must still
+        # declare the ISA + ISA-Tox profiles it TARGETS — the three-layer
+        # duck-typing architecture rests on the crate advertising the profiles
+        # it aims for ("guidance over strictness"), not gating them on a prior
+        # validation pass (chicken-and-egg).
         state = CrateState()
-        # No validation passes recorded → only RO-Crate 1.1 asserted.
         _, by_id = _build(state, tmp_path)
         descriptor = by_id["ro-crate-metadata.json"]
         conforms = _ids(descriptor.get("conformsTo"))
         assert "https://w3id.org/ro/crate/1.1" in conforms
-        assert "https://w3id.org/ro/crate/isa/1.0" not in conforms
+        assert "https://github.com/nfdi4plants/isa-ro-crate-profile" in conforms
+        assert "https://w3id.org/ro/crate/isa-tox/1.0" in conforms
+        # both declared profiles also exist as Profile contextual entities
+        for pid in (
+            "https://github.com/nfdi4plants/isa-ro-crate-profile",
+            "https://w3id.org/ro/crate/isa-tox/1.0",
+        ):
+            pt = by_id[pid]["@type"]
+            assert "Profile" in (pt if isinstance(pt, list) else [pt])
 
     def test_conformsto_includes_profiles_when_validated(self, tmp_path):
         state = CrateState()
