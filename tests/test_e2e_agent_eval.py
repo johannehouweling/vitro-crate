@@ -251,20 +251,32 @@ class TestBuiltCrateCompletenessAndWiring:
         about_types = json.dumps([by_id[i].get("@type") for i in about_ids if i in by_id])
         assert "LabProcess" in about_types, about_types
 
-    def test_conformsto_declares_isa_and_isatox_profiles(self, graph):
-        """The metadata descriptor's conformsTo declares RO-Crate + ISA + ISA-Tox."""
+    def test_conformsto_isa_and_isatox_on_root_descriptor_base_only(self, graph):
+        """Profile conformsTo placement follows RO-Crate 1.2 (#91): the ISA +
+        ISA-Tox profiles the crate targets are declared on the Root Data Entity
+        (``./``), while the metadata descriptor's conformsTo is the single
+        base-spec URI only (no profile URIs)."""
+
+        def conforms_ids(node):
+            conforms = node.get("conformsTo")
+            if isinstance(conforms, dict):
+                conforms = [conforms]
+            return [c.get("@id", "") for c in conforms or []]
+
+        root = next(e for e in graph if e.get("@id") == "./")
         descriptor = next(
             e for e in graph if e.get("@id") == "ro-crate-metadata.json"
         )
-        conforms = descriptor.get("conformsTo")
-        if isinstance(conforms, dict):
-            conforms = [conforms]
-        ids = [c.get("@id", "") for c in conforms or []]
-        blob = " ".join(ids)
-        assert any("w3id.org/ro/crate" in i for i in ids), ids
-        assert "isa" in blob.lower(), ids
-        # ISA-Tox profile declared alongside ISA (the domain extension layer).
-        assert sum("isa" in i.lower() for i in ids) >= 2, ids
+
+        root_ids = conforms_ids(root)
+        desc_ids = conforms_ids(descriptor)
+
+        # Root Data Entity declares both targeted profiles (ISA + ISA-Tox).
+        assert sum("isa" in i.lower() for i in root_ids) >= 2, root_ids
+
+        # Descriptor conformsTo is the base spec only — no profile URIs there.
+        assert any("w3id.org/ro/crate" in i for i in desc_ids), desc_ids
+        assert not any("isa" in i.lower() for i in desc_ids), desc_ids
 
 
 class TestScoreFloors:
