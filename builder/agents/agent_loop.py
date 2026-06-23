@@ -549,6 +549,47 @@ def _build_system_prompt_with_state(
     )
 
 
+def _assemble_model_messages(
+    messages: list,
+    *,
+    session_id: str,
+    entity_count: int,
+    file_count: int,
+    iteration_count: int,
+) -> list:
+    """Assemble the message list for a model invocation with a cache-friendly
+    layout (Issue #60).
+
+    Layout: ``[SystemMessage(SYSTEM_PROMPT), *history, SystemMessage(state_brief)]``.
+
+    The leading system message is kept **byte-stable** (``SYSTEM_PROMPT`` only, no
+    volatile state appended), so every provider can cache the stable
+    ``tools + system + history`` prefix across turns (history is append-only). The
+    per-turn state brief (session id, counts, iteration) — which changes every
+    iteration — is placed as the **last** message, where it cannot bust the prefix
+    cache. Previously the brief was appended to the system message, so the cache
+    broke right after the prompt and the (growing, expensive) history was never
+    cached.
+
+    Neither the system message nor the brief is persisted into MemorySaver
+    history — both are rebuilt fresh on every invocation, so they never accumulate
+    (Issue #66). Only the model's response is returned to the reducer.
+    """
+    from langchain_core.messages import SystemMessage
+
+    state_brief = _build_system_prompt_with_state(
+        session_id=session_id,
+        entity_count=entity_count,
+        file_count=file_count,
+        iteration_count=iteration_count,
+    )
+    return [
+        SystemMessage(content=SYSTEM_PROMPT),
+        *messages,
+        SystemMessage(content=state_brief),
+    ]
+
+
 def _build_agent_graph(
     llm: Any,
     tools: list[Any],
@@ -573,7 +614,6 @@ def _build_agent_graph(
     Returns:
         A compiled ``CompiledStateGraph`` ready for ``.invoke()``.
     """
-    from langchain_core.messages import SystemMessage
     from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import START, StateGraph
     from langgraph.prebuilt import ToolNode
@@ -590,20 +630,19 @@ def _build_agent_graph(
     model = llm.bind_tools(tools) if tools else llm
 
     def call_model(state: dict[str, Any]) -> dict[str, Any]:
-        """Model node: prepend system prompt and invoke the tool-bound LLM."""
+        """Model node: build a cache-friendly message list and invoke the LLM."""
         assert engine is not None, "AgentEngine must be set before call_model is invoked"
         messages = state.get("messages", [])
-        # Prepend system prompt with lightweight state brief on every invocation.
-        # The state brief is re-built each time so it never accumulates in
-        # MemorySaver history (Issue #66).
-        state_brief = _build_system_prompt_with_state(
+        # Stable SYSTEM_PROMPT prefix + history, with the volatile per-turn state
+        # brief at the tail so the cacheable prefix isn't busted (Issue #60). The
+        # brief is rebuilt each call and never persisted to history (Issue #66).
+        model_messages = _assemble_model_messages(
+            messages,
             session_id=engine.state.session_id,
             entity_count=len(engine.state.list_entities()),
             file_count=len(engine.state.scanned_files),
             iteration_count=engine.state.iteration_count,
         )
-        system_msg = SystemMessage(content=f"{SYSTEM_PROMPT}\n\n{state_brief}")
-        model_messages = [system_msg, *messages]
         response = model.invoke(model_messages)
         # Return only the new response; the add_messages reducer appends it
         return {"messages": [response]}
