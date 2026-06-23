@@ -74,7 +74,9 @@ def export_crate(state: CrateState, output_path: str | None = None) -> dict[str,
     Args:
         state: The current CrateState to build from.
         output_path: Path where the crate directory should be created.
-            When omitted, defaults to ``sessions/<session_id>/working_crate/``.
+            When omitted, falls back to ``state.metadata.output_path`` (the
+            user-configured destination), then to
+            ``sessions/<session_id>/working_crate/``.
 
     Returns:
         A dict with keys:
