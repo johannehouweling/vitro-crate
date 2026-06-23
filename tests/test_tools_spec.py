@@ -33,10 +33,11 @@ def _get_registry_tool_names() -> set[str]:
     import builder.tools.fair_assessment
     import builder.tools.management
     import builder.tools.mit_assessment
+    import builder.tools.provenance
     import builder.tools.scanner
     import builder.tools.session
     import builder.tools.validation
-    import builder.tools.verification 
+    import builder.tools.verification
     from builder.tools.registry import TOOL_REGISTRY
 
     return set(TOOL_REGISTRY.list())

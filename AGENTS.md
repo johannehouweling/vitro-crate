@@ -370,6 +370,7 @@ draft_process(assay_id: str, process_type: str, hints: dict) → Entity
 draft_person(name: str, hints: dict) → Entity
 draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
+draft_file(name: str, path=None, role=None, encoding_format=None) → Entity
 ```
 
 ### Entity Management Tools
@@ -378,6 +379,24 @@ update_entity(entity_id: str, patch: dict) → Entity
 remove_entity(entity_id: str) → bool
 list_entities(entity_type: str | None) → [Entity]
 ```
+
+### Derivation Chain Tools
+```
+link(from_id: str, relation: str, to_id: str) → {from_id, relation, to_id}
+check_provenance() → {ok, issues:[{entity_id, property, message, fix, severity, profile}]}
+```
+`link` adds one provenance edge — `relation` is drawn from `PROVENANCE_RELATIONS`
+(`object`/`input`/`samples` = consumed, `result`/`output` = produced,
+`derives_from` = sample lineage), a strict subset of the crate mapping's
+`_REF_FIELDS` (asserted by test, so the edge vocabulary and the resolver cannot
+drift). It is the explicit verb the agent uses to wire the
+Sample →[CellCulture]→ Sample →[Exposure]→ table →[EndpointReadout]→ raw
+→[DataAnalysis]→ figures chain (those reference keys are otherwise hidden behind
+the schema-less `hints` param, so a weak model never sets them). `check_provenance`
+is a **report-only** connectivity lint (no auto-chaining — branching assays make a
+fixed process order wrong): it flags EndpointReadout/DataAnalysis processes with no
+output (the build has no fallback for those) and File entities produced by no
+process, returning issues in the same routable shape as `build_and_validate` (#87).
 
 ### Lookup Tools
 ```

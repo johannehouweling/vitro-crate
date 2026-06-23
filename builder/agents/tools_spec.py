@@ -72,6 +72,46 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "draft_file",
+        "description": "Create a File data entity (raw measurements, processed results, figures). Use this so a process can take the file as input/output via `link` — the agent had no other way to create a File. Returns the File entity.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "File name, e.g. 'raw_measurements.csv'"},
+                "path": {"type": "string", "description": "Crate-relative path (dest_path), e.g. 'data/raw.csv' (optional)"},
+                "role": {"type": "string", "description": "Role label, e.g. 'raw_data' or 'figure' (optional)"},
+                "encoding_format": {"type": "string", "description": "IANA media type, e.g. 'text/csv' (optional)"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "link",
+        "description": "Wire one provenance edge from_id --relation--> to_id to connect the derivation chain (e.g. a process's output to the next process's input). Both entities must already exist. Use to set a process's object/input (what it consumes) and result/output (what it produces). Calling it again with the same relation adds another target.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "from_id": {"type": "string", "description": "entity_id of the source (usually the LabProcess)"},
+                "relation": {
+                    "type": "string",
+                    "enum": ["object", "input", "samples", "result", "output", "derives_from"],
+                    "description": "Edge verb: object/input/samples = consumed; result/output = produced; derives_from = sample lineage.",
+                },
+                "to_id": {"type": "string", "description": "entity_id of the target (a Sample, File, etc.)"},
+            },
+            "required": ["from_id", "relation", "to_id"],
+        },
+    },
+    {
+        "name": "check_provenance",
+        "description": "Lint the derivation chain (report-only, writes nothing). Returns {ok, issues:[{entity_id, property, message, fix, severity, profile}]} flagging EndpointReadout/DataAnalysis processes with no output and File entities produced by no process — each issue names the entity and the `link`/`draft_file` fix. Run it after wiring processes to confirm the Sample→CellCulture→Exposure→EndpointReadout→DataAnalysis chain is connected.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
         "name": "draft_person",
         "description": "Create Person entity",
         "parameters": {

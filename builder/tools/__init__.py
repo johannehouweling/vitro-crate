@@ -53,6 +53,7 @@ from builder.tools.management import (
     update_entity,
 )
 from builder.tools.mit_assessment import assess_mit_coverage
+from builder.tools.provenance import check_provenance, draft_file, link
 from builder.tools.scanner import (
     extract_pdf_text,
     preview_archive,
@@ -77,8 +78,10 @@ __all__ = [
     "build_and_validate",
     "build_crate",
     "bulk_set_fields",
+    "check_provenance",
     "draft_assay",
     "draft_cell_line_sample",
+    "draft_file",
     "draft_investigation",
     "draft_molecular_entity",
     "draft_organization",
@@ -90,6 +93,7 @@ __all__ = [
     "extract_pdf_text",
     "get_hint",
     "get_status",
+    "link",
     "list_entities",
     "list_sessions",
     "load_session",
