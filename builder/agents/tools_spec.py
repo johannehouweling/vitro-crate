@@ -343,6 +343,29 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "validate_table",
+        "description": "Validate a CSV's DATA CONTENT against its CSVW/Frictionless table schema (the payload layer, separate from SHACL metadata validation). Checks that each cell matches its declared column type/constraints and that foreign-key columns reference existing entity ids. Use it on the condition table or a raw-measurement table after export. Returns {ok, issues:[{entity_id, property, message, fix, severity, profile}]} with profile='data'; property names the offending column. Pass foreign_keys to check that compound/cell-line columns resolve to known MolecularEntity/Sample ids.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "Path to the CSV file to validate."},
+                "table_schema": {
+                    "type": "object",
+                    "description": "Frictionless table schema descriptor: {\"fields\": [{\"name\", \"type\", \"constraints\"?}, ...]}. Adapt CSVW datatype columns to this shape.",
+                },
+                "foreign_keys": {
+                    "type": "object",
+                    "description": "Optional map of column_name -> [allowed_id, ...]; each named column's cells must be one of the allowed in-crate ids (e.g. MolecularEntity/Sample). Example: {\"compound\": [\"chem_aspirin\"]}.",
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "Optional id of the crate entity that owns the table (echoed on each issue for routing).",
+                },
+            },
+            "required": ["file", "table_schema"],
+        },
+    },
+    {
         "name": "assess_mit_coverage",
         "description": "Score MIT coverage from entity fields",
         "parameters": {"type": "object", "properties": {}},

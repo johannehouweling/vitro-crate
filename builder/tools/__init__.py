@@ -22,6 +22,7 @@ Tool categories:
 from __future__ import annotations
 
 from builder.tools.builder import build_crate, export_crate
+from builder.tools.data_content import validate_table
 from builder.tools.drafters import (
     draft_assay,
     draft_cell_line_sample,
@@ -121,6 +122,7 @@ __all__ = [
     "unzip_file",
     "update_entity",
     "validate",
+    "validate_table",
     "verify_all_identifiers",
     "verify_identifier",
 ]
