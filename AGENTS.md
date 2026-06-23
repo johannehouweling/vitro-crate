@@ -264,6 +264,39 @@ The supported speed levers instead are: gate the inner loop at `required` severi
 (`validate_crate_dict`'s default — fastest), and scope `profile` to a single pass
 when the full sweep isn't needed. A full 3-pass sweep is run only as a final gate.
 
+**Offline-safe validation — bundled RO-Crate context, no network on the base pass (#117).**
+Every crate's `@context` points at the *remote* IRI
+`https://w3id.org/ro/crate/1.2/context`, and the base pass must dereference it to
+expand the data graph. `rocrate_validator` resolves that IRI over HTTP through two
+paths — rdflib's JSON-LD document loader (feeding check `ro-crate-1.1_2.1`) and the
+`FileDescriptorJsonLdFormat` check, which calls `HttpRequester().get(context_uri)`
+directly (check `ro-crate-1.1_2.2`). On PR #116 CI that fetch flaked
+(`RemoteDisconnected`) and the base pass emitted **spurious REQUIRED issues**,
+turning a transient blip into red CI and violating #59's "runs offline" criterion.
+`profiles/validator.py` makes validation offline-safe:
+
+- **Pinned local contexts.** `profiles/contexts/ro-crate-1.1-context.jsonld` and
+  `ro-crate-1.2-context.jsonld` are committed copies of the RO-Crate JSON-LD
+  contexts. `_install_offline_context_loader()` (run at import) intercepts the
+  `HttpRequester` GET/HEAD proxy (and `fetch_fresh`) and serves these well-known
+  context URLs from disk, so both resolution paths get the bundled copy and never
+  touch the wire. It also sets `ROCRATE_VALIDATOR_AUTO_WARM=0` to suppress
+  rocrate_validator's best-effort cache warm-up (pure network traffic we don't
+  need, since the context is bundled and the warm-up's other artifact — the spec
+  HTML page — is unused by any check). Refresh the bundled files only when the
+  pinned RO-Crate context version changes.
+- **Transport failure ≠ content violation.** If a remote resource genuinely can't
+  be dereferenced, rocrate_validator swallows the connection error inside the
+  check and re-emits it as a REQUIRED *content* issue. `validate_crate` and
+  `validate_crate_dict` detect those (a connection-error message on a
+  remote-resolving check) and raise `ValidationTransportError` instead, so a
+  network failure surfaces as a clear error — never a spurious REQUIRED issue and
+  never a false negative in `build_and_validate` (which maps the exception to
+  `{"ok": False, "error": ...}`). The regression test
+  `tests/test_offline_validation.py` runs validation with the HTTP transport hard-
+  blocked and asserts green + no spurious REQUIRED issue; the #59 e2e harness also
+  runs with the network disabled to prove the path is offline-safe.
+
 #### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
 scores, not pass/fail.
