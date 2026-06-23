@@ -286,19 +286,17 @@ class TestIdentifiersAndConformance:
         _, by_id = _build(state, tmp_path)
         assert "https://orcid.org/0000-0002-1825-0097" in by_id
 
-    def test_conformsto_declares_isa_and_tox_unconditionally(self, tmp_path):
-        # Issue #89: a fresh crate (no validation passes recorded) must still
-        # declare the ISA + ISA-Tox profiles it TARGETS — the three-layer
-        # duck-typing architecture rests on the crate advertising the profiles
-        # it aims for ("guidance over strictness"), not gating them on a prior
-        # validation pass (chicken-and-egg).
+    def test_profiles_declared_on_root_data_entity(self, tmp_path):
+        # Issue #91: RO-Crate 1.2 recommends profile declarations on the Root
+        # Data Entity (./), reserving the metadata descriptor's conformsTo for
+        # the single base-spec URI. The ISA + ISA-Tox profiles the crate TARGETS
+        # are therefore declared on ./ — unconditionally, on a fresh state (#89).
         state = CrateState()
         _, by_id = _build(state, tmp_path)
-        descriptor = by_id["ro-crate-metadata.json"]
-        conforms = _ids(descriptor.get("conformsTo"))
-        assert "https://w3id.org/ro/crate/1.1" in conforms
-        assert "https://github.com/nfdi4plants/isa-ro-crate-profile" in conforms
-        assert "https://w3id.org/ro/crate/isa-tox/1.0" in conforms
+
+        root_conforms = _ids(by_id["./"].get("conformsTo"))
+        assert "https://github.com/nfdi4plants/isa-ro-crate-profile" in root_conforms
+        assert "https://w3id.org/ro/crate/isa-tox/1.0" in root_conforms
         # both declared profiles also exist as Profile contextual entities
         for pid in (
             "https://github.com/nfdi4plants/isa-ro-crate-profile",
@@ -307,17 +305,12 @@ class TestIdentifiersAndConformance:
             pt = by_id[pid]["@type"]
             assert "Profile" in (pt if isinstance(pt, list) else [pt])
 
-    def test_conformsto_includes_profiles_when_validated(self, tmp_path):
+    def test_descriptor_conformsto_is_base_spec_only(self, tmp_path):
+        # Issue #91: the metadata file descriptor's conformsTo is reserved for
+        # the single base-spec URI (profiles moved to ./). The base spec stays
+        # 1.1 because roc-validator 0.10.0 bundles no 1.2 base profile and its
+        # base pass requires the 1.1 URI on the descriptor (sh:hasValue).
         state = CrateState()
-        state.validation.isa_passed = True
-        state.validation.tox_passed = True
         _, by_id = _build(state, tmp_path)
-        descriptor = by_id["ro-crate-metadata.json"]
-        conforms = _ids(descriptor.get("conformsTo"))
-        assert "https://w3id.org/ro/crate/isa-tox/1.0" in conforms
-        # ISA layer is declared with the IRI the shapes actually extend
-        assert "https://github.com/nfdi4plants/isa-ro-crate-profile" in conforms
-        # each declared profile also exists as a Profile contextual entity
-        prof = by_id["https://github.com/nfdi4plants/isa-ro-crate-profile"]
-        pt = prof["@type"]
-        assert "Profile" in (pt if isinstance(pt, list) else [pt])
+        desc_conforms = _ids(by_id["ro-crate-metadata.json"].get("conformsTo"))
+        assert desc_conforms == ["https://w3id.org/ro/crate/1.1"]
