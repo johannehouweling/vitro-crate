@@ -249,6 +249,30 @@ Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY
   IRI, `check_id`, `severity`, and `profile`. This backs `build_and_validate`
   and is the no-disk fast path.
 
+**Warm profile cache (Issue #63).** The agent calls `validate` repeatedly per
+session (initial check, then re-validate after each fix), and `rocrate_validator`
+0.10 re-parses every profile's spec graph, SHACL shapes and ontology graphs on
+*every* `services.validate()` call — `Validator` and its per-call
+`ValidationContext` are rebuilt each time and the per-profile shape registry it
+caches lives on the (discarded) `Profile` objects. The library exposes **no**
+public hook to inject pre-parsed graphs (no `shapes_graph=`/`ont_graph=` argument),
+so a plain `functools.lru_cache` has nothing to wrap. `profiles/validator.py`
+therefore installs a module-level warm cache (`_PROFILE_CACHE`) of the
+crate-independent artifacts it controls — the loaded + warmed `Profile` objects
+(parsed spec graphs, per-profile `ShapesRegistry`, and `requirements`) — by
+overriding `ValidationContext.__load_profiles__` to return the cached profiles on
+a hit. The cache is keyed by `(profiles_path, extra_profiles_path,
+profile_identifier, severity, shapes-dir mtime)`, so it invalidates automatically
+when any `profiles/shapes/**/*.ttl` changes; only the crate's data graph is
+re-read per call. **Honest limitation:** the dominant per-call cost in roc-validator
+0.10 is not the `.ttl` parse (~10–130 ms) but the SHACL/owlrl inference and
+per-profile graph recomposition the library runs fresh inside every `validate()`,
+which is not reachable from outside without reimplementing its validation loop.
+The warm cache removes the re-parse work we own — a consistent ~11–30% wall-clock
+improvement on the 2nd-and-later passes (e.g. tox ~2.7s → ~2.3s) — but cannot
+remove the library-internal inference cost. `clear_profile_cache()` is the
+explicit-invalidation/test hook.
+
 #### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
 scores, not pass/fail.

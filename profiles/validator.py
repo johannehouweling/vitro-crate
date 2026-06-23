@@ -18,6 +18,7 @@ composition is verified working as of roc-validator 0.10.0.
 from __future__ import annotations
 
 import importlib.metadata as _metadata
+import logging
 
 # ---------------------------------------------------------------------------
 # rocrate-validator compatibilty shim  (#57)
@@ -116,6 +117,143 @@ def _patch_bundled_isa_ontology() -> None:
 
 
 _patch_bundled_isa_ontology()
+
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Warm cache of parsed SHACL profiles / shapes / ontology graphs (#63)
+# ---------------------------------------------------------------------------
+# rocrate_validator re-parses every profile's specification graph, SHACL shapes
+# and ontology graphs on *every* ``services.validate()`` call: ``Validator`` and
+# its per-call ``ValidationContext`` are rebuilt each time, ``__load_profiles__``
+# constructs fresh ``Profile`` objects (re-reading the ``.ttl`` files), and the
+# per-profile shape registry is cached *on the Profile instance* — which the
+# library throws away after each call. The library exposes no public hook to
+# inject pre-parsed graphs (no ``shapes_graph=`` / ``ont_graph=`` argument on
+# ``services.validate``), so a plain ``functools.lru_cache`` has nothing to wrap.
+#
+# What we *can* control and cache crate-independently is the loaded + warmed
+# ``Profile`` set. We install an override on ``ValidationContext.__load_profiles__``
+# that returns a cached, warmed profile list when the cache key matches and
+# falls back to the original loader (and warms + caches its result) on a miss.
+# Because the per-Profile shape registry (``ShapesRegistry.get_instance(profile)``)
+# and the parsed ``requirements`` live on the cached Profile objects, the shapes
+# and ontology are not re-parsed on a warm call — only the crate's data graph is
+# re-read per call (inside the per-call ``ValidationContext``).
+#
+# The cache is keyed by ``(profiles_path, extra_profiles_path, profile_identifier,
+# severity, shapes-dir mtime)`` so it invalidates automatically when any shape
+# ``.ttl`` file under SHAPES_DIR changes.
+#
+# Honest limitation: the dominant per-call cost in roc-validator 0.10 is not the
+# ``.ttl`` parsing (~10-130 ms) but the SHACL/owlrl inference and per-profile
+# graph recomposition that the library runs fresh inside every ``validate()`` —
+# neither is reachable from outside the library without reimplementing its
+# validation loop. The warm cache removes the re-parse work we own; it cannot
+# remove the library-internal inference cost. See PR #63 for measurements.
+
+# key -> list[Profile] (the warmed, cached profiles for that context signature)
+_PROFILE_CACHE: dict[tuple, list] = {}
+
+# Sentinel installed exactly once so the override is idempotent across re-imports.
+_CACHE_INSTALLED = False
+
+
+def _shapes_dir_mtime() -> float:
+    """Newest mtime of any ``.ttl`` under SHAPES_DIR (0.0 if none/missing).
+
+    Used as a cache-busting component so edits to any shape file invalidate the
+    warmed profile cache without an explicit clear.
+    """
+    latest = 0.0
+    try:
+        for ttl in SHAPES_DIR.rglob("*.ttl"):
+            try:
+                latest = max(latest, ttl.stat().st_mtime)
+            except OSError:
+                continue
+    except OSError:
+        return 0.0
+    return latest
+
+
+def _profile_cache_key(
+    profile_identifier: str,
+    severity: str,
+    *,
+    profiles_path: str | None = None,
+    extra_profiles_path: str | None = None,
+) -> tuple:
+    """Build the warm-cache key for a validation pass.
+
+    Keyed by the profile identifier, the gate severity, the profiles/extra-profiles
+    paths and the newest shapes-dir mtime so the cache invalidates when shapes
+    change.
+    """
+    return (
+        str(profiles_path) if profiles_path is not None else None,
+        str(extra_profiles_path) if extra_profiles_path is not None else None,
+        profile_identifier,
+        severity,
+        _shapes_dir_mtime(),
+    )
+
+
+def clear_profile_cache() -> None:
+    """Drop all cached warmed profiles (test hook / explicit invalidation)."""
+    _PROFILE_CACHE.clear()
+
+
+def _install_profile_cache() -> None:
+    """Monkeypatch ``ValidationContext.__load_profiles__`` to consult the cache.
+
+    Idempotent: safe to call multiple times. On a cache hit the warmed Profile
+    list is returned verbatim (no re-parse); on a miss the original loader runs,
+    its result is warmed (requirements + per-profile shape registry are forced)
+    and stored under the mtime-keyed signature.
+    """
+    global _CACHE_INSTALLED
+    if _CACHE_INSTALLED:
+        return
+
+    from rocrate_validator.models import ValidationContext
+    from rocrate_validator.requirements.shacl.models import ShapesRegistry
+
+    _original_load = ValidationContext.__load_profiles__
+
+    def _cached_load_profiles(self):  # type: ignore[no-untyped-def]
+        try:
+            key = _profile_cache_key(
+                self.profile_identifier,
+                self.requirement_severity.name.lower(),
+                profiles_path=self.profiles_path,
+                extra_profiles_path=self.settings.extra_profiles_path,
+            )
+        except Exception:  # noqa: BLE001 — never break validation over a cache key
+            return _original_load(self)
+
+        cached = _PROFILE_CACHE.get(key)
+        if cached is not None:
+            return list(cached)
+
+        profiles = _original_load(self)
+        try:
+            # Warm the crate-independent artifacts so a hit skips re-parsing:
+            # parsed requirements + the per-Profile SHACL shape registry.
+            for profile in profiles:
+                _ = profile.requirements
+                ShapesRegistry.get_instance(profile).get_shapes()
+            _PROFILE_CACHE[key] = profiles
+        except Exception as exc:  # noqa: BLE001 — caching is best-effort
+            logger.debug("Profile cache warm-up skipped: %s", exc)
+        return profiles
+
+    ValidationContext.__load_profiles__ = _cached_load_profiles  # type: ignore[method-assign]
+    _CACHE_INSTALLED = True
+
+
+_install_profile_cache()
 
 
 @dataclass
