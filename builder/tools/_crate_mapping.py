@@ -276,18 +276,28 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     if not crate.root_dataset.get("license"):
         crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
 
-    # conformsTo lives on the metadata descriptor (RO-Crate 1.1 placement,
-    # isa_tox.md §Conformance). The crate declares the ISA + ISA-Tox profiles it
-    # TARGETS unconditionally — the three-layer (RO-Crate → ISA → ISA-Tox)
-    # duck-typing architecture rests on this declaration, and validation should
-    # be able to see the profiles a crate claims (Issue #89, "guidance over
-    # strictness"). Declaration is therefore independent of any prior validation
-    # pass; conformance is reported separately via build_and_validate (#87).
-    conforms: list[dict[str, str]] = [
-        {"@id": ROCRATE_SPEC},
-        {"@id": PROFILE_ISA},
-        {"@id": PROFILE_ISATOX},
-    ]
+    # Conformance placement follows RO-Crate 1.2 (ro-crate-1.2.0.md §Profiles,
+    # isa_tox.md §Conformance): the metadata file descriptor's conformsTo is
+    # reserved for the single base-spec URI, while the profiles the crate targets
+    # are declared on the Root Data Entity (./) — Issue #91.
+    #
+    # The base spec stays pinned to 1.1 (not 1.2) deliberately: roc-validator
+    # 0.10.0 bundles no ro-crate-1.2 base profile, and its base pass hard-requires
+    # the 1.1 URI on the descriptor (profiles/ro-crate/must/1_file-descriptor_
+    # metadata.ttl: `sh:hasValue <https://w3id.org/ro/crate/1.1>`). Declaring 1.2
+    # there fails REQUIRED validation, which build_and_validate (#87) and the
+    # golden fixtures (#97) rely on staying green. ro-crate-py 0.15 still emits a
+    # 1.2 @context; fully unifying the version on 1.2 is deferred until an upstream
+    # validator ships a 1.2 base profile (tracked on #91).
+    crate.metadata["conformsTo"] = {"@id": ROCRATE_SPEC}
+
+    # Profiles the crate TARGETS, declared on ./ unconditionally — the three-layer
+    # (RO-Crate → ISA → ISA-Tox) duck-typing architecture rests on this
+    # declaration and validation should be able to see the profiles a crate claims
+    # (#89, "guidance over strictness"), independent of any prior validation pass;
+    # conformance is reported separately via build_and_validate (#87).
+    for pid in (PROFILE_ISA, PROFILE_ISATOX):
+        crate.root_dataset.append_to("conformsTo", {"@id": pid})
     crate.add(
         ContextEntity(
             crate,
@@ -309,7 +319,6 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
             },
         )
     )
-    crate.metadata["conformsTo"] = conforms
 
 
 def _cell_line_term(crate: ROCrate) -> ContextEntity:
