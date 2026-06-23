@@ -11,11 +11,16 @@ graph is machine-actionable.
 from __future__ import annotations
 
 import functools
-import time
+from concurrent.futures import ThreadPoolExecutor
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://aopwiki.org"
+
+# Bound on concurrent AOP-Wiki event-detail fetches. The per-host throttle in
+# lookups._http keeps us polite no matter how many workers run; this just caps
+# how many sockets we open at once (#62).
+_EVENT_FETCH_WORKERS = 6
 
 # AOP-Wiki event_type -> human-readable label.
 _EVENT_TYPE_LABEL = {
@@ -39,9 +44,11 @@ def _event_details(event_id: str) -> dict:
 
     Falls back to {} on any failure, so a slow/unavailable event endpoint never
     breaks the surrounding AOP lookup.
+
+    Politeness toward AOP-Wiki is enforced by the per-host throttle inside
+    ``http_get_json`` (lookups._http), so this is safe to call concurrently.
     """
     try:
-        time.sleep(0.1)
         d = http_get_json(f"{_event_url(event_id)}.json")
         if d is NOT_FOUND:
             return {}
@@ -76,7 +83,6 @@ def lookup_aop(aop_id: str) -> dict:
     aop_id = str(aop_id).strip()
     aop_url = f"{_BASE}/aops/{aop_id}"
     try:
-        time.sleep(0.1)
         data = http_get_json(f"{aop_url}.json", timeout=15)
         if data is NOT_FOUND:
             return {}
@@ -84,7 +90,9 @@ def lookup_aop(aop_id: str) -> dict:
         if isinstance(data, dict) and "aop" in data:
             data = data["aop"]
 
-        # Events: MIEs + KEs + AOs, de-duplicated, in pathway order.
+        # Events: MIEs + KEs + AOs, de-duplicated, in pathway order. Build the
+        # base entities first (deterministic, single-threaded) so the final
+        # order never depends on which detail fetch returns first.
         events: list[dict] = []
         seen: set = set()
         for bucket in ("aop_mies", "aop_kes", "aop_aos"):
@@ -93,18 +101,32 @@ def lookup_aop(aop_id: str) -> dict:
                 if eid is None or eid in seen:
                     continue
                 seen.add(eid)
-                entity = {
-                    "@id": _event_url(eid),
-                    "@type": "KeyEvent",
-                    "name": ev.get("event", f"Event {eid}"),
-                    "eventType": _EVENT_TYPE_LABEL.get(
-                        ev.get("event_type", ""), ev.get("event_type", "")
-                    ),
-                    "identifier": str(eid),
-                    "url": f"{_event_url(eid)}.json",
-                }
-                entity.update(_event_details(str(eid)))
-                events.append(entity)
+                events.append(
+                    {
+                        "@id": _event_url(eid),
+                        "@type": "KeyEvent",
+                        "name": ev.get("event", f"Event {eid}"),
+                        "eventType": _EVENT_TYPE_LABEL.get(
+                            ev.get("event_type", ""), ev.get("event_type", "")
+                        ),
+                        "identifier": str(eid),
+                        "url": f"{_event_url(eid)}.json",
+                    }
+                )
+
+        # Enrich each event with its per-event details. These calls are
+        # independent and have no data dependency, so fetch them concurrently
+        # with a bounded pool; the per-host throttle in http_get_json keeps us
+        # polite. Merge results back by identifier so order stays deterministic
+        # and the outcome is identical to the serial path (#62).
+        if events:
+            event_ids = [e["identifier"] for e in events]
+            with ThreadPoolExecutor(
+                max_workers=min(_EVENT_FETCH_WORKERS, len(event_ids))
+            ) as pool:
+                detail_map = dict(zip(event_ids, pool.map(_event_details, event_ids)))
+            for entity in events:
+                entity.update(detail_map[entity["identifier"]])
 
         # Key event relationships, linking upstream -> downstream events by @id.
         relationships: list[dict] = []

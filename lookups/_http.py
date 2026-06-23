@@ -22,7 +22,10 @@ stale failure.
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -30,6 +33,14 @@ from urllib3.util.retry import Retry
 
 DEFAULT_TIMEOUT = 10
 _TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+
+# Minimum spacing (seconds) between successive requests to the *same* host.
+# This is the politeness throttle that replaces the per-client
+# ``time.sleep(0.1)`` calls (#62). Centralising it here means the cap is
+# honoured even when independent requests are issued concurrently (e.g. AOP-Wiki
+# event details fetched via a ThreadPoolExecutor). Different hosts are throttled
+# independently, so parallel lookups across services are not serialised.
+_HOST_MIN_INTERVAL = 0.1
 
 
 class TransientLookupError(Exception):
@@ -58,6 +69,70 @@ class _NotFound:
 
 
 NOT_FOUND = _NotFound()
+
+
+class _HostRateLimiter:
+    """Thread-safe per-host throttle enforcing a minimum spacing between requests.
+
+    ``wait(host)`` blocks until at least ``min_interval`` seconds have elapsed
+    since the previous grant *for that host*, then records the grant time. Hosts
+    are tracked independently, so a slow request to one API never throttles a
+    request to a different API. A single lock guards the per-host timestamps and
+    serialises the wait, so concurrent callers for the same host are spaced out
+    deterministically rather than all firing at once.
+    """
+
+    def __init__(self, min_interval: float = _HOST_MIN_INTERVAL) -> None:
+        self._min_interval = min_interval
+        self._lock = threading.Lock()
+        self._next_allowed: dict[str, float] = {}
+
+    def wait(self, host: str) -> None:
+        """Block until this host is allowed to fire its next request."""
+        interval = self._min_interval
+        if interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            earliest = self._next_allowed.get(host, 0.0)
+            start = max(now, earliest)
+            # Reserve the slot *before* releasing the lock so concurrent callers
+            # for the same host queue up behind us instead of colliding.
+            self._next_allowed[host] = start + interval
+            sleep_for = start - now
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+
+    def reset(self) -> None:
+        """Forget all recorded per-host timestamps (used by tests)."""
+        with self._lock:
+            self._next_allowed.clear()
+
+
+_host_throttle = _HostRateLimiter()
+
+
+def _host_of(url: str) -> str:
+    """Return the network location (host[:port]) of a URL, or '' if none."""
+    return urlsplit(url).netloc
+
+
+def throttle_for_url(url: str) -> None:
+    """Apply the shared per-host politeness throttle for ``url``.
+
+    Exposed so callers that issue requests through their own code path (e.g.
+    concurrent AOP-Wiki event-detail fetches) get the same per-host spacing as
+    :func:`http_get_json`. The interval is read live from ``_HOST_MIN_INTERVAL``
+    so tests can tune it via monkeypatch.
+    """
+    _host_throttle._min_interval = _HOST_MIN_INTERVAL
+    _host_throttle.wait(_host_of(url))
+
+
+def reset_host_throttle() -> None:
+    """Reset the shared per-host throttle state (used by tests)."""
+    _host_throttle.reset()
+
 
 _session: requests.Session | None = None
 
@@ -110,6 +185,9 @@ def http_get_json(
         TransientLookupError: on timeout, connection error, a 429/5xx that
             survived retries, or a 200 with a malformed JSON body.
     """
+    # Politeness: space requests to the same host (replaces the per-client
+    # ``time.sleep(0.1)`` calls). Honoured even under concurrent callers (#62).
+    throttle_for_url(url)
     try:
         resp = get_session().get(url, params=params, headers=headers, timeout=timeout)
     except requests.RequestException as exc:

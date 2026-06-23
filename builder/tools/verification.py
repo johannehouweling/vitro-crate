@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from builder.state import CrateState
 from builder.tools.lookups import (
     lookup_cell_line,
@@ -9,6 +11,13 @@ from builder.tools.lookups import (
     lookup_doi,
     lookup_orcid,
 )
+
+# Bound on concurrent identifier verifications. Each verification is an
+# independent network lookup with no data dependency on the others, so they run
+# in a bounded pool; per-host politeness is enforced by the throttle in
+# lookups._http. The lookups themselves are lru_cache'd, so this only helps the
+# cold path (#62).
+_VERIFY_WORKERS = 6
 
 
 def _select_verifier(entity_type: str, field: str):
@@ -172,12 +181,20 @@ def verify_all_identifiers(state: CrateState) -> list[dict]:
     ``casrn``/``cas_number``/``inchikey`` on MolecularEntity, and never attempts
     ``ror`` on Organization (which has no verifier).
 
+    The independent per-field lookups are dispatched concurrently with a bounded
+    thread pool (#62). The work plan is collected deterministically first and the
+    results are returned in that same order, so the output is identical to the
+    serial path regardless of which lookup completes first; per-host politeness
+    is enforced by the throttle in ``lookups._http``.
+
     Returns:
         A list of verification result dicts (one per qualifying filled field).
     """
     verifiable = _get_verifiable_fields()
-    results: list[dict] = []
 
+    # Collect the work plan deterministically (entity order, then completion-key
+    # order) so the returned results never depend on thread scheduling.
+    tasks: list[tuple[str, str]] = []
     for entity in state.list_entities():
         for comp_key, fc in entity._completion.items():
             if fc.status == "filled":
@@ -185,8 +202,20 @@ def verify_all_identifiers(state: CrateState) -> list[dict]:
                 field = comp_key.split(":", 1)[1]
                 if (entity.type, field) not in verifiable:
                     continue
-                result = verify_identifier(state, entity.entity_id, field)
-                results.append(result)
+                tasks.append((entity.entity_id, field))
+
+    if not tasks:
+        return []
+
+    # Each task verifies a distinct (entity, field) pair, mutating only that
+    # field's status — no shared-state contention between tasks.
+    with ThreadPoolExecutor(max_workers=min(_VERIFY_WORKERS, len(tasks))) as pool:
+        results = list(
+            pool.map(
+                lambda task: verify_identifier(state, task[0], task[1]),
+                tasks,
+            )
+        )
 
     return results
 
