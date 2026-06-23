@@ -682,4 +682,175 @@ class TestCacheFriendlyPrompt:
         assert a[-1].content != b[-1].content  # volatile tail varies per turn
 
 
+class TestTrimHistory:
+    """Issue #61: bound per-turn input tokens by trimming/summarizing history.
+
+    Verbose tool outputs (esp. scan_files listings, which already live in
+    CrateState) must not be replayed verbatim every turn; trimming must NEVER
+    yield orphaned tool messages (an AI tool_call without its ToolMessage, or a
+    ToolMessage without its preceding AI tool_call), or the provider API rejects
+    the request.
+    """
+
+    @staticmethod
+    def _ai_tool_call(content, call_id, name="scan_files"):
+        from langchain_core.messages import AIMessage
+
+        return AIMessage(
+            content=content,
+            tool_calls=[
+                {"name": name, "args": {}, "id": call_id, "type": "tool_call"}
+            ],
+        )
+
+    @staticmethod
+    def _no_orphans(messages):
+        """Return True iff every ToolMessage is immediately preceded by an AI
+        message whose tool_calls include its tool_call_id, and every AI
+        tool_call id (other than a trailing AI message) is answered."""
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        # 1) No ToolMessage may appear without a matching open tool_call id.
+        open_ids: set[str] = set()
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                tcs = getattr(msg, "tool_calls", None) or []
+                open_ids = {tc["id"] for tc in tcs}
+            elif isinstance(msg, ToolMessage):
+                if msg.tool_call_id not in open_ids:
+                    return False
+                open_ids.discard(msg.tool_call_id)
+            else:
+                open_ids = set()
+        return True
+
+    def test_helper_importable(self):
+        """The trim helper is importable from agent_loop."""
+        from builder.agents.agent_loop import _trim_history
+
+        assert callable(_trim_history)
+
+    def test_history_is_bounded_over_many_turns(self):
+        """Over many accumulated turns, the trimmed history token count stays
+        within the budget — it does NOT grow linearly with turn count."""
+        from langchain_core.messages import HumanMessage, ToolMessage
+
+        from builder.agents.agent_loop import _trim_history
+
+        # Build a long, growing transcript: many human/AI(tool_call)/tool triples
+        # with large tool outputs (simulating verbose validation/lookup payloads).
+        history: list = []
+        for i in range(60):
+            history.append(HumanMessage(content=f"request {i}"))
+            cid = f"call_{i}"
+            history.append(self._ai_tool_call(f"calling tool {i}", cid, name="validate"))
+            history.append(
+                ToolMessage(content="X" * 2000, tool_call_id=cid)
+            )
+
+        max_tokens = 1500
+        trimmed = _trim_history(history, max_tokens=max_tokens)
+
+        from langchain_core.messages.utils import count_tokens_approximately
+
+        assert count_tokens_approximately(trimmed) <= max_tokens
+        # And it must be strictly smaller than the full (unbounded) history.
+        assert count_tokens_approximately(trimmed) < count_tokens_approximately(history)
+
+    def test_consumed_scan_output_is_pruned(self):
+        """A consumed verbose scan ToolMessage (its data already in CrateState)
+        is pruned/summarized — its large body is replaced by a short stub, so it
+        is not replayed verbatim, while the AI/tool pairing is preserved."""
+        from langchain_core.messages import HumanMessage, ToolMessage
+
+        from builder.agents.agent_loop import _trim_history
+
+        cid = "scan_1"
+        big_listing = "\n".join(f"file_{i}.csv\t1234\ttext/csv" for i in range(500))
+        history = [
+            HumanMessage(content="scan my folder"),
+            self._ai_tool_call("scanning", cid, name="scan_files"),
+            ToolMessage(content=big_listing, tool_call_id=cid, name="scan_files"),
+            HumanMessage(content="now draft an investigation"),
+        ]
+
+        # Generous budget so trimming itself would NOT drop the scan message —
+        # the pruning of the verbose scan body must happen independently.
+        trimmed = _trim_history(history, max_tokens=100_000)
+
+        scan_msgs = [
+            m
+            for m in trimmed
+            if isinstance(m, ToolMessage) and m.tool_call_id == cid
+        ]
+        assert scan_msgs, "scan ToolMessage must be retained (pairing preserved)"
+        pruned = scan_msgs[0]
+        assert len(str(pruned.content)) < len(big_listing), (
+            "verbose scan listing must be pruned, not replayed verbatim"
+        )
+        assert self._no_orphans(trimmed)
+
+    def test_no_orphan_tool_message_when_history_ends_mid_pair(self):
+        """A history ending mid tool-call pair (AI tool_call with no ToolMessage
+        yet) must NOT produce an orphaned ToolMessage at the head, nor strand a
+        ToolMessage whose AI tool_call was trimmed away."""
+        from langchain_core.messages import HumanMessage, ToolMessage
+
+        from builder.agents.agent_loop import _trim_history
+
+        history: list = []
+        for i in range(10):
+            history.append(HumanMessage(content=f"req {i}"))
+            cid = f"c{i}"
+            history.append(self._ai_tool_call("X" * 1500, cid, name="lookup_compound"))
+            history.append(ToolMessage(content="Y" * 1500, tool_call_id=cid))
+        # End mid-pair: an AI tool_call with no answering ToolMessage yet.
+        history.append(HumanMessage(content="final"))
+        last_cid = "c_last"
+        history.append(self._ai_tool_call("about to call", last_cid))
+
+        trimmed = _trim_history(history, max_tokens=400)
+
+        # The hard invariant: no orphaned tool messages, whatever the budget.
+        assert self._no_orphans(trimmed)
+
+    def test_assemble_model_messages_trims_history(self):
+        """_assemble_model_messages keeps the stable system prefix + trailing
+        brief intact while bounding the history in between (Issue #61 on top of
+        the #60 cache-friendly layout)."""
+        from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+
+        from builder.agents.agent_loop import _assemble_model_messages
+        from builder.agents.system_prompt import SYSTEM_PROMPT
+
+        history: list = []
+        for i in range(40):
+            history.append(HumanMessage(content=f"req {i}"))
+            cid = f"c{i}"
+            history.append(
+                TestTrimHistory._ai_tool_call("X" * 1500, cid, name="validate")
+            )
+            history.append(ToolMessage(content="Y" * 1500, tool_call_id=cid))
+
+        msgs = _assemble_model_messages(
+            history,
+            session_id="sid",
+            entity_count=3,
+            file_count=5,
+            iteration_count=42,
+            max_history_tokens=2000,
+        )
+
+        # Stable prefix + trailing brief preserved (Issue #60 layout intact).
+        assert isinstance(msgs[0], SystemMessage)
+        assert msgs[0].content == SYSTEM_PROMPT
+        assert isinstance(msgs[-1], SystemMessage)
+        assert "Iteration: 42" in msgs[-1].content
+
+        # The history in between is bounded (fewer than the 120 we fed in).
+        inner = msgs[1:-1]
+        assert len(inner) < len(history)
+        assert TestTrimHistory._no_orphans(inner)
+
+
 

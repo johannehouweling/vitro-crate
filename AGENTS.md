@@ -354,6 +354,8 @@ def call_model(state):
 
 This means the system prompt appears at the front of the messages every time the loop iterates back to the model, ensuring the LLM always has its full context: `[system, human, ai(tool_calls), tool, system, ai(answer)]`.
 
+In the live code `call_model` delegates the message assembly to `_assemble_model_messages`, which keeps the byte-stable system prefix and trailing per-turn state brief (D10) but **bounds the history in between** via `_trim_history` — pruning consumed state-backed tool outputs and trimming to a token budget so per-turn input stays bounded over a long session, without ever orphaning a tool message (D12, Issue #61).
+
 #### How `MemorySaver` Integrates
 
 The `MemorySaver` checkpointer is passed to `graph.compile()`. It is a **checkpointing layer** that snapshots the full agent state (`messages` list, etc.) after each node execution. LangGraph uses the `thread_id` from `RunnableConfig` to key these checkpoints. On subsequent `invoke()` calls with the same `thread_id`, the graph resumes from the last checkpoint, providing conversational memory across turns.
@@ -762,6 +764,33 @@ A `.github/workflows/ci.yml` workflow runs on every push/PR to `main` (Issue #58
 `uv sync`, `ruff check`, `ty` (continue-on-error), and `pytest` (excluding slow integration
 tests). This prevents regressions from landing on `main` and keeps the SHACL validator-wiring
 test gated.
+
+### D12: Bounded Message History (Trim + Prune Before Each Model Call)
+`MemorySaver` accumulates the full transcript across turns, so without intervention every
+`app.invoke()` replays the entire conversation — including large tool outputs — making per-turn
+input tokens grow linearly (cumulative cost quadratically) until the context window overflows
+(Issue #61). The history is therefore **bounded before each model call** inside
+`_assemble_model_messages` (`builder/agents/agent_loop.py`) via `_trim_history`, which runs two
+layers in order:
+
+1. **Prune consumed state-backed outputs** (`_prune_state_backed_outputs`). Tool outputs whose
+   data already lives in `CrateState` — the scan/read listings from `_STATE_BACKED_TOOLS`
+   (`scan_files`, `read_file_sample`, `read_multiple_files`) — are replaced by a short stub once
+   they exceed `_PRUNE_CONTENT_THRESHOLD` chars. The `ToolMessage` is **rewritten, not dropped**,
+   so the `AIMessage(tool_call)` → `ToolMessage` pairing is never broken.
+2. **Token-budget trim** via `langchain_core.messages.trim_messages` with `strategy="last"` and
+   `start_on="human"`. Keeping the most recent turns within the budget bounds per-turn input;
+   `start_on="human"` guarantees the retained window never *begins* with a dangling `ToolMessage`
+   (or an `AIMessage` whose tool_call lost its answer), i.e. **trimming never produces orphaned
+   tool messages** — providers reject those.
+
+Trimming is applied only to the *history* between the stable system prefix and the trailing state
+brief, so the cache-friendly #60 layout (D10) is preserved: the cacheable prefix shifts only when
+the history actually rolls over the budget, far less often than it grew before. The budget is the
+`get_max_history_tokens()` knob — `VITRO_MAX_HISTORY_TOKENS` env var → `[agent] max_history_tokens`
+config key → default `12000` — mirroring the `max_iterations` precedence. `_trim_history` never
+raises into the loop: a trimming edge case falls back to the pruned (untrimmed) history and logs a
+warning, so the heaviest payloads are still removed.
 
 ## 12. Project Structure
 

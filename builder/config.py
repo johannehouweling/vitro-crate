@@ -51,6 +51,7 @@ CONFIG_PATH = CONFIG_DIR / "config.toml"
 
 DEFAULTS: dict[str, Any] = {
     "max_iterations": 100,
+    "max_history_tokens": 12000,
 }
 
 _DEFAULT_TIMEZONE = "Europe/Amsterdam"
@@ -113,6 +114,36 @@ def get_max_iterations() -> int:
         except (ValueError, TypeError):
             pass
     return DEFAULTS.get("max_iterations", 100)
+
+
+def get_max_history_tokens() -> int:
+    """Return the per-turn message-history token budget, respecting precedence.
+
+    The agent trims/summarizes the accumulated transcript before each model
+    call so verbose tool outputs are not replayed verbatim every turn and the
+    per-turn input stays bounded (Issue #61). This is the approximate token
+    budget for the *history* between the stable system prompt and the trailing
+    state brief.
+
+    Precedence (highest to lowest):
+        1. Environment variable VITRO_MAX_HISTORY_TOKENS
+        2. Config file value [agent.max_history_tokens]
+        3. Built-in default (12000)
+    """
+    env_val = os.environ.get("VITRO_MAX_HISTORY_TOKENS")
+    if env_val is not None:
+        try:
+            return int(env_val)
+        except (ValueError, TypeError):
+            pass
+    cfg = load_config()
+    cfg_val = cfg.get("agent", {}).get("max_history_tokens")
+    if cfg_val is not None:
+        try:
+            return int(cfg_val)
+        except (ValueError, TypeError):
+            pass
+    return DEFAULTS.get("max_history_tokens", 12000)
 
 
 def ensure_config_dir() -> Path:
