@@ -64,6 +64,41 @@ def _get_engine_routable_llm_tools() -> set[str]:
     }
 
 
+def _get_all_registry_tool_names() -> set[str]:
+    """Return the COMPLETE set of registered tool names.
+
+    Imports every tool module that registers tools (including file_readers and
+    provenance) so the registry is fully populated. Unlike
+    ``_get_registry_tool_names`` this is exhaustive — used for the bidirectional
+    source-of-truth assertion.
+    """
+    import builder.tools.builder  # noqa: F401
+    import builder.tools.drafters  # noqa: F401
+    import builder.tools.fair_assessment  # noqa: F401
+    import builder.tools.file_readers  # noqa: F401
+    import builder.tools.lookups  # noqa: F401
+    import builder.tools.management  # noqa: F401
+    import builder.tools.mit_assessment  # noqa: F401
+    import builder.tools.provenance  # noqa: F401
+    import builder.tools.scanner  # noqa: F401
+    import builder.tools.session  # noqa: F401
+    import builder.tools.validation  # noqa: F401
+    import builder.tools.verification  # noqa: F401
+    from builder.tools.registry import TOOL_REGISTRY
+
+    return set(TOOL_REGISTRY.list())
+
+
+def _expected_llm_tool_universe() -> set[str]:
+    """The authoritative set of LLM-callable tools.
+
+    A tool is LLM-callable iff it is either registered in the shared registry or
+    routed specially by the engine (HITL + scanner tools). This is the single
+    source of truth ``TOOL_SPECS`` and the system prompt must both match.
+    """
+    return _get_all_registry_tool_names() | _get_engine_routable_llm_tools()
+
+
 def _get_tool_names_from_system_prompt() -> set[str]:
     """Extract tool names mentioned in the SYSTEM_PROMPT text.
 
@@ -76,6 +111,21 @@ def _get_tool_names_from_system_prompt() -> set[str]:
     for m in re.finditer(r"`([a-z_]+)`", SYSTEM_PROMPT):
         names.add(m.group(1))
     return names
+
+
+def _get_system_prompt_tool_list() -> set[str]:
+    """Return the tool names in the SYSTEM_PROMPT's '## Your Tools' dash list.
+
+    This is the explicit catalogue the LLM is shown, parsed from lines of the
+    form ``- tool_name: description``. It must equal the TOOL_SPECS names so the
+    prompt never advertises a tool that has no schema, nor omits one that does.
+    """
+    from builder.agents.system_prompt import SYSTEM_PROMPT
+
+    # Isolate the "## Your Tools" section (up to the next "## " heading).
+    m = re.search(r"## Your Tools\n(.*?)(?:\n## )", SYSTEM_PROMPT, re.S)
+    body = m.group(1) if m else ""
+    return set(re.findall(r"^- ([a-z_]+):", body, re.M))
 
 
 def _get_internal_tool_names() -> set[str]:
@@ -228,6 +278,46 @@ def test_no_duplicate_tool_names_in_tool_specs():
     counts = Counter(spec["name"] for spec in TOOL_SPECS)  # ty: ignore
     duplicates = {name: n for name, n in counts.items() if n > 1}
     assert not duplicates, f"Duplicate tool names in TOOL_SPECS: {duplicates}"
+
+
+def test_tool_specs_match_llm_tool_universe_exactly():
+    """TOOL_SPECS names == registry tools + engine-routable tools (bidirectional).
+
+    The single source-of-truth assertion (Issue #90, sub-task 4): every callable
+    tool has exactly one schema, and TOOL_SPECS advertises no tool that cannot be
+    called. Prevents drift in either direction.
+    """
+    spec_names = _tool_names()
+    universe = _expected_llm_tool_universe()
+
+    missing_from_specs = universe - spec_names
+    extra_in_specs = spec_names - universe
+    assert not missing_from_specs, (
+        f"Callable tools missing from TOOL_SPECS: {sorted(missing_from_specs)}"
+    )
+    assert not extra_in_specs, (
+        f"TOOL_SPECS advertises uncallable tools: {sorted(extra_in_specs)}"
+    )
+
+
+def test_system_prompt_tool_list_matches_tool_specs_exactly():
+    """The SYSTEM_PROMPT '## Your Tools' list == TOOL_SPECS names (bidirectional).
+
+    The prompt catalogue used to omit 9 exposed tools and listed removed ones.
+    This keeps the catalogue and the schemas in lockstep (Issue #90, sub-task 4).
+    """
+    spec_names = _tool_names()
+    prompt_list = _get_system_prompt_tool_list()
+
+    missing_from_prompt = spec_names - prompt_list
+    extra_in_prompt = prompt_list - spec_names
+    assert not missing_from_prompt, (
+        f"Tools in TOOL_SPECS but missing from the prompt list: "
+        f"{sorted(missing_from_prompt)}"
+    )
+    assert not extra_in_prompt, (
+        f"Prompt list names not in TOOL_SPECS: {sorted(extra_in_prompt)}"
+    )
 
 
 __all__: list[str] = []

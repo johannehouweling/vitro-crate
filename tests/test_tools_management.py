@@ -243,3 +243,65 @@ class TestBulkSetFields:
         """bulk_set_fields raises ValueError when entity doesn't exist."""
         with pytest.raises(ValueError, match="not found"):
             bulk_set_fields(minimal_state, "nonexistent", {"f": "v"})
+
+
+class TestSetFields:
+    """Tests for the consolidated set_fields function (Issue #90, sub-task 2)."""
+
+    def test_sets_multiple_fields_and_tracks_completion(self, minimal_state):
+        """set_fields sets every field and marks each filled with the source."""
+        from builder.tools.management import set_fields
+
+        entity = set_fields(
+            minimal_state,
+            "inv_001",
+            {"title": "T", "identifier": "id-1"},
+            source="lookup",
+        )
+
+        assert entity.entity_id == "inv_001"
+        assert entity.fields["title"] == "T"
+        assert entity.fields["identifier"] == "id-1"
+        for field in ("title", "identifier"):
+            fc = entity.get_field_status(field)
+            assert fc is not None and fc.status == "filled" and fc.source == "lookup"
+
+    def test_single_field_is_just_a_one_key_dict(self, minimal_state):
+        """The single-field case is the one-entry dict — no separate tool needed."""
+        from builder.tools.management import set_fields
+
+        set_fields(minimal_state, "inv_001", {"identifier": "10.1/x"})
+        assert minimal_state.get_entity("inv_001").fields["identifier"] == "10.1/x"
+
+    def test_returns_the_updated_entity(self, minimal_state):
+        from builder.tools.management import set_fields
+
+        result = set_fields(minimal_state, "inv_001", {"title": "X"})
+        assert result is minimal_state.get_entity("inv_001")
+
+    def test_raises_value_error_for_nonexistent_entity(self, minimal_state):
+        from builder.tools.management import set_fields
+
+        with pytest.raises(ValueError, match="not found"):
+            set_fields(minimal_state, "nonexistent", {"f": "v"})
+
+
+class TestConsolidatedMutationTool:
+    """The three redundant mutation tools collapse into one registered tool."""
+
+    def test_only_set_fields_is_registered_not_the_redundant_three(self):
+        from builder.tools.registry import TOOL_REGISTRY
+        import builder.tools.management  # noqa: F401  (triggers registration)
+
+        names = set(TOOL_REGISTRY.list())
+        assert "set_fields" in names
+        for redundant in ("update_entity", "bulk_set_fields", "set_entity_field"):
+            assert redundant not in names, f"{redundant} should no longer be registered"
+
+    def test_set_fields_is_in_tool_specs_and_redundant_ones_are_not(self):
+        from builder.agents.tools_spec import TOOL_SPECS
+
+        names = {s["name"] for s in TOOL_SPECS}
+        assert "set_fields" in names
+        for redundant in ("update_entity", "bulk_set_fields", "set_entity_field"):
+            assert redundant not in names

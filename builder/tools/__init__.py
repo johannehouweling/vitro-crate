@@ -50,6 +50,7 @@ from builder.tools.management import (
     list_entities,
     remove_entity,
     set_entity_field,
+    set_fields,
     update_entity,
 )
 from builder.tools.mit_assessment import assess_mit_coverage
@@ -116,6 +117,7 @@ __all__ = [
     "save_session",
     "scan_files",
     "set_entity_field",
+    "set_fields",
     "unzip_file",
     "update_entity",
     "validate",

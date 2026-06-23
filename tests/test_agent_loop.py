@@ -352,18 +352,18 @@ class TestBuildLangchainTools:
         """A tool body exception (e.g. entity not found) should return a
         recoverable error message, not propagate as an unhandled exception.
 
-        This test simulates calling set_entity_field with a non-existent entity_id,
+        This test simulates calling set_fields with a non-existent entity_id,
         which raises ValueError("Entity not found: ...") in management.py.
         The LangChain tool wrapper should catch this and return a dict with
         an 'error' key so the LLM can retry, rather than letting it propagate.
         """
         tools, tool_map, engine = self._build()
 
-        tool = tool_map["set_entity_field"]
-        # Calling set_entity_field with a non-existent ID should trigger
+        tool = tool_map["set_fields"]
+        # Calling set_fields with a non-existent ID should trigger
         # ValueError("Entity not found: ...") in management.py
         result = tool.invoke(
-            {"entity_id": "nonexistent_123", "field": "name", "value": "test"}
+            {"entity_id": "nonexistent_123", "fields": {"name": "test"}}
         )
 
         # The result should be a dict with an error message for the LLM
@@ -385,9 +385,9 @@ class TestBuildLangchainTools:
         """
         tools, tool_map, engine = self._build()
 
-        # Now call set_entity_field with a bad ID — should get error, not exception
-        bad_call = tool_map["set_entity_field"].invoke(
-            {"entity_id": "bad_id_999", "field": "name", "value": "wrong"}
+        # Now call set_fields with a bad ID — should get error, not exception
+        bad_call = tool_map["set_fields"].invoke(
+            {"entity_id": "bad_id_999", "fields": {"name": "wrong"}}
         )
         assert isinstance(bad_call, dict)
         assert "error" in bad_call
@@ -399,11 +399,13 @@ class TestBuildLangchainTools:
         assert len(entities) == 1
         entity_id = entities[0].entity_id
 
-        good_call = tool_map["set_entity_field"].invoke(
-            {"entity_id": entity_id, "field": "name", "value": "Updated Name"}
+        good_call = tool_map["set_fields"].invoke(
+            {"entity_id": entity_id, "fields": {"name": "Updated Name"}}
         )
-        # The good call should succeed (not return an error dict)
-        assert good_call is None, f"Good call should succeed (return None), got: {good_call}"
+        # The good call should succeed (return the updated entity, not an error dict)
+        assert not (isinstance(good_call, dict) and "error" in good_call), (
+            f"Good call should succeed, got error: {good_call}"
+        )
 
         # Verify the entity was actually updated
         updated = engine.state.get_entity(entity_id)

@@ -18,6 +18,8 @@ local fragment; Files use a relative URI path.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +89,178 @@ PROVENANCE_RELATIONS: dict[str, str] = {
     "output": "entity this process produces (alias of result)",
     "derives_from": "source entity this sample/output is derived from",
 }
+
+# ---------------------------------------------------------------------------
+# Typed entity-draft schema (Issue #90, sub-task 1)
+#
+# Single source of truth for the per-entity-type parameter schema advertised by
+# the ``draft_*`` tools. It replaces the schema-less ``hints: {type: object}``
+# param so a weak model is told exactly which scalar and reference keys an entity
+# accepts. ``ref_fields`` keys are a strict subset of ``_REF_FIELDS`` (asserted by
+# test) so the advertised reference vocabulary and the crate-mapping resolver can
+# never drift. Extra keys remain allowed (the schema is open) — this advertises
+# the high-value fields without forbidding the long tail.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EntityDraftSchema:
+    """The advertised draft parameters for one entity type.
+
+    Attributes:
+        scalar_fields: ``field name -> description`` for literal-valued fields
+            (names, identifiers, free-text metadata).
+        ref_fields: ``field name -> description`` for fields whose value is an
+            entity reference (an ``entity_id`` or ``{"@id": ...}``). Keys are a
+            subset of :data:`_REF_FIELDS`.
+    """
+
+    scalar_fields: dict[str, str] = dataclass_field(default_factory=dict)
+    ref_fields: dict[str, str] = dataclass_field(default_factory=dict)
+
+
+# Shared field descriptions reused across entity types.
+_NAME = "Human-readable name (also used to mint the entity id)."
+_DESC = "Free-text description."
+_IDENTIFIER = "Identifier or accession for this entity."
+
+ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
+    "Investigation": EntityDraftSchema(
+        scalar_fields={
+            "name": _NAME,
+            "description": _DESC,
+            "identifier": _IDENTIFIER,
+        },
+    ),
+    "Study": EntityDraftSchema(
+        scalar_fields={"name": _NAME, "description": _DESC, "identifier": _IDENTIFIER},
+        ref_fields={
+            "aop": "AOP-Wiki id or entity ref the study investigates (schema:mentions).",
+            "organism": "Organism term/entity the study concerns (schema:mentions).",
+            "chemicals": "MolecularEntity id(s) studied (schema:mentions).",
+            "cell_lines": "CellLineSample id(s) studied (schema:mentions).",
+        },
+    ),
+    "Assay": EntityDraftSchema(
+        scalar_fields={"name": _NAME, "description": _DESC, "identifier": _IDENTIFIER},
+        ref_fields={
+            "key_event": "AOP Key Event id/entity the assay measures (schema:mentions).",
+        },
+    ),
+    "MolecularEntity": EntityDraftSchema(
+        scalar_fields={
+            "name": "Compound name (passed as the `name` argument).",
+            "identifier": "CAS number or other identifier.",
+            "inchikey": "InChIKey, if known.",
+            "smiles": "SMILES string, if known.",
+            "molecular_formula": "Molecular formula, if known.",
+            "pubchem_cid": "PubChem CID (resolves the entity @id when present).",
+        },
+    ),
+    "CellLineSample": EntityDraftSchema(
+        scalar_fields={
+            "name": "Cell-line name (passed as the `name` argument).",
+            "accession": "Cellosaurus accession, e.g. 'CVCL_0027'.",
+            "description": _DESC,
+        },
+    ),
+    "LabProcess": EntityDraftSchema(
+        scalar_fields={
+            "name": _NAME,
+            "description": _DESC,
+            "culture_medium": "CellCulture: the culture medium used.",
+            "duration": "Exposure: exposure duration.",
+            "cell_seeding_density": "Exposure: cell seeding density.",
+            "microplate": "Exposure: microplate format.",
+            "detection_instrument": "EndpointReadout: detection instrument.",
+            "instrument_manufacturer": "EndpointReadout: instrument manufacturer.",
+            "measured_entity": "EndpointReadout: what is measured.",
+            "endpoint": "EndpointReadout: the measured endpoint.",
+            "data_processing": "DataAnalysis: data-processing description.",
+            "software": "DataAnalysis: software used.",
+        },
+        ref_fields={
+            "object": "Input entity the process consumes (alias: input).",
+            "samples": "Sample id(s) the process takes as input.",
+            "cell_line": "CellCulture: the cell-line Sample id consumed.",
+            "result": "Output entity the process produces (alias: output).",
+            "chemicals": "Exposure: MolecularEntity id(s) the cells are exposed to.",
+            "labprotocol": "LabProtocol id this process follows.",
+        },
+    ),
+    "LabProtocol": EntityDraftSchema(
+        scalar_fields={
+            "name": _NAME,
+            "description": _DESC,
+            "url": "Link to the protocol (e.g. protocols.io).",
+        },
+    ),
+    "Sample": EntityDraftSchema(
+        scalar_fields={"name": _NAME, "description": _DESC},
+        ref_fields={
+            "derives_from": "Source entity/sample this sample is derived from.",
+        },
+    ),
+    "Person": EntityDraftSchema(
+        scalar_fields={
+            "name": "Person's name (passed as the `name` argument).",
+            "orcid": "ORCID iD (resolves the entity @id when present).",
+            "email": "Email address.",
+            "affiliation": "Affiliation (organization name or ROR id).",
+        },
+    ),
+    "Organization": EntityDraftSchema(
+        scalar_fields={
+            "name": "Organization name (passed as the `name` argument).",
+            "ror": "ROR id (resolves the entity @id when present).",
+            "url": "Organization website URL.",
+        },
+    ),
+    "Publication": EntityDraftSchema(
+        scalar_fields={
+            "name": "Title of the publication.",
+            "identifier": "DOI or other identifier (defaults to the `doi` argument).",
+            "doi": "DOI (resolves the entity @id when present).",
+        },
+        ref_fields={
+            "author": "Person id(s) who authored the publication.",
+        },
+    ),
+}
+
+
+def draft_hints_schema(entity_type: str) -> dict[str, Any]:
+    """Build the JSON-Schema for a ``draft_*`` tool's ``hints`` parameter.
+
+    Returns an open object schema (``additionalProperties: true``) whose typed
+    ``properties`` are the scalar and reference fields advertised for
+    ``entity_type`` in :data:`ENTITY_DRAFT_SCHEMA`. Reference fields accept an
+    entity id string or a list of ids. Falls back to a bare open object for
+    unknown entity types.
+    """
+    schema = ENTITY_DRAFT_SCHEMA.get(entity_type)
+    properties: dict[str, Any] = {}
+    if schema is not None:
+        for name, desc in schema.scalar_fields.items():
+            properties[name] = {"type": "string", "description": desc}
+        for name, desc in schema.ref_fields.items():
+            properties[name] = {
+                "description": desc + " Pass an entity_id (or a list of them).",
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "array", "items": {"type": "string"}},
+                ],
+            }
+    return {
+        "type": "object",
+        "description": (
+            f"Field values for the {entity_type}. The keys below are recognised; "
+            "additional fields are allowed."
+        ),
+        "properties": properties,
+        "additionalProperties": True,
+    }
+
 
 # Study/Assay annotation fields that expand to schema:mentions via the @context
 # (paper §Methods: Study ← linked AOP; Assay endpoint ← corresponding Key Event).
