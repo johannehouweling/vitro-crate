@@ -85,7 +85,9 @@ def export_crate(state: CrateState, output_path: str | None = None) -> dict[str,
     """
     try:
         if not output_path:
-            output_path = _default_crate_path(state)
+            # Honor the user-configured destination (set from the CLI --output /
+            # state.metadata.output_path) before falling back to the session dir.
+            output_path = state.metadata.output_path or _default_crate_path(state)
 
         output_dir = Path(output_path)
         output_dir.mkdir(parents=True, exist_ok=True)
