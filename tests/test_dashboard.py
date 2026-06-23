@@ -288,3 +288,94 @@ class TestTokenSummary:
         output = capture.get()
         assert "Cumulative" in output
         assert "0" in output
+
+
+class TestLiveRefresh:
+    """Regression guards for the live dashboard auto-refresh (#121).
+
+    The dashboard appeared to "only update on load" because watchfiles' ``step``
+    (a debounce quiet-period) was set to the render interval (2000ms), so a
+    steady stream of profiler writes never went quiet long enough to be yielded.
+    A secondary bug blanked the profile panel whenever only crate_state.json
+    changed (profile mtime unchanged -> records became []).
+    """
+
+    def test_watch_step_is_small_and_decoupled_from_refresh_interval(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """``watch()`` must be called with a small fixed ``step`` (the watchfiles
+        default), independent of ``refresh_interval`` — otherwise updates are
+        throttled to multi-second intervals and the dashboard looks frozen."""
+        import rich.live
+        import watchfiles
+
+        from builder.tools.dashboard import _WATCH_STEP_MS, _run_live_dashboard
+
+        profile_path = tmp_path / "profile.ndjson"
+        profile_path.write_text(json.dumps({"event": "node_end", "node": "model"}) + "\n")
+
+        captured: dict = {}
+
+        def fake_watch(*paths, **kwargs):
+            captured["step"] = kwargs.get("step")
+            captured["paths"] = paths
+            return iter(())  # no changes -> loop body skipped, returns immediately
+
+        class _DummyLive:
+            def __init__(self, *a, **k) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a) -> bool:
+                return False
+
+            def update(self, *a) -> None:
+                pass
+
+        monkeypatch.setattr(watchfiles, "watch", fake_watch)
+        monkeypatch.setattr(rich.live, "Live", _DummyLive)
+
+        _run_live_dashboard(profile_path, "sess", refresh_interval=2.0)
+
+        assert _WATCH_STEP_MS <= 100
+        assert captured["step"] == _WATCH_STEP_MS
+        # The bug was step == int(refresh_interval * 1000) == 2000.
+        assert captured["step"] != 2000
+
+    def test_records_cache_reused_when_profile_unchanged(self, tmp_path) -> None:
+        """A crate_state-only refresh (profile.ndjson mtime unchanged) reuses the
+        cached records instead of returning [] (which blanked the panel)."""
+        from builder.tools.dashboard import _read_records_cached
+
+        profile_path = tmp_path / "profile.ndjson"
+        profile_path.write_text(json.dumps({"event": "node_end", "node": "model"}) + "\n")
+
+        records, mtime = _read_records_cached(profile_path, 0.0, [])
+        assert records, "first read should load records"
+        assert mtime != 0.0
+
+        again, mtime2 = _read_records_cached(profile_path, mtime, records)
+        assert again == records, "unchanged profile must reuse cached records, not blank"
+        assert mtime2 == mtime
+
+    def test_records_cache_rereads_on_change(self, tmp_path) -> None:
+        """When profile.ndjson mtime changes, records are re-read fresh."""
+        import os
+
+        from builder.tools.dashboard import _read_records_cached
+
+        profile_path = tmp_path / "profile.ndjson"
+        profile_path.write_text(json.dumps({"event": "node_end", "node": "model"}) + "\n")
+
+        records, mtime = _read_records_cached(profile_path, 0.0, [])
+        assert len(records) == 1
+
+        with open(profile_path, "a") as fh:
+            fh.write(json.dumps({"event": "node_end", "node": "tools"}) + "\n")
+        os.utime(profile_path, (mtime + 1, mtime + 1))
+
+        records2, mtime2 = _read_records_cached(profile_path, mtime, records)
+        assert len(records2) == 2
+        assert mtime2 != mtime

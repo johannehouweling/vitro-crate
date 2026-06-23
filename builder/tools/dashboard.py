@@ -730,6 +730,34 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
 # Live dashboard (TUI)
 # ---------------------------------------------------------------------------
 
+# watchfiles' ``step`` is a debounce *quiet-period* (ms): changes are only
+# yielded once the filesystem has been quiet for this long. It must stay small
+# (the watchfiles default) so a steady stream of profiler writes is surfaced
+# promptly — it is NOT the render cadence. Deriving it from ``refresh_interval``
+# (2000ms) starved the watch loop, so the dashboard only updated on load (#121).
+# The user-facing refresh rate is Rich ``Live(refresh_per_second=...)`` instead.
+_WATCH_STEP_MS = 50
+
+
+def _read_records_cached(
+    profile_path: Path, last_mtime: float, cached: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], float]:
+    """Return ``(records, mtime)``, re-reading ``profile.ndjson`` only when its
+    mtime changed; otherwise reuse *cached*.
+
+    Reusing the cache matters when the watch loop fires for a *crate_state.json*
+    change while ``profile.ndjson`` is unchanged: returning ``[]`` there would
+    blank the profile panel to the "no data" placeholder on every CrateState
+    update (#121).
+    """
+    try:
+        current_mtime = profile_path.stat().st_mtime
+    except OSError:
+        return cached, last_mtime
+    if current_mtime != last_mtime:
+        return read_profile(profile_path), current_mtime
+    return cached, current_mtime
+
 
 def _render_static(session_id: str, records: list[dict[str, Any]]) -> None:
     """Render a one-shot summary to stdout."""
@@ -808,17 +836,13 @@ def _run_live_dashboard(
     session_path = profile_path.parent
     crate_state_path = session_path / "crate_state.json"
     last_mtime: float = 0.0
-    last_crate_mtime: float = 0.0
+    records: list[dict[str, Any]] = []
 
     def _build() -> Layout:
-        nonlocal last_mtime, last_crate_mtime
-        # Re-read profile only if changed (avoid pointless I/O)
-        try:
-            current_mtime = profile_path.stat().st_mtime
-        except OSError:
-            current_mtime = last_mtime
-        records = read_profile(profile_path) if current_mtime != last_mtime else []
-        last_mtime = current_mtime
+        nonlocal last_mtime, records
+        # Re-read profile only when it changed; reuse the cache otherwise so a
+        # crate_state-only refresh doesn't blank the profile panel (#121).
+        records, last_mtime = _read_records_cached(profile_path, last_mtime, records)
         return format_session_summary(session_id, records)
 
     try:
@@ -831,14 +855,15 @@ def _run_live_dashboard(
         console.print(_build())
         return
 
+    # Watch both profile.ndjson and crate_state.json so CrateState updates too.
+    watch_paths = [str(profile_path)]
+    if crate_state_path.exists():
+        watch_paths.append(str(crate_state_path))
+
     with Live(
         _build(), console=console, refresh_per_second=1 / refresh_interval, screen=False
     ) as live:
-        # watchfiles step is in milliseconds; convert from our seconds-based interval
-        step_ms = int(refresh_interval * 1000)
-        # Watch both profile.ndjson and crate_state.json so CrateState updates too
-        watch_paths = [str(profile_path)]
-        if crate_state_path.exists():
-            watch_paths.append(str(crate_state_path))
-        for _changes in watch(*watch_paths, step=step_ms):
+        # `step` is watchfiles' debounce quiet-period (see _WATCH_STEP_MS), not
+        # the render interval — keep it small so updates aren't throttled.
+        for _changes in watch(*watch_paths, step=_WATCH_STEP_MS):
             live.update(_build())
