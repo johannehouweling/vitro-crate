@@ -95,6 +95,12 @@ def export_crate(state: CrateState, output_path: str | None = None) -> dict[str,
         output_dir.mkdir(parents=True, exist_ok=True)
 
         crate = assemble_crate(state, output_dir, materialize_payload=True)
+        # Embed the standard ro-crate-py preview (ro-crate-preview.html, a
+        # CreativeWork about ./) so the written crate is browsable without
+        # tooling (#86).
+        from rocrate.model.preview import Preview
+
+        crate.add(Preview(crate))
         crate.write(str(output_dir))
 
         logger.info("Crate exported to %s", output_path)
