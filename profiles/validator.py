@@ -18,6 +18,8 @@ composition is verified working as of roc-validator 0.10.0.
 from __future__ import annotations
 
 import importlib.metadata as _metadata
+import json
+import logging
 
 # ---------------------------------------------------------------------------
 # rocrate-validator compatibilty shim  (#57)
@@ -116,6 +118,203 @@ def _patch_bundled_isa_ontology() -> None:
 
 
 _patch_bundled_isa_ontology()
+
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Offline-safe context resolution (#117)
+# ---------------------------------------------------------------------------
+# The SHACL passes must expand the RO-Crate ``@context`` to build the data graph.
+# That context is a *remote* IRI (``https://w3id.org/ro/crate/1.x/context``) that
+# rocrate_validator resolves over HTTP. A transient fetch failure turned that into
+# spurious REQUIRED base-pass issues (checks ``ro-crate-1.1_2.1`` / ``2.2``) and
+# red CI (#116). We ship a pinned local copy of each RO-Crate context and serve it
+# from disk, so validation never needs the network to expand the context.
+
+# Directory holding the bundled JSON-LD contexts (committed alongside this file).
+CONTEXTS_DIR = Path(__file__).resolve().parent / "contexts"
+
+# Map of well-known RO-Crate context URL -> bundled file. Both http/https and
+# trailing-slash variants are registered so the lookup is exact.
+_BUNDLED_CONTEXT_FILES: dict[str, str] = {
+    "https://w3id.org/ro/crate/1.1/context": "ro-crate-1.1-context.jsonld",
+    "https://w3id.org/ro/crate/1.2/context": "ro-crate-1.2-context.jsonld",
+}
+
+
+def _load_local_contexts() -> dict[str, dict]:
+    """Parse the bundled context files into a URL -> parsed-JSON map.
+
+    A missing or malformed bundled file is skipped (logged at debug): validation
+    then falls back to the network for that URL rather than crashing on import.
+    """
+    contexts: dict[str, dict] = {}
+    for url, filename in _BUNDLED_CONTEXT_FILES.items():
+        path = CONTEXTS_DIR / filename
+        try:
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("Bundled RO-Crate context %s unavailable: %s", path, exc)
+            continue
+        # Register both with and without a trailing slash to match how callers
+        # may have written the IRI in ``@context``.
+        contexts[url] = parsed
+        contexts[url + "/"] = parsed
+        if url.startswith("https://"):
+            http_url = "http://" + url[len("https://") :]
+            contexts[http_url] = parsed
+            contexts[http_url + "/"] = parsed
+    return contexts
+
+
+# URL -> parsed context JSON. Patched to {} by tests that need to force the
+# network path (verifying transport-error handling).
+_LOCAL_CONTEXTS: dict[str, dict] = _load_local_contexts()
+
+
+def _local_context_response(url: str):
+    """Build a synthetic 200 ``requests.Response`` carrying a bundled context.
+
+    Returns ``None`` when ``url`` is not a bundled RO-Crate context (the caller
+    then falls back to the real network request).
+    """
+    local = _LOCAL_CONTEXTS.get(url)
+    if local is None:
+        return None
+    import requests
+
+    response = requests.Response()
+    response.status_code = 200
+    response.url = url
+    response.headers["Content-Type"] = "application/ld+json"
+    response._content = json.dumps(local).encode("utf-8")
+    response.encoding = "utf-8"
+    return response
+
+
+def _install_offline_context_loader() -> None:
+    """Serve bundled RO-Crate contexts locally, bypassing the network (#117).
+
+    The RO-Crate ``@context`` (e.g. ``https://w3id.org/ro/crate/1.2/context``) is
+    dereferenced over HTTP during the base pass through **two** code paths:
+
+    1. ``rocrate_validator``'s JSON-LD document loader (``_fetch_json_ld``), used
+       when rdflib expands the data graph (check ``ro-crate-1.1_2.1``);
+    2. the ``FileDescriptorJsonLdFormat`` check (``ro-crate-1.1_2.2``), which calls
+       ``HttpRequester().get(context_uri)`` *directly*, bypassing the loader.
+
+    Both funnel through ``HttpRequester`` proxy methods (``.get`` / ``.head``), so
+    we intercept there: for a bundled context URL we return a synthetic 200
+    response from disk; everything else delegates to the real session. Patching
+    the class-level ``__getattr__`` survives the singleton reset rocrate_validator
+    performs on every ``ValidationSettings`` construction, and it is idempotent.
+    """
+    try:
+        from rocrate_validator.utils import http as _http
+    except ImportError as exc:  # pragma: no cover - validator always present here
+        logger.debug("Could not install offline context loader: %s", exc)
+        return
+
+    requester_cls = _http.HttpRequester
+    if getattr(requester_cls, "_vitro_offline_loader_installed", False):
+        return
+
+    # Disable rocrate_validator's best-effort cache warm-up. On a cold cache it
+    # fetches every profile-declared artifact (the RO-Crate context *and* the spec
+    # HTML page) over the network on each pass — pure network traffic we don't
+    # need, since the context is bundled and the spec page is not used by any
+    # check. Warm-up failures are swallowed, so disabling it is correctness-safe
+    # and keeps validation from touching the wire on a fresh machine (e.g. CI).
+    import os
+
+    os.environ.setdefault("ROCRATE_VALIDATOR_AUTO_WARM", "0")
+
+    _original_getattr = requester_cls.__getattr__
+
+    def _offline_getattr(self, name):  # noqa: ANN001
+        if name.upper() in {"GET", "HEAD"}:
+            session_attr = _original_getattr(self, name)
+
+            def _wrapped(url, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+                local = _local_context_response(url)
+                if local is not None:
+                    logger.debug("Serving RO-Crate context %s from bundled copy", url)
+                    return local
+                return session_attr(url, *args, **kwargs)
+
+            return _wrapped
+        return _original_getattr(self, name)
+
+    requester_cls.__getattr__ = _offline_getattr  # ty: ignore[invalid-assignment]
+
+    # ``fetch_fresh`` is a real method (not proxied through ``__getattr__``); the
+    # cache warm-up uses it. Wrap it too so a bundled context is served from disk
+    # even if warm-up runs.
+    _original_fetch_fresh = requester_cls.fetch_fresh
+
+    def _offline_fetch_fresh(self, url, **kwargs):  # noqa: ANN001, ANN003
+        local = _local_context_response(url)
+        if local is not None:
+            logger.debug("Serving RO-Crate context %s from bundled copy (fetch_fresh)", url)
+            return local
+        return _original_fetch_fresh(self, url, **kwargs)
+
+    requester_cls.fetch_fresh = _offline_fetch_fresh  # ty: ignore[invalid-assignment]
+    requester_cls._vitro_offline_loader_installed = True  # ty: ignore[unresolved-attribute]
+
+    # Also wire the rdflib JSON-LD document loader so context expansion goes
+    # through HttpRequester (and therefore our intercept) rather than rdflib's
+    # own urllib fetch. Idempotent upstream call.
+    try:
+        from rocrate_validator.utils.document_loader import install_document_loader
+
+        install_document_loader()
+    except Exception as exc:  # noqa: BLE001 - best-effort; loader install is non-fatal
+        logger.debug("install_document_loader failed: %s", exc)
+
+
+_install_offline_context_loader()
+
+
+class ValidationTransportError(RuntimeError):
+    """Raised when a validation pass fails on a network transport error.
+
+    Distinguishes a *transport* failure (a remote context/ontology IRI could not
+    be dereferenced) from a genuine *content* violation. rocrate_validator
+    swallows the connection error inside its checks and re-emits it as a REQUIRED
+    issue (e.g. ``ro-crate-1.1_2.1`` / ``ro-crate-1.1_2.2``); surfacing it as this
+    error instead prevents a transient network blip from masquerading as a real
+    REQUIRED content issue (false negative in ``build_and_validate``).
+    """
+
+
+# Substrings that mark an issue as a transport/connection failure rather than a
+# real content violation. Kept narrow so genuine violations are never reclassified.
+_TRANSPORT_ERROR_MARKERS: tuple[str, ...] = (
+    "connection aborted",
+    "remotedisconnected",
+    "remote end closed connection",
+    "connection refused",
+    "connection reset",
+    "max retries exceeded",
+    "failed to establish a new connection",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "unable to retrieve the json-ld context",
+    "unable to retrieve json-ld document",
+    "newconnectionerror",
+    "connectionerror",
+    "timed out",
+)
+
+
+def _is_transport_failure_message(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = message.lower()
+    return any(marker in lowered for marker in _TRANSPORT_ERROR_MARKERS)
 
 
 @dataclass
@@ -254,15 +453,56 @@ def validate_crate_dict(
             **extra,
         )
         result = services.validate_metadata_as_dict(metadata_doc, settings)
+        issues = [_routable_issue(i, key) for i in result.get_issues()]
+        _raise_on_transport_failure(issues, profile=key)
         results.append(
             DictValidationResult(
                 profile=key,
                 passed=not result.has_issues(),
                 passed_required=not result.has_issues(min_severity=models.Severity.REQUIRED),
-                issues=[_routable_issue(i, key) for i in result.get_issues()],
+                issues=issues,
             )
         )
     return results
+
+
+def _raise_on_transport_failure(issues, profile: str) -> None:
+    """Reclassify transport-failure issues as a :class:`ValidationTransportError`.
+
+    rocrate_validator catches a connection error inside a remote-resolving check
+    and re-emits it as a REQUIRED *content* issue (e.g. ``ro-crate-1.1_2.1`` /
+    ``ro-crate-1.1_2.2``). That makes a transient network blip look like a real
+    REQUIRED violation. We detect those issues (a transport-sensitive check with a
+    connection-error message) and raise instead, so callers surface a clear
+    transport error and never report a spurious REQUIRED content issue.
+    """
+    for issue in issues:
+        message = getattr(issue, "message", None)
+        if not _is_transport_failure_message(message):
+            continue
+        check_id = getattr(issue, "check_id", None) or "unknown"
+        raise ValidationTransportError(
+            f"Validation pass {profile!r} could not dereference a remote "
+            f"resource (check {check_id}): {message}"
+        )
+
+
+def _raise_on_transport_failure_result(result, profile: str) -> None:
+    """Same as :func:`_raise_on_transport_failure` for a raw validator result.
+
+    The on-disk ``validate_crate`` path holds rocrate_validator ``CheckIssue``
+    objects (not :class:`RoutableIssue`), so inspect their ``message`` and
+    ``check.identifier`` directly before they are flattened to prose.
+    """
+    for issue in result.get_issues():
+        message = issue.message or str(issue)
+        if not _is_transport_failure_message(message):
+            continue
+        check_id = getattr(getattr(issue, "check", None), "identifier", None) or "unknown"
+        raise ValidationTransportError(
+            f"Validation pass {profile!r} could not dereference a remote "
+            f"resource (check {check_id}): {message}"
+        )
 
 
 def validate_crate(crate_dir: Path) -> list[ValidationResult]:
@@ -282,6 +522,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
         requirement_severity=models.Severity.OPTIONAL,
     )
     result = services.validate(settings)
+    _raise_on_transport_failure_result(result, profile="Base RO-Crate 1.1")
     results.append(
         ValidationResult(
             profile="Base RO-Crate 1.1",
@@ -305,6 +546,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
         disable_inherited_profiles_issue_reporting=True,
     )
     isa_result = services.validate(isa_settings)
+    _raise_on_transport_failure_result(isa_result, profile="ISA RO-Crate Profile")
     results.append(
         ValidationResult(
             profile="ISA RO-Crate Profile",
@@ -329,6 +571,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
         disable_inherited_profiles_issue_reporting=True,
     )
     tox_result = services.validate(tox_settings)
+    _raise_on_transport_failure_result(tox_result, profile="ISA-Tox RO-Crate Profile")
     results.append(
         ValidationResult(
             profile="ISA-Tox RO-Crate Profile",

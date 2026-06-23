@@ -46,6 +46,30 @@ from tests.fixtures.vhps_golden_crates import VHPS_STUDIES
 FIXTURE_INPUT_DIR = Path(__file__).parent / "fixtures" / "svhps21_input"
 
 
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """Run the whole scripted e2e with the live network disabled (#117).
+
+    #59 requires this harness to run "deterministically without network/LLM
+    access", but the SHACL validator used to dereference the remote RO-Crate
+    ``@context`` (``https://w3id.org/ro/crate/1.2/context``); a transient fetch
+    failure once produced a spurious REQUIRED issue and flaked CI (#116). The
+    validator now serves a bundled local copy of the context, so we hard-block
+    the HTTP transport here to *prove* the path is offline-safe: any real
+    outbound request raises, turning a regression (a re-introduced network
+    dependency) into a deterministic failure rather than a flake.
+    """
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    def _blocked_send(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+        raise requests.exceptions.ConnectionError(
+            f"network disabled in offline e2e test (attempted {request.url})"
+        )
+
+    monkeypatch.setattr(HTTPAdapter, "send", _blocked_send)
+
+
 def _scripted_build(engine: AgentEngine) -> dict:
     """Drive the deterministic scripted tool sequence for S-VHPS21.
 
