@@ -162,8 +162,8 @@ def _synthesize_fix(issue: RoutableIssue) -> str:
 
 def build_and_validate(
     state: CrateState,
-    severity: str = "required",
-    profile: str = "all",
+    severity: str | None = "required",
+    profile: str | None = "all",
 ) -> dict[str, Any]:
     """Build the crate from CrateState in memory and validate it — no disk write.
 

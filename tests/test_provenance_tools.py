@@ -172,5 +172,7 @@ class TestCheckProvenance:
         link(state, "er", "result", "raw")
         assert check_provenance(state)["ok"] is True
 
-        del state.get_entity("er").fields["result"]
+        er = state.get_entity("er")
+        assert er is not None
+        del er.fields["result"]
         assert check_provenance(state)["ok"] is False

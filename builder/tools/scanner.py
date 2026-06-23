@@ -526,14 +526,14 @@ def _summarize_json(path: Path) -> str | None:
 
     if isinstance(data, dict):
         keys = list(data.keys())
-        parts.append(f"Top-level keys ({len(keys)}): {', '.join(keys)}")
+        parts.append(f"Top-level keys ({len(keys)}): {', '.join(str(k) for k in keys)}")
         for k in keys:
             v = data[k]
             if isinstance(v, list):
                 parts.append(f"  {k}: array[{len(v)}]")
             elif isinstance(v, dict):
                 subkeys = list(v.keys())
-                parts.append(f"  {k}: object {{{', '.join(subkeys[:5])}}}")
+                parts.append(f"  {k}: object {{{', '.join(str(sk) for sk in subkeys[:5])}}}")
             elif isinstance(v, str):
                 preview = v[:80].replace("\n", " ")
                 parts.append(f'  {k}: string "{preview}"')
@@ -543,7 +543,7 @@ def _summarize_json(path: Path) -> str | None:
         parts.append(f"Top-level array with {len(data)} items")
         if data and isinstance(data[0], dict):
             keys = list(data[0].keys())
-            parts.append(f"  Item keys: {', '.join(keys)}")
+            parts.append(f"  Item keys: {', '.join(str(k) for k in keys)}")
     else:
         parts.append(f"Top-level value: {type(data).__name__} = {data}")
 
@@ -602,7 +602,7 @@ def _summarize_pdf(path: Path) -> str | None:
     try:
         import pdfplumber
     except ImportError:
-        pdfplumber = None  # type: ignore[assignment]
+        pdfplumber = None  # ty: ignore[invalid-assignment]
 
     if pdfplumber is not None:
         try:
@@ -645,7 +645,7 @@ def _summarize_docx(path: Path) -> str | None:
         return None
 
     try:
-        doc = Document(path)
+        doc = Document(str(path))
     except Exception:
         return None
 
@@ -727,11 +727,12 @@ def _format_size(size_bytes: int) -> str:
     """Format bytes as human-readable string."""
     if size_bytes == 0:
         return "0 B"
+    size = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB"):
-        if abs(size_bytes) < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
+        if abs(size) < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 def read_multiple_files(

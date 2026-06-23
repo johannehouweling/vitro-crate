@@ -187,7 +187,7 @@ def test_no_tool_description_references_absent_tool():
 
     for spec in TOOL_SPECS:
         name = spec["name"]
-        desc = spec.get("description", "")
+        desc = str(spec.get("description", ""))
 
         refs = _collect_referenced_tools(desc)
 
@@ -275,7 +275,7 @@ def test_no_duplicate_tool_names_in_tool_specs():
     """
     from collections import Counter
 
-    counts = Counter(spec["name"] for spec in TOOL_SPECS)  # ty: ignore
+    counts = Counter(spec["name"] for spec in TOOL_SPECS)
     duplicates = {name: n for name, n in counts.items() if n > 1}
     assert not duplicates, f"Duplicate tool names in TOOL_SPECS: {duplicates}"
 

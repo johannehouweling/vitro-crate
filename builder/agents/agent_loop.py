@@ -612,7 +612,7 @@ def _build_agent_graph(
 
     # Use a typed state with add_messages reducer so ToolNode and model
     # both append to the message list rather than replacing it.
-    graph: Any = StateGraph(AgentState)
+    graph: Any = StateGraph(AgentState)  # ty: ignore[invalid-argument-type]
     graph.add_node("model", _wrap_model_node(call_model, profiler, iteration_getter))
     graph.add_node("tools", _wrap_tools_node(tool_node, profiler, iteration_getter))
 

@@ -655,7 +655,8 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     last_model = (token_last or {}).get("model_name") or ""
     last_str = ""
     if last_in is not None:
-        last_str = f"  · last {last_model}: {last_in}→{last_out} ({int(last_in) + int(last_out)})"
+        last_total = int(last_in) + int(last_out or 0)
+        last_str = f"  · last {last_model}: {last_in}→{last_out} ({last_total})"
 
     # Compute costs — use get_model_provider for the model-specific vendor prefix
     from builder.config import get_model_provider

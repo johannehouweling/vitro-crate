@@ -439,7 +439,7 @@ class TestToolSpinnerCallback:
         from builder.agents.agent_loop import _ToolSpinnerCallback
 
         spinner = _FakeSpinner()
-        _ToolSpinnerCallback(spinner).on_tool_start({"name": "scan_files"}, "/data")
+        _ToolSpinnerCallback(spinner).on_tool_start({"name": "scan_files"}, "/data")  # ty: ignore[invalid-argument-type]
 
         assert spinner.tools == ["scan_files"]
 
@@ -448,7 +448,7 @@ class TestToolSpinnerCallback:
         from builder.agents.agent_loop import _ToolSpinnerCallback
 
         spinner = _FakeSpinner()
-        _ToolSpinnerCallback(spinner).on_tool_start({}, "")
+        _ToolSpinnerCallback(spinner).on_tool_start({}, "")  # ty: ignore[invalid-argument-type]
 
         assert spinner.tools == ["tool"]
 
@@ -457,7 +457,7 @@ class TestToolSpinnerCallback:
         from builder.agents.agent_loop import _ToolSpinnerCallback
 
         spinner = _FakeSpinner()
-        cb = _ToolSpinnerCallback(spinner)
+        cb = _ToolSpinnerCallback(spinner)  # ty: ignore[invalid-argument-type]
         cb.on_tool_start({"name": "lookup_compound"}, "aspirin")
         cb.on_tool_end("result")
 

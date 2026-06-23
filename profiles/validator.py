@@ -57,7 +57,7 @@ class _PatchedVersioning:
 
 # Pre-seed so rocrate_validator/__init__.py finds this instead of the real
 # versioning module and never reaches the broken get_config() call.
-_sys.modules["rocrate_validator.utils.versioning"] = _PatchedVersioning  # type: ignore[attr-defined]
+_sys.modules["rocrate_validator.utils.versioning"] = _PatchedVersioning  # ty: ignore[invalid-assignment]
 
 import rocrate_validator.utils.config as _rv_config  # noqa: E402 — intentional bootstrap
 import rocrate_validator.utils.versioning as _rv_versioning  # noqa: E402
@@ -76,7 +76,7 @@ def _patched_get_config() -> dict:
     return cfg
 
 
-_rv_config.get_config = _patched_get_config
+_rv_config.get_config = _patched_get_config  # ty: ignore[invalid-assignment]
 _rv_config._config = None
 # Restore the real versioning module for correct semantics downstream.
 _sys.modules["rocrate_validator.utils.versioning"] = _rv_versioning

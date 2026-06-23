@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
-from datetime import datetime
+from datetime import datetime, tzinfo
 from datetime import timezone as _timezone_mod
 from pathlib import Path
 from typing import Any
@@ -56,7 +56,7 @@ DEFAULTS: dict[str, Any] = {
 _DEFAULT_TIMEZONE = "Europe/Amsterdam"
 
 
-def get_timezone() -> _timezone_mod:
+def get_timezone() -> tzinfo:
     """Return the configured local timezone as a ``datetime.tzinfo``.
 
     Precedence (highest to lowest):
