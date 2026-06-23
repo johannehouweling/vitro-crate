@@ -127,6 +127,40 @@ class TestLabProcessSubtypes:
         # the compound is connected to the Exposure THROUGH the condition table
         assert "#MolecularEntity_chem_1" in _ids(table.get("about"))
 
+    def test_exposure_condition_table_is_typed_csvw(self, tmp_path):
+        # Issue #94: the condition table must be typed CSVW — a linked schema
+        # entity with per-column datatype + propertyUrl, the cell-line/compound
+        # columns resolving to their entity ids (valueUrl).
+        state = self._state_with_process(
+            "Exposure",
+            samples="sample_cult",
+            chemicals="chem_1",
+            duration="24h",
+        )
+        state.add_entity(_ent("sample_cult", "Sample", name="cultured"))
+        state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
+        _, by_id = _build(state, tmp_path)
+        proc = by_id["#LabProcess_proc_1"]
+        table = by_id[_ids(proc.get("output"))[0]]
+
+        # the table is linked to a schema entity via conformsTo (not a bare key)
+        schema_ids = [s for s in _ids(table.get("conformsTo")) if "schema" in s]
+        assert schema_ids, "condition table must conformTo a schema entity"
+        schema = by_id[schema_ids[0]]
+        stype = schema["@type"] if isinstance(schema["@type"], list) else [schema["@type"]]
+        assert "csvw:Schema" in stype
+
+        cols = [by_id[cid] for cid in _ids(schema.get("columns"))]
+        by_title = {c["titles"]: c for c in cols}
+        assert set(by_title) == {"cell_line", "compound", "concentration", "unit", "duration"}
+        # every column is typed: datatype + propertyUrl
+        for col in by_title.values():
+            assert col["datatype"]
+            assert col["propertyUrl"]
+        # entity-resolving columns carry references to the resolved entities
+        assert "#MolecularEntity_chem_1" in str(by_title["compound"].get("valueUrl"))
+        assert "#Sample_sample_cult" in str(by_title["cell_line"].get("valueUrl"))
+
     def test_endpoint_readout_result_is_file(self, tmp_path):
         state = self._state_with_process(
             "EndpointReadout",
