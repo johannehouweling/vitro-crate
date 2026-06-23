@@ -29,6 +29,7 @@ def _get_registry_tool_names() -> set[str]:
     the full set of registered tool names intended for LLM use.
     """
     import builder.tools.builder
+    import builder.tools.data_content
     import builder.tools.drafters
     import builder.tools.fair_assessment
     import builder.tools.management
@@ -73,6 +74,7 @@ def _get_all_registry_tool_names() -> set[str]:
     source-of-truth assertion.
     """
     import builder.tools.builder  # noqa: F401
+    import builder.tools.data_content  # noqa: F401
     import builder.tools.drafters  # noqa: F401
     import builder.tools.fair_assessment  # noqa: F401
     import builder.tools.file_readers  # noqa: F401

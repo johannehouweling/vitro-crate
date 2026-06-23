@@ -456,7 +456,13 @@ build_and_validate(severity="required", profile="all") → {ok, conformance, iss
 export_crate(output_path: str) → CrateBuildResult
 build_crate(output_path: str) → CrateBuildResult     # back-compat alias of export_crate
 validate(crate_path: str) → ValidationReport
+validate_table(file: str, table_schema: dict, foreign_keys: dict | None = None, entity_id: str | None = None) → {ok, issues}
 ```
+
+`validate_table` is the **data-content (payload) layer** (#95): it validates a
+CSV's rows against a Frictionless `tableSchema` — separate from the SHACL
+metadata passes (see §6, Data-Content Layer). Issues use the same routable shape
+with `profile="data"`.
 
 `build_and_validate` is the agent's primary build/fix loop: it assembles the
 crate from `CrateState` **in memory** and validates the generated JSON-LD
@@ -520,8 +526,31 @@ Every tool call and graph node execution is automatically timed and recorded by 
 | ISA-Tox Profile | REQUIRED | Toxicology conformance | MUST fix |
 | ISA-Tox Profile | SHOULD | Recommended tox fields | Fix if data available |
 | ISA-Tox Profile | MAY | Optional tox fields | Note for user |
+| Data content (Frictionless) | REQUIRED | Payload conformance (CSV rows vs CSVW/Frictionless `tableSchema`) | MUST fix offending cell |
 | MIT Coverage | Score | % of recommended fields | Improvement suggestions |
 | FAIR Indicators | Score | FAIR maturity | Guidance for improvement |
+
+### Data-Content Layer (Frictionless, Issue #95)
+
+The three SHACL passes (base/ISA/ISA-Tox) validate the **metadata descriptor** —
+the structure and semantics of `ro-crate-metadata.json`. They do **not** check
+the **payload**: whether the rows of a referenced CSV actually match its declared
+schema. The Frictionless layer (`builder/tools/data_content.py`,
+`validate_table`) closes that gap, mirroring the metadata/data split in the
+BioHackEU25 report "Towards a Robust Validation Service for Data and Metadata in
+ARC RO-Crates" (Chadwick et al., biohackrxiv `zah28`).
+
+`validate_table(file, table_schema, foreign_keys=None, entity_id=None)` validates
+a CSV's content against a Frictionless `tableSchema` descriptor (column types and
+constraints) and, optionally, that designated columns reference only known
+in-crate ids (`MolecularEntity` / `Sample`) via `foreign_keys`
+(`column -> [allowed_id, ...]`). The obvious payload is the CSVW condition table
+emitted by #94 and any raw-measurement tables. Issues come back in the **same
+routable shape as #87** (`{entity_id, property, message, fix, severity,
+profile}`), with `profile == "data"` so this layer stays cleanly distinct from
+the SHACL layers — SHACL = metadata, Frictionless = payload, never entangled. It
+never raises into the agent loop: setup errors (missing file, malformed schema)
+return `{"ok": False, "issues": [], "error": ...}`.
 
 ### Verification Layer
 Checks that identifiers resolve at their source. Verification failures are REQUIRED — the identifier must be corrected or removed. Leaving a field empty is acceptable (shows up in MIT/FAIR scores but does not block).

@@ -127,6 +127,7 @@ class AgentEngine:
             return cls._registry
 
         import builder.tools.builder  # noqa: F401
+        import builder.tools.data_content  # noqa: F401
         import builder.tools.drafters  # noqa: F401
         import builder.tools.fair_assessment  # noqa: F401
         import builder.tools.lookups  # noqa: F401

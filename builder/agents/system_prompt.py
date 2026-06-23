@@ -56,6 +56,7 @@ Build, validate & assess:
 - export_crate: Write the finished RO-Crate to disk (returns a crate_path)
 - build_crate: Alias of export_crate (writes the crate to disk)
 - validate: Run three-pass validation on a crate already written to disk
+- validate_table: Validate a CSV's data content (rows) against its CSVW/Frictionless table schema — the payload layer, separate from SHACL metadata validation
 - assess_mit_coverage: Score MIT coverage
 - assess_fair_maturity: Score FAIR maturity
 
