@@ -66,6 +66,39 @@ class TestCatalogPath:
 
         assert iuclid.phrase_group_values("PG1") == []
 
+    def test_catalog_missing_file_logs_warning(self, tmp_path, monkeypatch, caplog):
+        """A missing catalogue must degrade *visibly* — a warning is logged."""
+        missing = tmp_path / "does-not-exist.json"
+        monkeypatch.setattr(iuclid, "_CATALOG", missing)
+        iuclid._catalog.cache_clear()
+
+        with caplog.at_level("WARNING", logger="lookups.iuclid"):
+            result = iuclid._catalog()
+
+        assert result == {"phrase_groups": {}, "bindings": {}}
+        assert any(record.levelname == "WARNING" for record in caplog.records)
+        assert any(str(missing) in record.getMessage() for record in caplog.records)
+
+    def test_catalog_invalid_json_logs_warning(self, tmp_path, monkeypatch, caplog):
+        """A corrupt catalogue must degrade visibly too, not raise."""
+        bad = tmp_path / "oht201_value_sets.json"
+        bad.write_text("{not valid json", encoding="utf-8")
+        monkeypatch.setattr(iuclid, "_CATALOG", bad)
+        iuclid._catalog.cache_clear()
+
+        with caplog.at_level("WARNING", logger="lookups.iuclid"):
+            result = iuclid._catalog()
+
+        assert result == {"phrase_groups": {}, "bindings": {}}
+        assert any(record.levelname == "WARNING" for record in caplog.records)
+
+    def test_resolve_returns_none_when_catalogue_missing(self, tmp_path, monkeypatch):
+        """resolve() degrades to None (not an error) when the catalogue is absent."""
+        monkeypatch.setattr(iuclid, "_CATALOG", tmp_path / "does-not-exist.json")
+        iuclid._catalog.cache_clear()
+
+        assert iuclid.resolve("Liver", "PG1") is None
+
 
 # ---------------------------------------------------------------------------
 # resolve()

@@ -21,23 +21,50 @@ from __future__ import annotations
 import difflib
 import functools
 import json
+import logging
 import re
 from pathlib import Path
 
 from rocrate.model import ContextEntity
 from rocrate.rocrate import ROCrate
 
+logger = logging.getLogger(__name__)
+
 _BASE = "https://w3id.org/ro/crate/isa-tox/1.0/iuclid"
 _CATALOG = Path(__file__).resolve().parents[1] / "profiles" / "mit-data" / "oht201_value_sets.json"
 _FUZZY_THRESHOLD = 0.86
 
+_EMPTY_CATALOG: dict = {"phrase_groups": {}, "bindings": {}}
+
 
 @functools.lru_cache(maxsize=1)
 def _catalog() -> dict:
+    """Load the IUCLID/OHT-201 value-set catalogue, degrading visibly if absent.
+
+    The catalogue (``_CATALOG``) is currently not committed to the repo and there
+    is no generator to build it from (issue #65). When it is missing or corrupt
+    the resolver becomes a no-op (``resolve``/``iuclid_term`` return ``None``);
+    this is acceptable, but the degradation must be *visible* rather than a silent
+    swallow, so the absence is logged at WARNING level. Narrowed from a bare
+    ``except Exception`` to only the I/O / parse failures we expect.
+    """
     try:
         return json.loads(_CATALOG.read_text(encoding="utf-8"))
-    except Exception:
-        return {"phrase_groups": {}, "bindings": {}}
+    except FileNotFoundError:
+        logger.warning(
+            "IUCLID/OHT-201 value-set catalogue not found at %s; controlled-vocabulary "
+            "resolution is disabled (resolve/iuclid_term will return None). See issue #65.",
+            _CATALOG,
+        )
+        return dict(_EMPTY_CATALOG)
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "IUCLID/OHT-201 value-set catalogue at %s is not valid JSON (%s); "
+            "controlled-vocabulary resolution is disabled. See issue #65.",
+            _CATALOG,
+            exc,
+        )
+        return dict(_EMPTY_CATALOG)
 
 
 def phrase_group_values(phrase_group: str) -> list[dict]:
