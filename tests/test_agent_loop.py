@@ -637,4 +637,49 @@ class TestRecursionLimit:
         assert _recursion_limit(-5) == 2
 
 
+class TestCacheFriendlyPrompt:
+    """Issue #60: the system message must be byte-stable across iterations so the
+    tools+system+history prefix stays cacheable (provider-agnostic prompt caching);
+    the volatile per-turn state brief is delivered as the trailing message where it
+    cannot bust the prefix cache."""
+
+    def test_system_message_is_stable_and_brief_is_trailing(self):
+        """First message == SYSTEM_PROMPT verbatim (no state appended); the state
+        brief is the LAST message; history is preserved in between."""
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        from builder.agents.agent_loop import _assemble_model_messages
+        from builder.agents.system_prompt import SYSTEM_PROMPT
+
+        history = [HumanMessage(content="hello")]
+        msgs = _assemble_model_messages(
+            history,
+            session_id="sid",
+            entity_count=3,
+            file_count=5,
+            iteration_count=42,
+        )
+
+        assert isinstance(msgs[0], SystemMessage)
+        assert msgs[0].content == SYSTEM_PROMPT  # byte-stable, no state appended
+        assert msgs[1] is history[0]  # history preserved, in order
+        assert isinstance(msgs[-1], SystemMessage)
+        assert "Iteration: 42" in msgs[-1].content
+        assert "sid" in msgs[-1].content
+
+    def test_system_prefix_identical_across_iterations(self):
+        """The stable prefix is byte-identical even as state changes, while the
+        trailing brief reflects the new state (only the cache tail varies)."""
+        from builder.agents.agent_loop import _assemble_model_messages
+
+        a = _assemble_model_messages(
+            [], session_id="s", entity_count=1, file_count=1, iteration_count=1
+        )
+        b = _assemble_model_messages(
+            [], session_id="s", entity_count=2, file_count=9, iteration_count=99
+        )
+        assert a[0].content == b[0].content  # stable cacheable prefix
+        assert a[-1].content != b[-1].content  # volatile tail varies per turn
+
+
 
