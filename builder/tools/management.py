@@ -13,6 +13,7 @@ from builder.state import (
     CrateState,
     Entity,
 )
+from builder.tools._crate_mapping import _REF_FIELDS
 
 
 def update_entity(state: CrateState, entity_id: str, patch: dict) -> Entity:
@@ -43,16 +44,92 @@ def update_entity(state: CrateState, entity_id: str, patch: dict) -> Entity:
     return entity
 
 
-def remove_entity(state: CrateState, entity_id: str) -> bool:
-    """Remove an entity by id.
+def _ref_key(value: Any) -> str | None:
+    """The bare entity_id a single reference value points at (``#`` stripped)."""
+    key = value.get("@id") if isinstance(value, dict) else value
+    return key.lstrip("#") if isinstance(key, str) else None
+
+
+def find_referrers(state: CrateState, entity_id: str) -> list[tuple[Entity, str]]:
+    """Find every entity that references ``entity_id`` through a reference field.
+
+    Scans each entity's reference-bearing fields (``_REF_FIELDS`` — the same set
+    the crate mapping resolves) for a pointer to ``entity_id``, handling scalar
+    values, ``{"@id": ...}`` objects, and lists thereof.
+
+    Args:
+        state: The crate state to scan.
+        entity_id: The entity_id to find referrers of.
+
+    Returns:
+        ``(referrer_entity, field_name)`` tuples — one per field that points at
+        ``entity_id``. The entity itself is never reported as its own referrer.
+    """
+    referrers: list[tuple[Entity, str]] = []
+    for ent in state.list_entities():
+        if ent.entity_id == entity_id:
+            continue
+        for field in _REF_FIELDS:
+            value = ent.fields.get(field)
+            if value is None:
+                continue
+            items = value if isinstance(value, list) else [value]
+            if any(_ref_key(item) == entity_id for item in items):
+                referrers.append((ent, field))
+    return referrers
+
+
+def _drop_reference(fields: dict[str, Any], field: str, entity_id: str) -> None:
+    """Remove every pointer to ``entity_id`` from ``fields[field]`` in place."""
+    value = fields.get(field)
+    if isinstance(value, list):
+        pruned = [item for item in value if _ref_key(item) != entity_id]
+        if pruned:
+            fields[field] = pruned
+        else:
+            del fields[field]
+    elif _ref_key(value) == entity_id:
+        del fields[field]
+
+
+def remove_entity(state: CrateState, entity_id: str, cascade: bool = False) -> bool:
+    """Remove an entity by id, preserving referential integrity.
+
+    The builder rebuilds the crate from state on every iteration, so a dangling
+    reference left in state surfaces as a dangling ``{"@id": ...}`` in the built
+    ``ro-crate-metadata.json``. To prevent that, removal first finds every
+    referrer:
+
+    - ``cascade=False`` (default): if any entity still references the target,
+      refuse with an actionable ``ValueError`` naming the referrers (and the
+      ``cascade=True`` escape hatch). The target is left in place.
+    - ``cascade=True``: clear the target's id out of every referrer's field
+      first, then remove it — no dangling references survive.
 
     Args:
         state: The crate state to operate on.
         entity_id: The ID of the entity to remove.
+        cascade: When True, clear referrers instead of refusing.
 
     Returns:
         True if the entity was found and removed, False otherwise.
+
+    Raises:
+        ValueError: If the entity is still referenced and ``cascade`` is False.
     """
+    referrers = find_referrers(state, entity_id)
+    if referrers and not cascade:
+        named = ", ".join(
+            sorted({f"{ent.entity_id} (via {field})" for ent, field in referrers})
+        )
+        raise ValueError(
+            f"Cannot remove '{entity_id}': still referenced by {named}. "
+            f"Repoint or remove those references first, or pass cascade=True to "
+            f"clear them."
+        )
+    if cascade:
+        for ent, field in referrers:
+            _drop_reference(ent.fields, field, entity_id)
     return state.remove_entity(entity_id)
 
 

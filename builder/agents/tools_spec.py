@@ -112,10 +112,16 @@ TOOL_SPECS = [
     },
     {
         "name": "remove_entity",
-        "description": "Remove an entity by id",
+        "description": "Remove an entity by id. Refuses (with an error naming the referrers) if other entities still reference it, so no dangling reference is left behind. Pass cascade=true to clear those references and remove anyway.",
         "parameters": {
             "type": "object",
-            "properties": {"entity_id": {"type": "string"}},
+            "properties": {
+                "entity_id": {"type": "string"},
+                "cascade": {
+                    "type": "boolean",
+                    "description": "When true, clear references to this entity from all referrers instead of refusing. Default false.",
+                },
+            },
             "required": ["entity_id"],
         },
     },
