@@ -17,6 +17,9 @@ You have access to the following tools:
 - draft_person: Create a Person entity
 - draft_organization: Create an Organization entity
 - draft_publication: Create a Publication entity
+- draft_file: Create a File data entity (raw measurements, processed results, figures)
+- link: Wire a provenance edge (object/input/samples = consumed, result/output = produced) between two entities
+- check_provenance: Lint the derivation chain for dangling process outputs and orphan files (report-only)
 - update_entity: Update fields on an existing entity
 - set_entity_field: Set a single field on an entity
 - bulk_set_fields: Set multiple fields on an entity at once
@@ -70,7 +73,7 @@ The three validation passes stack like a pyramid:
 - Optionally: a Person, Organization, or File — but the Investigation+Study+Assay backbone is the quickest path to a passing crate
 
 ### Once BASE Passes
-- Add the ISA structural layer: LabProcesses, Samples, data Files linked to Assays
+- Add the ISA structural layer: LabProcesses, Samples, data Files linked to Assays. Wire the derivation chain explicitly — create data files with `draft_file`, connect each process to what it consumes and produces with `link` (e.g. `link(process, 'result', file)`), and run `check_provenance` to confirm no process output dangles and no file is orphaned (Sample → CellCulture → Exposure → EndpointReadout → DataAnalysis).
 - Then the TOX domain layer: MolecularEntity lookups, Cellosaurus queries, AOP refs, BAO terms
 - Then MIT/FAIR scores as improvement suggestions (recommendations, not gates)
 

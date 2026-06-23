@@ -74,6 +74,20 @@ _REF_FIELDS = frozenset(
     }
 )
 
+# Provenance edge verbs the `link` tool (builder/tools/provenance.py) accepts to
+# wire one entity to another in the derivation chain. A strict subset of
+# _REF_FIELDS (asserted by tests) so the edge vocabulary the agent uses and the
+# reference resolver can never drift. Each maps to a short, model-readable gloss
+# used in `link`'s rejection messages. Issue #88.
+PROVENANCE_RELATIONS: dict[str, str] = {
+    "object": "entity this process consumes as input (schema:object)",
+    "input": "entity this process consumes (alias of object)",
+    "samples": "sample(s) this process takes as input",
+    "result": "entity this process produces as output (schema:result)",
+    "output": "entity this process produces (alias of result)",
+    "derives_from": "source entity this sample/output is derived from",
+}
+
 # Study/Assay annotation fields that expand to schema:mentions via the @context
 # (paper §Methods: Study ← linked AOP; Assay endpoint ← corresponding Key Event).
 _STUDY_MENTION_FIELDS = {
