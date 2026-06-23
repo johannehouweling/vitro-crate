@@ -313,6 +313,7 @@ def _build_chat_model(
     model: str | None = None,
     base_url: str | None = None,
     max_retries: int | None = None,
+    role: str = "orchestrator",
 ) -> Any:
     """Build a LangChain chat model for the given or detected provider.
 
@@ -320,12 +321,24 @@ def _build_chat_model(
     local proxies, etc.) via the ``OPENAI_BASE_URL`` environment variable
     or the ``base_url`` parameter.
 
+    Model tiering (Issue #96): a single ``_build_chat_model`` centralises
+    construction so a different model can be bound per *role* without changing
+    the graph topology. The strong ``"orchestrator"`` keeps the primary model
+    (``VITRO_OPENAI_MODEL`` / ``VITRO_ANTHROPIC_MODEL``); the cheap
+    ``"drafter"`` uses ``VITRO_OPENAI_DRAFTER_MODEL`` /
+    ``VITRO_ANTHROPIC_DRAFTER_MODEL`` *when configured*. With no drafter model
+    set, the drafter resolves to the same primary model as the orchestrator —
+    a strict no-op (single model, identical to today's behaviour).
+
     Args:
         provider: One of ``"openai"``, ``"anthropic"``.  If ``None``, auto-detect.
         model: Model name override (e.g. ``"gpt-4o-mini"``, ``"llama3.2"``).
-            Falls back to provider defaults.
+            An explicit value wins over role-based resolution. Falls back to
+            provider/role defaults.
         base_url: Custom API base URL for OpenAI-compatible providers.
             Falls back to ``OPENAI_BASE_URL`` env var, then provider default.
+        role: ``"orchestrator"`` (default) or ``"drafter"``. Selects the model
+            tier when ``model`` is not given explicitly.
 
     Returns:
         A LangChain ``BaseChatModel`` instance.
@@ -345,6 +358,16 @@ def _build_chat_model(
             "(or ANTHROPIC_API_KEY) environment variable, or pass "
             "--provider openai|anthropic."
         )
+
+    # Model tiering: when the caller asks for the drafter role and no explicit
+    # model was given, prefer the configured drafter model. If none is set,
+    # ``model`` stays ``None`` and the provider branch resolves the primary
+    # model exactly as before (strict no-op default).
+    if model is None and role == "drafter":
+        if provider == "openai":
+            model = os.environ.get("VITRO_OPENAI_DRAFTER_MODEL") or None
+        elif provider == "anthropic":
+            model = os.environ.get("VITRO_ANTHROPIC_DRAFTER_MODEL") or None
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI

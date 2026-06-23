@@ -360,6 +360,41 @@ The `MemorySaver` checkpointer is passed to `graph.compile()`. It is a **checkpo
 
 The `MemorySaver` does not affect routing or the node topology — it is purely a persistence mechanism for state snapshots.
 
+#### Model Tiering (Issue #96)
+
+The weak model the agent runs on (e.g. DeepSeek-flash) collapses on multi-turn
+orchestration and error recovery — the build→validate→re-draft loop — but stays
+fine at bounded extraction. Model tiering lets a stronger model drive the
+orchestration node while a cheap model does the bounded drafting work, without
+any change to the graph topology.
+
+Construction is centralised in `_build_chat_model(provider, model, base_url,
+max_retries, role)` (`builder/agents/agent_loop.py`). The `role` parameter
+selects the tier when no explicit `model` is passed:
+
+- `role="orchestrator"` (default) → the primary model
+  (`VITRO_OPENAI_MODEL` / `VITRO_ANTHROPIC_MODEL`).
+- `role="drafter"` → the cheap drafter model
+  (`VITRO_OPENAI_DRAFTER_MODEL` / `VITRO_ANTHROPIC_DRAFTER_MODEL`) **when
+  configured**.
+
+The drafter model is provider-agnostic and resolved by
+`config.get_drafter_model()` (env var → `[openai]`/`[anthropic] drafter_model`
+config key, mirroring the primary-model precedence). **Default = single model:**
+when no drafter model is set, `role="drafter"` resolves to the same primary
+model as the orchestrator, so behaviour is identical to a single-model setup —
+a strict no-op. Because drafters are currently pure state-mutation functions
+invoked by the orchestration node (they make no LLM call of their own), this
+ships the *capability* and config knob; the drafter tier binds when a drafter
+path makes its own model call.
+
+**Decision gate (future work):** upgrading the *orchestrator* to a stronger
+model is a separate, profiling-gated decision. Instrument `profile.ndjson` for
+iterations-per-task, recursion-limit hits, and REQUIRED-issue fix success;
+upgrade the orchestrator only if failures are reasoning/recovery-shaped
+(looping, mis-sequencing), not malformed output (which schemas + SHACL already
+catch). Guardrails are a one-time cost; a stronger model is recurring per token.
+
 ## 5. The Agent Toolbox
 
 ### File & ARC Tools
