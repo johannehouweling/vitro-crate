@@ -525,6 +525,61 @@ def _synth_sample(crate: ROCrate, sid: str, name: str, derives_from: Any = None)
 
 _CONDITION_TABLE_HEADER = "cell_line,compound,concentration,unit,duration\n"
 
+# Typed CSVW columns for the condition table: each maps a CSV column to an
+# ontology property (propertyUrl) with a declared datatype. The cell-line and
+# compound columns additionally resolve to in-crate entity ids (valueUrl, filled
+# at build time), so the per-well design table is machine-readable rather than a
+# header-only placeholder. Issue #94.
+_CONDITION_TABLE_COLUMNS: tuple[dict[str, str], ...] = (
+    {"titles": "cell_line", "datatype": "string", "propertyUrl": "http://schema.org/name"},
+    {"titles": "compound", "datatype": "string", "propertyUrl": "http://schema.org/mentions"},
+    {"titles": "concentration", "datatype": "double", "propertyUrl": "http://schema.org/value"},
+    {"titles": "unit", "datatype": "string", "propertyUrl": "http://schema.org/unitText"},
+    {"titles": "duration", "datatype": "string", "propertyUrl": "http://schema.org/duration"},
+)
+
+
+def _node_id(node: Any) -> str | None:
+    """The @id of an ro-crate node (None if it has none)."""
+    return getattr(node, "id", None)
+
+
+def _build_condition_table_schema(
+    crate: ROCrate, exp_slug: str, cells: list[Any], chems: list[Any]
+) -> ContextEntity:
+    """The csvw:Schema entity describing the condition table's typed columns.
+
+    Each column is a ``csvw:Column`` graph node (ro-crate-py requires nested
+    objects to be referenceable entities, not inline dicts) carrying a datatype
+    and propertyUrl. The cell-line and compound columns additionally carry a
+    ``valueUrl`` resolving to the in-crate Sample / MolecularEntity id, so a
+    row's value maps to its entity.
+    """
+    value_urls = {
+        "cell_line": _node_id(cells[0]) if cells else None,
+        "compound": _node_id(chems[0]) if chems else None,
+    }
+    schema = crate.add(
+        ContextEntity(
+            crate,
+            f"#{exp_slug}_condition_table_schema",
+            properties={
+                "@type": ["csvw:Schema", "CreativeWork"],
+                "name": "Condition table schema",
+            },
+        )
+    )
+    for col in _CONDITION_TABLE_COLUMNS:
+        title = col["titles"]
+        props: dict[str, Any] = {"@type": "csvw:Column", **col}
+        if value_urls.get(title):
+            props["valueUrl"] = value_urls[title]
+        column = crate.add(
+            ContextEntity(crate, f"#{exp_slug}_col_{title}", properties=props)
+        )
+        schema.append_to("columns", column)
+    return schema
+
 
 def _synth_condition_table(
     crate: ROCrate,
@@ -540,11 +595,14 @@ def _synth_condition_table(
     Modelled as a ``File`` (the CSV) that is also a ``csvw:Table`` — a bare
     csvw:Table is rejected by the base ISA shape, which requires a process result
     to be a File/Sample/BioSample. A header-only placeholder CSV is materialised
-    so the File is valid in-payload; per-row CSVW population (tableSchema columns
-    with valueUrl, CSV intake) is planned — see the wizard's
-    intake/condition_table.py. The table links (schema:about) the cell line(s) and
-    compound(s) it concerns, so the compound is connected to the Exposure THROUGH
-    its result (a MolecularEntity cannot be a process object under the ISA shape).
+    so the File is valid in-payload, and the table is described by a typed CSVW
+    schema (``tableSchema`` + ``conformsTo`` → a ``csvw:Schema`` whose columns
+    carry datatype/propertyUrl, with the cell-line/compound columns resolving to
+    their entity ids via ``valueUrl``; #94). Per-row CSV population (intake of the
+    actual well values) remains future work. The table also links (schema:about)
+    the cell line(s) and compound(s) it concerns, so the compound is connected to
+    the Exposure THROUGH its result (a MolecularEntity cannot be a process object
+    under the ISA shape).
     """
     rel = f"data/{_slug(exp_pid)}_condition_table.csv"
     # Only touch disk when materialising payload for an on-disk export. The
@@ -565,6 +623,14 @@ def _synth_condition_table(
     )
     for ent in list(cells) + list(chems):
         table.append_to("about", ent)
+    # Typed CSVW: a linked schema entity carries the per-column datatype +
+    # propertyUrl (and valueUrl resolving the cell-line/compound columns to their
+    # entity ids). The table points to it via tableSchema (canonical CSVW) and
+    # conformsTo (RO-Crate conformance — not a bare inline tableSchema dict).
+    # Issue #94.
+    schema = _build_condition_table_schema(crate, _slug(exp_pid), cells, chems)
+    table["tableSchema"] = {"@id": schema.id}
+    table.append_to("conformsTo", schema)
     return table
 
 
