@@ -314,7 +314,7 @@ def populate_crate(
     """
     idx: dict[str, Any] = {}
     _populate_root_and_conformance(state, crate)
-    _add_leaves(state, crate, idx)
+    _add_leaves(state, crate, idx, materialize_payload=materialize_payload)
     _add_structural(state, crate, idx)
     _add_processes(state, crate, idx, output_dir, materialize_payload=materialize_payload)
     _wire_mentions(state, idx)
@@ -367,6 +367,29 @@ def _file_dest(fe: Entity) -> str:
     f = fe.fields
     path = f.get("dest_path") or f.get("path") or f.get("contentUrl")
     return str(path) if path else f"data/{_slug(f.get('name') or fe.entity_id)}"
+
+
+def _file_source(fe: Entity, input_path: str | None) -> str | None:
+    """Resolve the on-disk source for a File data entity, or ``None`` (#128).
+
+    Returns an absolute path when the referenced file exists locally, so
+    ``ro-crate-py`` copies it into the crate payload at ``crate.write()`` time
+    (its ``_copy_file`` skips the copy when source and dest are the same file, so
+    in-place builds where ``output_path == input_path`` are safe). Returns
+    ``None`` for remote (``http(s)://``) references or files not found on disk —
+    leaving the File as a metadata-only reference rather than a phantom copy.
+    """
+    f = fe.fields
+    raw = f.get("path") or f.get("contentUrl") or f.get("dest_path")
+    if not raw:
+        return None
+    raw = str(raw)
+    if raw.startswith(("http://", "https://")):
+        return None
+    src = Path(raw)
+    if not src.is_absolute() and input_path:
+        src = Path(input_path) / raw
+    return str(src) if src.is_file() else None
 
 
 def _resolve_many(idx: dict[str, Any], value: Any) -> list[Any]:
@@ -525,7 +548,13 @@ def _cell_line_term(crate: ROCrate) -> ContextEntity:
     )
 
 
-def _add_leaves(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
+def _add_leaves(
+    state: CrateState,
+    crate: ROCrate,
+    idx: dict[str, Any],
+    *,
+    materialize_payload: bool = True,
+) -> None:
     for org in state.list_entities("Organization"):
         _idx_add(
             idx,
@@ -595,13 +624,19 @@ def _add_leaves(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
         crate.root_dataset.append_to("citation", node)
 
     for fe in state.list_entities("File"):
+        # Resolve the on-disk source so ro-crate-py copies the file into the
+        # payload at write() time (#128). Skip on the in-memory build_and_validate
+        # path (materialize_payload=False) — nothing is written there.
+        source = (
+            _file_source(fe, state.metadata.input_path) if materialize_payload else None
+        )
         _idx_add(
             idx,
             fe,
             crate.add(
                 File(
                     crate,
-                    None,
+                    source,
                     dest_path=_file_dest(fe),
                     properties={"@type": "File", **_scalar_props(fe)},
                 )
@@ -791,15 +826,20 @@ def _synth_condition_table(
     # Only touch disk when materialising payload for an on-disk export. The
     # in-memory validate path (#87) skips the write; the File node below still
     # carries dest_path=rel so the metadata graph is complete for validation.
+    source: str | None = None
     if materialize_payload and output_dir is not None:
         dest = output_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         if not dest.exists():
             dest.write_text(_CONDITION_TABLE_HEADER, encoding="utf-8")
+        # Point source at the file we just wrote so ro-crate-py records it as
+        # payload (its _copy_file no-ops when source and dest are the same file)
+        # instead of warning "No source for …" (#128).
+        source = str(dest)
     table = crate.add(
         File(
             crate,
-            None,
+            source,
             dest_path=rel,
             properties={"@type": ["File", "csvw:Table"], "name": "Condition table"},
         )
