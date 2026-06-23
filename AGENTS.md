@@ -249,6 +249,21 @@ Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY
   IRI, `check_id`, `severity`, and `profile`. This backs `build_and_validate`
   and is the no-disk fast path.
 
+**Performance note — why the tox pass dominates, and why we do *not* cache shapes.**
+The three passes are not equal work: `base` (~0.3s) and `isa` (~0.5s) are cheap,
+but `tox` (~2.7s of a ~3.4s full sweep) resolves the deepest inheritance chain
+(`tox-ro-crate → isa-ro-crate → ro-crate`, i.e. our `SHAPES_DIR` plus the bundled
+isa+base profiles) and rocrate_validator runs **SHACL + owlrl inference over that
+combined graph on every call**. Caching the parsed shapes was explored
+(issue #63 / PR #111) and **deliberately abandoned**: the `.ttl` parse is
+negligible (~10–130ms), the dominant ~2.5s is library-internal inference that
+rocrate_validator exposes **no hook to reuse**, and the only way to cache the part
+we own was to monkeypatch `ValidationContext.__load_profiles__` — a fragile patch
+on library internals for an ~11% gain that leaves the real bottleneck untouched.
+The supported speed levers instead are: gate the inner loop at `required` severity
+(`validate_crate_dict`'s default — fastest), and scope `profile` to a single pass
+when the full sweep isn't needed. A full 3-pass sweep is run only as a final gate.
+
 #### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
 scores, not pass/fail.
@@ -420,7 +435,7 @@ lookup_doi(doi: str) → PublicationData | None       # Crossref
 ### Verification Tools
 ```
 verify_identifier(entity_id: str, field: str) → VerificationResult
-verify_all_identifiers() → [VerificationResult]
+/verify_all_identifiers() → [VerificationResult]
 ```
 
 ### Crate Assembly & Validation Tools
