@@ -376,9 +376,17 @@ draft_file(name: str, path=None, role=None, encoding_format=None) → Entity
 ### Entity Management Tools
 ```
 update_entity(entity_id: str, patch: dict) → Entity
-remove_entity(entity_id: str) → bool
+remove_entity(entity_id: str, cascade: bool = False) → bool
 list_entities(entity_type: str | None) → [Entity]
 ```
+`remove_entity` preserves referential integrity: the builder rebuilds the crate
+from state each iteration, so a reference left dangling in state surfaces as a
+dangling `{"@id": ...}` in the built graph. It first scans every entity's
+reference fields (`_REF_FIELDS`); if the target is still referenced it refuses
+with an actionable error naming the referrers, unless `cascade=True` clears those
+references first. `entity_id` is the stable key — "renaming" changes the `name`
+field, never the `entity_id`, so referrers (which point at `entity_id`) are never
+orphaned.
 
 ### Derivation Chain Tools
 ```
