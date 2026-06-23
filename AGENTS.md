@@ -372,13 +372,25 @@ draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
 draft_file(name: str, path=None, role=None, encoding_format=None) → Entity
 ```
+The `hints` parameter is **typed per entity type** (Issue #90). Each `draft_*`
+tool advertises a JSON-Schema built by `_crate_mapping.draft_hints_schema(type)`
+from the single source of truth `_crate_mapping.ENTITY_DRAFT_SCHEMA` — allowed
+scalar keys plus reference keys, the latter a strict subset of `_REF_FIELDS`
+(asserted by test) so the advertised reference vocabulary and the crate-mapping
+resolver cannot drift. The schema is open (`additionalProperties: true`), so a
+weak model sees the high-value keys without the long tail being forbidden.
 
 ### Entity Management Tools
 ```
-update_entity(entity_id: str, patch: dict) → Entity
+set_fields(entity_id: str, fields: dict, source="llm") → Entity
 remove_entity(entity_id: str, cascade: bool = False) → bool
 list_entities(entity_type: str | None) → [Entity]
 ```
+`set_fields` is the **single consolidated mutation tool** (Issue #90). It
+replaced three redundant tools — `update_entity` and `bulk_set_fields` were
+byte-identical, and `set_entity_field` was just the single-field (one-key dict)
+case. Those names survive as thin deprecated aliases for library callers but are
+no longer exposed to the LLM. Pass one field or many in the `fields` dict.
 `remove_entity` preserves referential integrity: the builder rebuilds the crate
 from state each iteration, so a reference left dangling in state surfaces as a
 dangling `{"@id": ...}` in the built graph. It first scans every entity's

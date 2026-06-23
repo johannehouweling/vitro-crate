@@ -1,62 +1,81 @@
 # ruff: noqa: E501
-"""Tool specifications for LLM function calling."""
+"""Tool specifications for LLM function calling.
+
+The ``draft_*`` tools advertise a typed ``hints`` schema built from
+:data:`builder.tools._crate_mapping.ENTITY_DRAFT_SCHEMA` via
+:func:`draft_hints_schema`, the single source of truth shared with
+``_crate_mapping._REF_FIELDS`` (Issue #90, sub-task 1). This replaces the old
+schema-less ``hints: {type: object}`` so a weak model is told exactly which
+scalar and reference keys an entity accepts.
+"""
+
+from builder.tools._crate_mapping import draft_hints_schema
 
 TOOL_SPECS = [
     {
         "name": "draft_investigation",
-        "description": "Create Investigation entity",
+        "description": "Create an Investigation entity (the top of the ISA hierarchy). Example: draft_investigation(hints={'name': 'Hepatotoxicity screen', 'description': 'In vitro liver tox study'}).",
         "parameters": {
             "type": "object",
-            "properties": {"hints": {"type": "object"}},
+            "properties": {"hints": draft_hints_schema("Investigation")},
             "required": ["hints"],
         },
     },
     {
         "name": "draft_study",
-        "description": "Create Study entity linked to an investigation",
+        "description": "Create a Study entity linked to an investigation. Example: draft_study(investigation_id='inv_hepatotoxicity_screen', hints={'name': 'Silychristin exposure', 'aop': 'Aop:144'}).",
         "parameters": {
             "type": "object",
             "properties": {
-                "investigation_id": {"type": "string"},
-                "hints": {"type": "object"},
+                "investigation_id": {"type": "string", "description": "entity_id of the parent Investigation."},
+                "hints": draft_hints_schema("Study"),
             },
             "required": ["investigation_id", "hints"],
         },
     },
     {
         "name": "draft_assay",
-        "description": "Create Assay entity linked to a study",
+        "description": "Create an Assay entity linked to a study. Example: draft_assay(study_id='study_silychristin_exposure', hints={'name': 'Cell viability assay'}).",
         "parameters": {
             "type": "object",
-            "properties": {"study_id": {"type": "string"}, "hints": {"type": "object"}},
+            "properties": {
+                "study_id": {"type": "string", "description": "entity_id of the parent Study."},
+                "hints": draft_hints_schema("Assay"),
+            },
             "required": ["study_id", "hints"],
         },
     },
     {
         "name": "draft_molecular_entity",
-        "description": "Create MolecularEntity from compound name",
+        "description": "Create a MolecularEntity from a compound name. Look the compound up first (lookup_compound) so you can pass a verified pubchem_cid. Example: draft_molecular_entity(name='Silychristin A', hints={'pubchem_cid': '443515', 'identifier': '33889-69-9'}).",
         "parameters": {
             "type": "object",
-            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "properties": {
+                "name": {"type": "string", "description": "Compound name."},
+                "hints": draft_hints_schema("MolecularEntity"),
+            },
             "required": ["name", "hints"],
         },
     },
     {
         "name": "draft_cell_line_sample",
-        "description": "Create CellLineSample from cell line name",
+        "description": "Create a CellLineSample from a cell-line name. Look it up first (lookup_cell_line) to get a verified Cellosaurus accession. Example: draft_cell_line_sample(name='HepG2', hints={'accession': 'CVCL_0027'}).",
         "parameters": {
             "type": "object",
-            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "properties": {
+                "name": {"type": "string", "description": "Cell-line name."},
+                "hints": draft_hints_schema("CellLineSample"),
+            },
             "required": ["name", "hints"],
         },
     },
     {
         "name": "draft_process",
-        "description": "Create LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis)",
+        "description": "Create a LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis). Wire its inputs/outputs with `link` afterwards. Example: draft_process(assay_id='assay_cell_viability_assay', process_type='Exposure', hints={'duration': '24h', 'chemicals': 'chem_silychristin_a'}).",
         "parameters": {
             "type": "object",
             "properties": {
-                "assay_id": {"type": "string"},
+                "assay_id": {"type": "string", "description": "entity_id of the parent Assay."},
                 "process_type": {
                     "type": "string",
                     "enum": [
@@ -65,8 +84,9 @@ TOOL_SPECS = [
                         "EndpointReadout",
                         "DataAnalysis",
                     ],
+                    "description": "Which domain LabProcess subtype to create.",
                 },
-                "hints": {"type": "object"},
+                "hints": draft_hints_schema("LabProcess"),
             },
             "required": ["assay_id", "process_type", "hints"],
         },
@@ -113,41 +133,53 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_person",
-        "description": "Create Person entity",
+        "description": "Create a Person entity. Look the person up first (lookup_orcid) to pass a verified orcid. Example: draft_person(name='Jane Doe', hints={'orcid': '0000-0002-1825-0097'}).",
         "parameters": {
             "type": "object",
-            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "properties": {
+                "name": {"type": "string", "description": "Person's name."},
+                "hints": draft_hints_schema("Person"),
+            },
             "required": ["name", "hints"],
         },
     },
     {
         "name": "draft_organization",
-        "description": "Create Organization entity",
+        "description": "Create an Organization entity. Look it up first (lookup_ror) to pass a verified ror. Example: draft_organization(name='Utrecht University', hints={'ror': '04pp8hn57'}).",
         "parameters": {
             "type": "object",
-            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "properties": {
+                "name": {"type": "string", "description": "Organization name."},
+                "hints": draft_hints_schema("Organization"),
+            },
             "required": ["name", "hints"],
         },
     },
     {
         "name": "draft_publication",
-        "description": "Create Publication entity from DOI",
+        "description": "Create a Publication entity from a DOI. Look it up first (lookup_doi) to fill the title and authors. Example: draft_publication(doi='10.1234/example', hints={'name': 'A paper title'}).",
         "parameters": {
             "type": "object",
-            "properties": {"doi": {"type": "string"}, "hints": {"type": "object"}},
+            "properties": {
+                "doi": {"type": "string", "description": "DOI of the publication."},
+                "hints": draft_hints_schema("Publication"),
+            },
             "required": ["doi", "hints"],
         },
     },
     {
-        "name": "update_entity",
-        "description": "Update fields on an entity",
+        "name": "set_fields",
+        "description": "Set one or more fields on an existing entity (the single mutation tool — pass one key or many). Use it to fill or correct an entity's metadata, e.g. after build_and_validate names a field to fix. Example: set_fields(entity_id='chem_silychristin_a', fields={'identifier': '33889-69-9', 'smiles': 'C[C@H]1...'}).",
         "parameters": {
             "type": "object",
             "properties": {
-                "entity_id": {"type": "string"},
-                "patch": {"type": "object"},
+                "entity_id": {"type": "string", "description": "ID of the entity to update."},
+                "fields": {
+                    "type": "object",
+                    "description": "Dictionary of field names to values (one or many), e.g. {\"name\": \"new name\", \"description\": \"new desc\"}.",
+                },
             },
-            "required": ["entity_id", "patch"],
+            "required": ["entity_id", "fields"],
         },
     },
     {
@@ -366,35 +398,20 @@ TOOL_SPECS = [
         },
     },
     {
-        "name": "bulk_set_fields",
-        "description": "Set multiple fields on an entity at once. Use this instead of calling update_entity or set_entity_field repeatedly.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "entity_id": {"type": "string", "description": "ID of the entity to update"},
-                "fields": {
-                    "type": "object",
-                    "description": "Dictionary of field names to values (e.g. {\"name\": \"new name\", \"description\": \"new desc\"})",
-                },
-            },
-            "required": ["entity_id", "fields"],
-        },
-    },
-    {
         "name": "draft_protocol",
-        "description": "Create a LabProtocol entity",
+        "description": "Create a LabProtocol entity that a LabProcess can follow. Example: draft_protocol(hints={'name': 'MTT viability protocol', 'url': 'https://protocols.io/...'}).",
         "parameters": {
             "type": "object",
-            "properties": {"hints": {"type": "object"}},
+            "properties": {"hints": draft_hints_schema("LabProtocol")},
             "required": ["hints"],
         },
     },
     {
         "name": "draft_sample",
-        "description": "Create a Sample entity",
+        "description": "Create a Sample entity (a material input/output in the derivation chain). Example: draft_sample(hints={'name': 'Treated well A1', 'derives_from': 'sample_cultured_hepg2'}).",
         "parameters": {
             "type": "object",
-            "properties": {"hints": {"type": "object"}},
+            "properties": {"hints": draft_hints_schema("Sample")},
             "required": ["hints"],
         },
     },
@@ -519,19 +536,6 @@ TOOL_SPECS = [
                 "field_type": {"type": "string", "description": "Type of input expected (e.g. text, number, identifier)"},
             },
             "required": ["prompt"],
-        },
-    },
-    {
-        "name": "set_entity_field",
-        "description": "Set a single field on an entity. For setting multiple fields at once, use bulk_set_fields instead.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "entity_id": {"type": "string", "description": "ID of the entity to update"},
-                "field": {"type": "string", "description": "Field name to set"},
-                "value": {"type": "string", "description": "Value to set the field to"},
-            },
-            "required": ["entity_id", "field", "value"],
         },
     },
 ]

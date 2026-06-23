@@ -16,16 +16,24 @@ from builder.state import (
 from builder.tools._crate_mapping import _REF_FIELDS
 
 
-def update_entity(state: CrateState, entity_id: str, patch: dict) -> Entity:
-    """Update fields on an existing entity.
+def set_fields(
+    state: CrateState,
+    entity_id: str,
+    fields: dict[str, Any],
+    source: CompletionSource = "llm",
+) -> Entity:
+    """Set one or more fields on an entity, with completion tracking.
 
-    Adds new fields, replaces existing ones, and updates completion
-    metadata for each patched field.
+    This is the single consolidated mutation tool (Issue #90, sub-task 2). It
+    replaces the byte-identical ``update_entity`` / ``bulk_set_fields`` pair and
+    the single-field ``set_entity_field`` (the one-key-dict case): pass a dict of
+    field names to values — one key or many.
 
     Args:
         state: The crate state to operate on.
         entity_id: The ID of the entity to update.
-        patch: Dictionary of field names to new values.
+        fields: Dictionary of field names to new values.
+        source: The provenance source recorded for every field set.
 
     Returns:
         The updated Entity.
@@ -37,11 +45,16 @@ def update_entity(state: CrateState, entity_id: str, patch: dict) -> Entity:
     if entity is None:
         raise ValueError(f"Entity not found: {entity_id}")
 
-    for field, value in patch.items():
+    for field, value in fields.items():
         entity.fields[field] = value
-        entity.set_field_status(field, "filled", "llm")
+        entity.set_field_status(field, "filled", source)
 
     return entity
+
+
+def update_entity(state: CrateState, entity_id: str, patch: dict) -> Entity:
+    """Deprecated alias of :func:`set_fields` (kept for library callers/tests)."""
+    return set_fields(state, entity_id, patch)
 
 
 def _ref_key(value: Any) -> str | None:
@@ -154,24 +167,8 @@ def set_entity_field(
     value: Any,
     source: CompletionSource = "llm",
 ) -> None:
-    """Set a single field on an entity and update its completion tracking.
-
-    Args:
-        state: The crate state to operate on.
-        entity_id: The ID of the entity to update.
-        field: The field name to set.
-        value: The value to assign.
-        source: The provenance source for this field value.
-
-    Raises:
-        ValueError: If no entity with the given ID exists.
-    """
-    entity = state.get_entity(entity_id)
-    if entity is None:
-        raise ValueError(f"Entity not found: {entity_id}")
-
-    entity.fields[field] = value
-    entity.set_field_status(field, "filled", source)
+    """Deprecated single-field alias of :func:`set_fields` (the one-key case)."""
+    set_fields(state, entity_id, {field: value}, source)
 
 
 def bulk_set_fields(
@@ -180,24 +177,8 @@ def bulk_set_fields(
     fields: dict[str, Any],
     source: CompletionSource = "llm",
 ) -> None:
-    """Set multiple fields at once on an entity.
-
-    Args:
-        state: The crate state to operate on.
-        entity_id: The ID of the entity to update.
-        fields: Dictionary of field names to values.
-        source: The provenance source for these field values.
-
-    Raises:
-        ValueError: If no entity with the given ID exists.
-    """
-    entity = state.get_entity(entity_id)
-    if entity is None:
-        raise ValueError(f"Entity not found: {entity_id}")
-
-    for field, value in fields.items():
-        entity.fields[field] = value
-        entity.set_field_status(field, "filled", source)
+    """Deprecated alias of :func:`set_fields` (kept for library callers/tests)."""
+    set_fields(state, entity_id, fields, source)
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +187,9 @@ def bulk_set_fields(
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("list_entities", list_entities, takes_state=True)
-TOOL_REGISTRY.register("update_entity", update_entity, takes_state=True)
 TOOL_REGISTRY.register("remove_entity", remove_entity, takes_state=True)
-TOOL_REGISTRY.register("set_entity_field", set_entity_field, takes_state=True)
-TOOL_REGISTRY.register("bulk_set_fields", bulk_set_fields, takes_state=True)
+# The single consolidated mutation tool (Issue #90, sub-task 2). update_entity,
+# bulk_set_fields and set_entity_field were redundant (the first two byte-
+# identical, the third the single-field case) and are no longer exposed to the
+# LLM — set_fields covers all three.
+TOOL_REGISTRY.register("set_fields", set_fields, takes_state=True)
