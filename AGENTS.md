@@ -715,6 +715,28 @@ For chemicals: try by name, then CAS, then ChEBI. If all fail, ask user for SMIL
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.
 
+### Concurrency & Per-Host Rate Limiting (Issue #62)
+Independent lookups with no data dependency are issued **concurrently** via a
+bounded `concurrent.futures.ThreadPoolExecutor` (max ~6 workers), so cold paths
+no longer pay strictly-serial latency:
+
+- `lookups/aopwiki.py:lookup_aop` builds the key-event entities deterministically
+  (pathway order: MIE → KE → AO), then fetches each event's `_event_details`
+  concurrently and merges them back **by identifier** — the assembled result is
+  byte-identical to the serial path and order-independent.
+- `builder/tools/verification.py:verify_all_identifiers` collects its work plan
+  (entity, field) deterministically, runs the per-field verifications
+  concurrently, and returns results in that fixed order. Each task mutates only
+  its own field's status, so there is no cross-task contention.
+
+Politeness is preserved by a **single per-host throttle** in `lookups/_http.py`
+(`_HostRateLimiter` / `throttle_for_url`), applied inside `http_get_json`. It
+enforces a minimum spacing (`_HOST_MIN_INTERVAL`, default 0.1s) between requests
+to the *same* host — replacing the old per-client `time.sleep(0.1)` calls — and
+honours that cap even when many workers fire at once. Different hosts are
+throttled independently, so parallel lookups across services are not serialised.
+Both functions remain `lru_cache`d, so this only benefits cold paths.
+
 ## 11. Key Design Decisions
 
 ### D1: Toolbox over Graph
