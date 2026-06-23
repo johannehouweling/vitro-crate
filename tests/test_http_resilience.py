@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 import responses
+from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError as ReqConnectionError
 from requests.exceptions import Timeout
 
@@ -77,7 +78,7 @@ class TestHttpGetJson:
             params={"q": "v"},
             headers={"Accept": "application/json"},
         )
-        assert "q=v" in responses.calls[0].request.url
+        assert "q=v" in (responses.calls[0].request.url or "")
 
 
 class TestSessionRetryConfig:
@@ -85,6 +86,7 @@ class TestSessionRetryConfig:
 
     def test_retry_configuration(self):
         adapter = get_session().get_adapter("https://example.org")
+        assert isinstance(adapter, HTTPAdapter)
         retry = adapter.max_retries
         assert retry.total == 3
         assert retry.backoff_factor == 0.5

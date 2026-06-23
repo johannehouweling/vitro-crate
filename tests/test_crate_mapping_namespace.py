@@ -18,7 +18,7 @@ from builder.tools.builder import build_crate
 def _entity(entity_id: str, entity_type: str, **fields) -> Entity:
     return Entity(
         entity_id=entity_id,
-        type=entity_type,  # type: ignore[arg-type]
+        type=entity_type,  # ty: ignore[invalid-argument-type]
         fields=fields,
         _provenance=EntityProvenance(created_by="llm"),
     )

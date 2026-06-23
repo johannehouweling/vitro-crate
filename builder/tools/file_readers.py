@@ -135,7 +135,7 @@ def read_docx(
         return None
 
     try:
-        doc = Document(file_path)
+        doc = Document(str(file_path))
     except Exception:
         logger.exception("Error opening DOCX file: %s", path)
         return None

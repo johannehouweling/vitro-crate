@@ -96,7 +96,7 @@ class TestValidate:
                 ),
             ]
 
-        validator_mod.validate_crate = patched_validate
+        validator_mod.validate_crate = patched_validate  # ty: ignore[invalid-assignment]
 
         import sys as _sys
 
@@ -140,7 +140,7 @@ class TestValidate:
                 ),
             ]
 
-        validator_mod.validate_crate = patched_validate
+        validator_mod.validate_crate = patched_validate  # ty: ignore[invalid-assignment]
 
         import sys as _sys
 
