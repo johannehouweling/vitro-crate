@@ -572,6 +572,114 @@ def _build_system_prompt_with_state(
     )
 
 
+# Tool names whose verbose output already lives in CrateState, so replaying it
+# verbatim in the transcript is pure waste once the model has consumed it. The
+# scan inventory is the canonical example — the full listing is stored in
+# CrateState.scanned_files, queryable via get_status / list_entities (Issue #61).
+_STATE_BACKED_TOOLS = frozenset({"scan_files", "read_file_sample", "read_multiple_files"})
+
+# Above this length (chars), a consumed state-backed tool output is pruned to a
+# stub. Kept modest so small/already-summarized outputs pass through untouched.
+_PRUNE_CONTENT_THRESHOLD = 500
+
+
+def _prune_state_backed_outputs(messages: list) -> list:
+    """Replace verbose, already-consumed state-backed tool outputs with a stub.
+
+    A ``ToolMessage`` whose ``name`` is in ``_STATE_BACKED_TOOLS`` (scan/read
+    listings) carries data that is already persisted in ``CrateState``; once the
+    model has seen it there is no value in replaying the raw blob every turn. We
+    keep the message (so the AI tool_call → ToolMessage pairing is never broken)
+    but shrink its content to a short stub. Pairing-preservation is why we
+    *rewrite* rather than *drop* — dropping a ToolMessage would orphan its
+    preceding AI tool_call.
+
+    The list is returned with the same length and ordering; non-matching
+    messages are passed through unchanged. Small outputs (below
+    ``_PRUNE_CONTENT_THRESHOLD``) are left intact — they cost little and may
+    already be summaries (e.g. ``summarize_scan_result``).
+    """
+    from langchain_core.messages import ToolMessage
+
+    pruned: list = []
+    for msg in messages:
+        if (
+            isinstance(msg, ToolMessage)
+            and getattr(msg, "name", None) in _STATE_BACKED_TOOLS
+            and len(str(msg.content)) > _PRUNE_CONTENT_THRESHOLD
+        ):
+            stub = (
+                f"[{msg.name} output pruned from history to save tokens — the full "
+                f"result is stored in the session state (CrateState). Use get_status "
+                f"or list_entities to query it; do not re-run {msg.name}.]"
+            )
+            pruned.append(
+                ToolMessage(
+                    content=stub,
+                    tool_call_id=msg.tool_call_id,
+                    name=msg.name,
+                )
+            )
+        else:
+            pruned.append(msg)
+    return pruned
+
+
+def _trim_history(messages: list, *, max_tokens: int) -> list:
+    """Bound the per-turn message history so verbose tool outputs aren't replayed.
+
+    Two layers, in order (Issue #61):
+
+    1. **Prune consumed verbose tool outputs** — scan/read listings already live
+       in ``CrateState``, so their bodies are replaced by a short stub
+       (``_prune_state_backed_outputs``). The messages themselves are kept so
+       AI(tool_call) → ToolMessage pairing is preserved.
+    2. **Token-budget trim** — keep the most recent messages within
+       ``max_tokens`` using ``langchain_core.messages.trim_messages`` with
+       ``strategy="last"`` and ``start_on="human"``. ``start_on="human"``
+       guarantees the trimmed window never *begins* with a dangling
+       ``ToolMessage`` (or an ``AIMessage`` whose tool_call lost its answer),
+       i.e. it never produces orphaned tool messages — the provider API rejects
+       those.
+
+    The leading system prompt and trailing state brief are added by
+    ``_assemble_model_messages`` *around* the result, so they are intentionally
+    not part of ``messages`` here and the cache-friendly #60 layout is preserved.
+
+    Args:
+        messages: The accumulated conversation history (no system messages).
+        max_tokens: Approximate token budget for the retained history.
+
+    Returns:
+        A bounded, orphan-free subsequence of the (pruned) history.
+    """
+    from langchain_core.messages import trim_messages
+
+    if not messages:
+        return []
+
+    pruned = _prune_state_backed_outputs(messages)
+
+    try:
+        trimmed = trim_messages(
+            pruned,
+            max_tokens=max_tokens,
+            token_counter="approximate",
+            strategy="last",
+            start_on="human",
+            include_system=False,
+            allow_partial=False,
+        )
+    except (ValueError, KeyError) as exc:
+        # Defensive: never let a trimming edge case abort the turn. Falling back
+        # to the pruned (but untrimmed) history keeps the agent running; the
+        # pruning alone already removes the heaviest verbose payloads.
+        logger.warning("History trim failed (%s); using pruned history", exc)
+        return pruned
+
+    return list(trimmed)
+
+
 def _assemble_model_messages(
     messages: list,
     *,
@@ -579,11 +687,12 @@ def _assemble_model_messages(
     entity_count: int,
     file_count: int,
     iteration_count: int,
+    max_history_tokens: int | None = None,
 ) -> list:
     """Assemble the message list for a model invocation with a cache-friendly
-    layout (Issue #60).
+    layout (Issue #60) and a bounded history (Issue #61).
 
-    Layout: ``[SystemMessage(SYSTEM_PROMPT), *history, SystemMessage(state_brief)]``.
+    Layout: ``[SystemMessage(SYSTEM_PROMPT), *trimmed_history, SystemMessage(state_brief)]``.
 
     The leading system message is kept **byte-stable** (``SYSTEM_PROMPT`` only, no
     volatile state appended), so every provider can cache the stable
@@ -594,11 +703,25 @@ def _assemble_model_messages(
     broke right after the prompt and the (growing, expensive) history was never
     cached.
 
+    The history between the prefix and the brief is **trimmed** to
+    ``max_history_tokens`` (``_trim_history``) so per-turn input tokens stay
+    bounded over a long session and consumed verbose tool outputs (scan
+    listings) are pruned rather than replayed verbatim (Issue #61). Trimming
+    keeps the *most recent* turns, so the cacheable prefix only shifts when the
+    history actually rolls over the budget — far less often than it grew before.
+
     Neither the system message nor the brief is persisted into MemorySaver
     history — both are rebuilt fresh on every invocation, so they never accumulate
     (Issue #66). Only the model's response is returned to the reducer.
     """
     from langchain_core.messages import SystemMessage
+
+    if max_history_tokens is None:
+        from builder.config import get_max_history_tokens
+
+        max_history_tokens = get_max_history_tokens()
+
+    trimmed_history = _trim_history(list(messages), max_tokens=max_history_tokens)
 
     state_brief = _build_system_prompt_with_state(
         session_id=session_id,
@@ -608,7 +731,7 @@ def _assemble_model_messages(
     )
     return [
         SystemMessage(content=SYSTEM_PROMPT),
-        *messages,
+        *trimmed_history,
         SystemMessage(content=state_brief),
     ]
 

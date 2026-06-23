@@ -149,6 +149,11 @@ max_retries = 5
 # stops to avoid an endless loop. Increase for complex tasks,
 # decrease to catch runaway loops earlier. Default: 100.
 max_iterations = 100
+# Approximate token budget for the message history replayed to the
+# model each turn. The transcript is trimmed/pruned before every call
+# so verbose tool outputs (e.g. scan listings, already in CrateState)
+# aren't replayed verbatim and per-turn input stays bounded. Default: 12000.
+max_history_tokens = 12000
 ```
 
 Environment variables (``VITRO_*``) always win over the config file:
@@ -164,6 +169,7 @@ Environment variables (``VITRO_*``) always win over the config file:
 | ``VITRO_ANTHROPIC_DRAFTER_MODEL`` | Cheap drafter model for Anthropic (model tiering) | — (uses ``VITRO_ANTHROPIC_MODEL``) |
 | ``VITRO_MAX_RETRIES`` | LLM API retry count on transient errors | ``3`` |
 | ``VITRO_MAX_ITERATIONS`` | Max tool-calling iterations per request | ``100`` |
+| ``VITRO_MAX_HISTORY_TOKENS`` | Approx. token budget for replayed message history per turn | ``12000`` |
 
 Once in the agent loop, you can type requests like:
 
@@ -328,6 +334,7 @@ This works for ``requests``, ``httpx``, ``openai``, and all other HTTP clients.
 | `VITRO_ANTHROPIC_DRAFTER_MODEL` | No | — (uses `VITRO_ANTHROPIC_MODEL`) | Cheap drafter model (model tiering). Unset → single model, unchanged behaviour |
 | `VITRO_MAX_RETRIES` | No | `3` | Max retry attempts for LLM API calls (configurable via ``[openai]`` / ``[anthropic]`` in config file) |
 | `VITRO_MAX_ITERATIONS` | No | `100` | Max tool-calling iterations per request before the agent stops to avoid endless loops. Set in `[agent]` section of config file. |
+| `VITRO_MAX_HISTORY_TOKENS` | No | `12000` | Approximate token budget for the message history replayed to the model each turn. The transcript is trimmed/pruned before every call so verbose tool outputs aren't replayed verbatim and per-turn input stays bounded. Set in `[agent]` section of config file. |
 
 For OpenAI-compatible providers (Ollama, LiteLLM, vLLM, etc.):
 - Set `VITRO_OPENAI_API_KEY` (any non-empty value works for Ollama)
