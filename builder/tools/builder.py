@@ -115,14 +115,10 @@ def _embed_maturity_report(crate: ROCrate, state: CrateState) -> None:
     """
     from io import StringIO
 
-    from builder.writers.maturity_report import (
-        REPORT_FILENAME,
-        build_maturity_html,
-        conformance_from_metadata,
-    )
+    from builder.writers.maturity_report import REPORT_FILENAME, build_maturity_html
 
-    conformance = conformance_from_metadata(crate.metadata.generate())
-    page = build_maturity_html(state, conformance=conformance)
+    # Renders from state.validation (no re-validate) so export stays cheap (#85).
+    page = build_maturity_html(state)
     crate.add(
         File(
             crate,
