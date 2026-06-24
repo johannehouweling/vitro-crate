@@ -895,6 +895,15 @@ Embedding is automatic (no separate agent tool — a free byproduct of building 
 turned off with `export_crate(..., embed_graph=False)`. Inline-rendering the Mermaid in the #86
 `ro-crate-preview.html` is the natural next step.
 
+**Maturity report (`ro-crate-maturity.html`, #85).** `export_crate` also embeds a human-readable
+maturity report as a `File` + `CreativeWork` `about` `./` (same mechanism as the graph). It is
+rendered by `builder/writers/maturity_report.py` (`build_maturity_html`) and covers four axes:
+profile adherence (computed in-memory via `validate_crate_dict` at export, with REQUIRED/RECOMMENDED
+issues surfaced as suggestions), FAIR indicators + DSM level (`assess_fair_maturity`), OECD MIT
+coverage (`assess_mit_coverage`), and a derived reproducibility-readiness checklist. Embedding is
+automatic, best-effort (a reporting failure never fails the export), and can be turned off with
+`export_crate(..., embed_report=False)`.
+
 ## 12. Project Structure
 
 Annotated with where new components would live:
