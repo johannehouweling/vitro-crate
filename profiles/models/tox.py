@@ -314,7 +314,7 @@ class CellLineSample(Sample):
         name: str,
         sample_type: ContextEntity,  # a schema:DefinedTerm node (e.g. "cell line")
         accession: str | None = None,  # Cellosaurus accession, e.g. "CVCL_0027"
-        additionalProperty: ParameterValue | None = None,
+        additionalProperty: ParameterValue | list[ParameterValue] | None = None,
         properties: dict | None = None,
         add: bool = True,
     ):

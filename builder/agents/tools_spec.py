@@ -168,6 +168,30 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "draft_defined_term",
+        "description": "Create a schema:DefinedTerm contextual entity to PERSIST a looked-up ontology / AOP / Key-Event term so it round-trips into the crate and can be referenced (via set_fields/link) as a mentions / measurementMethod / sampleType target. Pass the looked-up IRI as the 'url' hint so the node gets a dereferenceable @id. Example: draft_defined_term(name='cell viability assay', hints={'term_code': 'BAO:0002993', 'url': 'http://www.bioassayontology.org/bao#BAO_0002993'}).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Term label."},
+                "hints": draft_hints_schema("DefinedTerm"),
+            },
+            "required": ["name", "hints"],
+        },
+    },
+    {
+        "name": "draft_property_value",
+        "description": "Create a schema:PropertyValue contextual entity (a typed key/value with an optional ontology propertyID and unit). Use it for measured/asserted values that other entities reference. Example: draft_property_value(name='Passage Number', hints={'value': '12', 'unit_text': 'passages'}).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Property name."},
+                "hints": draft_hints_schema("PropertyValue"),
+            },
+            "required": ["name", "hints"],
+        },
+    },
+    {
         "name": "set_fields",
         "description": "Set one or more fields on an existing entity (the single mutation tool — pass one key or many). Use it to fill or correct an entity's metadata, e.g. after build_and_validate names a field to fix. Example: set_fields(entity_id='chem_silychristin_a', fields={'identifier': '33889-69-9', 'smiles': 'C[C@H]1...'}).",
         "parameters": {
@@ -393,6 +417,25 @@ TOOL_SPECS = [
                 },
             },
             "required": ["file", "table_schema"],
+        },
+    },
+    {
+        "name": "populate_condition_table",
+        "description": "Write per-well rows into an Exposure's CSVW condition table (replacing the header-only placeholder). Pass rows_or_csv_path as a list of row dicts keyed by the columns cell_line/compound/concentration/unit/duration, or a path to a user-supplied plate-map CSV. The table's CSVW typing (tableSchema) is preserved. Returns {ok, path, rows}. Validate the result with validate_table using the inferred schema.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "exposure_id": {"type": "string", "description": "entity_id of the Exposure LabProcess."},
+                "rows_or_csv_path": {
+                    "description": "A list of row dicts (keys: cell_line/compound/concentration/unit/duration) OR a path to a plate-map CSV.",
+                    "anyOf": [
+                        {"type": "array", "items": {"type": "object"}},
+                        {"type": "string"},
+                    ],
+                },
+                "output_dir": {"type": "string", "description": "Crate root to write the CSV under (optional; defaults to the session output path)."},
+            },
+            "required": ["exposure_id", "rows_or_csv_path"],
         },
     },
     {

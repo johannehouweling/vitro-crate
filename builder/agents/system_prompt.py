@@ -31,6 +31,8 @@ Entity drafting:
 - draft_person: Create a Person entity
 - draft_organization: Create an Organization entity
 - draft_publication: Create a Publication entity
+- draft_defined_term: Persist a looked-up ontology/AOP/Key-Event term as a DefinedTerm entity
+- draft_property_value: Create a typed PropertyValue (key/value with optional unit and ontology id)
 - draft_file: Create a File data entity (raw measurements, processed results, figures)
 
 Entity management & provenance:
@@ -60,6 +62,7 @@ Build, validate & assess:
 - build_crate: Alias of export_crate (writes the crate to disk)
 - validate: Run three-pass validation on a crate already written to disk
 - validate_table: Validate a CSV's data content (rows) against its CSVW/Frictionless table schema — the payload layer, separate from SHACL metadata validation
+- populate_condition_table: Write per-well rows into an Exposure's CSVW condition table (or attach a plate-map CSV)
 - assess_mit_coverage: Score MIT coverage
 - assess_fair_maturity: Score FAIR maturity
 

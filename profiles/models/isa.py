@@ -455,7 +455,7 @@ class Sample(AutoAddContextEntity):
         crate: ROCrate,
         identifier: str,
         name: str,
-        additionalProperty: ParameterValue | None = None,
+        additionalProperty: ParameterValue | list[ParameterValue] | None = None,
         properties: dict | None = None,
         add: bool = True,
     ):

@@ -263,7 +263,7 @@ _TOOL_ICONS: dict[str, str] = {
     "verify_identifier": "\u2705", "verify_all_identifiers": "\u2705",
     "build_and_validate": "\u2714\ufe0f", "export_crate": "\U0001f3ed",
     "build_crate": "\U0001f3ed", "validate": "\u2714\ufe0f",
-    "validate_table": "\U0001f4c8",
+    "validate_table": "\U0001f4c8", "populate_condition_table": "\U0001f4c8",
     "assess_mit_coverage": "\U0001f52e", "assess_fair_maturity": "\U0001f52e",
     "save_session": "\U0001f4be", "load_session": "\U0001f4c1",
     "list_sessions": "\U0001f4ca", "get_status": "\U0001f4ac",

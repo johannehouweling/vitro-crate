@@ -187,6 +187,89 @@ def draft_process(state: CrateState, assay_id: str, process_type: str, hints: di
     return entity
 
 
+def draft_defined_term(state: CrateState, name: str, hints: dict) -> Entity:
+    """Create a schema:DefinedTerm contextual entity from an ontology term.
+
+    Persists a looked-up ontology / AOP / Key-Event term (e.g. from
+    ``lookup_aop`` / ``lookup_bao_term``) so it round-trips into the crate
+    ``@graph`` and can be referenced (via ``link`` / ``set_fields``) as a
+    ``mentions`` / ``measurementMethod`` / ``sampleType`` target.
+
+    Args:
+        state: The crate state to add the entity to.
+        name: Human-readable term label.
+        hints: Field values. Recognised keys (any extras are kept):
+
+            - ``term_code`` / ``termCode``: the ontology code, e.g. ``"BAO:0002993"``.
+            - ``in_defined_term_set`` / ``inDefinedTermSet``: the term set IRI.
+            - ``url`` / ``entity_id`` / ``@id``: a dereferenceable IRI used as the
+              entity's stable ``entity_id`` so the node's ``@id`` resolves.
+
+    Returns:
+        The newly created DefinedTerm Entity.
+    """
+    merged_hints = dict(hints)
+    merged_hints["name"] = name
+    # Normalize the camelCase schema.org property names the model emits.
+    if "term_code" in merged_hints:
+        merged_hints["termCode"] = merged_hints.pop("term_code")
+    if "in_defined_term_set" in merged_hints:
+        merged_hints["inDefinedTermSet"] = merged_hints.pop("in_defined_term_set")
+
+    # A looked-up term carries a dereferenceable IRI; use it as the entity_id so
+    # _mint_id keeps it as the @id (an IRI containing "://" is preserved verbatim).
+    iri = merged_hints.get("entity_id") or merged_hints.get("@id") or merged_hints.get("url")
+    if iri and "entity_id" not in hints:
+        merged_hints["entity_id"] = iri
+        entity_id = str(iri)
+    else:
+        entity_id = _make_entity_id("dt", name, merged_hints)
+    entity = Entity(
+        entity_id=entity_id,
+        type="DefinedTerm",
+        _provenance=EntityProvenance(created_by="llm"),
+    )
+    entity.set_fields_from_dict(merged_hints, source="llm")
+    state.add_entity(entity)
+    return entity
+
+
+def draft_property_value(state: CrateState, name: str, hints: dict) -> Entity:
+    """Create a schema:PropertyValue contextual entity (a typed key/value).
+
+    Args:
+        state: The crate state to add the entity to.
+        name: The property name (also used to mint the entity id).
+        hints: Field values. Recognised keys (any extras are kept):
+
+            - ``value``: the measured / asserted value.
+            - ``property_id`` / ``propertyID``: the ontology IRI for the key.
+            - ``unit_text`` / ``unitText``: a human-readable unit (e.g. ``"uM"``).
+            - ``unit_code`` / ``unitCode``: a UN/CEFACT unit code.
+
+    Returns:
+        The newly created PropertyValue Entity.
+    """
+    merged_hints = dict(hints)
+    merged_hints["name"] = name
+    for snake, camel in (
+        ("property_id", "propertyID"),
+        ("unit_text", "unitText"),
+        ("unit_code", "unitCode"),
+    ):
+        if snake in merged_hints:
+            merged_hints[camel] = merged_hints.pop(snake)
+    entity_id = _make_entity_id("pv", name, merged_hints)
+    entity = Entity(
+        entity_id=entity_id,
+        type="PropertyValue",
+        _provenance=EntityProvenance(created_by="llm"),
+    )
+    entity.set_fields_from_dict(merged_hints, source="llm")
+    state.add_entity(entity)
+    return entity
+
+
 def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     """Create a Person entity.
 
@@ -328,3 +411,5 @@ TOOL_REGISTRY.register("draft_cell_line_sample", draft_cell_line_sample, takes_s
 TOOL_REGISTRY.register("draft_person", draft_person, takes_state=True)
 TOOL_REGISTRY.register("draft_organization", draft_organization, takes_state=True)
 TOOL_REGISTRY.register("draft_publication", draft_publication, takes_state=True)
+TOOL_REGISTRY.register("draft_defined_term", draft_defined_term, takes_state=True)
+TOOL_REGISTRY.register("draft_property_value", draft_property_value, takes_state=True)

@@ -487,8 +487,18 @@ draft_protocol(hints: dict) → Entity                     # LabProtocol a LabPr
 draft_person(name: str, hints: dict) → Entity
 draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
+draft_defined_term(name: str, hints: dict) → Entity
+draft_property_value(name: str, hints: dict) → Entity
 draft_file(name: str, path=None, role=None, encoding_format=None) → Entity
 ```
+`draft_defined_term` persists a looked-up ontology / AOP / Key-Event term as a
+`schema:DefinedTerm` contextual entity (Issue #141): pass the looked-up IRI as the
+`url`/`@id` hint so the node gets a dereferenceable `@id`, and it then round-trips
+into the `@graph` and is referenceable (via `set_fields`/`link`) as a `mentions` /
+`measurementMethod` / `sampleType` target. `draft_property_value` creates a typed
+`schema:PropertyValue` node (`value` + optional `propertyID` + `unitText`/`unitCode`).
+Both back the previously-unfilled `defined_terms` / `property_values` CrateState
+collections the mapping already rendered.
 The `hints` parameter is **typed per entity type** (Issue #90). Each `draft_*`
 tool advertises a JSON-Schema built by `_crate_mapping.draft_hints_schema(type)`
 from the single source of truth `_crate_mapping.ENTITY_DRAFT_SCHEMA` — allowed
@@ -496,6 +506,16 @@ scalar keys plus reference keys, the latter a strict subset of `_REF_FIELDS`
 (asserted by test) so the advertised reference vocabulary and the crate-mapping
 resolver cannot drift. The schema is open (`additionalProperties: true`), so a
 weak model sees the high-value keys without the long tail being forbidden.
+
+`LabProcess` hints additionally advertise a `units` map plus the optional
+subtype parameters (`assay_kit`/`substrate` for EndpointReadout,
+`acceptance_criteria`/`evaluation_criteria` for DataAnalysis) (Issue #143):
+`_build_process` threads `units=f.get('units')` into the Exposure /
+EndpointReadout / DataAnalysis constructors so each `ParameterValue` carries its
+`unitText`, and threads the optional params into the matching subtype. A
+`CellLineSample`'s `passage` / `growth` hints are promoted to ISA Sample
+Characteristics — `schema:additionalProperty` PropertyValue nodes carrying the
+value and, when known, the property's ontology IRI.
 
 `draft_file` auto-derives `encodingFormat` from the file extension (`name`, then
 `path`) when the caller omits it (Issue #148), via the same scientific-format-aware
@@ -569,12 +589,24 @@ export_crate(output_path: str) → CrateBuildResult
 build_crate(output_path: str) → CrateBuildResult     # back-compat alias of export_crate
 validate(crate_path: str) → ValidationReport
 validate_table(file: str, table_schema: dict, foreign_keys: dict | None = None, entity_id: str | None = None) → {ok, issues}
+populate_condition_table(exposure_id: str, rows_or_csv_path: list[dict] | str, output_dir: str | None = None) → {ok, path, rows}
 ```
 
 `validate_table` is the **data-content (payload) layer** (#95): it validates a
 CSV's rows against a Frictionless `tableSchema` — separate from the SHACL
 metadata passes (see §6, Data-Content Layer). Issues use the same routable shape
 with `profile="data"`.
+
+`populate_condition_table` (Issue #144) writes the per-well rows into an
+Exposure's CSVW condition table — replacing the header-only placeholder #94
+materialises — either from a list of row dicts (keyed by the column titles
+`cell_line`/`compound`/`concentration`/`unit`/`duration`) or by attaching a
+user-supplied plate-map CSV. It targets the exact path the build wires
+(`_crate_mapping._condition_table_rel`), so the #94 CSVW typing (`tableSchema`)
+stays attached to the populated table. The companion bridge
+`data_content.csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)` converts those CSVW
+column descriptors into the Frictionless `{fields:[...]}` shape, so `validate_table`
+needs no hand-authored schema for the populated table.
 
 `build_and_validate` is the agent's primary build/fix loop: it assembles the
 crate from `CrateState` **in memory** and validates the generated JSON-LD

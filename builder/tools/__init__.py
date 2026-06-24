@@ -22,15 +22,17 @@ Tool categories:
 from __future__ import annotations
 
 from builder.tools.builder import build_crate, export_crate
-from builder.tools.data_content import validate_table
+from builder.tools.data_content import populate_condition_table, validate_table
 from builder.tools.drafters import (
     draft_assay,
     draft_cell_line_sample,
+    draft_defined_term,
     draft_investigation,
     draft_molecular_entity,
     draft_organization,
     draft_person,
     draft_process,
+    draft_property_value,
     draft_publication,
     draft_study,
 )
@@ -83,12 +85,14 @@ __all__ = [
     "check_provenance",
     "draft_assay",
     "draft_cell_line_sample",
+    "draft_defined_term",
     "draft_file",
     "draft_investigation",
     "draft_molecular_entity",
     "draft_organization",
     "draft_person",
     "draft_process",
+    "draft_property_value",
     "draft_publication",
     "draft_study",
     "export_crate",
@@ -106,6 +110,7 @@ __all__ = [
     "lookup_doi",
     "lookup_orcid",
     "lookup_ror",
+    "populate_condition_table",
     "present_to_human",
     "preview_archive",
     "read_docx",
