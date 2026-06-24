@@ -136,6 +136,21 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "attach_files",
+        "description": "Bulk-place a GROUP of scanned files under a Study or Assay in one call — the scalable way to associate data with structure (e.g. all of an assay's raw CSVs). For each match it creates (or reuses) a File entity and adds it to the target's hasPart, so the build nests it under that dataset. Select with name_contains / mime_contains substrings or an explicit paths list; stamp an optional role (e.g. 'raw_data'). Files you don't place are still auto-included at the crate root on export, so this is for the files whose assay/study you DO know. Use link (not this) for a process's input/output. Returns {attached, file_ids, to}.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "entity_id of the target Study or Assay."},
+                "name_contains": {"type": "string", "description": "Match files whose filename or path contains this substring (case-insensitive)."},
+                "mime_contains": {"type": "string", "description": "Match files whose mime_type contains this substring, e.g. 'csv', 'image'."},
+                "paths": {"type": "array", "items": {"type": "string"}, "description": "Explicit scanned paths/filenames to attach (with or instead of the substring filters)."},
+                "role": {"type": "string", "description": "Optional role to stamp on each File, e.g. 'raw_data' or 'processed'."},
+            },
+            "required": ["to"],
+        },
+    },
+    {
         "name": "check_provenance",
         "description": "Lint the derivation chain (report-only, writes nothing). Returns {ok, issues:[{entity_id, property, message, fix, severity, profile}]} flagging EndpointReadout/DataAnalysis processes with no output and File entities produced by no process — each issue names the entity and the `link`/`draft_file` fix. Run it after wiring processes to confirm the Sample→CellCulture→Exposure→EndpointReadout→DataAnalysis chain is connected.",
         "parameters": {

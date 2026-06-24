@@ -926,6 +926,24 @@ def _result_file_nodes(process_node: Any) -> list[Any]:
     return out
 
 
+def _attach_explicit_parts(
+    node: Any, entity: Entity, idx: dict[str, Any], root: Any
+) -> None:
+    """Move a Study/Assay entity's explicit ``hasPart`` File members under its node.
+
+    ``attach_files`` (#177) records placement by appending File entity_ids to the
+    dataset entity's ``hasPart`` field. Resolve those to their built File nodes,
+    attach them under the dataset, and un-parent them from the root's auto-added
+    ``hasPart`` — the same move D13 makes for a process's result Files.
+    """
+    for key in ("hasPart", "has_part"):
+        for child in _resolve_many(idx, entity.fields.get(key)):
+            if child is node:
+                continue
+            _remove_child(root, "hasPart", child.id)
+            _append_unique(node, "hasPart", child)
+
+
 def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
     root = crate.root_dataset
 
@@ -961,6 +979,7 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         node = crate.add(DataEntity(crate, _mint_id(st), properties=props))
         _idx_add(idx, st, node)
         _append_unique(root, "hasPart", node)  # Study MUST be hasPart of the root
+        _attach_explicit_parts(node, st, idx, root)
 
     for asy in state.list_entities("Assay"):
         props = {"@type": "Dataset", "additionalType": "Assay", **_scalar_props(asy)}
@@ -973,6 +992,7 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         if parent is not root:
             _remove_child(root, "hasPart", node.id)
         _append_unique(parent, "hasPart", node)
+        _attach_explicit_parts(node, asy, idx, root)
 
 
 def _synth_protocol(crate: ROCrate, assay_id: Any, cache: dict[str, Any]) -> ContextEntity:
