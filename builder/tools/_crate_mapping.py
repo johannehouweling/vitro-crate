@@ -36,7 +36,7 @@ from profiles.models.tox import (
     LabProcessExposure,
 )
 
-ROCRATE_SPEC = "https://w3id.org/ro/crate/1.1"
+ROCRATE_SPEC = "https://w3id.org/ro/crate/1.2"
 # The ISA layer the tox profile actually extends (profiles/shapes/tox/profile.ttl
 # prof:isProfileOf) and that resolves — the w3id ISA permalink is not yet live.
 PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
@@ -528,14 +528,10 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     # reserved for the single base-spec URI, while the profiles the crate targets
     # are declared on the Root Data Entity (./) — Issue #91.
     #
-    # The base spec stays pinned to 1.1 (not 1.2) deliberately: roc-validator
-    # 0.10.0 bundles no ro-crate-1.2 base profile, and its base pass hard-requires
-    # the 1.1 URI on the descriptor (profiles/ro-crate/must/1_file-descriptor_
-    # metadata.ttl: `sh:hasValue <https://w3id.org/ro/crate/1.1>`). Declaring 1.2
-    # there fails REQUIRED validation, which build_and_validate (#87) and the
-    # golden fixtures (#97) rely on staying green. ro-crate-py 0.15 still emits a
-    # 1.2 @context; fully unifying the version on 1.2 is deferred until an upstream
-    # validator ships a 1.2 base profile (tracked on #91).
+    # The base spec is now 1.2 (ROCRATE_SPEC). The #105 deferral to 1.1 is lifted:
+    # roc-validator 0.11.0 ships a ro-crate-1.2 base profile
+    # (crs4/rocrate-validator#164), so the base pass validates against 1.2 and
+    # build_and_validate (#87) + the golden fixtures (#97) stay green — Issue #110.
     crate.metadata["conformsTo"] = {"@id": ROCRATE_SPEC}
 
     # Profiles the crate TARGETS, declared on ./ unconditionally — the three-layer
@@ -980,7 +976,9 @@ def _build_condition_table_schema(
         title = col["titles"]
         props: dict[str, Any] = {"@type": "csvw:Column", **col}
         if value_urls.get(title):
-            props["valueUrl"] = value_urls[title]
+            # Emit valueUrl as an {@id} reference (not a bare string): RO-Crate 1.2
+            # REQUIRES entity links be reference objects, and flags string @ids.
+            props["valueUrl"] = {"@id": value_urls[title]}
         column = crate.add(
             ContextEntity(crate, f"#{exp_slug}_col_{title}", properties=props)
         )

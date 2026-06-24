@@ -48,7 +48,7 @@ def _base_valid_doc() -> dict:
     crate.root_dataset["name"] = "Test"
     crate.root_dataset["description"] = "Test crate"
     crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
-    crate.metadata["conformsTo"] = {"@id": "https://w3id.org/ro/crate/1.1"}
+    crate.metadata["conformsTo"] = {"@id": "https://w3id.org/ro/crate/1.2"}
     return crate.metadata.generate()
 
 
@@ -131,19 +131,16 @@ class TestOfflineContextResolution:
         assert attempted == [], attempted
 
     def test_no_remote_context_check_failures_with_network_down(self):
-        """Checks ``ro-crate-1.1_2.1`` / ``2.2`` (the ones that flaked) stay clean."""
+        """The base pass stays clean with the network down — the remote-context
+        resolution checks (e.g. ro-crate-1.2_2.*) are served from the bundled
+        context, so they don't spuriously fail (the regression that flaked CI)."""
         from profiles.validator import validate_crate_dict
 
         with _network_down():
             results = validate_crate_dict(_base_valid_doc(), profile="base")
 
         base = next(r for r in results if r.profile == "base")
-        offending = [
-            i
-            for i in base.issues
-            if (i.check_id or "").startswith(("ro-crate-1.1_2.1", "ro-crate-1.1_2.2"))
-        ]
-        assert offending == [], [(i.check_id, i.message) for i in offending]
+        assert base.passed_required, [(i.check_id, i.message) for i in base.issues]
 
 
 class TestTransportErrorNotReportedAsRequired:

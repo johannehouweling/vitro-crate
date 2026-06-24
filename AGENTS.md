@@ -188,7 +188,7 @@ perfectly detailed crate that doesn't build at all.
 ### Validation Gate Ordering
 
 The three-pass validation in `profiles/validator.py` has a strict dependency:
-- **Base RO-Crate 1.1** must pass before ISA validation is meaningful
+- **Base RO-Crate 1.2** must pass before ISA validation is meaningful
 - **ISA Profile** must pass before ISA-Tox validation is meaningful
 - **ISA-Tox Profile** depends on both lower layers
 
@@ -326,7 +326,7 @@ This project builds on the existing RO-Crate Python ecosystem rather than reinve
 | Package | PyPI | What it provides | How we use it |
 |---------|------|-----------------|---------------|
 | [`ro-crate-py`](https://github.com/ResearchObject/ro-crate-py) | `uv add rocrate`<br>(import `rocrate`) | Official Python SDK for creating and manipulating RO-Crates. Provides `ROCrate`, `ContextEntity`, `File`, and other base entity classes. | The entity model classes in `profiles/models/isa.py` and `profiles/models/tox.py` subclass `rocrate.model.ContextEntity` and `rocrate.model.File`. The builder uses `ROCrate` to assemble the crate and serialise `ro-crate-metadata.json`. |
-| [`rocrate-validator`](https://github.com/crs4/rocrate-validator) | `uv add roc-validator`<br>(import `rocrate_validator`) | Official SHACL-based validation library. Supports multi-profile validation (base RO-Crate → ISA → domain extensions) with severity levels. | `profiles/validator.py` wraps this in three passes (RO-Crate 1.1, ISA, ISA-Tox), suppressing inherited-profile duplicates so each pass reports only its own layer. |
+| [`rocrate-validator`](https://github.com/crs4/rocrate-validator) | `uv add roc-validator`<br>(import `rocrate_validator`) | Official SHACL-based validation library. Supports multi-profile validation (base RO-Crate → ISA → domain extensions) with severity levels. | `profiles/validator.py` wraps this in three passes (RO-Crate 1.2, ISA, ISA-Tox), suppressing inherited-profile duplicates so each pass reports only its own layer. |
 | [`rocrate-wizard`](https://github.com/ResearchObject/rocrate-wizard) *(external frontend)* | TBD | Frontend/UI layer that uses this backend (vitro-crate) to provide a user-facing RO-Crate builder. | This repo is the dependency — `rocrate-wizard` imports from `vitro-crate` and adds the web UI/CLI on top. Referenced in the ARC template's conversion workflow. |
 
 These packages are imported directly — we do not fork or vendor them. Version requirements are declared in `pyproject.toml`.
@@ -671,7 +671,7 @@ Every tool call and graph node execution is automatically timed and recorded by 
 
 | Layer | Severity | Meaning | Agent Action |
 |-------|----------|---------|--------------|
-| Base RO-Crate 1.1 | REQUIRED | Structural validity | MUST fix before proceeding |
+| Base RO-Crate 1.2 | REQUIRED | Structural validity | MUST fix before proceeding |
 | ISA Profile | REQUIRED | ISA conformance | MUST fix |
 | ISA Profile | SHOULD | Recommended metadata | Fix if data available |
 | ISA Profile | MAY | Optional metadata | Note for user |

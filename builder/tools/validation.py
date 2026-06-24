@@ -132,7 +132,7 @@ _FIX_TEMPLATES: dict[str, str] = {
     "name": "Add a `name` to `{entity}`.",
     "description": "Add a `description` to `{entity}`.",
     "identifier": "Add an `identifier` to `{entity}`.",
-    "conformsTo": "Add `conformsTo` to `{entity}` referencing the RO-Crate 1.1 spec.",
+    "conformsTo": "Add `conformsTo` to `{entity}` referencing the RO-Crate 1.2 spec.",
     "license": "Add a `license` to `{entity}`.",
     "author": "Add an `author` to `{entity}`.",
     "datePublished": "Add a `datePublished` to `{entity}`.",
