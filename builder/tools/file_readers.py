@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 # Limits
 # ---------------------------------------------------------------------------
 
-_MAX_BYTES = 1_000_000  # 1 MB — skip files larger than this
+# Unified size ceiling (Issue #148): matches scanner.read_file_sample /
+# extract_pdf_text (100 MB). The readers cap rows/lines independently, so memory
+# stays bounded even for large files; the old 1 MB ceiling silently returned
+# None for ordinary mid-size files (e.g. a 5 MB CSV), starving the agent.
+_MAX_BYTES = 100 * 1024 * 1024  # 100 MB — skip files larger than this
 _MAX_ROWS = 500  # max rows to return from structured formats
 
 
