@@ -3,13 +3,19 @@
 Usage:
     python -m main [--input <path>] [--output <path>] [--resume <session_id>]
     python -m main --interactive [--input <path>] [--provider openai|anthropic]
+    python -m main --graph [--input <crate-or-metadata.json>] [--resume <session_id>]
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
+import tempfile
+import webbrowser
+from pathlib import Path
+from typing import Any
 
 from builder.engine import AgentEngine
 
@@ -111,6 +117,52 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Show the profiler dashboard for the latest session (or --resume session)",
     )
+    parser.add_argument(
+        "--graph",
+        "-g",
+        action="store_true",
+        help="Render the LabProcess provenance DAG. Source is --input (a crate dir "
+        "or ro-crate-metadata.json) or a session (--resume <id>, else the latest). "
+        "Needs no LLM config.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["html", "mermaid"],
+        default="html",
+        help="--graph output: 'html' (rendered, opens in browser; default) or "
+        "'mermaid' (raw source to stdout, for piping to mmdc/docs)",
+    )
+    parser.add_argument(
+        "--view",
+        choices=["crate", "provenance"],
+        default="crate",
+        help="--graph view: 'crate' (full entity graph, 3 layers; default) or "
+        "'provenance' (just the LabProcess derivation chain)",
+    )
+    parser.add_argument(
+        "--layer",
+        choices=["1", "2", "3", "all", "crate", "isa", "isa-tox", "tox"],
+        default="all",
+        help="--graph --view crate: cumulative layer filter — 1/crate=packaging, "
+        "2/isa=+structural, 3/isa-tox=all (default: all)",
+    )
+    parser.add_argument(
+        "--all-edges",
+        action="store_true",
+        help="--graph --view crate: also draw secondary edges (CSVW internals, "
+        "conformsTo, citation/funder)",
+    )
+    parser.add_argument(
+        "--graph-out",
+        type=str,
+        default=None,
+        help="Path for the rendered --graph HTML file (default: a temp file)",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="With --graph --format html, write the file but do not open a browser",
+    )
     return parser.parse_args(argv)
 
 
@@ -171,6 +223,109 @@ def _ensure_configured() -> bool:
     return False
 
 
+def _resolve_graph_source(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Resolve the metadata ``@graph`` to render for ``--graph``.
+
+    Priority:
+        1. ``--input`` pointing at a ``ro-crate-metadata.json`` or a crate
+           directory containing one — rendered straight from disk (no session,
+           no LLM).
+        2. A session: ``--resume <id>`` if given, otherwise the latest session;
+           its CrateState is assembled in memory (no payload written) and its
+           generated metadata document is returned.
+
+    Returns the metadata document (with an ``@graph`` key), or ``None`` if no
+    crate could be resolved.
+    """
+    if args.input:
+        path = Path(args.input)
+        meta = path / "ro-crate-metadata.json" if path.is_dir() else path
+        if meta.is_file():
+            try:
+                return json.loads(meta.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.error("Could not read crate metadata from %s: %s", meta, exc)
+                return None
+        return None
+
+    from builder.tools.session import list_sessions, load_session
+
+    session_id = args.resume
+    if session_id is None:
+        sessions = list_sessions()
+        if not sessions:
+            return None
+        # list_sessions() sorts ascending by id (timestamp) → last is latest.
+        session_id = sessions[-1]["session_id"]
+
+    state = load_session(session_id)
+    if state is None:
+        return None
+
+    from builder.tools.builder import assemble_crate
+
+    crate = assemble_crate(state, materialize_payload=False)
+    return crate.metadata.generate()
+
+
+def _run_graph(args: argparse.Namespace) -> int:
+    """Render the provenance DAG. Returns 0 on success, 1 otherwise.
+
+    ``--format mermaid`` prints the raw Mermaid source to stdout; the default
+    ``html`` writes a self-contained, browser-renderable page (and opens it
+    unless ``--no-browser``).
+    """
+    from builder.writers.provenance_dag import (
+        render_crate_graph,
+        render_mermaid_html,
+        render_provenance_mermaid,
+    )
+
+    source = _resolve_graph_source(args)
+    if source is None:
+        print(
+            "No crate found to graph. Provide --input <crate-or-metadata.json>, "
+            "or --resume <session_id> (a built session), and try again.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.view == "provenance":
+        mermaid = render_provenance_mermaid(source)
+    else:
+        mermaid = render_crate_graph(source, layer=args.layer, all_edges=args.all_edges)
+
+    if args.format == "mermaid":
+        print(mermaid)
+        return 0
+
+    # html: write a rendered page and (optionally) open it.
+    if args.graph_out:
+        out_path = Path(args.graph_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        with tempfile.NamedTemporaryFile(
+            prefix="provenance_", suffix=".html", delete=False
+        ) as tmp:
+            out_path = Path(tmp.name)
+    title = (
+        "RO-Crate provenance chain"
+        if args.view == "provenance"
+        else f"RO-Crate entity graph (layer ≤ {args.layer})"
+    )
+    out_path.write_text(render_mermaid_html(mermaid, title=title), encoding="utf-8")
+
+    opened = False
+    if not args.no_browser:
+        try:
+            opened = webbrowser.open(out_path.resolve().as_uri())
+        except (webbrowser.Error, OSError) as exc:
+            logger.warning("Could not open a browser for %s: %s", out_path, exc)
+    suffix = " (opened in browser)" if opened else ""
+    print(f"Provenance DAG written to {out_path}{suffix}", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the builder CLI.
 
@@ -198,6 +353,10 @@ def main(argv: list[str] | None = None) -> int:
 
         run_dashboard(session_id=args.resume)
         return 0
+
+    # Graph mode — render the provenance DAG as Mermaid (no LLM config needed)
+    if args.graph:
+        return _run_graph(args)
 
     # Ensure config is loaded before creating the engine
     if args.interactive:

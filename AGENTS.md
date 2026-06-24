@@ -847,6 +847,47 @@ config key → default `12000` — mirroring the `max_iterations` precedence. `_
 raises into the loop: a trimming edge case falls back to the pruned (untrimmed) history and logs a
 warning, so the heaviest payloads are still removed.
 
+### D13: ISA hasPart Hierarchy — Investigation is the Root
+
+The Investigation **is** the Root Data Entity (`./`); the ISA RO-Crate profile mandates this and
+the SHACL shapes forbid alternatives (a Study carrying `additionalType "Study"` MUST be `hasPart`
+of the root via `StudyMustBeReferencedFromInvestigation`, so the root cannot itself be a Study).
+`_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
+
+- **Folds a single Investigation entity onto the root** instead of emitting a duplicate
+  `#Investigation_*` node, and indexes it to `./` so `investigation_id` references resolve there.
+  (0 or 2+ Investigations keep separate nodes — out of scope, rare.)
+- Keeps **Study and Assay as their own `Dataset` + `additionalType` nodes** (required by the ISA
+  shapes); an Assay MAY be `hasPart` of either its Study or the Investigation (`2_assay.ttl`
+  `AssayMustBeReferencedFromInvestigation`).
+- Mints **distinct hierarchical identifiers** per level via `_isa_identifier`
+  (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). The `@id` (the path) is the true unique
+  key; the `identifier` *property* is the ISA descriptor and must not collide across levels.
+- Attaches each **result `File` to its producing Assay's `hasPart`** (de-duped via `_append_unique`)
+  and removes it from the root's auto-added `hasPart` (`_remove_child`) — raw/processed data are the
+  data of an assay. Files stay reachable from the root transitively (File → Assay → Study → `./`).
+
+Round-trip is symmetric: `read_existing_crate` (`builder/readers/existing_crate.py`) recovers the
+**bare** entity_id (stripping the type-qualifier so `#Study_study_1` → `study_1`, not the unbounded
+`#Study_Study_…` double-prefix), reconstructs the `study_id`/`assay_id` linkages the crate encodes
+structurally via `hasPart`/`about`, and folds the root back into an Investigation entity — so
+build → read → build is idempotent and structure-preserving. `_build_process` reads the
+`input`/`output` aliases as well as `object`/`result` so I/O survives the round-trip.
+
+### D14: Entity-Graph Visualization (`builder/writers/provenance_dag.py`, Issue #130)
+
+A dependency-light **Mermaid** renderer turns a built crate's `@graph` into a node-link diagram for
+visual exploration. `build_crate_graph(metadata, *, layer, all_edges)` is the deterministic model
+(nodes classified into the three paper layers — packaging / ISA / ISA-Tox — with each referenced
+`@id` marked *in-crate* / *external-identifier-backed* / *dangling*, orphans flagged, cumulative
+`--layer` filter); `render_crate_graph` formats it as a layered flowchart (node colour/shape =
+functional category, subtle per-layer box wash, "Outside the crate" group, legend).
+`render_provenance_mermaid` is the focused LabProcess-derivation view. The CLI exposes both:
+`python -m main --graph [--view crate|provenance] [--layer crate|isa|isa-tox] [--format html|mermaid]`
+— `html` renders in the browser, `mermaid` prints the source. *Not yet done (remaining #130
+acceptance):* writing the diagram artifact into the crate as a `File`/`CreativeWork` referenced from
+the Root Data Entity (ties into the #86 preview).
+
 ## 12. Project Structure
 
 Annotated with where new components would live:
@@ -882,6 +923,7 @@ vitro-crate/
 │   │   ├── directory.py
 │   ├── writers/                 Output writers
 │   │   ├── rocrate_writer.py, arc_writer.py
+│   │   ├── provenance_dag.py     Mermaid entity-graph / provenance DAG (#130)
 │   └── agents/                  LLM config
 │       ├── system_prompt.py, tools_spec.py
 ├── sessions/                    NEW — persisted sessions
