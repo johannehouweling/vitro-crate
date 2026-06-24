@@ -21,7 +21,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      issues: read
+      issues: write # Allows `gh issue create` (the allowed tool below) to succeed
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
@@ -35,6 +35,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Permit Claude to open GitHub issues (e.g. file follow-up/blocked
+          # issues). Pairs with `issues: write` in the permissions block above.
+          claude_args: "--allowedTools Bash(gh issue create:*)"
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
