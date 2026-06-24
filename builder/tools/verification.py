@@ -9,6 +9,7 @@ from builder.tools.lookups import (
     lookup_cell_line,
     lookup_compound,
     lookup_doi,
+    lookup_dtxsid,
     lookup_orcid,
 )
 
@@ -23,6 +24,8 @@ _VERIFY_WORKERS = 6
 def _select_verifier(entity_type: str, field: str):
     """Return an appropriate lookup function for an identifier-like field."""
     field_name = field.lower()
+    if entity_type == "MolecularEntity" and field_name == "dtxsid":
+        return lookup_dtxsid, "comptox"
     if entity_type == "MolecularEntity" and field_name in {
         "identifier",
         "cas",
@@ -56,6 +59,8 @@ _VERIFIABLE_FIELDS: frozenset[tuple[str, str]] = frozenset(
         ("MolecularEntity", "cas_number"),
         ("MolecularEntity", "pubchem_cid"),
         ("MolecularEntity", "inchikey"),
+        # MolecularEntity dtxsid maps to the EPA CompTox lookup
+        ("MolecularEntity", "dtxsid"),
         # CellLineSample fields that map to Cellosaurus lookup
         ("CellLineSample", "identifier"),
         ("CellLineSample", "accession"),

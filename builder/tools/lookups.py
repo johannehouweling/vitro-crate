@@ -18,7 +18,10 @@ from typing import Any
 from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop as lookup_aop_wiki
 from lookups.bao import lookup_bao_term as lookup_bao_term_ols
+from lookups.bao import lookup_ontology_term as lookup_ontology_term_ols
+from lookups.bao import lookup_unit as lookup_unit_ols
 from lookups.cellosaurus import lookup_cellosaurus
+from lookups.comptox import lookup_dtxsid as lookup_dtxsid_comptox
 from lookups.crossref import lookup_doi as lookup_doi_crossref
 from lookups.orcid import lookup_orcid as lookup_orcid_api
 from lookups.pubchem import lookup_pubchem
@@ -81,7 +84,22 @@ def lookup_compound(name: str) -> dict[str, Any]:
             if result and result.get("pubchem_cid"):
                 return _success(result)
 
-        return _failure(f"Compound '{name}' not found in PubChem")
+        # Multi-strategy fallback: PubChem found nothing, so try ChEBI via OLS
+        # (name → CAS → ChEBI, as documented in AGENTS.md §10). This resolves a
+        # ChEBI ontology IRI for compounds PubChem does not index, rather than
+        # returning a hard "not found".
+        chebi = lookup_ontology_term_ols(raw, "chebi")
+        if chebi and chebi.get("@id"):
+            return _success(
+                {
+                    "chebi_id": chebi.get("termCode", ""),
+                    "chebi_iri": chebi["@id"],
+                    "iupac_name": chebi.get("name", raw),
+                    "source": "chebi",
+                }
+            )
+
+        return _failure(f"Compound '{name}' not found in PubChem or ChEBI")
     except TransientLookupError as exc:
         return _failure(f"PubChem unavailable (transient): {exc}", transient=True)
     except Exception as exc:
@@ -166,6 +184,93 @@ def lookup_bao_term(query: str) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("BAO/OLS lookup failed for '%s'", query)
         return _failure(f"BAO/OLS lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_ontology_term(query: str, ontology: str) -> dict[str, Any]:
+    """Search any OLS4-hosted ontology for a term matching the query.
+
+    Generalises ``lookup_bao_term`` to any ontology (EFO/OBI/NCIT/UBERON/
+    ChEBI/UO/…), so the agent can ground free-text annotations in the right
+    vocabulary.
+
+    Args:
+        query: Free-text description (e.g. "apoptosis", "liver").
+        ontology: OLS ontology short name (e.g. "efo", "obi", "chebi").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if a matching term was found.
+            data: Dict with @id, @type, name, termCode, and (when available)
+                  score keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_ontology_term_ols(query, ontology)
+        if result and result.get("@id"):
+            return _success(result)
+        return _failure(f"No '{ontology}' term found for '{query}'")
+    except TransientLookupError as exc:
+        return _failure(f"OLS unavailable (transient): {exc}", transient=True)
+    except Exception as exc:
+        logger.exception("OLS lookup failed for '%s' in '%s'", query, ontology)
+        return _failure(f"OLS lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_unit(unit_string: str) -> dict[str, Any]:
+    """Resolve a unit string to a Units of Measurement Ontology (UO) IRI.
+
+    Args:
+        unit_string: Plain-text unit (e.g. "micromolar", "hour").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if a matching UO term was found.
+            data: Dict with @id (UO IRI), @type, name, termCode, and (when
+                  available) score keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_unit_ols(unit_string)
+        if result and result.get("@id"):
+            return _success(result)
+        return _failure(f"No UO unit found for '{unit_string}'")
+    except TransientLookupError as exc:
+        return _failure(f"UO/OLS unavailable (transient): {exc}", transient=True)
+    except Exception as exc:
+        logger.exception("UO/OLS lookup failed for '%s'", unit_string)
+        return _failure(f"UO/OLS lookup failed: {exc}")
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_dtxsid(query: str) -> dict[str, Any]:
+    """Resolve a chemical to its EPA DTXSID via the CompTox Dashboard.
+
+    Args:
+        query: Chemical name, CAS RN, or InChIKey (e.g. "Bisphenol A",
+               "80-05-7").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if a DTXSID was resolved.
+            data: Dict with dtxsid, @id, @type, name, and optionally casrn,
+                  inchikey keys.
+            error: Error message or None on success.
+    """
+    time.sleep(0.05)
+    try:
+        result = lookup_dtxsid_comptox(query)
+        if result and result.get("dtxsid"):
+            return _success(result)
+        return _failure(f"No DTXSID found for '{query}' in CompTox")
+    except TransientLookupError as exc:
+        return _failure(f"CompTox unavailable (transient): {exc}", transient=True)
+    except Exception as exc:
+        logger.exception("CompTox lookup failed for '%s'", query)
+        return _failure(f"CompTox lookup failed: {exc}")
 
 
 @functools.lru_cache(maxsize=256)
@@ -261,6 +366,9 @@ TOOL_REGISTRY.register("lookup_compound", lookup_compound, takes_state=False)
 TOOL_REGISTRY.register("lookup_cell_line", lookup_cell_line, takes_state=False)
 TOOL_REGISTRY.register("lookup_aop", lookup_aop, takes_state=False)
 TOOL_REGISTRY.register("lookup_bao_term", lookup_bao_term, takes_state=False)
+TOOL_REGISTRY.register("lookup_ontology_term", lookup_ontology_term, takes_state=False)
+TOOL_REGISTRY.register("lookup_unit", lookup_unit, takes_state=False)
+TOOL_REGISTRY.register("lookup_dtxsid", lookup_dtxsid, takes_state=False)
 TOOL_REGISTRY.register("lookup_orcid", lookup_orcid, takes_state=False)
 TOOL_REGISTRY.register("lookup_ror", lookup_ror, takes_state=False)
 TOOL_REGISTRY.register("lookup_doi", lookup_doi, takes_state=False)

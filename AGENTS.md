@@ -505,10 +505,13 @@ process, returning issues in the same routable shape as `build_and_validate` (#8
 
 ### Lookup Tools
 ```
-lookup_compound(name: str) → CompoundData | None   # PubChem
+lookup_compound(name: str) → CompoundData | None   # PubChem (→ ChEBI fallback)
+lookup_dtxsid(query: str) → DtxsidData | None       # EPA CompTox (DTXSID)
 lookup_cell_line(accession: str) → CellLineData | None  # Cellosaurus
 lookup_aop(aop_id: str) → AOPData | None            # AOP-Wiki
 lookup_bao_term(query: str) → TermData | None       # OLS/BAO
+lookup_ontology_term(query: str, ontology: str) → TermData | None  # OLS (any ontology)
+lookup_unit(unit_string: str) → TermData | None     # OLS/UO (units)
 lookup_orcid(orcid_id: str) → PersonData | None     # ORCID
 lookup_ror(name: str) → OrgData | None              # ROR
 lookup_doi(doi: str) → PublicationData | None       # Crossref
@@ -735,15 +738,21 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
 
 ### Available Services
 - **PubChem**: Name/CAS/CID → SMILES, InChI, formula, mass
+- **CompTox (EPA)**: Name/CAS/InChIKey → DTXSID (the DSSTox anchor identifier)
 - **Cellosaurus**: Accession (CVCL_xxxx) → name, species, disease, site, sex
 - **AOP-Wiki**: AOP ID → full pathway graph (AOP, events, relationships)
-- **BAO / OLS**: Free-text query → best-matching ontology term with IRI
+- **OLS4 (generic)**: Free-text query + ontology short name → best-matching
+  term IRI with a relevance score. Backs `lookup_bao_term` (BAO),
+  `lookup_unit` (UO units), and `lookup_ontology_term` for any OLS-hosted
+  vocabulary (EFO/OBI/NCIT/UBERON/ChEBI/…).
 - **ORCID**: ORCID iD → name, affiliation, affiliation ROR
 - **ROR**: Organization name → ROR ID, website URL
 - **Crossref**: DOI → title, authors, journal, year
 
 ### Multi-Strategy Lookups
-For chemicals: try by name, then CAS, then ChEBI. If all fail, ask user for SMILES/InChI.
+For chemicals, `lookup_compound` tries by name, then CAS, then **ChEBI** (via
+OLS4) — a PubChem miss now falls back to resolving a ChEBI IRI rather than a
+hard not-found. If all fail, ask the user for SMILES/InChI.
 
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.
