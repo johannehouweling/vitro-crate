@@ -221,6 +221,24 @@ roots (see [Guard Rails](#guard-rails-approved-scan-roots) above).
 - `read_file_sample` accepts `precomputed_size` and `already_text` to avoid redundant stat()/MIME syscalls
 - `_safe_walk` prunes hidden/`.git`/`__MACOSX` directories in-place via `os.walk` `dirnames[:]` mutation, avoiding the cost of descending and then filtering
 
+**MIME detection (Issue #148):** `_detect_mime_type` resolves in order — stdlib
+`mimetypes`, then a scientific-format registry (`_SCIENTIFIC_MIME_TYPES`) covering
+MS/microscopy/flow extensions the stdlib does not know (`.mzML` →
+`application/x-mzml`, `.fcs` → `application/vnd.isac.fcs`, vendor binaries
+`.raw/.wiff/.czi/.nd2/.lif/.d/...` → `application/octet-stream`), consulted BEFORE
+the text-content sniff so binaries are never mislabeled `text/plain`, with
+`application/octet-stream` as the true default for unknown binary. A NUL byte in
+the header now reliably forces the binary default. `encoding_format_for_name`
+exposes the same extension→media-type derivation (no disk read) for entity
+drafting.
+
+**Size ceilings (Issue #148):** the dedicated readers in `file_readers.py` share
+the scanner's 100 MB ceiling (`_MAX_BYTES`), not the old 1 MB cap that silently
+returned `None` for ordinary mid-size files; row/line caps keep memory bounded.
+The agent loop turns a bare `None` from any file reader
+(`read_file_sample`/`read_file`/`read_excel`/`read_docx`) into an actionable
+"unreadable/too-large — skip it" message so a weak model stops re-calling it.
+
 #### Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.
 Each drafter collects hints, calls the LLM, and ensures identifiers come from
@@ -432,17 +450,29 @@ catch). Guardrails are a one-time cost; a stronger model is recurring per token.
 
 ## 5. The Agent Toolbox
 
-### File & ARC Tools
-*These are called during session initialization, not by the LLM during the agent loop.*
+### File Tools
+*The scanner/sampler triad below is engine-routed (not in `TOOL_SPECS`); the
+full readers are specced and LLM-callable during the agent loop.*
 ```
 scan_files(path: str) → [FileClassification]
 read_file_sample(path: str, lines: int = 20, mode: str = "content") → str | None
   mode: "content" (first N lines), "summary" (file-type-aware), "overview" (metadata + summary)
 read_multiple_files(paths: list[str], lines: int = 50, mode: str = "content") → dict
   mode: same options as read_file_sample
-scaffold_arc(scanned_files: [FileClassification]) → ARCTree
+read_file(path: str) → str | None             # full read by extension (txt, csv, json, xlsx, docx, md, pdf)
+read_excel(path: str) → str | None            # .xlsx → pipe-delimited text
+read_docx(path: str) → str | None             # .docx → plain text
+extract_pdf_text(path: str) → str             # structured PDF: [Page N] text, tables, image metadata
+preview_archive(path: str) → dict             # list a .zip's members + metadata without extracting
+unzip_file(path: str, output_dir: str | None = None) → str   # extract a .zip, returns extraction path
 ```
-`scaffold_arc` creates the ARC folder tree from the template and sorts scanned files into the correct ARC buckets. Called after `scan_files` and before the agent loop starts.
+`scan_files`, `read_file_sample`, and `read_multiple_files` run during session
+initialization to classify inputs and feed the state brief. The full readers
+(`read_file`/`read_excel`/`read_docx`/`extract_pdf_text`) and the archive tools
+(`preview_archive`/`unzip_file`) are dispatchable so the agent can pull a file's
+full contents on demand. There is **no `scaffold_arc` tool** — ARC is an *output*
+format only (D7); the ARC folder tree is materialised at export time by
+`builder/writers/arc_writer.py::write_arc`, not assembled from scanned inputs.
 
 ### Entity Drafting Tools
 ```
@@ -451,7 +481,9 @@ draft_study(investigation_id: str, hints: dict) → Entity
 draft_assay(study_id: str, hints: dict) → Entity
 draft_molecular_entity(name: str, hints: dict) → Entity
 draft_cell_line_sample(name: str, hints: dict) → Entity
+draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
+draft_protocol(hints: dict) → Entity                     # LabProtocol a LabProcess can follow
 draft_person(name: str, hints: dict) → Entity
 draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
@@ -484,6 +516,13 @@ EndpointReadout / DataAnalysis constructors so each `ParameterValue` carries its
 `CellLineSample`'s `passage` / `growth` hints are promoted to ISA Sample
 Characteristics — `schema:additionalProperty` PropertyValue nodes carrying the
 value and, when known, the property's ontology IRI.
+
+`draft_file` auto-derives `encodingFormat` from the file extension (`name`, then
+`path`) when the caller omits it (Issue #148), via the same scientific-format-aware
+MIME registry the scanner uses — so `run.mzML` becomes `application/x-mzml` and
+`acquisition.fcs` becomes `application/vnd.isac.fcs` rather than being left blank
+or mislabeled `text/plain`. An explicit `encoding_format` always wins; an
+extensionless name leaves the field unset.
 
 ### Entity Management Tools
 ```
@@ -525,10 +564,13 @@ process, returning issues in the same routable shape as `build_and_validate` (#8
 
 ### Lookup Tools
 ```
-lookup_compound(name: str) → CompoundData | None   # PubChem
+lookup_compound(name: str) → CompoundData | None   # PubChem (→ ChEBI fallback)
+lookup_dtxsid(query: str) → DtxsidData | None       # EPA CompTox (DTXSID)
 lookup_cell_line(accession: str) → CellLineData | None  # Cellosaurus
 lookup_aop(aop_id: str) → AOPData | None            # AOP-Wiki
 lookup_bao_term(query: str) → TermData | None       # OLS/BAO
+lookup_ontology_term(query: str, ontology: str) → TermData | None  # OLS (any ontology)
+lookup_unit(unit_string: str) → TermData | None     # OLS/UO (units)
 lookup_orcid(orcid_id: str) → PersonData | None     # ORCID
 lookup_ror(name: str) → OrgData | None              # ROR
 lookup_doi(doi: str) → PublicationData | None       # Crossref
@@ -609,10 +651,18 @@ assess_fair_maturity() → FAIRReport
 ### Session & HITL Tools
 ```
 present_to_human(context: str, options: [str]) → HumanResponse
+request_input(prompt: str, field_type: str | None = None) → HumanResponse
 save_session(label: str) → SessionInfo
+list_sessions() → [SessionInfo]
+load_session(session_id: str) → SessionStatus
 get_status() → SessionStatus
 get_hint() → str
 ```
+`present_to_human` offers a choice between `options`; `request_input` asks the
+human for a single free-form value (e.g. a compound name, CAS number, or cell
+line accession) when a lookup needs a missing identifier. `list_sessions` and
+`load_session` drive the resume flow (§7); `present_to_human`/`request_input`
+are engine-routed HITL tools (not in `TOOL_REGISTRY`), the rest are specced.
 
 ### Profiling
 Every tool call and graph node execution is automatically timed and recorded by `ProfilingLogger` (see [docs/profiling.md](docs/profiling.md)). Profile data is written to `sessions/<session_id>/profile.ndjson` as newline-delimited JSON with event types including `tool_call`, `node_start`, and `node_end`. This file is the primary input for timing analysis, debugging, and live status in future web UIs.
@@ -767,15 +817,21 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
 
 ### Available Services
 - **PubChem**: Name/CAS/CID → SMILES, InChI, formula, mass
+- **CompTox (EPA)**: Name/CAS/InChIKey → DTXSID (the DSSTox anchor identifier)
 - **Cellosaurus**: Accession (CVCL_xxxx) → name, species, disease, site, sex
 - **AOP-Wiki**: AOP ID → full pathway graph (AOP, events, relationships)
-- **BAO / OLS**: Free-text query → best-matching ontology term with IRI
+- **OLS4 (generic)**: Free-text query + ontology short name → best-matching
+  term IRI with a relevance score. Backs `lookup_bao_term` (BAO),
+  `lookup_unit` (UO units), and `lookup_ontology_term` for any OLS-hosted
+  vocabulary (EFO/OBI/NCIT/UBERON/ChEBI/…).
 - **ORCID**: ORCID iD → name, affiliation, affiliation ROR
 - **ROR**: Organization name → ROR ID, website URL
 - **Crossref**: DOI → title, authors, journal, year
 
 ### Multi-Strategy Lookups
-For chemicals: try by name, then CAS, then ChEBI. If all fail, ask user for SMILES/InChI.
+For chemicals, `lookup_compound` tries by name, then CAS, then **ChEBI** (via
+OLS4) — a PubChem miss now falls back to resolving a ChEBI IRI rather than a
+hard not-found. If all fail, ask the user for SMILES/InChI.
 
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.

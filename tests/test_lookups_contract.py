@@ -18,8 +18,9 @@ from requests.exceptions import ConnectionError, Timeout
 
 from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop
-from lookups.bao import lookup_bao_term
+from lookups.bao import lookup_bao_term, lookup_ontology_term, lookup_unit
 from lookups.cellosaurus import lookup_cellosaurus
+from lookups.comptox import lookup_dtxsid
 from lookups.crossref import lookup_doi
 from lookups.orcid import lookup_orcid
 from lookups.pubchem import lookup_pubchem
@@ -43,7 +44,8 @@ def _clear_caches():
     lookup_pubchem.cache_clear()
     lookup_cellosaurus.cache_clear()
     lookup_aop.cache_clear()
-    lookup_bao_term.cache_clear()
+    lookup_ontology_term.cache_clear()
+    lookup_dtxsid.cache_clear()
     lookup_orcid.cache_clear()
     search_ror.cache_clear()
     lookup_doi.cache_clear()
@@ -409,6 +411,153 @@ class TestBAOContract:
 
         result = lookup_bao_term("something")
         assert result == {}
+
+
+# ===========================================================================
+# Generic OLS ontology term + units (#142)
+# ===========================================================================
+
+
+class TestOntologyTermContract:
+    """Contract tests for lookups/bao.py generic OLS functions."""
+
+    @responses.activate
+    def test_generic_ontology_term_with_score(self):
+        """lookup_ontology_term surfaces the OLS score and respects ontology."""
+        responses.add(
+            responses.GET,
+            "https://www.ebi.ac.uk/ols4/api/search",
+            json={
+                "response": {
+                    "numFound": 1,
+                    "docs": [
+                        {
+                            "iri": "http://www.ebi.ac.uk/efo/EFO_0000311",
+                            "label": "cancer",
+                            "short_form": "EFO_0000311",
+                            "score": 14.2,
+                        }
+                    ],
+                }
+            },
+            status=200,
+        )
+
+        result = lookup_ontology_term("cancer", "efo")
+        assert result["@id"] == "http://www.ebi.ac.uk/efo/EFO_0000311"
+        assert result["termCode"] == "EFO_0000311"
+        assert result["score"] == 14.2
+        # The request must carry the requested ontology and a rows param.
+        sent = responses.calls[0].request
+        assert "ontology=efo" in sent.url
+        assert "rows=" in sent.url
+
+    @responses.activate
+    def test_unit_resolves_to_uo_iri(self):
+        """lookup_unit resolves to a UO IRI via the same OLS endpoint."""
+        responses.add(
+            responses.GET,
+            "https://www.ebi.ac.uk/ols4/api/search",
+            json={
+                "response": {
+                    "numFound": 1,
+                    "docs": [
+                        {
+                            "iri": "http://purl.obolibrary.org/obo/UO_0000064",
+                            "label": "micromolar",
+                            "short_form": "UO_0000064",
+                            "score": 8.0,
+                        }
+                    ],
+                }
+            },
+            status=200,
+        )
+
+        result = lookup_unit("micromolar")
+        assert result["@id"] == "http://purl.obolibrary.org/obo/UO_0000064"
+        assert result["termCode"] == "UO_0000064"
+        assert "ontology=uo" in responses.calls[0].request.url
+
+    @responses.activate
+    def test_bao_wrapper_still_pins_bao(self):
+        """The back-compat lookup_bao_term wrapper still pins ontology=bao."""
+        responses.add(
+            responses.GET,
+            "https://www.ebi.ac.uk/ols4/api/search",
+            json=_load("bao_cell_viability.json"),
+            status=200,
+        )
+
+        result = lookup_bao_term("cell viability assay")
+        assert result["termCode"] == "BAO_0003009"
+        assert "ontology=bao" in responses.calls[0].request.url
+
+
+# ===========================================================================
+# CompTox DTXSID (#146)
+# ===========================================================================
+
+
+class TestCompToxContract:
+    """Contract tests for lookups/comptox.py."""
+
+    @responses.activate
+    def test_resolves_dtxsid_from_list(self):
+        """A list response yields the first hit's DTXSID."""
+        responses.add(
+            responses.GET,
+            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/Bisphenol%20A",
+            json=[
+                {
+                    "dtxsid": "DTXSID7020182",
+                    "preferredName": "Bisphenol A",
+                    "casrn": "80-05-7",
+                    "inchikey": "IISBACLAFKSPIT-UHFFFAOYSA-N",
+                }
+            ],
+            status=200,
+        )
+
+        result = lookup_dtxsid("Bisphenol A")
+        assert result["dtxsid"] == "DTXSID7020182"
+        assert result["@type"] == "MolecularEntity"
+        assert result["casrn"] == "80-05-7"
+        assert result["inchikey"] == "IISBACLAFKSPIT-UHFFFAOYSA-N"
+        assert result["@id"].endswith("DTXSID7020182")
+
+    @responses.activate
+    def test_no_hits_returns_empty(self):
+        responses.add(
+            responses.GET,
+            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/Nope",
+            json=[],
+            status=200,
+        )
+        assert lookup_dtxsid("Nope") == {}
+
+    @responses.activate
+    def test_404_returns_empty(self):
+        responses.add(
+            responses.GET,
+            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/Nope",
+            status=404,
+        )
+        assert lookup_dtxsid("Nope") == {}
+
+    @responses.activate
+    def test_timeout_raises_transient(self):
+        responses.add(
+            responses.GET,
+            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/BPA",
+            body=Timeout("timed out"),
+        )
+        with pytest.raises(TransientLookupError):
+            lookup_dtxsid("BPA")
+
+    @responses.activate
+    def test_empty_query_no_http(self):
+        assert lookup_dtxsid("") == {}
 
 
 # ===========================================================================

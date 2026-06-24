@@ -816,3 +816,57 @@ class TestReducedStats:
 
         assert sample is not None
         assert "a,b" in sample
+
+
+class TestScientificMimeRegistry:
+    """Issue #148: scientific-format extensions resolve to real IANA media types.
+
+    mimetypes.guess_type returns None for .mzML/.raw/.wiff/.fcs/etc. and the
+    text-sniff fallback then mislabels their binary bytes as text/plain. A small
+    extension->media-type registry, consulted before the text sniff, fixes that
+    and keeps application/octet-stream as the true default for unknown binaries.
+    """
+
+    def test_known_scientific_extensions_map_to_real_media_types(self, tmp_path):
+        from builder.tools.scanner import _detect_mime_type
+
+        # extension -> expected media type (not text/plain via the sniff path)
+        cases = {
+            "x.mzML": "application/x-mzml",
+            "x.raw": "application/octet-stream",  # generic vendor raw -> binary
+            "x.wiff": "application/octet-stream",
+            "x.fcs": "application/vnd.isac.fcs",
+            "x.czi": "application/octet-stream",
+            "x.nd2": "application/octet-stream",
+            "x.lif": "application/octet-stream",
+        }
+        for name, expected in cases.items():
+            p = tmp_path / name
+            # Write bytes that would *decode* as UTF-8 text so the old text-sniff
+            # fallback would mislabel them as text/plain.
+            p.write_bytes(b"some ascii looking header\n")
+            assert _detect_mime_type(p) == expected, name
+
+    def test_mzml_not_text_plain(self, tmp_path):
+        from builder.tools.scanner import _detect_mime_type
+
+        p = tmp_path / "run.mzML"
+        p.write_bytes(b"<?xml version='1.0'?>\n<mzML></mzML>\n")
+        mime = _detect_mime_type(p)
+        assert mime != "text/plain"
+        assert mime != "application/octet-stream"
+
+    def test_unknown_binary_extension_defaults_to_octet_stream(self, tmp_path):
+        from builder.tools.scanner import _detect_mime_type
+
+        p = tmp_path / "blob.zzzunknown"
+        # Real binary content (NUL bytes) — must not be called text/plain.
+        p.write_bytes(b"\x00\x01\x02\x03binary\x00stuff")
+        assert _detect_mime_type(p) == "application/octet-stream"
+
+    def test_plain_text_still_text_plain(self, tmp_path):
+        from builder.tools.scanner import _detect_mime_type
+
+        p = tmp_path / "notes.unknownext"
+        p.write_bytes(b"just some plain readable text\n")
+        assert _detect_mime_type(p) == "text/plain"

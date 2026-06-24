@@ -61,6 +61,34 @@ class TestDraftFile:
         assert fe.fields["name"] == "loose.csv"
         assert "role" not in fe.fields
 
+    def test_draft_file_auto_derives_encoding_format_from_name(self):
+        # Issue #148: when the caller omits encoding_format, derive a sensible
+        # IANA media type from the file extension instead of leaving it blank.
+        state = CrateState()
+        fe = draft_file(state, name="run.mzML")
+        ef = fe.fields.get("encodingFormat")
+        assert ef is not None
+        # mzML must not be mislabeled as plain text.
+        assert ef != "text/plain"
+        assert ef == "application/x-mzml"
+
+    def test_draft_file_auto_derives_encoding_format_from_path(self):
+        # When name has no usable extension, fall back to the destination path.
+        state = CrateState()
+        fe = draft_file(state, name="acquisition", path="data/run.fcs")
+        assert fe.fields.get("encodingFormat") == "application/vnd.isac.fcs"
+
+    def test_draft_file_explicit_encoding_format_wins(self):
+        # An explicit encoding_format must not be overridden by auto-derivation.
+        state = CrateState()
+        fe = draft_file(state, name="run.mzML", encoding_format="application/xml")
+        assert fe.fields["encodingFormat"] == "application/xml"
+
+    def test_draft_file_no_extension_leaves_encoding_unset(self):
+        state = CrateState()
+        fe = draft_file(state, name="README")
+        assert "encodingFormat" not in fe.fields
+
 
 class TestLink:
     def _state(self):

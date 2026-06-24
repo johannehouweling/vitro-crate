@@ -48,8 +48,83 @@ def _is_within(dest: Path, target: Path) -> bool:
         return False
 
 
+# Scientific-format MIME registry (Issue #148).
+#
+# ``mimetypes.guess_type`` returns ``None`` for mass-spec / microscopy / flow
+# formats (.mzML, .raw, .wiff, .fcs, .czi, .nd2, .lif, .d, ...), so the old
+# text-sniff fallback would decode their bytes and mislabel them as
+# ``text/plain``. This map is consulted BEFORE the text sniff so these formats
+# get a meaningful media type, and binary vendor formats default to
+# ``application/octet-stream`` (the true default for unknown binary content)
+# rather than ``text/plain``.
+#
+# Where a registered/community media type exists we use it (mzML ->
+# application/x-mzml, FCS -> application/vnd.isac.fcs); otherwise the format is
+# an opaque vendor binary and maps to application/octet-stream.
+_SCIENTIFIC_MIME_TYPES: dict[str, str] = {
+    # Mass spectrometry — open/standard
+    ".mzml": "application/x-mzml",
+    ".mzxml": "application/x-mzxml",
+    ".mzdata": "application/x-mzdata",
+    ".imzml": "application/x-mzml",
+    ".mgf": "text/plain",
+    # Mass spectrometry — vendor binaries
+    ".raw": "application/octet-stream",  # Thermo / Waters raw
+    ".wiff": "application/octet-stream",  # SCIEX
+    ".wiff2": "application/octet-stream",
+    ".d": "application/octet-stream",  # Agilent / Bruker directory bundle
+    ".baf": "application/octet-stream",  # Bruker
+    ".tdf": "application/octet-stream",  # Bruker timsTOF
+    ".yep": "application/octet-stream",  # Bruker
+    ".fid": "application/octet-stream",  # Bruker / NMR FID
+    # Flow cytometry
+    ".fcs": "application/vnd.isac.fcs",
+    # Microscopy / imaging — vendor binaries
+    ".czi": "application/octet-stream",  # Zeiss
+    ".nd2": "application/octet-stream",  # Nikon
+    ".lif": "application/octet-stream",  # Leica
+    ".lsm": "application/octet-stream",  # Zeiss
+    ".oib": "application/octet-stream",  # Olympus
+    ".oif": "application/octet-stream",  # Olympus
+    ".ims": "application/octet-stream",  # Imaris
+    ".vsi": "application/octet-stream",  # Olympus
+    ".ndpi": "application/octet-stream",  # Hamamatsu
+    ".svs": "application/octet-stream",  # Aperio
+    ".scn": "application/octet-stream",  # Leica slide
+    ".dm3": "application/octet-stream",  # Gatan
+    ".dm4": "application/octet-stream",  # Gatan
+    # Open imaging containers
+    ".ome.tiff": "image/tiff",
+    ".ome.tif": "image/tiff",
+}
+
+
+def _scientific_mime_for(file_path: Path) -> str | None:
+    """Return a registered media type for known scientific file extensions.
+
+    Handles both single-suffix (``.mzML``) and compound (``.ome.tiff``)
+    extensions, case-insensitively. Returns ``None`` when the extension is not
+    in the scientific registry.
+    """
+    # Prefer the longest matching compound suffix (e.g. .ome.tiff over .tiff).
+    suffixes = [s.lower() for s in file_path.suffixes]
+    for start in range(len(suffixes)):
+        compound = "".join(suffixes[start:])
+        if compound in _SCIENTIFIC_MIME_TYPES:
+            return _SCIENTIFIC_MIME_TYPES[compound]
+    return None
+
+
 def _detect_mime_type(file_path: Path) -> str:
     """Detect the MIME type of a file using mimetypes and content sniffing.
+
+    Resolution order (Issue #148):
+
+    1. ``mimetypes.guess_type`` (stdlib extension table).
+    2. The scientific-format registry (:data:`_SCIENTIFIC_MIME_TYPES`) for
+       MS / microscopy / flow extensions the stdlib does not know.
+    3. A text-content sniff (CSV / TSV / plain text).
+    4. ``application/octet-stream`` as the true default for unknown binary.
 
     Args:
         file_path: Path to the file.
@@ -57,33 +132,72 @@ def _detect_mime_type(file_path: Path) -> str:
     Returns:
         A MIME type string.
     """
-    # Fallback: guess from extension
+    # Step 1: stdlib extension table.
     mime_type, _ = mimetypes.guess_type(str(file_path))
     if mime_type:
         return mime_type
-    # Fallback: try content sniffing for common text formats
+
+    # Step 2: scientific-format registry (BEFORE the text sniff so binary
+    # vendor formats are not mislabeled text/plain).
+    scientific = _scientific_mime_for(file_path)
+    if scientific is not None:
+        return scientific
+
+    # Step 3: content sniffing for common text formats.
     try:
         with file_path.open("rb") as f:
             header = f.read(512)
 
-        # Check for CSV/TSV by looking for commas/tabs in the first line
-        if header.startswith(b",") or (b"," in header.split(b"\n")[0][:256]):
-            return "text/csv"
-        if header.startswith(b"\t") or (b"\t" in header.split(b"\n")[0][:256]):
-            return "text/tab-separated-values"
+        # A NUL byte is a reliable binary marker — even though it decodes as
+        # valid UTF-8, it never appears in genuine text, so refuse to call such
+        # content text/* and fall through to octet-stream.
+        if b"\x00" not in header:
+            # Check for CSV/TSV by looking for commas/tabs in the first line
+            if header.startswith(b",") or (b"," in header.split(b"\n")[0][:256]):
+                return "text/csv"
+            if header.startswith(b"\t") or (b"\t" in header.split(b"\n")[0][:256]):
+                return "text/tab-separated-values"
 
-        # Check if it looks like plain text (printable ASCII or common UTF-8)
-        try:
-            header.decode("utf-8")
-            return "text/plain"
-        except (UnicodeDecodeError, UnicodeError):
-            pass
+            # Check if it looks like plain text (printable ASCII or common UTF-8)
+            try:
+                header.decode("utf-8")
+                return "text/plain"
+            except (UnicodeDecodeError, UnicodeError):
+                pass
     except PermissionError:
         logger.warning("Permission denied reading: %s", file_path)
     except OSError:
         pass
 
+    # Step 4: true default for unknown binary content.
     return "application/octet-stream"
+
+
+def encoding_format_for_name(name: str) -> str | None:
+    """Derive an IANA media type from a file name/extension alone (no disk read).
+
+    Used to auto-populate ``schema:encodingFormat`` when drafting File entities
+    (Issue #148). Consults the stdlib ``mimetypes`` table first, then the
+    scientific-format registry (:data:`_SCIENTIFIC_MIME_TYPES`). Returns
+    ``None`` when the name carries no recognised extension, so callers can leave
+    ``encodingFormat`` unset rather than guess.
+
+    Args:
+        name: A file name or crate-relative path (e.g. ``run.mzML``,
+            ``data/results.csv``).
+
+    Returns:
+        A media-type string, or ``None`` if the extension is unknown.
+    """
+    if not name:
+        return None
+    path = Path(name)
+    if not path.suffix:
+        return None
+    mime_type, _ = mimetypes.guess_type(path.name)
+    if mime_type:
+        return mime_type
+    return _scientific_mime_for(path)
 
 
 _TABULAR_MIME_TYPES = {

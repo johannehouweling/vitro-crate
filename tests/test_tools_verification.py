@@ -129,6 +129,40 @@ class TestVerifyIdentifier:
         assert status is not None
         assert status.status != "missing"
 
+    def test_verifies_molecular_entity_dtxsid(self, minimal_state, monkeypatch):
+        """MolecularEntity.dtxsid re-resolves via the CompTox lookup (#146)."""
+        state = minimal_state
+        chem = Entity(
+            entity_id="chem_bpa",
+            type="MolecularEntity",
+            fields={"dtxsid": "DTXSID7020182"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        chem.set_field_status("dtxsid", "filled", "llm")
+        state.add_entity(chem)
+
+        seen = {}
+
+        def fake_dtxsid(query):
+            seen["query"] = query
+            return {
+                "found": True,
+                "data": {"dtxsid": "DTXSID7020182", "name": "Bisphenol A"},
+                "error": None,
+            }
+
+        monkeypatch.setattr("builder.tools.verification.lookup_dtxsid", fake_dtxsid)
+
+        result = verify_identifier(state, "chem_bpa", "dtxsid")
+
+        assert result["verified"] is True
+        # The stored DTXSID value is what gets re-resolved.
+        assert seen["query"] == "DTXSID7020182"
+        completion = chem.get_field_status("dtxsid")
+        assert completion is not None
+        assert completion.status == "verified"
+        assert "comptox" in chem._provenance.lookups_used
+
     def test_transient_orcid_not_verified_and_kept(self, minimal_state, monkeypatch):
         """A transient ORCID error is neither verified nor cleared (no false +)."""
         state = minimal_state
@@ -216,6 +250,7 @@ class TestVerifiableFieldSet:
         assert "inchikey" in me_fields, "inchikey should be verifiable for MolecularEntity"
         assert "identifier" in me_fields, "identifier should be verifiable for MolecularEntity"
         assert "pubchem_cid" in me_fields, "pubchem_cid should be verifiable for MolecularEntity"
+        assert "dtxsid" in me_fields, "dtxsid should be verifiable for MolecularEntity"
 
     def test_organization_ror_not_verifiable(self):
         """Organization has no verifier, so ror should not be in the set."""

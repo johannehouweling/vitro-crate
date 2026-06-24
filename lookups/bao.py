@@ -1,40 +1,47 @@
 """
-BioAssay Ontology (BAO) lookup via EBI OLS4 API.
+Generic ontology-term lookup via the EBI OLS4 API.
 
-Used to annotate assay measurement methods, measurement techniques,
-and lab equipment with standardised ontology terms.
+OLS4 hosts dozens of ontologies behind a single search endpoint, so the same
+parser serves BAO (BioAssay Ontology) assay annotations, the Units of
+Measurement Ontology (UO) for quantities, and any other OLS-hosted ontology
+(EFO/OBI/NCIT/UBERON/ChEBI, …).
+
+``lookup_ontology_term`` is the generic primitive; ``lookup_bao_term`` and
+``lookup_unit`` are thin, ontology-pinned wrappers over it.
 """
 
 from __future__ import annotations
 
 import functools
-import time
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://www.ebi.ac.uk/ols4/api/search"
 
 
-@functools.lru_cache(maxsize=512)
-def lookup_bao_term(query: str) -> dict:
-    """Search BAO for the best matching term.
+@functools.lru_cache(maxsize=1024)
+def lookup_ontology_term(query: str, ontology: str, rows: int = 1) -> dict:
+    """Search an OLS4-hosted ontology for the best matching term.
 
     Args:
         query: plain-text description, e.g. "gene expression assay", "RT-qPCR",
-               "QuantStudio 7 Flex"
+               "micromolar".
+        ontology: OLS ontology short name, e.g. "bao", "uo", "efo", "chebi".
+        rows: number of OLS rows to request (only the top hit is returned).
 
     Returns:
-        dict with keys: @id (BAO IRI), @type ("DefinedTerm"), name.
-        Returns {} if no match. Raises TransientLookupError on a transient API
-        failure (timeout / connection / 429 / 5xx).
+        dict with keys: @id (term IRI), @type ("DefinedTerm"), name, termCode,
+        and ``score`` (the OLS4 relevance score, when present). Returns {} if no
+        match. Raises TransientLookupError on a transient API failure
+        (timeout / connection / 429 / 5xx).
     """
-    if not query:
+    if not query or not ontology:
         return {}
     try:
-        time.sleep(0.1)
+        # Politeness throttling is handled centrally in http_get_json (#62).
         data = http_get_json(
             _BASE,
-            params={"q": query, "ontology": "bao", "rows": 1},
+            params={"q": query, "ontology": ontology, "rows": rows},
         )
         if data is NOT_FOUND:
             return {}
@@ -50,13 +57,52 @@ def lookup_bao_term(query: str) -> dict:
         if not iri:
             return {}
 
-        return {
+        result = {
             "@id": iri,
             "@type": "DefinedTerm",
             "name": label,
             "termCode": top.get("short_form", ""),
         }
+        # OLS4 returns a Solr relevance score on each doc; surface it as a
+        # confidence signal when available.
+        score = top.get("score")
+        if score is not None:
+            result["score"] = score
+        return result
     except TransientLookupError:
         raise
     except Exception:
         return {}
+
+
+def lookup_bao_term(query: str) -> dict:
+    """Search BAO for the best matching term (back-compat wrapper).
+
+    Thin wrapper over :func:`lookup_ontology_term` pinned to ``ontology="bao"``.
+
+    Args:
+        query: plain-text description, e.g. "gene expression assay", "RT-qPCR",
+               "QuantStudio 7 Flex"
+
+    Returns:
+        dict with keys: @id (BAO IRI), @type ("DefinedTerm"), name, termCode.
+        Returns {} if no match. Raises TransientLookupError on a transient API
+        failure (timeout / connection / 429 / 5xx).
+    """
+    return lookup_ontology_term(query, "bao")
+
+
+def lookup_unit(unit_string: str) -> dict:
+    """Resolve a unit string to a Units of Measurement Ontology (UO) IRI.
+
+    Thin wrapper over :func:`lookup_ontology_term` pinned to ``ontology="uo"``.
+
+    Args:
+        unit_string: plain-text unit, e.g. "micromolar", "hour", "milligram".
+
+    Returns:
+        dict with keys: @id (UO IRI), @type ("DefinedTerm"), name, termCode, and
+        ``score`` when available. Returns {} if no match. Raises
+        TransientLookupError on a transient API failure.
+    """
+    return lookup_ontology_term(unit_string, "uo")

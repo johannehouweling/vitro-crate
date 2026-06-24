@@ -182,22 +182,32 @@ def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | N
     return create_model(f"{name}_args", **fields, __base__=BaseModel)
 
 
-def _unreadable_file_message(path: str) -> str:
-    """Actionable message for the LLM when read_file_sample can't return text.
+# File-reading tools that hand back a bare ``None`` for files that are missing,
+# too large, or binary/corrupt. A bare ``None`` gives a weak model nothing to act
+# on, so it re-calls the tool forever and hits the iteration cap (#101, #148).
+_FILE_READ_TOOLS = frozenset(
+    {"read_file_sample", "read_file", "read_excel", "read_docx"}
+)
 
-    read_file_sample returns a bare ``None`` for files that are missing, too
-    large, or binary (e.g. .xls/.xlsx Office containers, GraphPad .prism/.pzf).
-    A bare ``None`` gives the model nothing to act on, so a weak model re-calls
-    the tool forever and hits the iteration cap (#101). This turns it into a
-    clear "stop, do something else" signal.
+
+def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> str:
+    """Actionable message for the LLM when a file reader can't return text.
+
+    The file-reading tools (read_file_sample / read_file / read_excel /
+    read_docx) return a bare ``None`` for files that are missing, too large
+    (>100MB), or binary/corrupt (e.g. .xls/.xlsx Office containers, GraphPad
+    .prism/.pzf). A bare ``None`` gives the model nothing to act on, so a weak
+    model re-calls the tool forever and hits the iteration cap (#101, #148).
+    This turns it into a clear "stop, do something else" signal.
     """
     name = (path or "").replace("\\", "/").rsplit("/", 1)[-1] or path or "the file"
     return (
-        f"read_file_sample could not return text for '{name}'. It is missing, too "
-        f"large (>100MB), or binary — e.g. .xls/.xlsx are Office/zip containers and "
-        f".prism/.pzf are GraphPad Prism binaries. Do NOT retry read_file_sample on "
-        f"it. Use the scan preview already in state, try read_excel/read_file for "
-        f"spreadsheets or Office docs, or skip this file and continue drafting entities."
+        f"{tool_name} could not return text for '{name}'. It is missing, too "
+        f"large (>100MB), or binary/corrupt — e.g. .xls/.xlsx are Office/zip "
+        f"containers and .prism/.pzf are GraphPad Prism binaries. Do NOT retry "
+        f"{tool_name} on it. Use the scan preview already in state, try "
+        f"read_excel/read_file for spreadsheets or Office docs, or skip this file "
+        f"and continue drafting entities."
     )
 
 
@@ -245,10 +255,13 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     from builder.tools.scanner import summarize_scan_result
 
                     return summarize_scan_result(result)
-                # read_file_sample returns None for missing/oversized/binary files;
-                # hand the LLM an actionable message so it stops re-calling it (#101).
-                if tool_name == "read_file_sample" and result is None:
-                    return _unreadable_file_message(kwargs.get("path", ""))
+                # The file-reading tools return None for missing/oversized/binary
+                # files; hand the LLM an actionable message so it stops re-calling
+                # them (#101, #148).
+                if tool_name in _FILE_READ_TOOLS and result is None:
+                    return _unreadable_file_message(
+                        kwargs.get("path", ""), tool_name
+                    )
                 return result
 
             _run.__name__ = tool_name
@@ -554,6 +567,7 @@ def _build_system_prompt_with_state(
     entity_count: int,
     file_count: int,
     iteration_count: int,
+    next_fix: str | None = None,
 ) -> str:
     """Build a lightweight state brief appended to the system prompt.
 
@@ -563,13 +577,21 @@ def _build_system_prompt_with_state(
 
     Returns a single short line like:
     ``[Session: sid | Files: 5 | Entities: 3 | Iteration: 42]``
+
+    When ``next_fix`` is given (the top REQUIRED validation issue, surfaced from
+    ``state.validation`` after the #153 write-back), a second line names it so a
+    weak model has a durable next-step pointer and stops re-deriving the
+    BASE->ISA->TOX plan from the system prompt every turn.
     """
-    return (
+    brief = (
         f"[Session: {session_id} | "
         f"Files: {file_count} | "
         f"Entities: {entity_count} | "
         f"Iteration: {iteration_count}]"
     )
+    if next_fix:
+        brief += f"\n[Next REQUIRED fix: {next_fix}]"
+    return brief
 
 
 # Tool names whose verbose output already lives in CrateState, so replaying it
@@ -687,6 +709,7 @@ def _assemble_model_messages(
     entity_count: int,
     file_count: int,
     iteration_count: int,
+    next_fix: str | None = None,
     max_history_tokens: int | None = None,
 ) -> list:
     """Assemble the message list for a model invocation with a cache-friendly
@@ -728,6 +751,7 @@ def _assemble_model_messages(
         entity_count=entity_count,
         file_count=file_count,
         iteration_count=iteration_count,
+        next_fix=next_fix,
     )
     return [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -782,12 +806,17 @@ def _build_agent_graph(
         # Stable SYSTEM_PROMPT prefix + history, with the volatile per-turn state
         # brief at the tail so the cacheable prefix isn't busted (Issue #60). The
         # brief is rebuilt each call and never persisted to history (Issue #66).
+        # The top REQUIRED validation issue (populated by the #153 write-back) is
+        # surfaced in the brief as a durable next-step pointer for a weak model.
+        required_issues = engine.state.validation.required_issues
+        next_fix = required_issues[0] if required_issues else None
         model_messages = _assemble_model_messages(
             messages,
             session_id=engine.state.session_id,
             entity_count=len(engine.state.list_entities()),
             file_count=len(engine.state.scanned_files),
             iteration_count=engine.state.iteration_count,
+            next_fix=next_fix,
         )
         response = model.invoke(model_messages)
         # Return only the new response; the add_messages reducer appends it

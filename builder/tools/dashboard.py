@@ -253,6 +253,8 @@ _TOOL_ICONS: dict[str, str] = {
     "link": "\U0001f517", "check_provenance": "\U0001f9ec",
     "lookup_compound": "\U0001f50d", "lookup_cell_line": "\U0001f50d",
     "lookup_aop": "\U0001f50d", "lookup_bao_term": "\U0001f50d",
+    "lookup_ontology_term": "\U0001f50d", "lookup_unit": "\U0001f50d",
+    "lookup_dtxsid": "\U0001f50d",
     "lookup_orcid": "\U0001f50d", "lookup_ror": "\U0001f50d",
     "lookup_doi": "\U0001f50d",
     "scan_files": "\U0001f4c2", "read_file_sample": "\U0001f4c2",
