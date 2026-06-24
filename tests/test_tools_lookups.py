@@ -60,7 +60,19 @@ class TestLookupCompound:
         def mock_lookup_pubchem(name):
             return {}
 
+        chebi_calls: list[tuple[str, str]] = []
+
+        def mock_chebi(raw, ontology):
+            chebi_calls.append((raw, ontology))
+            return {}
+
         monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", mock_lookup_pubchem)
+        # Keep the ChEBI fallback offline & deterministic: without this stub the
+        # PubChem-miss path calls the live OLS endpoint, making this unit test
+        # hit the network (CI flake — the regression #117 already fixed once).
+        monkeypatch.setattr(
+            "builder.tools.lookups.lookup_ontology_term_ols", mock_chebi
+        )
         result = lookup_compound("NonexistentCompoundXYZ")
         assert isinstance(result, dict)
         assert result["found"] is False
@@ -68,6 +80,30 @@ class TestLookupCompound:
         assert isinstance(result["error"], str)
         err_lower = result["error"].lower()
         assert "not found" in err_lower or "failed" in err_lower
+        # The fallback was consulted (and intercepted) — proves no live call.
+        assert chebi_calls == [("NonexistentCompoundXYZ", "chebi")]
+
+    def test_falls_back_to_chebi_when_pubchem_misses(self, monkeypatch):
+        # When PubChem indexes nothing, lookup_compound resolves a ChEBI IRI via
+        # OLS (the AGENTS.md §10 name → CAS → ChEBI multi-strategy). Fully mocked
+        # — covers the #146 fallback path with no network.
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", lambda name: {})
+        chebi_hit = {
+            "@id": "http://purl.obolibrary.org/obo/CHEBI_15377",
+            "termCode": "CHEBI:15377",
+            "name": "water",
+        }
+        monkeypatch.setattr(
+            "builder.tools.lookups.lookup_ontology_term_ols",
+            lambda raw, ontology: chebi_hit if ontology == "chebi" else {},
+        )
+        result = lookup_compound("water")
+        assert result["found"] is True
+        assert result["data"]["source"] == "chebi"
+        assert result["data"]["chebi_iri"] == "http://purl.obolibrary.org/obo/CHEBI_15377"
+        assert result["data"]["chebi_id"] == "CHEBI:15377"
+        assert result["data"]["iupac_name"] == "water"
+        assert result["error"] is None
 
     def test_never_throws_exception(self, monkeypatch):
         def mock_lookup_pubchem(name):
