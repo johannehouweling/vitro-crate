@@ -73,3 +73,28 @@ class TestAgentUnreadableMessage:
         out = tools["read_file_sample"].invoke({"path": str(p)})
         assert isinstance(out, str)
         assert out  # non-empty actionable message instead of None
+
+    def test_message_names_the_offending_tool(self):
+        # Issue #148: the recovery message is now reused across the file readers,
+        # so it must name whichever tool produced the bare None.
+        from builder.agents.agent_loop import _unreadable_file_message
+
+        msg = _unreadable_file_message("/data/sheet.xlsx", "read_excel")
+        assert "read_excel" in msg
+        assert "sheet.xlsx" in msg
+
+    @pytest.mark.parametrize("tool_name", ["read_file", "read_excel", "read_docx"])
+    def test_other_readers_return_message_not_none(self, tmp_path, tool_name):
+        # Issue #148: read_file / read_excel / read_docx previously handed the
+        # LLM a bare None for missing/binary/too-large files; they must now get
+        # the same actionable "skip it" guidance as read_file_sample.
+        pytest.importorskip("langchain_core")
+        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.engine import AgentEngine
+
+        p = _write_binary(tmp_path, "blob.xlsx")
+        tools = {t.name: t for t in _build_langchain_tools(AgentEngine())}
+        out = tools[tool_name].invoke({"path": str(p)})
+        assert isinstance(out, str)
+        assert out
+        assert tool_name in out

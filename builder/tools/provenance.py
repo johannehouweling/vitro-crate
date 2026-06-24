@@ -28,6 +28,7 @@ from typing import Any
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import PROVENANCE_RELATIONS
 from builder.tools.drafters import _make_entity_id
+from builder.tools.scanner import encoding_format_for_name
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,11 @@ def draft_file(
         path: Crate-relative destination path for the file (``dest_path``). When
             omitted the mapping derives ``data/<name>``.
         role: Optional role label for the file (e.g. "raw_data", "figure").
-        encoding_format: Optional IANA media type (schema:encodingFormat).
+        encoding_format: Optional IANA media type (schema:encodingFormat). When
+            omitted it is auto-derived from the file extension (``name`` first,
+            then ``path``) via the scientific-format-aware registry (Issue #148),
+            so e.g. ``run.mzML`` becomes ``application/x-mzml`` rather than being
+            left blank or mislabeled text/plain. An explicit value always wins.
 
     Returns:
         The newly created File Entity.
@@ -69,6 +74,13 @@ def draft_file(
         fields["dest_path"] = path
     if role:
         fields["role"] = role
+    if not encoding_format:
+        # Auto-derive from the extension (name, then dest path) when the caller
+        # omits it. Returns None for extensionless/unknown names, leaving the
+        # field unset rather than guessing.
+        encoding_format = encoding_format_for_name(name) or (
+            encoding_format_for_name(path) if path else None
+        )
     if encoding_format:
         fields["encodingFormat"] = encoding_format
     entity = Entity(

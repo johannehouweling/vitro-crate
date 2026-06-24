@@ -221,6 +221,24 @@ roots (see [Guard Rails](#guard-rails-approved-scan-roots) above).
 - `read_file_sample` accepts `precomputed_size` and `already_text` to avoid redundant stat()/MIME syscalls
 - `_safe_walk` prunes hidden/`.git`/`__MACOSX` directories in-place via `os.walk` `dirnames[:]` mutation, avoiding the cost of descending and then filtering
 
+**MIME detection (Issue #148):** `_detect_mime_type` resolves in order — stdlib
+`mimetypes`, then a scientific-format registry (`_SCIENTIFIC_MIME_TYPES`) covering
+MS/microscopy/flow extensions the stdlib does not know (`.mzML` →
+`application/x-mzml`, `.fcs` → `application/vnd.isac.fcs`, vendor binaries
+`.raw/.wiff/.czi/.nd2/.lif/.d/...` → `application/octet-stream`), consulted BEFORE
+the text-content sniff so binaries are never mislabeled `text/plain`, with
+`application/octet-stream` as the true default for unknown binary. A NUL byte in
+the header now reliably forces the binary default. `encoding_format_for_name`
+exposes the same extension→media-type derivation (no disk read) for entity
+drafting.
+
+**Size ceilings (Issue #148):** the dedicated readers in `file_readers.py` share
+the scanner's 100 MB ceiling (`_MAX_BYTES`), not the old 1 MB cap that silently
+returned `None` for ordinary mid-size files; row/line caps keep memory bounded.
+The agent loop turns a bare `None` from any file reader
+(`read_file_sample`/`read_file`/`read_excel`/`read_docx`) into an actionable
+"unreadable/too-large — skip it" message so a weak model stops re-calling it.
+
 #### Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.
 Each drafter collects hints, calls the LLM, and ensures identifiers come from
@@ -478,6 +496,13 @@ scalar keys plus reference keys, the latter a strict subset of `_REF_FIELDS`
 (asserted by test) so the advertised reference vocabulary and the crate-mapping
 resolver cannot drift. The schema is open (`additionalProperties: true`), so a
 weak model sees the high-value keys without the long tail being forbidden.
+
+`draft_file` auto-derives `encodingFormat` from the file extension (`name`, then
+`path`) when the caller omits it (Issue #148), via the same scientific-format-aware
+MIME registry the scanner uses — so `run.mzML` becomes `application/x-mzml` and
+`acquisition.fcs` becomes `application/vnd.isac.fcs` rather than being left blank
+or mislabeled `text/plain`. An explicit `encoding_format` always wins; an
+extensionless name leaves the field unset.
 
 ### Entity Management Tools
 ```

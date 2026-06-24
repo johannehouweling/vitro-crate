@@ -182,22 +182,32 @@ def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | N
     return create_model(f"{name}_args", **fields, __base__=BaseModel)
 
 
-def _unreadable_file_message(path: str) -> str:
-    """Actionable message for the LLM when read_file_sample can't return text.
+# File-reading tools that hand back a bare ``None`` for files that are missing,
+# too large, or binary/corrupt. A bare ``None`` gives a weak model nothing to act
+# on, so it re-calls the tool forever and hits the iteration cap (#101, #148).
+_FILE_READ_TOOLS = frozenset(
+    {"read_file_sample", "read_file", "read_excel", "read_docx"}
+)
 
-    read_file_sample returns a bare ``None`` for files that are missing, too
-    large, or binary (e.g. .xls/.xlsx Office containers, GraphPad .prism/.pzf).
-    A bare ``None`` gives the model nothing to act on, so a weak model re-calls
-    the tool forever and hits the iteration cap (#101). This turns it into a
-    clear "stop, do something else" signal.
+
+def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> str:
+    """Actionable message for the LLM when a file reader can't return text.
+
+    The file-reading tools (read_file_sample / read_file / read_excel /
+    read_docx) return a bare ``None`` for files that are missing, too large
+    (>100MB), or binary/corrupt (e.g. .xls/.xlsx Office containers, GraphPad
+    .prism/.pzf). A bare ``None`` gives the model nothing to act on, so a weak
+    model re-calls the tool forever and hits the iteration cap (#101, #148).
+    This turns it into a clear "stop, do something else" signal.
     """
     name = (path or "").replace("\\", "/").rsplit("/", 1)[-1] or path or "the file"
     return (
-        f"read_file_sample could not return text for '{name}'. It is missing, too "
-        f"large (>100MB), or binary — e.g. .xls/.xlsx are Office/zip containers and "
-        f".prism/.pzf are GraphPad Prism binaries. Do NOT retry read_file_sample on "
-        f"it. Use the scan preview already in state, try read_excel/read_file for "
-        f"spreadsheets or Office docs, or skip this file and continue drafting entities."
+        f"{tool_name} could not return text for '{name}'. It is missing, too "
+        f"large (>100MB), or binary/corrupt — e.g. .xls/.xlsx are Office/zip "
+        f"containers and .prism/.pzf are GraphPad Prism binaries. Do NOT retry "
+        f"{tool_name} on it. Use the scan preview already in state, try "
+        f"read_excel/read_file for spreadsheets or Office docs, or skip this file "
+        f"and continue drafting entities."
     )
 
 
@@ -245,10 +255,13 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     from builder.tools.scanner import summarize_scan_result
 
                     return summarize_scan_result(result)
-                # read_file_sample returns None for missing/oversized/binary files;
-                # hand the LLM an actionable message so it stops re-calling it (#101).
-                if tool_name == "read_file_sample" and result is None:
-                    return _unreadable_file_message(kwargs.get("path", ""))
+                # The file-reading tools return None for missing/oversized/binary
+                # files; hand the LLM an actionable message so it stops re-calling
+                # them (#101, #148).
+                if tool_name in _FILE_READ_TOOLS and result is None:
+                    return _unreadable_file_message(
+                        kwargs.get("path", ""), tool_name
+                    )
                 return result
 
             _run.__name__ = tool_name
