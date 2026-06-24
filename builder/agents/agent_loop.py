@@ -788,6 +788,7 @@ _ENTITY_DEPENDENT_TOOLS = frozenset(
         "set_fields",
         "remove_entity",
         "link",
+        "attach_files",
         "check_provenance",
         "verify_all_identifiers",
         "assess_mit_coverage",

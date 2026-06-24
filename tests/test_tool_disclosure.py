@@ -34,6 +34,7 @@ class TestToolsForState:
                 "scaffold_isa_backbone",
                 "set_fields",
                 "link",
+                "attach_files",
                 "list_entities",
                 "export_crate",
                 "lookup_compound",
@@ -44,7 +45,13 @@ class TestToolsForState:
         # file readers and entity-dependent tools are pruned...
         assert "read_file_sample" not in out
         assert "extract_pdf_text" not in out
-        assert {"set_fields", "link", "list_entities", "export_crate"}.isdisjoint(out)
+        assert {
+            "set_fields",
+            "link",
+            "attach_files",
+            "list_entities",
+            "export_crate",
+        }.isdisjoint(out)
         # ...but scanning, drafters, lookups and the build loop stay.
         assert {
             "scan_files",
