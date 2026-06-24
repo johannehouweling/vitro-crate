@@ -432,17 +432,29 @@ catch). Guardrails are a one-time cost; a stronger model is recurring per token.
 
 ## 5. The Agent Toolbox
 
-### File & ARC Tools
-*These are called during session initialization, not by the LLM during the agent loop.*
+### File Tools
+*The scanner/sampler triad below is engine-routed (not in `TOOL_SPECS`); the
+full readers are specced and LLM-callable during the agent loop.*
 ```
 scan_files(path: str) → [FileClassification]
 read_file_sample(path: str, lines: int = 20, mode: str = "content") → str | None
   mode: "content" (first N lines), "summary" (file-type-aware), "overview" (metadata + summary)
 read_multiple_files(paths: list[str], lines: int = 50, mode: str = "content") → dict
   mode: same options as read_file_sample
-scaffold_arc(scanned_files: [FileClassification]) → ARCTree
+read_file(path: str) → str | None             # full read by extension (txt, csv, json, xlsx, docx, md, pdf)
+read_excel(path: str) → str | None            # .xlsx → pipe-delimited text
+read_docx(path: str) → str | None             # .docx → plain text
+extract_pdf_text(path: str) → str             # structured PDF: [Page N] text, tables, image metadata
+preview_archive(path: str) → dict             # list a .zip's members + metadata without extracting
+unzip_file(path: str, output_dir: str | None = None) → str   # extract a .zip, returns extraction path
 ```
-`scaffold_arc` creates the ARC folder tree from the template and sorts scanned files into the correct ARC buckets. Called after `scan_files` and before the agent loop starts.
+`scan_files`, `read_file_sample`, and `read_multiple_files` run during session
+initialization to classify inputs and feed the state brief. The full readers
+(`read_file`/`read_excel`/`read_docx`/`extract_pdf_text`) and the archive tools
+(`preview_archive`/`unzip_file`) are dispatchable so the agent can pull a file's
+full contents on demand. There is **no `scaffold_arc` tool** — ARC is an *output*
+format only (D7); the ARC folder tree is materialised at export time by
+`builder/writers/arc_writer.py::write_arc`, not assembled from scanned inputs.
 
 ### Entity Drafting Tools
 ```
@@ -451,7 +463,9 @@ draft_study(investigation_id: str, hints: dict) → Entity
 draft_assay(study_id: str, hints: dict) → Entity
 draft_molecular_entity(name: str, hints: dict) → Entity
 draft_cell_line_sample(name: str, hints: dict) → Entity
+draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
+draft_protocol(hints: dict) → Entity                     # LabProtocol a LabProcess can follow
 draft_person(name: str, hints: dict) → Entity
 draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
@@ -577,10 +591,18 @@ assess_fair_maturity() → FAIRReport
 ### Session & HITL Tools
 ```
 present_to_human(context: str, options: [str]) → HumanResponse
+request_input(prompt: str, field_type: str | None = None) → HumanResponse
 save_session(label: str) → SessionInfo
+list_sessions() → [SessionInfo]
+load_session(session_id: str) → SessionStatus
 get_status() → SessionStatus
 get_hint() → str
 ```
+`present_to_human` offers a choice between `options`; `request_input` asks the
+human for a single free-form value (e.g. a compound name, CAS number, or cell
+line accession) when a lookup needs a missing identifier. `list_sessions` and
+`load_session` drive the resume flow (§7); `present_to_human`/`request_input`
+are engine-routed HITL tools (not in `TOOL_REGISTRY`), the rest are specced.
 
 ### Profiling
 Every tool call and graph node execution is automatically timed and recorded by `ProfilingLogger` (see [docs/profiling.md](docs/profiling.md)). Profile data is written to `sessions/<session_id>/profile.ndjson` as newline-delimited JSON with event types including `tool_call`, `node_start`, and `node_end`. This file is the primary input for timing analysis, debugging, and live status in future web UIs.
