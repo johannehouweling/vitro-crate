@@ -477,6 +477,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 ### Entity Drafting Tools
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent), the fast path to a BASE-passing crate
+materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
 draft_investigation(hints: dict) → Entity
 draft_study(investigation_id: str, hints: dict) → Entity
 draft_assay(study_id: str, hints: dict) → Entity
@@ -500,6 +501,20 @@ into the `@graph` and is referenceable (via `set_fields`/`link`) as a `mentions`
 `schema:PropertyValue` node (`value` + optional `propertyID` + `unitText`/`unitCode`).
 Both back the previously-unfilled `defined_terms` / `property_values` CrateState
 collections the mapping already rendered.
+`materialize_aop_subgraph` (Issue #180) is the AOP counterpart of
+`scaffold_isa_backbone`: from the single model-supplied numeric `aop_id` it calls
+`lookup_aop` and materialises the entire pathway as typed contextual entities —
+one `aopwiki:AdverseOutcomePathway` carrying its `has_molecular_initiating_event`
+/ `has_key_event` / `has_adverse_outcome` / `has_key_event_relationship` link
+arrays, one `aopwiki:KeyEvent` per MIE/KE/AO (all share `@type KeyEvent`,
+discriminated only by the `eventType` string), and one
+`aopwiki:KeyEventRelationship` per relation (`upstream_event` /
+`downstream_event` by `@id`). Every node is keyed by its resolvable AOP-Wiki IRI,
+so all wiring is deterministic and idempotent and no id is ever fabricated (D5).
+These three types live in the shared `aop_entities` CrateState collection and
+build via `_crate_mapping` as `ContextEntity` nodes typed by their own AOP class.
+With `study_id`, the AOP is wired onto that Study via the `aop` reference (an
+alias of `schema:mentions`), closing the largest gold-crate fidelity gap.
 The `hints` parameter is **typed per entity type** (Issue #90). Each `draft_*`
 tool advertises a JSON-Schema built by `_crate_mapping.draft_hints_schema(type)`
 from the single source of truth `_crate_mapping.ENTITY_DRAFT_SCHEMA` — allowed

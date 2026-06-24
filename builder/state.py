@@ -47,6 +47,11 @@ EntityType = Literal[
     "DefinedTerm",
     "PropertyValue",
     "File",
+    # AOP-Wiki subgraph contextual entities (Issue #180). MIE/KE/AO all share
+    # @type KeyEvent and are discriminated only by their eventType string.
+    "AdverseOutcomePathway",
+    "KeyEvent",
+    "KeyEventRelationship",
 ]
 
 CompletionStatus = Literal["missing", "filled", "verified"]
@@ -577,6 +582,11 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "DefinedTerm": "defined_terms",
     "PropertyValue": "property_values",
     "File": "files",
+    # The AOP-Wiki subgraph (AOP + KeyEvent + KeyEventRelationship) shares one
+    # collection; all three are AOP contextual entities (Issue #180).
+    "AdverseOutcomePathway": "aop_entities",
+    "KeyEvent": "aop_entities",
+    "KeyEventRelationship": "aop_entities",
 }
 
 # ENTITY_TYPE_MAP is a module-level constant; derive shared collection
@@ -620,6 +630,7 @@ class EntityStore:
     defined_terms: dict[str, Entity] = field(default_factory=dict)
     property_values: dict[str, Entity] = field(default_factory=dict)
     files: dict[str, Entity] = field(default_factory=dict)
+    aop_entities: dict[str, Entity] = field(default_factory=dict)
 
     def _collection_for_type(self, entity_type: str) -> dict[str, Entity]:
         """Return the entity collection dict for a given entity type."""

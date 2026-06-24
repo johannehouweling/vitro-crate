@@ -59,6 +59,18 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "materialize_aop_subgraph",
+        "description": "Turn ONE AOP-Wiki id into the full crate subgraph in one call: an AdverseOutcomePathway node plus every KeyEvent (MIE/KE/AO, discriminated by eventType) and KeyEventRelationship, all cross-linked deterministically from AOP-Wiki (never fabricated). Pass only the numeric aop_id; optionally pass study_id to wire the AOP onto that Study (schema:mentions). Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting when you want the whole pathway in the crate. Example: materialize_aop_subgraph(aop_id='610', study_id='study_silychristin_exposure').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "aop_id": {"type": "string", "description": "Numeric AOP-Wiki identifier, e.g. '610'."},
+                "study_id": {"type": "string", "description": "Optional entity_id of a Study to wire the AOP onto (via the aop/mentions reference)."},
+            },
+            "required": ["aop_id"],
+        },
+    },
+    {
         "name": "draft_molecular_entity",
         "description": "Create a MolecularEntity from a compound name. Look the compound up first (lookup_compound) so you can pass a verified pubchem_cid. Example: draft_molecular_entity(name='Silychristin A', hints={'pubchem_cid': '443515', 'identifier': '33889-69-9'}).",
         "parameters": {
