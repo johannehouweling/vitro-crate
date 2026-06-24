@@ -26,6 +26,10 @@ _VALID_TYPES = frozenset(
         "DefinedTerm",
         "PropertyValue",
         "File",
+        # AOP-Wiki subgraph nodes round-trip by their own @type (Issue #180).
+        "AdverseOutcomePathway",
+        "KeyEvent",
+        "KeyEventRelationship",
     }
 )
 _DATASET_SUBTYPES = frozenset({"Investigation", "Study", "Assay"})

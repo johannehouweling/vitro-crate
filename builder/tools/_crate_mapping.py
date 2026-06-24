@@ -488,6 +488,9 @@ _ENTITY_TYPES = (
     "DefinedTerm",
     "PropertyValue",
     "File",
+    "AdverseOutcomePathway",
+    "KeyEvent",
+    "KeyEventRelationship",
 )
 
 
@@ -691,6 +694,30 @@ def _add_leaves(
                 )
             ),
         )
+
+    # AOP-Wiki subgraph nodes (Issue #180). Each is a contextual entity typed by
+    # its own AOP class (AdverseOutcomePathway / KeyEvent / KeyEventRelationship)
+    # whose @id is the resolvable AOP-Wiki IRI. Their link properties
+    # (has_*/upstream_event/downstream_event) are already {"@id": …} reference
+    # objects pointing at sibling AOP node @ids, so the subgraph is cross-linked
+    # verbatim — no fabricated ids (D5). They are kept out of _REF_FIELDS so
+    # _scalar_props preserves them rather than stripping them as resolver inputs.
+    for aop_type in ("AdverseOutcomePathway", "KeyEvent", "KeyEventRelationship"):
+        for aop_entity in state.list_entities(aop_type):
+            _idx_add(
+                idx,
+                aop_entity,
+                crate.add(
+                    ContextEntity(
+                        crate,
+                        _mint_id(aop_entity),
+                        properties={
+                            "@type": aop_entity.type,
+                            **_scalar_props(aop_entity),
+                        },
+                    )
+                ),
+            )
 
     for pub in state.list_entities("Publication"):
         node = crate.add(

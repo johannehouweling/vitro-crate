@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from builder.state import CrateState, Entity
+from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools.drafters import draft_assay, draft_investigation, draft_study
 
 
@@ -90,8 +90,139 @@ def scaffold_isa_backbone(
 
 
 # ---------------------------------------------------------------------------
+# AOP-Wiki subgraph materialisation (Issue #180)
+# ---------------------------------------------------------------------------
+
+# AOP-Wiki @type string -> CrateState EntityType. The three classes share one
+# collection (state.ENTITY_TYPE_MAP); the build types each node by its own class.
+_AOP_NODE_TYPES: dict[str, EntityType] = {
+    "AdverseOutcomePathway": "AdverseOutcomePathway",
+    "KeyEvent": "KeyEvent",
+    "KeyEventRelationship": "KeyEventRelationship",
+}
+
+
+def _materialize_aop_node(state: CrateState, node: dict[str, Any]) -> Entity | None:
+    """Persist one AOP-Wiki node dict into CrateState as a typed entity.
+
+    The node's resolvable AOP-Wiki IRI (``@id``) becomes the entity_id, so
+    :func:`builder.tools._crate_mapping._mint_id` keeps it verbatim as the built
+    node's ``@id`` and the subgraph's ``has_*`` / ``upstream_event`` /
+    ``downstream_event`` reference objects (which already point at sibling IRIs)
+    cross-link without any id resolution. Idempotent: a node whose IRI is already
+    in state is left untouched (no duplicate, no clobber).
+
+    Returns the materialised (or pre-existing) Entity, or ``None`` for a
+    malformed node missing its ``@id`` / ``@type``.
+    """
+    iri = node.get("@id")
+    node_type = _AOP_NODE_TYPES.get(str(node.get("@type")))
+    if not iri or node_type is None:
+        return None
+    existing = state.get_entity(str(iri))
+    if existing is not None:
+        return existing
+    fields = {k: v for k, v in node.items() if k not in ("@id", "@type")}
+    entity = Entity(
+        entity_id=str(iri),
+        type=node_type,
+        _provenance=EntityProvenance(created_by="lookup"),
+    )
+    entity.set_fields_from_dict(fields, source="lookup")
+    state.add_entity(entity)
+    return entity
+
+
+def materialize_aop_subgraph(
+    state: CrateState,
+    aop_id: str,
+    study_id: str | None = None,
+) -> dict[str, Any]:
+    """Turn ONE AOP-Wiki id into the full, cross-linked crate subgraph.
+
+    Looks the AOP up via :func:`builder.tools.lookups.lookup_aop` and
+    deterministically materialises its complete subgraph into ``state``:
+
+    - one ``AdverseOutcomePathway`` node carrying its ``name`` / ``identifier`` /
+      ``url`` (and ``alternateName`` when present) plus the
+      ``has_molecular_initiating_event`` / ``has_key_event`` /
+      ``has_adverse_outcome`` / ``has_key_event_relationship`` link arrays;
+    - one ``KeyEvent`` node per molecular-initiating-event / key-event /
+      adverse-outcome — all share ``@type KeyEvent`` and are discriminated only
+      by their ``eventType`` string;
+    - one ``KeyEventRelationship`` node per relation, linking its
+      ``upstream_event`` and ``downstream_event`` by ``@id``.
+
+    The ONLY model-supplied input is the numeric ``aop_id``; every link and id
+    comes straight from the AOP-Wiki graph, so nothing is fabricated (D5). The
+    nodes are keyed by their resolvable AOP-Wiki IRI, so re-running is idempotent.
+
+    When ``study_id`` names an existing Study, the AOP is wired onto it via the
+    ``aop`` reference (an alias of ``schema:mentions``), connecting the study to
+    the pathway it investigates — mirroring the gold crate (Issue #180).
+
+    Args:
+        state: The crate state to materialise into.
+        aop_id: Numeric AOP-Wiki identifier, e.g. ``"610"``.
+        study_id: Optional entity_id of a Study to wire the AOP onto.
+
+    Returns:
+        On success, ``{"aop_id", "aop_entity_id", "events", "relationships",
+        "wired_to_study"}``. On a lookup miss, ``{"ok": False, "error": ...}``.
+    """
+    from builder.tools.lookups import lookup_aop
+
+    result = lookup_aop(str(aop_id))
+    if not result.get("found"):
+        return {
+            "ok": False,
+            "error": result.get("error", f"AOP '{aop_id}' not found"),
+        }
+
+    data = result["data"]
+    aop_node = data.get("aop") or {}
+    aop_entity = _materialize_aop_node(state, aop_node)
+
+    events = 0
+    for ev in data.get("events", []):
+        if _materialize_aop_node(state, ev) is not None:
+            events += 1
+
+    relationships = 0
+    for rel in data.get("relationships", []):
+        if _materialize_aop_node(state, rel) is not None:
+            relationships += 1
+
+    wired_to_study: str | None = None
+    if study_id and aop_entity is not None:
+        study = state.get_entity(study_id)
+        if study is not None and study.type == "Study":
+            existing_refs = study.fields.get("aop") or []
+            if not isinstance(existing_refs, list):
+                existing_refs = [existing_refs]
+            ref = {"@id": aop_entity.entity_id}
+            ids = {r.get("@id") if isinstance(r, dict) else r for r in existing_refs}
+            if aop_entity.entity_id not in ids:
+                existing_refs = [*existing_refs, ref]
+            study.fields["aop"] = existing_refs
+            study.set_field_status("aop", "filled", "lookup")
+            wired_to_study = study_id
+
+    return {
+        "aop_id": str(aop_id),
+        "aop_entity_id": aop_entity.entity_id if aop_entity else None,
+        "events": events,
+        "relationships": relationships,
+        "wired_to_study": wired_to_study,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("scaffold_isa_backbone", scaffold_isa_backbone, takes_state=True)
+TOOL_REGISTRY.register(
+    "materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True
+)
