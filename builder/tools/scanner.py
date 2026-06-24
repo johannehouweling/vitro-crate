@@ -13,6 +13,7 @@ import mimetypes
 import os
 import shutil
 import sys
+import tarfile
 import time
 import zipfile
 from collections import Counter
@@ -27,6 +28,24 @@ logger = logging.getLogger(__name__)
 mimetypes.init()
 
 _ZIP_EXTENSIONS = frozenset({".zip", ".tar", ".gz", ".tgz", ".tar.gz"})
+
+# Zip-bomb guard: refuse to extract more than this much *uncompressed* data in
+# total from a single archive.
+_MAX_UNCOMPRESSED_BYTES = 2 * 1024**3  # 2 GiB
+
+
+class _UnsafeArchiveError(Exception):
+    """An archive member would escape the destination (Zip-Slip) or blow the
+    uncompressed-size cap (zip-bomb)."""
+
+
+def _is_within(dest: Path, target: Path) -> bool:
+    """Return True if *target* resolves inside *dest* (Zip-Slip guard)."""
+    try:
+        target.resolve().relative_to(dest.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def _detect_mime_type(file_path: Path) -> str:
@@ -87,28 +106,35 @@ def _is_archive(path: Path) -> bool:
     return path.suffix.lower() in _ZIP_EXTENSIONS or path.name.endswith(".tar.gz")
 
 
-def _list_zip_contents(zip_path: Path) -> list[dict]:
-    """Peek inside a zip archive and return metadata about its contents.
+def _list_archive_contents(archive_path: Path) -> list[dict]:
+    """Peek inside a zip *or* tar(.gz) archive and return metadata about contents.
 
     Returns a list of dicts with keys ``path``, ``size``, ``is_dir`` so the
-    agent can present a preview to the user without extracting.
+    agent can present a preview to the user without extracting. Returns ``[]``
+    for corrupt or unsupported archives.
     """
     contents: list[dict] = []
     try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            for info in zf.infolist():
-                contents.append(
-                    {
-                        "path": info.filename,
-                        "size": info.file_size,
-                        "is_dir": info.is_dir(),
-                    }
-                )
-    except zipfile.BadZipFile:
-        logger.warning("Bad zip (corrupt?): %s", zip_path)
+        if zipfile.is_zipfile(archive_path):
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                for info in zf.infolist():
+                    contents.append(
+                        {"path": info.filename, "size": info.file_size, "is_dir": info.is_dir()}
+                    )
+        elif tarfile.is_tarfile(archive_path):
+            with tarfile.open(archive_path, "r:*") as tf:
+                for member in tf.getmembers():
+                    contents.append(
+                        {"path": member.name, "size": member.size, "is_dir": member.isdir()}
+                    )
+        else:
+            logger.warning("Not a supported archive (zip/tar): %s", archive_path)
+            return []
+    except (zipfile.BadZipFile, tarfile.TarError):
+        logger.warning("Bad/corrupt archive: %s", archive_path)
         return []
     except Exception:
-        logger.exception("Error reading zip: %s", zip_path)
+        logger.exception("Error reading archive: %s", archive_path)
         return []
     contents.sort(key=lambda c: (not c["is_dir"], c["path"]))
     return contents
@@ -151,8 +177,8 @@ def preview_archive(path: str) -> ArchivePreview:
     size_bytes = archive_path.stat().st_size
     size_mb = size_bytes / (1024 * 1024)
 
-    # Use existing helper — returns [] on corrupt zips
-    entries = _list_zip_contents(archive_path)
+    # Use existing helper — returns [] on corrupt/unsupported archives
+    entries = _list_archive_contents(archive_path)
 
     if not entries and size_bytes > 0:
         # _list_zip_contents returns [] for corrupt zips
@@ -273,10 +299,10 @@ def scan_files(
 
     # -- Archive case: auto-extract and recurse --------------------------------
     if target.is_file() and _is_archive(target):
-        contents = _list_zip_contents(target)
+        contents = _list_archive_contents(target)
         size_mb = target.stat().st_size / (1024 * 1024)
         logger.info(
-            "Path %s is a zip archive (%.1f MB) with %d entries — auto-extracting",
+            "Path %s is an archive (%.1f MB) with %d entries — auto-extracting",
             target,
             size_mb,
             len(contents),
@@ -380,21 +406,68 @@ def scan_files(
     return results
 
 
-def unzip_file(path: str, output_dir: str | None = None) -> dict:
-    """Extract a zip archive and return the path to the extracted directory.
+def _extract_zip_safely(archive_path: Path, dest: Path) -> int:
+    """Extract a zip into *dest*, rejecting Zip-Slip members and capping total
+    uncompressed size. Returns the entry count. Raises :class:`_UnsafeArchiveError`."""
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        infos = zf.infolist()
+        total = 0
+        for info in infos:
+            if not _is_within(dest, dest / info.filename):
+                raise _UnsafeArchiveError(
+                    f"member escapes destination (Zip-Slip): {info.filename!r}"
+                )
+            total += info.file_size
+            if total > _MAX_UNCOMPRESSED_BYTES:
+                raise _UnsafeArchiveError(
+                    f"uncompressed size exceeds cap ({_MAX_UNCOMPRESSED_BYTES} bytes)"
+                )
+        zf.extractall(dest)
+        return len(infos)
 
-    The agent should call ``present_to_human`` before calling this tool for
-    large archives so the user can confirm.
+
+def _extract_tar_safely(archive_path: Path, dest: Path) -> int:
+    """Extract a tar(.gz) into *dest* with the same Zip-Slip + size-cap guards,
+    plus the 3.12 ``data`` filter for member/link sanitization."""
+    with tarfile.open(archive_path, "r:*") as tf:
+        members = tf.getmembers()
+        total = 0
+        for member in members:
+            if not _is_within(dest, dest / member.name):
+                raise _UnsafeArchiveError(
+                    f"member escapes destination (Zip-Slip): {member.name!r}"
+                )
+            total += member.size
+            if total > _MAX_UNCOMPRESSED_BYTES:
+                raise _UnsafeArchiveError(
+                    f"uncompressed size exceeds cap ({_MAX_UNCOMPRESSED_BYTES} bytes)"
+                )
+        # filter="data" (Python 3.12+) rejects absolute paths, traversal, and
+        # unsafe symlink/hardlink targets that the name check above can't catch.
+        tf.extractall(dest, filter="data")
+        return len(members)
+
+
+def unzip_file(path: str, output_dir: str | None = None) -> dict:
+    """Safely extract a zip or tar(.gz) archive and return the extracted directory.
+
+    Guards against Zip-Slip (members escaping the destination) and zip-bombs
+    (total uncompressed size is capped at ``_MAX_UNCOMPRESSED_BYTES``); unsafe
+    archives are refused with a clean error rather than raising. The agent should
+    call ``present_to_human`` before calling this tool for large archives so the
+    user can confirm.
 
     Args:
-        path: Path to the zip file to extract.
-        output_dir: Optional output directory.  Defaults to a temporary dir.
+        path: Path to the ``.zip`` / ``.tar`` / ``.tar.gz`` / ``.tgz`` file.
+        output_dir: Optional output directory. Defaults to ``<name>_extracted``
+            next to the archive.
 
     Returns:
-        A dict with keys ``extracted_to``, ``entry_count``, and ``message``.
+        A dict with keys ``extracted_to``, ``entry_count``, and ``message`` — or
+        ``error``/``message`` on failure.
     """
-    zip_path = Path(path)
-    if not zip_path.is_file():
+    archive_path = Path(path)
+    if not archive_path.is_file():
         return {
             "error": f"File not found: {path}",
             "message": "The file does not exist.",
@@ -404,22 +477,33 @@ def unzip_file(path: str, output_dir: str | None = None) -> dict:
         dest = Path(output_dir)
         dest.mkdir(parents=True, exist_ok=True)
     else:
-        # Extract next to the zip file by default — survives session resume
-        dest = zip_path.parent / f"{zip_path.stem}_extracted"
+        # Extract next to the archive by default — survives session resume
+        dest = archive_path.parent / f"{archive_path.stem}_extracted"
         dest.mkdir(parents=True, exist_ok=True)
 
-    extracted = 0
     try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(dest)
-            extracted = len(zf.infolist())
-    except zipfile.BadZipFile:
+        if zipfile.is_zipfile(archive_path):
+            extracted = _extract_zip_safely(archive_path, dest)
+        elif tarfile.is_tarfile(archive_path):
+            extracted = _extract_tar_safely(archive_path, dest)
+        else:
+            return {
+                "error": f"Cannot open {path} as a zip or tar archive (corrupt/unsupported?)",
+                "message": "The archive appears to be corrupt or not a supported format.",
+            }
+    except _UnsafeArchiveError as exc:
+        logger.warning("Refused to extract unsafe archive %s: %s", path, exc)
         return {
-            "error": f"Cannot open {path} as a zip archive (corrupt?)",
-            "message": "The archive appears to be corrupt or not a valid zip.",
+            "error": f"Unsafe archive refused: {exc}",
+            "message": f"Refused to extract {archive_path.name}: {exc}.",
+        }
+    except (zipfile.BadZipFile, tarfile.TarError) as exc:
+        return {
+            "error": f"Cannot extract {path} (corrupt?): {exc}",
+            "message": "The archive appears to be corrupt or not a valid zip/tar.",
         }
     except Exception as exc:
-        logger.exception("Error extracting zip")
+        logger.exception("Error extracting archive")
         return {"error": str(exc), "message": f"Failed to extract: {exc}"}
 
     # Strip macOS resource-fork metadata (__MACOSX, ._ files) unless we're on macOS
