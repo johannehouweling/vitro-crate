@@ -61,6 +61,19 @@ def _crate_type(node: dict) -> EntityType | None:
     return None
 
 
+def _ref_ids(value: object) -> list[str]:
+    """The @id strings under a reference property (id, {"@id": …}, or list)."""
+    if value is None:
+        return []
+    items = value if isinstance(value, list) else [value]
+    out: list[str] = []
+    for item in items:
+        rid = item.get("@id") if isinstance(item, dict) else item
+        if isinstance(rid, str):
+            out.append(rid)
+    return out
+
+
 def read_existing_crate(crate_dir: str) -> CrateState:
     """Read an existing RO-Crate and reconstruct CrateState from its metadata.
 
@@ -92,6 +105,14 @@ def read_existing_crate(crate_dir: str) -> CrateState:
         state.metadata.input_path = crate_dir
 
         graph = data.get("@graph", [])
+        id_to_entity: dict[str, Entity] = {}
+        # If the crate keeps a separate Investigation node, don't ALSO reconstruct
+        # one from the root (avoid a duplicate Investigation on rebuild).
+        has_separate_inv = any(
+            _crate_type(n) == "Investigation" and n.get("@id") not in ("./", "")
+            for n in graph
+        )
+
         for node in graph:
             node_id = node.get("@id", "")
 
@@ -102,6 +123,24 @@ def read_existing_crate(crate_dir: str) -> CrateState:
                 md.title = node.get("name", md.title)
                 md.description = node.get("description", md.description)
                 md.accession = node.get("identifier", md.accession)
+                # The root IS the Investigation (ISA: ./ represents the
+                # Investigation; the builder folds it onto the root rather than
+                # emitting a separate node). Reconstruct it as an Investigation
+                # entity so a rebuild reproduces the same structure.
+                if _crate_type(node) == "Investigation" and not has_separate_inv:
+                    fields = {
+                        k: v
+                        for k, v in node.items()
+                        if not k.startswith("@") and k not in ("conformsTo", "hasPart")
+                    }
+                    inv = Entity(
+                        entity_id="investigation",
+                        type="Investigation",
+                        fields=fields,
+                        _provenance=EntityProvenance(created_by="scanner"),
+                    )
+                    state.add_entity(inv)
+                    id_to_entity[node_id] = inv
                 continue
             if node_id == "ro-crate-metadata.json":
                 continue
@@ -110,8 +149,14 @@ def read_existing_crate(crate_dir: str) -> CrateState:
             if ctype is None:
                 continue
 
-            # Recover the local entity_id by stripping a single leading '#'.
+            # Recover the BARE entity_id: strip the leading '#' AND the
+            # type-qualifier the builder prepends (``#Study_study_1`` → ``study_1``).
+            # Stripping only '#' would leave 'Study_study_1', which _mint_id then
+            # re-prefixes on rebuild, corrupting @ids/identifiers every cycle.
             entity_id = node_id[1:] if node_id.startswith("#") else node_id
+            prefix = f"{ctype}_"
+            if node_id.startswith("#") and entity_id.startswith(prefix):
+                entity_id = entity_id[len(prefix):]
             fields = {k: v for k, v in node.items() if not k.startswith("@")}
             entity = Entity(
                 entity_id=entity_id,
@@ -120,6 +165,27 @@ def read_existing_crate(crate_dir: str) -> CrateState:
                 _provenance=EntityProvenance(created_by="scanner"),
             )
             state.add_entity(entity)
+            id_to_entity[node_id] = entity
+
+        # Reconstruct the structural linkages the crate encodes via hasPart/about
+        # (the builder's study_id/assay_id fields are not serialized): a Study's
+        # hasPart Assay → assay.study_id, and an Assay's about LabProcess →
+        # process.assay_id. Without this, a rebuild promotes the Assay to the root
+        # and orphans the result Files off their Assay.
+        for node in graph:
+            src = id_to_entity.get(node.get("@id", ""))
+            if src is None:
+                continue
+            if src.type == "Study":
+                for ref in _ref_ids(node.get("hasPart")):
+                    tgt = id_to_entity.get(ref)
+                    if tgt is not None and tgt.type == "Assay":
+                        tgt.fields["study_id"] = src.entity_id
+            elif src.type == "Assay":
+                for ref in _ref_ids(node.get("about")):
+                    tgt = id_to_entity.get(ref)
+                    if tgt is not None and tgt.type == "LabProcess":
+                        tgt.fields["assay_id"] = src.entity_id
 
         logger.info(
             "Read existing crate from %s — found %d entities",
