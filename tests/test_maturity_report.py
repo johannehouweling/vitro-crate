@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from builder.state import CrateState
+from builder.state import CrateState, ValidationReport
 from builder.tools.builder import build_crate, export_crate
 from builder.writers.maturity_report import REPORT_FILENAME, build_maturity_html
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
@@ -25,23 +25,22 @@ class TestBuildMaturityHtml:
 
     def test_conformance_suggestions_rendered(self) -> None:
         state = vhps_fixture_state("S-VHPS21")
-        conformance = [
-            {
-                "profile": "base",
-                "label": "RO-Crate 1.1",
-                "passed_required": False,
-                "required": ["root MUST have a name"],
-                "recommended": ["consider adding a license"],
-            }
-        ]
-        page = build_maturity_html(state, conformance=conformance)
+        validation = ValidationReport(
+            base_passed=False,
+            isa_passed=True,
+            tox_passed=True,
+            required_issues=["root MUST have a name"],
+            should_issues=["consider adding a license"],
+        )
+        page = build_maturity_html(state, validation=validation)
         assert "Must fix" in page
         assert "root MUST have a name" in page
         assert "consider adding a license" in page
 
-    def test_no_conformance_notes_not_evaluated(self) -> None:
+    def test_unvalidated_state_notes_not_validated(self) -> None:
+        # Fresh state with a default (empty) ValidationReport.
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert "not evaluated" in page.lower()
+        assert "not yet validated" in page.lower()
 
     def test_escapes_html(self) -> None:
         state = CrateState()
@@ -58,6 +57,9 @@ class TestEmbeddedInCrate:
         state = vhps_fixture_state("S-VHPS21")
         out = tmp_path / "crate"
         state.metadata.output_path = str(out)
+        # Simulate the agent having validated before export — the report renders
+        # this existing state.validation (no re-validate inside export).
+        state.validation = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
         res = build_crate(state)
         assert res["success"], res["error"]
 
@@ -65,8 +67,7 @@ class TestEmbeddedInCrate:
         assert report.is_file()
         page = report.read_text(encoding="utf-8")
         assert "Profile adherence" in page
-        # Conformance was computed at export, so the report is evaluated.
-        assert "not evaluated" not in page.lower()
+        assert "not yet validated" not in page.lower()
 
     def test_report_referenced_in_metadata(self, tmp_path: Path) -> None:
         state = vhps_fixture_state("S-VHPS21")
