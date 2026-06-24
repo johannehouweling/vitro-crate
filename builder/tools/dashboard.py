@@ -249,6 +249,7 @@ _TOOL_ICONS: dict[str, str] = {
     "draft_defined_term": "\U0001f4cb", "draft_property_value": "\U0001f4cb",
     "draft_file": "\U0001f4cb",
     "list_entities": "\U0001f4cb",
+    "list_scanned_files": "\U0001f4c2",
     "remove_entity": "\U0001f4cb", "set_fields": "\U0001f4dd",
     "link": "\U0001f517", "check_provenance": "\U0001f9ec",
     "lookup_compound": "\U0001f50d", "lookup_cell_line": "\U0001f50d",

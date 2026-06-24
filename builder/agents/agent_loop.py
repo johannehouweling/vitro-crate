@@ -205,7 +205,7 @@ def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> 
         f"{tool_name} could not return text for '{name}'. It is missing, too "
         f"large (>100MB), or binary/corrupt — e.g. .xls/.xlsx are Office/zip "
         f"containers and .prism/.pzf are GraphPad Prism binaries. Do NOT retry "
-        f"{tool_name} on it. Use the scan preview already in state, try "
+        f"{tool_name} on it. Use list_scanned_files to see the inventory, try "
         f"read_excel/read_file for spreadsheets or Office docs, or skip this file "
         f"and continue drafting entities."
     )
@@ -597,7 +597,7 @@ def _build_system_prompt_with_state(
 # Tool names whose verbose output already lives in CrateState, so replaying it
 # verbatim in the transcript is pure waste once the model has consumed it. The
 # scan inventory is the canonical example — the full listing is stored in
-# CrateState.scanned_files, queryable via get_status / list_entities (Issue #61).
+# CrateState.scanned_files, queryable via list_scanned_files (Issue #61, #172).
 _STATE_BACKED_TOOLS = frozenset({"scan_files", "read_file_sample", "read_multiple_files"})
 
 # Above this length (chars), a consumed state-backed tool output is pruned to a
@@ -630,10 +630,16 @@ def _prune_state_backed_outputs(messages: list) -> list:
             and getattr(msg, "name", None) in _STATE_BACKED_TOOLS
             and len(str(msg.content)) > _PRUNE_CONTENT_THRESHOLD
         ):
+            scan_hint = (
+                " Call list_scanned_files to retrieve the full file inventory "
+                "(paginated/filterable)."
+                if msg.name == "scan_files"
+                else ""
+            )
             stub = (
                 f"[{msg.name} output pruned from history to save tokens — the full "
-                f"result is stored in the session state (CrateState). Use get_status "
-                f"or list_entities to query it; do not re-run {msg.name}.]"
+                f"result is stored in the session state (CrateState).{scan_hint} "
+                f"Do not re-run {msg.name}.]"
             )
             pruned.append(
                 ToolMessage(

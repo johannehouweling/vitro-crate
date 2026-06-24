@@ -6,12 +6,13 @@ import json
 
 import pytest
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import CrateState, Entity, EntityProvenance, FileClassification
 from builder.tools.builder import build_crate
 from builder.tools.management import (
     bulk_set_fields,
     find_referrers,
     list_entities,
+    list_scanned_files,
     remove_entity,
     set_entity_field,
     update_entity,
@@ -25,6 +26,69 @@ def _ent(entity_id, type_, **fields):
         fields=fields,
         _provenance=EntityProvenance(created_by="llm"),
     )
+
+
+def _fc(path, filename, size, mime):
+    return FileClassification(
+        path=path, filename=filename, size=size, mime_type=mime
+    )
+
+
+class TestListScannedFiles:
+    """list_scanned_files retrieves the full inventory the scan tool/pruning hide."""
+
+    def _state(self, n=5):
+        state = CrateState()
+        state.scanned_files = [
+            _fc(f"/data/raw/file{i}.csv", f"file{i}.csv", 100 + i, "text/csv")
+            for i in range(n)
+        ]
+        return state
+
+    def test_returns_full_inventory_compact(self):
+        out = list_scanned_files(self._state(5))
+        assert out["total_scanned"] == 5
+        assert out["matched"] == 5
+        assert out["returned"] == 5
+        assert len(out["files"]) == 5
+        # Compact records only — never the heavy first_rows preview.
+        assert set(out["files"][0]) == {"path", "filename", "size", "mime_type"}
+
+    def test_empty_inventory(self):
+        out = list_scanned_files(CrateState())
+        assert out["total_scanned"] == 0
+        assert out["files"] == []
+
+    def test_filter_by_name_contains(self):
+        state = CrateState()
+        state.scanned_files = [
+            _fc("/d/a.csv", "a.csv", 1, "text/csv"),
+            _fc("/d/raw_meas.mzML", "raw_meas.mzML", 2, "application/x-mzml"),
+        ]
+        out = list_scanned_files(state, name_contains="raw")
+        assert out["matched"] == 1
+        assert out["files"][0]["filename"] == "raw_meas.mzML"
+
+    def test_filter_by_mime_contains(self):
+        state = CrateState()
+        state.scanned_files = [
+            _fc("/d/a.csv", "a.csv", 1, "text/csv"),
+            _fc("/d/b.png", "b.png", 2, "image/png"),
+        ]
+        out = list_scanned_files(state, mime_contains="image")
+        assert out["matched"] == 1
+        assert out["files"][0]["filename"] == "b.png"
+
+    def test_pagination(self):
+        out = list_scanned_files(self._state(10), offset=3, limit=4)
+        assert out["total_scanned"] == 10
+        assert out["matched"] == 10
+        assert out["offset"] == 3
+        assert out["limit"] == 4
+        assert out["returned"] == 4
+        assert [f["filename"] for f in out["files"]] == [
+            f"file{i}.csv" for i in (3, 4, 5, 6)
+        ]
 
 
 class TestUpdateEntity:
@@ -290,8 +354,8 @@ class TestConsolidatedMutationTool:
     """The three redundant mutation tools collapse into one registered tool."""
 
     def test_only_set_fields_is_registered_not_the_redundant_three(self):
-        from builder.tools.registry import TOOL_REGISTRY
         import builder.tools.management  # noqa: F401  (triggers registration)
+        from builder.tools.registry import TOOL_REGISTRY
 
         names = set(TOOL_REGISTRY.list())
         assert "set_fields" in names
