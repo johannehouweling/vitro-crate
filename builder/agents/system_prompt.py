@@ -20,6 +20,7 @@ File scanning & reading:
 - extract_pdf_text: Extract structured text, tables, and image metadata from a PDF
 
 Entity drafting:
+- scaffold_isa_backbone: Create a linked Investigation+Study+Assay backbone in one call (idempotent) — the fastest path to a BASE-passing crate
 - draft_investigation: Create an Investigation entity
 - draft_study: Create a Study entity
 - draft_assay: Create an Assay entity
