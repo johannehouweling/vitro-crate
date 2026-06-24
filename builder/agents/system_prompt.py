@@ -45,6 +45,9 @@ Lookups & verification:
 - lookup_cell_line: Look up a cell line in Cellosaurus
 - lookup_aop: Look up an AOP in AOP-Wiki
 - lookup_bao_term: Look up a BAO ontology term
+- lookup_ontology_term: Look up a term in any OLS ontology (efo/obi/ncit/uberon/chebi/…)
+- lookup_unit: Resolve a unit string to a UO (Units of Measurement Ontology) IRI
+- lookup_dtxsid: Resolve a chemical to its EPA DTXSID via the CompTox Dashboard
 - lookup_orcid: Look up a person in ORCID
 - lookup_ror: Look up an organization in ROR
 - lookup_doi: Look up a publication in Crossref

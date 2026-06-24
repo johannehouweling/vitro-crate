@@ -14,8 +14,11 @@ from builder.tools.lookups import (
     lookup_cell_line,
     lookup_compound,
     lookup_doi,
+    lookup_dtxsid,
+    lookup_ontology_term,
     lookup_orcid,
     lookup_ror,
+    lookup_unit,
 )
 
 
@@ -445,4 +448,171 @@ class TestLookupDOI:
         result = lookup_doi("10.9999/crash")
         assert result["found"] is False
         assert result["data"] == {}
+        assert isinstance(result["error"], str)
+
+
+class TestLookupOntologyTerm:
+    """Tests for lookup_ontology_term — generic OLS ontology lookup (#142)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        lookup_ontology_term.cache_clear()
+        yield
+
+    def test_returns_iri_and_score_on_success(self, monkeypatch):
+        def mock_ols(query, ontology):
+            assert ontology == "efo"
+            return {
+                "@id": "http://www.ebi.ac.uk/efo/EFO_0000311",
+                "@type": "DefinedTerm",
+                "name": "cancer",
+                "termCode": "EFO_0000311",
+                "score": 12.34,
+            }
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_ontology_term_ols", mock_ols)
+        result = lookup_ontology_term("cancer", "efo")
+        assert result["found"] is True
+        assert result["data"]["@id"] == "http://www.ebi.ac.uk/efo/EFO_0000311"
+        assert result["data"]["score"] == 12.34
+        assert result["error"] is None
+
+    def test_returns_failure_when_no_match(self, monkeypatch):
+        monkeypatch.setattr(
+            "builder.tools.lookups.lookup_ontology_term_ols", lambda q, o: {}
+        )
+        result = lookup_ontology_term("zzz", "efo")
+        assert result["found"] is False
+        assert result["data"] == {}
+        assert isinstance(result["error"], str)
+
+    def test_never_throws_exception(self, monkeypatch):
+        def boom(query, ontology):
+            raise RuntimeError("OLS down")
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_ontology_term_ols", boom)
+        result = lookup_ontology_term("crash", "efo")
+        assert result["found"] is False
+        assert isinstance(result["error"], str)
+
+
+class TestLookupUnit:
+    """Tests for lookup_unit — UO unit resolution via OLS (#142)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        lookup_unit.cache_clear()
+        yield
+
+    def test_returns_uo_iri_on_success(self, monkeypatch):
+        def mock_uo(unit_string):
+            return {
+                "@id": "http://purl.obolibrary.org/obo/UO_0000064",
+                "@type": "DefinedTerm",
+                "name": "micromolar",
+                "termCode": "UO_0000064",
+                "score": 9.1,
+            }
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_unit_ols", mock_uo)
+        result = lookup_unit("micromolar")
+        assert result["found"] is True
+        assert result["data"]["@id"] == "http://purl.obolibrary.org/obo/UO_0000064"
+        assert result["data"]["@id"].rsplit("/", 1)[1].startswith("UO_")
+        assert result["error"] is None
+
+    def test_returns_failure_when_no_match(self, monkeypatch):
+        monkeypatch.setattr("builder.tools.lookups.lookup_unit_ols", lambda u: {})
+        result = lookup_unit("notaunit")
+        assert result["found"] is False
+        assert isinstance(result["error"], str)
+
+    def test_never_throws_exception(self, monkeypatch):
+        def boom(unit_string):
+            raise RuntimeError("OLS down")
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_unit_ols", boom)
+        result = lookup_unit("crash")
+        assert result["found"] is False
+        assert isinstance(result["error"], str)
+
+
+class TestLookupDtxsid:
+    """Tests for lookup_dtxsid — EPA CompTox DTXSID resolution (#146)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        lookup_dtxsid.cache_clear()
+        yield
+
+    def test_returns_dtxsid_on_success(self, monkeypatch):
+        def mock_comptox(query):
+            return {
+                "dtxsid": "DTXSID7020182",
+                "@id": "https://comptox.epa.gov/dashboard/chemical/details/DTXSID7020182",
+                "@type": "MolecularEntity",
+                "name": "Bisphenol A",
+                "casrn": "80-05-7",
+                "inchikey": "IISBACLAFKSPIT-UHFFFAOYSA-N",
+            }
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_dtxsid_comptox", mock_comptox)
+        result = lookup_dtxsid("Bisphenol A")
+        assert result["found"] is True
+        assert result["data"]["dtxsid"] == "DTXSID7020182"
+        assert result["data"]["casrn"] == "80-05-7"
+        assert result["error"] is None
+
+    def test_returns_failure_when_no_match(self, monkeypatch):
+        monkeypatch.setattr("builder.tools.lookups.lookup_dtxsid_comptox", lambda q: {})
+        result = lookup_dtxsid("NotAChemical")
+        assert result["found"] is False
+        assert result["data"] == {}
+        assert isinstance(result["error"], str)
+
+    def test_never_throws_exception(self, monkeypatch):
+        def boom(query):
+            raise RuntimeError("CompTox down")
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_dtxsid_comptox", boom)
+        result = lookup_dtxsid("crash")
+        assert result["found"] is False
+        assert isinstance(result["error"], str)
+
+
+class TestLookupCompoundChebiFallback:
+    """lookup_compound falls back to ChEBI (via OLS) when PubChem misses (#146)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        lookup_compound.cache_clear()
+        yield
+
+    def test_falls_back_to_chebi_when_pubchem_empty(self, monkeypatch):
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", lambda q: {})
+
+        def mock_chebi(query, ontology):
+            assert ontology == "chebi"
+            return {
+                "@id": "http://purl.obolibrary.org/obo/CHEBI_28061",
+                "@type": "DefinedTerm",
+                "name": "alpha-D-glucose",
+                "termCode": "CHEBI_28061",
+            }
+
+        monkeypatch.setattr(
+            "builder.tools.lookups.lookup_ontology_term_ols", mock_chebi
+        )
+        result = lookup_compound("alpha-D-glucose")
+        assert result["found"] is True
+        assert result["data"]["chebi_id"] == "CHEBI_28061"
+        assert result["data"]["source"] == "chebi"
+
+    def test_fails_when_both_pubchem_and_chebi_miss(self, monkeypatch):
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", lambda q: {})
+        monkeypatch.setattr(
+            "builder.tools.lookups.lookup_ontology_term_ols", lambda q, o: {}
+        )
+        result = lookup_compound("TotallyMadeUpXYZ")
+        assert result["found"] is False
         assert isinstance(result["error"], str)

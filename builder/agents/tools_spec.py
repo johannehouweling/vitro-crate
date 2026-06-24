@@ -242,6 +242,36 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "lookup_ontology_term",
+        "description": "Search any OLS-hosted ontology (efo, obi, ncit, uberon, chebi, …) for the best-matching term IRI. Generalises lookup_bao_term to any vocabulary. Returns @id, name, termCode and a relevance score. Example: lookup_ontology_term(query='apoptosis', ontology='efo').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "ontology": {"type": "string", "description": "OLS ontology short name, e.g. 'efo', 'obi', 'chebi', 'uberon'."},
+            },
+            "required": ["query", "ontology"],
+        },
+    },
+    {
+        "name": "lookup_unit",
+        "description": "Resolve a unit string (e.g. 'micromolar', 'hour') to a Units of Measurement Ontology (UO) IRI via OLS. Returns @id (UO IRI), name, termCode.",
+        "parameters": {
+            "type": "object",
+            "properties": {"unit_string": {"type": "string"}},
+            "required": ["unit_string"],
+        },
+    },
+    {
+        "name": "lookup_dtxsid",
+        "description": "Resolve a chemical (by name, CAS RN, or InChIKey) to its EPA DTXSID via the CompTox Dashboard. Returns dtxsid plus name/casrn/inchikey. Example: lookup_dtxsid(query='Bisphenol A').",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+    {
         "name": "lookup_orcid",
         "description": "Look up person via ORCID",
         "parameters": {
