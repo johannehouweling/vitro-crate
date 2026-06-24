@@ -32,6 +32,7 @@ def _dispatch_spy(monkeypatch):
 
     registry = AgentEngine._build_registry()
     original = registry.get_spec("build_and_validate")
+    assert original is not None  # always registered; narrows ToolSpec | None for ty
     calls = {"n": 0}
 
     def counting(state, **kwargs):
