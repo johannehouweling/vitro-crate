@@ -112,8 +112,15 @@ _STRUCT_TYPES = frozenset(
 )
 
 # Plumbing nodes dropped from the visualization (used only to locate the root).
+# Includes the embedded graph artifact itself, so re-rendering an exported crate
+# never depicts its own diagram file.
 _EXCLUDED_IDS = frozenset(
-    {"ro-crate-metadata.json", "./ro-crate-metadata.json", "ro-crate-preview.html"}
+    {
+        "ro-crate-metadata.json",
+        "./ro-crate-metadata.json",
+        "ro-crate-preview.html",
+        "ro-crate-graph.mmd",
+    }
 )
 
 # Layer-synonym map for the --layer filter.
