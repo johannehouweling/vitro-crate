@@ -136,7 +136,7 @@ def build_maturity_html(
     # --- Profile adherence (from existing validation results) ---
     if _validation_has_signal(val):
         layers = [
-            ("RO-Crate 1.1", val.base_passed),
+            ("RO-Crate 1.2", val.base_passed),
             ("ISA", val.isa_passed),
             ("ISA-Tox", val.tox_passed),
         ]

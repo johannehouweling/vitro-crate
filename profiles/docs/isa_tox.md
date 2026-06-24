@@ -110,20 +110,30 @@ Protocol --reagent---> ont
 
 ## Conformance
 
-A crate following this profile declares conformance using the **RO-Crate 1.1** convention: the
-*RO-Crate Metadata Descriptor* carries the base specification and the profile URIs together in its `conformsTo`
-array, and each referenced profile is declared as a `Profile` contextual entity.
+A crate following this profile declares conformance using the **RO-Crate 1.2** convention: the
+*RO-Crate Metadata Descriptor*'s `conformsTo` carries only the single base-specification URI, while the
+profile URIs the crate targets are declared on the **Root Data Entity** (`./`). Each referenced profile is
+also declared as a `Profile` contextual entity.
 
 ```json
 {
   "@id": "ro-crate-metadata.json",
   "@type": "CreativeWork",
+  "conformsTo": {"@id": "https://w3id.org/ro/crate/1.2"},
+  "about": {"@id": "./"}
+}
+```
+
+The Root Data Entity declares the targeted profiles:
+
+```json
+{
+  "@id": "./",
+  "@type": "Dataset",
   "conformsTo": [
-    {"@id": "https://w3id.org/ro/crate/1.1"},
     {"@id": "https://github.com/nfdi4plants/isa-ro-crate-profile"},
     {"@id": "https://w3id.org/ro/crate/isa-tox/1.0"}
-  ],
-  "about": {"@id": "./"}
+  ]
 }
 ```
 
@@ -145,13 +155,11 @@ permalink is not yet registered. The referenced profiles are declared as context
 }
 ```
 
-> **Note — RO-Crate 1.1 vs 1.2 placement.** Under RO-Crate **1.1**, profile conformance is declared on the *Metadata
-> Descriptor*, whose `conformsTo` MAY be an array of the base specification plus profile URIs. RO-Crate **1.2** instead
-> recommends declaring profiles on the *Root Data Entity* (`./`) and reserving the descriptor's `conformsTo` for a single
-> base-specification value. This profile follows the **1.1** placement because the current toolchain targets 1.1:
-> `ro-crate-py` emits a 1.1 `@context`, and the `rocrate-validator` base profile requires
-> `https://w3id.org/ro/crate/1.1` to be present in the descriptor's `conformsTo`. Move to the Root Data Entity placement
-> when the toolchain validates against 1.2.
+> **Note — RO-Crate 1.2 placement.** RO-Crate **1.2** recommends declaring the profiles a crate targets on the
+> *Root Data Entity* (`./`) and reserving the *Metadata Descriptor*'s `conformsTo` for a single base-specification
+> value — which this profile now follows (Issue #110). The earlier 1.1 placement (all URIs on the descriptor) was a
+> temporary measure while the toolchain lagged: it was lifted once `rocrate-validator` 0.11.0 shipped a `ro-crate-1.2`
+> base profile (crs4/rocrate-validator#164), so the base pass validates against 1.2.
 
 A machine-readable [Profile Crate](https://www.researchobject.org/ro-crate/specification/1.2/profiles.html#profile-crate) bundling this
 description with the SHACL shapes MAY additionally be published at the profile URI; this is planned but not yet provided.

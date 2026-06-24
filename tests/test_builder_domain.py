@@ -386,11 +386,11 @@ class TestIdentifiersAndConformance:
             assert "Profile" in (pt if isinstance(pt, list) else [pt])
 
     def test_descriptor_conformsto_is_base_spec_only(self, tmp_path):
-        # Issue #91: the metadata file descriptor's conformsTo is reserved for
-        # the single base-spec URI (profiles moved to ./). The base spec stays
-        # 1.1 because roc-validator 0.10.0 bundles no 1.2 base profile and its
-        # base pass requires the 1.1 URI on the descriptor (sh:hasValue).
+        # Issue #91/#110: the metadata file descriptor's conformsTo is reserved
+        # for the single base-spec URI (profiles moved to ./). The base spec is
+        # now 1.2 — roc-validator 0.11.0 ships a ro-crate-1.2 base profile
+        # (crs4/rocrate-validator#164), so the #105 deferral is lifted.
         state = CrateState()
         _, by_id = _build(state, tmp_path)
         desc_conforms = _ids(by_id["ro-crate-metadata.json"].get("conformsTo"))
-        assert desc_conforms == ["https://w3id.org/ro/crate/1.1"]
+        assert desc_conforms == ["https://w3id.org/ro/crate/1.2"]

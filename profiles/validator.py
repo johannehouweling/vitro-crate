@@ -3,7 +3,7 @@ Thin wrapper around rocrate_validator that runs the three-pass ISA-Tox
 validation and returns structured, plain-English results.
 
 Passes:
-  1. Base RO-Crate 1.1   -> bundled ``ro-crate`` profile
+  1. Base RO-Crate 1.2   -> bundled ``ro-crate`` profile
   2. ISA RO-Crate        -> bundled ``isa-ro-crate`` profile (roc-validator >=0.10)
   3. ISA-Tox RO-Crate    -> our ``tox-ro-crate`` profile, loaded from SHAPES_DIR
                             via ``extra_profiles_path`` and composed on top of the
@@ -334,7 +334,7 @@ class ValidationResult:
 # three passes in validate_crate(); the only difference is the document is fed as
 # a dict via services.validate_metadata_as_dict instead of read from disk.
 _PROFILE_PASSES: dict[str, tuple[str, dict]] = {
-    "base": ("ro-crate-1.1", {}),
+    "base": ("ro-crate-1.2", {}),
     "isa": ("isa-ro-crate", {"disable_inherited_profiles_issue_reporting": True}),
     "tox": (
         "tox-ro-crate",
@@ -345,6 +345,12 @@ _PROFILE_PASSES: dict[str, tuple[str, dict]] = {
         },
     ),
 }
+
+# Checks that validate the on-disk metadata FILE itself (e.g. its byte encoding)
+# and therefore cannot be evaluated on the in-memory dict path — they false-positive
+# on validate_crate_dict where no file exists. Dropped from the dict path only; the
+# on-disk validate_crate still enforces them. (ro-crate-1.2_3.1 = descriptor UTF-8.)
+_DICT_PATH_NA_CHECKS = frozenset({"ro-crate-1.2_3.1"})
 
 # Severity name <-> roc-validator Severity enum.
 _SEVERITY_BY_NAME = {
@@ -453,13 +459,19 @@ def validate_crate_dict(
             **extra,
         )
         result = services.validate_metadata_as_dict(metadata_doc, settings)
-        issues = [_routable_issue(i, key) for i in result.get_issues()]
+        # Drop file-only checks that can't apply to an in-memory document (see
+        # _DICT_PATH_NA_CHECKS), then derive pass/fail from the filtered issues.
+        issues = [
+            ri
+            for i in result.get_issues()
+            if (ri := _routable_issue(i, key)).check_id not in _DICT_PATH_NA_CHECKS
+        ]
         _raise_on_transport_failure(issues, profile=key)
         results.append(
             DictValidationResult(
                 profile=key,
-                passed=not result.has_issues(),
-                passed_required=not result.has_issues(min_severity=models.Severity.REQUIRED),
+                passed=not issues,
+                passed_required=not any(i.severity == "required" for i in issues),
                 issues=issues,
             )
         )
@@ -509,7 +521,7 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
     """Run all three validation passes against crate_dir.
 
     Returns one ValidationResult per pass in order:
-      1. Base RO-Crate 1.1
+      1. Base RO-Crate 1.2
       2. ISA RO-Crate Profile
       3. ISA-Tox RO-Crate Profile
     """
@@ -518,14 +530,14 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
     # --- Pass 1: base RO-Crate 1.1 ---
     settings = services.ValidationSettings(
         rocrate_uri=crate_dir,  # ty: ignore[unknown-argument]
-        profile_identifier="ro-crate-1.1",
+        profile_identifier="ro-crate-1.2",
         requirement_severity=models.Severity.OPTIONAL,
     )
     result = services.validate(settings)
-    _raise_on_transport_failure_result(result, profile="Base RO-Crate 1.1")
+    _raise_on_transport_failure_result(result, profile="Base RO-Crate 1.2")
     results.append(
         ValidationResult(
-            profile="Base RO-Crate 1.1",
+            profile="Base RO-Crate 1.2",
             passed=not result.has_issues(),
             issues=_format_issues(result),
             required_issues=_format_issues(result, models.Severity.REQUIRED),
