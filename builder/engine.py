@@ -6,6 +6,8 @@ It coordinates tool calls, validation, HITL checkpoints, and session persistence
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -73,6 +75,36 @@ def _order_required_issues(issues: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+# Upper bound on the per-engine build_and_validate result cache (#155). The
+# distinct keys a session produces ~= the number of materially different crate
+# states it validates; the cap is a safety net against unbounded growth.
+_VALIDATION_CACHE_MAX = 64
+
+
+def _validation_input_hash(state: CrateState) -> str:
+    """Hash the inputs ``build_and_validate`` consumes: entities + crate metadata.
+
+    Deliberately EXCLUDES ``state.validation`` / assessments / checkpoint. Those
+    are *outputs* the #153 write-back mutates after every validation, so
+    including them (as ``session._state_content_hash`` does) would change the
+    hash on every call and defeat the debounce. ``assemble_crate`` reads only
+    entities + metadata, so this is a safe superset of the validation inputs: a
+    change to anything the validator could observe busts the cache, while a
+    change to a pure output (a verdict, a score) does not.
+    """
+    content = {
+        "entities": state.entities.to_dict()
+        if hasattr(state.entities, "to_dict")
+        else str(state.entities),
+        "metadata": state.metadata.to_dict()
+        if hasattr(state.metadata, "to_dict")
+        else str(state.metadata),
+    }
+    return hashlib.sha256(
+        json.dumps(content, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
+
 class AgentEngine:
     """Orchestrator for the LLM agent toolbox loop.
 
@@ -103,6 +135,10 @@ class AgentEngine:
         self.human_interface = human_interface
         self._running = False
         self.profiler: ProfilingLogger | None = None
+        # Per-session memo of build_and_validate results keyed on
+        # (validation-input hash, profile, severity) so consecutive validations
+        # of an unchanged crate skip the ~3.7s SHACL re-run (#155).
+        self._validation_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Initialization
@@ -213,7 +249,25 @@ class AgentEngine:
         except ImportError:
             pass
 
-        if tool_name == "present_to_human":
+        # build_and_validate debounce (#155): when the validation inputs
+        # (entities + crate metadata) and the requested scope are unchanged since
+        # the last call, reuse the cached result and skip the ~3.7s SHACL re-run.
+        # The key excludes validation/assessment OUTPUTS, so the #153 write-back
+        # does not invalidate it.
+        debounce_key: tuple[str, str, str] | None = None
+        debounce_hit = False
+        if tool_name == "build_and_validate":
+            profile = kwargs.get("profile") or "all"
+            severity = kwargs.get("severity") or "required"
+            debounce_key = (_validation_input_hash(self.state), profile, severity)
+            cached = self._validation_cache.get(debounce_key)
+            if cached is not None:
+                result = dict(cached)
+                debounce_hit = True
+
+        if debounce_hit:
+            pass  # cached build_and_validate result reused; SHACL skipped
+        elif tool_name == "present_to_human":
             result = self.human_interface.present(kwargs.get("context", ""), kwargs.get("options"))
         elif tool_name == "request_input":
             result = self.human_interface.request_input(
@@ -266,6 +320,20 @@ class AgentEngine:
                 result = spec.fn(self.state, **kwargs)
             else:
                 result = spec.fn(**kwargs)
+
+        # Memoize a fresh, non-error build_and_validate result for the debounce
+        # above (#155). Bounded so a long session cannot grow the cache without
+        # limit; errored results are never cached so a retry re-runs.
+        if (
+            tool_name == "build_and_validate"
+            and debounce_key is not None
+            and not debounce_hit
+            and isinstance(result, dict)
+            and "error" not in result
+        ):
+            if len(self._validation_cache) >= _VALIDATION_CACHE_MAX:
+                self._validation_cache.pop(next(iter(self._validation_cache)))
+            self._validation_cache[debounce_key] = dict(result)
 
         # Fold a validation verdict back into state.validation so get_hint, the
         # interactive header, and the maturity report (#150 renders *from*
