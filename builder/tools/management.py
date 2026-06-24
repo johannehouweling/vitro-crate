@@ -12,6 +12,7 @@ from builder.state import (
     CompletionSource,
     CrateState,
     Entity,
+    FileClassification,
 )
 from builder.tools._crate_mapping import _REF_FIELDS
 
@@ -160,6 +161,68 @@ def list_entities(state: CrateState, entity_type: str | None = None) -> list[Ent
     return state.list_entities(entity_type=entity_type)
 
 
+def list_scanned_files(
+    state: CrateState,
+    name_contains: str | None = None,
+    mime_contains: str | None = None,
+    offset: int = 0,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Return the raw scanned-file inventory from ``CrateState`` (paginated).
+
+    ``scan_files`` only surfaces a small sample, and its tool output is later
+    pruned from history to save tokens — so the agent uses this to retrieve the
+    full list of files it must bind to ``File``/process entities. Returns compact
+    records (``path``/``filename``/``size``/``mime_type``) only — never the heavy
+    ``first_rows`` preview — so the result stays token-bounded.
+
+    Args:
+        state: The crate state to query.
+        name_contains: Keep only files whose ``filename`` or ``path`` contains
+            this substring (case-insensitive).
+        mime_contains: Keep only files whose ``mime_type`` contains this
+            substring (e.g. ``"csv"``, ``"image"``).
+        offset: Pagination start index into the (filtered) list.
+        limit: Maximum number of records to return.
+
+    Returns:
+        ``{"total_scanned", "matched", "offset", "limit", "returned", "files": [...]}``
+        where ``files`` is the requested page of compact records.
+    """
+    name_q = name_contains.lower() if name_contains else None
+    mime_q = mime_contains.lower() if mime_contains else None
+
+    def _match(fc: FileClassification) -> bool:
+        if name_q is not None and (
+            name_q not in (fc.filename or "").lower()
+            and name_q not in (fc.path or "").lower()
+        ):
+            return False
+        if mime_q is not None and mime_q not in (fc.mime_type or "").lower():
+            return False
+        return True
+
+    matched = [fc for fc in state.scanned_files if _match(fc)]
+    start = max(0, offset)
+    page = matched[start : start + max(0, limit)]
+    return {
+        "total_scanned": len(state.scanned_files),
+        "matched": len(matched),
+        "offset": offset,
+        "limit": limit,
+        "returned": len(page),
+        "files": [
+            {
+                "path": fc.path,
+                "filename": fc.filename,
+                "size": fc.size,
+                "mime_type": fc.mime_type,
+            }
+            for fc in page
+        ],
+    }
+
+
 def set_entity_field(
     state: CrateState,
     entity_id: str,
@@ -187,6 +250,7 @@ def bulk_set_fields(
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("list_entities", list_entities, takes_state=True)
+TOOL_REGISTRY.register("list_scanned_files", list_scanned_files, takes_state=True)
 TOOL_REGISTRY.register("remove_entity", remove_entity, takes_state=True)
 # The single consolidated mutation tool (Issue #90, sub-task 2). update_entity,
 # bulk_set_fields and set_entity_field were redundant (the first two byte-

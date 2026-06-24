@@ -530,7 +530,14 @@ extensionless name leaves the field unset.
 set_fields(entity_id: str, fields: dict, source="llm") → Entity
 remove_entity(entity_id: str, cascade: bool = False) → bool
 list_entities(entity_type: str | None) → [Entity]
+list_scanned_files(name_contains=None, mime_contains=None, offset=0, limit=200) → {total_scanned, matched, files:[{path, filename, size, mime_type}]}
 ```
+`list_scanned_files` retrieves the **full** raw scan inventory from
+`CrateState.scanned_files`. `scan_files` only surfaces a ~15-file sample and its
+output is later pruned from history (D12), so this is how the agent re-reads the
+complete file list to bind files to `File`/process entities — paginated
+(`offset`/`limit`) and filterable (`name_contains`/`mime_contains`) so it stays
+token-bounded, and compact (no `first_rows` preview).
 `set_fields` is the **single consolidated mutation tool** (Issue #90). It
 replaced three redundant tools — `update_entity` and `bulk_set_fields` were
 byte-identical, and `set_entity_field` was just the single-field (one-key dict)
