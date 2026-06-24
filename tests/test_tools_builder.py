@@ -6,8 +6,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from builder.state import CrateState, Entity, EntityProvenance
-from builder.tools.builder import build_crate, export_crate
+from builder.state import CrateState, Entity, EntityProvenance, FileClassification
+from builder.tools.builder import assemble_crate, build_crate, export_crate
 
 
 def _ent(entity_id, type_, **fields):
@@ -17,6 +17,68 @@ def _ent(entity_id, type_, **fields):
         fields=fields,
         _provenance=EntityProvenance(created_by="user"),
     )
+
+
+def _file_ids(crate):
+    """@id of every File node in the generated crate graph."""
+    graph = crate.metadata.generate()["@graph"]
+    ids = []
+    for node in graph:
+        t = node.get("@type")
+        types = t if isinstance(t, list) else [t]
+        if "File" in types:
+            ids.append(node["@id"])
+    return ids
+
+
+class TestAutoIncludeScanned:
+    """Issue #175: assemble_crate packages every scanned file by default (option B)."""
+
+    def _state_with_files(self, tmp_path):
+        (tmp_path / "raw").mkdir()
+        (tmp_path / "raw" / "a.mzML").write_text("x")
+        (tmp_path / "raw" / "b.csv").write_text("x")
+        (tmp_path / "notes.txt").write_text("x")
+        state = CrateState()
+        state.metadata.title = "T"
+        state.metadata.description = "d"
+        state.metadata.accession = "ACC-1"
+        state.metadata.input_path = str(tmp_path)
+        state.scanned_files = [
+            FileClassification(
+                str(tmp_path / "raw" / "a.mzML"), "a.mzML", 1, "application/x-mzml"
+            ),
+            FileClassification(str(tmp_path / "raw" / "b.csv"), "b.csv", 1, "text/csv"),
+            FileClassification(str(tmp_path / "notes.txt"), "notes.txt", 1, "text/plain"),
+        ]
+        # The agent drafted b.csv (with a role) — its entity must take precedence.
+        state.add_entity(
+            _ent("file_b", "File", name="b.csv", path="raw/b.csv", role="raw_data")
+        )
+        return state
+
+    def test_auto_includes_all_scanned_files(self, tmp_path):
+        state = self._state_with_files(tmp_path)
+        crate = assemble_crate(state, output_dir=tmp_path, materialize_payload=True)
+        ids = _file_ids(crate)
+        # Every scanned file is in the crate, mirroring its path under input_path.
+        assert any(i.endswith("raw/a.mzML") for i in ids), ids
+        assert any(i.endswith("notes.txt") for i in ids), ids
+        # The drafted b.csv appears exactly once (no auto-duplicate).
+        assert sum(1 for i in ids if i.endswith("b.csv")) == 1, ids
+
+    def test_include_all_scanned_false_keeps_only_drafted(self, tmp_path):
+        state = self._state_with_files(tmp_path)
+        crate = assemble_crate(
+            state,
+            output_dir=None,
+            materialize_payload=False,
+            include_all_scanned=False,
+        )
+        ids = _file_ids(crate)
+        assert not any(i.endswith("a.mzML") for i in ids), ids
+        assert not any(i.endswith("notes.txt") for i in ids), ids
+        assert any(i.endswith("b.csv") for i in ids), ids
 
 
 class TestEmbeddedGraph:
