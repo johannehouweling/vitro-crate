@@ -884,9 +884,16 @@ visual exploration. `build_crate_graph(metadata, *, layer, all_edges)` is the de
 functional category, subtle per-layer box wash, "Outside the crate" group, legend).
 `render_provenance_mermaid` is the focused LabProcess-derivation view. The CLI exposes both:
 `python -m main --graph [--view crate|provenance] [--layer crate|isa|isa-tox] [--format html|mermaid]`
-— `html` renders in the browser, `mermaid` prints the source. *Not yet done (remaining #130
-acceptance):* writing the diagram artifact into the crate as a `File`/`CreativeWork` referenced from
-the Root Data Entity (ties into the #86 preview).
+— `html` renders in the browser, `mermaid` prints the source.
+
+**Embedded in the crate.** `export_crate` (the disk-writer) writes the entity graph as
+`ro-crate-graph.mmd` into the crate and registers it as a `File` + `CreativeWork` `about` the Root
+Data Entity (so ro-crate-py links it from `./`'s `hasPart`) — the diagram travels with the data and
+is reachable from the root. It is generated from the `@graph` *before* its own File node is added
+(never self-depicting) and is in `_EXCLUDED_IDS` so re-rendering an exported crate ignores it.
+Embedding is automatic (no separate agent tool — a free byproduct of building the crate) and can be
+turned off with `export_crate(..., embed_graph=False)`. Inline-rendering the Mermaid in the #86
+`ro-crate-preview.html` is the natural next step.
 
 ## 12. Project Structure
 

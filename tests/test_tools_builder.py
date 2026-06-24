@@ -6,8 +6,70 @@ import json
 import tempfile
 from pathlib import Path
 
-from builder.state import CrateState
+from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.builder import build_crate, export_crate
+
+
+def _ent(entity_id, type_, **fields):
+    return Entity(
+        entity_id=entity_id,
+        type=type_,
+        fields=fields,
+        _provenance=EntityProvenance(created_by="user"),
+    )
+
+
+class TestEmbeddedGraph:
+    """export_crate writes the entity-graph diagram into the crate (#130)."""
+
+    def _state(self):
+        state = CrateState()
+        state.metadata.title = "T"
+        state.metadata.description = "d"
+        state.metadata.accession = "ACC-1"
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1"))
+        return state
+
+    def test_export_writes_and_registers_graph(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "crate"
+            assert export_crate(self._state(), str(out))["success"] is True
+
+            mmd = out / "ro-crate-graph.mmd"
+            assert mmd.is_file()
+            assert mmd.read_text(encoding="utf-8").startswith("flowchart")
+
+            graph = json.loads((out / "ro-crate-metadata.json").read_text())["@graph"]
+            by_id = {e["@id"]: e for e in graph}
+
+            # Registered as a File + CreativeWork about the Root Data Entity …
+            node = by_id["ro-crate-graph.mmd"]
+            types = node["@type"] if isinstance(node["@type"], list) else [node["@type"]]
+            assert "File" in types and "CreativeWork" in types
+            assert node.get("encodingFormat") == "text/vnd.mermaid"
+            assert node.get("about") == {"@id": "./"}
+
+            # … and referenced from the Root Data Entity's hasPart.
+            parts = by_id["./"].get("hasPart") or []
+            part_ids = [r.get("@id") for r in parts if isinstance(r, dict)]
+            assert "ro-crate-graph.mmd" in part_ids
+
+    def test_embedded_graph_does_not_depict_itself(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "crate"
+            export_crate(self._state(), str(out))
+            content = (out / "ro-crate-graph.mmd").read_text(encoding="utf-8")
+            # The graph is generated before its own File node is added.
+            assert "RO-Crate entity graph" not in content
+
+    def test_embedding_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "crate"
+            export_crate(self._state(), str(out), embed_graph=False)
+            assert not (out / "ro-crate-graph.mmd").exists()
+            graph = json.loads((out / "ro-crate-metadata.json").read_text())["@graph"]
+            assert "ro-crate-graph.mmd" not in {e["@id"] for e in graph}
 
 
 class TestExportCrate:
