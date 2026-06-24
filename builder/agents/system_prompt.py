@@ -42,6 +42,7 @@ Entity management & provenance:
 - list_entities: List entities, optionally filtered by type
 - list_scanned_files: Retrieve the full scanned-file inventory (path/filename/size/mime) — scan_files only shows a sample, so use this to browse the inventory and decide which files to place/annotate (paginated/filterable)
 - link: Wire a provenance edge (object/input/samples = consumed, result/output = produced) between two entities
+- attach_files: Bulk-place a group of scanned files under a Study/Assay (name_contains/mime_contains/paths + optional role) — the scalable way to associate data with structure; unplaced files are auto-included at the root on export
 - check_provenance: Lint the derivation chain for dangling process outputs and orphan files (report-only)
 
 Lookups & verification:

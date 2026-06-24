@@ -555,8 +555,18 @@ orphaned.
 ### Derivation Chain Tools
 ```
 link(from_id: str, relation: str, to_id: str) → {from_id, relation, to_id}
+attach_files(to: str, name_contains=None, mime_contains=None, paths=None, role=None) → {attached, file_ids, to}
 check_provenance() → {ok, issues:[{entity_id, property, message, fix, severity, profile}]}
 ```
+`attach_files` is the bulk *placement* verb (#177): it associates a **group** of
+scanned files with a Study or Assay in one call (select by `name_contains` /
+`mime_contains` / explicit `paths`, stamp an optional `role`). For each match it
+finds-or-creates a `File` entity (deduped by on-disk source, so it is never
+duplicated and drops out of the #175 root fallback) and appends it to the
+target's `hasPart`, which `_add_structural` resolves to nest the file under that
+dataset. It is the scalable counterpart to per-file `draft_file` and complements
+the #175 auto-include fallback (inclusion) with agent-driven placement
+(association). Process inputs/outputs stay with `link`.
 `link` adds one provenance edge — `relation` is drawn from `PROVENANCE_RELATIONS`
 (`object`/`input`/`samples` = consumed, `result`/`output` = produced,
 `derives_from` = sample lineage), a strict subset of the crate mapping's

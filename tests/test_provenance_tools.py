@@ -10,14 +10,82 @@ from __future__ import annotations
 
 import pytest
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import CrateState, Entity, EntityProvenance, FileClassification
 from builder.tools._crate_mapping import _REF_FIELDS, PROVENANCE_RELATIONS
+from builder.tools.builder import assemble_crate
 from builder.tools.provenance import (
     _INPUT_FIELDS,
+    attach_files,
     check_provenance,
     draft_file,
     link,
 )
+
+
+def _haspart_ids(node):
+    """The @id strings under a generated node's hasPart."""
+    value = node.get("hasPart")
+    if value is None:
+        return []
+    items = value if isinstance(value, list) else [value]
+    return [i.get("@id") if isinstance(i, dict) else i for i in items]
+
+
+class TestAttachFiles:
+    """Issue #177: bulk-place scanned files under a Study/Assay (placement)."""
+
+    def _state(self, tmp_path):
+        (tmp_path / "a1").mkdir()
+        (tmp_path / "a1" / "raw.csv").write_text("x")
+        (tmp_path / "a1" / "img.png").write_bytes(b"\x89PNG\r\n")
+        state = CrateState()
+        state.metadata.title = "T"
+        state.metadata.description = "d"
+        state.metadata.accession = "ACC"
+        state.metadata.input_path = str(tmp_path)
+        state.add_entity(_ent("inv_1", "Investigation", name="I"))
+        state.add_entity(_ent("study_1", "Study", name="S", investigation_id="inv_1"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1"))
+        state.scanned_files = [
+            FileClassification(str(tmp_path / "a1" / "raw.csv"), "raw.csv", 1, "text/csv"),
+            FileClassification(str(tmp_path / "a1" / "img.png"), "img.png", 1, "image/png"),
+        ]
+        return state
+
+    def test_creates_file_entity_and_sets_role_and_haspart(self, tmp_path):
+        state = self._state(tmp_path)
+        out = attach_files(state, to="assay_1", mime_contains="csv", role="raw_data")
+        assert out["attached"] == 1
+        assert out["to"] == "assay_1"
+        files = state.list_entities("File")
+        assert len(files) == 1  # only the csv, not the png
+        assert files[0].fields["role"] == "raw_data"
+        # The assay now references the file via hasPart.
+        assert files[0].entity_id in (state.get_entity("assay_1").fields.get("hasPart") or [])
+
+    def test_build_places_file_under_assay_not_root(self, tmp_path):
+        state = self._state(tmp_path)
+        attach_files(state, to="assay_1", mime_contains="csv", role="raw_data")
+        graph = assemble_crate(
+            state, output_dir=tmp_path, materialize_payload=True
+        ).metadata.generate()["@graph"]
+        assay = next(n for n in graph if n.get("additionalType") == "Assay")
+        root = next(n for n in graph if n.get("@id") == "./")
+        assert any("raw.csv" in str(p) for p in _haspart_ids(assay)), assay
+        assert not any("raw.csv" in str(p) for p in _haspart_ids(root)), root
+
+    def test_dedups_already_drafted_file(self, tmp_path):
+        state = self._state(tmp_path)
+        draft_file(state, name="raw.csv", path="a1/raw.csv", role="raw_data")
+        attach_files(state, to="assay_1", mime_contains="csv")
+        # No duplicate File entity created for the same source.
+        assert len(state.list_entities("File")) == 1
+
+    def test_rejects_non_dataset_target(self, tmp_path):
+        state = self._state(tmp_path)
+        state.add_entity(_ent("proc_1", "LabProcess", process_type="EndpointReadout"))
+        with pytest.raises(ValueError, match="Study or Assay"):
+            attach_files(state, to="proc_1", mime_contains="csv")
 
 
 def _ent(entity_id, type_, **fields):

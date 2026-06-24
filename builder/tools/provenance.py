@@ -23,10 +23,11 @@ provenance graph dangles. These tools give the agent explicit verbs:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance
-from builder.tools._crate_mapping import PROVENANCE_RELATIONS
+from builder.tools._crate_mapping import PROVENANCE_RELATIONS, _file_source
 from builder.tools.drafters import _make_entity_id
 from builder.tools.scanner import encoding_format_for_name
 
@@ -137,6 +138,135 @@ def link(state: CrateState, from_id: str, relation: str, to_id: str) -> dict[str
     src.set_field_status(relation, "filled", "llm")
     logger.debug("Linked %s --%s--> %s", from_id, relation, to_id)
     return {"from_id": from_id, "relation": relation, "to_id": to_id}
+
+
+def _scanned_abspath(path_str: str, input_path: str | None) -> str:
+    """Resolve a scanned file's path to an absolute string."""
+    p = Path(path_str)
+    if not p.is_absolute() and input_path:
+        p = Path(input_path) / path_str
+    try:
+        return str(p.resolve())
+    except OSError:
+        return str(p)
+
+
+def _scanned_dest(path_str: str, filename: str, input_path: str | None) -> str:
+    """Crate-relative dest mirroring the file's path under ``input_path``."""
+    if input_path:
+        try:
+            return (
+                Path(_scanned_abspath(path_str, input_path))
+                .relative_to(Path(input_path).resolve())
+                .as_posix()
+            )
+        except (ValueError, OSError):
+            pass
+    return f"data/{filename}"
+
+
+def _append_haspart(entity: Entity, child_id: str) -> None:
+    """Append ``child_id`` to ``entity``'s hasPart list (deduped)."""
+    existing = entity.fields.get("hasPart")
+    if existing is None:
+        entity.fields["hasPart"] = [child_id]
+    elif isinstance(existing, list):
+        if child_id not in existing:
+            existing.append(child_id)
+    elif existing != child_id:
+        entity.fields["hasPart"] = [existing, child_id]
+    entity.set_field_status("hasPart", "filled", "llm")
+
+
+def attach_files(
+    state: CrateState,
+    to: str,
+    name_contains: str | None = None,
+    mime_contains: str | None = None,
+    paths: list[str] | None = None,
+    role: str | None = None,
+) -> dict[str, Any]:
+    """Bulk-place scanned files under a Study or Assay (#177).
+
+    The inclusion fallback (#175) guarantees every file lands *somewhere*; this is
+    the agent's *placement* verb — it associates a group of scanned files with the
+    structural entity they belong to. For each matching file it finds-or-creates a
+    ``File`` entity (deduped by on-disk source, so it is not duplicated and drops
+    out of the root fallback) and appends it to ``to``'s ``hasPart``, so the build
+    nests it under that dataset. Process inputs/outputs stay with ``link``.
+
+    Args:
+        state: The crate state to operate on.
+        to: entity_id of the target Study or Assay.
+        name_contains: Match files whose filename or path contains this substring.
+        mime_contains: Match files whose mime_type contains this substring.
+        paths: Explicit scanned paths/filenames to attach (with/instead of the
+            substring filters).
+        role: Optional role to stamp on each File (e.g. "raw_data", "processed").
+
+    Returns:
+        ``{"attached": int, "file_ids": [...], "to": to}``.
+
+    Raises:
+        ValueError: If ``to`` is missing or is not a Study/Assay.
+    """
+    target = state.get_entity(to)
+    if target is None:
+        raise ValueError(f"attach_files target not found: {to!r}.")
+    if target.type not in ("Study", "Assay"):
+        raise ValueError(
+            f"attach_files target must be a Study or Assay; {to!r} is a "
+            f"{target.type}. Use draft_file + link for process inputs/outputs."
+        )
+
+    input_path = state.metadata.input_path
+    name_q = name_contains.lower() if name_contains else None
+    mime_q = mime_contains.lower() if mime_contains else None
+    explicit = {str(p) for p in paths} if paths else None
+
+    def _matches(fc: Any) -> bool:
+        if explicit is not None and fc.path not in explicit and fc.filename not in explicit:
+            return False
+        if name_q is not None and (
+            name_q not in (fc.filename or "").lower()
+            and name_q not in (fc.path or "").lower()
+        ):
+            return False
+        if mime_q is not None and mime_q not in (fc.mime_type or "").lower():
+            return False
+        return True
+
+    # Index existing File entities by resolved on-disk source (find-or-create).
+    existing: dict[str, Entity] = {}
+    for fe in state.list_entities("File"):
+        src = _file_source(fe, input_path)
+        if src:
+            existing[str(Path(src).resolve())] = fe
+
+    file_ids: list[str] = []
+    for fc in state.scanned_files:
+        if not _matches(fc):
+            continue
+        key = _scanned_abspath(fc.path, input_path)
+        fe = existing.get(key)
+        if fe is None:
+            fe = draft_file(
+                state,
+                name=fc.filename,
+                path=_scanned_dest(fc.path, fc.filename, input_path),
+                role=role,
+                encoding_format=fc.mime_type or None,
+            )
+            existing[key] = fe
+        elif role:
+            fe.fields["role"] = role
+            fe.set_field_status("role", "filled", "llm")
+        _append_haspart(target, fe.entity_id)
+        if fe.entity_id not in file_ids:
+            file_ids.append(fe.entity_id)
+
+    logger.debug("attach_files: %d file(s) -> %s", len(file_ids), to)
+    return {"attached": len(file_ids), "file_ids": file_ids, "to": to}
 
 
 def _ref_ids(value: Any) -> set[str]:
@@ -295,4 +425,5 @@ from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("draft_file", draft_file, takes_state=True)
 TOOL_REGISTRY.register("link", link, takes_state=True)
+TOOL_REGISTRY.register("attach_files", attach_files, takes_state=True)
 TOOL_REGISTRY.register("check_provenance", check_provenance, takes_state=True)
