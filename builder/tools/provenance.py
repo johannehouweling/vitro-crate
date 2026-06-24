@@ -140,6 +140,11 @@ def _ref_ids(value: Any) -> set[str]:
     return out
 
 
+def _process_type(proc: Entity) -> str:
+    """The domain discriminator of a LabProcess (process_type or additionalType)."""
+    return proc.fields.get("process_type") or proc.fields.get("additionalType") or ""
+
+
 def _issue(entity_id: str, prop: str, message: str, fix: str) -> dict[str, Any]:
     """A routable issue in #87's shape (REQUIRED, ISA layer)."""
     return {
@@ -155,12 +160,21 @@ def _issue(entity_id: str, prop: str, message: str, fix: str) -> dict[str, Any]:
 def check_provenance(state: CrateState) -> dict[str, Any]:
     """Report-only connectivity lint over the derivation chain.
 
-    Surfaces (without modifying state) two classes of break:
+    Surfaces (without modifying state) three classes of break:
 
     1. A domain LabProcess that produces no output where the build has no
        fallback (EndpointReadout / DataAnalysis) — the chain dangles there.
     2. A File referenced by no process input/output and not part of any
        ``hasPart`` — an orphan data entity with no producer.
+    3. *Continuity* (Issue #140): a process consumes a ``Sample`` that no
+       process produces and that is not a CellCulture seed — the derivation
+       chain is broken upstream of that process (its input does not trace back
+       to a cultured/exposed material). Only applied when the crate actually
+       models sample material-flow (some process produces a Sample output), and
+       only to ``Sample`` inputs (``File`` inputs may be imported starting data;
+       ``CellLineSample``/``MolecularEntity`` are external starting materials),
+       so legitimate primary-cell, data-only, and multi-assay crates are not
+       false-flagged.
 
     Args:
         state: The crate state to lint.
@@ -186,7 +200,7 @@ def check_provenance(state: CrateState) -> dict[str, Any]:
 
     # Rule 1: dangling process output (no build-time fallback for these types).
     for proc in processes:
-        ptype = proc.fields.get("process_type") or proc.fields.get("additionalType") or ""
+        ptype = _process_type(proc)
         if ptype in _OUTPUT_REQUIRED_TYPES and not any(
             proc.fields.get(f) for f in _OUTPUT_FIELDS
         ):
@@ -215,6 +229,49 @@ def check_provenance(state: CrateState) -> dict[str, Any]:
                     f"it to a dataset's hasPart.",
                 )
             )
+
+    # Rule 3: derivation-chain continuity. Build the set of entity_ids produced
+    # by some process; if any produced entity is a Sample, the crate models
+    # sample material-flow, so every consumed Sample must trace back to a
+    # producer (or be a CellCulture seed). A consumed Sample that does neither
+    # means the chain is broken upstream — exactly the mid-chain break a flat
+    # presence lint cannot see.
+    produced: set[str] = set()
+    for proc in processes:
+        for fld in _OUTPUT_FIELDS:
+            produced |= _ref_ids(proc.fields.get(fld))
+    models_sample_flow = any(
+        (e := state.get_entity(pid)) is not None and e.type == "Sample"
+        for pid in produced
+    )
+    if models_sample_flow:
+        seeds: set[str] = set()
+        for proc in processes:
+            if _process_type(proc) == "CellCulture":
+                for fld in _INPUT_FIELDS:
+                    seeds |= _ref_ids(proc.fields.get(fld))
+        for proc in processes:
+            for fld in _INPUT_FIELDS:
+                for tid in _ref_ids(proc.fields.get(fld)):
+                    target = state.get_entity(tid)
+                    if target is None or target.type != "Sample":
+                        continue
+                    if tid in produced or tid in seeds:
+                        continue
+                    issues.append(
+                        _issue(
+                            proc.entity_id,
+                            fld,
+                            f"{_process_type(proc) or 'LabProcess'} "
+                            f"'{proc.entity_id}' consumes sample '{tid}', but no "
+                            f"process produces it and it is not a culture seed — "
+                            f"the derivation chain is broken upstream.",
+                            f"Wire the producing step's output to this input, e.g. "
+                            f"link('<upstream_process_id>', 'result', '{tid}'), or "
+                            f"point this input at the correct cultured/exposed "
+                            f"sample.",
+                        )
+                    )
 
     return {"ok": not issues, "issues": issues}
 
