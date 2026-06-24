@@ -618,6 +618,7 @@ verify_identifier(entity_id: str, field: str) → VerificationResult
 ### Crate Assembly & Validation Tools
 ```
 build_and_validate(severity="required", profile="all") → {ok, conformance, issues}
+fix_required_issues(severity="required", profile="all") → {ok, fixed:[{issue, rule, action}], remaining:[{issue, reason}]}
 export_crate(output_path: str) → CrateBuildResult
 build_crate(output_path: str) → CrateBuildResult     # back-compat alias of export_crate
 validate(crate_path: str) → ValidationReport
@@ -668,6 +669,24 @@ SHACL checks run — `required` (the default) is fastest. `profile`
 wall-clock, the inner loop can validate a single profile at REQUIRED severity
 and run the full 3-pass sweep only as a gate. The three passes mirror
 `profiles/validator.validate_crate`, fed the metadata dict instead of a path.
+
+`fix_required_issues` is the **deterministic repair loop** — the keystone of the
+§14 pipeline (Issue #179, task 1). `build_and_validate` *routes* each issue to
+`{entity_id, property, fix, …}` but nothing mapped an issue back to a *repair*;
+this closes that gap. It runs `build_and_validate`, dispatches each issue through a
+small, ordered table of issue-shape → repair rules (`builder/tools/repair.py`,
+`RepairRule`), then **re-validates** to confirm what actually cleared (it trusts the
+validator's verdict, not a rule's optimism). A repair runs **only when the correct
+value is already determined by state** — e.g. an `EndpointReadout`/`DataAnalysis`
+missing its `result` where exactly **one** un-wired `File` already exists in state
+is auto-wired via `link` (the §14.3 "no output fallback" trap). Anything needing
+**new content, a new entity, or a fabricated identifier — or a genuinely ambiguous
+target (2+ candidates) — is out of scope (D5)** and returned under `remaining` for a
+bounded LLM leaf. It is **idempotent and side-effect-safe**: if nothing is
+deterministically fixable it mutates nothing and returns every issue in `remaining`.
+It maps a validation focus-node `@id` (e.g. `./#LabProcess_er1`) back to its state
+entity by inverting `_crate_mapping._mint_id`. Each `fixed` item carries
+`{issue, rule, action}`; each `remaining` item `{issue, reason}`.
 
 `export_crate` is the **only** tool that touches disk — call it once the crate
 is conformant to materialise the on-disk RO-Crate directory (payload included).

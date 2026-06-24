@@ -36,6 +36,7 @@ def _get_registry_tool_names() -> set[str]:
     import builder.tools.management
     import builder.tools.mit_assessment
     import builder.tools.provenance
+    import builder.tools.repair
     import builder.tools.scanner
     import builder.tools.session
     import builder.tools.validation
@@ -84,6 +85,7 @@ def _get_all_registry_tool_names() -> set[str]:
     import builder.tools.management  # noqa: F401
     import builder.tools.mit_assessment  # noqa: F401
     import builder.tools.provenance  # noqa: F401
+    import builder.tools.repair  # noqa: F401
     import builder.tools.scanner  # noqa: F401
     import builder.tools.session  # noqa: F401
     import builder.tools.validation  # noqa: F401

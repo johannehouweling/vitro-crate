@@ -58,6 +58,7 @@ from builder.tools.management import (
 )
 from builder.tools.mit_assessment import assess_mit_coverage
 from builder.tools.provenance import check_provenance, draft_file, link
+from builder.tools.repair import fix_required_issues
 from builder.tools.scanner import (
     extract_pdf_text,
     preview_archive,
@@ -97,6 +98,7 @@ __all__ = [
     "draft_study",
     "export_crate",
     "extract_pdf_text",
+    "fix_required_issues",
     "get_hint",
     "get_status",
     "link",

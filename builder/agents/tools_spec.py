@@ -408,6 +408,26 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "fix_required_issues",
+        "description": "Deterministically repair the routed issues from build_and_validate — no LLM, no network. It runs build_and_validate, and for each issue applies an automatic repair when the correct value is already determined by state (e.g. a process missing its output where exactly ONE un-wired File exists in state -> link it as the result), then re-validates. Issues needing NEW content, a NEW entity, or a fabricated identifier are left for you to fix and returned under 'remaining'. Idempotent and side-effect-safe: if nothing is deterministically fixable, state is unchanged. Returns {ok, fixed:[{issue, rule, action}], remaining:[{issue, reason}]}. Run it after wiring entities to auto-clear the mechanical REQUIRED issues, then handle the 'remaining' ones yourself.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "severity": {
+                    "type": "string",
+                    "enum": ["required", "recommended", "optional"],
+                    "description": "Gate severity forwarded to build_and_validate. 'required' (default) targets only blocking issues.",
+                },
+                "profile": {
+                    "type": "string",
+                    "enum": ["all", "base", "isa", "tox"],
+                    "description": "Which layer(s) to check/repair. 'all' (default) runs base+isa+tox; scope to one layer to go faster.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "export_crate",
         "description": "Write the finished RO-Crate to disk (the only step that touches disk). Use build_and_validate while iterating; call export_crate once the crate is conformant. Returns crate_path. Auto-embeds the browsable preview and the entity-graph diagram (ro-crate-graph.mmd, a CreativeWork about ./) so the crate is self-describing. When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
         "parameters": {
