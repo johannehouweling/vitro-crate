@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import builder.config as _config
-from builder.state import CrateState
+from builder.state import CrateState, ValidationReport
 from builder.tools.profiler import ProfilingLogger
 
 if TYPE_CHECKING:
@@ -44,6 +44,33 @@ def _directory_to_approve(scanned_path: str) -> str:
         # Mirror unzip_file's extraction layout: <parent>/<stem>_extracted
         return str(p.parent / f"{p.stem}_extracted")
     return str(p.parent)
+
+
+# Validation layers stack as a pyramid (BASE -> ISA -> TOX); ordering REQUIRED
+# issues by layer puts the next *unblocking* fix first.
+_VALIDATION_LAYER_ORDER = {"base": 0, "isa": 1, "tox": 2}
+
+
+def _order_required_issues(issues: list[dict[str, Any]]) -> list[str]:
+    """Return REQUIRED-severity issues as strings, ordered base -> isa -> tox.
+
+    ``build_and_validate`` reports issues as routable dicts
+    (``{entity_id, property, message, severity, profile, fix}``); the
+    :class:`ValidationReport` stores them as human-readable strings consumed by
+    ``get_hint`` and the maturity report. We keep only REQUIRED-severity issues
+    (the blocking ones) and order them by validation layer so the first entry is
+    the next fix that unblocks the pyramid. The sort is stable, preserving the
+    validator's within-layer order.
+    """
+    required = [i for i in issues if i.get("severity") == "required"]
+    required.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
+    lines: list[str] = []
+    for issue in required:
+        profile = issue.get("profile") or "?"
+        entity = issue.get("entity_id") or "?"
+        message = issue.get("message") or ""
+        lines.append(f"[{profile}] {entity}: {message}".rstrip())
+    return lines
 
 
 class AgentEngine:
@@ -239,6 +266,13 @@ class AgentEngine:
             else:
                 result = spec.fn(**kwargs)
 
+        # Fold a validation verdict back into state.validation so get_hint, the
+        # interactive header, and the maturity report (#150 renders *from*
+        # state.validation) reflect the latest result instead of stale defaults
+        # (#153). Orchestration-layer side effect, mirroring the scan_files
+        # write-back above; the validation tools themselves stay pure.
+        self._writeback_validation(tool_name, result)
+
         self.state.iteration_count += 1
         self.state.log_reasoning(
             f"run_tool: {tool_name}",
@@ -272,6 +306,35 @@ class AgentEngine:
             )
 
         return result
+
+    def _writeback_validation(self, tool_name: str, result: Any) -> None:
+        """Fold a validation result into ``state.validation`` (#153).
+
+        ``validate`` returns a fully-formed :class:`ValidationReport` (disk,
+        three-pass) — adopt it wholesale. ``build_and_validate`` returns the
+        in-memory routable dict (``{"ok", "conformance", "issues"}``); map its
+        per-layer ``conformance`` onto the report and record the REQUIRED issues
+        ordered base -> isa -> tox. Layers absent from ``conformance`` (a scoped
+        ``profile=`` call) keep their prior value, and an errored result is left
+        untouched so a transient failure never wipes known issues.
+        """
+        if tool_name == "validate" and isinstance(result, ValidationReport):
+            self.state.validation = result
+            return
+        if tool_name == "build_and_validate" and isinstance(result, dict):
+            if "error" in result:
+                return
+            conformance = result.get("conformance") or {}
+            if not conformance:
+                return
+            report = self.state.validation
+            if "base" in conformance:
+                report.base_passed = bool(conformance["base"])
+            if "isa" in conformance:
+                report.isa_passed = bool(conformance["isa"])
+            if "tox" in conformance:
+                report.tox_passed = bool(conformance["tox"])
+            report.required_issues = _order_required_issues(result.get("issues") or [])
 
     def close_profiler(self) -> None:
         """Close the profiling log file, if open.

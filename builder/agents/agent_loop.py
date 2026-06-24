@@ -554,6 +554,7 @@ def _build_system_prompt_with_state(
     entity_count: int,
     file_count: int,
     iteration_count: int,
+    next_fix: str | None = None,
 ) -> str:
     """Build a lightweight state brief appended to the system prompt.
 
@@ -563,13 +564,21 @@ def _build_system_prompt_with_state(
 
     Returns a single short line like:
     ``[Session: sid | Files: 5 | Entities: 3 | Iteration: 42]``
+
+    When ``next_fix`` is given (the top REQUIRED validation issue, surfaced from
+    ``state.validation`` after the #153 write-back), a second line names it so a
+    weak model has a durable next-step pointer and stops re-deriving the
+    BASE->ISA->TOX plan from the system prompt every turn.
     """
-    return (
+    brief = (
         f"[Session: {session_id} | "
         f"Files: {file_count} | "
         f"Entities: {entity_count} | "
         f"Iteration: {iteration_count}]"
     )
+    if next_fix:
+        brief += f"\n[Next REQUIRED fix: {next_fix}]"
+    return brief
 
 
 # Tool names whose verbose output already lives in CrateState, so replaying it
@@ -687,6 +696,7 @@ def _assemble_model_messages(
     entity_count: int,
     file_count: int,
     iteration_count: int,
+    next_fix: str | None = None,
     max_history_tokens: int | None = None,
 ) -> list:
     """Assemble the message list for a model invocation with a cache-friendly
@@ -728,6 +738,7 @@ def _assemble_model_messages(
         entity_count=entity_count,
         file_count=file_count,
         iteration_count=iteration_count,
+        next_fix=next_fix,
     )
     return [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -782,12 +793,17 @@ def _build_agent_graph(
         # Stable SYSTEM_PROMPT prefix + history, with the volatile per-turn state
         # brief at the tail so the cacheable prefix isn't busted (Issue #60). The
         # brief is rebuilt each call and never persisted to history (Issue #66).
+        # The top REQUIRED validation issue (populated by the #153 write-back) is
+        # surfaced in the brief as a durable next-step pointer for a weak model.
+        required_issues = engine.state.validation.required_issues
+        next_fix = required_issues[0] if required_issues else None
         model_messages = _assemble_model_messages(
             messages,
             session_id=engine.state.session_id,
             entity_count=len(engine.state.list_entities()),
             file_count=len(engine.state.scanned_files),
             iteration_count=engine.state.iteration_count,
+            next_fix=next_fix,
         )
         response = model.invoke(model_messages)
         # Return only the new response; the add_messages reducer appends it
