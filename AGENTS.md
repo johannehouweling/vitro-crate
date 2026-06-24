@@ -1086,6 +1086,105 @@ State is isolated per session. Parallel sessions are straightforward.
 ### Profiling Dashboard
 The `profile.ndjson` log produced by `ProfilingLogger` is the foundation for a live-status web UI. A frontend could tail this file to show real-time tool timing, node execution times, and iteration counters — without any changes to the builder's internals.
 
+## 14. Architecture Evolution: Deterministic Pipeline (planned — Issue #179)
+
+> **Status:** Decided direction, migration in progress (Issue #179). The as-built
+> agent loop is the prose-prompt ReAct StateGraph of §4 / D1; this section is the
+> **convergence target**. It supersedes the earlier "keep flat ReAct, structure in
+> the tool layer only" stance once the A/B gate (task 6 below) confirms it.
+
+### 14.1 Decision
+
+Move the *workflow orchestration* out of the LLM system prompt and into **code**.
+Today the whole sequence — `scan → scaffold ISA backbone → draft entities →
+build_and_validate → fix REQUIRED bottom-up → enrich → export` — is encoded as
+**prose in `builder/agents/system_prompt.py`** and re-derived by the model every run.
+The agent runs on a weak model (DeepSeek-flash) that collapses on exactly that
+multi-turn orchestration but is fine at bounded extraction. The target architecture is a
+**deterministic pipeline with the LLM confined to bounded leaves**, and a **small agent
+retained only for the conversational / unstructured-input tail**.
+
+**Scope of the claim (honest):** a deep-research pass refuted the broad "plan-and-execute
+beats ReAct on reliability" claim — ReAct often has a higher final pass rate. The
+defensible win *for this system* (known step ordering + rigid SHACL-validated output +
+weak executor) is **cost, latency, reproducibility, testability, predictability** — not
+blanket correctness. Therefore the full cutover is **gated on an in-repo A/B** (task 6).
+
+### 14.2 Target shape
+
+```
+INPUT (dir / zip / conversation)
+   │
+   ▼  DETERMINISTIC PIPELINE (code, not model-driven)
+ scan ─ scaffold ISA backbone ─ draft entities ─ build_and_validate ─ fix loop ─ enrich ─ export
+                                     │  (bounded LLM leaf: extract→entity)     │ (deterministic
+                                     ▼                                          │  dispatch over
+                              cheap drafter model                               │  routed issues;
+                                                                                ▼  LLM only for
+   small TAIL AGENT (strong model) ── only for: no-metadata conversational build,   content repairs)
+                                       genuine ambiguity, HITL
+   │
+   ▼ OUTPUT: ARC RO-Crate dir + payload + embedded graph/maturity/preview
+```
+
+- **Spine = code.** The Priority 1–4 heuristic (§4) becomes control flow, not prose.
+- **Leaves = cheap model.** Drafting/disambiguation only (binds the §4.4 drafter tier).
+- **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
+  `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
+  lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.
+- **Tail = small strong-model agent.** The one place open-ended judgement is irreducible.
+
+### 14.3 Gate audit outcome (two multi-agent audits, 2026-06-25)
+
+"Do we have the tools to build an ISA-Tox crate from code?" was answered against both the
+SHACL/MIT requirements (267 elements, 82 tools mapped) **and** a real gold crate
+(`crates_out/S-VHPS21_rocrate`, built by the external `rocrate-wizard`):
+
+- **Validity:** **YES today** — empirically, one `scaffold_isa_backbone(...)` call yields
+  `{base, isa, tox}` all true with **zero issues**. No REQUIRED element lacks a code path.
+- **Full fidelity:** **Not yet** — reproducing a rich real crate needs ~17 deterministic
+  tools/extensions, *every one proven feasible by rocrate-wizard*. Tracked in the
+  toolbox-completion issue (companion to #179).
+
+**Two conditional Violation traps** (the "wiring contract" — fire only when those
+entities exist, both code-fixable; document for callers):
+1. A `PropertyValue` named `DOI`/`PubMedID` is SHACL-duck-typed and MUST carry
+   `propertyID` as an **`@id` IRI node** (the OBI IRI). `draft_property_value` emits it as
+   a string literal → silent Violation. Fix: default + `@id`-wrap by name.
+2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
+   (unlike CellCulture/Exposure); a process with no explicit output fires a Violation.
+   Fix: synthesize/`link` outputs (fold into `draft_process_chain`).
+
+**Highest-leverage gap:** `materialize_aop_subgraph` — closes ~36 items (1 AOP + N
+KeyEvents + M KeyEventRelationships) in one tool. Fully deterministic: port
+`rocrate-wizard` `lookups/aopwiki.py` (returns the whole subgraph pre-wired from AOP-Wiki
+JSON) + `builder.py:265-278` (`crate.add(ContextEntity(...))` per node, then wire AOP to
+Study via `mentions`/`aop`). The only LLM-supplied input is the numeric `aop_id`.
+
+### 14.4 Migration tasks (each its own `jh-*` branch + PR, TDD)
+
+Pipeline (#179): (1) `fix_required_issues` deterministic repair loop — *the keystone*;
+(2) drafters as real LLM leaves; (3) composite meta-tools incl. `draft_process_chain`
+(must synthesize EndpointReadout/DataAnalysis outputs to earn its keep); (4) pipeline
+spine replaces the `should_continue` ReAct loop; (5) shrink tail agent; (6) **A/B eval
+harness — decision gate**; (7) prompt + docs.
+
+Toolbox completion (companion issue, parallel disjoint lanes): `materialize_aop_subgraph`;
+the identifier-PropertyValue family (`draft_person_with_identifiers`,
+`enrich_molecular_entity_identifiers`, `draft_publication_with_authors`, sharing one
+`_identifier_pv` helper); reference-wiring resolver extensions (`affiliation`, `funder`,
+root `about`, `author` into `_REF_FIELDS`/`_wire_mentions`); CSVW schema extensions
+(condition-table columns, `raw_measurements`); `set_crate_metadata` (fidelity, **not** a
+validity blocker — `datePublished` is auto-set by ro-crate-py); `draft_property_value`
+DOI/PubMed `propertyID` fix.
+
+> **Tool-registration contract:** every new LLM tool must be registered in **four**
+> lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
+> catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`) — plus
+> the import lists in `tests/test_tools_spec.py`, or CI fails.
+
+The pre-migration ReAct baseline is frozen at git tag **`react-baseline`** for the A/B.
+
 ---
 
 *This document is a living design artifact. Update as architectural decisions evolve.*
