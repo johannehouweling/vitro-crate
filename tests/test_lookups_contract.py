@@ -449,6 +449,7 @@ class TestOntologyTermContract:
         assert result["score"] == 14.2
         # The request must carry the requested ontology and a rows param.
         sent = responses.calls[0].request
+        assert sent.url is not None
         assert "ontology=efo" in sent.url
         assert "rows=" in sent.url
 
@@ -477,7 +478,9 @@ class TestOntologyTermContract:
         result = lookup_unit("micromolar")
         assert result["@id"] == "http://purl.obolibrary.org/obo/UO_0000064"
         assert result["termCode"] == "UO_0000064"
-        assert "ontology=uo" in responses.calls[0].request.url
+        sent_url = responses.calls[0].request.url
+        assert sent_url is not None
+        assert "ontology=uo" in sent_url
 
     @responses.activate
     def test_bao_wrapper_still_pins_bao(self):
@@ -491,7 +494,9 @@ class TestOntologyTermContract:
 
         result = lookup_bao_term("cell viability assay")
         assert result["termCode"] == "BAO_0003009"
-        assert "ontology=bao" in responses.calls[0].request.url
+        sent_url = responses.calls[0].request.url
+        assert sent_url is not None
+        assert "ontology=bao" in sent_url
 
 
 # ===========================================================================
