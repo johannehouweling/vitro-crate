@@ -45,6 +45,13 @@ from tests.fixtures.vhps_golden_crates import VHPS_STUDIES
 
 FIXTURE_INPUT_DIR = Path(__file__).parent / "fixtures" / "svhps21_input"
 
+# This module is a heavy integration harness: each test drives the full scripted
+# tool sequence plus real SHACL validation (build_and_validate + an on-disk
+# round-trip validate). Under RO-Crate 1.2 the validator is slower (larger
+# ontology / pyshacl ontology-mixing), so the global CI --timeout=30 is too tight
+# for these on shared runners. Raise the per-test ceiling for this file only.
+pytestmark = pytest.mark.timeout(120)
+
 
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
