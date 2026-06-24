@@ -25,11 +25,27 @@ a data-content fix exactly as it routes a SHACL fix. The ``profile`` is the new
 
 from __future__ import annotations
 
+import csv
 import logging
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# CSVW datatype (from #94's _CONDITION_TABLE_COLUMNS) -> Frictionless field type.
+# Anything unmapped falls back to "string" (Frictionless's permissive default).
+_CSVW_TO_FRICTIONLESS_TYPE: dict[str, str] = {
+    "string": "string",
+    "double": "number",
+    "decimal": "number",
+    "float": "number",
+    "integer": "integer",
+    "int": "integer",
+    "boolean": "boolean",
+    "date": "date",
+    "dateTime": "datetime",
+}
 
 # The routable-issue layer name for data-content issues — deliberately distinct
 # from the SHACL layers ("base" | "isa" | "tox") so the two validation services
@@ -235,9 +251,130 @@ def _compose_message(
     return f"{prefix}{note}{cell_str}"
 
 
+def csvw_to_frictionless(columns: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """Convert CSVW column descriptors into a Frictionless table schema.
+
+    The condition table's typed columns are authored once as CSVW
+    (``_crate_mapping._CONDITION_TABLE_COLUMNS``: ``titles`` + ``datatype`` +
+    ``propertyUrl``; #94). This bridges them into the Frictionless
+    ``{"fields": [{"name", "type"}, ...]}`` shape so :func:`validate_table` can
+    check the populated CSV without a separately hand-authored schema — keeping
+    the #94 CSVW typing the single source of truth for both layers (#144).
+
+    Args:
+        columns: An iterable of CSVW column dicts, each with at least a
+            ``titles`` (the column name) and optionally a ``datatype``.
+
+    Returns:
+        A Frictionless table schema descriptor ``{"fields": [...]}``.
+    """
+    fields: list[dict[str, Any]] = []
+    for col in columns:
+        name = col.get("titles") or col.get("name")
+        if not name:
+            continue
+        datatype = str(col.get("datatype", "string"))
+        fields.append(
+            {
+                "name": str(name),
+                "type": _CSVW_TO_FRICTIONLESS_TYPE.get(datatype, "string"),
+            }
+        )
+    return {"fields": fields}
+
+
+def populate_condition_table(
+    state: Any,
+    exposure_id: str,
+    rows_or_csv_path: Sequence[Mapping[str, Any]] | str,
+    *,
+    output_dir: str | None = None,
+) -> dict[str, Any]:
+    """Write per-well rows into an Exposure's CSVW condition table.
+
+    Replaces the header-only placeholder #94 materialises with the actual
+    per-well design table. Two intake modes:
+
+    - ``rows_or_csv_path`` is a list of row dicts (keys are the condition-table
+      column titles): the rows are written under the canonical
+      ``_CONDITION_TABLE_HEADER`` into the Exposure's condition-table CSV at
+      ``<output_dir>/data/<exposure>_condition_table.csv``.
+    - ``rows_or_csv_path`` is a path to a user-supplied plate-map CSV: it is
+      copied verbatim into that destination (its columns are assumed to match
+      the condition-table schema).
+
+    The CSVW typing (#94) is preserved: the populated CSV lives at the same
+    ``dest_path`` the build wires as a typed ``csvw:Table`` with its
+    ``tableSchema`` attached, so populating rows does not strip the table's
+    machine-readable schema.
+
+    Args:
+        state: The crate state (used to resolve the Exposure entity).
+        exposure_id: ``entity_id`` of the Exposure LabProcess.
+        rows_or_csv_path: Either a list of row dicts or a path to a CSV file.
+        output_dir: Crate root directory to write the CSV under. Defaults to the
+            state's configured output path when omitted.
+
+    Returns:
+        ``{"ok": bool, "path": str, "rows": int}`` on success, or
+        ``{"ok": False, "error": str}`` when the Exposure cannot be resolved or
+        the supplied CSV is missing.
+    """
+    # Imported here to avoid a circular import at module load (data_content is
+    # imported by _crate_mapping's consumers, not the other way round).
+    from builder.tools._crate_mapping import (
+        _CONDITION_TABLE_HEADER,
+        _condition_table_rel,
+        _mint_id,
+    )
+
+    proc = state.get_entity(exposure_id)
+    if proc is None:
+        return {"ok": False, "error": f"Exposure entity not found: {exposure_id!r}"}
+    ptype = proc.fields.get("process_type") or proc.fields.get("additionalType") or ""
+    if ptype != "Exposure":
+        return {
+            "ok": False,
+            "error": f"{exposure_id!r} is a {ptype or 'LabProcess'}, not an Exposure.",
+        }
+
+    base_dir = Path(output_dir) if output_dir else None
+    if base_dir is None:
+        out_path = getattr(getattr(state, "metadata", None), "output_path", None)
+        base_dir = Path(out_path) if out_path else Path.cwd()
+
+    rel = _condition_table_rel(_mint_id(proc))
+    dest = base_dir / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    header_cols = _CONDITION_TABLE_HEADER.strip("\n").split(",")
+
+    if isinstance(rows_or_csv_path, str):
+        src = Path(rows_or_csv_path)
+        if not src.is_file():
+            return {"ok": False, "error": f"Plate-map CSV not found: {rows_or_csv_path}"}
+        with src.open(newline="", encoding="utf-8") as fh:
+            reader = list(csv.DictReader(fh))
+        rows: Sequence[Mapping[str, Any]] = reader
+    else:
+        rows = rows_or_csv_path
+
+    with dest.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=header_cols, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({c: row.get(c, "") for c in header_cols})
+
+    logger.debug("Wrote %d condition-table rows to %s", len(rows), dest)
+    return {"ok": True, "path": str(dest), "rows": len(rows)}
+
+
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("validate_table", validate_table, takes_state=False)
+TOOL_REGISTRY.register(
+    "populate_condition_table", populate_condition_table, takes_state=True
+)

@@ -3,21 +3,34 @@
 from __future__ import annotations
 
 import pytest
+from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState
+from builder.tools._crate_mapping import populate_crate
 from builder.tools.drafters import (
     draft_assay,
     draft_cell_line_sample,
+    draft_defined_term,
     draft_investigation,
     draft_molecular_entity,
     draft_organization,
     draft_person,
     draft_process,
+    draft_property_value,
     draft_protocol,
     draft_publication,
     draft_sample,
     draft_study,
 )
+from profiles.context import ISA_TOX_CONTEXT
+
+
+def _graph(state: CrateState) -> list[dict]:
+    """Assemble the crate from state and return its JSON-LD @graph nodes."""
+    crate = ROCrate()
+    crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+    populate_crate(state, crate, None, materialize_payload=False)
+    return crate.metadata.generate()["@graph"]
 
 
 class TestDraftInvestigation:
@@ -385,3 +398,164 @@ class TestDraftSample:
         fc = entity.get_field_status("protocol_id")
         assert fc is not None
         assert fc.status == "filled"
+
+
+def _node_by_id(graph: list[dict], node_id: str) -> dict | None:
+    for node in graph:
+        if node.get("@id") == node_id:
+            return node
+    return None
+
+
+class TestDraftDefinedTerm:
+    """Tests for draft_defined_term (Issue #141)."""
+
+    def test_creates_defined_term_entity(self):
+        state = CrateState()
+        entity = draft_defined_term(
+            state,
+            "cell viability assay",
+            {
+                "term_code": "BAO:0002993",
+                "in_defined_term_set": "http://www.bioassayontology.org/bao",
+                "url": "http://www.bioassayontology.org/bao#BAO_0002993",
+            },
+        )
+        assert entity.type == "DefinedTerm"
+        assert entity.fields.get("name") == "cell viability assay"
+        assert entity.fields.get("termCode") == "BAO:0002993"
+        assert entity.fields.get("inDefinedTermSet") == "http://www.bioassayontology.org/bao"
+        retrieved = state.get_entity(entity.entity_id)
+        assert retrieved is entity
+
+    def test_lookup_result_id_is_used_as_dereferenceable_id(self):
+        """A DefinedTerm built from a lookup IRI gets a dereferenceable @id."""
+        state = CrateState()
+        draft_defined_term(
+            state,
+            "cell viability assay",
+            {"url": "http://www.bioassayontology.org/bao#BAO_0002993"},
+        )
+        graph = _graph(state)
+        node = _node_by_id(graph, "http://www.bioassayontology.org/bao#BAO_0002993")
+        assert node is not None, "DefinedTerm should be in @graph under its IRI @id"
+        types = node["@type"] if isinstance(node["@type"], list) else [node["@type"]]
+        assert "DefinedTerm" in types
+
+    def test_defined_term_round_trips_into_graph(self):
+        state = CrateState()
+        draft_defined_term(state, "apoptosis", {"term_code": "GO:0006915"})
+        graph = _graph(state)
+        names = [n.get("name") for n in graph]
+        assert "apoptosis" in names
+
+    def test_defined_term_is_referenceable_as_mentions_target(self):
+        """A looked-up DefinedTerm can be wired as a Study schema:mentions target."""
+        state = CrateState()
+        inv = draft_investigation(state, {"name": "Inv"})
+        term = draft_defined_term(state, "liver injury", {"term_code": "MONDO:0005154"})
+        study = draft_study(
+            state, inv.entity_id, {"name": "Study", "mentions": term.entity_id}
+        )
+        graph = _graph(state)
+        # The Study node should mention the DefinedTerm node.
+        study_node = _node_by_id(graph, "#Study_" + study.entity_id)
+        assert study_node is not None, "Study node should be in the graph"
+        mentions = study_node.get("mentions")
+        assert mentions is not None, "Study should carry a mentions edge to the term"
+        ids = [m.get("@id") for m in (mentions if isinstance(mentions, list) else [mentions])]
+        mentioned = [_node_by_id(graph, i) for i in ids]
+        assert any(
+            n is not None
+            and "DefinedTerm" in (n["@type"] if isinstance(n["@type"], list) else [n["@type"]])
+            for n in mentioned
+        ), f"a DefinedTerm should be a mentions target; got {ids}"
+
+
+class TestDraftPropertyValue:
+    """Tests for draft_property_value (Issue #141)."""
+
+    def test_creates_property_value_entity(self):
+        state = CrateState()
+        entity = draft_property_value(
+            state,
+            "Passage Number",
+            {"value": "5", "property_id": "http://purl.obolibrary.org/obo/EFO_0007061"},
+        )
+        assert entity.type == "PropertyValue"
+        assert entity.fields.get("name") == "Passage Number"
+        assert entity.fields.get("value") == "5"
+        assert entity.fields.get("propertyID") == "http://purl.obolibrary.org/obo/EFO_0007061"
+        retrieved = state.get_entity(entity.entity_id)
+        assert retrieved is entity
+
+    def test_property_value_carries_unit(self):
+        state = CrateState()
+        entity = draft_property_value(
+            state, "Concentration", {"value": "10", "unit_text": "uM"}
+        )
+        assert entity.fields.get("unitText") == "uM"
+
+    def test_property_value_round_trips_into_graph(self):
+        state = CrateState()
+        draft_property_value(state, "Passage Number", {"value": "5"})
+        graph = _graph(state)
+        pv_nodes = [
+            n
+            for n in graph
+            if "PropertyValue"
+            in (n["@type"] if isinstance(n.get("@type"), list) else [n.get("@type")])
+        ]
+        assert any(n.get("name") == "Passage Number" for n in pv_nodes)
+
+
+class TestUnitsThreadedIntoProcesses:
+    """Issue #143: units thread through to ParameterValue unitText."""
+
+    def test_exposure_parameter_values_carry_unit_text(self):
+        state = CrateState()
+        inv = draft_investigation(state, {"name": "Inv"})
+        study = draft_study(state, inv.entity_id, {"name": "Study"})
+        assay = draft_assay(state, study.entity_id, {"name": "Assay"})
+        draft_process(
+            state,
+            assay.entity_id,
+            "Exposure",
+            {
+                "name": "24h Exposure",
+                "duration": "24",
+                "units": {"Exposure Duration": "h"},
+            },
+        )
+        graph = _graph(state)
+        units = [n.get("unitText") for n in graph if n.get("unitText")]
+        assert "h" in units, f"Exposure Duration unitText 'h' should appear; got {units}"
+
+    def test_cell_line_passage_growth_become_additional_properties(self):
+        """CellLineSample passage/growth -> additionalProperty PropertyValue nodes."""
+        state = CrateState()
+        draft_cell_line_sample(
+            state,
+            "HepG2",
+            {"accession": "CVCL_0027", "passage": "12", "growth": "adherent"},
+        )
+        graph = _graph(state)
+        pv_nodes = [
+            n
+            for n in graph
+            if "PropertyValue"
+            in (n["@type"] if isinstance(n.get("@type"), list) else [n.get("@type")])
+        ]
+        names = {n.get("name") for n in pv_nodes}
+        assert {"passage", "growth"} <= names, (
+            f"passage/growth PropertyValues expected; got {names}"
+        )
+        # And the CellLineSample must reference them via additionalProperty.
+        cell_nodes = [
+            n
+            for n in graph
+            if n.get("additionalType") == "CellLine"
+        ]
+        assert cell_nodes, "CellLineSample node should exist"
+        addl = cell_nodes[0].get("additionalProperty")
+        assert addl is not None, "CellLineSample should carry additionalProperty"

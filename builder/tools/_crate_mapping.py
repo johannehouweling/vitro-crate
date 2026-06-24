@@ -27,7 +27,7 @@ from rocrate.model import ContextEntity, DataEntity, File, Person
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
-from profiles.models.isa import LabProcess, Sample
+from profiles.models.isa import CharacteristicValue, LabProcess, Sample, param_id
 from profiles.models.tox import (
     CellLineSample,
     LabProcessCellCulture,
@@ -178,6 +178,14 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "endpoint": "EndpointReadout: the measured endpoint.",
             "data_processing": "DataAnalysis: data-processing description.",
             "software": "DataAnalysis: software used.",
+            "units": (
+                "Per-parameter unit map, e.g. {'Exposure Duration': 'h'}; "
+                "threaded into the matching ParameterValue's unitText."
+            ),
+            "assay_kit": "EndpointReadout: assay kit used (optional ParameterValue).",
+            "substrate": "EndpointReadout: substrate used (optional ParameterValue).",
+            "acceptance_criteria": "DataAnalysis: acceptance criteria (optional ParameterValue).",
+            "evaluation_criteria": "DataAnalysis: evaluation criteria (optional ParameterValue).",
         },
         ref_fields={
             "object": "Input entity the process consumes (alias: input).",
@@ -224,6 +232,24 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
         },
         ref_fields={
             "author": "Person id(s) who authored the publication.",
+        },
+    ),
+    "DefinedTerm": EntityDraftSchema(
+        scalar_fields={
+            "name": "Term label (passed as the `name` argument).",
+            "term_code": "Ontology code, e.g. 'BAO:0002993' or 'GO:0006915'.",
+            "in_defined_term_set": "IRI of the term set / ontology the term belongs to.",
+            "url": "Dereferenceable IRI for the term (used as the entity @id).",
+            "description": _DESC,
+        },
+    ),
+    "PropertyValue": EntityDraftSchema(
+        scalar_fields={
+            "name": "Property name (passed as the `name` argument).",
+            "value": "The measured or asserted value.",
+            "property_id": "Ontology IRI identifying the property key.",
+            "unit_text": "Human-readable unit, e.g. 'uM' or 'h'.",
+            "unit_code": "UN/CEFACT unit code, if known.",
         },
     ),
 }
@@ -291,6 +317,16 @@ _STRUCT_FIELDS = frozenset(
         "dest_path",
         "path",
         "contentUrl",
+        # LabProcess kwargs threaded into the typed subtype constructors (#143)
+        # rather than emitted as stray literals on the process node.
+        "units",
+        "assay_kit",
+        "substrate",
+        "acceptance_criteria",
+        "evaluation_criteria",
+        # CellLineSample characteristics promoted to additionalProperty (#143).
+        "passage",
+        "growth",
     }
 )
 
@@ -532,6 +568,42 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     )
 
 
+# CellLineSample fields promoted to schema:additionalProperty Characteristic
+# PropertyValue nodes (ISA Sample Characteristics): name -> propertyID IRI (#143).
+_CELL_LINE_CHARACTERISTICS: dict[str, str | None] = {
+    "passage": "https://bioregistry.io/EFO:0007061",  # passage number
+    "growth": "http://www.bioassayontology.org/bao#BAO_0002648",  # growth properties
+}
+
+
+def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
+    """Build CharacteristicValue (PropertyValue) nodes for a CellLineSample.
+
+    Promotes recognised culture-characteristic fields (``passage``, ``growth``)
+    to ISA Sample Characteristics — schema:additionalProperty PropertyValue nodes
+    carrying the value and, when known, the property's ontology IRI as
+    ``propertyID``. Returns an empty list when none are present.
+    """
+    out: list[Any] = []
+    for field_name, property_id in _CELL_LINE_CHARACTERISTICS.items():
+        value = cl.fields.get(field_name)
+        if value in (None, ""):
+            continue
+        props: dict[str, Any] = {}
+        if property_id:
+            props["propertyID"] = {"@id": property_id}
+        out.append(
+            CharacteristicValue(
+                crate,
+                param_id(field_name, str(value)),
+                name=field_name,
+                value=str(value),
+                properties=props or None,
+            )
+        )
+    return out
+
+
 def _cell_line_term(crate: ROCrate) -> ContextEntity:
     """The shared, resolvable 'cell line' DefinedTerm for CellLineSample.sampleType."""
     return crate.add(
@@ -673,6 +745,7 @@ def _add_leaves(
     for cl in state.list_entities("CellLineSample"):
         if cell_term[0] is None:
             cell_term[0] = _cell_line_term(crate)
+        characteristics = _cell_line_characteristics(crate, cl)
         _idx_add(
             idx,
             cl,
@@ -682,6 +755,7 @@ def _add_leaves(
                 name=str(cl.fields.get("name", "")),
                 sample_type=cell_term[0],
                 accession=cl.fields.get("accession"),
+                additionalProperty=characteristics or None,
                 properties=_scalar_props(cl, skip=("name", "accession")) or None,
             ),
         )
@@ -849,6 +923,15 @@ def _synth_sample(crate: ROCrate, sid: str, name: str, derives_from: Any = None)
 
 _CONDITION_TABLE_HEADER = "cell_line,compound,concentration,unit,duration\n"
 
+
+def _condition_table_rel(exp_pid: str) -> str:
+    """Crate-relative path of an Exposure's condition-table CSV.
+
+    Shared by the build (``_synth_condition_table``) and the row-population tool
+    (``populate_condition_table``) so both target the exact same file.
+    """
+    return f"data/{_slug(exp_pid)}_condition_table.csv"
+
 # Typed CSVW columns for the condition table: each maps a CSV column to an
 # ontology property (propertyUrl) with a declared datatype. The cell-line and
 # compound columns additionally resolve to in-crate entity ids (valueUrl, filled
@@ -928,7 +1011,7 @@ def _synth_condition_table(
     the Exposure THROUGH its result (a MolecularEntity cannot be a process object
     under the ISA shape).
     """
-    rel = f"data/{_slug(exp_pid)}_condition_table.csv"
+    rel = _condition_table_rel(exp_pid)
     # Only touch disk when materialising payload for an on-disk export. The
     # in-memory validate path (#87) skips the write; the File node below still
     # carries dest_path=rel so the metadata graph is complete for validation.
@@ -1069,6 +1152,7 @@ def _build_process(
             samples=cells,
             labprotocol=protocol,
             result=out,
+            units=f.get("units"),
         )
 
     if ptype == "EndpointReadout":
@@ -1084,6 +1168,9 @@ def _build_process(
             measured_entity=f.get("measured_entity", "unknown"),
             technical_replicate=f.get("technical_replicate", "1"),
             endpoint=f.get("endpoint", "unknown"),
+            assay_kit=f.get("assay_kit"),
+            substrate=f.get("substrate"),
+            units=f.get("units"),
         )
 
     if ptype == "DataAnalysis":
@@ -1096,6 +1183,9 @@ def _build_process(
             labprotocol=protocol,
             data_processing=f.get("data_processing", ""),
             software=f.get("software", ""),
+            acceptance_criteria=f.get("acceptance_criteria"),
+            evaluation_criteria=f.get("evaluation_criteria"),
+            units=f.get("units"),
         )
 
     # Generic LabProcess (no domain discriminator).
