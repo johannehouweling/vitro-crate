@@ -476,6 +476,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 
 ### Entity Drafting Tools
 ```
+scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent), the fast path to a BASE-passing crate
 draft_investigation(hints: dict) → Entity
 draft_study(investigation_id: str, hints: dict) → Entity
 draft_assay(study_id: str, hints: dict) → Entity
