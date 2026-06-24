@@ -337,6 +337,7 @@ def populate_crate(
     output_dir: Path | None = None,
     *,
     materialize_payload: bool = True,
+    include_all_scanned: bool = True,
 ) -> None:
     """Populate `crate` from `state` using the ISA-Tox domain model.
 
@@ -347,10 +348,20 @@ def populate_crate(
     #87) no payload file is written to disk — the condition-table File node is
     still added to the graph so the metadata document validates, but its CSV is
     not created. This keeps validation a zero-disk operation.
+
+    ``include_all_scanned`` (#175) auto-includes every un-placed scanned file as a
+    root ``File`` leaf so the crate packages the whole dataset; the hot
+    build_and_validate path passes False (plain leaves don't move the verdict).
     """
     idx: dict[str, Any] = {}
     _populate_root_and_conformance(state, crate)
-    _add_leaves(state, crate, idx, materialize_payload=materialize_payload)
+    _add_leaves(
+        state,
+        crate,
+        idx,
+        materialize_payload=materialize_payload,
+        include_all_scanned=include_all_scanned,
+    )
     _add_structural(state, crate, idx)
     _add_processes(state, crate, idx, output_dir, materialize_payload=materialize_payload)
     _wire_mentions(state, idx)
@@ -622,6 +633,7 @@ def _add_leaves(
     idx: dict[str, Any],
     *,
     materialize_payload: bool = True,
+    include_all_scanned: bool = True,
 ) -> None:
     for org in state.list_entities("Organization"):
         _idx_add(
@@ -755,6 +767,73 @@ def _add_leaves(
                 properties=_scalar_props(cl, skip=("name", "accession")) or None,
             ),
         )
+
+    if include_all_scanned:
+        _add_scanned_leaves(state, crate, materialize_payload=materialize_payload)
+
+
+# RO-Crate-reserved filenames that must never be auto-added as payload leaves.
+_RESERVED_CRATE_FILES = frozenset(
+    {"ro-crate-metadata.json", "ro-crate-preview.html", "ro-crate-graph.mmd"}
+)
+
+
+def _add_scanned_leaves(
+    state: CrateState, crate: ROCrate, *, materialize_payload: bool
+) -> None:
+    """Package every scanned file not already a drafted File entity (#175).
+
+    Auto-include is an honest *fallback*: files the agent has not explicitly
+    placed are attached to the root ``hasPart`` as plain ``File`` leaves (dataset
+    data whose assay/role is simply not annotated yet), so the exported crate
+    never silently drops a file. Files the agent drafted/placed take precedence —
+    they already have a File entity, so they are deduped out here by resolved
+    source path (and dest). Semantic placement (under a Study/Assay/process, with
+    a role) stays an agent decision via the drafting/linking tools; this only
+    catches the untouched tail.
+    """
+    input_path = state.metadata.input_path
+    root = Path(input_path).resolve() if input_path else None
+
+    covered_src: set[str] = set()
+    covered_dest: set[str] = set()
+    for fe in state.list_entities("File"):
+        src = _file_source(fe, input_path)
+        if src:
+            covered_src.add(str(Path(src).resolve()))
+        covered_dest.add(_file_dest(fe))
+
+    seen_dest: set[str] = set()
+    for fc in state.scanned_files:
+        if fc.filename in _RESERVED_CRATE_FILES:
+            continue
+        abspath = Path(fc.path)
+        if not abspath.is_absolute() and input_path:
+            abspath = Path(input_path) / fc.path
+        try:
+            abspath = abspath.resolve()
+        except OSError:
+            continue
+        if str(abspath) in covered_src:
+            continue
+
+        dest: str | None = None
+        if root is not None:
+            try:
+                dest = abspath.relative_to(root).as_posix()
+            except ValueError:
+                dest = None
+        if not dest:
+            dest = f"data/{fc.filename}"
+        if dest in _RESERVED_CRATE_FILES or dest in covered_dest or dest in seen_dest:
+            continue
+        seen_dest.add(dest)
+
+        source = str(abspath) if (materialize_payload and abspath.is_file()) else None
+        props: dict[str, Any] = {"@type": "File", "name": fc.filename}
+        if fc.mime_type:
+            props["encodingFormat"] = fc.mime_type
+        crate.add(File(crate, source, dest_path=dest, properties=props))
 
 
 # ---------------------------------------------------------------------------
