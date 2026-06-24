@@ -197,6 +197,7 @@ class AgentEngine:
         import builder.tools.lookups  # noqa: F401
         import builder.tools.management  # noqa: F401
         import builder.tools.mit_assessment  # noqa: F401
+        import builder.tools.repair  # noqa: F401
         import builder.tools.session  # noqa: F401
         import builder.tools.validation  # noqa: F401
         import builder.tools.verification  # noqa: F401
