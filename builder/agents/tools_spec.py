@@ -244,7 +244,7 @@ TOOL_SPECS = [
     },
     {
         "name": "list_scanned_files",
-        "description": "Retrieve the FULL scanned-file inventory from session state (path, filename, size, mime_type). scan_files only shows a ~15-file sample and its output is pruned from history, so use this to see every file you must bind to File/process entities. Paginated and filterable: pass name_contains / mime_contains to narrow, offset / limit to page (default limit 200). Returns {total_scanned, matched, offset, limit, returned, files:[...]}.",
+        "description": "Retrieve the FULL scanned-file inventory from session state (path, filename, size, mime_type). scan_files only shows a ~15-file sample and its output is pruned from history, so use this to browse the inventory and decide which files to place/annotate (e.g. which group is an assay's raw data, which is a protocol). Paginated and filterable: pass name_contains / mime_contains to narrow, offset / limit to page (default limit 200). Returns {total_scanned, matched, offset, limit, returned, files:[...]}.",
         "parameters": {
             "type": "object",
             "properties": {

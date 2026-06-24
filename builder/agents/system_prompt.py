@@ -40,7 +40,7 @@ Entity management & provenance:
 - set_fields: Set one or more fields on an existing entity (the single mutation tool)
 - remove_entity: Remove an entity (refuses if still referenced unless cascade=true)
 - list_entities: List entities, optionally filtered by type
-- list_scanned_files: Retrieve the full scanned-file inventory (path/filename/size/mime) — scan_files only shows a sample, so use this to see every file (paginated/filterable)
+- list_scanned_files: Retrieve the full scanned-file inventory (path/filename/size/mime) — scan_files only shows a sample, so use this to browse the inventory and decide which files to place/annotate (paginated/filterable)
 - link: Wire a provenance edge (object/input/samples = consumed, result/output = produced) between two entities
 - check_provenance: Lint the derivation chain for dangling process outputs and orphan files (report-only)
 
