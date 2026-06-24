@@ -64,6 +64,86 @@ class TestStructuralDatasets:
         assert "#Assay_assay_1" in _ids(by_id["#Study_study_1"].get("hasPart"))
 
 
+class TestISAHierarchy:
+    """ISA structure fixes: single Investigation is the root, distinct
+    identifiers per level, and result Files live under their producing Assay."""
+
+    def _types_of(self, node):
+        t = node.get("@type")
+        return t if isinstance(t, list) else [t]
+
+    def test_single_investigation_is_the_root_not_a_separate_node(self, tmp_path):
+        state = CrateState()
+        state.metadata.accession = "FAB-2026"
+        state.add_entity(_ent("inv_1", "Investigation", name="Fabian"))
+        state.add_entity(_ent("study_1", "Study", name="S", investigation_id="inv_1"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1"))
+        graph, by_id = _build(state, tmp_path)
+
+        # The Investigation is the root ./ — there is no separate #Investigation_* node.
+        investigations = [n for n in graph if n.get("additionalType") == "Investigation"]
+        assert len(investigations) == 1
+        assert investigations[0]["@id"] == "./"
+        assert "#Investigation_inv_1" not in by_id
+
+    def test_isa_levels_have_distinct_identifiers(self, tmp_path):
+        # All three deliberately share an identifier value — the builder must
+        # still emit three DISTINCT, single-string identifiers.
+        state = CrateState()
+        state.metadata.accession = "FAB-2026"
+        state.add_entity(_ent("inv_1", "Investigation", name="Inv", identifier="FAB-2026"))
+        state.add_entity(_ent("study_1", "Study", name="S", identifier="FAB-2026",
+                              investigation_id="inv_1"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", identifier="FAB-2026",
+                              study_id="study_1"))
+        _, by_id = _build(state, tmp_path)
+
+        root_id = by_id["./"]["identifier"]
+        study_id = by_id["#Study_study_1"]["identifier"]
+        assay_id = by_id["#Assay_assay_1"]["identifier"]
+        for ident in (root_id, study_id, assay_id):
+            assert isinstance(ident, str) and ident  # single non-empty string
+        assert len({root_id, study_id, assay_id}) == 3  # all distinct
+
+    def test_study_still_referenced_from_root_haspart(self, tmp_path):
+        state = CrateState()
+        state.add_entity(_ent("inv_1", "Investigation", name="Inv"))
+        state.add_entity(_ent("study_1", "Study", name="S", investigation_id="inv_1"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1"))
+        _, by_id = _build(state, tmp_path)
+
+        # Study stays a separate node typed Study, referenced from the root.
+        assert by_id["#Study_study_1"]["additionalType"] == "Study"
+        assert "#Study_study_1" in _ids(by_id["./"].get("hasPart"))
+
+    def test_result_file_attached_to_producing_assay_haspart(self, tmp_path):
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("raw", "File", name="raw.csv", dest_path="data/raw.csv"))
+        state.add_entity(_ent("er", "LabProcess", process_type="EndpointReadout",
+                              name="Readout", assay_id="assay_1", result=["raw"]))
+        _, by_id = _build(state, tmp_path)
+
+        # The raw file is hasPart of its producing Assay …
+        assert "data/raw.csv" in _ids(by_id["#Assay_assay_1"].get("hasPart"))
+        # … and no longer dumped directly on the root.
+        assert "data/raw.csv" not in _ids(by_id["./"].get("hasPart"))
+
+    def test_assay_haspart_is_deduped(self, tmp_path):
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("raw", "File", name="raw.csv", dest_path="data/raw.csv"))
+        # two processes on the same assay both yield the same file
+        state.add_entity(_ent("er", "LabProcess", process_type="EndpointReadout",
+                              name="R", assay_id="assay_1", result=["raw"]))
+        state.add_entity(_ent("da", "LabProcess", process_type="DataAnalysis",
+                              name="D", assay_id="assay_1", object=["raw"], result=["raw"]))
+        _, by_id = _build(state, tmp_path)
+
+        parts = _ids(by_id["#Assay_assay_1"].get("hasPart"))
+        assert parts.count("data/raw.csv") == 1
+
+
 class TestLabProcessSubtypes:
     def _state_with_process(self, process_type, **proc_fields):
         state = CrateState()

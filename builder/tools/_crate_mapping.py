@@ -692,32 +692,138 @@ def _add_leaves(
 # ---------------------------------------------------------------------------
 
 
+def _child_ids(node: Any, key: str = "hasPart") -> list[str]:
+    """The @id strings currently under ``node[key]`` (handles None/dict/list/str)."""
+    value = node.get(key)
+    if value is None:
+        return []
+    out: list[str] = []
+    for item in value if isinstance(value, list) else [value]:
+        cid = getattr(item, "id", None)
+        if cid is None and isinstance(item, str):
+            cid = item
+        if cid is not None:
+            out.append(cid)
+    return out
+
+
+def _append_unique(node: Any, key: str, child: Any) -> None:
+    """append_to(node, key, child) but skip if child's @id is already present."""
+    cid = getattr(child, "id", None)
+    if cid is None or cid not in _child_ids(node, key):
+        node.append_to(key, child)
+
+
+def _remove_child(node: Any, key: str, child_id: str) -> None:
+    """Drop the reference to ``child_id`` from ``node[key]`` (ro-crate-py auto-adds
+    every data entity to the root's hasPart; this un-parents it)."""
+    value = node.get(key)
+    if value is None:
+        return
+    items = value if isinstance(value, list) else [value]
+    kept = [
+        it
+        for it in items
+        if (getattr(it, "id", None) or (it if isinstance(it, str) else None)) != child_id
+    ]
+    if len(kept) != len(items):
+        if kept:
+            node[key] = kept
+        else:
+            del node[key]
+
+
+def _isa_identifier(entity: Entity, parent_identifier: str | None, level: str) -> str:
+    """A distinct, hierarchical ISA identifier so the levels never collide.
+
+    The identifier nests under its parent and embeds the level
+    (``FAB-2026`` → ``FAB-2026/study-study_1`` → ``…/assay-assay_1``), keeping each
+    a single, non-empty string. ISA requires a non-empty identifier; the bare
+    entity_id alone collides when the Investigation/Study/Assay were drafted with
+    the same accession, and a Study and an Assay sharing an entity_id under the
+    same parent would still collide without the level prefix.
+    """
+    slug = _slug(entity.entity_id)
+    base = f"{level}-{slug}" if slug else level
+    parent = (parent_identifier or "").rstrip("/")
+    return f"{parent}/{base}" if parent and parent != "." else base
+
+
+def _is_file_node(node: Any) -> bool:
+    """True if an ro-crate node is a File/MediaObject data entity."""
+    t = getattr(node, "type", None)
+    if t is None:
+        return False
+    types = t if isinstance(t, list) else [t]
+    return any(
+        str(x).rsplit("/", 1)[-1].rsplit("#", 1)[-1] in ("File", "MediaObject")
+        for x in types
+    )
+
+
+def _result_file_nodes(process_node: Any) -> list[Any]:
+    """The File node(s) a built LabProcess produces (its schema:result/output)."""
+    out: list[Any] = []
+    seen: set[Any] = set()
+    for key in ("output", "result"):
+        value = process_node.get(key)
+        if value is None:
+            continue
+        for item in value if isinstance(value, list) else [value]:
+            cid = getattr(item, "id", None)
+            if cid is not None and _is_file_node(item) and cid not in seen:
+                seen.add(cid)
+                out.append(item)
+    return out
+
+
 def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
-    for inv in state.list_entities("Investigation"):
-        props = {
-            "@type": "Dataset",
-            "additionalType": "Investigation",
-            **_scalar_props(inv),
-        }
-        props.setdefault("identifier", inv.entity_id)  # ISA MUST: non-empty identifier
-        node = crate.add(DataEntity(crate, _mint_id(inv), properties=props))
-        _idx_add(idx, inv, node)
-        crate.root_dataset.append_to("hasPart", node)
+    root = crate.root_dataset
+
+    # The Investigation IS the Root Data Entity (ISA: ./ represents the
+    # Investigation). With exactly one Investigation, fold its scalar props onto
+    # the root instead of emitting a duplicate #Investigation_* node, and index it
+    # to the root so investigation_id references resolve to ./. (0 or 2+ is rare —
+    # keep separate nodes.)
+    investigations = state.list_entities("Investigation")
+    if len(investigations) == 1:
+        inv = investigations[0]
+        for key, value in _scalar_props(inv).items():
+            if key == "identifier":
+                continue
+            if root.get(key) in (None, ""):
+                root[key] = value
+        if root.get("identifier") in (None, ""):
+            root["identifier"] = inv.fields.get("identifier") or inv.entity_id
+        _idx_add(idx, inv, root)
+    else:
+        for inv in investigations:
+            props = {"@type": "Dataset", "additionalType": "Investigation", **_scalar_props(inv)}
+            props["identifier"] = _isa_identifier(inv, None, "investigation")
+            node = crate.add(DataEntity(crate, _mint_id(inv), properties=props))
+            _idx_add(idx, inv, node)
+            _append_unique(root, "hasPart", node)
+
+    root_ident = root.get("identifier") or "./"
 
     for st in state.list_entities("Study"):
         props = {"@type": "Dataset", "additionalType": "Study", **_scalar_props(st)}
-        props.setdefault("identifier", st.entity_id)
+        props["identifier"] = _isa_identifier(st, root_ident, "study")
         node = crate.add(DataEntity(crate, _mint_id(st), properties=props))
         _idx_add(idx, st, node)
-        crate.root_dataset.append_to("hasPart", node)
+        _append_unique(root, "hasPart", node)  # Study MUST be hasPart of the root
 
     for asy in state.list_entities("Assay"):
         props = {"@type": "Dataset", "additionalType": "Assay", **_scalar_props(asy)}
-        props.setdefault("identifier", asy.entity_id)
+        parent = _resolve_one(idx, asy.fields.get("study_id")) or root
+        props["identifier"] = _isa_identifier(asy, parent.get("identifier") or root_ident, "assay")
         node = crate.add(DataEntity(crate, _mint_id(asy), properties=props))
         _idx_add(idx, asy, node)
-        parent = _resolve_one(idx, asy.fields.get("study_id")) or crate.root_dataset
-        parent.append_to("hasPart", node)
+        # crate.add auto-added the Assay to the root's hasPart; nest it under its
+        # Study instead (no double-parenting).
+        if parent is not root:
+            _remove_child(root, "hasPart", node.id)
+        _append_unique(parent, "hasPart", node)
 
 
 def _synth_protocol(crate: ROCrate, assay_id: Any, cache: dict[str, Any]) -> ContextEntity:
@@ -882,6 +988,13 @@ def _add_processes(
         assay = _resolve_one(idx, f.get("assay_id"))
         if assay is not None:
             assay.append_to("about", node)
+            # Result Files are the data of this assay → attach them to the Assay's
+            # hasPart (ISA), de-duped, and remove them from the root's hasPart
+            # where crate.add auto-placed them. They stay reachable from the root
+            # transitively (File → Assay → Study → ./).
+            for file_node in _result_file_nodes(node):
+                _append_unique(assay, "hasPart", file_node)
+                _remove_child(crate.root_dataset, "hasPart", file_node.id)
 
 
 def _build_process(
@@ -896,9 +1009,14 @@ def _build_process(
     *,
     materialize_payload: bool = True,
 ) -> Any:
+    # input/object/samples are interchangeable aliases for the consumed inputs,
+    # result/output for the produced outputs (see PROVENANCE_RELATIONS and the
+    # link tool). Read both so a process round-tripped through the crate (which
+    # serializes the `output`/`input` aliases) — or wired by the agent via link —
+    # keeps its I/O instead of silently dropping it.
     samples = _resolve_many(idx, f.get("samples"))
-    obj = _resolve_many(idx, f.get("object"))
-    result = _resolve_many(idx, f.get("result"))
+    obj = _resolve_many(idx, f.get("object")) or _resolve_many(idx, f.get("input"))
+    result = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
 
     if ptype == "CellCulture":
         # CellCulture MUST take a cell-line Sample as object; synthesize a

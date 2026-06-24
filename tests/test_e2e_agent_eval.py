@@ -255,14 +255,17 @@ class TestBuiltCrateCompletenessAndWiring:
                     types |= additional_type(by_id[i])
             return types
 
-        # Root Data Entity is the "./" Dataset.
+        # Root Data Entity is the "./" Dataset — and IS the Investigation
+        # (folded onto the root, not emitted as a separate node).
         root = by_id["./"]
         assert root.get("@type") == "Dataset"
+        assert "Investigation" in additional_type(root), root.get("additionalType")
 
-        # Root hasPart references both the Investigation and the Study.
+        # Root hasPart references the Study (the Investigation is the root itself,
+        # so it is not in its own hasPart).
         root_part_types = types_of(ids(root, "hasPart"))
-        assert "Investigation" in root_part_types, root_part_types
         assert "Study" in root_part_types, root_part_types
+        assert "Investigation" not in root_part_types, root_part_types
 
         # Study hasPart references the Assay.
         study = next(n for n in graph if "Study" in additional_type(n))

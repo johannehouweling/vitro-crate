@@ -93,16 +93,22 @@ class TestMintedIdNamespace:
 
             graph: list[dict] = metadata["@graph"]
 
+            # The single Investigation is now folded onto the root ./ (no
+            # separate #Investigation_id_01 node), so only the Study and Assay
+            # carry the id_01 fragment — each type-qualified and distinct.
             id_entries = [
                 e for e in graph
                 if "id_01" in e.get("@id", "")
             ]
-            assert len(id_entries) == 3, (
-                f"Expected 3 distinct @id entries for 'id_01', got {len(id_entries)}"
+            assert len(id_entries) == 2, (
+                f"Expected 2 distinct @id entries for 'id_01', got {len(id_entries)}"
             )
-            assert len({e["@id"] for e in id_entries}) == 3, (
+            assert len({e["@id"] for e in id_entries}) == 2, (
                 "Not all @ids are distinct"
             )
+            # The Investigation is the root, carrying additionalType Investigation.
+            root = next(e for e in graph if e.get("@id") == "./")
+            assert root.get("additionalType") == "Investigation"
 
     def test_reference_resolution_across_collision(self):
         """References to colliding entities resolve to the correct type-qualified node."""
