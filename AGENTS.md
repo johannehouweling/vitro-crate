@@ -535,7 +535,7 @@ list_scanned_files(name_contains=None, mime_contains=None, offset=0, limit=200) 
 `list_scanned_files` retrieves the **full** raw scan inventory from
 `CrateState.scanned_files`. `scan_files` only surfaces a ~15-file sample and its
 output is later pruned from history (D12), so this is how the agent re-reads the
-complete file list to bind files to `File`/process entities — paginated
+complete file list to decide which files to place/annotate — paginated
 (`offset`/`limit`) and filterable (`name_contains`/`mime_contains`) so it stays
 token-bounded, and compact (no `first_rows` preview).
 `set_fields` is the **single consolidated mutation tool** (Issue #90). It
