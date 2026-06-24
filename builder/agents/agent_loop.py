@@ -760,6 +760,62 @@ def _assemble_model_messages(
     ]
 
 
+# Progressive tool disclosure (#156). Tools pruned from the per-turn advertised
+# set when the state they act on does not exist yet — a weak model picks more
+# reliably from a smaller, state-relevant menu. Only provably-inapplicable tools
+# are pruned; uncategorised tools are always advertised, and the ToolNode keeps
+# the full set so execution is never blocked (advertise narrow, execute wide).
+_FILE_READING_TOOLS = frozenset(
+    {
+        "read_file_sample",
+        "read_multiple_files",
+        "read_file",
+        "read_excel",
+        "read_docx",
+        "extract_pdf_text",
+        "preview_archive",
+        "unzip_file",
+    }
+)
+_ENTITY_DEPENDENT_TOOLS = frozenset(
+    {
+        "set_fields",
+        "remove_entity",
+        "link",
+        "check_provenance",
+        "verify_all_identifiers",
+        "assess_mit_coverage",
+        "assess_fair_maturity",
+        "validate",
+        "validate_table",
+        "export_crate",
+        "build_crate",
+        "list_entities",
+    }
+)
+
+
+def _tools_for_state(tools: list[Any], *, has_files: bool, has_entities: bool) -> list[Any]:
+    """Return the subset of *tools* worth advertising for the current state.
+
+    Prunes only tools that provably cannot act yet — file readers when nothing
+    has been scanned, entity-dependent tools when no entity exists — so the menu
+    never hides something the model could legitimately use. Scanning, every
+    drafter, lookups, the build/validate loop, session + HITL, and any
+    uncategorised tool stay advertised. Binding is per-turn; the ToolNode keeps
+    the full set, so a tool_call from an earlier turn's wider binding still runs.
+    """
+    out: list[Any] = []
+    for t in tools:
+        name = getattr(t, "name", "")
+        if not has_files and name in _FILE_READING_TOOLS:
+            continue
+        if not has_entities and name in _ENTITY_DEPENDENT_TOOLS:
+            continue
+        out.append(t)
+    return out
+
+
 def _build_agent_graph(
     llm: Any,
     tools: list[Any],
@@ -791,13 +847,13 @@ def _build_agent_graph(
     profiler = engine.profiler if engine is not None else None
     iteration_getter = (lambda: engine.state.iteration_count) if engine is not None else None
 
-    # Bind the tool schemas to the model so it can actually emit tool_calls.
-    # Without this, the model is never told the tools exist: should_continue
-    # always routes to END, the ToolNode is unreachable, and the agent
-    # silently degrades to a text-only chatbot that narrates "let me scan..."
-    # but never executes a tool. (create_agent() bound tools internally;
-    # the explicit-graph migration dropped this and broke tool-calling.)
-    model = llm.bind_tools(tools) if tools else llm
+    # Tools are bound to the model *inside* call_model (not here) so the
+    # advertised set can be narrowed per-turn to the current state (#156).
+    # Binding at all is essential: without it the model is never told the tools
+    # exist, should_continue always routes to END, and the agent degrades to a
+    # text-only chatbot that narrates "let me scan..." but never executes a tool
+    # (the #71 regression). The ToolNode below keeps the full set, so a narrowed
+    # advertisement never blocks execution.
 
     def call_model(state: dict[str, Any]) -> dict[str, Any]:
         """Model node: build a cache-friendly message list and invoke the LLM."""
@@ -818,6 +874,15 @@ def _build_agent_graph(
             iteration_count=engine.state.iteration_count,
             next_fix=next_fix,
         )
+        # Progressive tool disclosure (#156): advertise only the state-relevant
+        # subset so a weak model chooses from a smaller menu. Bind per-turn; the
+        # ToolNode keeps the full set (advertise narrow, execute wide).
+        active_tools = _tools_for_state(
+            tools,
+            has_files=bool(engine.state.scanned_files),
+            has_entities=bool(engine.state.list_entities()),
+        )
+        model = llm.bind_tools(active_tools) if active_tools else llm
         response = model.invoke(model_messages)
         # Return only the new response; the add_messages reducer appends it
         return {"messages": [response]}
