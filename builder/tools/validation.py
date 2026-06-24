@@ -203,7 +203,16 @@ def build_and_validate(
     from profiles.validator import validate_crate_dict
 
     try:
-        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+        # include_all_scanned=False: the auto-included scanned-file leaves (#175)
+        # are plain File nodes that don't change the validation verdict, so we skip
+        # them on this hot in-loop path to keep build_and_validate fast. export_crate
+        # uses the default (True) so the written crate packages the whole dataset.
+        crate = assemble_crate(
+            state,
+            output_dir=None,
+            materialize_payload=False,
+            include_all_scanned=False,
+        )
         metadata_doc = crate.metadata.generate()
         results = validate_crate_dict(metadata_doc, severity=severity, profile=profile)
     except Exception as e:  # noqa: BLE001 — surface as a tool error, never crash the loop

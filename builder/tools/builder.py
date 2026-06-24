@@ -39,6 +39,7 @@ def assemble_crate(
     output_dir: Path | None = None,
     *,
     materialize_payload: bool = True,
+    include_all_scanned: bool = True,
 ) -> ROCrate:
     """Assemble an in-memory `ROCrate` from CrateState — no disk write.
 
@@ -53,6 +54,12 @@ def assemble_crate(
             for the pure in-memory path.
         materialize_payload: When False, no payload file is written (see
             :func:`builder.tools._crate_mapping.populate_crate`).
+        include_all_scanned: When True (default), every file in
+            ``state.scanned_files`` that is not already a drafted ``File`` entity
+            is auto-included as a ``File`` leaf, so the crate packages the whole
+            dataset (#175). The in-memory ``build_and_validate`` path passes
+            False — plain leaves don't change the validation verdict and skipping
+            them keeps the ReAct loop fast.
 
     Returns:
         A populated :class:`ROCrate`. Nothing is written unless the caller
@@ -60,7 +67,13 @@ def assemble_crate(
     """
     crate = ROCrate()
     crate.metadata.extra_contexts = ISA_TOX_CONTEXT
-    populate_crate(state, crate, output_dir, materialize_payload=materialize_payload)
+    populate_crate(
+        state,
+        crate,
+        output_dir,
+        materialize_payload=materialize_payload,
+        include_all_scanned=include_all_scanned,
+    )
     return crate
 
 

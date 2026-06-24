@@ -660,6 +660,19 @@ is conformant to materialise the on-disk RO-Crate directory (payload included).
 (`assemble_crate(..., materialize_payload=False)`) skips writing the Exposure
 condition-table placeholder CSV so validation stays a zero-disk operation.
 
+**Auto-included scanned files (#175).** `assemble_crate(..., include_all_scanned=True)`
+(the default, used by `export_crate`) packages *every* scanned file that the agent
+has **not** already drafted as a `File` entity, attaching it to the root `hasPart`
+as a plain `File` leaf — an honest *fallback* so the exported crate never silently
+drops a data file. It is **inclusion only, not placement**: files the agent has
+explicitly placed (under a Study/Assay, wired as a process `result`/`object`, or
+given a role) already have a `File` entity and are deduped out by resolved source
+path, so the agent's semantic association always wins. Reserved RO-Crate filenames
+are skipped. The hot `build_and_validate` path passes `include_all_scanned=False` —
+plain leaves don't change the validation verdict, so skipping them keeps the ReAct
+loop fast. Semantic placement of file *groups* (which assay, which role) stays an
+agent task (bulk placement tool — follow-up).
+
 ### Assessment Tools
 ```
 assess_mit_coverage() → MITReport
