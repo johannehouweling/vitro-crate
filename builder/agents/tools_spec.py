@@ -46,6 +46,19 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "scaffold_isa_backbone",
+        "description": "Create a linked Investigation -> Study -> Assay backbone in ONE call (idempotent: reuses an existing entity of each type instead of duplicating). The fastest path to a BASE-passing crate. Pass optional per-entity hints; set validate_base=true to also run a base-profile check. Creates no File entities. Example: scaffold_isa_backbone(investigation={'name': 'Hepatotoxicity screen'}, study={'name': 'Silychristin exposure'}, assay={'name': 'Cell viability assay'}).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "investigation": draft_hints_schema("Investigation"),
+                "study": draft_hints_schema("Study"),
+                "assay": draft_hints_schema("Assay"),
+                "validate_base": {"type": "boolean", "description": "Also run build_and_validate(profile='base') and return it under 'validation'."},
+            },
+        },
+    },
+    {
         "name": "draft_molecular_entity",
         "description": "Create a MolecularEntity from a compound name. Look the compound up first (lookup_compound) so you can pass a verified pubchem_cid. Example: draft_molecular_entity(name='Silychristin A', hints={'pubchem_cid': '443515', 'identifier': '33889-69-9'}).",
         "parameters": {
