@@ -13,58 +13,37 @@ four axes from the issue:
 ``export_crate`` embeds the rendered page as a ``CreativeWork`` ``about`` ``./``,
 mirroring the entity-graph (#130) and preview (#86) artifacts.
 
-``build_maturity_html`` is pure (FAIR/MIT come from the deterministic assessors;
-``conformance`` is injected) so it unit-tests without running the SHACL validator.
-``conformance_from_metadata`` computes the conformance section from an in-memory
-metadata document for the embed path.
+``build_maturity_html`` is pure and cheap: FAIR/MIT come from the deterministic
+assessors and the profile-adherence section is rendered from the crate's existing
+``state.validation`` — it does **not** run the SHACL validator. That keeps the
+embed in ``export_crate`` free of validation cost; validation is a separate step.
 """
 
 from __future__ import annotations
 
 import html
-from typing import Any
 
-from builder.state import CrateState
+from builder.state import CrateState, ValidationReport
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import assess_mit_coverage
 
 REPORT_FILENAME = "ro-crate-maturity.html"
 
-# Map a validate_crate_dict pass key to a human label.
-_PROFILE_LABELS = {"base": "RO-Crate 1.1", "isa": "ISA", "tox": "ISA-Tox"}
 
+def _validation_has_signal(validation: ValidationReport) -> bool:
+    """True if a validation has actually run (some pass set, or any issue logged).
 
-def conformance_from_metadata(metadata_doc: dict[str, Any]) -> list[dict[str, Any]]:
-    """Run the in-memory validator and summarise it for the report.
-
-    Returns one entry per pass: ``{profile, label, passed_required, required,
-    recommended}`` where ``required``/``recommended`` are issue message strings.
-    Best-effort — returns ``[]`` if validation is unavailable.
+    A default :class:`ValidationReport` (all passes ``False``, no issues) means
+    the crate hasn't been validated yet — distinct from "validated and failing".
     """
-    try:
-        from profiles.validator import validate_crate_dict
-    except ImportError:
-        return []
-    try:
-        # "recommended" surfaces REQUIRED + RECOMMENDED so we can offer suggestions.
-        results = validate_crate_dict(metadata_doc, severity="recommended", profile="all")
-    except Exception:
-        return []
-
-    summary: list[dict[str, Any]] = []
-    for res in results:
-        required = [i.message for i in res.issues if i.severity == "required"]
-        recommended = [i.message for i in res.issues if i.severity == "recommended"]
-        summary.append(
-            {
-                "profile": res.profile,
-                "label": _PROFILE_LABELS.get(res.profile, res.profile),
-                "passed_required": res.passed_required,
-                "required": required,
-                "recommended": recommended,
-            }
-        )
-    return summary
+    return bool(
+        validation.base_passed
+        or validation.isa_passed
+        or validation.tox_passed
+        or validation.required_issues
+        or validation.should_issues
+        or validation.may_issues
+    )
 
 
 def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
@@ -132,47 +111,55 @@ def _mark(ok: bool | None) -> str:
 def build_maturity_html(
     state: CrateState,
     *,
-    conformance: list[dict[str, Any]] | None = None,
+    validation: ValidationReport | None = None,
 ) -> str:
     """Render the maturity report HTML for *state*.
 
+    The profile-adherence section is rendered from the crate's existing
+    validation results (``validation`` or, by default, ``state.validation``) —
+    NOT by re-running the SHACL validator. That keeps report generation cheap so
+    embedding it in ``export_crate`` adds no validation cost (#85); validation is
+    a separate step (e.g. ``build_and_validate`` in the agent loop). If no
+    validation has run, the section says so.
+
     Args:
         state: The crate state being reported on.
-        conformance: Optional per-pass conformance summary (see
-            :func:`conformance_from_metadata`). When ``None``, the profile
-            section notes that conformance was not evaluated.
+        validation: Validation results to render. Defaults to
+            ``state.validation``.
     """
     esc = html.escape
     title = state.metadata.title or "RO-Crate"
     fair = assess_fair_maturity(state)
     mit = assess_mit_coverage(state)
+    val = validation if validation is not None else state.validation
 
-    # --- Profile adherence ---
-    if conformance:
-        rows = []
-        suggestions: list[str] = []
-        for c in conformance:
-            rows.append(
-                f"<tr><td>{esc(c['label'])}</td><td>{_mark(c['passed_required'])}</td>"
-                f"<td>{len(c['required'])} required, {len(c['recommended'])} recommended</td></tr>"
-            )
-            for msg in c["required"]:
-                suggestions.append(
-                    f"<li><strong>Must fix ({esc(c['label'])}):</strong> {esc(msg)}</li>"
-                )
-            for msg in c["recommended"][:10]:
-                suggestions.append(f"<li>Recommended ({esc(c['label'])}): {esc(msg)}</li>")
+    # --- Profile adherence (from existing validation results) ---
+    if _validation_has_signal(val):
+        layers = [
+            ("RO-Crate 1.1", val.base_passed),
+            ("ISA", val.isa_passed),
+            ("ISA-Tox", val.tox_passed),
+        ]
+        rows = "".join(
+            f"<tr><td>{esc(label)}</td><td>{_mark(passed)}</td></tr>" for label, passed in layers
+        )
+        suggestions = [
+            f"<li><strong>Must fix:</strong> {esc(msg)}</li>" for msg in val.required_issues
+        ] + [f"<li>Recommended: {esc(msg)}</li>" for msg in val.should_issues[:10]]
         sugg_html = (
             f"<ul class='sugg'>{''.join(suggestions)}</ul>"
             if suggestions
-            else "<p class='ok'>No outstanding profile issues. 🎉</p>"
+            else "<p class='ok'>No outstanding REQUIRED/RECOMMENDED issues.</p>"
         )
         profile_section = (
-            "<table><thead><tr><th>Profile</th><th>REQUIRED</th><th>Issues</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table>{sugg_html}"
+            "<table><thead><tr><th>Profile</th><th>REQUIRED passed</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>{sugg_html}"
         )
     else:
-        profile_section = "<p class='muted'>Conformance was not evaluated for this report.</p>"
+        profile_section = (
+            "<p class='muted'>Not yet validated — run validation to populate "
+            "profile adherence.</p>"
+        )
 
     # --- FAIR ---
     dsm = fair.dsm_level
