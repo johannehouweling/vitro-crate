@@ -354,6 +354,48 @@ class TestUnzipFile:
         assert "message" in result
 
 
+class TestReadFileSampleDirectory:
+    """Issue #240: read_file_sample on a DIRECTORY must return a clear,
+    actionable message instead of a silent None that loops the agent.
+    """
+
+    def test_directory_content_mode_returns_actionable_message(self, tmp_path):
+        result = read_file_sample(str(tmp_path), mode="content")
+        assert result is not None
+        assert "is a directory" in result
+        assert "list_scanned_files" in result
+
+    def test_directory_overview_mode_returns_actionable_message(self, tmp_path):
+        # 'overview' was the exact mode the looping run kept calling on a dir.
+        result = read_file_sample(str(tmp_path), mode="overview")
+        assert result is not None
+        assert "is a directory" in result
+        assert "list_scanned_files" in result
+
+    def test_missing_path_still_returns_none(self, tmp_path):
+        assert read_file_sample(str(tmp_path / "nope.json")) is None
+
+
+class TestReadFileSampleLinesHonored:
+    """Issue #240: the `lines` argument must actually control how much content
+    'content' mode returns (for JSON and other text alike).
+    """
+
+    def test_lines_controls_amount_returned_for_json(self, tmp_path):
+        import json as _json
+
+        obj = {"rows": [{"i": i} for i in range(500)]}
+        f = tmp_path / "big.json"
+        f.write_text(_json.dumps(obj, indent=2), encoding="utf-8")
+
+        few = read_file_sample(str(f), lines=10, mode="content")
+        many = read_file_sample(str(f), lines=1000, mode="content")
+        assert few is not None and many is not None
+        assert len(many) > len(few)
+        # lines=10 returns exactly 10 lines.
+        assert few.count("\n") <= 9
+
+
 class TestReadFileSampleMode:
     """Tests for the mode parameter on read_file_sample."""
 

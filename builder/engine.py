@@ -157,6 +157,29 @@ _FILE_READ_TOOLS: dict[str, str] = {
 # object (never a tool's own return value) so ``is`` comparison is unambiguous.
 _GATE_OK = object()
 
+# Max length of the compact call-args repr embedded in each reasoning_log entry
+# (#240). Bounded so a big ``hints`` blob or a long path can't bloat the log.
+_REASONING_ARGS_MAX = 240
+
+
+def _compact_args_repr(kwargs: dict[str, Any], *, max_len: int = _REASONING_ARGS_MAX) -> str:
+    """Render tool call kwargs as a compact, truncated string for the log (#240).
+
+    The reasoning_log used to record only the tool RESULT, so you couldn't tell
+    which path ``read_file`` was called with. This embeds a bounded repr of the
+    arguments in each entry. Values that fail to repr are rendered defensively so
+    logging never raises.
+    """
+    if not kwargs:
+        return ""
+    try:
+        rendered = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
+    except Exception:  # never let logging crash on an exotic value
+        rendered = str(list(kwargs.keys()))
+    if len(rendered) > max_len:
+        rendered = rendered[: max_len - 1] + "…"
+    return rendered
+
 
 class AgentEngine:
     """Orchestrator for the LLM agent toolbox loop.
@@ -614,8 +637,15 @@ class AgentEngine:
         self._writeback_validation(tool_name, result)
 
         self.state.iteration_count += 1
+        # Embed a compact, bounded repr of the call args in the action so the log
+        # shows WHICH path/hints a tool was called with — not just its result
+        # (#240). Previously this was just "run_tool: <name>", hiding the args.
+        _args_repr = _compact_args_repr(kwargs)
+        _action = f"run_tool: {tool_name}"
+        if _args_repr:
+            _action = f"{_action}({_args_repr})"
         self.state.log_reasoning(
-            f"run_tool: {tool_name}",
+            _action,
             tool_name,
             str(result)[:300] if result is not None else "None",
         )

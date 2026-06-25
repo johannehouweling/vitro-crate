@@ -24,6 +24,31 @@ logger = logging.getLogger(__name__)
 _MAX_BYTES = 100 * 1024 * 1024  # 100 MB — skip files larger than this
 _MAX_ROWS = 500  # max rows to return from structured formats
 
+# Full-return byte budget for plain-text / JSON content (Issue #240). A 32 KB
+# JSON is only ~8K tokens and must come back COMPLETE — the old 100-line cap
+# dropped the tail, so a weak model never saw fields deep in the file and looped
+# "let me read the rest". We return text in full up to this budget; only a file
+# that genuinely exceeds it is truncated, and then with an explicit marker.
+_TEXT_BUDGET_BYTES = 64 * 1024  # 64 KiB — generous full-return budget for text
+
+
+def _format_kib(num_bytes: int) -> str:
+    """Format a byte count as a compact ``N.N KiB`` string for messages."""
+    return f"{num_bytes / 1024:.1f} KiB"
+
+
+def _directory_message(path: str) -> str:
+    """Actionable message for a reader that was handed a directory (Issue #240).
+
+    The LLM kept calling ``read_file``/``read_file_sample`` on a *directory* and
+    got a silent ``None`` each time, then looped. Return a clear "this is a
+    directory, browse the inventory then read a file" signal instead.
+    """
+    return (
+        f"{path} is a directory, not a file — use list_scanned_files to browse "
+        f"the inventory, then read a specific file by its path."
+    )
+
 
 # ---------------------------------------------------------------------------
 # Excel (.xlsx)
@@ -189,13 +214,27 @@ def read_docx(
 def _read_text_file(
     path: str,
     *,
-    max_lines: int = 100,
     max_bytes: int = _MAX_BYTES,
+    budget: int | None = None,
 ) -> str | None:
-    """Read first *max_lines* lines of a plain-text file.
+    """Read a plain-text file IN FULL, up to a generous byte *budget* (Issue #240).
 
-    Returns *None* if the file is too large, binary, or unreadable.
+    Returns the whole file when it fits in ``budget`` bytes (default
+    :data:`_TEXT_BUDGET_BYTES`, 64 KiB). When it exceeds the budget the content
+    shown is returned PLUS an explicit, unmistakable truncation marker stating
+    how much was shown and that re-reading the same way will NOT return more — so
+    a weak model stops looping instead of asking for "the rest".
+
+    The hard ``max_bytes`` safety cap (default 100 MB) still skips genuinely huge
+    files entirely (returns *None*) so we never load a 16 MB binary into memory.
+
+    Returns *None* if the file is too large (> ``max_bytes``), binary, or
+    unreadable.
     """
+    # Resolve the budget at call time so tests can monkeypatch the module attr.
+    if budget is None:
+        budget = _TEXT_BUDGET_BYTES
+
     file_path = Path(path)
     try:
         size = file_path.stat().st_size
@@ -213,20 +252,29 @@ def _read_text_file(
         return None
 
     try:
-        sample: list[str] = []
+        # Read up to budget+1 bytes so we can tell whether the file overflowed
+        # the budget without slurping the whole (possibly large) file.
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
-            for _ in range(max_lines):
-                line = f.readline()
-                if not line:
-                    break
-                sample.append(line.rstrip("\n"))
-            return "\n".join(sample)
+            shown = f.read(budget)
+            overflowed = f.read(1) != ""
     except PermissionError:
         logger.warning("Permission denied reading file: %s", path)
         return None
     except Exception:
         logger.exception("Error reading text file: %s", path)
         return None
+
+    content = shown.rstrip("\n")
+    if not overflowed:
+        return content
+
+    shown_bytes = len(shown.encode("utf-8"))
+    marker = (
+        f"\n[truncated: showing first {_format_kib(shown_bytes)} of "
+        f"{_format_kib(size)}; this is the maximum for this tool — do not "
+        f"re-read]"
+    )
+    return content + marker
 
 
 def read_file(
@@ -246,17 +294,27 @@ def read_file(
     - ``.docx`` — Word via :func:`read_docx`
     - ``.pdf`` — via :func:`~builder.tools.scanner.extract_pdf_text`
 
+    Plain-text and JSON files are returned **in full** up to a generous byte
+    budget (:data:`_TEXT_BUDGET_BYTES`, 64 KiB); a file that genuinely exceeds it
+    comes back with an explicit truncation marker so a weak model does not loop
+    "read the rest" (Issue #240). A *directory* path returns a clear, actionable
+    message (browse the inventory, then read a specific file) instead of *None*.
+
     Unsupported or unreadable files return *None*.
 
     Args:
         path: Path to the file.
-        max_lines: Max lines/rows for text files and structured formats.
-        max_bytes: Max file size in bytes (1 MB default).
+        max_lines: Max rows to return from structured formats (``.xlsx``); text
+            and JSON are governed by the byte budget, not a line cap.
+        max_bytes: Hard safety cap in bytes (default 100 MB); files larger than
+            this are skipped (returns *None*).
 
     Returns:
-        File content as a string, or *None*.
+        File content as a string, a directory-guidance message, or *None*.
     """
     file_path = Path(path)
+    if file_path.is_dir():
+        return _directory_message(path)
     if not file_path.is_file():
         return None
 
@@ -273,17 +331,8 @@ def read_file(
 
         return extract_pdf_text(path)
 
-    text_extensions = {
-        ".txt", ".csv", ".tsv", ".json", ".yml", ".yaml",
-        ".xml", ".md", ".log", ".ini", ".cfg", ".toml",
-        ".py", ".r", ".sh", ".bat", ".ps1", ".env",
-        ".html", ".htm", ".css", ".js", ".mjs",
-    }
-
-    if suffix in text_extensions:
-        return _read_text_file(path, max_lines=max_lines, max_bytes=max_bytes)
-
-    return _read_text_file(path, max_lines=max_lines, max_bytes=max_bytes)
+    # Everything else is read as plain text (full content up to the byte budget).
+    return _read_text_file(path, max_bytes=max_bytes)
 
 # ---------------------------------------------------------------------------
 # Explicit ToolRegistry registration
@@ -304,5 +353,5 @@ TOOL_REGISTRY.register(
 TOOL_REGISTRY.register(
     "read_file",
     read_file,
-    description="Read any supported file format by extension (txt, csv, json, xlsx, docx, md, pdf)",
+    description="Read any supported file format by extension (txt, csv, json, xlsx, docx, md, pdf). Text/JSON come back in full up to 64 KiB; a larger file is truncated with an explicit marker, and a directory returns guidance to use list_scanned_files",  # noqa: E501
 )

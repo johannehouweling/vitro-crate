@@ -245,6 +245,21 @@ The agent loop turns a bare `None` from any file reader
 (`read_file_sample`/`read_file`/`read_excel`/`read_docx`) into an actionable
 "unreadable/too-large — skip it" message so a weak model stops re-calling it.
 
+**Full-return text budget & loop fixes (Issue #240):** `read_file` returns
+plain-text/JSON **in full** up to `_TEXT_BUDGET_BYTES` (64 KiB) — a 32 KB JSON
+comes back complete instead of being clipped at the old 100-line cap, which made
+weak models loop "let me read the rest". A file over the budget is returned with
+the content shown plus an explicit, machine-stable marker
+(`[truncated: showing first 64 KiB of N KiB; this is the maximum for this tool —
+do not re-read]`) so the model knows re-reading the same way yields nothing more;
+the 100 MB `_MAX_BYTES` hard cap still skips genuinely huge binaries entirely.
+A *directory* handed to `read_file`/`read_file_sample` no longer returns a silent
+`None` (which looped the agent) — it returns "`<path>` is a directory … use
+list_scanned_files …". `read_file_sample`'s `lines` argument controls how much
+'content' mode returns. Reasoning-log entries now embed a compact, bounded repr
+of each tool's call args (`run_tool: read_file(path='…')`) so the recorded action
+shows *which* path/hints a tool ran with, not just its result.
+
 #### Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.
 Each drafter collects hints, calls the LLM, and ensures identifiers come from
@@ -476,10 +491,11 @@ full readers are specced and LLM-callable during the agent loop.*
 ```
 scan_files(path: str) → [FileClassification]
 read_file_sample(path: str, lines: int = 20, mode: str = "content") → str | None
-  mode: "content" (first N lines), "summary" (file-type-aware), "overview" (metadata + summary)
+  mode: "content" (first `lines` lines — `lines` controls how much is returned), "summary" (file-type-aware), "overview" (metadata + summary)
+  a directory path returns an actionable "use list_scanned_files" message, never a silent None (#240)
 read_multiple_files(paths: list[str], lines: int = 50, mode: str = "content") → dict
   mode: same options as read_file_sample
-read_file(path: str) → str | None             # full read by extension (txt, csv, json, xlsx, docx, md, pdf)
+read_file(path: str) → str | None             # full read by extension (txt, csv, json, xlsx, docx, md, pdf); text/JSON returned COMPLETE up to a 64 KiB budget, over-budget files carry an explicit "[truncated … do not re-read]" marker; a directory returns the list_scanned_files guidance (#240)
 read_excel(path: str) → str | None            # .xlsx → pipe-delimited text
 read_docx(path: str) → str | None             # .docx → plain text
 extract_pdf_text(path: str) → str             # structured PDF: [Page N] text, tables, image metadata

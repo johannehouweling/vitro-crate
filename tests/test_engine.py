@@ -100,6 +100,28 @@ class TestAgentEngine:
         engine.run_tool("draft_investigation", hints={"name": "Test 2"})
         assert engine.state.iteration_count == 2
 
+    def test_reasoning_log_entry_includes_call_args(self):
+        """Issue #240: each reasoning_log entry records the tool ARGUMENTS, not
+        just the result, so you can see which path read_file was called with.
+        """
+        engine = AgentEngine()
+        engine.initialize()
+        engine.run_tool("draft_investigation", hints={"name": "Hepatotox screen"})
+        step = engine.state.checkpoint.reasoning_log[-1]
+        assert step.tool == "draft_investigation"
+        # The recorded action/args names the argument that was passed.
+        assert "Hepatotox screen" in step.action
+
+    def test_reasoning_log_args_are_bounded(self):
+        """A huge argument is truncated so reasoning_log entries stay small."""
+        engine = AgentEngine()
+        engine.initialize()
+        huge = "z" * 5000
+        engine.run_tool("draft_investigation", hints={"name": huge})
+        step = engine.state.checkpoint.reasoning_log[-1]
+        # The action (which embeds the args repr) is bounded.
+        assert len(step.action) < 1000
+
     def test_get_available_tools_returns_list(self):
         """get_available_tools returns a non-empty list of tool names."""
         engine = AgentEngine()

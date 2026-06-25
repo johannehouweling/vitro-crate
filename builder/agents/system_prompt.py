@@ -12,9 +12,9 @@ File scanning & reading:
 - scan_files: Scan an input directory or zip for files (archives auto-extracted)
 - preview_archive: List a zip archive's members without extracting
 - unzip_file: Extract a zip archive to a directory
-- read_file_sample: Read a sample of one file (content/summary/overview)
+- read_file_sample: Read a sample of one file (content/summary/overview); the lines argument controls how much 'content' returns; a directory returns guidance to use list_scanned_files
 - read_multiple_files: Read a sample of several files at once
-- read_file: Read a supported file in full (txt, csv, json, xlsx, docx, md, pdf)
+- read_file: Read a supported file in full (txt, csv, json, xlsx, docx, md, pdf) — text/JSON come back complete up to 64 KiB; a bigger file is returned with a '[truncated … do not re-read]' marker, so don't re-read it
 - read_excel: Read an .xlsx file as pipe-delimited text
 - read_docx: Read a .docx file's text
 - extract_pdf_text: Extract structured text, tables, and image metadata from a PDF
