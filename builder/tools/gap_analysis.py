@@ -292,18 +292,35 @@ def _mit_suggestion(param: dict[str, Any]) -> str | None:
     return " | ".join(parts) if parts else None
 
 
+def _present_entity_types(state: CrateState) -> set[str]:
+    """The set of entity TYPES that have at least one instance in ``state``.
+
+    Used so a MIT parameter keyed solely on an entity type with NO instance (e.g.
+    ``MolecularEntity:cas`` when there are zero MolecularEntities) is surfaced as
+    a *creation prompt* / report-only gap rather than phrased as if a specific
+    chemical/protocol/cell line already exists (#257, fix B).
+    """
+    return {entity.type for entity in state.list_entities()}
+
+
 def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
     """Unfilled MIT parameters as gaps; also return the overall MIT score.
 
     A parameter is a gap when *none* of its ``crate_slot`` targets is filled.
     Core parameters (``additional: false``) are ``SHOULD``; ``additional: true``
     ones are ``MAY``. The overall MIT score mirrors ``assess_mit_coverage``.
+
+    A parameter keyed *only* on entity types with NO instance in state has no
+    concrete entity to ask about: it is surfaced as a **creation-prompt**,
+    ``report-only`` gap (#257, fix B) so the guidance loop never phrases it as a
+    specific "this chemical / this protocol" that does not exist.
     """
     mit_data = _load_mit_yaml()
     if mit_data is None:
         return [], 0.0
 
     filled = _filled_fields(state)
+    present_types = _present_entity_types(state)
     modules = mit_data.get("modules", [])
     gaps: list[Gap] = []
     total_completed = 0
@@ -342,13 +359,38 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
             # crate field the parameter maps to); the rest are alternatives.
             slot_entity_type, slot_field = slots[0] if slots else (None, None)
             param_name = param.get("name") or param.get("id") or slot_field or "parameter"
+            # (#257, fix B) Does ANY slot reference an entity type that actually has
+            # an instance? If not, the parameter is type-level only — there is no
+            # concrete entity to ask about, so phrasing it as a specific entity is
+            # exactly the bug (asking for "this chemical"'s CAS with zero chemicals).
+            has_instance = any(
+                et in present_types for et, _ in slots if et
+            )
+            if not has_instance:
+                # No instance of any of the parameter's entity types: surface a
+                # creation-prompt, report-only gap (never a per-field ask on a
+                # non-existent entity).
+                message = (
+                    f"No {slot_entity_type or 'matching'} recorded yet; the MIT "
+                    f"profile expects '{param_name}' (crate_slot {crate_slot}). "
+                    "Add one to capture it."
+                )
+                fix_hint = REPORT_ONLY
             # MIT gaps are emitted crate-level (entity_id None). They are only
             # committable when their field maps to a Root Data Entity slot; the
             # rest have no deterministic settable target and are report-only, so
             # the guidance loop surfaces them for context without burning a turn.
-            if not _is_committable(None, slot_field):
+            elif not _is_committable(None, slot_field):
+                message = (
+                    f"MIT parameter '{param_name}' is not yet captured "
+                    f"(crate_slot {crate_slot})."
+                )
                 fix_hint = REPORT_ONLY
             else:
+                message = (
+                    f"MIT parameter '{param_name}' is not yet captured "
+                    f"(crate_slot {crate_slot})."
+                )
                 # MIT enrichment needs content the user provides or a drafter
                 # synthesizes; it is never a deterministic auto-fix (D5).
                 fix_hint = "ask-user" if not additional else "draft"
@@ -359,10 +401,7 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
                     entity_id=None,
                     entity_type=slot_entity_type,
                     property=slot_field,
-                    message=(
-                        f"MIT parameter '{param_name}' is not yet captured "
-                        f"(crate_slot {crate_slot})."
-                    ),
+                    message=message,
                     suggestion=_mit_suggestion(param),
                     fix_hint=fix_hint,
                     auto_fixable=False,

@@ -245,13 +245,25 @@ class TestReportOnlyGaps:
 
     def test_committable_mit_keeps_ask_or_draft(self):
         """A crate-level MIT gap whose field DOES map to a crate slot
-        (name / description / identifier) is still committable -> ask-user/draft."""
-        report = assess_gaps(_backbone())
+        (name / description / identifier) AND whose entity type has an instance is
+        still committable -> ask-user/draft.
+
+        Note (#257, fix B): the field mapping ALONE is not enough — the entity type
+        must also have an instance, else there is no concrete entity to ask about
+        and the gap is report-only. So we use a Study with NO description (a present
+        entity type, ``Study:description`` unfilled, crate-settable)."""
+        state = _backbone()
+        # Drop the Study description so its committable MIT slot is unfilled.
+        study = state.get_entity("st1")
+        assert study is not None
+        study.fields.pop("description", None)
+        report = assess_gaps(state)
         committable_mit = [
             g
             for g in report.gaps
             if g.source == "mit"
             and g.entity_id is None
+            and g.entity_type == "Study"
             and _local(g.property) in _CRATE_SETTABLE_FIELDS
         ]
         assert committable_mit, "expected at least one committable MIT gap"
@@ -270,6 +282,72 @@ class TestReportOnlyGaps:
             assert committable_flags == sorted(committable_flags, reverse=True), [
                 (g.fix_hint, g.source, g.property) for g in within
             ]
+
+
+# ---------------------------------------------------------------------------
+# (Issue #257, fix B) MIT gaps for an entity TYPE with no instance must not be
+# offered as if a specific entity exists — they are report-only.
+# ---------------------------------------------------------------------------
+
+
+class TestMitGapsForAbsentEntityType:
+    def test_molecular_entity_gaps_report_only_when_no_instance(self):
+        """The backbone has NO MolecularEntity, so a MIT param keyed on one (even a
+        crate-settable field like name / identifier) has no concrete entity to
+        ask about and must be report-only — not a bare 'this chemical' ask."""
+        report = assess_gaps(_backbone())
+        molecular = [
+            g
+            for g in report.gaps
+            if g.source == "mit" and g.entity_type == "MolecularEntity"
+        ]
+        assert molecular, "expected unfilled MolecularEntity MIT params"
+        assert all(g.fix_hint == "report-only" for g in molecular), [
+            (g.property, g.fix_hint) for g in molecular
+        ]
+
+    def test_present_entity_type_mit_gaps_stay_committable(self):
+        """A MIT param keyed on an entity type that HAS an instance (Study) with a
+        crate-settable field stays committable -> ask/draft; absence is the
+        discriminator, not the entity type itself."""
+        state = _backbone()
+        # Drop the Study description so its committable MIT slot is unfilled.
+        study = state.get_entity("st1")
+        assert study is not None
+        study.fields.pop("description", None)
+        report = assess_gaps(state)
+        present = [
+            g
+            for g in report.gaps
+            if g.source == "mit"
+            and g.entity_type == "Study"
+            and _local(g.property) in _CRATE_SETTABLE_FIELDS
+        ]
+        assert present, "expected committable MIT gaps for present entity types"
+        assert all(g.fix_hint in ("ask-user", "draft") for g in present), [
+            (g.entity_type, g.property, g.fix_hint) for g in present
+        ]
+
+    def test_present_molecular_entity_keeps_committable_field(self):
+        """With a MolecularEntity in state, its crate-settable MIT slots become
+        committable again — the report-only downgrade is *only* for absent types."""
+        state = _backbone()
+        state.add_entity(
+            _entity("chem1", "MolecularEntity", name="Acetaminophen")
+        )
+        report = assess_gaps(state)
+        molecular_committable = [
+            g
+            for g in report.gaps
+            if g.source == "mit"
+            and g.entity_type == "MolecularEntity"
+            and _local(g.property) in _CRATE_SETTABLE_FIELDS
+            and g.fix_hint != "report-only"
+        ]
+        assert molecular_committable, (
+            "a present MolecularEntity must make its crate-settable MIT slots "
+            "committable again"
+        )
 
 
 # ---------------------------------------------------------------------------

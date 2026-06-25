@@ -496,7 +496,11 @@ _PHRASE_SYSTEM_PROMPT = (
     "type it belongs to, why it matters, and a hint). Rephrase it as ONE short, "
     "clear question a non-expert researcher can answer, with a concrete example of "
     "a good answer. NEVER show raw SHACL shapes, FAIR indicator codes, property "
-    "IRIs, or validator jargon. Ask only for what the field needs."
+    "IRIs, or validator jargon. Ask only for what the field needs. CRITICAL: when "
+    "an entity name is given, the question MUST name that specific entity (e.g. "
+    "'What is the CAS Registry Number for Silychristin A?'), never a vague 'this "
+    "chemical', 'this protocol', or 'this cell line' — the user must know WHICH "
+    "entity you mean."
 )
 
 _INTERPRET_SYSTEM_PROMPT = (
@@ -580,19 +584,50 @@ def _interpret_schema() -> dict[str, Any]:
     }
 
 
+def _known_fields_block(known_fields: Any) -> str | None:
+    """Render the gap's KNOWN fields into a compact ``k=v`` line, or ``None``.
+
+    The guidance loop threads the resolved entity's already-known descriptive
+    fields (``known_fields``) so the leaf can ground the question in what is
+    already recorded ("…for Silychristin A (a test compound)…") instead of asking
+    about a nameless entity. Values are truncated so the block stays bounded.
+    """
+    if not isinstance(known_fields, dict) or not known_fields:
+        return None
+    parts: list[str] = []
+    for key, value in known_fields.items():
+        text = str(value).strip()
+        if not text:
+            continue
+        if len(text) > 80:
+            text = text[:80].rstrip() + "…"
+        parts.append(f"{key}={text}")
+    return "; ".join(parts) if parts else None
+
+
 def _gap_context_block(gap_context: dict[str, Any]) -> str:
     """Render a gap-context dict into a compact, jargon-light block for a leaf.
 
     The guidance loop assembles ``gap_context`` (property, entity_type, tier,
-    message, suggestion, plus optional crate title/description). We surface the
-    human-meaningful parts; the leaf is told to translate the rest, never to echo
-    raw validator text.
+    message, suggestion, plus optional crate title/description and — when the gap
+    is about a CONCRETE entity — that entity's ``entity_name`` and ``known_fields``,
+    #257). We surface the human-meaningful parts (crucially the entity NAME, so the
+    leaf phrases a question about *that* entity, never a bare "this chemical"); the
+    leaf is told to translate the rest, never to echo raw validator text.
     """
     field = gap_context.get("property") or "this field"
     parts: list[str] = [f"Field: {field}"]
     entity_type = gap_context.get("entity_type")
     if entity_type:
         parts.append(f"Belongs to: {entity_type}")
+    # Name the specific entity (#257) so the question can never be a contextless
+    # "this chemical / this protocol / this cell line".
+    entity_name = gap_context.get("entity_name")
+    if entity_name:
+        parts.append(f"Entity name: {entity_name}")
+    known_block = _known_fields_block(gap_context.get("known_fields"))
+    if known_block:
+        parts.append(f"Already known: {known_block}")
     tier = gap_context.get("tier")
     if tier:
         parts.append(f"Importance: {tier}")
@@ -757,8 +792,124 @@ def _local_property_name(iri: str | None) -> str:
     return iri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
 
 
+# ---------------------------------------------------------------------------
+# extract_field_from_file — the file-extraction leaf (Issue #257, fix C)
+#
+# When the user points the guidance loop at a file ("the CAS number is in
+# assay-metadata.xlsx"), the loop READS the file (via file_readers) and calls
+# this leaf to extract the requested field value from the file text — instead of
+# logging a hint and skipping. It is a single bounded structured-output call on
+# the drafter tier; it returns a clean value or an empty string when the file
+# does not support the field. D5: an identifier-bearing field is NEVER extracted
+# from file text (those come from lookups), so the leaf returns "" for one.
+# ---------------------------------------------------------------------------
+
+_EXTRACT_FILE_SYSTEM_PROMPT = (
+    "You extract ONE metadata field value from the text of a research file for an "
+    "ISA-Tox RO-Crate. You are given the field name, the entity it belongs to, and "
+    "the file's text. Return the clean value for that field if — and only if — the "
+    "file clearly supplies it; rewrite it into a proper, concise field value. If "
+    "the file does not contain the answer, return an EMPTY value (do not guess). "
+    "NEVER fabricate or extract identifiers (CAS, InChIKey, SMILES, PubChem CID, "
+    "ORCID, ROR, DOI, accessions, ontology codes): those are resolved by lookup "
+    "services, so for an identifier field return an empty value."
+)
+
+
+def _extract_file_schema() -> dict[str, Any]:
+    """Structured-output schema for the file-extraction leaf: one value string."""
+    return {
+        "title": "ExtractedFieldValue",
+        "type": "object",
+        "description": (
+            "The value of one metadata field extracted from a file's text, or "
+            "empty when the file does not supply it. Never an identifier."
+        ),
+        "properties": {
+            "value": {
+                "type": "string",
+                "description": (
+                    "The clean field value extracted from the file text, or an "
+                    "empty string when the file does not contain it."
+                ),
+            }
+        },
+        "required": ["value"],
+        "additionalProperties": False,
+    }
+
+
+def extract_field_from_file(
+    field: str,
+    file_text: str,
+    gap_context: dict[str, Any],
+    *,
+    model: str | None = None,
+    usage_sink: UsageSink | None = None,
+) -> str:
+    """Extract the value of ``field`` from ``file_text`` for a gap (#257, fix C).
+
+    A pure bounded leaf: a SINGLE structured-output call on the drafter tier
+    (``_build_chat_model(role="drafter")``) that reads the (already-read,
+    size-capped) text of a file the user pointed at and returns the clean value
+    for the requested ``field``, or ``""`` when the file does not support it. It
+    does not mutate state and does not read disk (the guidance loop reads the file
+    via ``file_readers`` and hands the text in).
+
+    D5: identifiers come from lookups, never from extracting prose/file text. When
+    ``field`` (or the gap's ``property``) is identifier-bearing
+    (:data:`_IDENTIFIER_SCALAR_FIELDS`) the leaf short-circuits to ``""`` so an
+    identifier is never lifted out of a file — the loop verifies it via a lookup
+    instead.
+
+    Args:
+        field: The local field name being filled (e.g. ``"description"``).
+        file_text: The file's (bounded) text content to extract from.
+        gap_context: The per-gap context dict (entity_type, property, ...), used
+            for grounding and the D5 identifier guard.
+        model: Optional explicit model override; ``None`` resolves the drafter tier.
+        usage_sink: Optional token-usage callback (see :func:`draft_entity_fields`).
+
+    Returns:
+        The extracted clean value, or ``""`` when the file does not supply it (or
+        the field is identifier-bearing — D5).
+    """
+    # D5: never extract an identifier from file text — those come from lookups.
+    target = _local_property_name(field) or _local_property_name(
+        gap_context.get("property")
+    )
+    if target in _IDENTIFIER_SCALAR_FIELDS:
+        return ""
+    if not file_text or not file_text.strip():
+        return ""
+
+    llm = _build_chat_model(model=model, role="drafter")
+    messages = [
+        SystemMessage(content=_EXTRACT_FILE_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                f"Field to extract: {field}\n"
+                f"{_gap_context_block(gap_context)}\n\n"
+                "File text:\n"
+                f"{file_text}\n\n"
+                "Return the field's value if the file clearly supplies it, else an "
+                "empty value. Never an identifier."
+            )
+        ),
+    ]
+    result = _invoke_structured_with_usage(
+        llm, _extract_file_schema(), messages, usage_sink
+    )
+    if isinstance(result, dict):
+        value = result.get("value")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 __all__ = [
     "draft_entity_fields",
+    "extract_field_from_file",
     "extract_plan",
     "interpret_gap_reply",
     "phrase_gap_question",
