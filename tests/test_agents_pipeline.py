@@ -767,6 +767,217 @@ class TestMaterializePlan:
         assert result["materialized"]["compounds"] >= 2
 
 
+class TestPublicationFromPDF:
+    """Issue #245 — when a plan publication's "title" is actually a PDF FILENAME,
+    `_materialize_plan` must recover the real DOI/title from the PDF *text* and
+    resolve with that, never query Crossref with the bare filename.
+
+    The OATP1C1 symptom: ``extract_plan`` returned
+    ``{'title': 'Wagenaars_etal_2025_OATP1C1.pdf'}`` and Crossref answered "no
+    confident DOI match" — a title search on a filename can never match. These
+    tests stub the PDF reader and the Crossref/DOI lookups so they are fully
+    offline. Contract:
+
+    * a filename-title backed by a PDF whose text contains a DOI → resolved by
+      that DOI (``draft_publication_with_authors``), never by the filename;
+    * a PDF text with a real title but no DOI → resolved by the extracted title;
+    * neither DOI nor title recoverable → NO Crossref call with the filename;
+      the publication is skipped/deferred gracefully.
+    """
+
+    _PDF_NAME = "Wagenaars_etal_2025_OATP1C1.pdf"
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def _state_with_pdf(self, tmp_path: Path) -> CrateState:
+        """A titled state whose scanned-file inventory includes a PDF under an
+        approved root (the PDF need only EXIST on disk; its text is stubbed)."""
+        pdf_path = tmp_path / self._PDF_NAME
+        pdf_path.write_bytes(b"%PDF-1.4 stub")  # real bytes irrelevant — reader stubbed
+        state = CrateState()
+        state.metadata.title = "OATP1C1 transporter study"
+        state.metadata.description = "An in vitro OATP1C1 uptake assay."
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        state.scanned_files = [
+            FileClassification(
+                path=str(pdf_path),
+                filename=self._PDF_NAME,
+                size=pdf_path.stat().st_size,
+                mime_type="application/pdf",
+                first_rows=None,
+            )
+        ]
+        return state
+
+    def _stub_extract_plan_filename(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Make the leaf return the PDF FILENAME as the publication title (#245)."""
+        import builder.agents.pipeline as pipeline_mod
+
+        def fake_extract_plan(context, *, model=None, usage_sink=None):
+            return {"publications": [{"title": self._PDF_NAME}]}
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)
+
+    def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
+        return [e for e in engine.state.list_entities() if e.type == type_name]
+
+    def test_pdf_doi_in_text_resolves_by_doi_not_filename(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A PDF whose text carries a DOI → resolved by that DOI, not the filename."""
+        import builder.agents.pipeline as pipeline_mod
+        import builder.tools.composites as composites_mod
+        import builder.tools.scanner as scanner_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan_filename(monkeypatch)
+
+        # The PDF text the reader returns, carrying a real DOI on the first page.
+        def fake_extract_pdf_text(path):
+            return (
+                "[Page 1]\n"
+                "[Text] Hepatic OATP1C1 mediates thyroid hormone uptake\n"
+                "[Text] https://doi.org/10.1016/j.example.2025.01.002\n"
+                "[Text] Fabian Wagenaars, et al. 2025\n"
+            )
+
+        monkeypatch.setattr(scanner_mod, "extract_pdf_text", fake_extract_pdf_text)
+
+        # resolve_publication (title path) must NOT be called with the filename.
+        def boom_search(query):  # pragma: no cover - must not run
+            raise AssertionError(
+                f"Crossref title search must not be called with {query!r}"
+            )
+
+        monkeypatch.setattr(composites_mod, "search_works_by_title", boom_search)
+
+        # The DOI path delegates to draft_publication_with_authors → lookup_doi.
+        seen_dois: list[str] = []
+
+        def fake_lookup_doi(doi):
+            seen_dois.append(doi)
+            return {
+                "found": True,
+                "data": {
+                    "identifier": "10.1016/j.example.2025.01.002",
+                    "name": "Hepatic OATP1C1 mediates thyroid hormone uptake",
+                    "author": [{"givenName": "Fabian", "familyName": "Wagenaars"}],
+                },
+                "error": None,
+            }
+
+        monkeypatch.setattr(composites_mod, "lookup_doi", fake_lookup_doi)
+
+        engine = _engine(self._state_with_pdf(tmp_path))
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        # The DOI extracted from the PDF text drove the resolution.
+        assert seen_dois == ["10.1016/j.example.2025.01.002"]
+        pubs = self._by_type(engine, "Publication")
+        assert len(pubs) == 1
+        assert pubs[0].fields.get("identifier") == "10.1016/j.example.2025.01.002"
+        assert result["publications"] >= 1
+        # The bare filename never lingers as a deferred title.
+        assert self._PDF_NAME not in result["publications_deferred"]
+
+    def test_pdf_title_no_doi_resolves_by_extracted_title(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A PDF with a real title but no DOI → resolved by the extracted title."""
+        import builder.agents.pipeline as pipeline_mod
+        import builder.tools.composites as composites_mod
+        import builder.tools.scanner as scanner_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan_filename(monkeypatch)
+
+        real_title = "Hepatic OATP1C1 mediates thyroid hormone uptake"
+
+        def fake_extract_pdf_text(path):
+            # First non-trivial line is the article title; no DOI anywhere.
+            return (
+                "[Page 1]\n"
+                f"[Text] {real_title}\n"
+                "[Text] Fabian Wagenaars, et al. 2025\n"
+            )
+
+        monkeypatch.setattr(scanner_mod, "extract_pdf_text", fake_extract_pdf_text)
+
+        # The title path must be called with the REAL extracted title, not the file.
+        seen_titles: list[str] = []
+
+        def fake_search(query):
+            seen_titles.append(query)
+            return [{"doi": "10.1016/j.example.2025.01.002", "title": real_title, "score": 99.0}]
+
+        def fake_lookup_doi(doi):
+            return {
+                "found": True,
+                "data": {
+                    "identifier": "10.1016/j.example.2025.01.002",
+                    "name": real_title,
+                    "author": [{"givenName": "Fabian", "familyName": "Wagenaars"}],
+                },
+                "error": None,
+            }
+
+        monkeypatch.setattr(composites_mod, "search_works_by_title", fake_search)
+        monkeypatch.setattr(composites_mod, "lookup_doi", fake_lookup_doi)
+
+        engine = _engine(self._state_with_pdf(tmp_path))
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        # Crossref was queried with the EXTRACTED TITLE, never the filename.
+        assert seen_titles == [real_title]
+        assert self._PDF_NAME not in seen_titles
+        pubs = self._by_type(engine, "Publication")
+        assert len(pubs) == 1
+        assert result["publications"] >= 1
+        assert self._PDF_NAME not in result["publications_deferred"]
+
+    def test_pdf_no_doi_or_title_does_not_query_with_filename(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """No recoverable DOI/title → no Crossref-by-filename; graceful skip/defer."""
+        import builder.agents.pipeline as pipeline_mod
+        import builder.tools.composites as composites_mod
+        import builder.tools.scanner as scanner_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan_filename(monkeypatch)
+
+        # The PDF text is unreadable/empty — nothing to recover.
+        monkeypatch.setattr(scanner_mod, "extract_pdf_text", lambda path: None)
+
+        def boom_search(query):  # pragma: no cover - must not run
+            raise AssertionError(
+                f"Crossref title search must not be called with {query!r}"
+            )
+
+        def boom_lookup_doi(doi):  # pragma: no cover - must not run
+            raise AssertionError("DOI lookup must not run without a recovered DOI")
+
+        monkeypatch.setattr(composites_mod, "search_works_by_title", boom_search)
+        monkeypatch.setattr(composites_mod, "lookup_doi", boom_lookup_doi)
+
+        engine = _engine(self._state_with_pdf(tmp_path))
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        # Nothing minted; the filename did NOT reach Crossref. Skipped gracefully:
+        # it is not counted as a resolved publication.
+        assert self._by_type(engine, "Publication") == []
+        assert result["publications"] == 0
+        # The bare filename is never surfaced as a "deferred title" to retry with —
+        # a filename can never become a confident title match.
+        assert self._PDF_NAME not in result["publications_deferred"]
+
+
 class TestTokenAccounting:
     """Issue #221 — the deterministic spine's leaf LLM calls must record their
     token usage to ``profile.ndjson`` in the SAME shape the ReAct model node
