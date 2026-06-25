@@ -177,10 +177,19 @@ class TestEnrichedInputNotAccumulated:
         assert "_format_entity_summary" not in source.split("enriched"), (
             "_format_entity_summary should not be called for message enrichment"
         )
-        # user_input should be used directly
+        # user_input should be used directly. Since #263 the per-turn invoke is
+        # factored into the nested _run_turn(message_content) helper and the loop
+        # seeds it with the plain user_input (``message = user_input``), so accept
+        # either the original literal or the new plumbing — both pass the raw
+        # input through unwrapped (the #66 guard above already rules out
+        # enriched_input / _format_entity_summary wrapping).
         assert (
             "HumanMessage(content=user_input)" in source
             or '"messages": [HumanMessage(content=user_input)]' in source
+            or (
+                "message = user_input" in source
+                and "HumanMessage(content=message_content)" in source
+            )
         )
 
 
@@ -1160,5 +1169,477 @@ class TestFinishBackstop:
             "run_interactive_agent must invoke _finish_backstop on session end"
         )
 
+
+# ---------------------------------------------------------------------------
+# Issue #263: legacy-react stall recovery (Fix A) + autonomous continuation
+# (Fix B). The model / app.invoke are stubbed; no real LLM or network.
+# ---------------------------------------------------------------------------
+
+
+class TestRequestTimeout:
+    """Fix A: _build_chat_model wires a request timeout onto the chat model so a
+    silent provider stall can never hang the turn forever (#263)."""
+
+    def test_default_request_timeout_is_set(self):
+        """With no override, the model carries a finite request timeout."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        old_key = os.environ.get("OPENAI_API_KEY")
+        old_to = os.environ.pop("VITRO_REQUEST_TIMEOUT", None)
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        try:
+            model = _build_chat_model(provider="openai")
+            # ChatOpenAI exposes the timeout as request_timeout (alias "timeout").
+            assert model.request_timeout is not None
+            assert float(model.request_timeout) > 0
+        finally:
+            if old_key:
+                os.environ["OPENAI_API_KEY"] = old_key
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+            if old_to is not None:
+                os.environ["VITRO_REQUEST_TIMEOUT"] = old_to
+
+    def test_explicit_timeout_passed_through(self):
+        """An explicit ``timeout`` argument reaches the model."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        old = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        try:
+            model = _build_chat_model(provider="openai", timeout=42.0)
+            assert float(model.request_timeout) == 42.0
+        finally:
+            if old:
+                os.environ["OPENAI_API_KEY"] = old
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+
+    def test_timeout_from_env_var(self):
+        """VITRO_REQUEST_TIMEOUT is honored when no argument is given."""
+        from builder.agents.agent_loop import _build_chat_model
+
+        old_key = os.environ.get("OPENAI_API_KEY")
+        old_to = os.environ.get("VITRO_REQUEST_TIMEOUT")
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        os.environ["VITRO_REQUEST_TIMEOUT"] = "17"
+        try:
+            model = _build_chat_model(provider="anthropic")
+            # ChatAnthropic stores it as default_request_timeout (alias "timeout").
+            assert float(model.default_request_timeout) == 17.0
+        finally:
+            if old_key:
+                os.environ["OPENAI_API_KEY"] = old_key
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+            if old_to is not None:
+                os.environ["VITRO_REQUEST_TIMEOUT"] = old_to
+            else:
+                os.environ.pop("VITRO_REQUEST_TIMEOUT", None)
+
+
+class TestInvokeWithTimeout:
+    """Fix A: a wall-clock guard around app.invoke so a hung model never blocks
+    the loop indefinitely and never lets an exception escape (#263)."""
+
+    def test_returns_ok_and_result_on_success(self):
+        from builder.agents.agent_loop import _invoke_with_timeout
+
+        sentinel = {"messages": ["done"]}
+
+        class _App:
+            def invoke(self, payload, config):
+                return sentinel
+
+        result, outcome = _invoke_with_timeout(
+            _App(), {"messages": []}, {}, timeout=5.0
+        )
+        assert outcome == "ok"
+        assert result is sentinel
+
+    def test_returns_timeout_when_invoke_hangs(self):
+        """A model call that runs past the timeout ends gracefully with a
+        ``"timeout"`` outcome — no hang, no exception escapes."""
+        import threading
+        import time
+
+        from builder.agents.agent_loop import _invoke_with_timeout
+
+        release = threading.Event()
+
+        class _HangingApp:
+            def invoke(self, payload, config):
+                # Block well past the (tiny) test timeout.
+                release.wait(timeout=5.0)
+                return {"messages": ["late"]}
+
+        start = time.monotonic()
+        result, outcome = _invoke_with_timeout(
+            _HangingApp(), {"messages": []}, {}, timeout=0.1
+        )
+        elapsed = time.monotonic() - start
+        release.set()  # let the daemon worker unwind
+        assert outcome == "timeout"
+        assert result is None
+        # Returned promptly rather than after the full 5s hang.
+        assert elapsed < 3.0
+
+    def test_returns_error_outcome_when_invoke_raises(self):
+        """An exception inside invoke is captured, not propagated."""
+        from builder.agents.agent_loop import _invoke_with_timeout
+
+        class _BoomApp:
+            def invoke(self, payload, config):
+                raise RuntimeError("provider exploded")
+
+        result, outcome = _invoke_with_timeout(
+            _BoomApp(), {"messages": []}, {}, timeout=5.0
+        )
+        assert outcome == "error"
+        assert result is None
+
+
+class TestReplyIsQuestion:
+    """Fix B: deterministic question detection drives whether the loop prompts
+    the user or auto-continues (#263)."""
+
+    def test_trailing_question_mark_is_question(self):
+        from builder.agents.agent_loop import _reply_is_question
+
+        assert _reply_is_question("Which compound should I use?")
+
+    def test_interrogative_opener_is_question(self):
+        from builder.agents.agent_loop import _reply_is_question
+
+        assert _reply_is_question("Could you confirm the cell line name")
+
+    def test_plain_narration_is_not_question(self):
+        from builder.agents.agent_loop import _reply_is_question
+
+        assert not _reply_is_question(
+            "I drafted the Investigation and added 3 compounds."
+        )
+
+    def test_empty_reply_is_not_question(self):
+        from builder.agents.agent_loop import _reply_is_question
+
+        assert not _reply_is_question("")
+        assert not _reply_is_question(None)  # type: ignore[arg-type]
+
+    def test_trailing_question_after_narration_is_question(self):
+        from builder.agents.agent_loop import _reply_is_question
+
+        assert _reply_is_question(
+            "I added the process chain.\nDo you want me to export now?"
+        )
+
+
+class TestCrateIsComplete:
+    """Fix B: completeness short-circuits the autonomous loop (#263)."""
+
+    def _engine(self):
+        from builder.engine import AgentEngine
+        from builder.state import Entity
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_complete"
+        engine.state.add_entity(Entity(entity_id="e0", type="Investigation"))
+        return engine
+
+    def test_incomplete_when_validation_not_passed(self):
+        from builder.agents.agent_loop import _crate_is_complete
+
+        engine = self._engine()
+        engine.state.validation.base_passed = True
+        engine.state.validation.isa_passed = False
+        engine.state.validation.tox_passed = False
+        assert not _crate_is_complete(engine)
+
+    def test_incomplete_with_required_issues(self):
+        from builder.agents.agent_loop import _crate_is_complete
+
+        engine = self._engine()
+        engine.state.validation.base_passed = True
+        engine.state.validation.isa_passed = True
+        engine.state.validation.tox_passed = True
+        engine.state.validation.required_issues = ["fix this"]
+        assert not _crate_is_complete(engine)
+
+    def test_complete_when_all_pass_and_no_issues(self):
+        from builder.agents.agent_loop import _crate_is_complete
+
+        engine = self._engine()
+        engine.state.validation.base_passed = True
+        engine.state.validation.isa_passed = True
+        engine.state.validation.tox_passed = True
+        engine.state.validation.required_issues = []
+        assert _crate_is_complete(engine)
+
+    def test_empty_crate_is_not_complete(self):
+        from builder.agents.agent_loop import _crate_is_complete
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_empty"
+        engine.state.validation.base_passed = True
+        engine.state.validation.isa_passed = True
+        engine.state.validation.tox_passed = True
+        # No entities → nothing to be "complete" about.
+        assert not _crate_is_complete(engine)
+
+
+class _LoopHarness:
+    """Drives run_interactive_agent with the LLM/app/stdin/backstop stubbed.
+
+    Records the order of model invocations and every stdin read so tests can
+    assert auto-continuation vs prompting without any real network.
+    """
+
+    def __init__(self, monkeypatch, *, replies, stdin_lines, complete_after=None):
+        from builder.agents import agent_loop
+        from builder.engine import AgentEngine
+        from builder.state import Entity
+
+        self.agent_loop = agent_loop
+        self.monkeypatch = monkeypatch
+        self.replies = list(replies)
+        self.stdin_lines = list(stdin_lines)
+        self.complete_after = complete_after
+
+        self.invoke_count = 0
+        self.stdin_reads: list[str] = []
+        self.backstop_calls = 0
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_loop_263"
+        engine.state.add_entity(Entity(entity_id="e0", type="Investigation"))
+        self.engine = engine
+
+    def _fake_reply(self):
+        if self.replies:
+            return self.replies.pop(0)
+        return ""
+
+    def install(self):
+        from langchain_core.messages import AIMessage
+
+        agent_loop = self.agent_loop
+        harness = self
+
+        # No real model / graph.
+        self.monkeypatch.setattr(agent_loop, "_build_chat_model", lambda **kw: object())
+
+        def _is_greeting(payload):
+            try:
+                content = str(payload["messages"][0].content)
+            except (KeyError, IndexError, AttributeError):
+                return False
+            return content.startswith(("Greet the user", "The user has resumed"))
+
+        class _FakeApp:
+            def invoke(self, payload, config):
+                # The one-shot greeting invoke is NOT a turn — serve it a fixed
+                # reply and do not count it, so invoke_count tracks loop turns.
+                if _is_greeting(payload):
+                    return {"messages": [AIMessage(content="Welcome back!")]}
+                harness.invoke_count += 1
+                text = harness._fake_reply()
+                # Optionally mark the crate complete after N invocations so the
+                # autonomous loop can short-circuit on completion.
+                if (
+                    harness.complete_after is not None
+                    and harness.invoke_count >= harness.complete_after
+                ):
+                    v = harness.engine.state.validation
+                    v.base_passed = v.isa_passed = v.tox_passed = True
+                    v.required_issues = []
+                return {"messages": [AIMessage(content=text)]}
+
+        self.monkeypatch.setattr(
+            agent_loop, "_build_agent_graph", lambda *a, **k: _FakeApp()
+        )
+
+        # Stdin reader: record every read; raise EOFError when exhausted so the
+        # loop exits its main while-True deterministically.
+        def fake_boxed_input(console, label="❯"):
+            if not harness.stdin_lines:
+                raise EOFError
+            line = harness.stdin_lines.pop(0)
+            harness.stdin_reads.append(line)
+            return line
+
+        self.monkeypatch.setattr(agent_loop, "_boxed_input", fake_boxed_input)
+
+        # Count backstop invocations; do not touch disk.
+        def fake_backstop(engine, *, emit=None):
+            harness.backstop_calls += 1
+            return None
+
+        self.monkeypatch.setattr(agent_loop, "_finish_backstop", fake_backstop)
+
+        # Session save is best-effort and writes to disk — stub it out.
+        import builder.tools.session as session_mod
+
+        self.monkeypatch.setattr(
+            session_mod, "save_session", lambda *a, **k: {"success": True}
+        )
+
+    def run(self):
+        self.install()
+        self.agent_loop.run_interactive_agent(self.engine)
+
+
+class TestAutonomousContinuation:
+    """Fix B: the loop auto-continues on narration and only prompts the user on
+    a genuine question (#263)."""
+
+    def test_narration_auto_continues_without_reading_stdin(self, monkeypatch):
+        """A non-question reply with an incomplete crate re-invokes the model
+        WITHOUT consuming stdin — the user is not asked to type "ok"."""
+        # First stdin line kicks off a turn; the model narrates twice, then asks
+        # a question (which should send the loop back to prompt the user).
+        harness = _LoopHarness(
+            monkeypatch,
+            replies=[
+                "I drafted the Investigation.",  # narration → auto-continue
+                "Added the process chain.",      # narration → auto-continue
+                "What output path would you like?",  # question → prompt user
+            ],
+            stdin_lines=["start building"],  # only the kickoff; then EOF
+        )
+        harness.run()
+
+        # The kickoff produced narration that auto-continued (no stdin read in
+        # between), and only ONE stdin line was consumed before EOF.
+        assert harness.stdin_reads == ["start building"]
+        # Three model invocations: kickoff + two auto-continues until the
+        # question surfaced and the loop went back to prompt (hitting EOF).
+        assert harness.invoke_count == 3
+        # Backstop still runs on the EOF exit path.
+        assert harness.backstop_calls >= 1
+
+    def test_question_prompts_user(self, monkeypatch):
+        """A reply that IS a question prompts the user (stdin read once)."""
+        harness = _LoopHarness(
+            monkeypatch,
+            replies=["Which cell line are you using?"],  # question on first turn
+            stdin_lines=["scan my files"],  # kickoff; then EOF on the re-prompt
+        )
+        harness.run()
+
+        # Exactly one model invocation (the kickoff), then it prompted the user
+        # (consuming the one stdin line) and hit EOF.
+        assert harness.invoke_count == 1
+        assert harness.stdin_reads == ["scan my files"]
+
+    def test_max_autonomous_turns_caps_the_loop(self, monkeypatch):
+        """Endless narration is bounded by the max-autonomous-turns cap."""
+        from builder.agents.agent_loop import _MAX_AUTONOMOUS_TURNS
+
+        # Always narrate; never a question, never complete → only the cap stops it.
+        harness = _LoopHarness(
+            monkeypatch,
+            replies=["working..."] * 500,
+            stdin_lines=["go"],  # single kickoff
+        )
+        harness.run()
+
+        # kickoff + at most _MAX_AUTONOMOUS_TURNS auto-continues for the turn.
+        assert harness.invoke_count <= 1 + _MAX_AUTONOMOUS_TURNS
+        assert harness.invoke_count >= 2  # it did auto-continue at least once
+
+    def test_completion_stops_the_autonomous_loop(self, monkeypatch):
+        """When the crate becomes complete, the loop stops auto-continuing even
+        though the reply is not a question."""
+        harness = _LoopHarness(
+            monkeypatch,
+            replies=["narrating"] * 50,
+            stdin_lines=["build it"],
+            complete_after=2,  # crate validates on the 2nd invocation
+        )
+        harness.run()
+
+        # kickoff + one auto-continue, then completion short-circuits.
+        assert harness.invoke_count == 2
+
+
+class TestEmptyCompletionRecovery:
+    """Fix A: N consecutive empty completions end the turn gracefully (retry
+    once), instead of auto-continuing forever (#263)."""
+
+    def test_consecutive_empty_completions_stop_autocontinue(self, monkeypatch):
+        from builder.agents.agent_loop import _MAX_EMPTY_COMPLETIONS
+
+        # Every reply is empty (the stall symptom). The loop must retry once and
+        # then stop auto-continuing rather than spinning to the full cap.
+        harness = _LoopHarness(
+            monkeypatch,
+            replies=[""] * 50,
+            stdin_lines=["start"],
+        )
+        harness.run()
+
+        # kickoff (1 empty) + at most _MAX_EMPTY_COMPLETIONS - 1 retries.
+        assert harness.invoke_count <= _MAX_EMPTY_COMPLETIONS
+        assert harness.backstop_calls >= 1
+
+
+class TestTimeoutEndsTurnGracefully:
+    """Fix A: a model call exceeding the wall-clock guard ends the turn without
+    hanging and without an exception escaping; the backstop stays reachable."""
+
+    def test_timeout_does_not_hang_or_raise(self, monkeypatch):
+        import threading
+
+        from langchain_core.messages import AIMessage
+
+        from builder.agents import agent_loop
+        from builder.engine import AgentEngine
+        from builder.state import Entity
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_timeout_263"
+        engine.state.add_entity(Entity(entity_id="e0", type="Investigation"))
+
+        release = threading.Event()
+        invoke_count = {"n": 0}
+        backstop_calls = {"n": 0}
+
+        class _HangingApp:
+            def invoke(self, payload, config):
+                invoke_count["n"] += 1
+                release.wait(timeout=5.0)
+                return {"messages": [AIMessage(content="late")]}
+
+        monkeypatch.setattr(agent_loop, "_build_chat_model", lambda **kw: object())
+        monkeypatch.setattr(agent_loop, "_build_agent_graph", lambda *a, **k: _HangingApp())
+        # Tiny timeout so the guard fires fast.
+        monkeypatch.setenv("VITRO_REQUEST_TIMEOUT", "0.1")
+
+        stdin = ["build"]
+
+        def fake_boxed_input(console, label="❯"):
+            if not stdin:
+                raise EOFError
+            return stdin.pop(0)
+
+        monkeypatch.setattr(agent_loop, "_boxed_input", fake_boxed_input)
+
+        def fake_backstop(engine, *, emit=None):
+            backstop_calls["n"] += 1
+            return None
+
+        monkeypatch.setattr(agent_loop, "_finish_backstop", fake_backstop)
+
+        import builder.tools.session as session_mod
+
+        monkeypatch.setattr(session_mod, "save_session", lambda *a, **k: {"success": True})
+
+        # Must return (no hang) and not raise.
+        agent_loop.run_interactive_agent(engine)
+        release.set()
+
+        # The hung greeting/turn timed out; the backstop still ran on EOF exit.
+        assert backstop_calls["n"] >= 1
 
 
