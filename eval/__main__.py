@@ -143,16 +143,20 @@ def run_main(
     logging.basicConfig(level=logging.INFO)
 
     if agent_factory is None:
-        # LIVE path only. The ReAct factory reads provider/api_key/base_url/model
-        # from the environment (builder.agents.agent_loop), so bridge any creds
-        # kept solely in ~/.config/vitro-crate/config.toml into os.environ first —
-        # mirroring how the interactive CLI hydrates via merge_with_env(). Without
-        # this a live ReAct run with creds only in config.toml raises "No LLM
-        # provider configured" (#179). The deterministic pipeline calls no model,
-        # so it needs no creds; the offline/mock path (injected agent_factory)
-        # skips this entirely so its tests stay config-free.
-        if args.arch == "react":
-            merge_with_env(load_config())
+        # LIVE path only — and BOTH arches need creds. The ReAct factory reads
+        # provider/api_key/base_url/model from the environment
+        # (builder.agents.agent_loop); the deterministic pipeline now does too —
+        # post-#211 its drafter-leaf (builder/agents/leaves.py, via
+        # builder.agents.agent_loop._build_chat_model) reads the same env vars.
+        # So bridge any creds kept solely in ~/.config/vitro-crate/config.toml
+        # into os.environ first — mirroring how the interactive CLI hydrates via
+        # merge_with_env(). Without this, creds-in-config.toml make a live ReAct
+        # run raise "No LLM provider configured", and a live --arch pipeline run
+        # silently no-op the drafter-leaf -> a false-negative A/B comparison
+        # (#179). When no provider is configured both arches still no-op
+        # gracefully. The offline/mock path (injected agent_factory) skips this
+        # entirely so its tests stay config-free.
+        merge_with_env(load_config())
 
         agent_factory = select_agent_factory(
             args.arch,
