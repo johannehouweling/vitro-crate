@@ -132,18 +132,26 @@ class TestAgentEngine:
         assert "foo" in result["files"][str(b)]
 
     def test_scan_files_non_list_result_does_not_overwrite_state(self, monkeypatch):
-        """run_tool preserves scanned_files if scan_files returns a non-list."""
+        """run_tool preserves scanned_files when a scan of an unapproved path is
+        refused (no interactive human, nothing approved).
+
+        The default engine is non-interactive and ``/tmp/does-not-matter`` is not
+        an approved root, so the scan is refused before scan_files is ever called.
+        The refusal surfaces a reason dict (not a silent ``[]``/``None``) and the
+        existing inventory is left untouched.
+        """
         engine = AgentEngine()
         engine.state.scanned_files = ["existing"]  # ty: ignore
 
-        def fake_scan_files(**kwargs):
-            return None
+        def fake_scan_files(**kwargs):  # pragma: no cover - must not be reached
+            raise AssertionError("scan_files must not run for an unapproved path")
 
         monkeypatch.setattr("builder.tools.scanner.scan_files", fake_scan_files)
 
         result = engine.run_tool("scan_files", path="/tmp/does-not-matter")
 
-        assert result is None
+        assert isinstance(result, dict)
+        assert "error" in result
         assert engine.state.scanned_files == ["existing"]
 
 
@@ -173,20 +181,28 @@ class TestScanApprovedRoots:
     contents, and (c) NOT over-broaden to expose unrelated sibling files (D9)."""
 
     def test_empty_scan_result_does_not_overwrite_state(self, monkeypatch):
-        """A denied/empty scan must NOT wipe a populated inventory with zero."""
+        """A denied scan must NOT wipe a populated inventory with zero.
+
+        The default engine is non-interactive and ``/tmp/denied`` is unapproved,
+        so the scan is refused with a reason dict before scan_files runs; the
+        existing inventory survives untouched.
+        """
         engine = AgentEngine()
         engine.state.scanned_files = ["existing1", "existing2"]  # ty: ignore
 
-        monkeypatch.setattr("builder.tools.scanner.scan_files", lambda **kw: [])
+        monkeypatch.setattr(
+            "builder.tools.scanner.scan_files",
+            lambda **kw: (_ for _ in ()).throw(AssertionError("must not scan")),
+        )
 
         result = engine.run_tool("scan_files", path="/tmp/denied")
 
-        assert result == []
+        assert isinstance(result, dict) and "error" in result  # refused, not silent
         assert engine.state.scanned_files == ["existing1", "existing2"]
 
     def test_agent_scan_with_no_roots_refuses_and_does_not_autoapprove(self, tmp_path):
-        """Fail-closed: with no approved roots, the agent's scan is refused and
-        no root is added (the set stays empty)."""
+        """Fail-closed: with no approved roots and no interactive human, the
+        agent's scan is refused (with a reason) and no root is added."""
         d = tmp_path / "data"
         d.mkdir()
         (d / "a.txt").write_text("a")
@@ -196,7 +212,7 @@ class TestScanApprovedRoots:
 
         r = engine.run_tool("scan_files", path=str(d))
 
-        assert r == []  # refused
+        assert isinstance(r, dict) and "error" in r  # refused with a reason
         assert engine.state.approved_scan_roots == set(), "agent scan must not auto-approve"
         assert engine.state.scanned_files == []  # nothing stored
 
@@ -230,7 +246,7 @@ class TestScanApprovedRoots:
 
         # Scanning the parent (which holds secret.txt) must be DENIED.
         r = engine.run_tool("scan_files", path=str(tmp_path))
-        assert r == []
+        assert isinstance(r, dict) and "error" in r  # refused (parent unapproved)
         # ...and must not have clobbered the real inventory.
         assert len(engine.state.scanned_files) >= 2
 
@@ -267,7 +283,7 @@ class TestScanApprovedRoots:
 
         engine = AgentEngine()
         r1 = engine.run_tool("scan_files", path=str(empty))
-        assert r1 == []
+        assert isinstance(r1, dict) and "error" in r1  # refused (non-interactive)
         assert engine.state.approved_scan_roots == set(), "guard must stay closed"
 
         # An unrelated path must remain denied (guard never opened).
@@ -275,7 +291,7 @@ class TestScanApprovedRoots:
         other.mkdir()
         (other / "f.txt").write_text("x")
         r2 = engine.run_tool("scan_files", path=str(other))
-        assert r2 == []
+        assert isinstance(r2, dict) and "error" in r2
 
     def test_unrelated_dir_scan_denied_after_initialize(self, tmp_path):
         """The agent cannot wander into an unrelated directory unprompted."""
@@ -291,7 +307,7 @@ class TestScanApprovedRoots:
         assert len(engine.state.scanned_files) == 1
 
         r2 = engine.run_tool("scan_files", path=str(d2))
-        assert r2 == []  # d2 is not under the approved root (d1)
+        assert isinstance(r2, dict) and "error" in r2  # d2 not under approved d1
         assert len(engine.state.scanned_files) == 1  # inventory preserved
 
     def test_initialize_does_not_approve_forbidden_root(self, tmp_path, monkeypatch):
@@ -301,3 +317,165 @@ class TestScanApprovedRoots:
         engine.initialize(str(Path.home()))
         assert str(Path.home()) not in engine.state.approved_scan_roots
         assert engine.state.approved_scan_roots == set()
+
+
+class _RecordingHuman:
+    """Interactive HITL test double with a scripted present() decision.
+
+    ``is_interactive = True`` so the engine treats it as a REAL user able to
+    approve a new scan root. Records every ``present`` call so tests can assert
+    the engine prompted (or, when already approved, did NOT prompt).
+    """
+
+    is_interactive: bool = True
+
+    def __init__(self, action: str = "approved") -> None:
+        self._action = action
+        self.present_calls: list[dict[str, object]] = []
+
+    def present(self, context, options=None, purpose=None):
+        self.present_calls.append({"context": context, "purpose": purpose})
+        return {"action": self._action, "comments": None, "edits": None}
+
+    def request_input(self, prompt, field_type="text"):
+        return {"value": None, "skipped": True}
+
+
+class TestScanRootApproval:
+    """Prompt-once, children-only approval for a user-submitted scan folder.
+
+    The gap: a folder the user points the agent at — one NOT passed via
+    ``--input`` — was refused with a SILENT empty ``[]``. The fix prompts a REAL
+    interactive human once; on approval the SUBMITTED directory (children only,
+    never the parent) is added to ``approved_scan_roots`` and the scan proceeds.
+    Non-interactive runs (SimulatedHumanInterface / None) keep failing closed,
+    and a refusal always surfaces a human-readable reason (never a silent empty).
+    """
+
+    def test_interactive_approve_adds_dir_and_returns_files(self, tmp_path):
+        """A real user approving a submitted dir -> dir (not parent) approved and
+        the scan returns the files."""
+        d = tmp_path / "submitted"
+        d.mkdir()
+        (d / "a.txt").write_text("a")
+        (d / "b.csv").write_text("x,y\n1,2\n")
+
+        human = _RecordingHuman(action="approved")
+        engine = AgentEngine(human_interface=human)
+        assert engine.state.approved_scan_roots == set()
+
+        result = engine.run_tool("scan_files", path=str(d))
+
+        # Prompted exactly once, as a scan_root escalation.
+        from builder.tools.hitl import SCAN_ROOT_PURPOSE
+
+        assert len(human.present_calls) == 1
+        assert human.present_calls[0]["purpose"] == SCAN_ROOT_PURPOSE
+        assert str(d) in str(human.present_calls[0]["context"])  # names the path
+
+        # The submitted dir is now approved and the scan returned the files.
+        assert str(d.resolve()) in engine.state.approved_scan_roots
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert len(engine.state.scanned_files) == 2
+
+    def test_interactive_approve_does_not_approve_parent(self, tmp_path):
+        """Approving /a/b/c approves c only: the parent /a/b is NOT scannable,
+        but a child /a/b/c/child IS (children-only invariant)."""
+        parent = tmp_path / "parent"
+        child = parent / "child"
+        grand = child / "grand"
+        grand.mkdir(parents=True)
+        (parent / "secret.txt").write_text("do not read me")
+        (child / "ok.txt").write_text("ok")
+        (grand / "deep.txt").write_text("deep")
+
+        human = _RecordingHuman(action="approved")
+        engine = AgentEngine(human_interface=human)
+
+        # User submits the child dir.
+        engine.run_tool("scan_files", path=str(child))
+        assert str(child.resolve()) in engine.state.approved_scan_roots
+        assert str(parent.resolve()) not in engine.state.approved_scan_roots
+
+        # A descendant of the approved child is scannable WITHOUT a new prompt.
+        prompts_before = len(human.present_calls)
+        r_grand = engine.run_tool("scan_files", path=str(grand))
+        assert isinstance(r_grand, list) and len(r_grand) == 1
+        assert len(human.present_calls) == prompts_before, "descendant must not re-prompt"
+
+        # The PARENT is NOT covered by the child approval — scanning it prompts
+        # again; reject it so secret.txt stays out of reach.
+        human._action = "rejected"
+        r_parent = engine.run_tool("scan_files", path=str(parent))
+        assert isinstance(r_parent, dict) and "error" in r_parent
+        assert str(parent.resolve()) not in engine.state.approved_scan_roots
+
+    def test_interactive_reject_does_not_approve_and_surfaces_reason(self, tmp_path):
+        """A real user declining -> not approved, refusal surfaced (not a silent
+        empty success)."""
+        d = tmp_path / "submitted"
+        d.mkdir()
+        (d / "a.txt").write_text("a")
+
+        human = _RecordingHuman(action="rejected")
+        engine = AgentEngine(human_interface=human)
+
+        result = engine.run_tool("scan_files", path=str(d))
+
+        assert len(human.present_calls) == 1
+        assert str(d.resolve()) not in engine.state.approved_scan_roots
+        assert isinstance(result, dict) and "error" in result
+        # The reason is human-readable and names what happened.
+        reason = result["error"].lower()
+        assert "refused" in reason and "approval" in reason
+        assert engine.state.scanned_files == []
+
+    def test_non_interactive_simulated_never_auto_approves(self, tmp_path):
+        """SimulatedHumanInterface (eval/batch) NEVER auto-approves: the scan is
+        refused (fail-closed for #197/#198) and a reason is surfaced."""
+        from builder.tools.hitl import SimulatedHumanInterface
+
+        d = tmp_path / "submitted"
+        d.mkdir()
+        (d / "a.txt").write_text("a")
+
+        engine = AgentEngine(human_interface=SimulatedHumanInterface())
+        result = engine.run_tool("scan_files", path=str(d))
+
+        assert str(d.resolve()) not in engine.state.approved_scan_roots
+        assert isinstance(result, dict) and "error" in result
+        assert engine.state.scanned_files == []
+
+    def test_interactive_approve_of_forbidden_root_is_refused(self, tmp_path):
+        """Even with an affirmative answer, a bare/forbidden root (home dir) can
+        NEVER be approved — the denylist stands."""
+        human = _RecordingHuman(action="approved")
+        engine = AgentEngine(human_interface=human)
+
+        result = engine.run_tool("scan_files", path=str(Path.home()))
+
+        assert str(Path.home()) not in engine.state.approved_scan_roots
+        assert engine.state.approved_scan_roots == set()
+        assert isinstance(result, dict) and "error" in result
+
+    def test_already_approved_path_does_not_prompt(self, tmp_path):
+        """A path already inside an approved root (via --input) scans directly,
+        with NO prompt."""
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "a.txt").write_text("a")
+        sub = d / "sub"
+        sub.mkdir()
+        (sub / "c.txt").write_text("c")
+
+        human = _RecordingHuman(action="approved")
+        engine = AgentEngine(human_interface=human)
+        engine.initialize(str(d))  # --input path: approves d, no prompt
+        assert str(d.resolve()) in engine.state.approved_scan_roots
+        assert human.present_calls == []  # initialize must not prompt
+
+        # A subdir of the approved root scans directly, still no prompt.
+        r = engine.run_tool("scan_files", path=str(sub))
+        assert isinstance(r, list) and len(r) == 1
+        assert human.present_calls == [], "already-approved path must not prompt"

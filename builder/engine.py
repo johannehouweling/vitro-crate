@@ -58,6 +58,26 @@ def _directory_to_approve(scanned_path: str) -> str | None:
     return str(candidate)
 
 
+def _scan_refusal(path: str, reason: str) -> dict[str, Any]:
+    """Return the result a *refused* ``scan_files`` call surfaces to the agent.
+
+    The historical refusal was a bare ``[]`` (#197 fail-closed) with only a log
+    line — the scan was denied **silently**, so the agent re-scanned in a loop
+    and the user never learned *why* or *how* to grant access. A refusal must
+    instead carry a human-readable reason.
+
+    The shape is a ``dict`` (NOT a ``list``) on purpose, so it bypasses both
+    list-keyed paths that handle a *successful* scan: the engine's
+    ``isinstance(result, list)`` store-back (the inventory is never clobbered and
+    no root is auto-approved) and the agent-loop wrapper's
+    ``summarize_scan_result`` (which would render an empty list as a misleading
+    "0 files" success). The ``error``/``message`` keys mirror the convention the
+    other refusing file tools already use, so the LLM reads it as an actionable
+    tool result and the user sees how to grant access.
+    """
+    return {"error": reason, "message": reason, "files": []}
+
+
 # Validation layers stack as a pyramid (BASE -> ISA -> TOX); ordering REQUIRED
 # issues by layer puts the next *unblocking* fix first.
 _VALIDATION_LAYER_ORDER = {"base": 0, "isa": 1, "tox": 2}
@@ -310,6 +330,104 @@ class AgentEngine:
             }
         return None
 
+    def _authorize_scan_root(self, path: str) -> dict[str, Any] | None:
+        """Authorise a ``scan_files`` *path* that is not yet an approved root.
+
+        Implements the prompt-once, children-only design for a folder the user
+        points the agent at without ``--input``:
+
+        - If *path* already descends from an approved root, returns ``None`` —
+          the scan proceeds unchanged with NO prompt (the ``--input`` flow and
+          any already-approved subtree are untouched).
+        - Otherwise, with a REAL interactive human (:func:`is_interactive`),
+          prompt once via ``present(purpose=SCAN_ROOT_PURPOSE)``. On approval the
+          SUBMITTED directory only (never its parent; see
+          :func:`_directory_to_approve`) is added to ``approved_scan_roots`` and
+          ``None`` is returned so the scan runs with the widened allowlist. A
+          bare/forbidden root yields ``None`` from ``_directory_to_approve`` and
+          is REFUSED even on a "yes" (the denylist stands, #197).
+        - With no interactive human (SimulatedHumanInterface / None — eval,
+          batch, tests) nothing is auto-approved: fail closed (#197/#198).
+
+        Returns ``None`` to let the scan proceed, or a refusal dict (from
+        :func:`_scan_refusal`) the caller must return *instead* of scanning —
+        never a silent empty result.
+        """
+        from builder.tools.hitl import SCAN_ROOT_PURPOSE, is_interactive
+        from builder.tools.scanner import _contain
+
+        # Already inside an approved root (e.g. via --input): scan directly.
+        if _contain(path, self.state.approved_scan_roots) is not None:
+            return None
+
+        if not is_interactive(self.human_interface):
+            # Headless/simulated: never widen filesystem access on the agent's
+            # say-so. Surface the reason rather than a silent empty result.
+            logger.warning(
+                "Refusing scan of unapproved path %s — no interactive human to "
+                "approve a new scan root (#197/#198).",
+                path,
+            )
+            self.state.log_reasoning(
+                "refuse_scan_root",
+                "scan_files",
+                f"Refused: {path} is not an approved scan root (non-interactive).",
+            )
+            return _scan_refusal(
+                path,
+                f"Refused: {path} is not an approved scan root. Re-run with "
+                f"--input {path} to grant access.",
+            )
+
+        # Real user: ask once whether to approve this folder for scanning.
+        decision = self.human_interface.present(
+            context=(
+                f"The agent wants to scan a folder you did not pass via --input:\n"
+                f"  {path}\n"
+                "Approving grants read access to this folder and its children "
+                "only (never its parent)."
+            ),
+            purpose=SCAN_ROOT_PURPOSE,
+        )
+        if decision.get("action") != "approved":
+            logger.info("User declined scan-root approval for %s", path)
+            self.state.log_reasoning(
+                "refuse_scan_root",
+                "scan_files",
+                f"User declined approval to scan {path}.",
+            )
+            return _scan_refusal(
+                path,
+                f"Refused: you declined approval to scan {path}.",
+            )
+
+        approved = _directory_to_approve(path)
+        if approved is None:
+            # A bare/forbidden root is never approvable, even with consent.
+            logger.warning(
+                "Refusing approved-by-user but forbidden scan root: %s", path
+            )
+            self.state.log_reasoning(
+                "refuse_scan_root",
+                "scan_files",
+                f"Refused: {path} is a forbidden root (denylist) and cannot be "
+                "approved even with consent.",
+            )
+            return _scan_refusal(
+                path,
+                f"Refused: {path} is a filesystem/system root and can never be "
+                "approved for scanning.",
+            )
+
+        self.state.approved_scan_roots.add(approved)
+        logger.info("User approved new scan root: %s", approved)
+        self.state.log_reasoning(
+            "approve_scan_root",
+            "scan_files",
+            f"User approved {approved} as a scan root (children only).",
+        )
+        return None
+
     def run_tool(self, tool_name: str, **kwargs) -> Any:
         """Execute a tool by name with kwargs.
 
@@ -405,11 +523,26 @@ class AgentEngine:
             )
         elif tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
+            # Prompt-once, children-only approval for a user-submitted folder
+            # that is NOT yet an approved root. A REAL interactive human can
+            # approve it once (the submitted dir only, never its parent, never a
+            # forbidden root); headless runs stay fail-closed. A refusal returns
+            # a reason dict instead of scanning — never a silent empty result.
+            if tool_name == "scan_files":
+                refusal = self._authorize_scan_root(kwargs.get("path", ""))
+                if refusal is not None:
+                    self.state.iteration_count += 1
+                    self.state.log_reasoning(
+                        "refuse_scan_unapproved_root",
+                        tool_name,
+                        str(refusal.get("message", "Scan refused"))[:300],
+                    )
+                    return refusal
             # Inject approved roots for scan_files. Fail closed (#197): always
             # pass a concrete allowlist — an EMPTY set, never None — so the
-            # scanner refuses when nothing has been approved. The agent's own
-            # scan call must NEVER auto-approve a new root; roots are added only
-            # by initialize() (a user-provided input path) or a real approval.
+            # scanner refuses when nothing has been approved. A new root enters
+            # the allowlist only via initialize() (a user-provided input path) or
+            # the explicit approval handled by _authorize_scan_root above.
             tool_kwargs = dict(kwargs)
             if tool_name == "scan_files":
                 tool_kwargs["approved_roots"] = self.state.approved_scan_roots.copy()
