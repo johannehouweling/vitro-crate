@@ -24,6 +24,7 @@ Entity drafting:
 - draft_process_chain: Create and wire a whole LabProcess derivation chain (CellCulture->Exposure->EndpointReadout->DataAnalysis, any subset) in one idempotent call — synthesizes the outputs EndpointReadout/DataAnalysis require so the chain never dangles into a validation error
 - materialize_aop_subgraph: Turn one AOP-Wiki id into the full subgraph (AdverseOutcomePathway + KeyEvents + KeyEventRelationships, cross-linked) and optionally wire it onto a Study
 - resolve_compound: Resolve a chemical name to a verified MolecularEntity in one call (lookup_compound -> draft_molecular_entity -> verify_identifier), carrying the looked-up CAS + PubChem CID; idempotent and never keeps an unverified identifier (D5)
+- resolve_publication: Resolve a publication title to a DOI-backed ScholarlyArticle in one call (Crossref title-search -> confidence gate -> draft_publication_with_authors); commits a DOI ONLY on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5); idempotent (keyed by the resolved DOI)
 - draft_investigation: Create an Investigation entity
 - draft_study: Create a Study entity
 - draft_assay: Create an Assay entity

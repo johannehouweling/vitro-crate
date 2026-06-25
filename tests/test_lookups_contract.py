@@ -21,7 +21,7 @@ from lookups.aopwiki import lookup_aop
 from lookups.bao import lookup_bao_term, lookup_ontology_term, lookup_unit
 from lookups.cellosaurus import lookup_cellosaurus
 from lookups.comptox import lookup_dtxsid
-from lookups.crossref import lookup_doi
+from lookups.crossref import lookup_doi, search_works_by_title
 from lookups.orcid import lookup_orcid
 from lookups.pubchem import lookup_pubchem
 from lookups.ror import search_ror
@@ -923,3 +923,54 @@ class TestCrossrefContract:
         assert result["name"] == ""
         assert result["author"] == []
         assert result["datePublished"] == ""
+
+    @responses.activate
+    def test_title_search_returns_candidates(self):
+        """A bibliographic title search returns ranked {title, doi, score} dicts."""
+        body = {
+            "status": "ok",
+            "message": {
+                "items": [
+                    {
+                        "DOI": "10.1016/j.tox.2021.152898",
+                        "title": ["A nephrotoxicity study in vitro"],
+                        "score": 87.5,
+                    },
+                    {
+                        "DOI": "10.9999/other",
+                        "title": ["An unrelated paper"],
+                        "score": 12.0,
+                    },
+                ]
+            },
+        }
+        responses.add(
+            responses.GET,
+            "https://api.crossref.org/works",
+            json=body,
+            status=200,
+        )
+
+        candidates = search_works_by_title("A nephrotoxicity study in vitro")
+
+        assert len(candidates) == 2
+        top = candidates[0]
+        assert top["doi"] == "10.1016/j.tox.2021.152898"
+        assert top["title"] == "A nephrotoxicity study in vitro"
+        assert top["score"] == 87.5
+
+    @responses.activate
+    def test_title_search_no_items_returns_empty(self):
+        """An empty Crossref result set yields an empty candidate list."""
+        responses.add(
+            responses.GET,
+            "https://api.crossref.org/works",
+            json={"status": "ok", "message": {"items": []}},
+            status=200,
+        )
+        assert list(search_works_by_title("No such paper anywhere")) == []
+
+    @responses.activate
+    def test_title_search_blank_title_returns_empty(self):
+        """A blank title is a no-op (no request, no candidates)."""
+        assert list(search_works_by_title("   ")) == []

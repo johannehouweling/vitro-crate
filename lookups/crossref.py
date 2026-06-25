@@ -90,3 +90,68 @@ def lookup_doi(doi: str) -> dict:
         raise
     except Exception:
         return {}
+
+
+@functools.lru_cache(maxsize=256)
+def search_works_by_title(title: str, rows: int = 5) -> tuple[dict, ...]:
+    """Search Crossref for works whose bibliographic metadata matches *title*.
+
+    A conservative title -> DOI search using Crossref's
+    ``query.bibliographic`` field, ranked by Crossref's own relevance
+    ``score`` (descending). This is the inverse of :func:`lookup_doi` (DOI ->
+    metadata): given only a title, it returns the candidate works so a caller
+    can apply a confidence gate before committing to a DOI (D5 — never fabricate
+    an identifier).
+
+    Args:
+        title: Publication title to search for.
+        rows: Maximum number of candidate works to return (Crossref ``rows``).
+
+    Returns:
+        A tuple of candidate dicts, each ``{"title", "doi", "score"}`` (the bare
+        DOI, e.g. ``"10.1016/j.tox.2021.152898"``), ordered by descending
+        ``score``. Empty when the title is blank or Crossref returns nothing.
+        Raises :class:`TransientLookupError` on a transient API failure.
+
+    Note:
+        Returns a ``tuple`` (not a ``list``) so the ``lru_cache`` return value is
+        immutable and cannot be mutated by a caller across cached calls.
+    """
+    query = title.strip()
+    if not query:
+        return ()
+    try:
+        time.sleep(0.1)
+        data = http_get_json(
+            _BASE,
+            params={
+                "query.bibliographic": query,
+                "rows": str(max(1, int(rows))),
+                # Ask only for the fields we score on, to keep the payload small.
+                "select": "DOI,title,score",
+            },
+            headers=_HEADERS,
+        )
+        if data is NOT_FOUND:
+            return ()
+
+        items = data.get("message", {}).get("items", []) or []
+        candidates: list[dict] = []
+        for item in items:
+            doi = str(item.get("DOI") or "").strip()
+            if not doi:
+                continue
+            titles = item.get("title") or []
+            name = titles[0] if titles else ""
+            try:
+                score = float(item.get("score") or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
+            candidates.append({"title": name, "doi": doi, "score": score})
+
+        candidates.sort(key=lambda c: c["score"], reverse=True)
+        return tuple(candidates)
+    except TransientLookupError:
+        raise
+    except Exception:
+        return ()
