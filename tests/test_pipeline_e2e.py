@@ -166,7 +166,9 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
     # Stage A leaf — the whole-document candidate-plan extractor.
-    def fake_extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
+    def fake_extract_plan(
+        context: str, *, model: str | None = None, usage_sink: Any = None
+    ) -> dict[str, Any]:
         return dict(_PLAN)
 
     monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)
@@ -174,7 +176,11 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     # Drafter leaf — deterministic descriptive fields (no identifiers; the spine
     # strips them anyway). Constant per type so the @graph hash is stable.
     def fake_draft_entity_fields(
-        entity_type: str, context: str, *, model: str | None = None
+        entity_type: str,
+        context: str,
+        *,
+        model: str | None = None,
+        usage_sink: Any = None,
     ) -> dict[str, Any]:
         return {"description": f"Drafted {entity_type} description."}
 
