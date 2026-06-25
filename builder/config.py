@@ -147,8 +147,20 @@ def get_max_history_tokens() -> int:
 
 
 def ensure_config_dir() -> Path:
-    """Create the config directory if it doesn't exist."""
+    """Create the config directory if it doesn't exist.
+
+    The directory holds the LLM provider API key, so it is created (and, if it
+    already exists, tightened) to owner-only ``0o700`` permissions so the secret
+    is never group/world-readable (Issue #170). Permission tightening is a no-op
+    on platforms (e.g. Windows) that ignore POSIX modes.
+    """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        CONFIG_DIR.chmod(0o700)
+    except OSError:
+        # Best-effort on platforms without POSIX permissions; the secret is
+        # still written below with the most restrictive mode the OS honours.
+        pass
     return CONFIG_DIR
 
 
@@ -187,12 +199,28 @@ def save_config(config: dict[str, Any]) -> None:
     """Save configuration to ``~/.config/vitro-crate/config.toml``.
 
     Preserves keys not present in ``config`` (only overwrites what's given).
+
+    The file stores the LLM provider API key in plaintext, so it is written
+    with owner-only ``0o600`` permissions (Issue #170): the file is opened with
+    that mode when created, and an explicit ``chmod`` afterwards tightens any
+    pre-existing, loosely-permissioned file. The TOML format is unchanged, so
+    existing readers keep working. Permission handling is best-effort on
+    platforms (e.g. Windows) that ignore POSIX modes.
     """
     ensure_config_dir()
     existing = load_config()
     existing.update(config)
-    with open(CONFIG_PATH, "w") as f:
+    # ``os.open`` with mode 0o600 creates a new file owner-read/write only; the
+    # process umask can only further *restrict* it, never loosen it.
+    fd = os.open(CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         f.write(_format_toml(existing))
+    try:
+        # Covers the already-exists case: O_CREAT does not change the mode of a
+        # file that was already on disk with looser permissions.
+        CONFIG_PATH.chmod(0o600)
+    except OSError:
+        pass
 
 
 def merge_with_env(config: dict[str, Any]) -> dict[str, Any]:

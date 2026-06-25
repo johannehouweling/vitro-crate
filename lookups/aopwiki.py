@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
@@ -31,11 +32,13 @@ _EVENT_TYPE_LABEL = {
 
 
 def _event_url(eid) -> str:
-    return f"{_BASE}/events/{eid}"
+    # Percent-encode the id segment so a "/" or ".." can't escape the path or
+    # inject query params (Issue #170). ``safe=""`` encodes every reserved char.
+    return f"{_BASE}/events/{quote(str(eid), safe='')}"
 
 
 def _rel_url(rid) -> str:
-    return f"{_BASE}/relationships/{rid}"
+    return f"{_BASE}/relationships/{quote(str(rid), safe='')}"
 
 
 @functools.lru_cache(maxsize=2048)
@@ -81,7 +84,9 @@ def lookup_aop(aop_id: str) -> dict:
           linking its upstream and downstream events by @id.
     """
     aop_id = str(aop_id).strip()
-    aop_url = f"{_BASE}/aops/{aop_id}"
+    # Percent-encode the caller-supplied id for the request path so a "/" or
+    # ".." cannot break out of the aops path or inject query params (Issue #170).
+    aop_url = f"{_BASE}/aops/{quote(aop_id, safe='')}"
     try:
         data = http_get_json(f"{aop_url}.json", timeout=15)
         if data is NOT_FOUND:
