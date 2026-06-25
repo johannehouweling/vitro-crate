@@ -75,6 +75,11 @@ The agent's `scan_files` tool is restricted to directories the user has explicit
 4. A hard denylist (`_is_forbidden_root`) refuses the filesystem root `/`, the user's home directory itself, and OS/system trees (`/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, `/Volumes`) **even if such a path appears in `approved_scan_roots`**. Legitimate *subdirectories* (e.g. `~/Desktop/project`) are still allowed — only the bare roots are blocked
 5. New roots are added **only** from a user-provided input path (`AgentEngine.initialize()` / `read_directory()`) or an explicit real approval — never from the agent's own scan call. The non-interactive `SimulatedHumanInterface` **denies** any `present(..., purpose="scan_root")` escalation, so it can never widen filesystem access on its own
 
+The **same boundary now covers the file *read* and *write* tools** (#167), not just `scan_files`:
+- **Reads.** `AgentEngine.run_tool` gates every file-reading tool — `read_file`, `read_excel`, `read_docx`, `read_file_sample`, `read_multiple_files`, `extract_pdf_text`, `preview_archive`, `unzip_file` — through the shared `scanner._contain(path, approved_roots)` helper. A path outside an approved root is refused before the file is opened; with no approved roots **every** read is refused (fail-closed). `read_multiple_files` filters out-of-root paths into its `skipped` list so an in-tree batch still works. This closes the prompt-injection vector where an injected metadata file made the agent read `~/.ssh/id_rsa`, `/etc/passwd`, or a `.env` of secrets.
+- **Writes (export).** `_crate_mapping._file_dest` contains a File's `dest_path` to the crate output dir — an absolute path or a `..` that climbs out is refused and replaced with the safe `data/<slug>` fallback, so no payload byte is ever written outside the crate. `_file_source` refuses any source whose **realpath** escapes `input_path` (symlink-escape containment), so injection cannot package an arbitrary local file into the shareable crate.
+- **Symlink escape.** `_contain` resolves the realpath before matching, so a symlink that lives inside an approved root but points outside it is refused for both reads and export sources. The `_is_forbidden_root` denylist also matches the *unresolved* path so symlinked OS trees (`/etc`→`/private/etc`, `/var`→`/private/var`) are still caught.
+
 This prevents the LLM agent from reaching into arbitrary locations on the user's filesystem and provides a clear audit trail of which directories the system has ever accessed.
 
 ## 2. Core Concepts
@@ -294,16 +299,27 @@ directly (check `ro-crate-1.1_2.2`). On PR #116 CI that fetch flaked
 turning a transient blip into red CI and violating #59's "runs offline" criterion.
 `profiles/validator.py` makes validation offline-safe:
 
-- **Pinned local contexts.** `profiles/contexts/ro-crate-1.1-context.jsonld` and
+- **Pinned local contexts, deny-by-default for everything else (SSRF guard, #168).**
+  `profiles/contexts/ro-crate-1.1-context.jsonld` and
   `ro-crate-1.2-context.jsonld` are committed copies of the RO-Crate JSON-LD
   contexts. `_install_offline_context_loader()` (run at import) intercepts the
   `HttpRequester` GET/HEAD proxy (and `fetch_fresh`) and serves these well-known
   context URLs from disk, so both resolution paths get the bundled copy and never
-  touch the wire. It also sets `ROCRATE_VALIDATOR_AUTO_WARM=0` to suppress
-  rocrate_validator's best-effort cache warm-up (pure network traffic we don't
-  need, since the context is bundled and the warm-up's other artifact — the spec
-  HTML page — is unused by any check). Refresh the bundled files only when the
-  pinned RO-Crate context version changes.
+  touch the wire. Any **other** outbound dereference — a crafted `@context` (or any
+  crate-controlled IRI) in an *untrusted* crate pointing at e.g. cloud metadata
+  `169.254.169.254` or an internal host — is **refused, not fetched**:
+  `_blocked_remote_response()` returns a benign synthetic-200 empty JSON-LD document
+  (`{"@context": {}}`) for every non-allowlisted URL. Failing closed with a valid
+  200 (rather than raising) is deliberate: rocrate_validator's JSON-LD document
+  loader (`_patched_source_to_json`) catches a fetch *exception* and falls back to
+  rdflib's own `urllib` opener — which would perform the very request we are
+  blocking — so serving an empty context keeps resolution on our intercept (no
+  urllib fallback, no network), injects no term mappings from the crafted context,
+  and raises no spurious REQUIRED content issue. It also sets
+  `ROCRATE_VALIDATOR_AUTO_WARM=0` to suppress rocrate_validator's best-effort cache
+  warm-up (pure network traffic we don't need, since the context is bundled and the
+  warm-up's other artifact — the spec HTML page — is unused by any check). Refresh
+  the bundled files only when the pinned RO-Crate context version changes.
 - **Transport failure ≠ content violation.** If a remote resource genuinely can't
   be dereferenced, rocrate_validator swallows the connection error inside the
   check and re-emits it as a REQUIRED *content* issue. `validate_crate` and
@@ -313,8 +329,11 @@ turning a transient blip into red CI and violating #59's "runs offline" criterio
   never a false negative in `build_and_validate` (which maps the exception to
   `{"ok": False, "error": ...}`). The regression test
   `tests/test_offline_validation.py` runs validation with the HTTP transport hard-
-  blocked and asserts green + no spurious REQUIRED issue; the #59 e2e harness also
-  runs with the network disabled to prove the path is offline-safe.
+  blocked and asserts green + no spurious REQUIRED issue;
+  `tests/test_validation_ssrf.py` validates a crate whose `@context` points at an
+  attacker URL and asserts **no** outbound request reaches it (deny-by-default);
+  the #59 e2e harness also runs with the network disabled to prove the path is
+  offline-safe.
 
 #### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
@@ -1085,6 +1104,8 @@ The `scan_files` tool is restricted to directories the user has explicitly appro
 - A hard denylist (`scanner._is_forbidden_root`) refuses `/`, the user's home directory itself, `/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, and `/Volumes` even if explicitly present in `approved_roots`; it is also enforced in `engine._directory_to_approve` so a forbidden directory can never *become* an approved root. Legitimate subdirectories are unaffected.
 - `SimulatedHumanInterface.present(..., purpose="scan_root")` returns a `rejected` action, so the non-interactive default can never approve a new scan root (benign checkpoints still auto-approve).
 - Follow-up: sandboxing the eval harness so it cannot scan outside its fixtures is tracked separately.
+
+**Extended to read + write tools (#167).** The approved-roots boundary previously guarded only `scan_files`, so prompt injection could still escape it via the read tools (arbitrary local file read, e.g. `read_file('/etc/passwd')` or a secrets `.env`) and the export writer (a `..` traversal `dest_path`, or a symlinked source escaping the input tree). The fix adds one shared containment primitive, `scanner._contain(candidate, approved_roots) -> Path | None` (resolve realpath, reject when not inside any approved root, apply the `_is_forbidden_root` denylist, fail closed on empty/None roots), applied at three choke points: the read-tool dispatch in `engine.run_tool` (gates `read_file`/`read_excel`/`read_docx`/`read_file_sample`/`read_multiple_files`/`extract_pdf_text`/`preview_archive`/`unzip_file`), `_crate_mapping._file_dest` (contains `dest_path` under the crate output dir, else `data/<slug>`), and `_crate_mapping._file_source` (refuses sources whose realpath escapes `input_path`). The scanner read functions themselves stay unguarded so `scan_files` can still sample files internally; the gate lives at the orchestration layer.
 
 ### D10: State Brief Injected via System Prompt, Not Message History
 The per-turn state brief (session id, file/entity/iteration counts) is **not** appended to user

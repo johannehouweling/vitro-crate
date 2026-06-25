@@ -80,6 +80,68 @@ def assemble_crate(
 _GRAPH_FILENAME = "ro-crate-graph.mmd"
 
 
+def _add_safe_preview(crate: ROCrate) -> None:
+    """Add an XSS-safe ``ro-crate-preview.html`` to *crate* (#169).
+
+    ro-crate-py's bundled :class:`~rocrate.model.preview.Preview` renders its
+    HTML through a Jinja2 ``Template`` with autoescaping OFF, so crate-controlled
+    strings (the crate ``name``/``description``, every entity ``@id``/``@type``)
+    are interpolated raw. A crate whose name is ``<script>…</script>`` therefore
+    yields a preview that executes when opened — stored XSS.
+
+    We subclass the bundled ``Preview`` and re-render its *own* vendored template
+    through a Jinja2 environment with ``autoescape=True``, so every ``{{ … }}``
+    is HTML-escaped (tags become inert text, attribute values can't break out).
+    The metadata graph is untouched — escaping is presentation-layer only, so
+    ``ro-crate-metadata.json`` keeps the original literal values.
+    """
+    import os
+
+    from jinja2 import Environment, select_autoescape
+    from rocrate.model.preview import Preview
+
+    class _SafePreview(Preview):
+        def generate_html(self) -> str:  # type: ignore[override]
+            # Locate the vendored template relative to the Preview module so we
+            # render exactly what ro-crate-py ships, just with autoescaping on.
+            import rocrate.model.preview as _preview_mod
+
+            tpl_dir = os.path.join(
+                os.path.dirname(os.path.abspath(_preview_mod.__file__)), "..", "templates"
+            )
+            with open(
+                os.path.join(tpl_dir, "preview_template.html.j2"), encoding="utf-8"
+            ) as fh:
+                template_source = fh.read()
+
+            env = Environment(autoescape=select_autoescape(default=True, default_for_string=True))
+
+            def stringify(a: Any) -> str:
+                if isinstance(a, list):
+                    return ", ".join(str(x) for x in a)
+                if isinstance(a, str):
+                    return a
+                jsonld = getattr(a, "_jsonld", None)
+                if jsonld and jsonld.get("name"):
+                    return str(jsonld["name"])
+                return str(a)
+
+            def is_object_list(a: Any) -> bool:
+                if isinstance(a, list):
+                    return any(not isinstance(obj, str) for obj in a)
+                return False
+
+            env.globals["stringify"] = stringify  # ty: ignore[invalid-assignment]
+            env.globals["is_object_list"] = is_object_list  # ty: ignore[invalid-assignment]
+            src = env.from_string(template_source)
+
+            context_entities = [e._jsonld for e in self.crate.contextual_entities]
+            data_entities = [e._jsonld for e in self.crate.data_entities]
+            return src.render(crate=self.crate, context=context_entities, data=data_entities)
+
+    crate.add(_SafePreview(crate))
+
+
 def _embed_crate_graph(crate: ROCrate) -> None:
     """Embed the crate's entity-graph diagram into the crate and register it
     (#130).
@@ -198,10 +260,9 @@ def export_crate(
         crate = assemble_crate(state, output_dir, materialize_payload=True)
         # Embed the standard ro-crate-py preview (ro-crate-preview.html, a
         # CreativeWork about ./) so the written crate is browsable without
-        # tooling (#86).
-        from rocrate.model.preview import Preview
-
-        crate.add(Preview(crate))
+        # tooling (#86) — rendered through an autoescaping template so
+        # crate-controlled strings can't inject script (XSS, #169).
+        _add_safe_preview(crate)
 
         # Embed the entity-graph diagram (ro-crate-graph.mmd, a CreativeWork
         # about ./) so the crate is visually explorable and self-describing

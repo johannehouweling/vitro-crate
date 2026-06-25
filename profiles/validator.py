@@ -174,24 +174,58 @@ def _load_local_contexts() -> dict[str, dict]:
 _LOCAL_CONTEXTS: dict[str, dict] = _load_local_contexts()
 
 
+def _synthetic_jsonld_response(url: str, payload: dict, status: int = 200):
+    """Build a synthetic ``requests.Response`` carrying a JSON-LD ``payload``."""
+    import requests
+
+    response = requests.Response()
+    response.status_code = status
+    response.url = url
+    response.headers["Content-Type"] = "application/ld+json"
+    response._content = json.dumps(payload).encode("utf-8")
+    response.encoding = "utf-8"
+    return response
+
+
 def _local_context_response(url: str):
     """Build a synthetic 200 ``requests.Response`` carrying a bundled context.
 
     Returns ``None`` when ``url`` is not a bundled RO-Crate context (the caller
-    then falls back to the real network request).
+    then applies the deny-by-default policy instead of fetching it).
     """
     local = _LOCAL_CONTEXTS.get(url)
     if local is None:
         return None
-    import requests
+    return _synthetic_jsonld_response(url, local)
 
-    response = requests.Response()
-    response.status_code = 200
-    response.url = url
-    response.headers["Content-Type"] = "application/ld+json"
-    response._content = json.dumps(local).encode("utf-8")
-    response.encoding = "utf-8"
-    return response
+
+def _blocked_remote_response(url: str):
+    """Deny-by-default response for a non-allowlisted remote dereference (#168).
+
+    SSRF guard. During validation the RO-Crate ``@context`` (and any other
+    crate-controlled IRI) is dereferenced over HTTP. Only the bundled,
+    well-known RO-Crate context URLs in :data:`_LOCAL_CONTEXTS` are served; a
+    crafted ``@context`` in an *untrusted* crate pointing at an attacker URL
+    (cloud metadata ``169.254.169.254``, internal hosts, a tracker) must **never**
+    reach the network. Rather than fetching it, we fail closed and return a
+    benign, empty JSON-LD document (a synthetic 200 carrying ``{"@context": {}}``).
+
+    Returning a valid 200 — not raising — is deliberate: rocrate_validator's
+    JSON-LD document loader (:func:`_patched_source_to_json`) catches a fetch
+    *exception* and falls back to rdflib's own ``urllib`` opener, which would
+    perform the very outbound request we are trying to block. Serving an empty
+    context keeps the loader on our intercept (no urllib fallback, no network),
+    contributes no term mappings (so the crafted context cannot inject IRIs), and
+    does not surface as a spurious REQUIRED *content* issue (the empty document is
+    well-formed JSON-LD). Genuine transport-error semantics on the *allowlisted*
+    URLs are unaffected — those are served from disk and never reach this branch.
+    """
+    logger.warning(
+        "Refusing remote dereference of non-allowlisted URL during validation "
+        "(deny-by-default, SSRF guard): %s",
+        url,
+    )
+    return _synthetic_jsonld_response(url, {"@context": {}})
 
 
 def _install_offline_context_loader() -> None:
@@ -235,14 +269,15 @@ def _install_offline_context_loader() -> None:
 
     def _offline_getattr(self, name):  # noqa: ANN001
         if name.upper() in {"GET", "HEAD"}:
-            session_attr = _original_getattr(self, name)
 
             def _wrapped(url, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
                 local = _local_context_response(url)
                 if local is not None:
                     logger.debug("Serving RO-Crate context %s from bundled copy", url)
                     return local
-                return session_attr(url, *args, **kwargs)
+                # Deny-by-default (#168): a non-allowlisted, crate-controlled URL
+                # is refused, never fetched — closing the SSRF/data-egress vector.
+                return _blocked_remote_response(url)
 
             return _wrapped
         return _original_getattr(self, name)
@@ -251,15 +286,14 @@ def _install_offline_context_loader() -> None:
 
     # ``fetch_fresh`` is a real method (not proxied through ``__getattr__``); the
     # cache warm-up uses it. Wrap it too so a bundled context is served from disk
-    # even if warm-up runs.
-    _original_fetch_fresh = requester_cls.fetch_fresh
-
+    # even if warm-up runs, and a non-allowlisted URL is refused rather than
+    # fetched (deny-by-default, #168).
     def _offline_fetch_fresh(self, url, **kwargs):  # noqa: ANN001, ANN003
         local = _local_context_response(url)
         if local is not None:
             logger.debug("Serving RO-Crate context %s from bundled copy (fetch_fresh)", url)
             return local
-        return _original_fetch_fresh(self, url, **kwargs)
+        return _blocked_remote_response(url)
 
     requester_cls.fetch_fresh = _offline_fetch_fresh  # ty: ignore[invalid-assignment]
     requester_cls._vitro_offline_loader_installed = True  # ty: ignore[unresolved-attribute]
