@@ -199,3 +199,122 @@ class TestEngineHumanInterfaceInjection:
         engine = AgentEngine()
         result = engine.run_tool("present_to_human", context="Review")
         assert result == {"action": "approved", "comments": None, "edits": None}
+
+
+class TestConsoleAnimationSuspension:
+    """A console HITL prompt must pause any registered terminal animation (e.g. the
+    legacy agent loop's "thinking" spinner) for the duration of ``input()`` — else
+    the spinner repaints over the prompt and the user cannot read or answer it.
+    """
+
+    @staticmethod
+    def _recording_anim(events: list[str]):
+        class _Anim:
+            def pause(self) -> None:
+                events.append("pause")
+
+            def resume(self) -> None:
+                events.append("resume")
+
+        return _Anim()
+
+    def test_present_suspends_animation_around_input(self, monkeypatch):
+        from builder.tools.hitl import (
+            SCAN_ROOT_PURPOSE,
+            ConsoleHumanInterface,
+            register_console_animation,
+            unregister_console_animation,
+        )
+
+        events: list[str] = []
+        anim = self._recording_anim(events)
+        register_console_animation(anim)
+        try:
+            monkeypatch.setattr(
+                "builtins.input", lambda *a, **k: events.append("input") or "y"
+            )
+            resp = ConsoleHumanInterface().present("ctx", purpose=SCAN_ROOT_PURPOSE)
+        finally:
+            unregister_console_animation(anim)
+
+        # The spinner is paused BEFORE the prompt is read and resumed AFTER.
+        assert events == ["pause", "input", "resume"]
+        assert resp["action"] == "approved"
+
+    def test_request_input_suspends_animation_around_input(self, monkeypatch):
+        from builder.tools.hitl import (
+            ConsoleHumanInterface,
+            register_console_animation,
+            unregister_console_animation,
+        )
+
+        events: list[str] = []
+        anim = self._recording_anim(events)
+        register_console_animation(anim)
+        try:
+            monkeypatch.setattr(
+                "builtins.input",
+                lambda *a, **k: events.append("input") or "Methimazole",
+            )
+            resp = ConsoleHumanInterface().request_input("Name?", "text")
+        finally:
+            unregister_console_animation(anim)
+
+        assert events == ["pause", "input", "resume"]
+        assert resp == {"value": "Methimazole", "skipped": False}
+
+    def test_animation_resumes_even_on_eof(self, monkeypatch):
+        from builder.tools.hitl import (
+            SCAN_ROOT_PURPOSE,
+            ConsoleHumanInterface,
+            register_console_animation,
+            unregister_console_animation,
+        )
+
+        events: list[str] = []
+        anim = self._recording_anim(events)
+
+        def _raise_eof(*_a, **_k):
+            events.append("input")
+            raise EOFError
+
+        register_console_animation(anim)
+        try:
+            monkeypatch.setattr("builtins.input", _raise_eof)
+            resp = ConsoleHumanInterface().present("ctx", purpose=SCAN_ROOT_PURPOSE)
+        finally:
+            unregister_console_animation(anim)
+
+        # resume must run even though input() raised (fail-closed deny).
+        assert events == ["pause", "input", "resume"]
+        assert resp["action"] == "rejected"
+
+    def test_noop_without_registered_animation(self, monkeypatch):
+        from builder.tools.hitl import ConsoleHumanInterface, suspend_console_animation
+
+        # Nothing registered -> the context manager is a harmless no-op.
+        with suspend_console_animation():
+            pass
+        monkeypatch.setattr("builtins.input", lambda *a, **k: "y")
+        resp = ConsoleHumanInterface().present("ctx")
+        assert resp["action"] == "approved"
+
+    def test_unregister_only_clears_matching_animation(self, monkeypatch):
+        from builder.tools.hitl import (
+            register_console_animation,
+            suspend_console_animation,
+            unregister_console_animation,
+        )
+
+        events: list[str] = []
+        anim = self._recording_anim(events)
+        register_console_animation(anim)
+        try:
+            # Unregistering a DIFFERENT animation must not clear the active one.
+            unregister_console_animation(object())
+            with suspend_console_animation():
+                events.append("body")
+        finally:
+            unregister_console_animation(anim)
+
+        assert events == ["pause", "body", "resume"]

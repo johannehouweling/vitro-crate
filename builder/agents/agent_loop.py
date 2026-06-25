@@ -26,6 +26,10 @@ except ImportError:
 from builder.agents.system_prompt import SYSTEM_PROMPT
 from builder.agents.tools_spec import TOOL_SPECS
 from builder.engine import AgentEngine
+from builder.tools.hitl import (
+    register_console_animation,
+    unregister_console_animation,
+)
 
 if TYPE_CHECKING:
     from typing import cast
@@ -72,6 +76,9 @@ class _ThinkingSpinner:
         self._tool: str | None = None
         self._start = monotonic()
         self._stop = threading.Event()
+        # Set while a HITL prompt owns the terminal: the tick thread must not
+        # repaint the Rich Live region over the prompt (else stdin is unusable).
+        self._paused = threading.Event()
         self._status = console.status(self._render(), spinner="dots", spinner_style="green")
         self._thread = threading.Thread(target=self._tick, daemon=True)
 
@@ -84,6 +91,8 @@ class _ThinkingSpinner:
 
     def _tick(self) -> None:
         while not self._stop.wait(0.5):
+            if self._paused.is_set():
+                continue
             try:
                 self._status.update(self._render())
             except Exception:
@@ -92,17 +101,41 @@ class _ThinkingSpinner:
     def set_tool(self, name: str | None) -> None:
         """Show (or clear, with ``None``) the tool currently running."""
         self._tool = name
+        if self._paused.is_set():
+            return
         try:
             self._status.update(self._render())
         except Exception:
             pass
 
+    def pause(self) -> None:
+        """Tear down the Live region and stop ticking so a HITL prompt is clean.
+
+        Called (via :func:`builder.tools.hitl.suspend_console_animation`) when a
+        tool needs ``input()`` mid-``invoke``. Best-effort and idempotent.
+        """
+        self._paused.set()
+        try:
+            self._status.stop()
+        except Exception:
+            logger.debug("spinner pause: status.stop failed", exc_info=True)
+
+    def resume(self) -> None:
+        """Restart the Live region after a HITL prompt completes."""
+        try:
+            self._status.start()
+        except Exception:
+            logger.debug("spinner resume: status.start failed", exc_info=True)
+        self._paused.clear()
+
     def __enter__(self) -> "_ThinkingSpinner":
         self._status.__enter__()
         self._thread.start()
+        register_console_animation(self)
         return self
 
     def __exit__(self, *exc: Any) -> None:
+        unregister_console_animation(self)
         self._stop.set()
         self._thread.join(timeout=1.0)
         self._status.__exit__(*exc)
