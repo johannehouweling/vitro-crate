@@ -70,6 +70,7 @@ This is a clean library entrypoint — the CLI / spine wiring is a later PR.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -79,6 +80,14 @@ from typing import TYPE_CHECKING, Any, Callable
 from builder.agents.pipeline import draft_entity_fields
 from builder.config import get_provider
 from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
+
+# (#275) The ORCID lookup, re-exported at module scope as the single stable
+# monkeypatch target for tests. A person/agent-typed gap (creator/author/…)
+# answered with a name + ORCID verifies the ORCID through this before attaching
+# it (D5: an ORCID is only trusted once a lookup confirms the family name). It is
+# called only when an ORCID is actually present in the user's prose, so the
+# offline / no-provider path stays network-free unless the user supplied one.
+from builder.tools.lookups import lookup_orcid
 
 # The guidance leaves (#244, #257): PHRASE the gap into one human question,
 # INTERPRET the free-text reply into a structured decision, and EXTRACT a field
@@ -170,6 +179,41 @@ def _is_identifier_field(field: str) -> bool:
     """Whether ``field`` (a local property name) is identifier-bearing (D5)."""
     return field in _IDENTIFIER_FIELDS
 
+# (#275) Person/agent-typed fields whose ISA value MUST be a Person (or
+# Organization) ENTITY REFERENCE, never a literal string. Answering one of these
+# with prose and committing it via ``set_fields`` (a string) leaves the ISA
+# "creator MUST be of type Person" SHACL shape unsatisfied, so the gap re-emits
+# every round and ``isa=fail`` — the #275 re-ask loop. These are instead routed
+# to ``draft_person`` and linked as a reference (see :func:`_apply_person_value`).
+_PERSON_FIELDS: frozenset[str] = frozenset(
+    {"creator", "author", "publisher", "editor", "contributor"}
+)
+
+
+def _is_person_field(field: str) -> bool:
+    """Whether ``field`` (a local property name) is a person/agent-typed field."""
+    return field in _PERSON_FIELDS
+
+
+# An ORCID iD anywhere in free text — the 16-digit, dash-grouped form (final
+# group may end in X), with an optional ``https://orcid.org/`` URL prefix so the
+# whole token (URL and all) is captured and can be stripped from the name.
+_ORCID_RE = re.compile(
+    r"(?:https?://orcid\.org/)?\b(\d{4}-\d{4}-\d{4}-\d{3}[\dXx])\b",
+    re.IGNORECASE,
+)
+# An "ORCID:" / "ORCID iD:" label that precedes the id in free text — stripped
+# (with any leading comma/semicolon) so only the person's NAME remains.
+_ORCID_LABEL_RE = re.compile(
+    r"\b[,;]?\s*orcid(?:\s*id)?\s*[:=]?\s*",
+    re.IGNORECASE,
+)
+# An affiliation introduced by a leading "(" or an "@"/"affiliation:" marker.
+_AFFILIATION_RE = re.compile(
+    r"(?:\baffiliation\s*[:=]\s*|\s+@\s*|\s*\(\s*)(?P<aff>[^()]+?)\s*\)?$",
+    re.IGNORECASE,
+)
+
 # Local property names that map onto crate-level (Root Data Entity) metadata via
 # `set_crate_metadata`, for a crate-level gap (entity_id is None). Anything else
 # crate-level has no deterministic setter and is recorded as "asked" only.
@@ -210,6 +254,130 @@ def _resolve_entity_id(engine: AgentEngine, gap: Gap) -> str | None:
     return resolved.entity_id if resolved is not None else None
 
 
+def _parse_person_value(value: str) -> tuple[str, str, str]:
+    """Parse a free-text person answer into ``(name, bare_orcid, affiliation)``.
+
+    The user's reply to a creator/author gap is prose like
+    ``"Fabian Wagenaars"``, ``"Fabian Wagenaars, University Utrecht"`` or
+    ``"Fabian Wagenaars, ORCID: 0000-0003-4766-7358"``. This pulls out, in order:
+
+    * a **bare ORCID** anywhere in the text (the dash-grouped 16-digit id),
+      reusing the same id shape ``builder.tools.composites`` recognises;
+    * an **affiliation** only when it is unambiguously marked — a trailing
+      ``(…)``, ``affiliation: …`` or ``… @ org`` — so an inverted ``Last, First``
+      name is never mis-read as an affiliation;
+
+    and returns the remaining text as the person's **name** (with the ORCID
+    label/id and any marked affiliation stripped). Returns ``("", …)`` for an
+    empty/whitespace-only value. This is purely descriptive parsing of prose — no
+    identifier is *fabricated*; a parsed ORCID is only trusted after a lookup
+    confirms it (D5, see :func:`_verified_orcid_for`).
+    """
+    text = (value or "").strip()
+    if not text:
+        return "", "", ""
+
+    orcid_match = _ORCID_RE.search(text)
+    bare_orcid = orcid_match.group(1).upper() if orcid_match else ""
+
+    # Strip the ORCID id and its preceding label ("…, ORCID: <id>") from the name.
+    if orcid_match:
+        text = text[: orcid_match.start()] + text[orcid_match.end() :]
+    text = _ORCID_LABEL_RE.sub(" ", text).strip(" ,;")
+
+    affiliation = ""
+    aff_match = _AFFILIATION_RE.search(text)
+    if aff_match:
+        affiliation = aff_match.group("aff").strip()
+        text = text[: aff_match.start()].strip(" ,;")
+
+    return text.strip(" ,;"), bare_orcid, affiliation
+
+
+def _verified_orcid_for(family: str, bare_orcid: str) -> str | None:
+    """Return ``bare_orcid`` IFF a lookup confirms it belongs to ``family`` (D5).
+
+    Reuses the composite drafter's verification contract (an ORCID is only
+    trusted once :func:`lookup_orcid` resolves it AND the resolved family name
+    matches). Returns ``None`` — never an unverified id — on any mismatch, a
+    failed/empty lookup, or a transient outage, so the guidance loop attaches
+    only verified ORCIDs and never fabricates an identifier from the user's prose.
+    """
+    if not bare_orcid:
+        return None
+    try:
+        from builder.tools.composites import _verify_orcid
+    except ImportError:  # pragma: no cover — composites is a sibling module
+        return None
+    try:
+        verified = _verify_orcid(bare_orcid, family, lookup_orcid)
+    except Exception as exc:  # noqa: BLE001 — a flaky lookup must not break the loop
+        logger.warning("guidance: ORCID verification failed for %s: %s", bare_orcid, exc)
+        return None
+    return bare_orcid if verified is not None else None
+
+
+def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
+    """Mint a Person for a person/agent-typed gap and link it by reference (#275).
+
+    Person/agent fields (``creator``/``author``/…) require an ISA Person ENTITY
+    reference, not a literal string. This parses the user's prose into a name
+    (plus an optional ORCID / affiliation), drafts a Person via the existing
+    ``draft_person`` tool (which splits the name ISA-conformantly), and links the
+    resulting Person ``@id`` onto the gap entity's field as a ``{"@id": …}``
+    reference through ``set_fields`` — never hand-rolled JSON-LD (AGENTS.md §4.7).
+
+    D5: a supplied ORCID is attached only after :func:`_verified_orcid_for`
+    confirms it; an unverified one is dropped (the name still mints a Person).
+
+    A crate-level / root person gap (no resolvable state entity, e.g. the
+    Investigation's ``creator``) is satisfied by minting the Person alone: the
+    crate builder wires every Person onto the Root Data Entity as an author, so
+    no explicit field link is needed (and there is no state field to set).
+    Returns ``True`` iff a Person was minted, else ``False`` (no usable name).
+    """
+    name, bare_orcid, affiliation = _parse_person_value(value)
+    if not name:
+        return False
+
+    from builder.tools.drafters import split_person_name
+
+    given, family = split_person_name(name)
+    hints: dict[str, Any] = {}
+    if given:
+        hints["givenName"] = given
+    if family:
+        hints["familyName"] = family
+    if affiliation:
+        hints["affiliation"] = affiliation
+    verified = _verified_orcid_for(family, bare_orcid)
+    if verified:
+        hints["orcid"] = verified
+
+    person = engine.run_tool("draft_person", name=name, hints=hints)
+    person_id = getattr(person, "entity_id", None)
+    if not person_id:
+        return False
+
+    state_id = _resolve_entity_id(engine, gap)
+    if state_id is None:
+        # Root / crate-level person gap: the Person is auto-wired onto the Root
+        # Data Entity as an author by the builder, so minting it suffices.
+        return True
+
+    # Link the Person as a REFERENCE on the gap entity's field. The reference @id
+    # is the builder's MINTED node id (the ORCID URL for a verified ORCID, else a
+    # ``#Person_…`` fragment) so it resolves to the Person node at build time.
+    from builder.tools._crate_mapping import _mint_id
+
+    field = _local_name(gap.property) or (gap.property or "")
+    ref_id = _mint_id(person)
+    engine.run_tool(
+        "set_fields", entity_id=state_id, fields={field: {"@id": ref_id}}
+    )
+    return True
+
+
 def _apply_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     """Commit ``value`` for ``gap`` via the existing set tools. Returns success.
 
@@ -218,10 +386,21 @@ def _apply_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     is the local name of the gap's ``property``. Returns ``False`` (committing
     nothing) when the gap names no usable field or its entity cannot be resolved,
     so the caller treats it as "no progress" rather than a silent partial write.
+
+    A **person/agent-typed** field (``creator``/``author``/…) is routed to
+    :func:`_apply_person_value` instead: those require an ISA Person ENTITY
+    reference, so committing the prose as a literal string would leave the
+    "creator MUST be of type Person" SHACL shape unsatisfied and the gap would
+    re-emit every round (the #275 re-ask loop). Drafting a Person and linking it
+    by reference closes the gap properly.
     """
     field = _local_name(gap.property) or (gap.property or "")
     if not field:
         return False
+
+    # (#275) Person/agent fields need a Person reference, not a literal string.
+    if _is_person_field(field):
+        return _apply_person_value(engine, gap, value)
 
     state_id = _resolve_entity_id(engine, gap)
     if state_id is not None:
