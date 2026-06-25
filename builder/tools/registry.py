@@ -26,12 +26,17 @@ class ToolSpec:
         description: Optional human-readable description.
         takes_state: Whether the engine must pass ``CrateState`` as the first
             positional argument when invoking ``fn``.
+        takes_human: Whether the engine must inject the active
+            :class:`~builder.tools.hitl.HumanInterface` as a ``human_interface``
+            keyword argument so the tool can escalate to HITL on genuine
+            ambiguity (e.g. ``draft_publication_with_authors``, #180).
     """
 
     name: str
     fn: Callable[..., Any]
     description: str = ""
     takes_state: bool = False
+    takes_human: bool = False
 
 
 class ToolRegistry:
@@ -46,8 +51,13 @@ class ToolRegistry:
         fn: Callable[..., Any],
         description: str = "",
         takes_state: bool = False,
+        takes_human: bool = False,
     ) -> None:
         """Register ``fn`` under ``name`` (overwrites any existing entry).
+
+        Set ``takes_human=True`` for a tool that needs to escalate to HITL: the
+        engine then injects the active ``HumanInterface`` as a ``human_interface``
+        keyword when it invokes the tool.
 
         Hint for developers: after adding a new tool here, also add an entry
         in ``builder.tools.dashboard._TOOL_CATEGORIES`` so it appears under
@@ -55,7 +65,11 @@ class ToolRegistry:
         show up in a highlighted "Other" row with a logger warning.
         """
         self._tools[name] = ToolSpec(
-            name=name, fn=fn, description=description, takes_state=takes_state
+            name=name,
+            fn=fn,
+            description=description,
+            takes_state=takes_state,
+            takes_human=takes_human,
         )
 
     def get(self, name: str) -> Callable[..., Any]:

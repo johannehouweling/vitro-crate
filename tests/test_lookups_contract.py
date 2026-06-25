@@ -643,6 +643,124 @@ class TestORCIDContract:
 
 
 # ===========================================================================
+# ORCID expanded-search (lookup_orcid_by_name)
+# ===========================================================================
+
+
+class TestORCIDByNameContract:
+    """Contract tests for lookups.orcid.lookup_orcid_by_name (#180)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear(self):
+        from lookups.orcid import lookup_orcid_by_name
+
+        lookup_orcid_by_name.cache_clear()  # ty: ignore[unresolved-attribute]
+        yield
+
+    def _result(self, *entries: dict) -> dict:
+        return {"expanded-result": list(entries), "num-found": len(entries)}
+
+    @responses.activate
+    def test_single_match_parses_candidate(self):
+        """One expanded-result row → one ranked candidate dict."""
+        from lookups.orcid import lookup_orcid_by_name
+
+        responses.add(
+            responses.GET,
+            "https://pub.orcid.org/v3.0/expanded-search/",
+            json=self._result(
+                {
+                    "orcid-id": "0000-0003-4766-7358",
+                    "given-names": "Fabian",
+                    "family-names": "Wagenaars",
+                    "institution-name": ["Utrecht University"],
+                }
+            ),
+            status=200,
+        )
+
+        candidates = lookup_orcid_by_name("Fabian", "Wagenaars")
+
+        assert candidates == [
+            {
+                "orcid": "0000-0003-4766-7358",
+                "given": "Fabian",
+                "family": "Wagenaars",
+                "affiliation": "Utrecht University",
+            }
+        ]
+
+    @responses.activate
+    def test_multiple_matches_returns_all(self):
+        """Several rows → all candidates, order preserved."""
+        from lookups.orcid import lookup_orcid_by_name
+
+        responses.add(
+            responses.GET,
+            "https://pub.orcid.org/v3.0/expanded-search/",
+            json=self._result(
+                {
+                    "orcid-id": "0000-0001-1111-1111",
+                    "given-names": "Jane",
+                    "family-names": "Smith",
+                    "institution-name": ["University A"],
+                },
+                {
+                    "orcid-id": "0000-0002-2222-2222",
+                    "given-names": "Jane",
+                    "family-names": "Smith",
+                    "institution-name": [],
+                },
+            ),
+            status=200,
+        )
+
+        candidates = lookup_orcid_by_name("Jane", "Smith")
+
+        assert [c["orcid"] for c in candidates] == [
+            "0000-0001-1111-1111",
+            "0000-0002-2222-2222",
+        ]
+        assert candidates[1]["affiliation"] == ""
+
+    @responses.activate
+    def test_no_matches_returns_empty_list(self):
+        """Empty expanded-result → []."""
+        from lookups.orcid import lookup_orcid_by_name
+
+        responses.add(
+            responses.GET,
+            "https://pub.orcid.org/v3.0/expanded-search/",
+            json=self._result(),
+            status=200,
+        )
+
+        assert lookup_orcid_by_name("Nemo", "Nobody") == []
+
+    @responses.activate
+    def test_empty_family_no_http_returns_empty(self):
+        """A blank family name short-circuits with no HTTP call."""
+        from lookups.orcid import lookup_orcid_by_name
+
+        assert lookup_orcid_by_name("Given", "") == []
+        assert len(responses.calls) == 0
+
+    @responses.activate
+    def test_timeout_raises_transient(self):
+        """A timeout raises TransientLookupError (not a silent empty)."""
+        from lookups.orcid import lookup_orcid_by_name
+
+        responses.add(
+            responses.GET,
+            "https://pub.orcid.org/v3.0/expanded-search/",
+            body=Timeout("timed out"),
+        )
+
+        with pytest.raises(TransientLookupError):
+            lookup_orcid_by_name("Fabian", "Wagenaars")
+
+
+# ===========================================================================
 # ROR
 # ===========================================================================
 
