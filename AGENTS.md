@@ -601,10 +601,35 @@ orphaned.
 
 ### Derivation Chain Tools
 ```
+draft_process_chain(assay_id: str, chain: [{process_type, hints?, object?, result?}], validate=None) → {assay_id, process_ids, steps, synthesized}  # composite: create + wire the whole CellCulture→Exposure→EndpointReadout→DataAnalysis chain in one idempotent call, synthesizing the EndpointReadout/DataAnalysis outputs the build has no fallback for
 link(from_id: str, relation: str, to_id: str) → {from_id, relation, to_id}
 attach_files(to: str, name_contains=None, mime_contains=None, paths=None, role=None) → {attached, file_ids, to}
 check_provenance() → {ok, issues:[{entity_id, property, message, fix, severity, profile}]}
 ```
+`draft_process_chain` (Issue #179, task 3) is the `link` composite — the
+proactive counterpart of `fix_required_issues`' missing-output repair rule. It
+fuses the recurring `draft_process` + `link` sequence that wires the gold
+S-VHPS21 derivation chain into ONE idempotent call. `chain` is an ordered list of
+step dicts (`process_type` + optional `hints` + optional explicit `object` /
+`result` ids); any **subset** of the four subtypes is allowed (partial chains
+work) and steps are always wired in the canonical order regardless of input order,
+so a weak model cannot mis-sequence the provenance. Each producing step's output
+is threaded into the next step's input, so the chain is fully connected and
+referenceable. **Its load-bearing job (§14.3):** `EndpointReadout`/`DataAnalysis`
+have **no build-time output fallback**, so a process with no explicit `result`
+(and, for DataAnalysis, no `object`) fires a tox REQUIRED Violation. The composite
+**synthesizes** the missing output — a placeholder `Sample` (via `draft_sample`)
+for a material producer (CellCulture) or a placeholder `File` (via `draft_file`)
+for a data producer (Exposure/EndpointReadout/DataAnalysis) — and `link`s it, so
+the chain never dangles. **Requires:** an existing `assay_id` + each step's
+`process_type`. **Synthesizes (only when not supplied/derivable):** the produced
+output entity (and a DataAnalysis input `File` when it has no upstream step).
+**Respects:** any explicit `object`/`result` you pass — those win over synthesis.
+Placeholders carry only structural metadata (name, crate path, role); they
+**never fabricate measurement values or identifiers** (D5) — they are header-less
+stubs to be filled with `populate_condition_table` / `set_fields`. Idempotent:
+placeholder/process ids are derived deterministically from the step, so re-running
+reuses them rather than duplicating.
 `attach_files` is the bulk *placement* verb (#177): it associates a **group** of
 scanned files with a Study or Assay in one call (select by `name_contains` /
 `mime_contains` / explicit `paths`, stamp an optional `role`). For each match it
@@ -1255,9 +1280,11 @@ Study via `mentions`/`aop`). The only LLM-supplied input is the numeric `aop_id`
 
 Pipeline (#179): (1) `fix_required_issues` deterministic repair loop — *the keystone*;
 (2) drafters as real LLM leaves; (3) composite meta-tools incl. `draft_process_chain`
-(must synthesize EndpointReadout/DataAnalysis outputs to earn its keep); (4) pipeline
-spine replaces the `should_continue` ReAct loop; (5) shrink tail agent; (6) **A/B eval
-harness — decision gate**; (7) prompt + docs.
+— **done**: it synthesizes the EndpointReadout/DataAnalysis outputs the build has no
+fallback for (closing the §14.3 Violation trap) and wires the whole chain in one
+idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine replaces the
+`should_continue` ReAct loop; (5) shrink tail agent; (6) **A/B eval harness —
+decision gate**; (7) prompt + docs.
 
 Toolbox completion (companion issue, parallel disjoint lanes): `materialize_aop_subgraph`;
 ~~the identifier-PropertyValue family~~ **done (#180)** — landed as deterministic

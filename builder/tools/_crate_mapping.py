@@ -359,6 +359,10 @@ _STRUCT_FIELDS = frozenset(
         # draft_file's extra @type term(s) — consumed to co-type the File node
         # (#180, e.g. SoftwareSourceCode), never emitted as a literal property.
         "additional_types",
+        # draft_file / attach_files' state-tracking placement label — not a
+        # crate property and absent from the RO-Crate @context, so emitting it
+        # raw fails the base context check (ro-crate-1.2_2.1). Strip it here.
+        "role",
     }
 )
 
