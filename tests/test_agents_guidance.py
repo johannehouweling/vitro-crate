@@ -460,22 +460,38 @@ class TestTermination:
         assert calls["n"] <= 4 + 2, calls["n"]
         assert isinstance(summary, dict)
 
-    def test_no_progress_guard_stops_when_nothing_resolvable(self, monkeypatch):
+    def test_no_progress_guard_stops_when_whole_round_unresolvable(self, monkeypatch):
+        """The no-progress guard fires only when the WHOLE round is un-progressable.
+
+        Two actionable ask-user gaps on real entities; the user skips *both*. No
+        gap in the round can be progressed, so the loop must exhaust the report
+        (skipping each gap once) and stop — without burning all 50 rounds and
+        without re-asking the same gap forever.
+        """
         from builder.agents import guidance
         from builder.agents.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
 
-        # An ask-user gap the user always skips -> no progress -> stop early,
-        # well within max_rounds.
-        gap = Gap(
+        gap_a = Gap(
             tier="SHOULD",
-            source="fair",
-            entity_id=None,
-            entity_type=None,
-            property="F1",
-            message="FAIR F1 not met.",
-            suggestion="hint",
+            source="mit",
+            entity_id="st1",
+            entity_type="Study",
+            property="name",
+            message="Study SHOULD have a richer name.",
+            suggestion="hint a",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        gap_b = Gap(
+            tier="SHOULD",
+            source="mit",
+            entity_id="as1",
+            entity_type="Assay",
+            property="description",
+            message="Assay SHOULD have a description.",
+            suggestion="hint b",
             fix_hint="ask-user",
             auto_fixable=False,
         )
@@ -484,7 +500,8 @@ class TestTermination:
         def _always(_state):
             calls["n"] += 1
             return GapReport(
-                gaps=[gap], counts={"must_open": 0, "should_open": 1, "may_open": 0}
+                gaps=[gap_a, gap_b],
+                counts={"must_open": 0, "should_open": 2, "may_open": 0},
             )
 
         monkeypatch.setattr(guidance, "assess_gaps", _always)
@@ -492,8 +509,10 @@ class TestTermination:
         human = ScriptedHuman()  # always skips
         run_guidance(engine, human, max_rounds=50)
 
-        # Stopped on the no-progress guard, NOT by exhausting 50 rounds.
+        # Stopped because the whole round was un-progressable, NOT by exhausting
+        # 50 rounds. Both gaps were each offered once before the loop gave up.
         assert calls["n"] < 50, calls["n"]
+        assert len(human.inputs) == 2, human.inputs
 
     def test_processes_must_before_should_before_may(self, monkeypatch):
         from builder.agents import guidance
@@ -551,6 +570,171 @@ class TestTermination:
         st = _get(engine, "st1")
         assert st.fields.get("name") == "name value"
         assert st.fields.get("description") == "desc value"
+
+
+# ---------------------------------------------------------------------------
+# (f) an uncommittable gap is SKIPPED, not fatal — the loop keeps going
+# ---------------------------------------------------------------------------
+
+
+class TestSkipUncommittableGaps:
+    def test_uncommittable_gap_does_not_abort_remaining_gaps(self, monkeypatch):
+        """A report-only FAIR gap sorted ahead of a committable SHOULD gap must be
+        SKIPPED, and the committable gap behind it must still be resolved.
+
+        This is the regression for the production bug: one un-progressable gap
+        used to ``break`` the WHOLE loop, abandoning every remaining gap.
+        """
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+
+        # A FAIR report-only gap: entity_id None, property is an indicator token
+        # that maps to no settable field. The loop can never commit it.
+        fair_gap = Gap(
+            tier="SHOULD",
+            source="fair",
+            entity_id=None,
+            entity_type=None,
+            property="RDA-F1-02M",
+            message="FAIR indicator RDA-F1-02M not met: globally unique id.",
+            suggestion="Dimension Findable (essential)",
+            fix_hint="report-only",
+            auto_fixable=False,
+        )
+        # A committable SHOULD gap on a real entity behind it.
+        committable = Gap(
+            tier="SHOULD",
+            source="mit",
+            entity_id="st1",
+            entity_type="Study",
+            property="description",
+            message="Study SHOULD have a description.",
+            suggestion="A free-text study description.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+
+        reports = iter(
+            [
+                # Round 1: report-only gap is first (it would be drawn first), the
+                # committable gap is behind it.
+                GapReport(
+                    gaps=[fair_gap, committable],
+                    counts={"must_open": 0, "should_open": 2, "may_open": 0},
+                ),
+                # After the committable gap is resolved only the FAIR gap remains.
+                GapReport(
+                    gaps=[fair_gap],
+                    counts={"must_open": 0, "should_open": 1, "may_open": 0},
+                ),
+            ]
+        )
+        monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
+
+        human = ScriptedHuman(input_answers=[_value("A user-supplied description.")])
+        summary = run_guidance(engine, human, max_rounds=5)
+
+        # The committable gap WAS resolved despite the FAIR gap in front of it.
+        assert _get(engine, "st1").fields.get("description") == (
+            "A user-supplied description."
+        )
+        assert any(r.get("entity_id") == "st1" for r in summary["resolved"])
+        # The report-only FAIR gap was never offered to the user (no ask-user turn).
+        assert not any("RDA-F1-02M" in prompt for prompt, _ in human.inputs), (
+            human.inputs
+        )
+
+    def test_report_only_gap_is_never_actionable(self):
+        """``_next_actionable_gap`` must never return a report-only gap."""
+        from builder.agents.guidance import _next_actionable_gap
+
+        report_only = Gap(
+            tier="SHOULD",
+            source="fair",
+            entity_id=None,
+            entity_type=None,
+            property="RDA-F1-02M",
+            message="FAIR indicator not met.",
+            suggestion=None,
+            fix_hint="report-only",
+            auto_fixable=False,
+        )
+        report = GapReport(
+            gaps=[report_only],
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+        assert _next_actionable_gap(report, skipped=set()) is None
+
+    def test_next_actionable_gap_respects_skip_set(self):
+        """A gap already in the skip-set is passed over for the next actionable one."""
+        from builder.agents.guidance import _next_actionable_gap
+
+        first = Gap(
+            tier="SHOULD",
+            source="mit",
+            entity_id="st1",
+            entity_type="Study",
+            property="name",
+            message="first",
+            suggestion=None,
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        second = Gap(
+            tier="SHOULD",
+            source="mit",
+            entity_id="as1",
+            entity_type="Assay",
+            property="description",
+            message="second",
+            suggestion=None,
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        report = GapReport(
+            gaps=[first, second],
+            counts={"must_open": 0, "should_open": 2, "may_open": 0},
+        )
+        assert _next_actionable_gap(report, skipped=set()) is first
+        assert _next_actionable_gap(report, skipped={0}) is second
+        assert _next_actionable_gap(report, skipped={0, 1}) is None
+
+
+# ---------------------------------------------------------------------------
+# (g) ask-user prompt is human-readable (field label + suggestion + format)
+# ---------------------------------------------------------------------------
+
+
+class TestAskUserPrompt:
+    def test_ask_user_prompt_is_human_readable(self):
+        """The prompt must name WHAT field and WHY, not echo the raw gap message."""
+        from builder.agents.guidance import _ask_user
+
+        engine = AgentEngine(state=_backbone())
+        gap = Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id="st1",
+            entity_type="Study",
+            property="https://schema.org/description",
+            message="Study MUST have a description.",
+            suggestion="A free-text study description.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        human = ScriptedHuman(input_answers=[_value("ok")])
+        _ask_user(engine, human, gap)
+
+        assert human.inputs, "ask-user must prompt the human"
+        prompt = human.inputs[0][0]
+        # Names the field label (the property's local name), not just the raw IRI.
+        assert "description" in prompt.lower()
+        # Carries the suggestion as guidance.
+        assert "A free-text study description." in prompt
+        # Tells the user what entity it applies to.
+        assert "Study" in prompt
 
 
 # ---------------------------------------------------------------------------
