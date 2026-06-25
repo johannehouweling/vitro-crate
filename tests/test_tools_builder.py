@@ -134,6 +134,82 @@ class TestEmbeddedGraph:
             assert "ro-crate-graph.mmd" not in {e["@id"] for e in graph}
 
 
+class TestRootName:
+    """assemble_crate sets a meaningful root name so ro-crate-py's preview header
+    isn't 'Untitled Investigation' (#272).
+
+    The root dataset (``./``) name/description is derived from the Investigation
+    (fallback: Study; final fallback: a sensible default) when the session-level
+    title/description are not set.
+    """
+
+    _INV_NAME = "Inhibition of OATP1C1-mediated cellular uptake of thyroxine"
+
+    def _root(self, crate):
+        graph = crate.metadata.generate()["@graph"]
+        return next(e for e in graph if e.get("@id") == "./")
+
+    def test_root_name_from_investigation(self):
+        state = CrateState()
+        state.add_entity(_ent("inv_1", "Investigation", name=self._INV_NAME))
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+
+        assert crate.root_dataset["name"] == self._INV_NAME
+        root = self._root(crate)
+        assert root["name"] == self._INV_NAME
+        assert root.get("description"), "root description must be set"
+        assert root["name"] != "Untitled Investigation"
+
+    def test_investigation_description_used_when_present(self):
+        state = CrateState()
+        state.add_entity(
+            _ent(
+                "inv_1",
+                "Investigation",
+                name=self._INV_NAME,
+                description="Thyroxine uptake inhibition assay.",
+            )
+        )
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+        root = self._root(crate)
+        assert root["description"] == "Thyroxine uptake inhibition assay."
+
+    def test_root_name_falls_back_to_study(self):
+        state = CrateState()
+        state.add_entity(_ent("study_1", "Study", name="OATP1C1 uptake study"))
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+
+        assert crate.root_dataset["name"] == "OATP1C1 uptake study"
+        assert self._root(crate)["name"] != "Untitled Investigation"
+
+    def test_root_name_default_when_neither(self):
+        state = CrateState()
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+
+        name = crate.root_dataset["name"]
+        assert name, "root name must be non-empty"
+        assert name != "Untitled Investigation"
+
+    def test_explicit_metadata_title_wins(self):
+        """A session-level title still takes precedence over the Investigation."""
+        state = CrateState()
+        state.metadata.title = "Explicit session title"
+        state.add_entity(_ent("inv_1", "Investigation", name=self._INV_NAME))
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+        assert crate.root_dataset["name"] == "Explicit session title"
+
+    def test_written_preview_title_is_not_untitled(self):
+        """The on-disk ro-crate-preview.html <title> reflects the root name (#272)."""
+        state = CrateState()
+        state.add_entity(_ent("inv_1", "Investigation", name=self._INV_NAME))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "crate"
+            assert export_crate(state, str(out))["success"] is True
+            page = (out / "ro-crate-preview.html").read_text(encoding="utf-8")
+            assert "Untitled" not in page
+            assert self._INV_NAME in page
+
+
 class TestExportCrate:
     """export_crate is the explicit disk-writer (the only step that touches disk)."""
 
