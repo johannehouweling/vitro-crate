@@ -132,9 +132,16 @@ ISA_TOX_CONTEXT: list[dict] = [
         "ontologyName": "http://purl.org/dc/terms/isPartOf",
         "shortForm": "http://www.geneontology.org/formats/oboInOwl#shorthand",
         "synonym": "http://schema.org/alternateName",
+        # schema:sameAs — the dereferenceable identity link. Carries the ChEBI
+        # ontology IRI (as an @id node) for a compound resolved via the
+        # lookup_compound PubChem→ChEBI fallback (Issue #243), so the ChEBI identity
+        # is a machine-resolvable reference rather than a bare, context-less key.
         "sameAs": "http://schema.org/sameAs",
         # Chemical identifiers and molecular properties (from CompoundCloud / PubChem)
         "cas": "http://schema.org/identifier",
+        # chebiId — the ChEBI CURIE (e.g. "CHEBI:28748") as a schema:identifier,
+        # mirroring cas / pubchemCid. The lookup_compound ChEBI fallback emits this
+        # (with the IRI on sameAs) instead of the legacy context-less chebi_id/chebi_iri.
         "chebiId": "http://schema.org/identifier",
         "chemblId": "http://schema.org/identifier",
         "dsstoxId": "http://schema.org/identifier",

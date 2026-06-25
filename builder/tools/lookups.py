@@ -90,14 +90,22 @@ def lookup_compound(name: str) -> dict[str, Any]:
         # returning a hard "not found".
         chebi = lookup_ontology_term_ols(raw, "chebi")
         if chebi and chebi.get("@id"):
-            return _success(
-                {
-                    "chebi_id": chebi.get("termCode", ""),
-                    "chebi_iri": chebi["@id"],
-                    "iupac_name": chebi.get("name", raw),
-                    "source": "chebi",
-                }
-            )
+            # Express ChEBI identity with context-declared keys so the
+            # MolecularEntity compacts cleanly under RO-Crate 1.2 (Issue #243).
+            # Bare ``chebi_id`` / ``chebi_iri`` keys are absent from the @context
+            # and fail base-profile validation. ``chebiId`` (the ChEBI CURIE) is
+            # already mapped to schema:identifier — mirroring ``cas`` / ``pubchemCid``
+            # — and the dereferenceable ontology IRI rides on ``sameAs`` as an
+            # ``@id`` node, the idiomatic machine-resolvable identity link.
+            data: dict[str, Any] = {
+                "iupac_name": chebi.get("name", raw),
+                "source": "chebi",
+                "sameAs": {"@id": chebi["@id"]},
+            }
+            term_code = chebi.get("termCode")
+            if term_code:
+                data["chebiId"] = term_code
+            return _success(data)
 
         return _failure(f"Compound '{name}' not found in PubChem or ChEBI")
     except TransientLookupError as exc:
