@@ -44,6 +44,30 @@ def _first_of_type(state: CrateState, type_name: str) -> Entity | None:
     return next((e for e in state.list_entities() if e.type == type_name), None)
 
 
+def _merge_hints_into(entity: Entity, hints: Mapping[str, Any] | None) -> None:
+    """Fill an existing entity's EMPTY fields from *hints* (fill-don't-clobber).
+
+    Makes :func:`scaffold_isa_backbone` idempotent-WITH-MERGE: re-scaffolding a
+    reused backbone layer no longer silently drops the supplied hints — a hint
+    fills a field the entity is missing or carries an empty value for, but a value
+    the entity already holds is never overwritten. Only non-empty hint values are
+    applied. The merge is recorded as ``source="llm"`` (the same provenance the
+    drafters use for hint-supplied fields). It is purely additive, so the call
+    stays a no-op on a fully-populated entity.
+    """
+    if not hints:
+        return
+    to_apply: dict[str, Any] = {}
+    for key, value in hints.items():
+        if value is None or not str(value).strip():
+            continue
+        current = entity.fields.get(key)
+        if current is None or not str(current).strip():
+            to_apply[key] = value
+    if to_apply:
+        entity.set_fields_from_dict(to_apply, source="llm")
+
+
 def scaffold_isa_backbone(
     state: CrateState,
     investigation: dict | None = None,
@@ -80,17 +104,26 @@ def scaffold_isa_backbone(
     created: list[str] = []
     reused: list[str] = []
 
-    def _ensure(type_name: str, make) -> Entity:
+    def _ensure(type_name: str, make, hints: dict | None) -> Entity:
         existing = _first_of_type(state, type_name)
         if existing is not None:
             reused.append(type_name)
+            # Idempotent-with-merge: fill the reused entity's empty fields from the
+            # supplied hints instead of silently dropping them (fill-don't-clobber).
+            _merge_hints_into(existing, hints)
             return existing
         created.append(type_name)
         return make()
 
-    inv = _ensure("Investigation", lambda: draft_investigation(state, investigation or {}))
-    study_entity = _ensure("Study", lambda: draft_study(state, inv.entity_id, study or {}))
-    assay_entity = _ensure("Assay", lambda: draft_assay(state, study_entity.entity_id, assay or {}))
+    inv = _ensure(
+        "Investigation", lambda: draft_investigation(state, investigation or {}), investigation
+    )
+    study_entity = _ensure(
+        "Study", lambda: draft_study(state, inv.entity_id, study or {}), study
+    )
+    assay_entity = _ensure(
+        "Assay", lambda: draft_assay(state, study_entity.entity_id, assay or {}), assay
+    )
 
     result: dict[str, Any] = {
         "investigation_id": inv.entity_id,

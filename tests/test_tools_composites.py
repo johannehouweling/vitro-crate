@@ -98,3 +98,45 @@ class TestScaffoldViaEngine:
         assert result["investigation_id"]
         assert engine.state.get_entity(result["investigation_id"]) is not None
         assert engine.state.get_entity(result["assay_id"]) is not None
+
+
+class TestScaffoldMergesHintsIntoReused:
+    """Idempotent-with-merge (#232): re-scaffolding a reused entity must FILL its
+    empty fields from the supplied hints rather than dropping them, while never
+    clobbering a value the entity already carries (fill-don't-clobber)."""
+
+    def test_fills_empty_field_on_reused_entity(self):
+        state = CrateState()
+        # An existing Study with NO name (a field a later hint should fill).
+        scaffold_isa_backbone(state)
+        study = _by_type(state, "Study")[0]
+        study.fields.pop("name", None)
+
+        result = scaffold_isa_backbone(state, study={"name": "Filled name"})
+
+        assert "Study" in result["reused"]  # still reused, not duplicated
+        assert len(_by_type(state, "Study")) == 1
+        assert _by_type(state, "Study")[0].fields.get("name") == "Filled name"
+
+    def test_does_not_clobber_existing_value_on_reused_entity(self):
+        state = CrateState()
+        scaffold_isa_backbone(state, study={"name": "Original name"})
+
+        # A second call with a different hint must NOT overwrite the real value.
+        scaffold_isa_backbone(state, study={"name": "Different name"})
+
+        assert len(_by_type(state, "Study")) == 1
+        assert _by_type(state, "Study")[0].fields.get("name") == "Original name"
+
+    def test_merge_adds_a_new_field_without_touching_others(self):
+        state = CrateState()
+        scaffold_isa_backbone(state, study={"name": "Keep me"})
+
+        # Supply a description (previously absent) plus a conflicting name.
+        scaffold_isa_backbone(
+            state, study={"name": "Ignore me", "description": "New desc"}
+        )
+
+        study = _by_type(state, "Study")[0]
+        assert study.fields.get("name") == "Keep me"  # existing value preserved
+        assert study.fields.get("description") == "New desc"  # empty field filled
