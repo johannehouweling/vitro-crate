@@ -93,6 +93,110 @@ class TestRoundTrip:
         assert len(investigations) == 1
         assert investigations[0]["@id"] == "./"
 
+    def _state_nested_file(self):
+        """A state whose File lives at a NESTED in-crate path (not data/<name>)."""
+        state = CrateState()
+        state.metadata.accession = "FAB-2026"
+        state.add_entity(_ent("inv_1", "Investigation", name="Inv"))
+        state.add_entity(_ent("study_1", "Study", name="S", investigation_id="inv_1"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1"))
+        state.add_entity(
+            _ent(
+                "raw",
+                "File",
+                name="raw.prism",
+                dest_path="assays/assay_1/dataset/raw_data/raw.prism",
+            )
+        )
+        state.add_entity(
+            _ent("er", "LabProcess", process_type="EndpointReadout", name="R",
+                 assay_id="assay_1", result=["raw"])
+        )
+        return state
+
+    def test_nested_file_path_preserved_after_roundtrip(self, tmp_path):
+        """A File at a nested in-crate path keeps that path across build→read→build.
+
+        Regression for #180: the reader used to drop the File's location, so a
+        rebuild re-placed it at the default ``data/<name>`` — non-idempotent file
+        placement. The File's @id (its crate-relative path) must survive verbatim.
+        """
+        nested = "assays/assay_1/dataset/raw_data/raw.prism"
+        build_crate(self._state_nested_file(), str(tmp_path / "c1"))
+        by1 = _graph(tmp_path / "c1")
+        assert nested in by1  # sanity: the build itself places it there
+
+        restored = read_existing_crate(str(tmp_path / "c1"))
+        build_crate(restored, str(tmp_path / "c2"))
+        by2 = _graph(tmp_path / "c2")
+
+        # The File's @id (path) is STABLE — no drift to data/raw.prism.
+        assert nested in by2
+        assert "data/raw.prism" not in by2
+        # And it stays nested under its Assay, not orphaned onto the root.
+        assert nested in _ids(by2["#Assay_assay_1"].get("hasPart"))
+        assert nested not in _ids(by2["./"].get("hasPart"))
+
+
+class TestReaderFileDestPath:
+    """read_existing_crate must feed the builder the File's original path (#180)."""
+
+    def test_reader_sets_dest_path_from_node_id(self, tmp_path):
+        """A File node's relative @id becomes the reconstructed File's dest_path.
+
+        ``_file_dest`` (the crate-mapping) places a File from ``dest_path`` first;
+        if the reader leaves it unset, a rebuild defaults to ``data/<name>``.
+        """
+        from builder.state import Entity, EntityProvenance
+
+        state = CrateState()
+        state.metadata.title = "Test"
+        state.add_entity(
+            Entity(
+                entity_id="raw",
+                type="File",
+                fields={"name": "raw.prism", "dest_path": "results/run1/raw.prism"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        build_crate(state, str(tmp_path / "c1"))
+
+        restored = read_existing_crate(str(tmp_path / "c1"))
+        files = restored.list_entities("File")
+        raw = next(f for f in files if f.fields.get("name") == "raw.prism")
+        assert raw.fields.get("dest_path") == "results/run1/raw.prism"
+
+    def test_reader_does_not_set_dest_path_for_fragment_id(self, tmp_path):
+        """A path-less File (a ``#``-fragment @id) gets no dest_path — default applies.
+
+        We don't invent a path from a non-relative @id (D5); the builder then
+        falls back to its ``data/<name>`` default, the prior behaviour.
+        """
+        crate_dir = tmp_path / "crate"
+        crate_dir.mkdir()
+        (crate_dir / "ro-crate-metadata.json").write_text(
+            json.dumps(
+                {
+                    "@context": "https://w3id.org/ro/crate/1.2/context",
+                    "@graph": [
+                        {
+                            "@id": "ro-crate-metadata.json",
+                            "@type": "CreativeWork",
+                            "conformsTo": {"@id": "https://w3id.org/ro/crate/1.2"},
+                            "about": {"@id": "./"},
+                        },
+                        {"@id": "./", "@type": "Dataset", "name": "X"},
+                        {"@id": "#File_floating", "@type": "File", "name": "ghost.bin"},
+                    ],
+                }
+            )
+        )
+        restored = read_existing_crate(str(crate_dir))
+        ghost = next(
+            f for f in restored.list_entities("File") if f.fields.get("name") == "ghost.bin"
+        )
+        assert "dest_path" not in ghost.fields
+
 
 class TestReadDirectory:
     """Tests for read_directory."""

@@ -65,6 +65,25 @@ def _crate_type(node: dict) -> EntityType | None:
     return None
 
 
+def _relative_path_id(node_id: str) -> str | None:
+    """The node @id as a crate-relative path, or None if it isn't one.
+
+    A File node's @id IS its crate-relative location (ro-crate-1.2.0.md
+    §Data-Entities: a File's @id is a path relative to the crate root). To make
+    build → read → build idempotent for file placement (AGENTS.md §D13), the
+    reader feeds this path back as the reconstructed File's ``dest_path`` — the
+    field ``_file_dest`` consumes first when re-placing a File.
+
+    Returns None for ids that are not usable relative paths — ``#``-fragments,
+    absolute URIs (``http(s)://``, any ``scheme://``) and root-absolute paths —
+    so the builder falls back to its ``data/<name>`` default rather than inventing
+    a path from a non-path id (D5: derive only from the node's own @id).
+    """
+    if not node_id or node_id.startswith(("#", "/")) or "://" in node_id:
+        return None
+    return node_id
+
+
 def _ref_ids(value: object) -> list[str]:
     """The @id strings under a reference property (id, {"@id": …}, or list)."""
     if value is None:
@@ -169,6 +188,18 @@ def read_existing_crate(crate_dir: str) -> CrateState:
             if node_id.startswith("#") and entity_id.startswith(prefix):
                 entity_id = entity_id[len(prefix):]
             fields = {k: v for k, v in node.items() if not k.startswith("@")}
+            # Preserve a File's in-crate location: its @id is the crate-relative
+            # path, which the builder re-reads from ``dest_path`` to re-place it.
+            # Without this the rebuild defaults to ``data/<name>``, drifting the
+            # File's path every cycle (Issue #180). Only set it when the @id is a
+            # usable relative path and the node didn't already carry an explicit
+            # placement field (D5: derive from the node's own @id, never invent).
+            if ctype == "File" and not any(
+                fields.get(k) for k in ("dest_path", "path", "contentUrl")
+            ):
+                rel = _relative_path_id(node_id)
+                if rel is not None:
+                    fields["dest_path"] = rel
             entity = Entity(
                 entity_id=entity_id,
                 type=ctype,
