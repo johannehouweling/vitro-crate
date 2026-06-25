@@ -288,18 +288,38 @@ Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY
   IRI, `check_id`, `severity`, and `profile`. This backs `build_and_validate`
   and is the no-disk fast path.
 
-**Performance note — why the tox pass dominates, and why we do *not* cache shapes.**
-The three passes are not equal work: `base` (~0.3s) and `isa` (~0.5s) are cheap,
-but `tox` (~2.7s of a ~3.4s full sweep) resolves the deepest inheritance chain
-(`tox-ro-crate → isa-ro-crate → ro-crate`, i.e. our `SHAPES_DIR` plus the bundled
-isa+base profiles) and rocrate_validator runs **SHACL + owlrl inference over that
-combined graph on every call**. Caching the parsed shapes was explored
-(issue #63 / PR #111) and **deliberately abandoned**: the `.ttl` parse is
-negligible (~10–130ms), the dominant ~2.5s is library-internal inference that
-rocrate_validator exposes **no hook to reuse**, and the only way to cache the part
-we own was to monkeypatch `ValidationContext.__load_profiles__` — a fragile patch
-on library internals for an ~11% gain that leaves the real bottleneck untouched.
-The supported speed levers instead are: gate the inner loop at `required` severity
+**Performance note — the dominant cost was a working-directory walk, not inference (#115).**
+The first-order bottleneck of the in-memory `validate_crate_dict` path was *not*
+SHACL/owlrl inference. `services.validate_metadata_as_dict` builds the crate via
+`rocrate_validator`'s `ROCrate.from_metadata_dict`, which hardcodes the crate URI
+to `"./"` and dispatches to `ROCrateLocalFolder`. The base-pass check
+`ro-crate-1.2` then resolves the metadata-descriptor id through
+`ROCrateLocalFolder.metadata_descriptor_id`, which does
+`base_path.rglob("*ro-crate-metadata.json")` over that URI — i.e. **a recursive
+walk of the entire current working directory on every pass, every call**. In a
+real run the CWD is a checkout (`.venv`, `.git`, dozens of git worktrees) or a
+large extracted dataset, so that single `rglob` dominated wall-clock: profiling
+pinned it at **~57s of a ~69s three-pass sweep** (the #115 "69s call"). It is also
+pure waste on the dict path — there is no crate on disk, and the descriptor id is
+the fixed convention `ro-crate-metadata.json` (exactly what the upstream walk falls
+back to when it finds nothing). `profiles/validator.py` installs
+`_patch_in_memory_descriptor_id()` (an idempotent module-level patch, alongside the
+offline-context and ISA-ontology patches) that wraps `from_metadata_dict` to
+pre-seed the cached `_metadata_descriptor_id` with that canonical constant, so the
+CWD walk is skipped. Results are byte-identical (the value is the same fallback the
+walk would return); the patch is scoped to `from_metadata_dict`, used *only* by the
+dict path, so the on-disk `validate_crate` (which legitimately discovers a
+descriptor in a real crate directory) is untouched. Measured on `S-VHPS21` from a
+repo checkout: `required/all` ~74s → ~12s; `optional/all` ~69s → ~19s (~4–6×).
+
+After that fix the residual cost is the genuine validation work and the
+inheritance-composed graph: `base`/`isa` are cheap, but `tox` resolves the deepest
+chain (`tox-ro-crate → isa-ro-crate → ro-crate`) and rocrate_validator recomposes
+shapes/ontology + runs SHACL + owlrl per call. Caching the parsed shapes was
+explored (issue #63 / PR #111) and deliberately abandoned — the `.ttl` parse is
+negligible (~10–130ms) and rocrate_validator exposes no hook to reuse the compiled
+graph without a fragile internals monkeypatch for a small gain. The remaining
+supported levers are: gate the inner loop at `required` severity
 (`validate_crate_dict`'s default — fastest), and scope `profile` to a single pass
 when the full sweep isn't needed. A full 3-pass sweep is run only as a final gate.
 
