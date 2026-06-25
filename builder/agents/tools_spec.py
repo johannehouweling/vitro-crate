@@ -279,6 +279,20 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "set_crate_metadata",
+        "description": "Set top-level crate metadata on the Root Data Entity (./): title/description/accession plus the root dates release_date (schema:releaseDate) and date_modified (schema:dateModified). Pass ISO-8601 strings for the dates, e.g. release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z'. Only the fields you pass are written — never fabricate a date. datePublished is auto-set at build time and is not controlled here. Example: set_crate_metadata(accession='S-VHPS21', release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Human-readable crate title (root name)."},
+                "description": {"type": "string", "description": "Free-text crate description (root description)."},
+                "accession": {"type": "string", "description": "Accession/identifier (root identifier)."},
+                "release_date": {"type": "string", "description": "ISO-8601 release date for schema:releaseDate, e.g. '2025-11-10'."},
+                "date_modified": {"type": "string", "description": "ISO-8601 date/datetime for schema:dateModified, e.g. '2026-06-14T19:37:30Z'."},
+            },
+        },
+    },
+    {
         "name": "remove_entity",
         "description": "Remove an entity by id. Refuses (with an error naming the referrers) if other entities still reference it, so no dangling reference is left behind. Pass cascade=true to clear those references and remove anyway.",
         "parameters": {

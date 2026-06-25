@@ -323,6 +323,11 @@ class CrateMetadata:
         title: Human-readable title for the crate.
         description: Free-text description.
         accession: Optional accession or identifier.
+        release_date: ISO-8601 date the crate/dataset was released
+            (schema:releaseDate on the Root Data Entity). ``None`` when unset —
+            ro-crate-py still auto-sets ``datePublished`` independently.
+        date_modified: ISO-8601 date/datetime the crate was last modified
+            (schema:dateModified on the Root Data Entity). ``None`` when unset.
         input_type: Whether input was a directory or conversation.
         input_path: Path to the input directory (if applicable).
         output_path: Path where the crate will be written.
@@ -331,6 +336,8 @@ class CrateMetadata:
     title: str | None = None
     description: str | None = None
     accession: str | None = None
+    release_date: str | None = None
+    date_modified: str | None = None
     input_type: InputType = "directory"
     input_path: str | None = None
     output_path: str | None = None
@@ -343,6 +350,10 @@ class CrateMetadata:
             d["description"] = self.description
         if self.accession is not None:
             d["accession"] = self.accession
+        if self.release_date is not None:
+            d["release_date"] = self.release_date
+        if self.date_modified is not None:
+            d["date_modified"] = self.date_modified
         if self.input_path is not None:
             d["input_path"] = self.input_path
         if self.output_path is not None:
@@ -351,10 +362,14 @@ class CrateMetadata:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CrateMetadata:
+        # ``release_date`` / ``date_modified`` default to None so sessions saved
+        # before these fields existed still load (back-compat, #180).
         return cls(
             title=data.get("title"),
             description=data.get("description"),
             accession=data.get("accession"),
+            release_date=data.get("release_date"),
+            date_modified=data.get("date_modified"),
             input_type=data.get("input_type", "directory"),  # type: ignore[arg-type]
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),

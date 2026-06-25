@@ -95,6 +95,7 @@ ISA_TOX_CONTEXT: list[dict] = [
         "dateCreated": "http://schema.org/dateCreated",
         "datePublished": "http://schema.org/datePublished",
         "dateModified": "http://schema.org/dateModified",
+        "releaseDate": "http://schema.org/releaseDate",
         "additionalProperty": "http://schema.org/additionalProperty",
         "additionalType": "http://schema.org/additionalType",
         "derivesFrom": "http://schema.org/isBasedOn",

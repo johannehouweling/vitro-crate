@@ -244,6 +244,61 @@ def bulk_set_fields(
     set_fields(state, entity_id, fields, source)
 
 
+def set_crate_metadata(
+    state: CrateState,
+    title: str | None = None,
+    description: str | None = None,
+    accession: str | None = None,
+    release_date: str | None = None,
+    date_modified: str | None = None,
+) -> dict[str, Any]:
+    """Set top-level crate metadata on ``state.metadata`` (the Root Data Entity).
+
+    The single setter for crate-level (root dataset) scalar metadata. ``title`` /
+    ``description`` / ``accession`` map onto the root's ``name`` / ``description``
+    / ``identifier``; ``release_date`` / ``date_modified`` map onto the root's
+    ``schema:releaseDate`` / ``schema:dateModified`` (#180). Pass ISO-8601
+    date/datetime strings for the dates (e.g. ``"2025-11-10"`` or
+    ``"2026-06-14T19:37:30Z"``).
+
+    Only the arguments actually supplied (non-``None``, non-empty) are written —
+    omitting a field leaves the current value untouched and never fabricates one
+    (D5). ro-crate-py auto-sets the root's ``datePublished`` at build time; this
+    tool never touches it.
+
+    Args:
+        state: The crate state to mutate.
+        title: Human-readable crate title (root ``name``).
+        description: Free-text crate description (root ``description``).
+        accession: Accession/identifier (root ``identifier``).
+        release_date: ISO-8601 release date (root ``schema:releaseDate``).
+        date_modified: ISO-8601 last-modified date/datetime
+            (root ``schema:dateModified``).
+
+    Returns:
+        A token-bounded summary of the metadata values now in effect for the
+        fields this tool manages.
+    """
+    m = state.metadata
+    if title not in (None, ""):
+        m.title = title
+    if description not in (None, ""):
+        m.description = description
+    if accession not in (None, ""):
+        m.accession = accession
+    if release_date not in (None, ""):
+        m.release_date = release_date
+    if date_modified not in (None, ""):
+        m.date_modified = date_modified
+    return {
+        "title": m.title,
+        "description": m.description,
+        "accession": m.accession,
+        "release_date": m.release_date,
+        "date_modified": m.date_modified,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
@@ -257,3 +312,6 @@ TOOL_REGISTRY.register("remove_entity", remove_entity, takes_state=True)
 # identical, the third the single-field case) and are no longer exposed to the
 # LLM — set_fields covers all three.
 TOOL_REGISTRY.register("set_fields", set_fields, takes_state=True)
+# Crate-level (Root Data Entity) metadata setter — title/description/accession
+# plus the root dates releaseDate/dateModified (Issue #180).
+TOOL_REGISTRY.register("set_crate_metadata", set_crate_metadata, takes_state=True)
