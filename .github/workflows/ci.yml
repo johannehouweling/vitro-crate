@@ -7,20 +7,20 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
         with:
           version: "latest"
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
 
@@ -34,10 +34,66 @@ jobs:
         run: uv run ty check
         continue-on-error: true  # ty is a Rust-based type checker still evolving
 
-      - name: Test (pytest)
-        # Run in parallel with pytest-xdist. `-n auto` uses every vCPU the runner
-        # has (ubuntu-latest = 4 vCPU at time of writing), and `--maxprocesses=4`
-        # caps worker count so memory-heavy build/validate tests do not exhaust
-        # RAM on larger runners. `timeout_method = thread` (pyproject) makes
-        # pytest-timeout fire inside xdist worker subprocesses.
-        run: uv run pytest --ignore=tests/test_validator_wiring.py --ignore=tests/test_lookups_contract.py --ignore=tests/test_dashboard.py --timeout=30 -n auto --maxprocesses=4 -x -v
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Don't let one shard's failure cancel the others — we want to see every
+      # failing test across the whole suite in a single CI run.
+      fail-fast: false
+      matrix:
+        # Shard the suite across N independent jobs. GitHub's standard runner is
+        # 2 vCPU / 1 physical core, so pytest-xdist's `-n auto` resolves to a
+        # SINGLE worker there ("created: 1/1 worker") — i.e. no in-process
+        # parallelism at all. Bumping to a fixed `-n N` would risk OOM: the
+        # standard runner has ~7 GB and every xdist worker re-loads torch +
+        # langchain + rocrate, which OOM-crashes build/validate workers. So we
+        # parallelise ACROSS jobs instead: each fresh `ubuntu-latest` gets the
+        # full ~7 GB to itself and runs one shard serially (no `-n`), and the
+        # shards run concurrently as separate runners.
+        group: [1, 2, 3, 4]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Install dependencies
+        run: uv sync --dev --extra langchain
+
+      - name: Test (pytest, shard ${{ matrix.group }}/4)
+        # pytest-split partitions the suite into 4 timing-balanced groups using
+        # the committed `.test_durations` file and the `least_duration`
+        # algorithm, so the heavy SHACL-validation / e2e build tail is spread
+        # evenly instead of piling into one shard. Measured balance from the
+        # committed durations: 224/225/224/222 tests, ~162s per shard, exact
+        # partition (0 overlap, 0 gaps).
+        #
+        # Run serially within the shard (no `-n`): each shard already has the
+        # whole runner's ~7 GB, and cross-job sharding provides the parallelism,
+        # so there is no need to risk OOM with in-process xdist workers here.
+        #
+        # `-x` is intentionally dropped under sharding: a failure in this shard
+        # should not abort the run; combined with `fail-fast: false` above, every
+        # shard runs to completion so all failures surface in one go. The overall
+        # `test` job still fails if any shard fails (matrix default).
+        run: >-
+          uv run pytest
+          --ignore=tests/test_validator_wiring.py
+          --ignore=tests/test_lookups_contract.py
+          --ignore=tests/test_dashboard.py
+          --timeout=30
+          --splits 4
+          --group ${{ matrix.group }}
+          --splitting-algorithm least_duration
+          -p no:cacheprovider
+          -v

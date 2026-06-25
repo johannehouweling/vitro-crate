@@ -42,10 +42,38 @@ This project uses **test-driven development (TDD)**. Write the test before the i
 ## CI
 
 A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
-1. `uv sync --dev --extra langchain` — install all dependencies
-2. `uvx ruff check` — lint
-3. `uv run ty` — type check (continue-on-error)
-4. `uv run pytest` — run tests (excluding slow integration tests)
+1. `lint` job — `uvx ruff check` and `uv run ty check` (ty is continue-on-error).
+2. `test` job — a **4-way matrix** that shards the suite across four independent
+   `ubuntu-latest` runners with [`pytest-split`](https://github.com/jerry-git/pytest-split).
+   Each shard runs serially (no `pytest-xdist`), and the shards run concurrently
+   as separate jobs.
+
+Why matrix sharding instead of in-process `pytest-xdist`? GitHub's standard
+runner is 2 vCPU / 1 physical core, so `pytest-xdist -n auto` resolves to a
+single worker there (`created: 1/1 worker`) — i.e. no parallelism. Forcing a
+fixed `-n N` risks OOM: the runner has ~7 GB and every xdist worker re-loads
+torch + langchain + rocrate. Sharding across jobs gives each shard the whole
+runner's RAM and provides real wall-clock parallelism without OOM risk.
+
+Shards are balanced by recorded test timings in the committed `.test_durations`
+file (`--splitting-algorithm least_duration`), so the heavy SHACL-validation and
+e2e build tail is spread evenly (~162s per shard) rather than piling into one
+group. Regenerate `.test_durations` after large test-suite changes with:
+
+```bash
+uv run pytest \
+  --ignore=tests/test_validator_wiring.py \
+  --ignore=tests/test_lookups_contract.py \
+  --ignore=tests/test_dashboard.py \
+  --store-durations -p no:cacheprovider
+```
+
+**Local dev:** the suite is still wired for `pytest-xdist`, so locally (where
+machines have many physical cores and more RAM) you can parallelise in-process:
+
+```bash
+uv run pytest -n auto --maxprocesses=4   # cap workers so build/validate don't OOM
+```
 
 Merges to `main` are gated on a green CI run.
 

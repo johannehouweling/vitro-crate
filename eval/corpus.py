@@ -16,6 +16,13 @@ Each :class:`EvalCase` declares:
 The success predicate is shared and deliberately strict: a case succeeds when its
 crate reaches ``{base, isa, tox}`` REQUIRED conformance through ``build_and_validate``
 (see :func:`reaches_isa_tox_conformance`).
+
+A case may *additionally* declare ``min_entities`` — a minimum count of domain
+entities (by ``@type``) its build must produce. That gives the A/B a second,
+additive **content-quality** signal (:func:`meets_entity_quota`): conformance
+measures whether the agent *acted*; the quota measures whether what it drafted is
+actually there. ``min_entities`` never changes the success predicate; it is a
+separate, optional metric so cases that do not declare it are simply not assessed.
 """
 
 from __future__ import annotations
@@ -32,6 +39,10 @@ CaseKind = Literal["minimal", "structured", "unstructured"]
 # experimental data) — the same one the #59 end-to-end quality test uses.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _STRUCTURED_INPUT = _REPO_ROOT / "tests" / "fixtures" / "svhps21_input"
+# A richer structured fixture (Issue #179): a clear compound + cell line + a
+# protocol + a couple of data files + a README, so a build must draft several
+# distinct domain entities rather than just a backbone.
+_DRAFTING_INPUT = _REPO_ROOT / "tests" / "fixtures" / "svhps22_input"
 
 
 @dataclass(frozen=True)
@@ -45,6 +56,11 @@ class EvalCase:
         prompt: NL request driving a conversational agent's build.
         input_path: Optional in-repo directory the agent scans (offline).
         build_state: Optional factory of a finished state, used by the mock agent.
+        min_entities: Optional minimum domain-entity quota by ``@type`` (e.g.
+            ``{"MolecularEntity": 1, "CellLineSample": 1, "File": 2}``). When set,
+            the harness records an additive content-quality signal — whether the
+            build drafted at least that many of each type — *on top of* the strict
+            conformance success predicate. ``None`` ⇒ quality is not assessed.
     """
 
     case_id: str
@@ -53,6 +69,7 @@ class EvalCase:
     prompt: str = ""
     input_path: str | None = None
     build_state: Callable[[], CrateState] | None = None
+    min_entities: dict[str, int] | None = None
 
 
 def reaches_isa_tox_conformance(state: CrateState) -> dict[str, Any]:
@@ -82,6 +99,50 @@ def reaches_isa_tox_conformance(state: CrateState) -> dict[str, Any]:
     }
 
 
+def meets_entity_quota(
+    state: CrateState, min_entities: dict[str, int] | None
+) -> dict[str, Any]:
+    """Content-quality check: did *state* draft at least ``min_entities`` per type?
+
+    This is the second, *additive* signal the A/B uses alongside
+    :func:`reaches_isa_tox_conformance`. Conformance answers "did the agent act?";
+    the quota answers "is the drafted domain content actually there?" — a crate can
+    reach ``{base, isa, tox}`` with an almost-empty backbone, so a draft-quality
+    case demands a minimum set of domain entities (a compound, a cell line, files…).
+
+    Args:
+        state: The crate state produced by an agent build.
+        min_entities: Required minimum count per entity ``@type``. ``None`` means
+            the case does not assess content quality.
+
+    Returns:
+        A dict with:
+
+        * ``meets_quota`` — ``True``/``False`` when a quota is declared, else
+          ``None`` (quality not assessed);
+        * ``entity_counts`` — actual count of each *demanded* type in the state
+          (empty when no quota);
+        * ``missing`` — ``{type: shortfall}`` for every type below its minimum
+          (empty when the quota is met or undeclared).
+    """
+    if not min_entities:
+        return {"meets_quota": None, "entity_counts": {}, "missing": {}}
+
+    entity_counts: dict[str, int] = {}
+    missing: dict[str, int] = {}
+    for entity_type, required in min_entities.items():
+        count = len(state.list_entities(entity_type=entity_type))
+        entity_counts[entity_type] = count
+        if count < required:
+            missing[entity_type] = required - count
+
+    return {
+        "meets_quota": not missing,
+        "entity_counts": entity_counts,
+        "missing": missing,
+    }
+
+
 # --- mock-build state factories (offline stand-ins for a real agent build) -----
 #
 # These let the harness's runner / report / determinism logic be exercised end to
@@ -108,6 +169,105 @@ def _unstructured_state() -> CrateState:
     from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
     return vhps_fixture_state("S-VHPS21")
+
+
+def _drafting_state() -> CrateState:
+    """A *richly* drafted S-VHPS22 crate — the offline stand-in for a good build.
+
+    Unlike the backbone-only stand-ins above, this drafts the full domain set the
+    ``structured-svhps22`` case is designed to elicit: the ISA backbone, a
+    compound, a cell line, contributors, a lab protocol, the Exposure process, and
+    the two attached data files. It is REQUIRED-clean across base/ISA/ISA-Tox *and*
+    satisfies that case's ``min_entities`` quota, so the content-quality signal is
+    exercisable offline with a mock agent.
+    """
+    from builder.state import CrateState, Entity, EntityProvenance, EntityType
+
+    def _ent(entity_id: str, type_: EntityType, **fields: object) -> Entity:
+        return Entity(
+            entity_id=entity_id,
+            type=type_,
+            fields=fields,
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+
+    title = "Inhibition of thyroid peroxidase (TPO) activity dose-response screen"
+    description = (
+        "A cell-based in vitro assay screening a reference chemical for its "
+        "capacity to inhibit thyroid peroxidase (TPO) activity in a "
+        "TPO-overexpressing FRTL-5 follicular cell model."
+    )
+
+    state = CrateState()
+    state.metadata.title = title
+    state.metadata.description = description
+    state.metadata.accession = "S-VHPS22"
+
+    # ISA backbone.
+    state.add_entity(
+        _ent("inv", "Investigation", name=title, description=description, identifier="S-VHPS22")
+    )
+    state.add_entity(
+        _ent(
+            "study",
+            "Study",
+            name=title,
+            description=description,
+            identifier="S-VHPS22",
+            investigation_id="inv",
+            datePublished="2025-11-10",
+        )
+    )
+    state.add_entity(
+        _ent(
+            "assay",
+            "Assay",
+            name="TPO inhibition dose-response assay",
+            identifier="S-VHPS22-assay",
+            study_id="study",
+        )
+    )
+
+    # Contributors.
+    state.add_entity(
+        _ent(
+            "author",
+            "Person",
+            name="Marije Vonk",
+            givenName="Marije",
+            familyName="Vonk",
+            orcid="0000-0002-1825-0097",
+        )
+    )
+    state.add_entity(_ent("org", "Organization", name="Universiteit Utrecht"))
+
+    # Domain entities: compound, cell line, protocol, and the Exposure process.
+    state.add_entity(_ent("cell", "CellLineSample", name="FRTL-5 TPO-overexpressing cells"))
+    state.add_entity(_ent("compound", "MolecularEntity", name="Methimazole"))
+    state.add_entity(
+        _ent("protocol", "LabProtocol", name="Amplex Red fluorometric TPO activity readout")
+    )
+    state.add_entity(
+        _ent(
+            "exposure",
+            "LabProcess",
+            name="Methimazole TPO inhibition exposure",
+            process_type="Exposure",
+            assay_id="assay",
+            samples="cell",
+            chemicals="compound",
+            protocol_id="protocol",
+        )
+    )
+
+    # The two attached data files from the fixture folder.
+    state.add_entity(
+        _ent("raw", "File", name="dose_response_raw.csv", path="raw_data/dose_response_raw.csv")
+    )
+    state.add_entity(
+        _ent("proc", "File", name="ic50_results.csv", path="processed_data/ic50_results.csv")
+    )
+    return state
 
 
 DEFAULT_CORPUS: tuple[EvalCase, ...] = (
@@ -142,6 +302,33 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
         ),
         input_path=str(_STRUCTURED_INPUT),
         build_state=_structured_state,
+    ),
+    EvalCase(
+        case_id="structured-svhps22",
+        description=(
+            "Entity-drafting case: scan a richer in-repo S-VHPS22 research folder "
+            "(README naming a compound + cell line + protocol, plus raw/processed "
+            "CSVs) and draft the full ISA-Tox domain set. Success is the strict "
+            "{base, isa, tox} conformance gate; the additive min_entities quota "
+            "measures whether the build actually drafted the domain content "
+            "(compound, cell line, the two files) — so the A/B can compare draft "
+            "QUALITY, not just that the agent acted (Issue #179)."
+        ),
+        kind="structured",
+        prompt=(
+            "Scan the provided input folder. Read its README and both data files, "
+            "then draft the ISA-Tox entities for this TPO-inhibition dose-response "
+            "study (S-VHPS22): the Investigation/Study/Assay backbone, the test "
+            "compound Methimazole, the FRTL-5 TPO-overexpressing cell line, the "
+            "Amplex Red protocol, an Exposure process, the contributors, and attach "
+            "the raw and processed data files. Then build and validate until base, "
+            "ISA, and ISA-Tox all pass."
+        ),
+        input_path=str(_DRAFTING_INPUT),
+        build_state=_drafting_state,
+        # Content-quality quota: a real draft must carry the compound, the cell
+        # line, and both attached data files — not merely a conformant backbone.
+        min_entities={"MolecularEntity": 1, "CellLineSample": 1, "File": 2},
     ),
     EvalCase(
         case_id="unstructured-conversation",

@@ -78,6 +78,9 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
                 "iterations": result.iterations,
                 "tool_calls": result.tool_calls,
                 "deterministic": result.deterministic,
+                # Additive content-quality signal — ``None`` for cases that do not
+                # declare a min_entities quota.
+                "meets_quota": result.meets_quota,
             }
 
     return {"labels": labels, "summaries": summaries, "cases": cases}
