@@ -1611,8 +1611,8 @@ HITL and lives **outside** the spine, in the interactive entrypoint
 #### 14.6.1 The interactive entrypoint (`builder/agents/build.py`)
 
 `run_interactive_build(engine, *, pipeline_runner=None, guidance_runner=None,
-output=None) -> dict` joins the two halves into the end-to-end sequence a real
-user runs. It:
+exporter=None, output=None) -> dict` joins the two halves into the end-to-end
+sequence a real user runs. It:
 
 1. runs the **automated** pipeline (`run_pipeline`) — always;
 2. runs the **HITL guidance tail** (`run_guidance(engine, engine.human_interface)`)
@@ -1621,8 +1621,35 @@ user runs. It:
    (`format_guidance_summary` — gaps resolved / asked / remaining per tier, plus
    final base/isa/tox conformance) via the injected `output` channel (e.g. the
    CLI's `print` / console writer);
-4. returns `{"pipeline": <run_pipeline result>, "guidance": <run_guidance result
-   or None>}` — `guidance` is `None` exactly when the path was non-interactive.
+4. **exports the crate to disk LAST** (`export_crate(engine.state)`, #233) — after
+   guidance, so the *enriched* crate is what lands — and surfaces the resolved
+   **absolute** crate path via `output`;
+5. returns `{"pipeline": <run_pipeline result>, "guidance": <run_guidance result
+   or None>, "export": <export_crate result>}` — `guidance` is `None` exactly when
+   the path was non-interactive; `export` is the (successful) export result dict.
+
+**The on-disk export (#233).** Before #233 the pipeline path built + validated in
+memory and exited **without writing anything** — `export_crate`
+(`builder/tools/builder.py`, the only disk writer) was never called on this path
+(only the legacy ReAct loop exported, because the LLM chose to). The export is now
+the deterministic **final step** of `run_interactive_build`, on **every** completed
+build (interactive *and* headless), so the user always gets a crate on disk and
+`--output` has an effect. The destination is resolved by `export_crate` from
+`state.metadata.output_path` (the CLI-resolved path, see below) with the session
+`working_crate/` fallback. An export failure is **never silently swallowed**: it is
+logged, surfaced via `output`, and re-raised as `CrateExportError` so the CLI
+signals a non-zero exit. The exporter is injectable so the wiring is unit-tested
+with no ro-crate-py / disk (`tests/test_agents_build.py`).
+
+**Output location (CLI, `main.py`).** The on-disk destination is resolved at
+dispatch time with this precedence (#233):
+
+1. `--output` / `-o` always wins (sets `state.metadata.output_path`);
+2. `--output` omitted **and** `--input` given => a **sibling of the input folder**,
+   `<input_parent>/<input_name>-ro-crate/`, so the crate lands next to the data it
+   describes;
+3. no `--input` (conversation mode) => leave `output_path` unset so `export_crate`
+   falls back to the session `working_crate/` directory.
 
 **The interactive signal.** "Interactive vs headless" is read from a single,
 optional `HumanInterface.is_interactive` attribute via the fail-closed helper
@@ -1630,10 +1657,11 @@ optional `HumanInterface.is_interactive` attribute via the fail-closed helper
 attribute, or one that sets it falsy is **non-interactive**; only a frontend
 backed by a real user sets it `True`. The default `SimulatedHumanInterface`
 (used by the A/B eval, batch runs, and the test suite) is `is_interactive = False`,
-so behind it `run_interactive_build` degrades to `run_pipeline` alone and
-`run_guidance` is **never invoked** — guidance can never block a headless build.
-Both runners are injectable so the wiring is unit-tested with no SHACL / no LLM /
-no network (`tests/test_agents_build.py`).
+so behind it `run_interactive_build` degrades to `run_pipeline` + export alone and
+`run_guidance` is **never invoked** — guidance can never block a headless build,
+but the headless build is **still written to disk**. The pipeline, guidance, and
+exporter runners are all injectable so the wiring is unit-tested with no SHACL /
+no LLM / no disk / no network (`tests/test_agents_build.py`).
 
 **Stage C — the gap engine.** `assess_gaps(state: CrateState) -> GapReport`
 (`builder/tools/gap_analysis.py`) unifies the three assessors into ONE

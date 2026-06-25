@@ -14,7 +14,10 @@ interface is interactive, and that a concise summary is surfaced.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from builder.engine import AgentEngine
 from builder.state import CrateState
@@ -209,3 +212,127 @@ class TestGuidanceSummary:
         # No "asked"/"resolved" guidance wording when guidance never ran.
         assert "resolved" not in joined
         assert "asked" not in joined
+
+
+class TestDeterministicExport:
+    """The interactive build writes the enriched crate to disk (#233).
+
+    Before #233 the pipeline path built + validated in memory and exited without
+    calling :func:`builder.tools.builder.export_crate`, so nothing landed on disk
+    and ``--output`` had no effect on the default build. These tests assert the
+    final deterministic export: ``ro-crate-metadata.json`` is written to the
+    resolved path AND that absolute path is surfaced via the ``output`` channel.
+    """
+
+    def test_export_writes_metadata_to_resolved_output_path(self, tmp_path) -> None:
+        """After the build, ro-crate-metadata.json exists at the resolved path."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "experiment-ro-crate"
+        engine = _engine(_InteractiveHuman())
+        engine.state.metadata.output_path = str(out_dir)
+
+        lines: list[str] = []
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=lines.append,
+        )
+
+        # The on-disk writer ran: the crate metadata document exists.
+        assert (out_dir / "ro-crate-metadata.json").is_file()
+        # The final ABSOLUTE path is surfaced to the user via the output channel.
+        joined = "\n".join(lines)
+        assert str(out_dir.resolve()) in joined
+
+    def test_export_runs_on_non_interactive_build(self, tmp_path) -> None:
+        """Even a headless build (no guidance) still writes the crate (#233)."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "headless-ro-crate"
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(out_dir)
+
+        lines: list[str] = []
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=lines.append,
+        )
+
+        assert (out_dir / "ro-crate-metadata.json").is_file()
+        assert str(out_dir.resolve()) in "\n".join(lines)
+
+    def test_export_runs_after_guidance(self, tmp_path) -> None:
+        """Export is the FINAL step — it runs after guidance has mutated state."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "ordered-ro-crate"
+        engine = _engine(_InteractiveHuman())
+        engine.state.metadata.output_path = str(out_dir)
+        order: list[str] = []
+
+        def fake_guidance(eng: AgentEngine, human: HumanInterface, **kw: Any) -> dict:
+            order.append("guidance")
+            return dict(_GUIDANCE_RESULT)
+
+        def fake_exporter(state: CrateState, **kw: Any) -> dict[str, Any]:
+            order.append("export")
+            return {"success": True, "crate_path": str(out_dir), "error": None}
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=fake_guidance,
+            exporter=fake_exporter,
+            output=[].append,
+        )
+
+        assert order == ["guidance", "export"]
+
+    def test_export_failure_is_surfaced_not_swallowed(self, tmp_path) -> None:
+        """A failed export is reported via output and raised, never silent (#233)."""
+        from builder.agents.build import run_interactive_build
+
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(tmp_path / "x-ro-crate")
+        lines: list[str] = []
+
+        def failing_exporter(state: CrateState, **kw: Any) -> dict[str, Any]:
+            return {
+                "success": False,
+                "crate_path": state.metadata.output_path,
+                "error": "disk full",
+            }
+
+        with pytest.raises(RuntimeError, match="disk full"):
+            run_interactive_build(
+                engine,
+                pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+                guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+                exporter=failing_exporter,
+                output=lines.append,
+            )
+
+        # The failure was surfaced to the user before raising.
+        assert any("disk full" in line.lower() or "fail" in line.lower() for line in lines)
+
+    def test_export_result_in_return_value(self, tmp_path) -> None:
+        """run_interactive_build returns the export result under an 'export' key."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "ret-ro-crate"
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(out_dir)
+
+        result = run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        assert result["export"]["success"] is True
+        assert Path(result["export"]["crate_path"]).resolve() == out_dir.resolve()

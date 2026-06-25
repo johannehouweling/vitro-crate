@@ -126,6 +126,25 @@ uv run python -m main --interactive --provider openai --api-base http://localhos
 uv run python -m main --interactive --legacy-react
 ```
 
+**Where the crate is written.** The completed build is written to disk as a valid
+RO-Crate (`ro-crate-metadata.json` plus payload), and the **absolute** output path
+is printed at the end. The destination is chosen as follows:
+
+- `--output` / `-o` always wins.
+- **Default** (no `--output`, with `--input`): a **sibling of the input folder** —
+  `<input_parent>/<input_name>-ro-crate/`. For example, `-i /data/experiment/`
+  writes to `/data/experiment-ro-crate/`.
+- No `--input` (conversation mode): the session working directory
+  (`sessions/<session_id>/working_crate/`).
+
+```bash
+# Default: writes to /path/to/experiment-ro-crate/ (sibling of the input)
+uv run python -m main --interactive -i /path/to/experiment/
+
+# Override the destination explicitly:
+uv run python -m main --interactive -i /path/to/experiment/ -o /path/to/my-crate/
+```
+
 ### Configuration file (pre-populated)
 
 Settings are stored in ``~/.config/vitro-crate/config.toml`` (Linux/macOS)
@@ -209,7 +228,9 @@ python -m main [options]
 
 Options:
   -i, --input PATH       Path to input directory with research data
-  -o, --output PATH      Output path for the ARC directory (RO-Crate)
+  -o, --output PATH      Output path for the RO-Crate directory. Defaults to a
+                         sibling of --input: <input>-ro-crate/ (or the session
+                         working_crate/ when no --input is given)
   -r, --resume SESSION   Resume a previous session by ID
   -I, --interactive      Run in interactive build mode: deterministic pipeline +
                          HITL guidance tail (requires LangChain + API key)
