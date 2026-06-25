@@ -26,7 +26,7 @@ import pytest
 
 from builder.engine import AgentEngine
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
-from builder.tools.gap_analysis import Gap, GapReport, assess_gaps
+from builder.tools.gap_analysis import Gap, GapReport, Tier, assess_gaps
 from builder.tools.hitl import HumanResponse, InputResponse
 
 pytestmark = pytest.mark.timeout(120)
@@ -785,7 +785,7 @@ def _single_ask_gap_report(monkeypatch, gap: Gap, *, counts: dict[str, int]):
     monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
 
 
-def _study_desc_gap(tier: str = "MUST") -> Gap:
+def _study_desc_gap(tier: Tier = "MUST") -> Gap:
     return Gap(
         tier=tier,
         source="shacl",
@@ -1120,3 +1120,369 @@ class TestReportOnlyNeverAskedWithLLM:
         # The report-only gap was never offered to the user.
         assert human.inputs == []
         assert human.presented == []
+
+
+# ---------------------------------------------------------------------------
+# (Issue #257, fix A) Every question NAMES the entity it is about
+#
+# A gap with a concrete ``entity_id`` resolves to a real state entity; its TYPE,
+# NAME, KNOWN fields, and the MISSING field are threaded into the gap context the
+# phrase leaf consumes, so the phrased question references the entity BY NAME and
+# never a bare "this chemical / this protocol / this cell line".
+# ---------------------------------------------------------------------------
+
+
+def _backbone_with_compound(name: str = "Silychristin A") -> CrateState:
+    """Backbone + a MolecularEntity with a known name but no CAS recorded."""
+    state = _backbone()
+    state.add_entity(_entity("chem1", "MolecularEntity", name=name))
+    return state
+
+
+class TestQuestionNamesEntity:
+    def test_gap_context_carries_resolved_entity_name_and_type(self):
+        """``_gap_context`` resolves the entity from state and includes its name,
+        type, and known fields so the leaf can name it (Issue #257)."""
+        from builder.agents.guidance import _gap_context
+
+        engine = AgentEngine(state=_backbone_with_compound("Silychristin A"))
+        gap = Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id="chem1",
+            entity_type="MolecularEntity",
+            property="cas",
+            message="MolecularEntity SHOULD record a CAS number.",
+            suggestion="A CAS Registry Number.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+
+        ctx = _gap_context(engine, gap)
+
+        assert ctx.get("entity_name") == "Silychristin A"
+        assert ctx.get("entity_type") == "MolecularEntity"
+        # Known fields are surfaced so the leaf can ground the question.
+        known = ctx.get("known_fields") or {}
+        assert known.get("name") == "Silychristin A"
+        # The missing field being asked about is the gap's property.
+        assert ctx.get("property") == "cas"
+
+    def test_phrased_question_names_the_entity_not_this_chemical(self, monkeypatch):
+        """End-to-end: a gap on the named compound yields a question that contains
+        the NAME, never a bare 'this chemical'."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone_with_compound("Silychristin A"))
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+
+        cas_gap = Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id="chem1",
+            entity_type="MolecularEntity",
+            property="cas",
+            message="MolecularEntity SHOULD record a CAS number.",
+            suggestion="A CAS Registry Number like 103-90-2.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        _single_ask_gap_report(
+            monkeypatch,
+            cas_gap,
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+
+        # A realistic phrase leaf: it echoes the entity name it is handed.
+        def _phrase(ctx):
+            name = ctx.get("entity_name") or "this chemical substance"
+            return f"What is the CAS Registry Number for {name}?"
+
+        monkeypatch.setattr(guidance, "phrase_gap_question", _phrase)
+        # An identifier gap: the user's prose can never become the value (D5).
+        monkeypatch.setattr(
+            guidance, "interpret_gap_reply", lambda _q, _r, _c: {"action": "skip"}
+        )
+
+        human = ScriptedHuman(input_answers=[_value("dunno")])
+        run_guidance(engine, human, max_rounds=5)
+
+        assert human.inputs, "the user must be prompted"
+        prompt = human.inputs[0][0]
+        assert "Silychristin A" in prompt
+        assert "this chemical" not in prompt.lower()
+
+    def test_deterministic_prompt_names_the_entity(self):
+        """Even the no-provider deterministic prompt names the entity (Issue #257)."""
+        from builder.agents.guidance import _ask_user
+
+        engine = AgentEngine(state=_backbone_with_compound("Silychristin A"))
+        gap = Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id="chem1",
+            entity_type="MolecularEntity",
+            property="description",
+            message="MolecularEntity SHOULD have a description.",
+            suggestion="A short free-text description.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        human = ScriptedHuman(input_answers=[_value("ok")])
+        _ask_user(engine, human, gap)
+
+        assert human.inputs
+        prompt = human.inputs[0][0]
+        assert "Silychristin A" in prompt
+
+
+# ---------------------------------------------------------------------------
+# (Issue #257, fix C) 'from_file' READS the file and EXTRACTS + COMMITS the value
+#
+# When the interpret leaf returns ``from_file`` and the named/likely file is
+# under an approved scan root, the loop reads it (via file_readers) and runs a
+# bounded extraction leaf to pull the requested field value, then COMMITS it.
+# An unreadable / outside-root file gracefully skips (commits nothing).
+# ---------------------------------------------------------------------------
+
+
+class TestFromFileReadsAndExtracts:
+    def _enable_provider(self, monkeypatch):
+        from builder.agents import guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+
+    def test_from_file_reads_extracts_and_commits(self, monkeypatch, tmp_path):
+        """The headline regression: a 'look in the file' reply must READ the file,
+        EXTRACT the value, and COMMIT it — not log a hint and skip (Issue #257)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        # A real file under an approved scan root carrying the value.
+        meta = tmp_path / "Assay-metadata.csv"
+        meta.write_text(
+            "field,value\n"
+            "description,A CHO-K1 OATP1C1 uptake assay measuring transporter "
+            "activity.\n"
+        )
+
+        state = _backbone()
+        state.approved_scan_roots.add(str(tmp_path))
+        engine = AgentEngine(state=state)
+        self._enable_provider(monkeypatch)
+
+        desc_gap = Gap(
+            tier="MUST",
+            source="shacl",
+            entity_id="st1",
+            entity_type="Study",
+            property="https://schema.org/description",
+            message="Study MUST have a description.",
+            suggestion="A free-text study description.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        _single_ask_gap_report(
+            monkeypatch,
+            desc_gap,
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "Describe the study."
+        )
+        monkeypatch.setattr(
+            guidance,
+            "interpret_gap_reply",
+            lambda _q, _r, _c: {"action": "from_file", "filename": str(meta)},
+        )
+
+        # The extraction leaf pulls the value from the file text.
+        captured: dict[str, object] = {}
+
+        def _extract(field, file_text, ctx):
+            captured["field"] = field
+            captured["file_text"] = file_text
+            return "A CHO-K1 OATP1C1 uptake assay measuring transporter activity."
+
+        monkeypatch.setattr(guidance, "extract_field_from_file", _extract)
+
+        human = ScriptedHuman(
+            input_answers=[_value(f"look in {meta}")]
+        )
+        summary = run_guidance(engine, human, max_rounds=5)
+
+        # The value was READ from the file, extracted, and COMMITTED (not skipped).
+        applied = _get(engine, "st1")
+        assert applied.fields.get("description") == (
+            "A CHO-K1 OATP1C1 uptake assay measuring transporter activity."
+        )
+        # The extraction leaf actually saw the FILE TEXT (it was read).
+        assert "OATP1C1" in str(captured.get("file_text", ""))
+        assert captured.get("field") == "description"
+        # The gap is recorded as resolved.
+        assert any(r.get("entity_id") == "st1" for r in summary["resolved"])
+
+    def test_from_file_outside_approved_root_skips_gracefully(
+        self, monkeypatch, tmp_path
+    ):
+        """A file outside every approved scan root is NOT read — the loop skips
+        gracefully and commits nothing (sandbox honoured, Issue #257)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        # The file exists, but NO approved scan root contains it.
+        outside = tmp_path / "secret.csv"
+        outside.write_text("description,leak\n")
+
+        engine = AgentEngine(state=_backbone())  # approved_scan_roots is empty
+        original = _get(engine, "st1").fields.get("description")
+        self._enable_provider(monkeypatch)
+
+        desc_gap = Gap(
+            tier="MUST",
+            source="shacl",
+            entity_id="st1",
+            entity_type="Study",
+            property="https://schema.org/description",
+            message="Study MUST have a description.",
+            suggestion="A free-text study description.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        _single_ask_gap_report(
+            monkeypatch,
+            desc_gap,
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "Describe the study."
+        )
+        monkeypatch.setattr(
+            guidance,
+            "interpret_gap_reply",
+            lambda _q, _r, _c: {"action": "from_file", "filename": str(outside)},
+        )
+
+        def _boom_extract(*_a, **_k):  # pragma: no cover - must not run
+            raise AssertionError(
+                "an out-of-root file must never be read or extracted"
+            )
+
+        monkeypatch.setattr(guidance, "extract_field_from_file", _boom_extract)
+
+        human = ScriptedHuman(input_answers=[_value(f"it's in {outside}")])
+        summary = run_guidance(engine, human, max_rounds=5)
+
+        # Nothing committed — the sandbox refused the read.
+        assert _get(engine, "st1").fields.get("description") == original
+        assert not any(r.get("entity_id") == "st1" for r in summary["resolved"])
+
+    def test_from_file_unreadable_file_skips_gracefully(self, monkeypatch, tmp_path):
+        """A from_file pointing at a missing/unreadable file under an approved root
+        skips gracefully (no value extracted, nothing committed)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        state = _backbone()
+        state.approved_scan_roots.add(str(tmp_path))
+        engine = AgentEngine(state=state)
+        original = _get(engine, "st1").fields.get("description")
+        self._enable_provider(monkeypatch)
+
+        missing = tmp_path / "does-not-exist.csv"
+
+        desc_gap = Gap(
+            tier="MUST",
+            source="shacl",
+            entity_id="st1",
+            entity_type="Study",
+            property="https://schema.org/description",
+            message="Study MUST have a description.",
+            suggestion="A free-text study description.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        _single_ask_gap_report(
+            monkeypatch,
+            desc_gap,
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "Describe the study."
+        )
+        monkeypatch.setattr(
+            guidance,
+            "interpret_gap_reply",
+            lambda _q, _r, _c: {"action": "from_file", "filename": str(missing)},
+        )
+        # Extraction must not even be reached (no readable text).
+        monkeypatch.setattr(
+            guidance,
+            "extract_field_from_file",
+            lambda *_a, **_k: (_ for _ in ()).throw(
+                AssertionError("must not extract from an unreadable file")
+            ),
+        )
+
+        human = ScriptedHuman(input_answers=[_value(f"see {missing}")])
+        run_guidance(engine, human, max_rounds=5)
+
+        assert _get(engine, "st1").fields.get("description") == original
+
+    def test_from_file_identifier_field_is_not_committed_from_file(
+        self, monkeypatch, tmp_path
+    ):
+        """D5: an identifier-bearing field is never committed from file text — even
+        a from_file reply pointing at the value must not land it (lookups only)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        meta = tmp_path / "compound.csv"
+        meta.write_text("cas,103-90-2\n")
+
+        state = _backbone_with_compound("Acetaminophen")
+        state.approved_scan_roots.add(str(tmp_path))
+        engine = AgentEngine(state=state)
+        self._enable_provider(monkeypatch)
+
+        cas_gap = Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id="chem1",
+            entity_type="MolecularEntity",
+            property="cas",
+            message="MolecularEntity SHOULD record a CAS number.",
+            suggestion="A CAS Registry Number.",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+        _single_ask_gap_report(
+            monkeypatch,
+            cas_gap,
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "What is the CAS number?"
+        )
+        monkeypatch.setattr(
+            guidance,
+            "interpret_gap_reply",
+            lambda _q, _r, _c: {"action": "from_file", "filename": str(meta)},
+        )
+        # Even if the leaf were to return a CAS, the loop's D5 guard refuses it.
+        monkeypatch.setattr(
+            guidance, "extract_field_from_file", lambda *_a, **_k: "103-90-2"
+        )
+
+        human = ScriptedHuman(input_answers=[_value(f"cas is in {meta}")])
+        run_guidance(engine, human, max_rounds=5)
+
+        applied = _get(engine, "chem1")
+        assert applied.fields.get("cas") != "103-90-2", (
+            "D5: an identifier must come from a lookup, not file extraction"
+        )

@@ -877,6 +877,158 @@ class TestGuidanceLeavesD5:
         )
 
 
+# ---------------------------------------------------------------------------
+# Entity-aware phrasing (Issue #257, fix A)
+#
+# When a gap is about a CONCRETE entity, the guidance loop now threads the
+# entity's type/name/known-fields into the gap context. The phrase leaf must
+# put that NAME into the question — never a bare "this chemical/protocol/cell
+# line" — so the user knows WHICH entity is being asked about.
+# ---------------------------------------------------------------------------
+
+
+class TestPhraseGapQuestionNamesEntity:
+    """The phrased question must reference the named entity (Issue #257)."""
+
+    def test_entity_name_reaches_the_model_prompt(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel(
+            {"question": "What is the CAS Registry Number for Silychristin A?"}
+        )
+        _patch_build_chat_model["model"] = fake
+
+        leaves.phrase_gap_question(
+            {
+                "property": "cas",
+                "entity_type": "MolecularEntity",
+                "entity_name": "Silychristin A",
+                "tier": "SHOULD",
+                "message": "MolecularEntity SHOULD record a CAS number.",
+                "suggestion": "A CAS Registry Number like 103-90-2.",
+            }
+        )
+
+        # The entity NAME the loop resolved must reach the model in the prompt
+        # block, so the model can phrase a question naming the entity.
+        human_msg = fake.invoke_calls[0][-1].content
+        assert "Silychristin A" in human_msg
+
+    def test_known_fields_reach_the_model_prompt(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({"question": "q"})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.phrase_gap_question(
+            {
+                "property": "description",
+                "entity_type": "LabProtocol",
+                "entity_name": "OATP1C1 uptake assay",
+                "known_fields": {"name": "OATP1C1 uptake assay"},
+                "tier": "SHOULD",
+                "message": "LabProtocol SHOULD have a description.",
+            }
+        )
+
+        human_msg = fake.invoke_calls[0][-1].content
+        assert "OATP1C1 uptake assay" in human_msg
+
+
+# ---------------------------------------------------------------------------
+# extract_field_from_file — the bounded file-extraction leaf (Issue #257, fix C)
+#
+# When the user points the guidance loop at a file ("the CAS number is in
+# assay-metadata.xlsx"), the loop reads the file and asks this leaf to extract
+# the requested field value from the file text. It is a single bounded
+# structured-output call on the drafter tier; it returns a clean value or empty.
+# D5: an identifier-bearing field is never fabricated — the leaf returns nothing
+# for one, so the loop verifies via lookups instead.
+# ---------------------------------------------------------------------------
+
+
+class TestExtractFieldFromFile:
+    def test_runs_on_drafter_tier_single_call(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        fake = FakeChatModel({"value": "A viability assay protocol."})
+        rec["model"] = fake
+
+        leaves.extract_field_from_file(
+            "description",
+            "Protocol: the cells were exposed for 24h then read out.",
+            {"property": "description", "entity_type": "LabProtocol"},
+        )
+
+        assert all(c.get("role") == "drafter" for c in rec["calls"]), (
+            "extract_field_from_file must build the chat model on the drafter tier"
+        )
+        assert len(fake.structured_schemas) == 1, "exactly one structured-output bind"
+        assert len(fake.invoke_calls) == 1, "exactly one model invocation (a leaf)"
+
+    def test_extracts_a_clean_value(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"value": "A dose-response viability assay in CHO-K1 cells."}
+        )
+
+        value = leaves.extract_field_from_file(
+            "description",
+            "file body with the description in it",
+            {"property": "description", "entity_type": "Study"},
+        )
+
+        assert value == "A dose-response viability assay in CHO-K1 cells."
+
+    def test_file_text_reaches_the_model_prompt(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({"value": "x"})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.extract_field_from_file(
+            "description",
+            "UNIQUE-FILE-MARKER-12345",
+            {"property": "description", "entity_type": "Study"},
+        )
+
+        human_msg = fake.invoke_calls[0][-1].content
+        assert "UNIQUE-FILE-MARKER-12345" in human_msg
+
+    def test_no_value_returns_empty_string(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # The file does not contain the field -> the model returns nothing usable.
+        _patch_build_chat_model["model"] = FakeChatModel({})
+
+        value = leaves.extract_field_from_file(
+            "description",
+            "an unrelated file body",
+            {"property": "description", "entity_type": "Study"},
+        )
+
+        assert value == ""
+
+    def test_identifier_field_extraction_is_refused(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # D5: even if the model returns a CAS number, an identifier-bearing field
+        # must NOT be extracted from the file text — those come from lookups.
+        _patch_build_chat_model["model"] = FakeChatModel({"value": "103-90-2"})
+
+        value = leaves.extract_field_from_file(
+            "cas",
+            "the CAS number is 103-90-2",
+            {"property": "cas", "entity_type": "MolecularEntity"},
+        )
+
+        assert value == "", (
+            "D5: an identifier value must come from a lookup, not file text"
+        )
+
+
 def _flatten_keys(schema: Any) -> set[str]:
     """Every property key appearing anywhere in a (possibly nested) JSON schema."""
     keys: set[str] = set()

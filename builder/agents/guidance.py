@@ -70,6 +70,7 @@ This is a clean library entrypoint — the CLI / spine wiring is a later PR.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 # Re-exported at module scope so the spine, tests, and the eval harness have a
@@ -79,15 +80,20 @@ from builder.agents.pipeline import draft_entity_fields
 from builder.config import get_provider
 from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
 
-# The guidance leaves (#244): PHRASE the gap into one human question, INTERPRET
-# the free-text reply into a structured decision. Imported at module scope as the
+# The guidance leaves (#244, #257): PHRASE the gap into one human question,
+# INTERPRET the free-text reply into a structured decision, and EXTRACT a field
+# value from a file the user pointed at (#257). Imported at module scope as the
 # single monkeypatch target for tests, but guarded so that with langchain absent
 # the names resolve to ``None`` and the LLM path is simply skipped (it is gated on
 # ``get_provider()`` regardless). Typed as optional callables so the ``None``
 # fallback type-checks cleanly.
 phrase_gap_question: Callable[..., str] | None
 interpret_gap_reply: Callable[..., dict[str, Any]] | None
+extract_field_from_file: Callable[..., str] | None
 try:  # pragma: no cover — exercised by both branches across the test matrix
+    from builder.agents.leaves import (
+        extract_field_from_file as _extract_file_leaf,
+    )
     from builder.agents.leaves import (
         interpret_gap_reply as _interpret_leaf,
     )
@@ -97,9 +103,11 @@ try:  # pragma: no cover — exercised by both branches across the test matrix
 
     phrase_gap_question = _phrase_leaf
     interpret_gap_reply = _interpret_leaf
+    extract_field_from_file = _extract_file_leaf
 except Exception:  # pragma: no cover — langchain absent: LLM path is gated off anyway
     phrase_gap_question = None
     interpret_gap_reply = None
+    extract_field_from_file = None
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -114,6 +122,12 @@ __all__ = ["run_guidance"]
 # so this caps the worst-case work and guarantees termination even if a resolved
 # gap never clears (e.g. a user value the validator still rejects).
 _DEFAULT_MAX_ROUNDS = 20
+
+# (#257, fix C) Max characters of a pointed-at file's text fed to the extraction
+# leaf. The file readers already cap their own output (Excel rows, the 64 KiB text
+# budget); this is a final per-gap belt-and-braces cap so one big file can't blow
+# the bounded leaf's token budget. One read per gap.
+_MAX_FILE_EXTRACT_CHARS = 32 * 1024
 
 # Cap on clarifying follow-ups within a SINGLE ask-user turn (#244). The interpret
 # leaf may ask for clarification, but a vague user could otherwise loop forever;
@@ -284,7 +298,7 @@ def _drafted_value(engine: AgentEngine, gap: Gap) -> str | None:
     return str(candidate)
 
 
-def _ask_user_prompt(gap: Gap) -> str:
+def _ask_user_prompt(gap: Gap, engine: AgentEngine | None = None) -> str:
     """Build a human-readable ask-user prompt for ``gap``.
 
     The raw ``gap.message`` is a description of a *failed check* (e.g. "Study MUST
@@ -293,9 +307,22 @@ def _ask_user_prompt(gap: Gap) -> str:
     clear, multi-line prompt: a direct question naming the field (and the entity /
     tier it applies to), the gap's own explanation, any suggestion, and the
     expected input format. This keeps the human genuinely in the loop (D5).
+
+    When ``engine`` is given and the gap resolves to a concrete named entity
+    (#257, fix A), the prompt NAMES that entity ("…for 'Silychristin A' (a
+    MolecularEntity)…") so even the deterministic / no-provider path never asks
+    about a bare "this chemical / this protocol".
     """
     field = _local_name(gap.property) or (gap.property or "this field")
-    target = f" on the {gap.entity_type}" if gap.entity_type else ""
+    entity_name = _gap_entity_name(engine, gap) if engine is not None else None
+    if entity_name:
+        target = f" for '{entity_name}'"
+        if gap.entity_type:
+            target += f" (a {gap.entity_type})"
+    elif gap.entity_type:
+        target = f" on the {gap.entity_type}"
+    else:
+        target = ""
     lines: list[str] = [f"Please provide a value for '{field}'{target}."]
     if gap.message:
         lines.append(f"Why: {gap.message}")
@@ -303,6 +330,19 @@ def _ask_user_prompt(gap: Gap) -> str:
         lines.append(f"Suggestion: {gap.suggestion}")
     lines.append("Expected: free text (leave blank or skip to defer this field).")
     return "\n".join(lines)
+
+
+def _gap_entity_name(engine: AgentEngine | None, gap: Gap) -> str | None:
+    """Resolve the gap's concrete entity name from state, or ``None`` (#257)."""
+    if engine is None:
+        return None
+    state_id = _resolve_entity_id(engine, gap)
+    if state_id is None:
+        return None
+    entity = engine.state.get_entity(state_id)
+    if entity is None:
+        return None
+    return _entity_display_name(entity)
 
 
 def _ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | None:
@@ -313,7 +353,7 @@ def _ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | Non
     reply returns ``None``. The LLM-mediated phrase/interpret exchange wraps this
     only when a provider is configured (see :func:`_resolve_ask_user`).
     """
-    response = human.request_input(_ask_user_prompt(gap))
+    response = human.request_input(_ask_user_prompt(gap, engine))
     if response.get("skipped"):
         return None
     value = response.get("value")
@@ -336,14 +376,61 @@ def _reply_text(response: Any) -> str | None:
     return str(value)
 
 
+# Fields, in preference order, that carry a human-meaningful entity name (#257).
+# Person splits the name into givenName/familyName, so those are combined.
+_NAME_FIELDS: tuple[str, ...] = ("name", "title")
+
+# Descriptive fields surfaced to the phrase leaf as the entity's KNOWN context
+# (#257) so a question can be grounded ("…for Silychristin A (a test compound)…").
+# Identifier fields are deliberately excluded — they are never the grounding.
+_KNOWN_CONTEXT_FIELDS: tuple[str, ...] = ("name", "title", "description")
+
+
+def _entity_display_name(entity: Any) -> str | None:
+    """A human-readable name for ``entity``, or ``None`` (#257).
+
+    Prefers ``name``/``title``; for a Person assembles ``givenName familyName``.
+    Returns ``None`` when nothing usable is recorded — the caller then never claims
+    a specific entity exists by a fabricated name.
+    """
+    fields = getattr(entity, "fields", {}) or {}
+    for key in _NAME_FIELDS:
+        value = str(fields.get(key) or "").strip()
+        if value:
+            return value
+    # Person: combine given/family when no ``name`` is set.
+    given = str(fields.get("givenName") or "").strip()
+    family = str(fields.get("familyName") or "").strip()
+    combined = " ".join(p for p in (given, family) if p).strip()
+    return combined or None
+
+
+def _known_fields(entity: Any) -> dict[str, str]:
+    """The entity's already-known descriptive fields, for grounding the question."""
+    fields = getattr(entity, "fields", {}) or {}
+    known: dict[str, str] = {}
+    for key in _KNOWN_CONTEXT_FIELDS:
+        value = str(fields.get(key) or "").strip()
+        if value:
+            known[key] = value
+    return known
+
+
 def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
-    """Assemble the per-gap context dict the guidance leaves consume (#244).
+    """Assemble the per-gap context dict the guidance leaves consume (#244, #257).
 
     A compact, jargon-light digest of the gap plus the crate's title/description,
     so :func:`phrase_gap_question` can rephrase it and :func:`interpret_gap_reply`
     can interpret a reply in context. The ``property`` is the **local field name**
     (not the raw IRI) so the interpret leaf's D5 identifier guard sees the same
     token the loop would commit to.
+
+    When the gap has a concrete ``entity_id`` that resolves to a real state entity
+    (#257, fix A), the entity's **name** (``entity_name``) and **known descriptive
+    fields** (``known_fields``) are threaded in so the phrased question references
+    the entity BY NAME — never a bare "this chemical / this protocol / this cell
+    line". The entity's own type takes precedence over the gap's coarser
+    ``entity_type`` when they differ.
     """
     field = _local_name(gap.property) or (gap.property or "")
     context: dict[str, Any] = {
@@ -353,6 +440,18 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
         "message": gap.message,
         "suggestion": gap.suggestion,
     }
+    # (#257, fix A) Resolve the concrete entity so the question names it.
+    state_id = _resolve_entity_id(engine, gap)
+    if state_id is not None:
+        entity = engine.state.get_entity(state_id)
+        if entity is not None:
+            context["entity_type"] = entity.type or gap.entity_type
+            name = _entity_display_name(entity)
+            if name:
+                context["entity_name"] = name
+            known = _known_fields(entity)
+            if known:
+                context["known_fields"] = known
     title = (engine.state.metadata.title or "").strip()
     if title:
         context["crate_title"] = title
@@ -377,7 +476,7 @@ def _phrase_question(engine: AgentEngine, gap: Gap) -> str:
             question = ""
         if question and question.strip():
             return question.strip()
-    return _ask_user_prompt(gap)
+    return _ask_user_prompt(gap, engine)
 
 
 def _deterministic_decision(gap: Gap, reply: str) -> dict[str, Any]:
@@ -426,17 +525,21 @@ def _resolve_ask_user(
 ) -> str | None:
     """Run the LLM-mediated ask-user exchange for ``gap``; return a clean value.
 
-    The §14.6 "small guidance agent" (#244). When a provider is configured this is
-    a bounded PHRASE -> ask -> INTERPRET exchange:
+    The §14.6 "small guidance agent" (#244, #257). When a provider is configured
+    this is a bounded PHRASE -> ask -> INTERPRET exchange:
 
-    * **PHRASE** the gap into one clear human question (never raw SHACL/FAIR text).
+    * **PHRASE** the gap into one clear human question (never raw SHACL/FAIR text),
+      naming the concrete entity it is about (#257, fix A).
     * **INTERPRET** the free-text reply into a structured decision:
       ``commit`` -> return the clean value (the caller commits it via
       :func:`_apply_value`); ``skip`` (covers "I don't know"/empty) -> return
       ``None``; ``clarify`` -> ask ONE bounded follow-up
-      (:data:`_MAX_CLARIFY_FOLLOW_UPS`) then skip; ``from_file`` -> record the
-      filename hint and return ``None`` (NEVER store prose — file extraction is a
-      separate bounded reader, not this loop).
+      (:data:`_MAX_CLARIFY_FOLLOW_UPS`) then skip; ``from_file`` -> **read the file
+      the user pointed at and EXTRACT the requested value** (#257, fix C), then
+      return it to commit. The reply prose is still NEVER stored verbatim — only a
+      value extracted from the file's text by the bounded
+      :func:`extract_field_from_file` leaf, and only when the file is inside an
+      approved scan root. An unreadable / outside-root file gracefully skips.
 
     A free-text musing therefore can never become a field value (D5). With **no
     provider** configured this degrades to the deterministic :func:`_ask_user`
@@ -467,7 +570,7 @@ def _resolve_ask_user(
 
         if action == "clarify" and follow_ups < _MAX_CLARIFY_FOLLOW_UPS:
             follow_ups += 1
-            follow_up = decision.get("question") or _ask_user_prompt(gap)
+            follow_up = decision.get("question") or _ask_user_prompt(gap, engine)
             question = str(follow_up)
             response = human.request_input(question)
             reply = _reply_text(response)
@@ -476,16 +579,153 @@ def _resolve_ask_user(
             continue
 
         if action == "from_file":
-            filename = decision.get("filename")
-            logger.info(
-                "guidance: user says %s is in a file%s; not storing prose (#244)",
-                _local_name(gap.property) or gap.property,
-                f" ({filename})" if filename else "",
-            )
-            return None
+            # (#257, fix C) Actually READ the file and EXTRACT the value — instead
+            # of logging the hint and skipping (the #244 behavior). The reply's
+            # prose is never stored; only a value the extraction leaf pulls from
+            # the file's text, gated to approved scan roots.
+            return _resolve_from_file(engine, gap, reply, decision.get("filename"))
 
         # skip, an exhausted clarify budget, or any unrecognised action -> skip.
         return None
+
+
+def _candidate_file_paths(
+    engine: AgentEngine, filename: str | None, reply: str
+) -> list[str]:
+    """Likely on-disk paths the user pointed at, best-effort and bounded (#257).
+
+    Combines, in priority order:
+
+    1. the ``filename`` hint the interpret leaf returned (as-is, and resolved
+       under each approved scan root / against the scanned-file inventory by base
+       name);
+    2. any scanned file whose base name appears verbatim in the user's ``reply``.
+
+    The result is de-duplicated, order-preserving. Containment (the sandbox) is
+    enforced by the caller via :func:`builder.tools.scanner._contain` — this only
+    proposes candidates, it never widens access.
+    """
+    candidates: list[str] = []
+
+    def _add(path: str | None) -> None:
+        if path and path not in candidates:
+            candidates.append(path)
+
+    scanned = list(getattr(engine.state, "scanned_files", []) or [])
+
+    if filename:
+        hint = filename.strip()
+        _add(hint)
+        base = Path(hint).name
+        # Resolve a bare base name against the approved roots and the inventory.
+        for root in engine.state.approved_scan_roots:
+            _add(str(Path(root) / base))
+        for f in scanned:
+            if Path(f.path).name == base or f.filename == base:
+                _add(f.path)
+
+    # Any scanned file the user named verbatim in their reply.
+    if reply:
+        for f in scanned:
+            name = f.filename or Path(f.path).name
+            if name and name in reply:
+                _add(f.path)
+
+    return candidates
+
+
+def _read_pointed_file(engine: AgentEngine, candidates: list[str]) -> str | None:
+    """Read the FIRST candidate inside an approved scan root, bounded (#257).
+
+    One read per gap: returns the (size-capped) text of the first candidate that
+    (a) resolves inside an approved scan root and (b) the readers can read.
+    Returns ``None`` when no candidate is readable in-sandbox — a graceful skip.
+    Never raises out: any reader/optional-dependency error is logged and skipped,
+    so a single unreadable file can never break the loop.
+    """
+    from builder.tools.file_readers import read_file
+    from builder.tools.scanner import _contain
+
+    roots = engine.state.approved_scan_roots
+    for candidate in candidates:
+        resolved = _contain(candidate, roots)
+        if resolved is None:
+            logger.debug(
+                "guidance: from_file refused %s — outside approved scan roots (#257).",
+                candidate,
+            )
+            continue
+        try:
+            body = read_file(str(resolved))
+        except (OSError, ValueError, ImportError) as exc:
+            logger.warning("guidance: from_file read failed for %s: %s", candidate, exc)
+            continue
+        except Exception as exc:  # noqa: BLE001 — a malformed file must not break the loop
+            logger.warning(
+                "guidance: unexpected from_file read error for %s: %s", candidate, exc
+            )
+            continue
+        if body and body.strip():
+            return body[:_MAX_FILE_EXTRACT_CHARS]
+    return None
+
+
+def _resolve_from_file(
+    engine: AgentEngine, gap: Gap, reply: str, filename: str | None
+) -> str | None:
+    """Read the file the user pointed at and extract the gap's value (#257, fix C).
+
+    Returns a clean value to commit, or ``None`` to skip. The flow:
+
+    1. locate likely file paths (:func:`_candidate_file_paths`);
+    2. read the first one INSIDE an approved scan root (:func:`_read_pointed_file`)
+       — one bounded read; an unreadable / outside-root file gracefully skips;
+    3. extract the requested field's value from the file text via the bounded
+       :func:`extract_field_from_file` leaf (a flaky leaf -> skip, never crashes);
+    4. D5: never return a value for an identifier-bearing field — those come from
+       lookups, not file text — so an identifier gap always skips here.
+
+    The user's reply prose is NEVER stored: only a value the leaf extracts from the
+    file's text is returned.
+    """
+    field = _local_name(gap.property) or (gap.property or "")
+    # D5: identifiers come from lookups, never extracted from a file's prose.
+    if _is_identifier_field(field):
+        logger.info(
+            "guidance: from_file for identifier field %s -> skip (lookups only, D5).",
+            field,
+        )
+        return None
+
+    if extract_field_from_file is None:  # pragma: no cover — provider gated elsewhere
+        return None
+
+    candidates = _candidate_file_paths(engine, filename, reply)
+    if not candidates:
+        logger.info("guidance: from_file but no file could be located; skipping (#257).")
+        return None
+
+    file_text = _read_pointed_file(engine, candidates)
+    if file_text is None:
+        logger.info(
+            "guidance: from_file file unreadable / outside scan roots; skipping (#257)."
+        )
+        return None
+
+    try:
+        value = extract_field_from_file(field, file_text, _gap_context(engine, gap))
+    except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
+        logger.warning("guidance: from_file extraction leaf failed: %s", exc)
+        return None
+
+    if isinstance(value, str) and value.strip():
+        logger.info("guidance: extracted %s from a pointed-at file (#257).", field)
+        return value.strip()
+    logger.info(
+        "guidance: pointed-at file did not yield a value for %s; skipping (#257).",
+        field,
+    )
+    return None
 
 
 def _resolve_gap(
