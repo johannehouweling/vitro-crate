@@ -41,6 +41,7 @@ dev = [
     "nbformat>=5.10.4",
     "ruff>=0.15.18",
     "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.ruff]
@@ -53,3 +54,7 @@ select = ["E", "F", "I"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "eval/tests"]
 python_files = ["test_*.py"]
+# pytest-timeout's default `signal` method only fires on the main thread, so it
+# never triggers inside pytest-xdist worker subprocesses. `thread` works in both
+# serial and parallel runs, so set it globally for correct timeouts under xdist.
+timeout_method = "thread"

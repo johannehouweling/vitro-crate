@@ -35,4 +35,9 @@ jobs:
         continue-on-error: true  # ty is a Rust-based type checker still evolving
 
       - name: Test (pytest)
-        run: uv run pytest --ignore=tests/test_validator_wiring.py --ignore=tests/test_lookups_contract.py --ignore=tests/test_dashboard.py --timeout=30 -x -v
+        # Run in parallel with pytest-xdist. `-n auto` uses every vCPU the runner
+        # has (ubuntu-latest = 4 vCPU at time of writing), and `--maxprocesses=4`
+        # caps worker count so memory-heavy build/validate tests do not exhaust
+        # RAM on larger runners. `timeout_method = thread` (pyproject) makes
+        # pytest-timeout fire inside xdist worker subprocesses.
+        run: uv run pytest --ignore=tests/test_validator_wiring.py --ignore=tests/test_lookups_contract.py --ignore=tests/test_dashboard.py --timeout=30 -n auto --maxprocesses=4 -x -v
