@@ -36,6 +36,8 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from builder.state import CrateState
+
 
 from typing import TypedDict
 
@@ -222,6 +224,12 @@ _FILE_READ_TOOLS = frozenset(
     {"read_file_sample", "read_file", "read_excel", "read_docx"}
 )
 
+# Attribute stamped on the engine once the crate has been exported this session,
+# so the deterministic finish backstop (#251) is idempotent across the two exit
+# paths (quit/exit and EOF) and never double-exports — whether the export came
+# from the agent itself or from the backstop.
+_EXPORTED_FLAG = "_crate_exported_this_session"
+
 
 def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> str:
     """Actionable message for the LLM when a file reader can't return text.
@@ -295,6 +303,15 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     return _unreadable_file_message(
                         kwargs.get("path", ""), tool_name
                     )
+                # When the agent itself successfully exports, stamp the engine so
+                # the deterministic finish backstop (#251) does not double-export
+                # on session exit.
+                if (
+                    tool_name in ("export_crate", "build_crate")
+                    and isinstance(result, dict)
+                    and result.get("success")
+                ):
+                    setattr(engine, _EXPORTED_FLAG, True)
                 return result
 
             _run.__name__ = tool_name
@@ -625,12 +642,88 @@ def _wrap_tools_node(tool_node: Any, profiler: Any, iteration_getter: Any) -> An
     return timed_tools_node
 
 
+def _completeness_nudge(state: CrateState) -> str:
+    """Compute a short deterministic present/missing/next-action steering line.
+
+    Issue #251: once the obvious entities exist, a weak ReAct model tends to
+    stall (empty completions) instead of advancing to the process chain, file
+    attachments, validation, and export — so a crate never lands. This collapses
+    the current ``CrateState`` into ONE token-cheap line naming what is present
+    (with a ✓), what is still missing, and the single concrete *next tool* to
+    call, e.g.::
+
+        backbone ✓, person ✓, 22 compounds ✓; missing: process chain, file
+        attachments → next: draft_process_chain
+
+    When the crate looks complete (backbone + person + compounds + a process
+    chain + file attachments) the next action becomes validate + export. The
+    line is deterministic (no LLM), idempotent, and never raises — it is a pure
+    read over the entity store.
+    """
+    counts: dict[str, int] = {}
+    for ent in state.list_entities():
+        typ = getattr(ent, "type", "Unknown")
+        counts[typ] = counts.get(typ, 0) + 1
+
+    has_backbone = any(counts.get(t) for t in ("Investigation", "Study", "Assay"))
+    has_person = bool(counts.get("Person"))
+    n_compounds = counts.get("MolecularEntity", 0)
+    n_cells = counts.get("CellLineSample", 0)
+    has_process = any(counts.get(t) for t in ("LabProcess", "LabProtocol"))
+    has_files = bool(counts.get("File"))
+
+    present: list[str] = []
+    if has_backbone:
+        present.append("backbone ✓")
+    if has_person:
+        present.append("person ✓")
+    if n_compounds:
+        present.append(f"{n_compounds} compounds ✓")
+    if n_cells:
+        present.append(f"{n_cells} cell line(s) ✓")
+
+    missing: list[str] = []
+    if not has_backbone:
+        missing.append("backbone")
+    if not has_person:
+        missing.append("person/org")
+    if not n_compounds and not n_cells:
+        missing.append("compounds/cell lines")
+    if not has_process:
+        missing.append("process chain")
+    if not has_files:
+        missing.append("file attachments")
+    # Validation + export are always the closing steps until the crate lands.
+    missing.append("validation")
+    missing.append("export")
+
+    # Pick the single highest-priority next action (drives the weak model to ONE
+    # concrete step instead of re-deriving the whole plan).
+    if not has_backbone:
+        next_action = "scaffold_isa_backbone"
+    elif not n_compounds and not n_cells:
+        next_action = "resolve_compound / draft_cell_line_sample"
+    elif not has_person:
+        next_action = "draft_person"
+    elif not has_process:
+        next_action = "draft_process_chain"
+    elif not has_files:
+        next_action = "attach_files"
+    else:
+        # The crate looks complete — close it out.
+        next_action = "build_and_validate then export_crate"
+
+    present_str = ", ".join(present) if present else "nothing yet"
+    return f"[Completeness: {present_str}; missing: {', '.join(missing)} → next: {next_action}]"
+
+
 def _build_system_prompt_with_state(
     session_id: str,
     entity_count: int,
     file_count: int,
     iteration_count: int,
     next_fix: str | None = None,
+    nudge: str | None = None,
 ) -> str:
     """Build a lightweight state brief appended to the system prompt.
 
@@ -645,6 +738,11 @@ def _build_system_prompt_with_state(
     ``state.validation`` after the #153 write-back), a second line names it so a
     weak model has a durable next-step pointer and stops re-deriving the
     BASE->ISA->TOX plan from the system prompt every turn.
+
+    When ``nudge`` is given (the deterministic present/missing/next-action line
+    from :func:`_completeness_nudge`, #251), it is appended as a third line so a
+    weak model is steered to the next concrete step instead of stalling once the
+    obvious entities exist.
     """
     brief = (
         f"[Session: {session_id} | "
@@ -654,6 +752,8 @@ def _build_system_prompt_with_state(
     )
     if next_fix:
         brief += f"\n[Next REQUIRED fix: {next_fix}]"
+    if nudge:
+        brief += f"\n{nudge}"
     return brief
 
 
@@ -779,6 +879,7 @@ def _assemble_model_messages(
     file_count: int,
     iteration_count: int,
     next_fix: str | None = None,
+    nudge: str | None = None,
     max_history_tokens: int | None = None,
 ) -> list:
     """Assemble the message list for a model invocation with a cache-friendly
@@ -821,6 +922,7 @@ def _assemble_model_messages(
         file_count=file_count,
         iteration_count=iteration_count,
         next_fix=next_fix,
+        nudge=nudge,
     )
     return [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -936,6 +1038,10 @@ def _build_agent_graph(
         # surfaced in the brief as a durable next-step pointer for a weak model.
         required_issues = engine.state.validation.required_issues
         next_fix = required_issues[0] if required_issues else None
+        # Deterministic completeness nudge (#251): present/missing/next-action,
+        # so a weak model is steered to the next concrete step instead of
+        # stalling once the obvious entities exist.
+        nudge = _completeness_nudge(engine.state)
         model_messages = _assemble_model_messages(
             messages,
             session_id=engine.state.session_id,
@@ -943,6 +1049,7 @@ def _build_agent_graph(
             file_count=len(engine.state.scanned_files),
             iteration_count=engine.state.iteration_count,
             next_fix=next_fix,
+            nudge=nudge,
         )
         # Progressive tool disclosure (#156): advertise only the state-relevant
         # subset so a weak model chooses from a smaller menu. Bind per-turn; the
@@ -972,6 +1079,98 @@ def _build_agent_graph(
     graph.add_edge(START, "model")
 
     return graph.compile(checkpointer=MemorySaver())
+
+
+# ---------------------------------------------------------------------------
+# Deterministic finish backstop (#251)
+# ---------------------------------------------------------------------------
+
+
+def _finish_backstop(
+    engine: AgentEngine,
+    *,
+    emit: Any = None,
+) -> dict[str, Any] | None:
+    """Deterministically build + export the crate on session end (#251).
+
+    The weak ReAct model frequently stalls (empty completions) *before* ever
+    choosing ``export_crate``, so a rich in-memory crate exits without anything
+    landing on disk. This backstop guarantees a crate is always written when the
+    session ends with un-exported entities:
+
+    1. If the crate is **empty** (``state.list_entities()`` is falsy) there is
+       nothing to write — return ``None`` (no build, no export).
+    2. If the crate was **already exported this session** (the agent chose to, or
+       the backstop already ran) — return ``None`` (idempotent, no double-export).
+    3. Otherwise run ``build_and_validate`` then ``export_crate`` via
+       ``engine.run_tool`` (so each is profiled and validation is cached).
+       ``export_crate`` is called with no explicit path so it honors
+       ``state.metadata.output_path`` (default ``<input>-ro-crate/``). The
+       resolved ABSOLUTE crate path is surfaced via *emit*.
+
+    This runs on the **exit path**, so it must NEVER raise: every failure is
+    caught, logged, surfaced via *emit*, and reported as a ``{"success": False}``
+    result (or ``None``). The export-success flag is stamped on the engine so a
+    second call is a no-op.
+
+    Args:
+        engine: The engine whose ``state`` is built and written.
+        emit: Optional single-arg sink for human-readable status lines (e.g.
+            ``console.print`` or ``print``). Defaults to a no-op.
+
+    Returns:
+        The ``export_crate`` result dict on a fresh export, or ``None`` when
+        there was nothing to export / it was already exported / it failed before
+        producing a result.
+    """
+    say = emit or (lambda _msg: None)
+
+    try:
+        if not engine.state.list_entities():
+            # Nothing to write — a clean no-op (e.g. user quit immediately).
+            return None
+        if getattr(engine, _EXPORTED_FLAG, False):
+            # Already exported this session (agent did it, or a prior backstop).
+            return None
+
+        say("Finalizing: building and exporting the crate before exit…")
+        # Build + validate in memory first so the written crate is the validated
+        # one (mirrors the deterministic pipeline's finish, §14.5/§14.6.1).
+        try:
+            engine.run_tool("build_and_validate")
+        except (ValueError, KeyError, TypeError, RuntimeError) as exc:
+            # A validation hiccup must not block the export — log and continue.
+            logger.warning("Finish backstop: build_and_validate failed: %s", exc)
+
+        # No explicit path → export_crate resolves state.metadata.output_path
+        # (CLI --output / default <input>-ro-crate/) then the session fallback.
+        result = engine.run_tool("export_crate")
+
+        if isinstance(result, dict) and result.get("success"):
+            # Stamp BEFORE surfacing so any later call is a strict no-op.
+            setattr(engine, _EXPORTED_FLAG, True)
+            crate_path = result.get("crate_path")
+            try:
+                from pathlib import Path
+
+                resolved = str(Path(crate_path).resolve()) if crate_path else crate_path
+            except (OSError, TypeError, ValueError):
+                resolved = crate_path
+            say(f"Crate written to: {resolved}")
+            logger.info("Finish backstop exported crate to %s", resolved)
+            return result
+
+        # export_crate returned a failure dict (it never raises by contract).
+        error = (result or {}).get("error") if isinstance(result, dict) else result
+        logger.error("Finish backstop: export_crate failed: %s", error)
+        say(f"Could not write the crate on exit: {error}")
+        return result if isinstance(result, dict) else None
+
+    except Exception as exc:  # noqa: BLE001 — the exit path must never raise.
+        # A crate failing to land must never crash the goodbye/quit flow.
+        logger.exception("Finish backstop failed unexpectedly")
+        say(f"Could not write the crate on exit: {exc}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1422,6 +1621,17 @@ def run_interactive_agent(
         console.print(Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow"))
         console.print()
 
+    def _finalize_on_exit() -> None:
+        """Deterministically build + export the crate before the goodbye (#251).
+
+        The weak ReAct model often stalls before it ever calls ``export_crate``,
+        so a rich in-memory crate would exit unwritten. This guarantees a crate
+        ALWAYS lands when the session ends with un-exported entities. It is
+        idempotent (never double-exports) and never raises (the goodbye must
+        always print).
+        """
+        _finish_backstop(engine, emit=console.print)
+
     # ── Main loop ───────────────────────────────────────────────────────
     while True:
         try:
@@ -1439,10 +1649,12 @@ def run_interactive_agent(
         except EOFError:
             # Ctrl+D: exit
             console.print()
+            _finalize_on_exit()
             _print_goodbye(engine.state)
             break
 
         if user_input.lower() in ("quit", "exit", "q"):
+            _finalize_on_exit()
             _print_goodbye(engine.state)
             break
 
