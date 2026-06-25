@@ -224,6 +224,18 @@ _DEFAULT_INVESTIGATION_NAME = "Investigation"
 _DEFAULT_STUDY_NAME = "Study"
 _DEFAULT_ASSAY_NAME = "Assay"
 
+# Token-safety budget for the free-text context fed to the single bounded
+# extraction/drafter leaf (#231). `_gather_context` now reads non-tabular rich
+# file BODIES (`.json` / `.docx` / `.pdf` …) — not just filenames — so it must
+# cap how much disk content reaches the leaf so the one bounded call stays
+# affordable. The cap is applied BOTH per-file (each body excerpt is truncated to
+# `_MAX_CONTEXT_CHARS`) AND to the total accumulated body content (the running sum
+# of body excerpts never exceeds `_MAX_CONTEXT_CHARS`), so a folder of many large
+# files cannot blow the budget. ~8k chars is roughly a couple thousand tokens —
+# enough for a study title / abstract / SOP heading to survive, small enough to
+# stay cheap.
+_MAX_CONTEXT_CHARS = 8000
+
 
 def _backbone_hints(engine: AgentEngine) -> dict[str, dict[str, str]]:
     """Deterministic name hints for the Investigation / Study / Assay backbone.
@@ -260,17 +272,78 @@ def _scaffold_backbone(engine: AgentEngine) -> dict[str, Any]:
     return engine.run_tool("scaffold_isa_backbone", **hints)
 
 
+def _read_body_excerpt(path: str, approved_roots: set[str], remaining: int) -> str | None:
+    """Read a bounded BODY excerpt of *path*, fail-closed to *approved_roots* (#231).
+
+    Mirrors the engine's fail-closed containment guard (``engine.py`` /
+    :func:`builder.tools.scanner._contain`): the read is refused unless *path*
+    resolves inside an approved scan root, so the spine never widens filesystem
+    access on the leaf's say-so. Dispatches to the existing
+    :func:`builder.tools.file_readers.read_file` (so ``.json`` / ``.docx`` /
+    ``.xlsx`` / ``.pdf`` / text are all handled by code that already exists — no
+    hand-rolled parsing) and never lets a reader error escape: any
+    :class:`OSError`, missing optional dependency, or malformed-file error is
+    logged and yields ``None`` (skip), so a single unreadable file can never break
+    the deterministic spine.
+
+    The returned excerpt is truncated to ``min(remaining, _MAX_CONTEXT_CHARS)`` so
+    both the per-file cap and the caller's total budget are honoured. Returns
+    ``None`` when nothing readable was produced (so the caller emits no body line).
+    """
+    if remaining <= 0:
+        return None
+
+    # Lazy imports: keep the spine importable in the default env, and only touch
+    # the readers / containment primitive when there is actually a body to read.
+    from builder.tools.file_readers import read_file
+    from builder.tools.scanner import _contain
+
+    # Fail-closed containment: refuse any path not inside an approved scan root.
+    if _contain(path, approved_roots) is None:
+        logger.debug("Skipping body read of %s — outside approved scan roots (#231).", path)
+        return None
+
+    try:
+        body = read_file(path)
+    except (OSError, ValueError, ImportError) as exc:
+        logger.warning("Body read failed for %s; skipping: %s", path, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001 - a malformed file must not break the spine
+        logger.warning("Unexpected body-read error for %s; skipping: %s", path, exc)
+        return None
+
+    if not body or not body.strip():
+        return None
+
+    cap = min(remaining, _MAX_CONTEXT_CHARS)
+    excerpt = body.strip()
+    if len(excerpt) > cap:
+        excerpt = excerpt[:cap].rstrip() + " […]"
+    return excerpt
+
+
 def _gather_context(engine: AgentEngine) -> str:
-    """Assemble a free-text context string for the drafter-leaf from the engine.
+    """Assemble a free-text context string for the drafter/extraction leaf (#231).
 
     Pulls from what an initialized engine actually carries: the crate title and
     description (``state.metadata``) and the scanned-file inventory
-    (``state.scanned_files`` — filenames plus any first-row previews the scanner
-    captured). Returns ``""`` when nothing usable is available, which the caller
-    treats as a strict no-op (no provider call is made).
+    (``state.scanned_files``). For each scanned file it prefers the cheap tabular
+    ``first_rows`` preview the scanner already captured; for non-tabular rich files
+    that lack a preview (``.json`` / ``.docx`` / ``.pdf`` …) it now reads a
+    **bounded body excerpt** from disk via :func:`_read_body_excerpt` so document
+    BODIES — study titles, abstracts, SOP headings — reach the single bounded leaf
+    rather than filenames alone. Without this the leaf saw only filenames + tiny
+    previews and ``extract_plan`` returned an empty plan, so the backbone fell back
+    to the literal default names (#231).
 
-    The context is intentionally a *digest*, not the full file bodies — the leaf is
-    a bounded single call, and the spine never re-reads disk here.
+    Body reads are **fail-closed to ``state.approved_scan_roots``** and never raise
+    out of the spine (see :func:`_read_body_excerpt`). Output is bounded by
+    :data:`_MAX_CONTEXT_CHARS` per file AND in total, so the one bounded leaf call
+    stays token-safe regardless of how many large files were scanned.
+
+    Returns ``""`` when nothing usable is available, which the caller treats as a
+    strict no-op (no provider call is made) — preserving the no-context strict-noop
+    and no-provider determinism guarantees.
     """
     state = engine.state
     parts: list[str] = []
@@ -283,13 +356,23 @@ def _gather_context(engine: AgentEngine) -> str:
         parts.append(f"Description: {description}")
 
     if state.scanned_files:
+        approved_roots = state.approved_scan_roots
         file_lines: list[str] = []
+        body_budget = _MAX_CONTEXT_CHARS  # total body content across all files
         for f in state.scanned_files:
             line = f"- {f.filename}"
             if f.first_rows:
+                # Prefer the cheap preview the scanner already captured — no disk read.
                 preview = " | ".join(str(r) for r in f.first_rows[:3])
                 if preview.strip():
                     line += f": {preview}"
+            elif body_budget > 0:
+                # No tabular preview: read a bounded body excerpt (fail-closed to
+                # approved roots; never raises) so the leaf sees the document body.
+                excerpt = _read_body_excerpt(f.path, approved_roots, body_budget)
+                if excerpt:
+                    body_budget -= len(excerpt)
+                    line += f":\n{excerpt}"
             file_lines.append(line)
         if file_lines:
             parts.append("Scanned files:\n" + "\n".join(file_lines))

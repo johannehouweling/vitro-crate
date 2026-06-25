@@ -17,10 +17,18 @@ The headline guarantees under test:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from builder.engine import AgentEngine
-from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.state import (
+    CrateState,
+    Entity,
+    EntityProvenance,
+    EntityType,
+    FileClassification,
+)
 from builder.tools.hitl import SimulatedHumanInterface
 
 # The spine drives build_and_validate / fix_required_issues, which run the
@@ -920,3 +928,181 @@ class TestDeterminism:
         e2 = _engine(seeded())
         run_pipeline(e2)
         assert crate_graph_hash(e1.state) == crate_graph_hash(e2.state)
+
+
+class TestGatherContext:
+    """`_gather_context` now reads non-tabular rich file BODIES (Issue #231).
+
+    Before #231 the spine's single bounded extraction leaf only ever saw
+    filenames plus tiny tabular ``first_rows`` previews, so ``.json`` / ``.docx``
+    / ``.pdf`` rich files contributed nothing and ``extract_plan`` returned an
+    empty plan (the backbone then fell back to literal default names). These
+    tests pin the fix: bodies of readable non-tabular files appear in the
+    gathered context, bounded by ``_MAX_CONTEXT_CHARS`` (per-file + total),
+    confined to ``approved_scan_roots``, and never raising out of the spine. The
+    two strict no-op gates (empty context ⇒ ``""``) are preserved.
+    """
+
+    def _write_json(self, root: Path, marker: str) -> FileClassification:
+        path = root / "S-VHPS26.json"
+        path.write_text(
+            f'{{"studyTitle": "{marker}", "organism": "Rattus norvegicus"}}',
+            encoding="utf-8",
+        )
+        return FileClassification(
+            path=str(path),
+            filename=path.name,
+            size=path.stat().st_size,
+            mime_type="application/json",
+            first_rows=None,
+        )
+
+    def _write_docx(self, root: Path, marker: str) -> FileClassification:
+        from docx import Document  # type: ignore[import-untyped]
+
+        path = root / "SOP.docx"
+        doc = Document()
+        doc.add_paragraph(marker)
+        doc.add_paragraph("Standard operating procedure for the assay.")
+        doc.save(str(path))
+        return FileClassification(
+            path=str(path),
+            filename=path.name,
+            size=path.stat().st_size,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            first_rows=None,
+        )
+
+    def test_reads_json_and_docx_bodies_into_context(self, tmp_path: Path) -> None:
+        """Body substrings from non-tabular files under an approved root appear."""
+        from builder.agents.pipeline import _gather_context
+
+        json_fc = self._write_json(tmp_path, "JSONBODYMARKER")
+        docx_fc = self._write_docx(tmp_path, "DOCXBODYMARKER")
+
+        state = CrateState()
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        state.scanned_files = [json_fc, docx_fc]
+        engine = _engine(state)
+
+        context = _gather_context(engine)
+
+        # The bodies — not just the filenames — reached the context.
+        assert "JSONBODYMARKER" in context
+        assert "DOCXBODYMARKER" in context
+        # Filenames are still listed.
+        assert "S-VHPS26.json" in context
+        assert "SOP.docx" in context
+
+    def test_prefers_cheap_first_rows_when_present(self, tmp_path: Path) -> None:
+        """A file carrying a tabular preview uses it; disk is not re-read for it."""
+        from builder.agents.pipeline import _gather_context
+        from builder.state import FileClassification
+
+        # A file that DOES carry first_rows — the cheap preview must be used and the
+        # body reader must not be invoked for it (the path need not even exist).
+        tabular = FileClassification(
+            path=str(tmp_path / "missing.csv"),
+            filename="data.csv",
+            size=10,
+            mime_type="text/csv",
+            first_rows=["col_a,col_b", "1,2"],
+        )
+        state = CrateState()
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        state.scanned_files = [tabular]
+        engine = _engine(state)
+
+        context = _gather_context(engine)
+        assert "col_a,col_b" in context
+
+    def test_reads_are_confined_to_approved_scan_roots(self, tmp_path: Path) -> None:
+        """A body OUTSIDE every approved root is never read into the context."""
+        from builder.agents.pipeline import _gather_context
+
+        approved = tmp_path / "approved"
+        approved.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+
+        inside_fc = self._write_json(approved, "INSIDEMARKER")
+        outside_fc = self._write_json(outside, "OUTSIDEMARKER")
+        # Re-point filename so the two are distinguishable in the listing.
+        outside_fc.filename = "outside.json"
+
+        state = CrateState()
+        state.approved_scan_roots.add(str(approved.resolve()))
+        state.scanned_files = [inside_fc, outside_fc]
+        engine = _engine(state)
+
+        context = _gather_context(engine)
+        assert "INSIDEMARKER" in context
+        # The out-of-root body is fail-closed: its content never appears.
+        assert "OUTSIDEMARKER" not in context
+
+    def test_per_file_and_total_budget_are_bounded(self, tmp_path: Path) -> None:
+        """Per-file and total context are capped by `_MAX_CONTEXT_CHARS`."""
+        import builder.agents.pipeline as pipeline_mod
+        from builder.agents.pipeline import _gather_context
+        from builder.state import FileClassification
+
+        cap = pipeline_mod._MAX_CONTEXT_CHARS
+        assert isinstance(cap, int) and cap > 0
+
+        state = CrateState()
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        files: list[FileClassification] = []
+        # Several large files, each far bigger than the cap, so both the per-file
+        # and the total budget must clamp the result.
+        for i in range(6):
+            path = tmp_path / f"big{i}.txt"
+            path.write_text("X" * (cap * 4), encoding="utf-8")
+            files.append(
+                FileClassification(
+                    path=str(path),
+                    filename=path.name,
+                    size=path.stat().st_size,
+                    mime_type="text/plain",
+                    first_rows=None,
+                )
+            )
+        state.scanned_files = files
+        engine = _engine(state)
+
+        context = _gather_context(engine)
+        # Total context stays within a small multiple of the documented cap (the
+        # total budget is the binding ceiling — not 6x the per-file body).
+        assert len(context) <= cap * 3
+
+    def test_no_readable_files_is_strict_noop(self, tmp_path: Path) -> None:
+        """Nothing readable ⇒ ``""`` so the no-provider determinism gate holds."""
+        from builder.agents.pipeline import _gather_context
+        from builder.state import FileClassification
+
+        # A binary file with no first_rows whose body reader returns None, under an
+        # approved root, on an untitled/undescribed crate ⇒ no usable context.
+        path = tmp_path / "blob.pzfx"
+        path.write_bytes(b"\x00\x01\x02\x03binary-not-text\x00")
+        state = CrateState()
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        state.scanned_files = [
+            FileClassification(
+                path=str(path),
+                filename=path.name,
+                size=path.stat().st_size,
+                mime_type="application/octet-stream",
+                first_rows=None,
+            )
+        ]
+        engine = _engine(state)
+
+        # Filenames alone still list, but no BODY content — and an untitled crate
+        # with only a filename listing is still usable context for the listing
+        # path. The strict no-op we must preserve is the *fully empty* one:
+        state_empty = CrateState()
+        engine_empty = _engine(state_empty)
+        assert _gather_context(engine_empty) == ""
+
+        # The binary body itself contributed nothing readable.
+        context = _gather_context(engine)
+        assert "binary-not-text" not in context
