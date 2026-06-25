@@ -63,10 +63,16 @@ jobs:
         # Sized to total test work: the suite grew to ~2000s of runner-CPU, so
         # 4 shards floored the wall-clock at ~10.5 min (slowest shard). Per-shard
         # fixed cost is small (~30s install + ~10s langchain import — torch is
-        # NOT a dependency), so fan-out scales near-linearly. 12 shards puts the
-        # slowest shard at ~4 min; the single longest test (~160s on the runner)
-        # is the floor below which adding shards stops helping.
-        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        # NOT a dependency), so fan-out scales well. 16 shards + lint = 17 jobs,
+        # under the free-tier 20-concurrent-job cap.
+        #
+        # Caveat on the floor: `.test_durations` is measured LOCALLY, but the
+        # 2-vCPU runner is ~3x slower and the eval-suite tests scale worse than
+        # the pure-unit tests, so pytest-split under-balances the eval-heavy
+        # shards (observed at 12 shards: most ~2:45 but the eval shards ~4-5 min).
+        # Past ~16 shards, regenerating `.test_durations` from a RUNNER profile
+        # (so the split balances by real runner cost) beats adding more shards.
+        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -85,13 +91,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev --extra langchain
 
-      - name: Test (pytest, shard ${{ matrix.group }}/12)
-        # pytest-split partitions the suite into 12 timing-balanced groups using
+      - name: Test (pytest, shard ${{ matrix.group }}/16)
+        # pytest-split partitions the suite into 16 timing-balanced groups using
         # the committed `.test_durations` file and the `least_duration`
         # algorithm, so the heavy SHACL-validation / e2e build tail is spread
-        # evenly instead of piling into one shard (verified ~83-92 tests/group,
-        # exact partition: 0 overlap, 0 gaps). Regenerate `.test_durations` with
-        # `pytest --store-durations` when the balance drifts.
+        # across shards instead of piling into one (exact partition: 0 overlap,
+        # 0 gaps). Regenerate `.test_durations` with `pytest --store-durations`
+        # when the balance drifts — ideally from a runner profile (see matrix
+        # caveat) so the split reflects real runner cost, not local cost.
         #
         # Run serially within the shard (no `-n`): each shard already has the
         # whole runner's ~7 GB, and cross-job sharding provides the parallelism,
@@ -107,7 +114,7 @@ jobs:
           --ignore=tests/test_lookups_contract.py
           --ignore=tests/test_dashboard.py
           --timeout=30
-          --splits 12
+          --splits 16
           --group ${{ matrix.group }}
           --splitting-algorithm least_duration
           -p no:cacheprovider
