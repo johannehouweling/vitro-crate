@@ -50,7 +50,8 @@ class TestBinarySamplingSkip:
 
     def test_scan_files_leaves_xlsx_first_rows_none(self, tmp_path):
         _make_xlsx(tmp_path / "book.xlsx")
-        results = scan_files(str(tmp_path))
+        # The scanner fails closed (#197): approve the temp dir so the scan runs.
+        results = scan_files(str(tmp_path), approved_roots={str(tmp_path.resolve())})
         xlsx = next(r for r in results if r.filename == "book.xlsx")
         assert xlsx.first_rows is None
 

@@ -169,7 +169,11 @@ class ScriptedRun:
 def scripted_run() -> ScriptedRun:
     """A fresh engine that has run the full scripted scan->draft sequence."""
     engine = AgentEngine()
-    engine.initialize()  # establish session_id (no input scan; we scan via run_tool)
+    # initialize() with the fixture dir seeds approved_scan_roots the legitimate
+    # way (a user-provided input path), so the later run_tool("scan_files", ...)
+    # is allowed by the now fail-closed guard (#197). We re-scan via run_tool
+    # below to exercise the real approved-roots path.
+    engine.initialize(input_path=str(FIXTURE_INPUT_DIR))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = _scripted_build(engine)
