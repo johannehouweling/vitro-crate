@@ -269,3 +269,278 @@ class TestUnknownEntityType:
         out = leaves.draft_entity_fields("NotAType", "context")
 
         assert isinstance(out, dict)
+
+
+# ---------------------------------------------------------------------------
+# extract_plan — the Stage A candidate-plan extractor (Issue #179)
+#
+# `extract_plan` is the *whole-document* sibling of `draft_entity_fields`: one
+# bounded structured-output call on the drafter tier that reads scanned research
+# docs and proposes a CANDIDATE PLAN (study, compounds, cell lines, the
+# CellCulture→Exposure→EndpointReadout→DataAnalysis process chain, AOPs, people,
+# publications, files, free-text notes). It proposes WHAT EXISTS by name; it must
+# never fabricate identifiers (D5) — real CAS/CID/InChIKey/Cellosaurus/ORCID/DOI
+# come later from deterministic lookups, not from this leaf.
+# ---------------------------------------------------------------------------
+
+
+# A doc-like context the model could plausibly turn into a populated plan.
+_DOC_CONTEXT = """
+Investigation: Hepatotoxicity of acetaminophen in renal cells.
+
+Study: We exposed MDCK cells to acetaminophen (test compound) and a DMSO
+vehicle control, then read out viability and analysed dose-response.
+
+Cells were cultured in DMEM, exposed for 24h across a concentration series,
+viability was measured on a plate reader, and the data were analysed in R.
+
+Authors: Jane Doe (Acme University). Reference: "AAP renal tox", Doe et al.
+This relates to AOP 144.
+
+Files: plate_raw.csv (raw), results.xlsx (processed), conditions.csv.
+"""
+
+
+class TestExtractPlanDrafterTier:
+    """The plan extractor must run on the cheap drafter tier (mirrors the leaf)."""
+
+    def test_requests_drafter_role(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel({"study": {"name": "x"}})
+
+        leaves.extract_plan(_DOC_CONTEXT)
+
+        assert rec["calls"], "the leaf must build a chat model"
+        assert all(c.get("role") == "drafter" for c in rec["calls"]), (
+            "extract_plan must build the chat model on the drafter tier"
+        )
+
+    def test_explicit_model_is_forwarded(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel({})
+
+        leaves.extract_plan("context", model="gpt-4o-mini")
+
+        assert rec["calls"][0].get("model") == "gpt-4o-mini"
+
+
+class TestExtractPlanStructuredOutput:
+    """One bounded structured-output bind + one invocation (a leaf)."""
+
+    def test_single_structured_output_call(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({"study": {"name": "x"}})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.extract_plan(_DOC_CONTEXT)
+
+        assert len(fake.structured_schemas) == 1, "exactly one structured-output bind"
+        assert len(fake.invoke_calls) == 1, "exactly one model invocation (a leaf)"
+
+
+class TestExtractPlanShape:
+    """A doc-like context yields a populated plan with the right shape."""
+
+    def test_populated_plan_round_trips(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {
+                "study": {"name": "AAP renal tox", "description": "Hepatotox study."},
+                "compounds": [
+                    {"name": "Acetaminophen", "role": "test"},
+                    {"name": "DMSO", "role": "control"},
+                ],
+                "cell_lines": [{"name": "MDCK"}],
+                "process_chain": [
+                    {"process_type": "CellCulture", "name": "Culture"},
+                    {"process_type": "Exposure", "name": "Expose"},
+                    {"process_type": "EndpointReadout", "name": "Readout"},
+                    {"process_type": "DataAnalysis", "name": "Analyse"},
+                ],
+                "aops": [{"aop_id": "144"}],
+                "people": [{"name": "Jane Doe", "affiliation_name": "Acme University"}],
+                "publications": [{"title": "AAP renal tox"}],
+                "files": [
+                    {"path": "plate_raw.csv", "role": "raw"},
+                    {"path": "results.xlsx", "role": "processed"},
+                    {"path": "conditions.csv", "role": "condition_table"},
+                ],
+                "notes": "Concentration series not fully specified.",
+            }
+        )
+
+        plan = leaves.extract_plan(_DOC_CONTEXT)
+
+        assert isinstance(plan, dict)
+        assert plan["study"]["name"] == "AAP renal tox"
+        assert {c["name"] for c in plan["compounds"]} == {"Acetaminophen", "DMSO"}
+        assert plan["cell_lines"][0]["name"] == "MDCK"
+        assert [p["process_type"] for p in plan["process_chain"]] == [
+            "CellCulture",
+            "Exposure",
+            "EndpointReadout",
+            "DataAnalysis",
+        ]
+        assert plan["aops"][0]["aop_id"] == "144"
+        assert plan["people"][0]["name"] == "Jane Doe"
+        assert plan["publications"][0]["title"] == "AAP renal tox"
+        assert {f["role"] for f in plan["files"]} == {
+            "raw",
+            "processed",
+            "condition_table",
+        }
+        assert plan["notes"]
+
+
+class TestExtractPlanEmptyContext:
+    """An uninformative context yields an empty-but-valid plan, not fabrication."""
+
+    def test_empty_context_returns_empty_plan(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # An honest model returns nothing it can support from an empty context.
+        _patch_build_chat_model["model"] = FakeChatModel({})
+
+        plan = leaves.extract_plan("")
+
+        assert isinstance(plan, dict)
+        # No fabricated entities: every list-valued section is empty/absent.
+        for key in (
+            "compounds",
+            "cell_lines",
+            "process_chain",
+            "aops",
+            "people",
+            "publications",
+            "files",
+        ):
+            assert not plan.get(key), f"empty context must not fabricate {key!r}"
+
+
+class TestExtractPlanD5NoIdentifiersInSchema:
+    """D5: the schema the model sees must never offer an identifier field.
+
+    Pushing D5 into the schema (not just post-filtering) is the strongest guard:
+    the model is never even asked to produce a CAS/CID/InChIKey/SMILES/
+    Cellosaurus accession/ORCID/DOI/@id.
+    """
+
+    def test_no_identifier_fields_anywhere_in_schema(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.extract_plan(_DOC_CONTEXT)
+
+        schema = fake.structured_schemas[0]
+        flat = _flatten_keys(schema)
+        for ident in (
+            "cas",
+            "casrn",
+            "cas_number",
+            "cid",
+            "pubchem_cid",
+            "inchikey",
+            "smiles",
+            "accession",
+            "cellosaurus",
+            "orcid",
+            "doi",
+            "identifier",
+            "@id",
+            "id",
+        ):
+            assert ident not in flat, (
+                f"D5: identifier field {ident!r} must not appear in the plan schema"
+            )
+        # The schema must be usable as a function-calling tool (carries a title).
+        assert schema.get("title"), "plan schema must carry a title"
+
+    def test_schema_is_convertible_to_a_tool(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        fake = FakeChatModel({})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.extract_plan(_DOC_CONTEXT)
+
+        tool = convert_to_openai_tool(fake.structured_schemas[0])  # must not raise
+        assert tool["function"]["name"]
+
+
+class TestExtractPlanD5StripsFabricatedIdentifiers:
+    """D5 defense-in-depth: an adversarial model that slips identifiers into the
+    plan output has them stripped from every section."""
+
+    def test_identifiers_stripped_from_all_sections(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {
+                "study": {"name": "S", "identifier": "FAKE-1"},
+                "compounds": [
+                    {
+                        "name": "Acetaminophen",
+                        "role": "test",
+                        "cas": "103-90-2",
+                        "pubchem_cid": "1983",
+                        "inchikey": "RZVAJINKPMORJF-UHFFFAOYSA-N",
+                        "smiles": "CC(=O)Nc1ccc(O)cc1",
+                        "@id": "https://pubchem.ncbi.nlm.nih.gov/compound/1983",
+                    }
+                ],
+                "cell_lines": [{"name": "MDCK", "accession": "CVCL_0027"}],
+                "people": [
+                    {"name": "Jane Doe", "orcid": "0000-0002-1825-0097"}
+                ],
+                "publications": [{"title": "P", "doi": "10.1234/fake"}],
+            }
+        )
+
+        plan = leaves.extract_plan(_DOC_CONTEXT)
+
+        # Descriptive fields survive; identifiers do not.
+        assert plan["study"]["name"] == "S"
+        assert "identifier" not in plan["study"]
+
+        compound = plan["compounds"][0]
+        assert compound["name"] == "Acetaminophen"
+        assert compound["role"] == "test"
+        for ident in ("cas", "pubchem_cid", "inchikey", "smiles", "@id"):
+            assert ident not in compound, f"D5: {ident!r} leaked into a compound"
+
+        assert plan["cell_lines"][0]["name"] == "MDCK"
+        assert "accession" not in plan["cell_lines"][0]
+
+        assert plan["people"][0]["name"] == "Jane Doe"
+        assert "orcid" not in plan["people"][0]
+
+        assert plan["publications"][0]["title"] == "P"
+        assert "doi" not in plan["publications"][0]
+
+
+def _flatten_keys(schema: Any) -> set[str]:
+    """Every property key appearing anywhere in a (possibly nested) JSON schema."""
+    keys: set[str] = set()
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    keys.update(value.keys())
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(schema)
+    return keys
