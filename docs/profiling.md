@@ -40,6 +40,7 @@ Every line in `profile.ndjson` is a JSON object with **required fields**:
 | `node_start` | `node`, `iteration` | When a graph node begins execution |
 | `node_end` | `node`, `duration_ms`, `iteration`, `messages_in`, `messages_out`, `produced_tool_calls`, `tools`, `input_tokens`, `output_tokens`, `model_name`, `response_text` | When a graph node finishes execution. For `"node": "model"` events, `input_tokens`, `output_tokens`, `model_name`, and `response_text` are populated from the LLM response (when available). `response_text` is truncated to ~2000 characters. |
 | `scan_progress` | `processed`, `total`, `duration_ms` | Every 100 files during scanning (DEBUG level only) |
+| `hitl_wait` | `tool` | Emitted *before* the agent blocks on a human-in-the-loop tool (`present_to_human` / `request_input`). The matching `tool_call` event for the same `tool` is written only after the human responds, so a trailing `hitl_wait` with no following `tool_call` marks an open ⏸ pause. The dashboard uses this for its ▶/⏸ status badge (issue #193). |
 
 ### Example Lines
 

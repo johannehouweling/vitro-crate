@@ -29,6 +29,108 @@ logger = logging.getLogger(__name__)
 SESSION_DIR = Path("sessions")
 
 # ---------------------------------------------------------------------------
+# Agent status (▶ / ⏸ / ⏹) — issue #193
+# ---------------------------------------------------------------------------
+# The dashboard surfaces, at a glance, whether the agent is *driving* (working)
+# or *waiting* on the human. The classification is a pure function of the
+# profiler records so it is trivially testable (see tests/test_dashboard_status.py).
+
+STATUS_DRIVING = "driving"  # ▶ a tool/node is in progress; the loop is moving
+STATUS_WAITING = "waiting"  # ⏸ blocked on a human (pending HITL call)
+STATUS_IDLE = "idle"  # ⏹ no activity / a terminal end
+
+# ---------------------------------------------------------------------------
+# Dashboard palette — one coherent, semantic colour scheme
+# ---------------------------------------------------------------------------
+# Colour carries *meaning*, never decoration:
+#   * structure (panel headers, section/field labels, borders) is uniform —
+#     one header style, one border style, one dim style for labels/units;
+#   * a single accent highlights emphasised values;
+#   * green/yellow/red are reserved strictly for status (pass / warn / fail).
+# Use these constants instead of ad-hoc ``bold yellow`` / ``magenta`` / ``blue``.
+
+HEADER_STYLE = "bold cyan"  # panel titles + field/section labels (structure)
+BORDER_STYLE = "cyan"  # every data-panel border (uniform, neutral)
+LABEL_STYLE = "dim"  # secondary text: units, counts, parentheticals
+ACCENT_STYLE = "bold cyan"  # an emphasised value (e.g. the last-called tool)
+OK_STYLE = "green"  # semantic: a check passed / a healthy score
+WARN_STYLE = "yellow"  # semantic: a soft warning / a middling score
+ERR_STYLE = "red"  # semantic: a failure / a blocking issue / stuck
+
+# HITL tools that block the agent loop on a real person. When the engine is
+# about to call one of these it emits a ``hitl_wait`` event *before* blocking
+# (see builder/engine.py run_tool); the matching ``tool_call`` event is only
+# written *after* the human responds, so a pending wait is observable as a
+# trailing ``hitl_wait`` with no following ``tool_call`` for the same tool.
+_HITL_TOOLS = frozenset({"present_to_human", "request_input"})
+
+
+def determine_agent_status(records: list[dict[str, Any]]) -> str:
+    """Classify the agent's live status from profiler *records*.
+
+    Returns one of :data:`STATUS_DRIVING`, :data:`STATUS_WAITING`, or
+    :data:`STATUS_IDLE`.
+
+    Rules (evaluated in priority order):
+
+    * **waiting** — the agent is blocked on a human: the most recent
+      ``hitl_wait`` event has no matching ``tool_call`` for the same HITL tool
+      after it. A pending HITL call is *not* otherwise observable, because the
+      profiler logs a tool's ``tool_call`` only after it returns — i.e. after
+      the human has already responded. The engine therefore emits an explicit
+      ``hitl_wait`` marker before blocking (see builder/engine.py).
+    * **driving** — a graph node has started but not ended (more ``node_start``
+      than ``node_end`` events), or the latest event is mid-flight activity
+      (a completed ``tool_call`` with no closing ``node_end`` yet).
+    * **idle** — no records at all, or the loop has settled on a terminal
+      ``node_end`` with nothing pending.
+
+    The function never raises on malformed records; unknown events are ignored.
+    """
+    if not records:
+        return STATUS_IDLE
+
+    # 1. Pending HITL? Scan from the end for the latest hitl_wait and check
+    #    whether a matching tool_call landed afterwards (= human responded).
+    for idx in range(len(records) - 1, -1, -1):
+        rec = records[idx]
+        if rec.get("event") != "hitl_wait":
+            continue
+        tool = rec.get("tool")
+        resolved = any(
+            later.get("event") == "tool_call" and later.get("tool") == tool
+            for later in records[idx + 1 :]
+        )
+        return STATUS_DRIVING if resolved else STATUS_WAITING
+
+    # 2. An open graph node (started, not yet ended) means work is in flight.
+    starts = sum(1 for r in records if r.get("event") == "node_start")
+    ends = sum(1 for r in records if r.get("event") == "node_end")
+    if starts > ends:
+        return STATUS_DRIVING
+
+    # 3. The latest meaningful event decides between mid-flight and settled.
+    last_event = records[-1].get("event")
+    if last_event == "tool_call":
+        return STATUS_DRIVING
+    return STATUS_IDLE
+
+
+def _status_badge(status: str) -> tuple[str, str, str]:
+    """Map an agent status to its ``(symbol, label, rich_style)`` triple.
+
+    Colours come from the shared palette so the badge reads with the same
+    semantics as the rest of the dashboard: driving is healthy (green),
+    waiting is a soft "needs you" warning (yellow), idle is muted (dim).
+    """
+    if status == STATUS_DRIVING:
+        return "▶", "driving", f"bold {OK_STYLE}"
+    if status == STATUS_WAITING:
+        return "⏸", "awaiting input", f"bold {WARN_STYLE}"
+    return "⏹", "idle", LABEL_STYLE
+
+
+# ---------------------------------------------------------------------------
 # Data reading
 # ---------------------------------------------------------------------------
 
@@ -122,31 +224,42 @@ def _load_cratestate(session_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
+def _build_cratestate_panel(
+    state: dict[str, Any] | None,
+    status: str = STATUS_IDLE,
+) -> Any:
     """Build a Rich Panel summarising CrateState (single-line, compact).
 
     Shows phase, entity counts, validation status, MIT score, iteration count.
-    Returns a placeholder Panel when *state* is None.
+    The panel title carries the ▶/⏸/⏹ agent-status badge (issue #193) so the
+    live and static dashboards both signal whether the agent is driving or
+    awaiting human input. Returns a placeholder Panel when *state* is None.
     """
     from rich.panel import Panel
     from rich.text import Text
 
+    symbol, label, badge_style = _status_badge(status)
+    title = Text.assemble(
+        (f"{symbol} {label}", badge_style),
+        ("  │  CrateState Overview", HEADER_STYLE),
+    )
+
     if state is None:
         return Panel(
-            "[dim]No CrateState data available.[/dim]",
-            title="CrateState Overview",
-            border_style="blue",
+            f"[{LABEL_STYLE}]No CrateState data available.[/{LABEL_STYLE}]",
+            title=title,
+            border_style=BORDER_STYLE,
         )
 
-    # Phase
+    # Phase — colour tracks progress: muted early, accent mid-flight, ok/err at ends.
     phase = _determine_phase_from_state(state)
     phase_colors = {
-        "initial": "dim",
-        "scanning": "yellow",
-        "drafting": "cyan",
-        "validating": "magenta",
-        "complete": "green",
-        "stuck": "red",
+        "initial": LABEL_STYLE,
+        "scanning": WARN_STYLE,
+        "drafting": ACCENT_STYLE,
+        "validating": ACCENT_STYLE,
+        "complete": OK_STYLE,
+        "stuck": ERR_STYLE,
     }
     pc = phase_colors.get(phase, "white")
 
@@ -176,19 +289,19 @@ def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
         f"{'✓' if tox_ok else '✗'} Tox",
     ]
     if base_ok and isa_ok and tox_ok:
-        val_color = "green"
+        val_color = OK_STYLE
     elif required_count > 0:
-        val_color = "red"
+        val_color = ERR_STYLE
     else:
-        val_color = "yellow"
+        val_color = WARN_STYLE
     val_str = " ".join(val_parts)
     if required_count > 0:
-        val_str += f"  [red]{required_count} REQUIRED[/red]"
+        val_str += f"  [{ERR_STYLE}]{required_count} REQUIRED[/{ERR_STYLE}]"
 
     # MIT score
     mit = state.get("mit_assessment", {})
     mit_score = mit.get("overall_score", 0)
-    mit_color = "green" if mit_score >= 80 else "yellow" if mit_score >= 50 else "red"
+    mit_color = OK_STYLE if mit_score >= 80 else WARN_STYLE if mit_score >= 50 else ERR_STYLE
 
     # Iteration
     iteration = state.get("iteration_count", 0)
@@ -196,19 +309,19 @@ def _build_cratestate_panel(state: dict[str, Any] | None) -> Any:
 
     # One-line summary — all on a single rich Text
     text = Text.assemble(
-        ("Phase: ", "bold cyan"),
+        ("Phase: ", HEADER_STYLE),
         (phase, pc),
-        ("  │  Entities: ", "bold cyan"),
+        ("  │  Entities: ", HEADER_STYLE),
         (f"{total}  ({', '.join(f'{n}={c}' for n, c in entity_counts[:3])})", ""),
-        ("  │  Validation: ", "bold cyan"),
+        ("  │  Validation: ", HEADER_STYLE),
         (val_str, val_color),
-        ("  │  MIT: ", "bold cyan"),
+        ("  │  MIT: ", HEADER_STYLE),
         (f"{mit_score}%", mit_color),
-        ("  │  Iteration: ", "bold cyan"),
-        (f"{iteration}{' ⚠ STUCK' if stuck else ''}", "red" if stuck else "white"),
+        ("  │  Iteration: ", HEADER_STYLE),
+        (f"{iteration}{' ⚠ STUCK' if stuck else ''}", ERR_STYLE if stuck else "white"),
     )
 
-    return Panel(text, title="CrateState Overview", border_style="blue")
+    return Panel(text, title=title, border_style=BORDER_STYLE)
 
 
 def _determine_phase_from_state(state: dict[str, Any]) -> str:
@@ -316,7 +429,7 @@ def _build_tool_lines(
         avg_ms = total_ms / count if count else 0
         icon = _TOOL_ICONS.get(tool, "\u2699\ufe0f")
         is_last = tool == last_tool_name
-        style = "bold cyan" if is_last else ""
+        style = ACCENT_STYLE if is_last else ""
         open_tag = f"[{style}]" if style else ""
         close_tag = f"[/{style}]" if style else ""
 
@@ -331,7 +444,10 @@ def _build_tool_lines(
         else:
             time_part = f"{avg_ms:.0f}ms/{total_ms:.0f}ms"
 
-        parts.append(f"{open_tag}{icon} {tool}[dim] ({count}) {time_part}[/dim]{close_tag}")
+        parts.append(
+            f"{open_tag}{icon} {tool}"
+            f"[{LABEL_STYLE}] ({count}) {time_part}[/{LABEL_STYLE}]{close_tag}"
+        )
 
     return " \u2502 ".join(parts)
 
@@ -408,7 +524,7 @@ def _build_token_table(
     """Build a token usage table showing totals and last request."""
     from rich.table import Table
 
-    table = Table(title="Token Usage", header_style="bold yellow")
+    table = Table(title="Token Usage", header_style=HEADER_STYLE)
     table.add_column("Scope")
     table.add_column("Input")
     table.add_column("Output")
@@ -417,7 +533,7 @@ def _build_token_table(
     total_in = totals.get("input_tokens", 0) or 0
     total_out = totals.get("output_tokens", 0) or 0
     table.add_row(
-        "[dim]Cumulative[/dim]",
+        f"[{LABEL_STYLE}]Cumulative[/{LABEL_STYLE}]",
         str(total_in),
         str(total_out),
         str(int(total_in) + int(total_out)),
@@ -432,7 +548,7 @@ def _build_token_table(
         lt_str = str(lt) if lt is not None else "—"
         mn = last_request.get("model_name") or "—"
         table.add_row(
-            f"[dim]Last request[/dim]  [cyan]{mn}[/cyan]",
+            f"[{LABEL_STYLE}]Last request[/{LABEL_STYLE}]  [{ACCENT_STYLE}]{mn}[/{ACCENT_STYLE}]",
             li_str,
             lo_str,
             lt_str,
@@ -473,7 +589,7 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 25) -> li
                 preview = args_raw[-40:] if len(args_raw) > 40 else args_raw
                 if len(args_raw) > 40:
                     preview = "…" + preview
-                args_str = f"  [dim]args: {preview}[/dim]"
+                args_str = f"  [{LABEL_STYLE}]args: {preview}[/{LABEL_STYLE}]"
 
             # Show tool result (truncated from front so filename is visible)
             res_raw = r.get("result")
@@ -483,7 +599,7 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 25) -> li
                 preview = res_str_val[-50:] if len(res_str_val) > 50 else res_str_val
                 if len(res_str_val) > 50:
                     preview = "…" + preview
-                res_str = f"  [cyan]→ {preview}[/cyan]"
+                res_str = f"  [{ACCENT_STYLE}]→ {preview}[/{ACCENT_STYLE}]"
 
             extra = args_str + res_str
             if extra:
@@ -503,11 +619,11 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 25) -> li
             out = r.get("output_tokens")
             tok_str = ""
             if inp is not None and out is not None:
-                tok_str = f"  [yellow]Δ{inp}→{out}[/yellow]"
+                tok_str = f"  [{LABEL_STYLE}]Δ{inp}→{out}[/{LABEL_STYLE}]"
             elif inp is not None:
-                tok_str = f"  [yellow]Δ{inp} in[/yellow]"
+                tok_str = f"  [{LABEL_STYLE}]Δ{inp} in[/{LABEL_STYLE}]"
             elif out is not None:
-                tok_str = f"  [yellow]Δ{out} out[/yellow]"
+                tok_str = f"  [{LABEL_STYLE}]Δ{out} out[/{LABEL_STYLE}]"
 
             # Append response preview for model nodes
             resp = r.get("response_text")
@@ -517,7 +633,7 @@ def _build_live_events(records: list[dict[str, Any]], max_lines: int = 25) -> li
                 preview = resp.split("\n")[0][:60]
                 if len(resp) > 60 or "\n" in resp:
                     preview += "…"
-                resp_str = f'  [green]"{preview}"[/green]'
+                resp_str = f'  [{ACCENT_STYLE}]"{preview}"[/{ACCENT_STYLE}]'
 
             extra = tok_str + resp_str
             if extra:
@@ -556,13 +672,13 @@ def _build_conversation_flow(records: list[dict[str, Any]], max_steps: int = 8) 
                 preview = resp.split("\n")[0][:80]
                 if len(resp) > 80 or "\n" in resp:
                     preview += "…"
-                flow.append(f"[{time_str}] [bold green]AI:[/bold green] {preview}")
+                flow.append(f"[{time_str}] [{HEADER_STYLE}]AI:[/{HEADER_STYLE}] {preview}")
 
             # Show what tools the model chose to call
             produced = r.get("produced_tool_calls", False)
             if produced:
                 # Look ahead for the tool_call events that follow
-                flow.append(f"[{time_str}] [yellow]→ requesting tools…[/yellow]")
+                flow.append(f"[{time_str}] [{LABEL_STYLE}]→ requesting tools…[/{LABEL_STYLE}]")
 
         elif evt == "tool_call":
             tool = r.get("tool", "?")
@@ -583,10 +699,13 @@ def _build_conversation_flow(records: list[dict[str, Any]], max_steps: int = 8) 
                 res_preview = res_str_val[-60:] if len(res_str_val) > 60 else res_str_val
                 if len(res_str_val) > 60:
                     res_preview = "…" + res_preview
-                res_str = f" → [cyan]{res_preview}[/cyan]"
+                res_str = f" → [{LABEL_STYLE}]{res_preview}[/{LABEL_STYLE}]"
 
             args_part = f" args: {args_preview}" if args_preview else ""
-            flow.append(f"[{time_str}] [magenta]⚡ {tool}[/magenta]{dur_str}{args_part}{res_str}")
+            flow.append(
+                f"[{time_str}] [{ACCENT_STYLE}]⚡ {tool}[/{ACCENT_STYLE}]"
+                f"{dur_str}{args_part}{res_str}"
+            )
 
     # Keep only the most recent steps
     if len(flow) > max_steps:
@@ -602,7 +721,10 @@ class _NoDataPanel:
 
     def __rich__(self) -> str:
         sid = self._session_id
-        return f"[bold yellow]Session:[/] {sid}\n\n[yellow]No profiling data available yet.[/]"
+        return (
+            f"[{HEADER_STYLE}]Session:[/] {sid}\n\n"
+            f"[{LABEL_STYLE}]No profiling data available yet.[/]"
+        )
 
 
 def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> Any:
@@ -627,18 +749,20 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     # Header
     now = _config.now().strftime("%Y-%m-%d %H:%M:%S %Z")
     header_text = Text()
-    header_text.append(" Agent Profiler Dashboard", style="bold cyan")
-    header_text.append(f"  |  Session: {session_id}", style="cyan")
-    layout["header"].update(Panel(header_text, style="cyan"))
+    header_text.append(" Agent Profiler Dashboard", style=HEADER_STYLE)
+    header_text.append(f"  |  Session: {session_id}", style=BORDER_STYLE)
+    layout["header"].update(Panel(header_text, style=BORDER_STYLE))
 
     if not records:
         layout["body"].update(_NoDataPanel(session_id))
-        layout["footer"].update(Text(f"Last refresh: {now}", style="dim"))
+        layout["footer"].update(Text(f"Last refresh: {now}", style=LABEL_STYLE))
         return layout
 
     # Load CrateState
     crate_state = _load_cratestate(session_id)
-    crate_panel = _build_cratestate_panel(crate_state)
+    # Agent status (▶ driving / ⏸ awaiting input / ⏹ idle) — issue #193.
+    agent_status = determine_agent_status(records)
+    crate_panel = _build_cratestate_panel(crate_state, status=agent_status)
 
     # Build tables
     # Determine the last tool called for highlighting
@@ -678,15 +802,15 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     node_parts = []
     for node, calls, avg, total in node_rows:
         node_parts.append(f"[bold]{node}[/bold] {calls}× {avg}ms  {total}s")
-    node_str = "  │  ".join(node_parts)
+    node_str = f"  [{LABEL_STYLE}]│[/{LABEL_STYLE}]  ".join(node_parts)
 
     from rich.text import Text as RichText
     summary_text = RichText.from_markup(
-        f"[bold yellow]Token Usage[/bold yellow]: cumulative {tok_in}→{tok_out} ({tok_total})"
-        f"[dim]{last_str}[/dim]"
-        f"[dim]{cost_str}[/dim]"
-        f"  [dim]║[/dim]  "
-        f"[bold green]Node Timings[/bold green]:  {node_str}"
+        f"[{HEADER_STYLE}]Token Usage[/{HEADER_STYLE}]: cumulative {tok_in}→{tok_out} ({tok_total})"
+        f"[{LABEL_STYLE}]{last_str}[/{LABEL_STYLE}]"
+        f"[{LABEL_STYLE}]{cost_str}[/{LABEL_STYLE}]"
+        f"  [{LABEL_STYLE}]║[/{LABEL_STYLE}]  "
+        f"[{HEADER_STYLE}]Node Timings[/{HEADER_STYLE}]:  {node_str}"
     )
 
     # Conversation flow panel — shows the AgentState message round-trips
@@ -694,7 +818,7 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     conversation_panel = Panel(
         "\n".join(conversation_lines),
         title="Conversation Flow (AgentState)",
-        border_style="magenta",
+        border_style=BORDER_STYLE,
         highlight=True,
     )
 
@@ -705,29 +829,30 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
         response_panel = Panel(
             display,
             title="Last Agent Response",
-            border_style="green",
+            border_style=BORDER_STYLE,
             highlight=True,
         )
 
-    # Combine into body — tool lines at the bottom
+    # Combine into body — tool lines at the bottom. Every data panel uses the
+    # one neutral border so colour stays reserved for meaning, not decoration.
     body_parts = [
         crate_panel,
-        Panel(summary_text, border_style="dim", padding=(0, 0)),
+        Panel(summary_text, border_style=BORDER_STYLE, padding=(0, 0)),
     ]
     if response_panel:
         body_parts.append(response_panel)
     body_parts.append(conversation_panel)
     # Tool lines at the bottom — compact one-line per tool summary
     tool_lines_wrapper = Panel(
-        tool_lines if tool_lines else "[dim]no tool calls yet[/dim]",
+        tool_lines if tool_lines else f"[{LABEL_STYLE}]no tool calls yet[/{LABEL_STYLE}]",
         title="Tool Call Times",
-        border_style="magenta",
+        border_style=BORDER_STYLE,
         padding=(0, 0),
     )
     body_parts.append(tool_lines_wrapper)
     body = Group(*body_parts)
     layout["body"].update(body)
-    layout["footer"].update(Text(f"Last refresh: {now}", style="dim"))
+    layout["footer"].update(Text(f"Last refresh: {now}", style=LABEL_STYLE))
 
     return layout
 
