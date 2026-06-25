@@ -496,7 +496,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 
 ### Entity Drafting Tools
 ```
-scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent), the fast path to a BASE-passing crate
+scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent-WITH-merge: a reused layer's EMPTY fields are filled from the supplied hints, fill-don't-clobber), the fast path to a BASE-passing crate
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier, in one idempotent call; carries the looked-up CAS + PubChem CID and never keeps an unverified id (D5)
 resolve_publication(title: str, verify=None) → {ok, doi, entity_id, title, score} | {ok: False, reason, title}  # composite: publication title → Crossref title-search → confidence gate → draft_publication_with_authors(doi=…), in one idempotent call; commits a DOI only on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5)
@@ -509,7 +509,7 @@ draft_cell_line_sample(name: str, hints: dict) → Entity
 draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
 draft_protocol(hints: dict) → Entity                     # LabProtocol a LabProcess can follow
-draft_person(name: str, hints: dict) → Entity
+draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). ORCID stays empty (D5)
 draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
 draft_defined_term(name: str, hints: dict) → Entity
@@ -1604,7 +1604,11 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   — deterministically turns each plan section into linked ISA-Tox entities through
   `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /
   `draft_process_chain` / `materialize_aop_subgraph` / `draft_person`. Identifiers
-  come from the composites' own lookups, never from the plan.
+  come from the composites' own lookups, never from the plan. The backbone is
+  scaffolded BEFORE the plan is materialized, so the plan's Study name/description
+  are merged onto the already-scaffolded Study (fill-don't-clobber: only when the
+  field is empty or still the generic placeholder), and each `people[]` is split
+  into `givenName`/`familyName` so the Person is ISA-conformant (#232).
 - **Assess** (`assess_gaps`, the gap engine #215, this section) — one
   prioritized `GapReport` unifying SHACL + MIT + FAIR.
 - **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every
