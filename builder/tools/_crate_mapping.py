@@ -64,7 +64,22 @@ _REF_FIELDS = frozenset(
         "biologicalModels",
         "has_part",
         "hasPart",
+        # hasPart-family aliases (profiles/context.py): studies/assays/resources/
+        # dataFiles all expand to schema:hasPart. Held here so _scalar_props strips
+        # them as resolver inputs rather than leaking the raw id/{@id} onto the node
+        # (#180 Lane C); they are re-emitted as resolved references by
+        # _wire_dataset_aliases.
+        "studies",
+        "assays",
+        "resources",
+        "dataFiles",
         "about",
+        # schema:about alias for a Study/Assay's LabProcess list (PageTab-aligned).
+        "labProcesses",
+        # schema:funder — root/Investigation funding Organization reference(s).
+        "funder",
+        # schema:measurementMethod — the Assay's BAO method DefinedTerm reference.
+        "measurementMethod",
         "aop",
         "organism",
         "anatomy",
@@ -370,6 +385,7 @@ def populate_crate(
     _add_structural(state, crate, idx)
     _add_processes(state, crate, idx, output_dir, materialize_payload=materialize_payload)
     _wire_mentions(state, idx)
+    _wire_dataset_aliases(state, crate, idx)
 
 
 # ---------------------------------------------------------------------------
@@ -1487,3 +1503,91 @@ def _wire_mentions(state: CrateState, idx: dict[str, Any]) -> None:
         for field, prop in _ASSAY_MENTION_FIELDS.items():
             if field in asy.fields:
                 _wire_mention(node, prop, asy.fields[field], idx)
+
+
+# ---------------------------------------------------------------------------
+# Reference-wiring for root funder/about + assay aliases (#180 Lane C)
+#
+# References the build previously dropped, resolved deterministically so they
+# round-trip exactly as the gold crate emits them. NEVER fabricates an id (D5):
+# every reference is resolved from a field already present in state, and an
+# unresolvable, non-IRI value is left off rather than guessed.
+# ---------------------------------------------------------------------------
+
+# Assay reference aliases that expand to schema:hasPart (profiles/context.py).
+# Resolved File/dataset refs are emitted under their PageTab key AND attached to
+# the assay's structural hasPart (un-parented from the root) so containment is
+# preserved and a loose data File is never dumped on the root.
+_ASSAY_HASPART_ALIASES = ("dataFiles", "resources")
+
+
+def _wire_references(node: Any, prop: str, value: Any, idx: dict[str, Any]) -> None:
+    """Append resolved entity reference(s) under ``node[prop]`` (an array prop).
+
+    Mirrors :func:`_wire_mention`: each item may reference an in-crate entity
+    (resolved via the index), an inline ``{"@id": …}`` object, or a bare
+    resolvable IRI / ``#``-fragment — each emitted as an ``@id`` reference,
+    de-duped by id. A plain free-text value is dropped (never emitted as a string
+    on a reference-only property). No-ops on None/empty.
+    """
+    if value in (None, ""):
+        return
+    for item in value if isinstance(value, list) else [value]:
+        if item in (None, ""):
+            continue
+        ent = _resolve_one(idx, item)
+        if ent is not None:
+            _append_unique(node, prop, ent)
+        elif isinstance(item, dict) and item.get("@id"):
+            _append_unique_ref(node, prop, item["@id"])
+        elif isinstance(item, str) and ("://" in item or item.startswith("#")):
+            _append_unique_ref(node, prop, item)
+
+
+def _append_unique_ref(node: Any, prop: str, ref_id: str) -> None:
+    """append_to(node, prop, {"@id": ref_id}) but skip if ``ref_id`` already present."""
+    if ref_id not in _child_ids(node, prop):
+        node.append_to(prop, {"@id": ref_id})
+
+
+def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
+    """Resolve root funder/about + assay measurementMethod/dataFiles/resources.
+
+    Runs after structural datasets and processes are added so every reference
+    target (Organization, DataAnalysis LabProcess, DefinedTerm, File) is already
+    in the index.
+
+    * Root (the folded single Investigation) ``funder`` -> Organization ref(s)
+      and ``about`` -> the LabProcess it reports on (mirrors the Assay
+      ``about``->LabProcess wiring, for the Investigation/root).
+    * Assay ``measurementMethod`` -> a single DefinedTerm reference.
+    * Assay ``dataFiles`` / ``resources`` -> File references, also attached to the
+      assay's ``hasPart`` and un-parented from the root (they expand to
+      schema:hasPart, so reachability and containment are preserved).
+    """
+    root = crate.root_dataset
+
+    for inv in state.list_entities("Investigation"):
+        node = _node_for(idx, inv)
+        if node is None:
+            continue
+        _wire_references(node, "funder", inv.fields.get("funder"), idx)
+        _wire_references(node, "about", inv.fields.get("about"), idx)
+
+    for asy in state.list_entities("Assay"):
+        node = _node_for(idx, asy)
+        if node is None:
+            continue
+        _wire_reference(node, "measurementMethod", asy.fields.get("measurementMethod"), idx)
+        for alias in _ASSAY_HASPART_ALIASES:
+            for child in _resolve_many(idx, asy.fields.get(alias)):
+                if child is node:
+                    continue
+                # Emit under the PageTab alias key …
+                _append_unique(node, alias, child)
+                # … and keep it reachable: nest under the assay's hasPart, removing
+                # the root's auto-added top-level reference (it stays reachable
+                # transitively File -> Assay -> Study -> ./). Both expand to
+                # schema:hasPart, so the RDF containment is a single edge.
+                _remove_child(root, "hasPart", child.id)
+                _append_unique(node, "hasPart", child)

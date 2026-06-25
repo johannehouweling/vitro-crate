@@ -1040,6 +1040,10 @@ of the root via `StudyMustBeReferencedFromInvestigation`, so the root cannot its
 - Attaches each **result `File` to its producing Assay's `hasPart`** (de-duped via `_append_unique`)
   and removes it from the root's auto-added `hasPart` (`_remove_child`) — raw/processed data are the
   data of an assay. Files stay reachable from the root transitively (File → Assay → Study → `./`).
+- Re-emits the Assay's **`dataFiles` / `resources` PageTab aliases** (both expand to `schema:hasPart`
+  via `profiles/context.py`) as resolved File references *and* nests those Files under the Assay's
+  `hasPart`, un-parenting them from the root — same move as result Files, so the gold-crate JSON keys
+  round-trip without breaking reachability (`_wire_dataset_aliases`, #180 Lane C).
 
 Round-trip is symmetric: `read_existing_crate` (`builder/readers/existing_crate.py`) recovers the
 **bare** entity_id (stripping the type-qualifier so `#Study_study_1` → `study_1`, not the unbounded
@@ -1233,8 +1237,18 @@ MolecularEntity `cas`/`pubchem_cid` → `[CAS, PubChem CID]`, plus `Person.affil
 and `Publication.author` resolved as `{@id}` references and the
 `draft_property_value` DOI/PubMed `propertyID` fix; a dedicated
 `draft_publication_with_authors` composite (synthesizing `#CitationAuthor_*` Person
-nodes from Crossref author lists) remains deferred follow-up. Remaining lanes:
-reference-wiring resolver extensions (`funder`, root `about`); CSVW schema extensions
+nodes from Crossref author lists) remains deferred follow-up. The
+**reference-wiring resolver extensions** lane is also **done (#180 Lane C)** —
+likewise deterministic build-path wiring (`_crate_mapping._wire_dataset_aliases`),
+**not** new LLM tools: root `funder` → Organization ref(s), root `about` → the
+DataAnalysis LabProcess (mirroring the Assay `about`→LabProcess wiring), Assay
+`measurementMethod` → BAO `DefinedTerm` ref, and the hasPart-family aliases
+`dataFiles`/`resources` re-emitted as resolved File refs while staying nested under
+the assay's `hasPart` (un-parented from the root). All five new alias keys
+(`funder`, `measurementMethod`, `studies`, `assays`, `resources`, `dataFiles`,
+`labProcesses`) joined `_REF_FIELDS` so `_scalar_props` strips them as resolver
+inputs rather than leaking the raw id onto the node (D5: an unresolvable, non-IRI
+value is dropped, never guessed). Remaining lanes: CSVW schema extensions
 (condition-table columns, `raw_measurements`); `set_crate_metadata` (fidelity, **not** a
 validity blocker — `datePublished` is auto-set by ro-crate-py).
 
