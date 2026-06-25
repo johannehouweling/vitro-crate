@@ -336,3 +336,173 @@ class TestDeterministicExport:
 
         assert result["export"]["success"] is True
         assert Path(result["export"]["crate_path"]).resolve() == out_dir.resolve()
+
+
+class TestStatePersistence:
+    """#242 — run_interactive_build persists CrateState so the dashboard sees it.
+
+    The pipeline path never wrote ``sessions/<id>/crate_state.json``, so a running
+    ``--dashboard`` showed "No CrateState data available" and never live-updated.
+    The interactive build must persist the final state (always_write) after
+    guidance + export, on BOTH the interactive and headless paths.
+    """
+
+    def _isolate_sessions(self, monkeypatch, tmp_path) -> Path:
+        import builder.tools.session as sess_mod
+
+        sessions = tmp_path / "sessions"
+        monkeypatch.setattr(sess_mod, "SESSION_DIR", sessions)
+        monkeypatch.setattr(sess_mod, "_last_saved_state_hash", None)
+        return sessions
+
+    def test_final_state_persisted_interactive(self, monkeypatch, tmp_path) -> None:
+        """After an interactive build, crate_state.json exists with the entities."""
+        from builder.agents.build import run_interactive_build
+        from builder.state import Entity
+        from builder.tools.session import load_session
+
+        sessions = self._isolate_sessions(monkeypatch, tmp_path)
+        out_dir = tmp_path / "x-ro-crate"
+        engine = _engine(_InteractiveHuman())
+        engine.state.metadata.output_path = str(out_dir)
+        # Seed an entity so the persisted state demonstrably carries content.
+        engine.state.add_entity(
+            Entity(entity_id="inv_1", type="Investigation", fields={"name": "Inv"})
+        )
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        state_path = sessions / engine.state.session_id / "crate_state.json"
+        assert state_path.is_file(), "interactive build must persist crate_state.json (#242)"
+        loaded = load_session(engine.state.session_id)
+        assert loaded is not None
+        assert any(e.entity_id == "inv_1" for e in loaded.list_entities())
+
+    def test_final_state_persisted_headless(self, monkeypatch, tmp_path) -> None:
+        """A headless build (no guidance) still persists the final state (#242)."""
+        from builder.agents.build import run_interactive_build
+        from builder.tools.session import load_session
+
+        sessions = self._isolate_sessions(monkeypatch, tmp_path)
+        out_dir = tmp_path / "headless-ro-crate"
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(out_dir)
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        state_path = sessions / engine.state.session_id / "crate_state.json"
+        assert state_path.is_file()
+        assert load_session(engine.state.session_id) is not None
+
+    def test_final_save_uses_always_write(self, monkeypatch, tmp_path) -> None:
+        """The final save passes always_write=True so a populated overview +
+        resume is guaranteed even if a phase save deduped earlier."""
+        from builder.agents import build as build_mod
+
+        self._isolate_sessions(monkeypatch, tmp_path)
+        out_dir = tmp_path / "aw-ro-crate"
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(out_dir)
+
+        saves: list[bool] = []
+
+        def fake_save(state, *, always_write: bool = False, **kw):
+            saves.append(always_write)
+            return {"success": True, "session_id": state.session_id, "skipped": False}
+
+        monkeypatch.setattr(build_mod, "save_session", fake_save, raising=False)
+
+        build_mod.run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        # The final save is forced (always_write=True).
+        assert saves, "save_session must be called from run_interactive_build"
+        assert True in saves, "the final save must use always_write=True"
+
+
+class TestProgressOutput:
+    """#241 — the interactive build emits staged progress through `output`."""
+
+    def test_progress_lines_emitted_to_output(self, tmp_path) -> None:
+        """Concise per-phase progress lines reach the output channel."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "prog-ro-crate"
+        engine = _engine(_InteractiveHuman())
+        engine.state.metadata.output_path = str(out_dir)
+        lines: list[str] = []
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=lines.append,
+        )
+
+        joined = "\n".join(lines).lower()
+        # The final crate-written line is always surfaced (the #233 export line).
+        assert "crate written" in joined
+        # And at least one staged progress marker precedes it.
+        assert any(
+            kw in joined
+            for kw in ("scaffold", "materializ", "validat", "resolv", "scanning", "extract")
+        ), "interactive build must emit staged progress (#241)"
+
+    def test_progress_threaded_into_pipeline(self, tmp_path) -> None:
+        """run_interactive_build threads a progress callback into run_pipeline so
+        the spine's per-phase lines reach output."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "thread-ro-crate"
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(out_dir)
+        seen_progress: list[Any] = []
+
+        def fake_pipeline(eng, *, progress=None, **kw):
+            # The build must hand the spine a usable (non-None) progress callback.
+            seen_progress.append(progress)
+            if progress is not None:
+                progress("Scaffolding ISA backbone…")
+            return dict(_PIPELINE_RESULT)
+
+        lines: list[str] = []
+        run_interactive_build(
+            engine,
+            pipeline_runner=fake_pipeline,
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=lines.append,
+        )
+
+        assert seen_progress and seen_progress[0] is not None
+        assert any("scaffold" in line.lower() for line in lines)
+
+    def test_default_output_is_noop_for_progress(self, tmp_path) -> None:
+        """With the default (no) output the build runs silently — no crash, no
+        print — so eval/tests stay clean."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "silent-ro-crate"
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(out_dir)
+
+        # No output kwarg => default no-op sink. Must not raise.
+        result = run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+        )
+        assert result["export"]["success"] is True

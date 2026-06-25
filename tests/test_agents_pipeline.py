@@ -38,6 +38,21 @@ from builder.tools.hitl import SimulatedHumanInterface
 pytestmark = pytest.mark.timeout(120)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_session_dir(tmp_path_factory, monkeypatch):
+    """Redirect save_session's SESSION_DIR to a tmp dir for every test here.
+
+    ``run_pipeline`` now persists CrateState at each phase boundary (#242). Point
+    the writer at a throwaway dir (and reset its module-level dedup cache) so the
+    spine's saves never litter the repo's real ``sessions/`` directory and tests
+    stay hermetic.
+    """
+    import builder.tools.session as sess_mod
+
+    monkeypatch.setattr(sess_mod, "SESSION_DIR", tmp_path_factory.mktemp("sessions"))
+    monkeypatch.setattr(sess_mod, "_last_saved_state_hash", None)
+
+
 def _entity(entity_id: str, type_: EntityType, **fields) -> Entity:
     return Entity(
         entity_id=entity_id,
@@ -1334,3 +1349,119 @@ class TestMaterializeBackboneNaming:
 
         # The specific name wins over the plan (fill-don't-clobber).
         assert self._study(engine).fields.get("name") == "A real, specific study title"
+
+
+# ---------------------------------------------------------------------------
+# Issues #241 / #242 — pipeline progress + state persistence.
+#
+# #242: run_pipeline NEVER persisted CrateState, so a concurrent --dashboard read
+# "No CrateState data available" and never live-updated. The spine must
+# save_session at each phase boundary so the watched crate_state.json appears
+# and changes as the build progresses.
+#
+# #241: the pipeline emitted NO progress, so the ~tens-of-seconds deterministic
+# spine looked frozen. The spine must emit one concise line per phase through an
+# injected progress callback, defaulting to a strict no-op so eval + determinism
+# stay clean.
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineStatePersistence:
+    """#242 — run_pipeline persists CrateState at phase boundaries."""
+
+    def _isolate_sessions(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+        """Point save_session at a tmp sessions dir and reset its dedup cache."""
+        import builder.tools.session as sess_mod
+
+        sessions = tmp_path / "sessions"
+        monkeypatch.setattr(sess_mod, "SESSION_DIR", sessions)
+        monkeypatch.setattr(sess_mod, "_last_saved_state_hash", None)
+        return sessions
+
+    def test_pipeline_writes_crate_state_json(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """After run_pipeline, sessions/<id>/crate_state.json exists with entities."""
+        from builder.agents.pipeline import run_pipeline
+        from builder.tools.session import load_session
+
+        sessions = self._isolate_sessions(monkeypatch, tmp_path)
+        engine = _engine()
+        run_pipeline(engine)
+
+        state_path = sessions / engine.state.session_id / "crate_state.json"
+        assert state_path.is_file(), "run_pipeline must persist crate_state.json (#242)"
+
+        loaded = load_session(engine.state.session_id)
+        assert loaded is not None
+        types = {e.type for e in loaded.list_entities()}
+        # The scaffolded backbone is persisted, so a dashboard sees real entities.
+        assert {"Investigation", "Study", "Assay"} <= types
+
+    def test_pipeline_saves_at_least_once(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A save callback is invoked during the spine so a concurrent dashboard
+        sees progress, not just the final state."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._isolate_sessions(monkeypatch, tmp_path)
+        saves: list[str] = []
+
+        def fake_save(state, *, always_write: bool = False, **kw):
+            saves.append(state.session_id)
+            return {"success": True, "session_id": state.session_id, "skipped": False}
+
+        engine = _engine()
+        pipeline_mod.run_pipeline(engine, save=fake_save)
+
+        # At least one save during the spine (incremental dashboard updates).
+        assert len(saves) >= 1
+
+    def test_pipeline_saves_at_multiple_phase_boundaries(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Multiple saves at phase boundaries (scaffold + each validate) so the
+        watched file changes incrementally during the run."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._isolate_sessions(monkeypatch, tmp_path)
+        saves: list[int] = []
+
+        def fake_save(state, *, always_write: bool = False, **kw):
+            saves.append(len(state.list_entities()))
+            return {"success": True, "session_id": state.session_id, "skipped": False}
+
+        engine = _engine()
+        pipeline_mod.run_pipeline(engine, save=fake_save)
+
+        # Scaffold boundary + fix-loop validate boundary => more than one save.
+        assert len(saves) >= 2
+
+
+class TestPipelineProgress:
+    """#241 — run_pipeline emits one concise progress line per phase."""
+
+    def test_progress_callback_receives_phase_lines(self) -> None:
+        from builder.agents.pipeline import run_pipeline
+
+        lines: list[str] = []
+        engine = _engine()
+        run_pipeline(engine, progress=lines.append)
+
+        joined = "\n".join(lines).lower()
+        # Each major phase surfaces a concise line.
+        assert "scaffold" in joined
+        assert "validat" in joined
+        # The lines are short, human-readable phase markers (not raw dicts).
+        assert lines
+        assert all(len(line) < 200 for line in lines)
+
+    def test_progress_defaults_to_noop(self) -> None:
+        """With no progress callback the spine emits nothing (clean eval/tests)."""
+        from builder.agents.pipeline import run_pipeline
+
+        engine = _engine()
+        # Must not raise and must not print — a missing callback is a strict no-op.
+        result = run_pipeline(engine)
+        assert result["ok"] is True
