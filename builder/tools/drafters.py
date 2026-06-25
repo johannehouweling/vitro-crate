@@ -17,6 +17,17 @@ VALID_PROCESS_TYPES = frozenset(
     }
 )
 
+# A PropertyValue named "DOI"/"PubMedID" is SHACL-duck-typed by the tox profile
+# (profiles/shapes/tox/10_doi_property_value.ttl, 11_pubmed_id_property_value.ttl)
+# and MUST carry schema:propertyID with the exact OBI IRI as an @id node (the
+# `sh:hasValue` of each shape). Default the IRI by name and always emit it as a
+# reference object so the value is machine-resolvable rather than a string literal
+# that silently fails the tox pass.
+_IDENTIFIER_PROPERTY_IDS: dict[str, str] = {
+    "DOI": "http://purl.obolibrary.org/obo/OBI_0002110",  # digital object identifier
+    "PubMedID": "http://purl.obolibrary.org/obo/OBI_0001617",  # PubMed identifier
+}
+
 
 def _make_entity_id(prefix: str, name: str, hints: dict) -> str:
     """Generate a stable entity_id from hints, falling back to name."""
@@ -259,6 +270,20 @@ def draft_property_value(state: CrateState, name: str, hints: dict) -> Entity:
     ):
         if snake in merged_hints:
             merged_hints[camel] = merged_hints.pop(snake)
+
+    # DOI / PubMedID PropertyValues MUST pin propertyID to the OBI IRI as an @id
+    # node, or the tox profile raises a silent Violation. Default the IRI by name
+    # when absent, and wrap any supplied IRI string as a reference object.
+    obi_iri = _IDENTIFIER_PROPERTY_IDS.get(name)
+    if obi_iri is not None:
+        supplied = merged_hints.get("propertyID")
+        iri = obi_iri
+        if isinstance(supplied, dict) and supplied.get("@id"):
+            iri = supplied["@id"]
+        elif isinstance(supplied, str) and supplied:
+            iri = supplied
+        merged_hints["propertyID"] = {"@id": iri}
+
     entity_id = _make_entity_id("pv", name, merged_hints)
     entity = Entity(
         entity_id=entity_id,

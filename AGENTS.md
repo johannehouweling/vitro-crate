@@ -533,6 +533,27 @@ EndpointReadout / DataAnalysis constructors so each `ParameterValue` carries its
 Characteristics — `schema:additionalProperty` PropertyValue nodes carrying the
 value and, when known, the property's ontology IRI.
 
+**Looked-up identifiers round-trip as `schema:PropertyValue` nodes** (Issue #180,
+deterministic build path — no new LLM tools). `_crate_mapping._identifier_pv(name,
+value, property_id_url=None)` mints an identifier PropertyValue with a stable id
+mirroring rocrate-wizard's `param_id` (`#param_<slug(name)>_<sha1("name|value")[:10]>`)
+and emits `propertyID` as an `{"@id": …}` node when a url is given. At build time:
+a Person carrying `orcid` gains an `ORCID` PropertyValue identifier
+(`propertyID {"@id": https://orcid.org}`); a MolecularEntity carrying
+`cas`/`casrn`/`cas_number` and/or `pubchem_cid` gains `[CAS, PubChem CID]`
+identifiers in that order (CAS has no `propertyID`; PubChem CID's is
+`{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`). These source fields are
+consumed structurally (kept off the node as raw literals). A Person's
+`affiliation` and a Publication's `author` are resolved to `{"@id"}` references
+(via `_wire_reference` / `_resolve_many`) rather than emitted as literals, so
+`Person.affiliation` points at its Organization and `ScholarlyArticle.author`
+is an array of `Person` references. No identifier is ever fabricated — only values
+already in state (from a lookup) are wired (D5). `draft_property_value` defaults
+and `@id`-wraps the `propertyID` for a PropertyValue named `DOI`
+(`OBI_0002110`) or `PubMedID` (`OBI_0001617`), the IRIs the tox
+`{10,11}_*_property_value.ttl` shapes require as `sh:hasValue` nodes — so a
+DOI/PubMedID PropertyValue passes the tox pass instead of silently failing.
+
 `draft_file` auto-derives `encodingFormat` from the file extension (`name`, then
 `path`) when the caller omits it (Issue #148), via the same scientific-format-aware
 MIME registry the scanner uses — so `run.mzML` becomes `application/x-mzml` and
@@ -1183,8 +1204,9 @@ SHACL/MIT requirements (267 elements, 82 tools mapped) **and** a real gold crate
 **Two conditional Violation traps** (the "wiring contract" — fire only when those
 entities exist, both code-fixable; document for callers):
 1. A `PropertyValue` named `DOI`/`PubMedID` is SHACL-duck-typed and MUST carry
-   `propertyID` as an **`@id` IRI node** (the OBI IRI). `draft_property_value` emits it as
-   a string literal → silent Violation. Fix: default + `@id`-wrap by name.
+   `propertyID` as an **`@id` IRI node** (the OBI IRI: `DOI`→`OBI_0002110`,
+   `PubMedID`→`OBI_0001617`). **Fixed (#180):** `draft_property_value` now defaults
+   the IRI by name and `@id`-wraps it (was a silent string-literal Violation).
 2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
    (unlike CellCulture/Exposure); a process with no explicit output fires a Violation.
    Fix: synthesize/`link` outputs (fold into `draft_process_chain`).
@@ -1204,13 +1226,17 @@ spine replaces the `should_continue` ReAct loop; (5) shrink tail agent; (6) **A/
 harness — decision gate**; (7) prompt + docs.
 
 Toolbox completion (companion issue, parallel disjoint lanes): `materialize_aop_subgraph`;
-the identifier-PropertyValue family (`draft_person_with_identifiers`,
-`enrich_molecular_entity_identifiers`, `draft_publication_with_authors`, sharing one
-`_identifier_pv` helper); reference-wiring resolver extensions (`affiliation`, `funder`,
-root `about`, `author` into `_REF_FIELDS`/`_wire_mentions`); CSVW schema extensions
+~~the identifier-PropertyValue family~~ **done (#180)** — landed as deterministic
+build-path wiring (shared `_crate_mapping._identifier_pv`), **not** new LLM tools, per
+§14's "prefer the deterministic build path": Person `orcid` → ORCID PropertyValue,
+MolecularEntity `cas`/`pubchem_cid` → `[CAS, PubChem CID]`, plus `Person.affiliation`
+and `Publication.author` resolved as `{@id}` references and the
+`draft_property_value` DOI/PubMed `propertyID` fix; a dedicated
+`draft_publication_with_authors` composite (synthesizing `#CitationAuthor_*` Person
+nodes from Crossref author lists) remains deferred follow-up. Remaining lanes:
+reference-wiring resolver extensions (`funder`, root `about`); CSVW schema extensions
 (condition-table columns, `raw_measurements`); `set_crate_metadata` (fidelity, **not** a
-validity blocker — `datePublished` is auto-set by ro-crate-py); `draft_property_value`
-DOI/PubMed `propertyID` fix.
+validity blocker — `datePublished` is auto-set by ro-crate-py).
 
 > **Tool-registration contract:** every new LLM tool must be registered in **four**
 > lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
