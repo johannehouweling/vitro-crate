@@ -1533,13 +1533,17 @@ build-path-only change.
 
 ### 14.5 The pipeline spine (task 4 — `builder/agents/pipeline.py`)
 
-`run_pipeline(engine: AgentEngine) -> dict` is the deterministic, code-driven
-orchestrator of §14.2 — the Priority 1-4 heuristic (§4) expressed as **control
-flow, not prose**, with **no LLM deciding control flow**. It operates on an
-already-`initialize()`-d engine (so scanning + approved-roots happened in the
-engine) and routes every step through `engine.run_tool(...)` (so each is profiled
-and validation is cached); it never re-implements tool logic, only orchestrates the
-existing toolbox. The sequence:
+`run_pipeline(engine: AgentEngine, *, progress=None, save=None) -> dict` is the
+deterministic, code-driven orchestrator of §14.2 — the Priority 1-4 heuristic (§4)
+expressed as **control flow, not prose**, with **no LLM deciding control flow**. It
+operates on an already-`initialize()`-d engine (so scanning + approved-roots
+happened in the engine) and routes every step through `engine.run_tool(...)` (so
+each is profiled and validation is cached); it never re-implements tool logic, only
+orchestrates the existing toolbox. The keyword-only `progress` sink (a no-op by
+default) receives one concise line per phase (#241) and the keyword-only `save`
+callback (defaulting to `save_session`) persists CrateState at each phase boundary
+so a concurrent dashboard live-updates (#242) — see §14.6.1 "Progress +
+persistence". The sequence:
 
 1. **Scaffold** the ISA backbone via `scaffold_isa_backbone` — always, and
    idempotent (existing layers are reused). The spine supplies deterministic
@@ -1660,7 +1664,9 @@ HITL and lives **outside** the spine, in the interactive entrypoint
 exporter=None, output=None) -> dict` joins the two halves into the end-to-end
 sequence a real user runs. It:
 
-1. runs the **automated** pipeline (`run_pipeline`) — always;
+1. emits a leading **progress** line (`Scanning ✓ (N files)`, #241) and runs the
+   **automated** pipeline (`run_pipeline`) — always — threading the `output`
+   channel in as the spine's progress sink (see "Progress + persistence" below);
 2. runs the **HITL guidance tail** (`run_guidance(engine, engine.human_interface)`)
    **iff the engine's `HumanInterface` is interactive**;
 3. surfaces a concise summary of the guidance results
@@ -1669,8 +1675,10 @@ sequence a real user runs. It:
    CLI's `print` / console writer);
 4. **exports the crate to disk LAST** (`export_crate(engine.state)`, #233) — after
    guidance, so the *enriched* crate is what lands — and surfaces the resolved
-   **absolute** crate path via `output`;
-5. returns `{"pipeline": <run_pipeline result>, "guidance": <run_guidance result
+   **absolute** crate path via `output` (`Crate written to <abs path>`);
+5. does a **final `save_session(state, always_write=True)`** (#242) so a populated
+   CrateState overview + a resumable session are guaranteed on disk, then
+6. returns `{"pipeline": <run_pipeline result>, "guidance": <run_guidance result
    or None>, "export": <export_crate result>}` — `guidance` is `None` exactly when
    the path was non-interactive; `export` is the (successful) export result dict.
 
@@ -1686,6 +1694,41 @@ build (interactive *and* headless), so the user always gets a crate on disk and
 logged, surfaced via `output`, and re-raised as `CrateExportError` so the CLI
 signals a non-zero exit. The exporter is injectable so the wiring is unit-tested
 with no ro-crate-py / disk (`tests/test_agents_build.py`).
+
+**Progress + persistence (#241 / #242).** Before these the default `--interactive`
+(pipeline) path *felt dead*: the deterministic spine ran for ~tens of seconds with
+**no output** (it looked frozen — the legacy ReAct loop has a `_ThinkingSpinner`,
+the pipeline had nothing, #241) and **never persisted CrateState** (so a concurrent
+`--dashboard`, which loads + watches `sessions/<id>/crate_state.json`, showed "No
+CrateState data available" and never live-updated even though a full crate was built
+in memory, #242). Both are fixed without an LLM and without perturbing the built
+`@graph`:
+
+- **Progress (#241)** is surfaced through the **existing `output` channel** — one
+  concise line per phase: `Scanning ✓ (N files)` (emitted by `run_interactive_build`
+  from `state.scanned_files`), then the spine's own threaded lines
+  (`Scaffolding ISA backbone…` / `Extracting plan…` / `Materializing N entities…` /
+  `Validating base→ISA→ISA-Tox…` / `Resolving gaps…`), then `Crate written to
+  <abs path>`. `run_pipeline` takes a keyword-only `progress` sink (defaulting to a
+  strict **no-op**); `run_interactive_build` threads `output` in only when the
+  injected `pipeline_runner` actually accepts a `progress` kwarg (signature-checked,
+  so a narrower injected test double still works). With the default no-op `output`
+  (non-interactive / eval / tests) **nothing is emitted**, so determinism and eval
+  output stay clean.
+- **Persistence (#242)** is driven by `save_session` calls at **phase boundaries**.
+  `run_pipeline` takes a keyword-only `save` callback (defaulting to the real
+  `builder.tools.session.save_session`) and calls it after **scaffold**, after
+  **materialize**, and after **each `build_and_validate`** in the fix loop — the
+  incremental, change-detected writes drive the dashboard's mtime-watch refresh so
+  a running `--dashboard` reflects the crate converging round by round.
+  `run_interactive_build` then does a **final `save_session(state,
+  always_write=True)`** after guidance + export (on **both** the interactive and the
+  headless path), which bypasses change-detection to guarantee a populated overview
+  + a resumable session. Persisting CrateState writes only `crate_state.json`; it
+  **never touches the built `@graph`**, so the no-provider determinism guarantee
+  (identical graph hash across runs) holds. Both `progress` and `save` are injected
+  so the wiring is unit-tested with no disk / no SHACL (`tests/test_agents_build.py`,
+  `tests/test_agents_pipeline.py`).
 
 **Output location (CLI, `main.py`).** The on-disk destination is resolved at
 dispatch time with this precedence (#233):

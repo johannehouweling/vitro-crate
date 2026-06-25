@@ -27,11 +27,13 @@ functions) so the wiring is unit-testable with no SHACL / no LLM / no network.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from builder.tools.hitl import is_interactive
+from builder.tools.session import save_session
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -43,12 +45,16 @@ logger = logging.getLogger(__name__)
 __all__ = ["run_interactive_build", "format_guidance_summary", "CrateExportError"]
 
 # A pipeline_runner runs the automated deterministic spine once over an engine,
-# mutating engine.state and returning the spine's result dict. A guidance_runner
-# runs the HITL gap-resolution loop over the engine + a human, returning its
-# summary dict. An exporter writes the assembled crate to disk and returns the
-# export result dict (``{success, crate_path, error}``). All three are injected
-# so the wiring is testable without SHACL / LLM / disk.
-PipelineRunner = Callable[["AgentEngine"], dict[str, Any]]
+# mutating engine.state and returning the spine's result dict. The real
+# ``run_pipeline`` additionally accepts a keyword-only ``progress`` sink (#241),
+# threaded in only when the runner's signature accepts it (see
+# ``_run_pipeline_with_progress``), so the alias is the open ``(...)`` form to
+# admit both shapes. A guidance_runner runs the HITL gap-resolution loop over the
+# engine + a human, returning its summary dict. An exporter writes the assembled
+# crate to disk and returns the export result dict (``{success, crate_path,
+# error}``). All three are injected so the wiring is testable without SHACL / LLM /
+# disk.
+PipelineRunner = Callable[..., dict[str, Any]]
 GuidanceRunner = Callable[..., dict[str, Any]]
 Exporter = Callable[..., dict[str, Any]]
 
@@ -95,6 +101,20 @@ def run_interactive_build(
     *and* headless). An export failure is logged, surfaced, and re-raised as
     :class:`CrateExportError` — it is never silently swallowed.
 
+    **Progress (#241).** The build surfaces staged progress through *output* — a
+    "Scanning ✓ (N files)" line up front, the spine's own per-phase lines threaded
+    in via a progress callback (Scaffolding / Materializing / Validating /
+    Resolving), and the final "Crate written to <abs path>" line — so the
+    ~tens-of-seconds deterministic spine no longer looks frozen. It is a strict
+    no-op when *output* is the default (non-interactive / tests).
+
+    **Persistence (#242).** The spine persists ``CrateState`` to
+    ``sessions/<id>/crate_state.json`` at each phase boundary (incremental saves
+    drive a concurrent ``--dashboard``'s live refresh), and this entrypoint does a
+    FINAL ``save_session(state, always_write=True)`` after guidance + export so a
+    populated overview + a resumable session are always written — on BOTH the
+    interactive and the headless path.
+
     Args:
         engine: An initialized engine. Its ``human_interface`` decides whether
             the guidance tail runs; ``run_guidance`` mutates ``engine.state`` in
@@ -106,8 +126,9 @@ def run_interactive_build(
         exporter: Injected on-disk writer; defaults to the real
             :func:`builder.tools.builder.export_crate` (crate assembly via
             ro-crate-py — never hand-rolled JSON-LD).
-        output: Sink for the human-readable guidance summary and the final crate
-            path (e.g. ``print`` or a console writer). Defaults to a no-op.
+        output: Sink for the staged progress lines, the human-readable guidance
+            summary, and the final crate path (e.g. ``print`` or a console
+            writer). Defaults to a no-op.
 
     Returns:
         ``{"pipeline": <run_pipeline result>, "guidance": <run_guidance result or
@@ -118,10 +139,16 @@ def run_interactive_build(
     Raises:
         CrateExportError: If the final on-disk export fails (surfaced first).
     """
-    emit = output or (lambda _msg: None)
+    emit: OutputChannel = output or (lambda _msg: None)
+
+    # Progress (#241): the input is already scanned by engine.initialize(); lead
+    # with a concise inventory line so the user sees the build picking up.
+    scanned = len(getattr(engine.state, "scanned_files", []) or [])
+    if scanned:
+        emit(f"Scanning ✓ ({scanned} files)")
 
     pipeline_runner = pipeline_runner or _default_pipeline_runner()
-    pipeline_result = pipeline_runner(engine)
+    pipeline_result = _run_pipeline_with_progress(pipeline_runner, engine, emit)
 
     human: HumanInterface | None = getattr(engine, "human_interface", None)
     if not is_interactive(human):
@@ -130,6 +157,7 @@ def run_interactive_build(
         # but the build is still completed, so it must still be written to disk.
         logger.debug("Non-interactive build: skipping the HITL guidance tail")
         export_result = _export_crate_to_disk(engine, exporter, emit)
+        _final_save(engine)
         return {
             "pipeline": pipeline_result,
             "guidance": None,
@@ -137,18 +165,76 @@ def run_interactive_build(
         }
 
     guidance_runner = guidance_runner or _default_guidance_runner()
+    emit("Resolving gaps…")
     guidance_result = guidance_runner(engine, human)
 
     emit(format_guidance_summary(guidance_result))
 
     # Export LAST so the guidance-enriched crate is what lands on disk (#233).
     export_result = _export_crate_to_disk(engine, exporter, emit)
+    # FINAL persist (#242): always_write guarantees a populated overview + resume.
+    _final_save(engine)
 
     return {
         "pipeline": pipeline_result,
         "guidance": guidance_result,
         "export": export_result,
     }
+
+
+def _run_pipeline_with_progress(
+    pipeline_runner: PipelineRunner,
+    engine: AgentEngine,
+    emit: OutputChannel,
+) -> dict[str, Any]:
+    """Call *pipeline_runner*, threading *emit* in as the spine's progress sink.
+
+    The real :func:`builder.agents.pipeline.run_pipeline` accepts a keyword-only
+    ``progress`` callback (#241). To stay backward-compatible with injected test
+    runners whose signature is ``(engine)`` only, we introspect the runner and pass
+    ``progress`` **only** when it is accepted — otherwise the runner is called the
+    legacy way. This keeps the spine's per-phase lines flowing to the user through
+    the real path while never breaking a narrower injected double.
+    """
+    if _accepts_kwarg(pipeline_runner, "progress"):
+        return pipeline_runner(engine, progress=emit)
+    return pipeline_runner(engine)
+
+
+def _accepts_kwarg(func: Callable[..., Any], name: str) -> bool:
+    """Return True if *func* accepts a keyword argument *name* (or ``**kwargs``)."""
+    try:
+        sig = inspect.signature(func)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if param.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+        if param.name == name and param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            return True
+    return False
+
+
+def _final_save(engine: AgentEngine) -> None:
+    """Final, forced CrateState persist (#242) — never abort the build on failure.
+
+    ``always_write=True`` bypasses the change-detection skip so the session is
+    guaranteed written even when an incremental phase save already wrote identical
+    content, ensuring the dashboard's CrateState overview is populated and the
+    session is resumable. A save failure is logged, not raised — the crate is
+    already on disk from the export step, so the build still succeeded.
+    """
+    try:
+        result = save_session(engine.state, always_write=True)
+        if not result.get("success", True):
+            logger.warning(
+                "Final session save failed: %s", result.get("error", "unknown error")
+            )
+    except Exception:  # noqa: BLE001 - persistence is best-effort; never break the build
+        logger.exception("Unexpected error during final session save")
 
 
 def _export_crate_to_disk(

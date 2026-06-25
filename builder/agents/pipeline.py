@@ -65,6 +65,39 @@ logger = logging.getLogger(__name__)
 # real per-case token counts for the ``--arch pipeline`` arm (Issue #221).
 UsageSink = Callable[[int | None, int | None, str | None], None]
 
+# A progress sink receives one concise human-readable line per pipeline phase
+# (Issue #241). It defaults to a strict no-op so the eval and the determinism
+# tests stay silent; the interactive build path threads in the CLI's `output`
+# channel so a real user sees the deterministic spine is making progress rather
+# than a terminal that looks frozen for ~tens of seconds.
+ProgressSink = Callable[[str], Any]
+
+# A session-save callback persists CrateState at a phase boundary (Issue #242).
+# It mirrors :func:`builder.tools.session.save_session`'s call shape
+# ``save(state, *, always_write=...)`` and defaults to the real function. The
+# spine saves after each phase so a concurrent ``--dashboard`` (which watches
+# ``sessions/<id>/crate_state.json``) reflects pipeline progress live instead of
+# showing "No CrateState data available". Injected so the wiring is unit-testable
+# with no disk I/O.
+SaveFn = Callable[..., dict[str, Any]]
+
+
+def _noop_progress(_message: str) -> None:
+    """Default progress sink: discard. Keeps the spine silent under tests/eval."""
+
+
+def _default_save() -> SaveFn:
+    """The real session writer, imported lazily so the spine stays light.
+
+    :func:`builder.tools.session.save_session` performs an atomic write of
+    ``crate_state.json`` and is change-detecting (it skips identical content
+    unless ``always_write=True``). Deferred so a test injecting its own ``save``
+    is independent of the writer / disk.
+    """
+    from builder.tools.session import save_session
+
+    return save_session
+
 
 def draft_entity_fields(
     entity_type: str,
@@ -861,7 +894,12 @@ def _materialize_plan(
     return result
 
 
-def _run_fix_loop(engine: AgentEngine) -> tuple[dict[str, Any], int]:
+def _run_fix_loop(
+    engine: AgentEngine,
+    *,
+    progress: ProgressSink = _noop_progress,
+    save: Callable[[], None] | None = None,
+) -> tuple[dict[str, Any], int]:
     """Step 4 — bounded deterministic fix loop.
 
     Runs ``fix_required_issues`` up to ``_MAX_FIX_ROUNDS`` times, stopping early
@@ -873,21 +911,33 @@ def _run_fix_loop(engine: AgentEngine) -> tuple[dict[str, Any], int]:
     A round "makes progress" when it fixes at least one issue; a round that fixes
     nothing means the remaining issues are not deterministically repairable, so
     spinning further is wasted SHACL work.
+
+    ``progress`` receives one concise line per validate/fix phase (#241) and
+    ``save`` (when supplied) is called after each ``build_and_validate`` so a
+    concurrent dashboard sees the crate converge round by round (#242).
     """
     from builder.tools.validation import build_and_validate
 
     rounds = 0
+    progress("Validating base→ISA→ISA-Tox…")
     last_validation = engine.run_tool("build_and_validate", profile="all", severity="required")
+    if save is not None:
+        save()
     if last_validation.get("ok"):
         return last_validation, rounds
 
     for _ in range(_MAX_FIX_ROUNDS):
         rounds += 1
+        progress("Resolving gaps…")
         fix_result = engine.run_tool("fix_required_issues", profile="all", severity="required")
         # Re-validate to get the authoritative conformance after this round.
+        progress("Validating base→ISA→ISA-Tox…")
         last_validation = engine.run_tool(
             "build_and_validate", profile="all", severity="required"
         )
+        # Persist after each fix-loop validate so the dashboard live-updates (#242).
+        if save is not None:
+            save()
         if last_validation.get("ok"):
             break
         if not fix_result.get("fixed"):
@@ -902,7 +952,12 @@ def _run_fix_loop(engine: AgentEngine) -> tuple[dict[str, Any], int]:
     return last_validation, rounds
 
 
-def run_pipeline(engine: AgentEngine) -> dict[str, Any]:
+def run_pipeline(
+    engine: AgentEngine,
+    *,
+    progress: ProgressSink | None = None,
+    save: SaveFn | None = None,
+) -> dict[str, Any]:
     """Run the deterministic pipeline spine on *engine* and return its outcome.
 
     The engine MUST already be :meth:`~builder.engine.AgentEngine.initialize`-d
@@ -917,10 +972,26 @@ def run_pipeline(engine: AgentEngine) -> dict[str, Any]:
     A/B path of the eval harness asserts. When a provider is configured, the
     bounded drafter-leaf (step 2) enriches entities with descriptive content.
 
+    Progress + persistence (#241 / #242). The spine emits a concise line per phase
+    through *progress* and persists ``CrateState`` to ``sessions/<id>/`` via *save*
+    after each phase boundary (scaffold, materialize, and every fix-loop validate),
+    so a concurrent ``--dashboard`` reflects the build converging live instead of
+    showing "No CrateState data available". Persisting CrateState never perturbs
+    the built ``@graph`` (the change-detected, on-disk write touches only
+    ``crate_state.json``), so the no-provider determinism guarantee is preserved.
+
     Args:
         engine: An initialized headless :class:`~builder.engine.AgentEngine`. The
             spine mutates ``engine.state`` in place and routes all tool calls
             through the engine (so they are profiled and validation is cached).
+        progress: Optional per-phase progress sink (Issue #241). Defaults to a
+            strict no-op so the eval and determinism tests stay silent; the
+            interactive build threads the CLI ``output`` channel in.
+        save: Optional ``save(state, *, always_write=...)`` callback (Issue #242).
+            Defaults to the real :func:`builder.tools.session.save_session`. The
+            spine calls it (incrementally, change-detected) at each phase boundary
+            so a concurrent dashboard live-updates. Injected so the wiring is
+            unit-testable with no disk I/O.
 
     Returns:
         ``{"ok", "conformance", "issues", "scaffold", "materialized", "drafted",
@@ -933,15 +1004,36 @@ def run_pipeline(engine: AgentEngine) -> dict[str, Any]:
         to ``profile.ndjson`` as ``node_end``/``node="model"`` events so the eval
         harness mines it exactly as it does the ReAct arm.
     """
+    emit: ProgressSink = progress or _noop_progress
+    save_fn: SaveFn = save or _default_save()
+
+    def _persist() -> None:
+        """Persist CrateState at a phase boundary — never let a save failure break
+        the spine (the build itself is the load-bearing work)."""
+        try:
+            save_fn(engine.state)
+        except Exception as exc:  # noqa: BLE001 - a save failure must not abort the build
+            logger.warning("Pipeline session save failed: %s", exc)
+
     # Accumulate per-run leaf token usage; the sink also logs each call to the
     # profiler so eval/runner.py mines it via the same path as the ReAct arm.
     totals = {"input_tokens": 0, "output_tokens": 0}
     usage_sink = _make_usage_logger(engine, totals)
 
+    emit("Scaffolding ISA backbone…")
     scaffold = _scaffold_backbone(engine)
+    _persist()
+
+    emit("Extracting plan…")
     materialized = _materialize_plan(engine, usage_sink)
+    materialized_count = sum(v for v in materialized.values() if isinstance(v, int))
+    if materialized_count:
+        emit(f"Materializing {materialized_count} entities…")
+    _persist()
+
     drafted = _draft_entities(engine, usage_sink)
-    validation, fix_rounds = _run_fix_loop(engine)
+
+    validation, fix_rounds = _run_fix_loop(engine, progress=emit, save=_persist)
 
     return {
         "ok": bool(validation.get("ok")),
