@@ -36,10 +36,20 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
     verbosity (``verbose == 0``), the effective level is raised to INFO so that
     pipeline progress is visible. A user-requested higher verbosity (``-v`` /
     ``-vv``) is never downgraded.
+
+    The interactive INFO bump is for *our* progress lines only. Promoting the
+    root logger to INFO would otherwise unleash the noisy third-party libraries
+    (notably ``httpx``, which logs every request at INFO), drowning each guidance
+    question under per-request spam. So when the bump -- and only the bump --
+    raises the level to INFO, the noisy third-party loggers are pinned to WARNING
+    while ``builder.*`` / ``__main__`` stay at INFO. A user who explicitly asked
+    for ``-v`` / ``-vv`` opted into the verbosity and those loggers are left
+    untouched.
     """
     level_map = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}
     level = level_map.get(verbose, logging.WARNING)
-    if interactive and verbose == 0:
+    interactive_bump = interactive and verbose == 0
+    if interactive_bump:
         level = logging.INFO
     logging.basicConfig(
         level=level,
@@ -50,6 +60,14 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
     # call in the same process), so set the level explicitly to honour the
     # interactive bump and the requested verbosity deterministically.
     logging.getLogger().setLevel(level)
+    # The interactive bump promotes the root logger to INFO; keep that for our
+    # own loggers but silence the per-request chatter from third-party HTTP/SDK
+    # libraries (httpx logs every "HTTP Request: POST .../chat/completions" at
+    # INFO, burying each guidance question). Only do this for the bump -- never
+    # when the user explicitly requested verbosity via -v / -vv.
+    if interactive_bump:
+        for noisy in ("httpx", "httpcore", "openai", "urllib3"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

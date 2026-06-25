@@ -449,3 +449,58 @@ class TestInteractiveVerbosity:
             assert root.level == logging.DEBUG
         finally:
             root.setLevel(original)
+
+    def test_interactive_silences_noisy_third_party_loggers(self):
+        """The interactive INFO bump must not unleash httpx/openai request spam.
+
+        When *interactive* raises the effective level to INFO (and the user did
+        not ask for it via -v/-vv), the noisy third-party loggers are forced to
+        WARNING so each guidance question is not buried under per-request
+        ``HTTP Request: POST .../chat/completions`` INFO lines, while our own
+        ``builder.*`` progress lines stay at INFO.
+        """
+        import logging
+
+        from main import setup_logging
+
+        root = logging.getLogger()
+        noisy_names = ("httpx", "httpcore", "openai", "urllib3")
+        originals = {name: logging.getLogger(name).level for name in noisy_names}
+        original_root = root.level
+        try:
+            setup_logging(0, interactive=True)
+            for name in noisy_names:
+                assert (
+                    logging.getLogger(name).getEffectiveLevel() >= logging.WARNING
+                ), name
+            assert logging.getLogger("builder").getEffectiveLevel() == logging.INFO
+        finally:
+            root.setLevel(original_root)
+            for name, lvl in originals.items():
+                logging.getLogger(name).setLevel(lvl)
+
+    def test_explicit_verbose_does_not_raise_third_party_loggers(self):
+        """Under an explicit -vv (DEBUG) the user opted into verbosity.
+
+        The noisy third-party loggers must NOT be force-raised, so their
+        DEBUG/INFO output is honoured rather than suppressed.
+        """
+        import logging
+
+        from main import setup_logging
+
+        root = logging.getLogger()
+        noisy_names = ("httpx", "httpcore", "openai", "urllib3")
+        originals = {name: logging.getLogger(name).level for name in noisy_names}
+        original_root = root.level
+        try:
+            # Start from NOTSET so a force-raise would be observable.
+            for name in noisy_names:
+                logging.getLogger(name).setLevel(logging.NOTSET)
+            setup_logging(2, interactive=True)
+            for name in noisy_names:
+                assert logging.getLogger(name).level == logging.NOTSET, name
+        finally:
+            root.setLevel(original_root)
+            for name, lvl in originals.items():
+                logging.getLogger(name).setLevel(lvl)
