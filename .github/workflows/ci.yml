@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Each push now fans the suite across 12 runners; a superseded commit on the
+# same ref would otherwise keep all 12 (+lint) running and crowd the free-tier
+# 20-concurrent-job cap. Cancel in-progress runs of the same ref so only the
+# latest commit holds runners. `main` is excluded (github.run_id is unique per
+# run there) so pushes to main never cancel each other.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -45,13 +54,19 @@ jobs:
         # Shard the suite across N independent jobs. GitHub's standard runner is
         # 2 vCPU / 1 physical core, so pytest-xdist's `-n auto` resolves to a
         # SINGLE worker there ("created: 1/1 worker") — i.e. no in-process
-        # parallelism at all. Bumping to a fixed `-n N` would risk OOM: the
-        # standard runner has ~7 GB and every xdist worker re-loads torch +
-        # langchain + rocrate, which OOM-crashes build/validate workers. So we
-        # parallelise ACROSS jobs instead: each fresh `ubuntu-latest` gets the
-        # full ~7 GB to itself and runs one shard serially (no `-n`), and the
-        # shards run concurrently as separate runners.
-        group: [1, 2, 3, 4]
+        # parallelism at all. In-process `-n N` also re-loads langchain + rocrate
+        # + rdflib per worker and contends for the 2 vCPUs, so we parallelise
+        # ACROSS jobs instead: each fresh `ubuntu-latest` gets the whole runner
+        # to itself and runs one shard serially (no `-n`), and the shards run
+        # concurrently as separate runners.
+        #
+        # Sized to total test work: the suite grew to ~2000s of runner-CPU, so
+        # 4 shards floored the wall-clock at ~10.5 min (slowest shard). Per-shard
+        # fixed cost is small (~30s install + ~10s langchain import — torch is
+        # NOT a dependency), so fan-out scales near-linearly. 12 shards puts the
+        # slowest shard at ~4 min; the single longest test (~160s on the runner)
+        # is the floor below which adding shards stops helping.
+        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -70,13 +85,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev --extra langchain
 
-      - name: Test (pytest, shard ${{ matrix.group }}/4)
-        # pytest-split partitions the suite into 4 timing-balanced groups using
+      - name: Test (pytest, shard ${{ matrix.group }}/12)
+        # pytest-split partitions the suite into 12 timing-balanced groups using
         # the committed `.test_durations` file and the `least_duration`
         # algorithm, so the heavy SHACL-validation / e2e build tail is spread
-        # evenly instead of piling into one shard. Measured balance from the
-        # committed durations: 224/225/224/222 tests, ~162s per shard, exact
-        # partition (0 overlap, 0 gaps).
+        # evenly instead of piling into one shard (verified ~83-92 tests/group,
+        # exact partition: 0 overlap, 0 gaps). Regenerate `.test_durations` with
+        # `pytest --store-durations` when the balance drifts.
         #
         # Run serially within the shard (no `-n`): each shard already has the
         # whole runner's ~7 GB, and cross-job sharding provides the parallelism,
@@ -92,7 +107,7 @@ jobs:
           --ignore=tests/test_lookups_contract.py
           --ignore=tests/test_dashboard.py
           --timeout=30
-          --splits 4
+          --splits 12
           --group ${{ matrix.group }}
           --splitting-algorithm least_duration
           -p no:cacheprovider
