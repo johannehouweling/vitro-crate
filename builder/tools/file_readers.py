@@ -37,16 +37,46 @@ def _format_kib(num_bytes: int) -> str:
     return f"{num_bytes / 1024:.1f} KiB"
 
 
+# How many concrete child-file paths to surface in a directory message. Enough
+# for a weak model to pick a real file to read next, capped so the tool message
+# stays compact on a large directory.
+_DIR_LISTING_LIMIT = 25
+
+
 def _directory_message(path: str) -> str:
     """Actionable message for a reader that was handed a directory (Issue #240).
 
     The LLM kept calling ``read_file``/``read_file_sample`` on a *directory* and
-    got a silent ``None`` each time, then looped. Return a clear "this is a
-    directory, browse the inventory then read a file" signal instead.
+    got a silent ``None`` each time, then looped. The abstract "use
+    list_scanned_files" hint alone still looped a weak model, so this also lists
+    the directory's immediate **readable file children** as CONCRETE paths the
+    model can read next — the most direct way to break the loop (follow-up to
+    #240). Subdirectories are excluded (they would just loop the same way); an
+    empty/unreadable directory falls back to the plain guidance.
     """
-    return (
+    base = (
         f"{path} is a directory, not a file — use list_scanned_files to browse "
         f"the inventory, then read a specific file by its path."
+    )
+    try:
+        children = sorted(
+            entry
+            for entry in Path(path).iterdir()
+            if entry.is_file() and not entry.name.startswith(".")
+        )
+    except OSError:
+        return base
+    if not children:
+        return base
+
+    shown = children[:_DIR_LISTING_LIMIT]
+    listed = "\n".join(f"  - {child}" for child in shown)
+    more = ""
+    if len(children) > len(shown):
+        more = f"\n  …and {len(children) - len(shown)} more (use list_scanned_files)."
+    return (
+        f"{base}\nReadable files in this directory — read one of these paths "
+        f"directly:\n{listed}{more}"
     )
 
 

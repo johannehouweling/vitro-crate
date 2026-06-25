@@ -120,3 +120,29 @@ class TestDirectoryHandling:
         # A genuinely missing path stays None (the agent-loop maps that to its
         # 'unreadable' message); only a directory gets the new guidance.
         assert read_file(str(tmp_path / "does_not_exist.csv")) is None
+
+    def test_directory_message_lists_concrete_child_file_paths(self, tmp_path):
+        # A weak model kept re-calling read_file on a directory even after the
+        # abstract "use list_scanned_files" hint. Listing the directory's actual
+        # readable file children (concrete paths) gives it something to read NEXT,
+        # breaking the loop. (Follow-up to #240.)
+        (tmp_path / "Assay_Meta_data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+        (tmp_path / "results.xlsx").write_bytes(b"PK\x03\x04stub")
+        (tmp_path / "nested").mkdir()  # subdir must NOT be listed as a readable file
+
+        result = read_file(str(tmp_path))
+        assert result is not None
+        assert "is a directory" in result
+        # Concrete, immediately-readable child file paths are surfaced.
+        assert str(tmp_path / "Assay_Meta_data.csv") in result
+        assert str(tmp_path / "results.xlsx") in result
+        # The subdirectory is not offered as a file to read.
+        assert str(tmp_path / "nested") not in result
+
+    def test_directory_message_handles_empty_directory(self, tmp_path):
+        # An empty directory has no children to offer; it must still return the
+        # actionable directory message (never None / never crash).
+        result = read_file(str(tmp_path))
+        assert result is not None
+        assert "is a directory" in result
+        assert "list_scanned_files" in result

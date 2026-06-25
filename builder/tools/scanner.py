@@ -1163,11 +1163,13 @@ def read_file_sample(
     if file_path.is_dir():
         # A directory handed to a file reader (e.g. read_file_sample(<dir>,
         # mode='overview')) used to return a silent None, which looped a weak
-        # model. Return a clear, actionable signal instead (Issue #240).
-        return (
-            f"{path} is a directory, not a file — use list_scanned_files to "
-            f"browse the inventory, then read a specific file by its path."
-        )
+        # model. Return a clear, actionable signal — including the directory's
+        # concrete readable file children so the model reads a real file next
+        # instead of re-calling on the directory (Issue #240). Imported lazily to
+        # avoid a scanner<->file_readers import cycle.
+        from builder.tools.file_readers import _directory_message
+
+        return _directory_message(path)
     if not file_path.is_file():
         return None
 
