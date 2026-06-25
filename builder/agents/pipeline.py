@@ -43,6 +43,7 @@ call, trading strict graph-hash determinism for richer drafted content.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Callable
 
 from builder.config import get_provider
@@ -623,6 +624,156 @@ def _select_process_for_protocol(
     return None
 
 
+# --- Publication recovery from PDF text (#245) ------------------------------
+#
+# A plan publication carries a TITLE only (D5 — no DOI), but when the source
+# document IS a PDF the bounded extractor (`extract_plan`) frequently hands back
+# the PDF *filename* (e.g. `Wagenaars_etal_2025_OATP1C1.pdf`) as that title.
+# Looking a DOI up by filename essentially always fails the Crossref confidence
+# gate. So when a candidate publication maps to a PDF under an approved scan root
+# we read the PDF *text* and recover a real query — a DOI (regex first; most
+# reliable) or the article title (first non-trivial heading) — and resolve with
+# THAT, never the bare filename. When neither is recoverable we skip rather than
+# query Crossref with a filename.
+
+# DOI regex (Crossref's recommended pattern): `10.<registrant>/<suffix>`. The
+# suffix runs to the first whitespace/quote/closing bracket; trailing sentence
+# punctuation is trimmed by the caller. Case-insensitive — DOIs are.
+_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>]+", re.IGNORECASE)
+
+# Strip the structured section markers `extract_pdf_text` emits (`[Page N]`,
+# `[Text] `, `[Table …]`, `[Image]`) so the title heuristic sees plain lines.
+_PDF_MARKER_RE = re.compile(r"^\[(?:Page \d+|Table[^\]]*|Image[^\]]*)\]\s*$")
+_PDF_TEXT_PREFIX = "[Text] "
+
+# A recovered title must look like a real heading, not a fragment or boilerplate.
+_MIN_TITLE_WORDS = 3
+_MIN_TITLE_CHARS = 12
+
+
+def _extract_doi_from_text(text: str) -> str | None:
+    """Recover the first DOI from PDF *text* via regex (most reliable — #245).
+
+    Returns the bare DOI (``10.…/…``, any ``doi:``/URL prefix dropped, trailing
+    sentence punctuation trimmed) or ``None`` when the text carries no DOI.
+    """
+    match = _DOI_RE.search(text or "")
+    if match is None:
+        return None
+    doi = match.group(0).rstrip(".,;)]}>\"'")
+    return doi or None
+
+
+def _extract_title_from_pdf_text(text: str) -> str | None:
+    """Recover an article title from PDF *text* — its first non-trivial line (#245).
+
+    Walks the lines of :func:`~builder.tools.scanner.extract_pdf_text` output,
+    stripping its ``[Page N]`` / ``[Text] `` / ``[Table …]`` markers, and returns
+    the first line that reads like a heading (at least :data:`_MIN_TITLE_WORDS`
+    words and :data:`_MIN_TITLE_CHARS` characters, and not itself a DOI/URL). This
+    is descriptive parsing of the document body, not identifier fabrication
+    (D5-safe). Returns ``None`` when no plausible title line is found.
+    """
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line or _PDF_MARKER_RE.match(line):
+            continue
+        if line.startswith(_PDF_TEXT_PREFIX):
+            line = line[len(_PDF_TEXT_PREFIX):].strip()
+        if not line:
+            continue
+        # A DOI/URL line is not a title; keep scanning.
+        if _DOI_RE.search(line) or line.lower().startswith(("http://", "https://", "doi:")):
+            continue
+        if len(line) >= _MIN_TITLE_CHARS and len(line.split()) >= _MIN_TITLE_WORDS:
+            return line
+    return None
+
+
+def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
+    """Path of the scanned PDF a plan publication *title* refers to, or ``None``.
+
+    A plan publication is treated as PDF-backed when its ``title`` itself names a
+    PDF (ends in ``.pdf``) and a scanned file matches it by basename — the common
+    #245 case where the extractor returned the filename as the title. The returned
+    path is **fail-closed to ``approved_scan_roots``** (the containment guard the
+    rest of the spine uses), so the publication path never widens filesystem
+    access. Returns ``None`` when the title is an ordinary article title (resolve
+    it directly) or names no scanned PDF.
+    """
+    candidate = title.strip()
+    if not candidate.lower().endswith(".pdf"):
+        return None
+
+    from pathlib import PurePath
+
+    from builder.tools.scanner import _contain
+
+    wanted = PurePath(candidate).name.lower()
+    roots = engine.state.approved_scan_roots
+    for f in engine.state.scanned_files:
+        fname = (f.filename or PurePath(f.path).name or "").lower()
+        if fname != wanted:
+            continue
+        # Fail-closed: only read a file that resolves inside an approved root.
+        if _contain(f.path, roots) is None:
+            logger.debug(
+                "Publication PDF %s is outside approved scan roots — skipping (#245).",
+                f.path,
+            )
+            return None
+        return f.path
+    return None
+
+
+def _recover_publication_query(
+    engine: AgentEngine, title: str
+) -> tuple[str, str] | None:
+    """Resolve a plan publication *title* to a real Crossref query (#245).
+
+    Returns one of:
+
+    * ``("doi", <doi>)`` — a DOI recovered from the PDF text (most reliable);
+    * ``("title", <title>)`` — a real title (the ordinary case: the plan title is
+      already an article title; or one extracted from the PDF text when no DOI was
+      found);
+    * ``None`` — the title is a PDF filename and neither a DOI nor a plausible
+      title could be recovered from the PDF text, so the caller must SKIP rather
+      than query Crossref with the bare filename.
+
+    The PDF read is fail-closed to ``approved_scan_roots`` and never raises out of
+    the spine: any reader error/missing dependency is logged and yields ``None``.
+    """
+    pdf_path = _pdf_path_for_publication(engine, title)
+    if pdf_path is None:
+        # An ordinary article title — resolve it directly (existing behaviour).
+        return ("title", title)
+
+    # Lazy import: keep the spine importable in the default env; only touch the
+    # PDF reader when there is actually a PDF-backed publication.
+    from builder.tools.scanner import extract_pdf_text
+
+    try:
+        text = extract_pdf_text(pdf_path)
+    except Exception as exc:  # noqa: BLE001 - a malformed PDF must not break the spine
+        logger.warning("Reading publication PDF %s failed; skipping: %s", pdf_path, exc)
+        return None
+
+    if not text or not text.strip():
+        return None
+
+    doi = _extract_doi_from_text(text)
+    if doi:
+        return ("doi", doi)
+
+    real_title = _extract_title_from_pdf_text(text)
+    if real_title:
+        return ("title", real_title)
+
+    # Neither recoverable — never query Crossref with the filename.
+    return None
+
+
 def _materialize_plan(
     engine: AgentEngine, usage_sink: UsageSink | None = None
 ) -> dict[str, Any]:
@@ -666,14 +817,21 @@ def _materialize_plan(
       ``givenName`` / ``familyName`` split of that name (ISA REQUIRES a non-empty
       given name; splitting a name is descriptive parsing, not identifier
       fabrication, so it is D5-safe). ORCID stays empty for a later lookup.
-    * each ``publications[]`` → :func:`resolve_publication` (#219/#224). A plan
-      carries a title ONLY (D5 — no DOI); the composite searches Crossref by title
-      and commits a DOI-backed ``ScholarlyArticle`` (+ authors) ONLY on a
-      confident match (counted under ``publications``). On no confident match it
-      returns ``ok=False`` and creates nothing, so the title is kept under
-      ``publications_deferred`` for a later resolution. A DOI is never fabricated
-      from a title — the identifier always comes from the Crossref lookup, never
-      the plan (D5).
+    * each ``publications[]`` → :func:`resolve_publication` /
+      :func:`draft_publication_with_authors` (#219/#224/#245). A plan carries a
+      title ONLY (D5 — no DOI), but when the source was a PDF that "title" is
+      often the PDF *filename* (which Crossref can never match). So each candidate
+      is first mapped (:func:`_recover_publication_query`) to a real Crossref
+      query: a **DOI** extracted from the PDF text (regex; most reliable) is
+      resolved via :func:`draft_publication_with_authors`; otherwise a **real
+      title** (an ordinary plan title, or one extracted from the PDF text) is
+      resolved via :func:`resolve_publication`, which commits a DOI-backed
+      ``ScholarlyArticle`` (+ authors) ONLY on a confident match (counted under
+      ``publications``) and otherwise leaves the title under
+      ``publications_deferred``. A PDF filename with no recoverable DOI/title is
+      **skipped** — never queried by filename. A DOI is never fabricated from a
+      title; the identifier always comes from the Crossref lookup, never the plan
+      (D5).
 
     Guarantees:
 
@@ -868,28 +1026,69 @@ def _materialize_plan(
         except Exception as exc:  # noqa: BLE001
             logger.warning("draft_person failed for %r: %s", name, exc)
 
-    # --- publications: resolve each title via resolve_publication (#219/#224). A
-    # plan carries a title ONLY (D5 — no DOI). resolve_publication searches Crossref
-    # by title and commits a DOI-backed ScholarlyArticle (+ authors) ONLY on a
-    # confident match; on no confident match it returns ok=False and creates
-    # nothing, so the title is kept under `publications_deferred`. A DOI is never
-    # fabricated from a title here — the identifier always comes from the Crossref
-    # lookup, never the plan. ---
+    # --- publications: materialize each via resolve_publication (#219/#224), with
+    # a PDF-text recovery step (#245). A plan publication carries a TITLE only
+    # (D5 — no DOI), but when the source was a PDF that "title" is frequently the
+    # PDF *filename* (e.g. `Wagenaars_etal_2025_OATP1C1.pdf`), which Crossref can
+    # never match. `_recover_publication_query` therefore maps each candidate to a
+    # real Crossref query:
+    #   * a DOI extracted from the PDF text (regex; most reliable) → resolve via
+    #     draft_publication_with_authors(doi=…), which looks the DOI up and commits
+    #     a DOI-backed ScholarlyArticle (+ authors). The identifier is the LOOKED-UP
+    #     DOI, never fabricated (D5).
+    #   * a real title (an ordinary plan title, or one extracted from the PDF text
+    #     when no DOI was found) → resolve via resolve_publication(title=…), which
+    #     commits a DOI-backed ScholarlyArticle ONLY on a confident Crossref match
+    #     and otherwise leaves the title deferred (D5).
+    #   * nothing recoverable from a PDF filename → SKIP (never query Crossref with
+    #     a bare filename); the publication is left as a gap rather than deferred
+    #     under an unmatchable filename.
     for publication in plan.get("publications") or []:
         title = str((publication or {}).get("title") or "").strip()
         if not title:
             continue
         try:
-            pub_result = engine.run_tool("resolve_publication", title=title)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("resolve_publication failed for %r: %s", title, exc)
-            result["publications_deferred"].append(title)
+            query = _recover_publication_query(engine, title)
+        except Exception as exc:  # noqa: BLE001 - recovery must never break the spine
+            logger.warning("publication query recovery failed for %r: %s", title, exc)
+            query = None
+        if query is None:
+            # A PDF filename with no recoverable DOI/title — skip (do NOT query
+            # Crossref with the filename, and do NOT defer the filename as a
+            # "title" to retry; a filename can never become a confident match).
+            logger.info(
+                "Skipping publication %r — no DOI/title recoverable from its PDF (#245).",
+                title,
+            )
             continue
-        if isinstance(pub_result, dict) and pub_result.get("ok"):
+
+        kind, value = query
+        try:
+            if kind == "doi":
+                # The DOI extracted from the PDF text drives the resolution; the
+                # composite re-looks it up, so an unresolvable DOI mints nothing.
+                pub_result = engine.run_tool(
+                    "draft_publication_with_authors", doi=value
+                )
+                ok = isinstance(pub_result, dict) and bool(
+                    pub_result.get("publication_id")
+                )
+            else:
+                pub_result = engine.run_tool("resolve_publication", title=value)
+                ok = isinstance(pub_result, dict) and bool(pub_result.get("ok"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("publication resolution failed for %r: %s", value, exc)
+            # Only a real (non-filename) title is worth deferring for a retry.
+            if kind == "title":
+                result["publications_deferred"].append(value)
+            continue
+
+        if ok:
             result["publications"] += 1
-        else:
-            # No confident DOI match — keep the title for a later resolution (D5).
-            result["publications_deferred"].append(title)
+        elif kind == "title":
+            # No confident DOI match — keep the (real) title for later (D5). A DOI
+            # that failed its own lookup is not deferred (nothing to retry by).
+            result["publications_deferred"].append(value)
 
     return result
 
