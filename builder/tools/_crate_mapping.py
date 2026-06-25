@@ -313,6 +313,11 @@ _STRUCT_FIELDS = frozenset(
         "orcid",
         "ror",
         "pubchem_cid",
+        # MolecularEntity identifier sources promoted to identifier PropertyValue
+        # nodes (#180) — kept off the node as raw literals.
+        "cas",
+        "casrn",
+        "cas_number",
         "doi",
         "dest_path",
         "path",
@@ -374,6 +379,70 @@ def populate_crate(
 
 def _slug(text: str) -> str:
     return re.sub(r"[^\w.-]", "_", str(text)).strip("_") or "x"
+
+
+# ---------------------------------------------------------------------------
+# Identifier PropertyValue nodes (#180)
+#
+# Looked-up identifiers (a Person's ORCID, a MolecularEntity's CAS / PubChem CID)
+# round-trip into the crate as `schema:PropertyValue` identifier nodes carrying
+# their scheme (`name` + optional `propertyID` as an `@id` IRI node) instead of
+# collapsing into an indistinguishable string. Ids mirror rocrate-wizard's
+# `param_id` scheme (`#param_<slug(name)>_<sha1("name|value")[:10]>`) so the
+# output matches the gold crate. NEVER fabricate values (D5) — only fields that
+# came from a lookup or are already in state are wired here.
+# ---------------------------------------------------------------------------
+
+
+def _identifier_pv(
+    crate: ROCrate, name: str, value: str, property_id_url: str | None = None
+) -> ContextEntity:
+    """Build (and add) a schema:PropertyValue identifier node with a stable id.
+
+    The id is ``param_id(name, value)`` (the wizard scheme); ``propertyID`` is
+    emitted as ``{"@id": property_id_url}`` when a url is given, else omitted.
+    Returns the added node so callers can reference it.
+    """
+    props: dict[str, Any] = {"@type": "PropertyValue", "name": name, "value": str(value)}
+    if property_id_url:
+        props["propertyID"] = {"@id": property_id_url}
+    return crate.add(ContextEntity(crate, param_id(name, str(value)), properties=props))
+
+
+# Per-MolecularEntity identifier fields, in the order the gold crate lists them
+# (CAS first, then PubChem CID). Each tuple is
+# (field aliases, scheme name, propertyID url | None).
+_MOLECULAR_IDENTIFIERS: tuple[tuple[tuple[str, ...], str, str | None], ...] = (
+    (("cas", "casrn", "cas_number"), "CAS", None),
+    (
+        ("pubchem_cid",),
+        "PubChem CID",
+        "https://pubchem.ncbi.nlm.nih.gov/compound",
+    ),
+)
+
+
+def _first_field(entity: Entity, aliases: tuple[str, ...]) -> str | None:
+    """The first non-empty value among ``aliases`` on ``entity`` (or None)."""
+    for alias in aliases:
+        value = entity.fields.get(alias)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def _build_identifier_pvs(
+    crate: ROCrate,
+    specs: tuple[tuple[tuple[str, ...], str, str | None], ...],
+    entity: Entity,
+) -> list[ContextEntity]:
+    """The ordered identifier PropertyValue nodes for ``entity`` (empty if none)."""
+    out: list[ContextEntity] = []
+    for aliases, scheme_name, property_id_url in specs:
+        value = _first_field(entity, aliases)
+        if value is not None:
+            out.append(_identifier_pv(crate, scheme_name, value, property_id_url))
+    return out
 
 
 def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -652,22 +721,37 @@ def _add_leaves(
         )
 
     for person in state.list_entities("Person"):
-        node = crate.add(Person(crate, _mint_id(person), properties=_scalar_props(person)))
+        # affiliation is a reference, not a literal: resolve it to the in-crate
+        # Organization node (or keep a bare IRI), and never emit it as a string.
+        node = crate.add(
+            Person(crate, _mint_id(person), properties=_scalar_props(person, skip=("affiliation",)))
+        )
         _idx_add(idx, person, node)
+        # A looked-up ORCID round-trips as an ORCID PropertyValue identifier (#180).
+        orcid = person.fields.get("orcid")
+        if orcid not in (None, ""):
+            bare = str(orcid).strip().rsplit("/", 1)[-1]
+            node.append_to(
+                "identifier", _identifier_pv(crate, "ORCID", bare, "https://orcid.org")
+            )
+        _wire_reference(
+            node, "affiliation", person.fields.get("affiliation"), idx, keep_literal=True
+        )
         crate.root_dataset.append_to("author", node)
 
     for chem in state.list_entities("MolecularEntity"):
-        _idx_add(
-            idx,
-            chem,
-            crate.add(
-                ContextEntity(
-                    crate,
-                    _mint_id(chem),
-                    properties={"@type": "MolecularEntity", **_scalar_props(chem)},
-                )
-            ),
+        node = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(chem),
+                properties={"@type": "MolecularEntity", **_scalar_props(chem)},
+            )
         )
+        _idx_add(idx, chem, node)
+        # Looked-up CAS / PubChem CID round-trip as identifier PropertyValues, in
+        # gold-crate order (CAS first, then PubChem CID) (#180).
+        for pv in _build_identifier_pvs(crate, _MOLECULAR_IDENTIFIERS, chem):
+            node.append_to("identifier", pv)
 
     for dt in state.list_entities("DefinedTerm"):
         _idx_add(
@@ -728,6 +812,10 @@ def _add_leaves(
             )
         )
         _idx_add(idx, pub, node)
+        # ScholarlyArticle.author is an array of Person references (#180). Persons
+        # are added earlier in this pass, so their nodes resolve from the index.
+        for author in _resolve_many(idx, pub.fields.get("author")):
+            node.append_to("author", author)
         crate.root_dataset.append_to("citation", node)
 
     for fe in state.list_entities("File"):
@@ -1326,6 +1414,31 @@ def _build_process(
 # ---------------------------------------------------------------------------
 # Ontology annotations (AOP / Key Event / organism / …) via schema:mentions
 # ---------------------------------------------------------------------------
+
+
+def _wire_reference(
+    node: Any, prop: str, value: Any, idx: dict[str, Any], *, keep_literal: bool = False
+) -> None:
+    """Set ``node[prop]`` to a single entity reference when one can be resolved.
+
+    The value may reference an in-crate entity (resolved via the index), an inline
+    ``{"@id": …}`` object, or a bare resolvable IRI / ``#``-fragment — each emitted
+    as an ``@id`` reference. A plain free-text value is kept verbatim only when
+    ``keep_literal`` is True (e.g. a free-text affiliation is valid schema.org and
+    dropping it would lose data); otherwise it is left unset rather than emitted as
+    a string on a reference-only property. No-ops on None/empty.
+    """
+    if value in (None, ""):
+        return
+    ent = _resolve_one(idx, value)
+    if ent is not None:
+        node[prop] = ent
+    elif isinstance(value, dict) and value.get("@id"):
+        node[prop] = {"@id": value["@id"]}
+    elif isinstance(value, str) and ("://" in value or value.startswith("#")):
+        node[prop] = {"@id": value}
+    elif keep_literal and isinstance(value, str):
+        node[prop] = value
 
 
 def _wire_mention(node: Any, prop: str, value: Any, idx: dict[str, Any]) -> None:
