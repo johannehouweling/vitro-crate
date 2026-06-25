@@ -16,9 +16,20 @@ from __future__ import annotations
 import pytest
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
-from builder.tools.gap_analysis import Gap, GapReport, assess_gaps
+from builder.tools.gap_analysis import (
+    _CRATE_SETTABLE_FIELDS,
+    Gap,
+    GapReport,
+    _local_name,
+    assess_gaps,
+)
 
 pytestmark = pytest.mark.timeout(120)
+
+
+def _local(prop: str | None) -> str:
+    """Local name of a property IRI (test-side mirror of the engine helper)."""
+    return _local_name(prop)
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +199,77 @@ class TestSourcesUnified:
         assert any(g.suggestion for g in mit)
         # MIT gaps are filled by the user / a draft, not deterministic repair.
         assert all(g.auto_fixable is False for g in mit)
-        assert all(g.fix_hint in ("ask-user", "draft") for g in mit)
+        # A MIT gap is either committable (ask-user / draft, when its field maps
+        # to a deterministic crate-level target) or report-only (no settable
+        # target from the gap's own fields). Never anything else.
+        assert all(g.fix_hint in ("ask-user", "draft", "report-only") for g in mit)
+
+
+# ---------------------------------------------------------------------------
+# report-only fix_hint — uncommittable gaps are surfaced, never asked
+# ---------------------------------------------------------------------------
+
+
+class TestReportOnlyGaps:
+    def test_fair_gaps_are_report_only(self):
+        """FAIR gaps (entity_id None, property=indicator-id) cannot be committed.
+
+        Their ``property`` is an indicator token (e.g. ``RDA-F1-02M``) that maps
+        to no settable crate field, so the guidance loop must never spend an
+        ask-user turn on them — they are ``report-only``.
+        """
+        report = assess_gaps(_backbone())
+        fair = [g for g in report.gaps if g.source == "fair"]
+        assert fair, "failing FAIR indicators must surface as gaps"
+        assert all(g.fix_hint == "report-only" for g in fair), [
+            (g.property, g.fix_hint) for g in fair
+        ]
+
+    def test_crate_level_mit_without_settable_target_is_report_only(self):
+        """A crate-level (entity_id None) MIT gap whose field maps to no crate
+        metadata slot has no deterministic target -> report-only."""
+        report = assess_gaps(_backbone())
+        # ``char`` / ``keywords`` / ``datePublished`` style MIT fields are not in
+        # the crate-metadata field set, so with entity_id None they are report-only.
+        report_only_mit = [
+            g
+            for g in report.gaps
+            if g.source == "mit"
+            and g.entity_id is None
+            and _local(g.property) not in _CRATE_SETTABLE_FIELDS
+        ]
+        assert report_only_mit, "expected at least one uncommittable MIT gap"
+        assert all(g.fix_hint == "report-only" for g in report_only_mit), [
+            (g.property, g.fix_hint) for g in report_only_mit
+        ]
+
+    def test_committable_mit_keeps_ask_or_draft(self):
+        """A crate-level MIT gap whose field DOES map to a crate slot
+        (name / description / identifier) is still committable -> ask-user/draft."""
+        report = assess_gaps(_backbone())
+        committable_mit = [
+            g
+            for g in report.gaps
+            if g.source == "mit"
+            and g.entity_id is None
+            and _local(g.property) in _CRATE_SETTABLE_FIELDS
+        ]
+        assert committable_mit, "expected at least one committable MIT gap"
+        assert all(g.fix_hint in ("ask-user", "draft") for g in committable_mit), [
+            (g.property, g.fix_hint) for g in committable_mit
+        ]
+
+    def test_committable_gaps_sort_before_report_only_within_tier(self):
+        """Within a tier, gaps the loop can act on must precede report-only ones."""
+        report = assess_gaps(_backbone())
+        for tier in ("SHOULD", "MAY"):
+            within = [g for g in report.gaps if g.tier == tier]
+            committable_flags = [g.fix_hint != "report-only" for g in within]
+            # All committable (True) gaps must come before report-only (False):
+            # the boolean sequence is non-increasing.
+            assert committable_flags == sorted(committable_flags, reverse=True), [
+                (g.fix_hint, g.source, g.property) for g in within
+            ]
 
 
 # ---------------------------------------------------------------------------
@@ -288,8 +369,20 @@ class TestDeterminism:
 
 class TestStableSecondaryOrder:
     def test_within_tier_sorted_by_source_entity_property(self):
+        """Within a tier: committable gaps first, then report-only ones, and each
+        of those two groups is stably sorted by (source, entity_id, property)."""
         report = assess_gaps(_backbone())
         for tier in ("MUST", "SHOULD", "MAY"):
             within = [g for g in report.gaps if g.tier == tier]
-            keys = [(g.source, g.entity_id or "", g.property or "") for g in within]
-            assert keys == sorted(keys), f"{tier} gaps must have a stable secondary order"
+            committable = [g for g in within if g.fix_hint != "report-only"]
+            report_only = [g for g in within if g.fix_hint == "report-only"]
+
+            def _keys(gaps):
+                return [(g.source, g.entity_id or "", g.property or "") for g in gaps]
+
+            assert _keys(committable) == sorted(_keys(committable)), (
+                f"{tier} committable gaps must have a stable secondary order"
+            )
+            assert _keys(report_only) == sorted(_keys(report_only)), (
+                f"{tier} report-only gaps must have a stable secondary order"
+            )

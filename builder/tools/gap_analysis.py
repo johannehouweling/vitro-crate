@@ -109,12 +109,47 @@ _SEVERITY_TO_TIER: dict[str, Tier] = {
 # Stable tier rank for the primary sort.
 _TIER_RANK: dict[Tier, int] = {"MUST": 0, "SHOULD": 1, "MAY": 2}
 
+# Sentinel ``fix_hint`` for a gap the guidance loop can NOT commit deterministically
+# from the gap's own fields (no settable entity field and no crate-level slot). It
+# is recorded for reporting but never consumes an ask-user / draft turn — see
+# ``builder.agents.guidance._next_actionable_gap``.
+REPORT_ONLY = "report-only"
+
+# Local property names a crate-level gap (``entity_id is None``) can be committed
+# to via the Root Data Entity metadata setter. MUST stay in sync with
+# ``builder.agents.guidance._CRATE_METADATA_FIELDS`` (the guidance loop's
+# ``_apply_value`` is the single place these are actually written); kept here as a
+# lower-module constant to avoid a circular import (guidance imports gap_analysis).
+_CRATE_SETTABLE_FIELDS: frozenset[str] = frozenset(
+    {"name", "title", "description", "identifier", "accession"}
+)
+
 
 def _local_name(iri: str | None) -> str:
     """Local part of a property IRI (after the last ``/`` or ``#``)."""
     if not iri:
         return ""
     return iri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+
+
+def _is_committable(entity_id: str | None, prop: str | None) -> bool:
+    """Whether the guidance loop could deterministically commit such a gap.
+
+    Mirrors :func:`builder.agents.guidance._apply_value`'s success conditions
+    *from the gap's own fields alone* so the gap engine and the guidance loop can
+    never drift on what "settable" means:
+
+    * an entity-scoped gap (``entity_id`` set) is committable — the loop resolves
+      the entity at runtime and writes the property via ``set_fields``;
+    * a crate-level gap (``entity_id is None``) is committable only when its
+      property's local name maps to a Root Data Entity metadata slot.
+
+    Anything else (e.g. a FAIR indicator id, or a crate-level field with no slot)
+    has no deterministic target and is recorded ``report-only``.
+    """
+    if entity_id is not None:
+        return True
+    return _local_name(prop) in _CRATE_SETTABLE_FIELDS
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +342,16 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
             # crate field the parameter maps to); the rest are alternatives.
             slot_entity_type, slot_field = slots[0] if slots else (None, None)
             param_name = param.get("name") or param.get("id") or slot_field or "parameter"
+            # MIT gaps are emitted crate-level (entity_id None). They are only
+            # committable when their field maps to a Root Data Entity slot; the
+            # rest have no deterministic settable target and are report-only, so
+            # the guidance loop surfaces them for context without burning a turn.
+            if not _is_committable(None, slot_field):
+                fix_hint = REPORT_ONLY
+            else:
+                # MIT enrichment needs content the user provides or a drafter
+                # synthesizes; it is never a deterministic auto-fix (D5).
+                fix_hint = "ask-user" if not additional else "draft"
             gaps.append(
                 Gap(
                     tier=tier,
@@ -319,9 +364,7 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
                         f"(crate_slot {crate_slot})."
                     ),
                     suggestion=_mit_suggestion(param),
-                    # MIT enrichment needs content the user provides or a drafter
-                    # synthesizes; it is never a deterministic auto-fix (D5).
-                    fix_hint="ask-user" if not additional else "draft",
+                    fix_hint=fix_hint,
                     auto_fixable=False,
                 )
             )
@@ -375,7 +418,9 @@ def _fair_gaps(state: CrateState) -> tuple[list[Gap], dict[str, Any]]:
                 ),
                 suggestion=f"Dimension {indicator.get('dimension', '')} "
                 f"({priority or 'unrated'})".strip(),
-                fix_hint="ask-user",
+                # A FAIR indicator id maps to no settable crate field, so the
+                # guidance loop cannot commit it — surface it for context only.
+                fix_hint=REPORT_ONLY,
                 auto_fixable=False,
             )
         )
@@ -394,9 +439,16 @@ def _fair_gaps(state: CrateState) -> tuple[list[Gap], dict[str, Any]]:
 
 
 def _sort_key(gap: Gap) -> tuple:
-    """Primary sort by tier, stable secondary by (source, entity_id, property)."""
+    """Primary sort by tier, then committable-before-report-only, then stable
+    secondary by ``(source, entity_id, property, message)``.
+
+    Ordering committable gaps ahead of ``report-only`` ones within a tier means
+    the guidance loop always reaches the gaps it can actually act on first, and
+    never has to skip past a wall of un-committable FAIR/MIT gaps to find them.
+    """
     return (
         _TIER_RANK[gap.tier],
+        0 if gap.fix_hint != REPORT_ONLY else 1,
         gap.source,
         gap.entity_id or "",
         gap.property or "",
