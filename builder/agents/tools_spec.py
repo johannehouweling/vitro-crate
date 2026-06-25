@@ -118,7 +118,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_file",
-        "description": "Create a File data entity (raw measurements, processed results, figures). Use this so a process can take the file as input/output via `link` — the agent had no other way to create a File. Returns the File entity.",
+        "description": "Create a File data entity (raw measurements, processed results, figures, analysis scripts). Use this so a process can take the file as input/output via `link` — the agent had no other way to create a File. For a source-code file pass additional_types=['SoftwareSourceCode'] and programming_language (e.g. 'Python') so it is typed @type:[File, SoftwareSourceCode]. Returns the File entity.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -126,6 +126,8 @@ TOOL_SPECS = [
                 "path": {"type": "string", "description": "Crate-relative path (dest_path), e.g. 'data/raw.csv' (optional)"},
                 "role": {"type": "string", "description": "Role label, e.g. 'raw_data' or 'figure' (optional)"},
                 "encoding_format": {"type": "string", "description": "IANA media type, e.g. 'text/csv' (optional)"},
+                "additional_types": {"type": "array", "items": {"type": "string"}, "description": "Extra @type term(s) alongside File, e.g. ['SoftwareSourceCode'] for an analysis script (optional)"},
+                "programming_language": {"type": "string", "description": "schema:programmingLanguage for a source-code file, e.g. 'Python' (optional)"},
             },
             "required": ["name"],
         },

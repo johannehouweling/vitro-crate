@@ -35,7 +35,7 @@ Entity drafting:
 - draft_publication: Create a Publication entity
 - draft_defined_term: Persist a looked-up ontology/AOP/Key-Event term as a DefinedTerm entity
 - draft_property_value: Create a typed PropertyValue (key/value with optional unit and ontology id)
-- draft_file: Create a File data entity (raw measurements, processed results, figures)
+- draft_file: Create a File data entity (raw measurements, processed results, figures); pass additional_types=['SoftwareSourceCode'] + programming_language for an analysis script
 
 Entity management & provenance:
 - set_fields: Set one or more fields on an existing entity (the single mutation tool)

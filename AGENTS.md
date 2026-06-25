@@ -491,7 +491,7 @@ draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
 draft_defined_term(name: str, hints: dict) → Entity
 draft_property_value(name: str, hints: dict) → Entity
-draft_file(name: str, path=None, role=None, encoding_format=None) → Entity
+draft_file(name: str, path=None, role=None, encoding_format=None, additional_types=None, programming_language=None) → Entity
 ```
 `draft_defined_term` persists a looked-up ontology / AOP / Key-Event term as a
 `schema:DefinedTerm` contextual entity (Issue #141): pass the looked-up IRI as the
@@ -529,9 +529,15 @@ subtype parameters (`assay_kit`/`substrate` for EndpointReadout,
 `_build_process` threads `units=f.get('units')` into the Exposure /
 EndpointReadout / DataAnalysis constructors so each `ParameterValue` carries its
 `unitText`, and threads the optional params into the matching subtype. A
-`CellLineSample`'s `passage` / `growth` hints are promoted to ISA Sample
-Characteristics — `schema:additionalProperty` PropertyValue nodes carrying the
-value and, when known, the property's ontology IRI.
+`CellLineSample`'s `passage` / `growth` / `organ` / `tissue` hints are promoted to
+ISA Sample Characteristics — `schema:additionalProperty` PropertyValue nodes
+carrying the value and, when known, the property's ontology IRI (`organ` / `tissue`
+mirror the gold crate's `Organ` / `Tissue` characteristics with the ISA-Tox
+`param/{organ,tissue}` `propertyID`; Issue #180). A `LabProcess`'s
+`additionalProperty` field is likewise resolved to its in-state PropertyValue
+reference(s) at build time (gold `#report_analysis` → `[#pv_repro_score]`) — only
+PropertyValues already present in state (or bare IRIs) are wired; a score is never
+computed or fabricated here (D5).
 
 **Looked-up identifiers round-trip as `schema:PropertyValue` nodes** (Issue #180,
 deterministic build path — no new LLM tools). `_crate_mapping._identifier_pv(name,
@@ -559,7 +565,12 @@ DOI/PubMedID PropertyValue passes the tox pass instead of silently failing.
 MIME registry the scanner uses — so `run.mzML` becomes `application/x-mzml` and
 `acquisition.fcs` becomes `application/vnd.isac.fcs` rather than being left blank
 or mislabeled `text/plain`. An explicit `encoding_format` always wins; an
-extensionless name leaves the field unset.
+extensionless name leaves the field unset. `additional_types` co-types the node
+beyond plain `File` (Issue #180) — passing `["SoftwareSourceCode"]` plus
+`programming_language="Python"` makes an analysis script a `@type:[File,
+SoftwareSourceCode]` data entity with `schema:programmingLanguage` (gold
+`plot.py`); both are consumed structurally (`File` is always the leading type and
+duplicates are dropped), and a plain File keeps its scalar `@type`.
 
 ### Entity Management Tools
 ```
@@ -1277,11 +1288,24 @@ substituted) so the "MUST have a result" repair contract is untouched. Both
 schemas are built by a shared `_build_csvw_schema` and emit `propertyUrl`/`valueUrl`
 as `{@id}` references (RO-Crate 1.2 flags an IRI-as-string when it is also a
 described entity, e.g. the cell-line `NCIT_C16403` `DefinedTerm`). The header-only
-placeholders never fabricate measurement/well rows (D5). Deferred from Lane D:
-`extend_draft_file_for_source_code` (`@type: [File, SoftwareSourceCode]` +
-`programmingLanguage`). Remaining lanes: `set_crate_metadata` (fidelity, **not** a
-validity blocker — `datePublished` is auto-set by ro-crate-py); Lane E
-characteristics/properties fidelity.
+placeholders never fabricate measurement/well rows (D5). The
+**characteristics/properties fidelity** lane is also **done (#180 Lane E)** —
+deterministic build-path enhancements (no new LLM tools, plus one existing-tool
+signature extension): (1) a `CellLineSample`'s `organ` / `tissue` hints join
+`passage` / `growth` as `schema:additionalProperty` PropertyValue characteristics,
+carrying the ISA-Tox `param/{organ,tissue}` `propertyID` (gold
+`#SampleCell_MDCK1`); (2) a `LabProcess`'s `additionalProperty` field is resolved
+to its in-state PropertyValue reference(s) (gold `#report_analysis` →
+`[#pv_repro_score]`) via `_wire_references` — only PropertyValues already in state
+(or bare IRIs) are wired, never a fabricated score (D5); (3)
+`extend_draft_file_for_source_code` landed as new `draft_file` params
+`additional_types` + `programming_language`, co-typing an analysis script as
+`@type:[File, SoftwareSourceCode]` with `schema:programmingLanguage` (gold
+`plot.py`). **Deferred:** `set_crate_metadata` (`releaseDate` / `dateModified` on
+the root) — it requires new `CrateState.metadata` fields **and** a new four-place
+LLM tool, and it is a fidelity nicety, **not** a validity blocker
+(`datePublished` is auto-set by ro-crate-py); deferred to keep this a cohesive,
+build-path-only change.
 
 > **Tool-registration contract:** every new LLM tool must be registered in **four**
 > lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"

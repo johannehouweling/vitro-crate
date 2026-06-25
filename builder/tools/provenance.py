@@ -52,6 +52,8 @@ def draft_file(
     path: str | None = None,
     role: str | None = None,
     encoding_format: str | None = None,
+    additional_types: list[str] | None = None,
+    programming_language: str | None = None,
 ) -> Entity:
     """Create a File data entity in the state.
 
@@ -66,6 +68,12 @@ def draft_file(
             then ``path``) via the scientific-format-aware registry (Issue #148),
             so e.g. ``run.mzML`` becomes ``application/x-mzml`` rather than being
             left blank or mislabeled text/plain. An explicit value always wins.
+        additional_types: Optional extra ``@type`` term(s) to co-type the node
+            alongside ``File`` (Issue #180). e.g. ``["SoftwareSourceCode"]`` makes
+            an analysis script a ``@type:[File, SoftwareSourceCode]`` data entity
+            (gold ``plot.py``). When omitted the node stays a plain ``File``.
+        programming_language: Optional schema:programmingLanguage (e.g. "Python")
+            — for a source-code File. Left unset when omitted.
 
     Returns:
         The newly created File Entity.
@@ -84,6 +92,14 @@ def draft_file(
         )
     if encoding_format:
         fields["encodingFormat"] = encoding_format
+    # Drop blanks/dupes/the implicit File type so a clean term list reaches the
+    # mapping (which co-types the node @type:[File, *additional_types]).
+    if additional_types:
+        extra = [t for t in additional_types if t and t != "File"]
+        if extra:
+            fields["additional_types"] = extra
+    if programming_language:
+        fields["programmingLanguage"] = programming_language
     entity = Entity(
         entity_id=_make_entity_id("file", name, {}),
         type="File",
