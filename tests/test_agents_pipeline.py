@@ -131,6 +131,154 @@ class TestBoundedFixLoop:
         assert 0 <= result["fix_rounds"] <= 3
 
 
+class TestDraftEntitiesWiring:
+    """Step 2 (`_draft_entities`) wires the bounded drafter-leaf into the spine.
+
+    The leaf (`draft_entity_fields`) is STUBBED here — no model, no network. The
+    contract under test:
+
+    * with a provider configured AND usable context, the leaf's NON-IDENTIFIER
+      fields are applied to the relevant state entities;
+    * D5 — identifier / `@id` / `entity_id` fields are NEVER set or overwritten;
+    * missing fields are filled, existing fields are NOT overwritten;
+    * with NO provider configured, the step is a STRICT no-op (nothing mutated);
+    * with a provider but NO usable context, the step is also a strict no-op.
+    """
+
+    def _seeded_state(self) -> CrateState:
+        """A titled crate with a backbone + a bare seeded compound to enrich."""
+        state = CrateState()
+        state.metadata.title = "TPO inhibition dose-response screen"
+        state.metadata.description = "A cell-based in vitro TPO inhibition assay."
+        state.add_entity(_entity("inv1", "Investigation", name="Inv"))
+        state.add_entity(_entity("st1", "Study", name="St", investigation_id="inv1"))
+        state.add_entity(_entity("as1", "Assay", name="As", study_id="st1"))
+        # A bare MolecularEntity (only a name) for the leaf to enrich.
+        state.add_entity(_entity("chem1", "MolecularEntity", name="Methimazole"))
+        return state
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Make `get_provider()` report a configured provider (no real model)."""
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def test_stub_leaf_applies_non_identifier_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        calls: list[tuple[str, str]] = []
+
+        def fake_leaf(entity_type, context, *, model=None):
+            calls.append((entity_type, context))
+            # A descriptive field plus an identifier the leaf would normally strip
+            # — assert the wiring NEVER applies the identifier even if present.
+            return {"description": f"drafted {entity_type}", "identifier": "FAKE-ID"}
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+
+        engine = _engine(self._seeded_state())
+        result = pipeline_mod._draft_entities(engine)
+
+        # The leaf saw real context (the title appears in the gathered context).
+        assert calls, "the leaf must be invoked when provider + context are present"
+        assert any("TPO inhibition" in ctx for _, ctx in calls)
+
+        # The descriptive field landed on a backbone entity and the seeded compound.
+        study = engine.state.get_entity("st1")
+        chem = engine.state.get_entity("chem1")
+        assert study is not None and chem is not None
+        assert study.fields.get("description") == "drafted Study"
+        assert chem.fields.get("description") == "drafted MolecularEntity"
+
+        # D5: the identifier the leaf returned was NOT applied to any entity.
+        for ent_id in ("inv1", "st1", "as1", "chem1"):
+            ent = engine.state.get_entity(ent_id)
+            assert ent is not None
+            assert ent.fields.get("identifier") != "FAKE-ID"
+            # The entity_id / @id is untouched.
+            assert ent.entity_id == ent_id
+
+        # The result is informative.
+        assert isinstance(result.get("drafted"), list)
+        assert "st1" in result["drafted"]
+        assert isinstance(result.get("fields_applied"), int)
+        assert result["fields_applied"] >= 1
+
+    def test_does_not_overwrite_existing_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+
+        def fake_leaf(entity_type, context, *, model=None):
+            return {"name": "LEAF NAME", "description": "leaf desc"}
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+
+        engine = _engine(self._seeded_state())
+        pipeline_mod._draft_entities(engine)
+
+        study = engine.state.get_entity("st1")
+        assert study is not None
+        # `name` was already set ("St") — the leaf must NOT clobber it…
+        assert study.fields.get("name") == "St"
+        # …but the missing `description` is filled.
+        assert study.fields.get("description") == "leaf desc"
+
+    def test_no_provider_is_strict_noop(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        # No provider configured.
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
+
+        # The leaf must never be called when there is no provider.
+        def boom(*args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("draft_entity_fields must not run without a provider")
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", boom)
+
+        engine = _engine(self._seeded_state())
+        before = {e.entity_id: dict(e.fields) for e in engine.state.list_entities()}
+
+        result = pipeline_mod._draft_entities(engine)
+
+        after = {e.entity_id: dict(e.fields) for e in engine.state.list_entities()}
+        assert before == after, "no-provider _draft_entities must mutate nothing"
+        assert result.get("drafted") == []
+        assert result.get("fields_applied") == 0
+
+    def test_no_context_is_strict_noop(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+
+        def boom(*args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("draft_entity_fields must not run without context")
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", boom)
+
+        # An untitled, undescribed, unscanned crate carries no usable context.
+        state = CrateState()
+        state.add_entity(_entity("inv1", "Investigation", name="Inv"))
+        engine = _engine(state)
+        before = {e.entity_id: dict(e.fields) for e in engine.state.list_entities()}
+
+        result = pipeline_mod._draft_entities(engine)
+
+        after = {e.entity_id: dict(e.fields) for e in engine.state.list_entities()}
+        assert before == after, "no-context _draft_entities must mutate nothing"
+        assert result.get("drafted") == []
+        assert result.get("fields_applied") == 0
+
+
 class TestDeterminism:
     def test_identical_graph_hash_across_runs(self) -> None:
         """Same input ⇒ identical built @graph hash — the headline win to assert."""
