@@ -388,12 +388,14 @@ def main(argv: list[str] | None = None) -> int:
         if not _ensure_configured():
             return 1
 
-    # The DEFAULT interactive build is the deterministic pipeline + HITL guidance
-    # tail (AGENTS.md §14.6.1), so it must run behind a REAL interactive
-    # HumanInterface — else run_interactive_build would (correctly) skip guidance.
-    # The legacy ReAct loop (--legacy-react) keeps the headless simulated default;
-    # its own HITL routes through the agent loop, not the guidance tail.
-    if args.interactive and not args.legacy_react:
+    # Any interactive run gets a REAL interactive HumanInterface. The DEFAULT
+    # build needs it so run_interactive_build won't (correctly) skip guidance
+    # (AGENTS.md §14.6.1); the legacy ReAct loop needs it too so the scanner
+    # approval guard (engine._authorize_scan_root) can prompt-once for a
+    # user-named folder instead of fail-closing — without it a conversational
+    # legacy scan of an un-approved folder returns no files. Non-interactive
+    # (batch) runs keep the headless simulated default.
+    if args.interactive:
         from builder.tools.hitl import ConsoleHumanInterface
 
         engine = AgentEngine(human_interface=ConsoleHumanInterface())

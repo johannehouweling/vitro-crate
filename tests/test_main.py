@@ -220,6 +220,30 @@ class TestInteractiveDispatch:
         # interface, else run_interactive_build would skip guidance.
         assert seen == [True]
 
+    def test_legacy_react_engine_is_interactive(self, monkeypatch):
+        """--legacy-react also runs behind a REAL interactive interface.
+
+        Otherwise the scanner-approval guard (``_authorize_scan_root``) fail-closes
+        on a non-interactive (simulated) human, so a conversational legacy-react
+        scan of a user-named folder returns no files. Giving the interactive
+        legacy run a ``ConsoleHumanInterface`` lets it prompt-once and approve.
+        """
+        from builder.tools.hitl import is_interactive
+
+        self._stub_config(monkeypatch)
+        seen: list[bool] = []
+
+        import builder.agents.agent_loop as agent_loop
+
+        def _capture(engine, *a, **kw):
+            seen.append(is_interactive(engine.human_interface))
+
+        monkeypatch.setattr(agent_loop, "run_interactive_agent", _capture)
+
+        result = main(["--interactive", "--legacy-react"])
+        assert result == 0
+        assert seen == [True]
+
 
 class TestInteractiveNoInput:
     """First-run UX for the default interactive build with no --input.
