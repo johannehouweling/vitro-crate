@@ -28,14 +28,19 @@ The loop (:func:`run_guidance`) per round:
      (never hand-rolled JSON-LD).
 
 4. Re-assess after each committed change; **never loop forever** — bounded by
-   ``max_rounds`` and a no-progress guard (a round that resolves nothing stops the
-   loop, since spinning further cannot help).
+   ``max_rounds`` and a per-report skip-set. A gap the loop cannot progress this
+   round (e.g. the user skips it) is *skipped*, not fatal: the loop advances to the
+   next actionable gap and only stops once the whole report is exhausted with no
+   progress (#230). The skip-set is cleared on every commit (the re-assessed
+   report is fresh). ``report-only`` gaps — FAIR indicators and crate-level MIT
+   params with no settable target — are never drawn at all.
 
 Determinism & safety contract:
 
 * **Bounded.** At most ``max_rounds`` rounds; each round resolves at most one gap.
-* **Explicit termination.** Two independent stop conditions (no actionable gap /
-  no progress) plus the hard ``max_rounds`` cap.
+* **Explicit termination.** Two independent stop conditions (no actionable gap
+  left / the whole report exhausted with no progress) plus the hard ``max_rounds``
+  cap.
 * **Every LLM call is a bounded leaf.** The drafter leaf
   (:func:`draft_entity_fields`) is the *only* model call, and its output is shown
   to the user for confirmation before it is ever committed.
@@ -54,7 +59,7 @@ from typing import TYPE_CHECKING, Any
 # single stable monkeypatch target — and so a flaky/absent LLM drafter can be
 # stubbed without importing langchain.
 from builder.agents.pipeline import draft_entity_fields
-from builder.tools.gap_analysis import Gap, assess_gaps
+from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -203,12 +208,30 @@ def _drafted_value(engine: AgentEngine, gap: Gap) -> str | None:
     return str(candidate)
 
 
+def _ask_user_prompt(gap: Gap) -> str:
+    """Build a human-readable ask-user prompt for ``gap``.
+
+    The raw ``gap.message`` is a description of a *failed check* (e.g. "Study MUST
+    have a description"), not a question with a field label and expected format —
+    surfaced verbatim it reads as a cryptic "What?" box. Instead we assemble a
+    clear, multi-line prompt: a direct question naming the field (and the entity /
+    tier it applies to), the gap's own explanation, any suggestion, and the
+    expected input format. This keeps the human genuinely in the loop (D5).
+    """
+    field = _local_name(gap.property) or (gap.property or "this field")
+    target = f" on the {gap.entity_type}" if gap.entity_type else ""
+    lines: list[str] = [f"Please provide a value for '{field}'{target}."]
+    if gap.message:
+        lines.append(f"Why: {gap.message}")
+    if gap.suggestion:
+        lines.append(f"Suggestion: {gap.suggestion}")
+    lines.append("Expected: free text (leave blank or skip to defer this field).")
+    return "\n".join(lines)
+
+
 def _ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | None:
     """Prompt the human for ``gap`` and return their value, or ``None`` if skipped."""
-    prompt = gap.message or f"Provide a value for {gap.property or 'this field'}."
-    if gap.suggestion:
-        prompt = f"{prompt}\nSuggestion: {gap.suggestion}"
-    response = human.request_input(prompt)
+    response = human.request_input(_ask_user_prompt(gap))
     if response.get("skipped"):
         return None
     value = response.get("value")
@@ -312,13 +335,16 @@ def run_guidance(
 ) -> dict[str, Any]:
     """Run the deterministic HITL gap-resolution loop over the gap engine.
 
-    Each round re-assesses gaps from scratch (:func:`assess_gaps`), takes the
-    highest-priority actionable gap (MUST -> SHOULD -> MAY), and resolves it by
-    ``fix_hint`` / ``auto_fixable`` (auto-fix / draft-confirm-commit / ask-user).
-    The loop is bounded by ``max_rounds`` and a no-progress guard, and terminates
-    once no MUST gap remains and the user is done or no SHOULD/MAY gap is
-    actionable. CODE owns control flow; the LLM only drafts; the user confirms
-    every uncertain commit (D5). HITL is never bypassed.
+    Each round re-assesses gaps from scratch (:func:`assess_gaps`) after a commit,
+    takes the highest-priority actionable gap (MUST -> SHOULD -> MAY), and resolves
+    it by ``fix_hint`` / ``auto_fixable`` (auto-fix / draft-confirm-commit /
+    ask-user). A gap it cannot progress this round is added to a **per-report
+    skip-set** and the loop advances to the next actionable gap rather than
+    aborting, so one un-committable gap never abandons the ones behind it (#230).
+    The loop is bounded by ``max_rounds`` and terminates once the whole report is
+    exhausted with no progress, or once no MUST gap remains and the user is done.
+    CODE owns control flow; the LLM only drafts; the user confirms every uncertain
+    commit (D5). HITL is never bypassed.
 
     Args:
         engine: The :class:`~builder.engine.AgentEngine` whose ``state`` is
@@ -344,13 +370,22 @@ def run_guidance(
     asked: list[dict[str, Any]] = []
     rounds = 0
     report: GapReport = assess_gaps(engine.state)
+    # Indices into the CURRENT report's gaps that were tried this round and could
+    # not be progressed (e.g. the user skipped them). They are skipped so the loop
+    # advances to the next actionable gap instead of re-offering the same one; the
+    # set is cleared whenever a commit invalidates the report (a fresh re-assess).
+    skipped: set[int] = set()
 
     for _ in range(max(0, max_rounds)):
-        gap = _next_actionable_gap(report)
+        index = _next_actionable_index(report, skipped)
 
-        # --- termination: no actionable gap left ------------------------------
-        if gap is None:
+        # --- termination: the whole report is exhausted -----------------------
+        # No actionable gap remains that we have not already tried this round —
+        # either there are none, or every one was skipped (un-progressable). Either
+        # way, re-assessing would only reproduce the same gaps, so we stop.
+        if index is None:
             break
+        gap = report.gaps[index]
         # Once MUST gaps are cleared, an actionable SHOULD/MAY only continues the
         # loop while the user wants to keep going.
         if report.counts.get("must_open", 0) == 0 and _user_signals_done(human):
@@ -361,14 +396,18 @@ def run_guidance(
             engine, human, gap, resolved=resolved, asked=asked
         )
 
-        # --- termination: no-progress guard -----------------------------------
-        # A round that committed nothing means the current highest-priority gap is
-        # not resolvable right now; re-assessing would yield the same gap, so
-        # spinning further is wasted SHACL work.
-        if not progressed:
-            break
-
-        report = assess_gaps(engine.state)
+        if progressed:
+            # State changed: re-assess from scratch and forget the skip-set (the
+            # gap indices no longer refer to the same gaps).
+            report = assess_gaps(engine.state)
+            skipped = set()
+        else:
+            # This one gap is not resolvable right now (e.g. skipped); skip it and
+            # let the next round draw the next actionable gap in the SAME report.
+            # The loop only stops once EVERY gap in the report is exhausted, so a
+            # single un-progressable gap never abandons the ones behind it. Still
+            # bounded by ``max_rounds``.
+            skipped.add(index)
 
     return {
         "resolved": resolved,
@@ -379,19 +418,38 @@ def run_guidance(
     }
 
 
-def _next_actionable_gap(report: GapReport) -> Gap | None:
-    """The highest-priority *actionable* gap, or ``None``.
+def _next_actionable_index(report: GapReport, skipped: set[int]) -> int | None:
+    """Index of the highest-priority *actionable, not-yet-skipped* gap, or ``None``.
 
-    The report is already sorted MUST -> SHOULD -> MAY with a stable secondary
-    order, so the first gap with a resolution route (auto-fixable or a known
-    ``fix_hint``) is the one to work next. Every gap the gap engine emits carries
-    one of ``fix_required_issues`` / ``draft`` / ``ask-user``; a gap with an
-    unknown/absent ``fix_hint`` is treated as ask-user (the safe default that
-    keeps the human in the loop) rather than skipped.
+    The report is already sorted MUST -> SHOULD -> MAY (committable before
+    ``report-only`` within a tier), so we walk it in order and return the index of
+    the first gap that is BOTH actionable and not in ``skipped`` (indices into
+    ``report.gaps`` the loop has already tried and could not progress this round).
+
+    A gap is **actionable** when it has a resolution route the loop can drive:
+    ``auto_fixable``, or a ``fix_hint`` of ``fix_required_issues`` / ``draft`` /
+    ``ask-user`` (or an unknown/absent hint, which falls back to ask-user — the
+    safe default that keeps the human in the loop). A ``report-only`` gap is
+    **never** actionable: it has no deterministic settable target, so the loop
+    surfaces it for context but never spends an ask-user turn on it.
     """
-    for gap in report.gaps:
-        if gap.auto_fixable or gap.fix_hint in ("fix_required_issues", "draft", "ask-user"):
-            return gap
-        # Unknown fix_hint -> still actionable via the ask-user fallback.
-        return gap
+    for index, gap in enumerate(report.gaps):
+        if index in skipped:
+            continue
+        if gap.fix_hint == REPORT_ONLY:
+            continue
+        # Auto-fixable, a known committable hint, or an unknown hint (ask-user
+        # fallback) -> actionable.
+        return index
     return None
+
+
+def _next_actionable_gap(report: GapReport, *, skipped: set[int]) -> Gap | None:
+    """The highest-priority *actionable, not-yet-skipped* gap, or ``None``.
+
+    Thin wrapper over :func:`_next_actionable_index` for callers (and tests) that
+    only need the gap, not its position. See that function for the actionability
+    and skip-set rules.
+    """
+    index = _next_actionable_index(report, skipped)
+    return report.gaps[index] if index is not None else None
