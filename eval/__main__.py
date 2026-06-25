@@ -40,6 +40,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Run the agent-agnostic A/B evaluation harness over the corpus.",
     )
     parser.add_argument(
+        "--arch",
+        choices=("react", "pipeline"),
+        default="react",
+        help=(
+            "Architecture under test: 'react' (DEFAULT) drives the live ReAct "
+            "engine; 'pipeline' runs the deterministic spine (AGENTS.md §14)."
+        ),
+    )
+    parser.add_argument(
         "--label",
         default="react-baseline",
         help="Run label recorded in the report (default: react-baseline).",
@@ -74,6 +83,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def select_agent_factory(
+    arch: str,
+    *,
+    provider: str | None,
+    model: str | None,
+    base_url: str | None,
+) -> Callable[[], BuildAgent]:
+    """Return the live agent factory for the chosen *arch*.
+
+    ``"react"`` (the default) builds the live ReAct factory (which reads
+    provider/model/base_url); ``"pipeline"`` builds the deterministic-spine factory
+    (which ignores those — it calls no model). Keeping selection here means
+    :func:`run_main` stays architecture-agnostic and the choice is unit-testable.
+
+    Args:
+        arch: ``"react"`` or ``"pipeline"``.
+        provider: LLM provider override (ReAct only).
+        model: Model name override (ReAct only).
+        base_url: Custom OpenAI-compatible base URL (ReAct only).
+
+    Returns:
+        A zero-arg factory producing fresh :class:`~eval.agent_api.BuildAgent`s.
+
+    Raises:
+        ValueError: If *arch* is unrecognised.
+    """
+    if arch == "pipeline":
+        from eval.pipeline_factory import make_pipeline_agent_factory
+
+        return make_pipeline_agent_factory()
+    if arch == "react":
+        from eval.react_factory import make_react_agent_factory
+
+        return make_react_agent_factory(provider=provider, model=model, base_url=base_url)
+    raise ValueError(f"Unknown arch: {arch!r}")
+
+
 def run_main(
     argv: list[str] | None = None,
     *,
@@ -97,19 +143,22 @@ def run_main(
     logging.basicConfig(level=logging.INFO)
 
     if agent_factory is None:
-        # LIVE path only: the ReAct factory reads provider/api_key/base_url/model
+        # LIVE path only. The ReAct factory reads provider/api_key/base_url/model
         # from the environment (builder.agents.agent_loop), so bridge any creds
         # kept solely in ~/.config/vitro-crate/config.toml into os.environ first —
         # mirroring how the interactive CLI hydrates via merge_with_env(). Without
-        # this a live run with creds only in config.toml raises "No LLM provider
-        # configured" (#179). The offline/mock path (injected agent_factory) skips
-        # this entirely so its tests stay config-free.
-        merge_with_env(load_config())
+        # this a live ReAct run with creds only in config.toml raises "No LLM
+        # provider configured" (#179). The deterministic pipeline calls no model,
+        # so it needs no creds; the offline/mock path (injected agent_factory)
+        # skips this entirely so its tests stay config-free.
+        if args.arch == "react":
+            merge_with_env(load_config())
 
-        from eval.react_factory import make_react_agent_factory
-
-        agent_factory = make_react_agent_factory(
-            provider=args.provider, model=args.model, base_url=args.api_base
+        agent_factory = select_agent_factory(
+            args.arch,
+            provider=args.provider,
+            model=args.model,
+            base_url=args.api_base,
         )
 
     out_path = Path(args.out) if args.out else Path(out_dir) / f"{args.label}.ndjson"

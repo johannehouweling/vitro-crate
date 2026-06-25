@@ -32,8 +32,8 @@ only the factory:
 
 | Architecture | Factory | Status |
 |--------------|---------|--------|
-| ReAct engine (as-built) | `eval.react_factory.make_react_agent_factory()` | implemented |
-| Deterministic pipeline | a future `make_pipeline_agent_factory()` (same shape) | when §14 tasks 1–5 land |
+| ReAct engine (as-built) | `eval.react_factory.make_react_agent_factory()` | implemented — **DEFAULT** |
+| Deterministic pipeline | `eval.pipeline_factory.make_pipeline_agent_factory()` (same shape) | implemented (opt-in, §14.5) |
 | Offline tests | an in-memory mock returning canned `CrateState`s | tests only |
 
 `ReActBuildAgent` wraps the existing LangGraph ReAct loop: it creates a headless
@@ -41,6 +41,13 @@ only the factory:
 case's input directory (which also assigns the `session_id` and opens this run's
 `profile.ndjson`), drives the graph once with the case's prompt, and returns the final
 `CrateState`. The model-driving step is injected so the wiring is unit-tested offline.
+
+`PipelineBuildAgent` wraps the deterministic spine (`builder/agents/pipeline.py::run_pipeline`,
+AGENTS.md §14.5): same headless-engine + `initialize()` setup, but instead of driving
+the model it runs the code-driven spine (scaffold → draft → build_and_validate → bounded
+fix loop) once over the engine. It calls **no model** (zero tokens), so it runs in CI for
+real; the spine call is injected so the wiring is unit-tested in isolation. **ReAct stays
+the default** — the pipeline is an opt-in parallel path until this A/B gate proves it.
 
 ## The corpus
 
@@ -98,11 +105,22 @@ git tag react-baseline      # tags the pre-migration ReAct commit (AGENTS.md §1
 git push origin react-baseline
 ```
 
-Later, when the deterministic pipeline lands, run the harness with the pipeline factory
-under `--label pipeline` and compare the two reports with `compare_reports`.
+### Deterministic pipeline run (offline — no credentials, no model)
 
-Options: `--repeats N` (builds per case), `--out PATH`, `--provider`, `--model`,
-`--api-base`. See `python -m eval --help`.
+```bash
+# The spine calls no LLM, so this needs no provider configured.
+uv run --extra langchain python -m eval --arch pipeline --label pipeline
+# -> writes eval_reports/pipeline.ndjson
+```
+
+Then diff it against the frozen baseline with `compare_reports`. The pipeline is
+expected to beat the ReAct baseline on the §14.1 levers: **3/3 success**,
+**determinism rate 1.0** (identical `@graph` hash across repeats), and **much lower
+tokens** (zero — no model) **and latency**.
+
+`--arch react|pipeline` (DEFAULT `react`) selects the factory; ReAct stays the default
+so the existing baseline workflow is unchanged. Other options: `--repeats N` (builds per
+case), `--out PATH`, `--provider`, `--model`, `--api-base`. See `python -m eval --help`.
 
 ### Offline tests (CI)
 
