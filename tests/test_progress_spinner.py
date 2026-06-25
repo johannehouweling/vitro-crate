@@ -43,13 +43,39 @@ class _FakeStatus:
 
 
 class _FakeConsole:
-    """A fake Rich ``Console`` that hands back a fixed ``_FakeStatus``."""
+    """A fake Rich ``Console`` that hands back a fixed ``_FakeStatus``.
+
+    Reports ``is_terminal=True`` (the animated path) so the spinner behaves as
+    it does on a real TTY. The CI / piped (non-terminal) case is modelled by
+    :class:`_NonTTYConsole`.
+    """
+
+    is_terminal = True
 
     def __init__(self, status: _FakeStatus) -> None:
         self._status = status
 
     def status(self, *_a: Any, **_k: Any) -> _FakeStatus:
         return self._status
+
+
+class _NonTTYConsole:
+    """A fake Rich ``Console`` that reports a NON-terminal output (CI / piped).
+
+    Models the CI / non-interactive case: ``console.is_terminal`` is ``False``.
+    Records whether :meth:`status` was ever called — on a non-TTY the spinner
+    must NOT create a Live status at all (no Rich ``Live`` region, no Rich
+    refresh thread), so ``status_calls`` must stay ``0``.
+    """
+
+    is_terminal = False
+
+    def __init__(self) -> None:
+        self.status_calls = 0
+
+    def status(self, *_a: Any, **_k: Any) -> _FakeStatus:
+        self.status_calls += 1
+        return _FakeStatus()
 
 
 class TestPhraseList:
@@ -214,3 +240,65 @@ class TestTickThread:
             # No new repaints accumulated while paused.
             assert len(st.renders) == renders_while_paused
             sp.resume()
+
+
+class TestNonTTY:
+    """On a NON-terminal console (CI / piped) the spinner is a cheap no-op (#266).
+
+    Rich's ``console.status`` opens a ``Live`` region backed by a background
+    refresh thread; on a non-TTY that animation is invisible noise that, under
+    CI's ``--timeout`` thread-dumper, only adds threads to start, stop and join.
+    So when ``console.is_terminal`` is ``False`` the spinner must NOT open the
+    Live region or start its own daemon tick thread, and every public method
+    (``set_current`` / ``pause`` / ``resume`` / ``__enter__`` / ``__exit__``)
+    must be a fast, safe no-op. On a real TTY it animates exactly as before.
+    """
+
+    def test_non_tty_never_opens_a_status(self) -> None:
+        from builder.agents.progress_spinner import ProgressSpinner
+
+        console = _NonTTYConsole()
+        ProgressSpinner(console=console, phrase="x")
+        assert console.status_calls == 0  # no Live region opened on a non-TTY
+
+    def test_non_tty_starts_no_tick_thread(self) -> None:
+        from builder.agents.progress_spinner import ProgressSpinner
+
+        sp = ProgressSpinner(console=_NonTTYConsole(), phrase="x", tick_interval=0.01)
+        with sp:
+            # No daemon tick thread on a non-TTY (nothing to repaint).
+            assert sp._thread is None or sp._thread.is_alive() is False
+
+    def test_non_tty_methods_are_safe_noops(self) -> None:
+        """All public methods complete instantly and never raise on a non-TTY."""
+        from builder.agents.progress_spinner import ProgressSpinner
+
+        sp = ProgressSpinner(console=_NonTTYConsole(), phrase="x", tick_interval=0.01)
+        with sp:
+            sp.set_current("scaffold_isa_backbone")  # no-op, no status to touch
+            sp.pause()
+            sp.resume()
+        # Still rendarable / queryable after exit (pure UI helper).
+        assert "x" in sp._render()
+
+    def test_non_tty_registers_with_hitl_registry(self) -> None:
+        """Even silenced, it registers so suspend_console_animation stays valid."""
+        import builder.tools.hitl as hitl
+        from builder.agents.progress_spinner import ProgressSpinner
+
+        sp = ProgressSpinner(console=_NonTTYConsole(), phrase="x")
+        with sp:
+            assert hitl._active_animation is sp
+        assert hitl._active_animation is None
+
+    def test_non_tty_exit_does_not_hang(self) -> None:
+        """A non-TTY enter/exit completes well within a tight bound (CI guard)."""
+        import time
+
+        from builder.agents.progress_spinner import ProgressSpinner
+
+        sp = ProgressSpinner(console=_NonTTYConsole(), phrase="x", tick_interval=0.01)
+        t0 = time.monotonic()
+        with sp:
+            sp.set_current("phase")
+        assert time.monotonic() - t0 < 1.0  # instant: no Live, no thread to join
