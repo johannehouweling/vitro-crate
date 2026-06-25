@@ -21,15 +21,18 @@ from typing import Any
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools.drafters import (
     VALID_PROCESS_TYPES,
+    _make_entity_id,
     draft_assay,
     draft_investigation,
+    draft_molecular_entity,
     draft_process,
     draft_publication,
     draft_sample,
     draft_study,
 )
 from builder.tools.hitl import HumanInterface
-from builder.tools.lookups import lookup_doi, lookup_orcid
+from builder.tools.lookups import lookup_compound, lookup_doi, lookup_orcid
+from builder.tools.verification import verify_identifier
 from lookups.orcid import lookup_orcid_by_name
 
 logger = logging.getLogger(__name__)
@@ -940,12 +943,157 @@ def _hitl_prompt_count(human: HumanInterface | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Compound resolution: lookup -> draft -> verify (Issue #179, task 3)
+# ---------------------------------------------------------------------------
+
+# The order matters: CAS first, then PubChem CID — this mirrors the build's
+# _identifier_pv path which emits [CAS, PubChem CID] identifier PropertyValues in
+# exactly this order for a MolecularEntity. ``identifier`` is the generic field
+# verify_identifier also accepts; we verify the concrete source fields instead.
+_COMPOUND_IDENTIFIER_FIELDS: tuple[str, ...] = ("cas", "pubchem_cid")
+
+# Lookup-data keys copied onto the drafted MolecularEntity. ``cas``/``pubchem_cid``
+# are the verifiable identifiers; the rest are descriptive structure that needs no
+# verification. ``iupac_name`` is intentionally NOT copied onto ``name`` (the
+# user-supplied name wins) but is exposed in the return for the caller.
+_COMPOUND_DATA_FIELDS: tuple[str, ...] = (
+    "cas",
+    "pubchem_cid",
+    "smiles",
+    "inchikey",
+    "inchi",
+    "formula",
+    "mass",
+    "chebi_id",
+    "chebi_iri",
+)
+
+
+def resolve_compound(
+    state: CrateState,
+    name: str,
+    hints: dict[str, Any] | None = None,
+    verify: bool | None = None,
+) -> dict[str, Any]:
+    """Resolve a chemical name to a verified ``MolecularEntity`` in ONE call.
+
+    Fuses the recurring ``lookup_compound`` -> ``draft_molecular_entity`` ->
+    ``verify_identifier`` sequence into a single deterministic composite (the
+    chemistry counterpart of ``scaffold_isa_backbone``). The ONLY model-supplied
+    input is the compound ``name`` (plus optional descriptive ``hints``); every
+    identifier comes straight from PubChem/ChEBI, so nothing is fabricated (D5):
+
+    1. :func:`~builder.tools.lookups.lookup_compound` resolves the chemical from
+       its name (PubChem, then a ChEBI fallback). On a miss it returns
+       ``{"ok": False, "error": ...}`` and creates no entity.
+    2. :func:`~builder.tools.drafters.draft_molecular_entity` mints (or reuses) the
+       ``MolecularEntity``, carrying the looked-up ``cas`` / ``pubchem_cid`` (and
+       ``smiles`` / ``inchikey`` / …) as fields. At build time the shared
+       ``_identifier_pv`` path turns ``cas`` + ``pubchem_cid`` into the
+       ``[CAS, PubChem CID]`` identifier PropertyValues — this composite does not
+       hand-roll that wiring.
+    3. :func:`~builder.tools.verification.verify_identifier` confirms each minted
+       identifier against its source (D5). ``verify_identifier`` **clears** any
+       value that does not resolve, so a failed identifier never lingers on the
+       entity as a fabricated id; the per-field verdicts are surfaced in the
+       return value (``verified`` is the AND of all of them).
+
+    It is **idempotent**: the entity id is derived deterministically from the
+    name, so an existing ``MolecularEntity`` for this name is reused (its
+    descriptive fields refreshed) rather than duplicated, consistent with the
+    other composites.
+
+    Args:
+        state: The crate state to resolve into.
+        name: The compound name to resolve (e.g. ``"Silychristin A"``).
+        hints: Optional extra descriptive field values for the MolecularEntity
+            (e.g. ``{"description": ...}``). Looked-up identifier fields win over
+            same-named hints so the verified source value is never overwritten.
+        verify: When ``None``/``True`` (the default), verify the minted
+            identifiers against source. Pass ``False`` to skip verification (the
+            return then reports ``verified`` as ``None``); use only when you will
+            verify later, never to attach an unverified id.
+
+    Returns:
+        On success ``{"entity_id", "name", "identifiers": {cas?, pubchem_cid?,
+        ...}, "verifications": [{field, verified, message}], "verified": bool |
+        None, "source"}``. On a lookup miss ``{"ok": False, "error": ...}``.
+    """
+    lookup = lookup_compound(name)
+    if not lookup.get("found"):
+        return {
+            "ok": False,
+            "error": lookup.get("error", f"Compound '{name}' not found"),
+        }
+
+    data = lookup.get("data") or {}
+
+    # Identifier/source fields win over caller hints so a verified value from the
+    # source is never clobbered by a (possibly stale) hint.
+    merged_hints: dict[str, Any] = dict(hints or {})
+    for key in _COMPOUND_DATA_FIELDS:
+        value = data.get(key)
+        if value not in (None, ""):
+            merged_hints[key] = value
+
+    # Idempotent: reuse the deterministically-keyed MolecularEntity if present,
+    # refreshing its looked-up fields, rather than minting a duplicate.
+    entity_id = _make_entity_id("chem", name, merged_hints)
+    existing = state.get_entity(entity_id)
+    if existing is not None and existing.type == "MolecularEntity":
+        entity = existing
+        refreshed = {**merged_hints, "name": name}
+        entity.set_fields_from_dict(refreshed, source="lookup")
+    else:
+        entity = draft_molecular_entity(state, name, merged_hints)
+
+    identifiers = {
+        key: data[key]
+        for key in _COMPOUND_IDENTIFIER_FIELDS
+        if data.get(key) not in (None, "")
+    }
+
+    verifications: list[dict[str, Any]] = []
+    do_verify = verify is None or verify
+    if do_verify:
+        for field in _COMPOUND_IDENTIFIER_FIELDS:
+            if entity.fields.get(field) in (None, ""):
+                continue
+            verdict = verify_identifier(state, entity.entity_id, field)
+            verifications.append(
+                {
+                    "field": field,
+                    "verified": bool(verdict.get("verified")),
+                    "message": verdict.get("message", ""),
+                }
+            )
+
+    verified: bool | None
+    if not do_verify:
+        verified = None
+    elif not verifications:
+        verified = False
+    else:
+        verified = all(v["verified"] for v in verifications)
+
+    return {
+        "entity_id": entity.entity_id,
+        "name": name,
+        "identifiers": identifiers,
+        "verifications": verifications,
+        "verified": verified,
+        "source": data.get("source", "pubchem"),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("scaffold_isa_backbone", scaffold_isa_backbone, takes_state=True)
 TOOL_REGISTRY.register("draft_process_chain", draft_process_chain, takes_state=True)
+TOOL_REGISTRY.register("resolve_compound", resolve_compound, takes_state=True)
 TOOL_REGISTRY.register(
     "materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True
 )

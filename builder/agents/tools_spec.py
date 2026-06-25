@@ -89,6 +89,19 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "resolve_compound",
+        "description": "Resolve a chemical NAME to a verified MolecularEntity in ONE call (the chemistry counterpart of scaffold_isa_backbone): it looks the compound up (lookup_compound: PubChem -> ChEBI fallback), mints/reuses the MolecularEntity carrying the looked-up CAS + PubChem CID (which the build turns into [CAS, PubChem CID] identifier PropertyValues), then VERIFIES each minted identifier against source. D5: a value that does not resolve is cleared, never kept as a fabricated id — the per-field verdicts are returned. Idempotent (keyed by name, no duplicate). Prefer this over lookup_compound + draft_molecular_entity + verify_identifier for a single compound. On a lookup miss returns {ok:false, error}. Example: resolve_compound(name='Silychristin A', hints={'description': 'a flavonolignan'}).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Compound name to resolve, e.g. 'Silychristin A'."},
+                "hints": draft_hints_schema("MolecularEntity"),
+                "verify": {"type": "boolean", "description": "Verify the minted identifiers against source (default true). Pass false only when you will verify later — never to attach an unverified id."},
+            },
+            "required": ["name"],
+        },
+    },
+    {
         "name": "materialize_aop_subgraph",
         "description": "Turn ONE AOP-Wiki id into the full crate subgraph in one call: an AdverseOutcomePathway node plus every KeyEvent (MIE/KE/AO, discriminated by eventType) and KeyEventRelationship, all cross-linked deterministically from AOP-Wiki (never fabricated). Pass only the numeric aop_id; optionally pass study_id to wire the AOP onto that Study (schema:mentions). Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting when you want the whole pathway in the crate. Example: materialize_aop_subgraph(aop_id='610', study_id='study_silychristin_exposure').",
         "parameters": {
