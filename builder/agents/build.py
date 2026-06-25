@@ -28,28 +28,43 @@ functions) so the wiring is unit-testable with no SHACL / no LLM / no network.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from builder.tools.hitl import is_interactive
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
+    from builder.state import CrateState
     from builder.tools.hitl import HumanInterface
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["run_interactive_build", "format_guidance_summary"]
+__all__ = ["run_interactive_build", "format_guidance_summary", "CrateExportError"]
 
 # A pipeline_runner runs the automated deterministic spine once over an engine,
 # mutating engine.state and returning the spine's result dict. A guidance_runner
 # runs the HITL gap-resolution loop over the engine + a human, returning its
-# summary dict. Both are injected so the wiring is testable without SHACL/LLM.
+# summary dict. An exporter writes the assembled crate to disk and returns the
+# export result dict (``{success, crate_path, error}``). All three are injected
+# so the wiring is testable without SHACL / LLM / disk.
 PipelineRunner = Callable[["AgentEngine"], dict[str, Any]]
 GuidanceRunner = Callable[..., dict[str, Any]]
+Exporter = Callable[..., dict[str, Any]]
 
 # Default no-op output channel: discard. The CLI passes ``print`` (or a console
 # writer); tests pass a list's ``append`` to capture the surfaced summary.
 OutputChannel = Callable[[str], Any]
+
+
+class CrateExportError(RuntimeError):
+    """Raised when the final deterministic crate export fails (#233).
+
+    The interactive build's last step writes the enriched crate to disk. A
+    failure here means the user gets nothing on disk, so it must NOT be silently
+    swallowed: it is logged, surfaced via the ``output`` channel, and raised so
+    the CLI can signal a non-zero exit.
+    """
 
 
 def run_interactive_build(
@@ -57,9 +72,10 @@ def run_interactive_build(
     *,
     pipeline_runner: PipelineRunner | None = None,
     guidance_runner: GuidanceRunner | None = None,
+    exporter: Exporter | None = None,
     output: OutputChannel | None = None,
 ) -> dict[str, Any]:
-    """Run the automated pipeline, then the HITL guidance tail when interactive.
+    """Run the automated pipeline, the HITL guidance tail, then export to disk.
 
     The engine MUST already be :meth:`~builder.engine.AgentEngine.initialize`-d.
     The automated pipeline always runs. The HITL guidance loop runs **iff** the
@@ -69,6 +85,16 @@ def run_interactive_build(
     automated pipeline alone and ``run_guidance`` is never invoked. When guidance
     runs, a concise summary of its results is surfaced via *output*.
 
+    Finally — **after** guidance, so the *enriched* crate is what lands — the
+    deterministic on-disk export (:func:`builder.tools.builder.export_crate`)
+    writes ``ro-crate-metadata.json`` to ``state.metadata.output_path`` (the
+    CLI-resolved destination) and the resolved ABSOLUTE crate path is surfaced via
+    *output*. This is the missing final step of the pipeline path (#233): before
+    it, the default interactive build built + validated in memory and exited
+    without writing anything. Export runs on **every** completed build (interactive
+    *and* headless). An export failure is logged, surfaced, and re-raised as
+    :class:`CrateExportError` — it is never silently swallowed.
+
     Args:
         engine: An initialized engine. Its ``human_interface`` decides whether
             the guidance tail runs; ``run_guidance`` mutates ``engine.state`` in
@@ -77,33 +103,83 @@ def run_interactive_build(
             :func:`builder.agents.pipeline.run_pipeline` (kept guidance-free).
         guidance_runner: Injected HITL runner; defaults to the real
             :func:`builder.agents.guidance.run_guidance`.
-        output: Sink for the human-readable guidance summary (e.g. ``print`` or a
-            console writer). Defaults to a no-op (nothing is emitted). Only the
-            guidance summary is surfaced here — the pipeline's own output is the
-            caller's concern.
+        exporter: Injected on-disk writer; defaults to the real
+            :func:`builder.tools.builder.export_crate` (crate assembly via
+            ro-crate-py — never hand-rolled JSON-LD).
+        output: Sink for the human-readable guidance summary and the final crate
+            path (e.g. ``print`` or a console writer). Defaults to a no-op.
 
     Returns:
         ``{"pipeline": <run_pipeline result>, "guidance": <run_guidance result or
-        None>}`` — ``guidance`` is ``None`` exactly when the path was
-        non-interactive and the tail was skipped.
+        None>, "export": <export_crate result>}`` — ``guidance`` is ``None``
+        exactly when the path was non-interactive and the tail was skipped;
+        ``export`` is always the (successful) export result dict.
+
+    Raises:
+        CrateExportError: If the final on-disk export fails (surfaced first).
     """
+    emit = output or (lambda _msg: None)
+
     pipeline_runner = pipeline_runner or _default_pipeline_runner()
     pipeline_result = pipeline_runner(engine)
 
     human: HumanInterface | None = getattr(engine, "human_interface", None)
     if not is_interactive(human):
         # Headless / simulated: run the automated pipeline ALONE so the A/B stays
-        # a clean automated-vs-automated comparison. No guidance, no summary.
+        # a clean automated-vs-automated comparison. No guidance, no summary —
+        # but the build is still completed, so it must still be written to disk.
         logger.debug("Non-interactive build: skipping the HITL guidance tail")
-        return {"pipeline": pipeline_result, "guidance": None}
+        export_result = _export_crate_to_disk(engine, exporter, emit)
+        return {
+            "pipeline": pipeline_result,
+            "guidance": None,
+            "export": export_result,
+        }
 
     guidance_runner = guidance_runner or _default_guidance_runner()
     guidance_result = guidance_runner(engine, human)
 
-    emit = output or (lambda _msg: None)
     emit(format_guidance_summary(guidance_result))
 
-    return {"pipeline": pipeline_result, "guidance": guidance_result}
+    # Export LAST so the guidance-enriched crate is what lands on disk (#233).
+    export_result = _export_crate_to_disk(engine, exporter, emit)
+
+    return {
+        "pipeline": pipeline_result,
+        "guidance": guidance_result,
+        "export": export_result,
+    }
+
+
+def _export_crate_to_disk(
+    engine: AgentEngine,
+    exporter: Exporter | None,
+    emit: OutputChannel,
+) -> dict[str, Any]:
+    """Write the built crate to disk and surface its absolute path (#233).
+
+    Calls the injected (or real) ``export_crate`` over ``engine.state``; the
+    destination is resolved by ``export_crate`` itself from
+    ``state.metadata.output_path`` (the CLI-resolved path) with the session
+    ``working_crate/`` fallback. On success the resolved ABSOLUTE crate path is
+    emitted via *emit*. On failure the error is logged, emitted, and re-raised as
+    :class:`CrateExportError` so the failure is never silently swallowed.
+    """
+    exporter = exporter or _default_exporter()
+    state: CrateState = engine.state
+    result = exporter(state)
+
+    if not result.get("success"):
+        error = result.get("error") or "unknown error"
+        crate_path = result.get("crate_path")
+        logger.error("Crate export failed (%s): %s", crate_path, error)
+        emit(f"Crate export FAILED: {error}")
+        raise CrateExportError(error)
+
+    abs_path = Path(result["crate_path"]).resolve()
+    logger.info("Crate written to %s", abs_path)
+    emit(f"Crate written to: {abs_path}")
+    return result
 
 
 def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
@@ -167,3 +243,16 @@ def _default_guidance_runner() -> GuidanceRunner:
     from builder.agents.guidance import run_guidance
 
     return run_guidance
+
+
+def _default_exporter() -> Exporter:
+    """The real on-disk crate writer, imported lazily.
+
+    :func:`builder.tools.builder.export_crate` assembles the crate via
+    ro-crate-py and writes ``ro-crate-metadata.json`` (never hand-rolled
+    JSON-LD). Deferred so a test injecting its own exporter stays independent of
+    the writer / ro-crate-py.
+    """
+    from builder.tools.builder import export_crate
+
+    return export_crate

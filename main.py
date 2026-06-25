@@ -418,8 +418,19 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("Starting with empty state (conversation mode)")
         engine.initialize()
 
+    # Resolve the on-disk output destination (#233). Precedence:
+    #   1. --output / -o always wins.
+    #   2. --output omitted AND --input given => a SIBLING of the input folder:
+    #      <input_parent>/<input_name>-ro-crate/ (the deterministic default so the
+    #      built crate lands next to the data it describes).
+    #   3. No --input (conversation mode) => leave output_path unset so
+    #      export_crate falls back to the session working_crate/ directory.
     if args.output:
         engine.state.metadata.output_path = args.output
+    elif args.input:
+        input_dir = Path(args.input)
+        sibling = input_dir.parent / f"{input_dir.name}-ro-crate"
+        engine.state.metadata.output_path = str(sibling)
 
     entity_count = len(engine.state.list_entities())
     logger.info(
