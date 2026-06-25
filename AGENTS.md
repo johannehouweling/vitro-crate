@@ -498,6 +498,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent), the fast path to a BASE-passing crate
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
+resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier, in one idempotent call; carries the looked-up CAS + PubChem CID and never keeps an unverified id (D5)
 draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
 draft_investigation(hints: dict) → Entity
 draft_study(investigation_id: str, hints: dict) → Entity
@@ -536,6 +537,23 @@ These three types live in the shared `aop_entities` CrateState collection and
 build via `_crate_mapping` as `ContextEntity` nodes typed by their own AOP class.
 With `study_id`, the AOP is wired onto that Study via the `aop` reference (an
 alias of `schema:mentions`), closing the largest gold-crate fidelity gap.
+
+`resolve_compound` (Issue #179, task 3) is the chemistry counterpart of
+`scaffold_isa_backbone`: from the single model-supplied compound `name` it fuses
+the recurring `lookup_compound` → `draft_molecular_entity` → `verify_identifier`
+chain into ONE deterministic call. (1) `lookup_compound` resolves the chemical
+(PubChem, then a ChEBI fallback) — a miss returns `{ok: False, error}` and creates
+no entity; (2) `draft_molecular_entity` mints (or, idempotently, reuses) the
+`MolecularEntity` carrying the looked-up `cas` / `pubchem_cid` (and `smiles` /
+`inchikey` / …) — the build's shared `_identifier_pv` path turns `cas` +
+`pubchem_cid` into the `[CAS, PubChem CID]` identifier PropertyValues, so this
+composite never hand-rolls that wiring; (3) `verify_identifier` confirms each
+minted identifier against source. **D5:** `verify_identifier` *clears* any value
+that does not resolve, so a failed identifier never lingers as a fabricated id —
+the per-field verdicts are surfaced in `verifications` and `verified` is the AND of
+them. Looked-up identifier fields win over same-named caller `hints`, and the
+entity id is derived deterministically from the name so re-running reuses the
+entity rather than duplicating it.
 
 `draft_publication_with_authors` (Issue #180, deferred item) is the citation
 counterpart of the composites above and the **only engine-routed, HITL-capable
