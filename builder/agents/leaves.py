@@ -26,12 +26,52 @@ Design (AGENTS.md §4.4 Model Tiering, §14.2 "Leaves = cheap model"):
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from builder.agents.agent_loop import _build_chat_model
+from builder.agents.agent_loop import (
+    _build_chat_model,
+    _extract_model_name,
+    _extract_token_usage,
+)
 from builder.tools._crate_mapping import _REF_FIELDS, draft_hints_schema
+
+# A usage sink is notified of one leaf call's token usage:
+# ``(input_tokens, output_tokens, model_name)``. Any element may be ``None`` when
+# the provider/fake reported no usage. The deterministic pipeline passes a sink
+# that accumulates usage and logs it to the engine profiler so the eval harness
+# records real per-case token counts for the ``--arch pipeline`` arm (Issue #221).
+UsageSink = Callable[[int | None, int | None, str | None], None]
+
+
+def _invoke_structured_with_usage(
+    llm: Any,
+    schema: dict[str, Any],
+    messages: list[Any],
+    usage_sink: UsageSink | None,
+) -> Any:
+    """Invoke a structured-output call, reporting token usage when a sink is set.
+
+    With no ``usage_sink`` this is the legacy path: bind ``with_structured_output``
+    and return the bare parsed object. With a sink, it binds with
+    ``include_raw=True`` so the raw ``AIMessage`` is available, mines
+    ``(input_tokens, output_tokens, model_name)`` off it via the SAME
+    provider-agnostic helpers the ReAct model node uses
+    (:func:`builder.agents.agent_loop._extract_token_usage`), reports them, and
+    returns the parsed object — so callers are unaffected by the capture.
+    """
+    if usage_sink is None:
+        return llm.with_structured_output(schema).invoke(messages)
+
+    raw_result = llm.with_structured_output(schema, include_raw=True).invoke(messages)
+    if isinstance(raw_result, dict) and "parsed" in raw_result:
+        raw_msg = raw_result.get("raw")
+        input_tokens, output_tokens = _extract_token_usage(raw_msg)
+        usage_sink(input_tokens, output_tokens, _extract_model_name(raw_msg))
+        return raw_result.get("parsed")
+    # Defensive: a model/runnable that ignored include_raw still yields a result.
+    return raw_result
 
 # ---------------------------------------------------------------------------
 # D5: identifier-bearing scalar fields the leaf must NEVER let the model fill.
@@ -291,7 +331,12 @@ def _strip_plan_identifiers(value: Any) -> Any:
     return value
 
 
-def extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
+def extract_plan(
+    context: str,
+    *,
+    model: str | None = None,
+    usage_sink: UsageSink | None = None,
+) -> dict[str, Any]:
     """Propose a candidate plan of ISA-Tox entities from research docs.
 
     Stage A of the §14 hybrid build loop: a pure leaf making a SINGLE bounded
@@ -313,6 +358,11 @@ def extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
         context: The scanned research documents (or an excerpt) to plan from.
         model: Optional explicit model name override; when ``None`` the drafter
             tier resolves the configured drafter (or primary) model.
+        usage_sink: Optional callback notified of this call's token usage as
+            ``(input_tokens, output_tokens, model_name)``. When given, the call
+            binds structured output with ``include_raw=True`` so usage can be
+            mined off the raw response (Issue #221). Default ``None`` leaves the
+            call (and its return) unchanged.
 
     Returns:
         A candidate-plan dict free of fabricated identifiers. An empty/
@@ -321,7 +371,6 @@ def extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
     """
     llm = _build_chat_model(model=model, role="drafter")
     schema = _plan_schema()
-    structured = llm.with_structured_output(schema)
 
     messages = [
         SystemMessage(content=_PLAN_SYSTEM_PROMPT),
@@ -335,7 +384,7 @@ def extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
             )
         ),
     ]
-    result = structured.invoke(messages)
+    result = _invoke_structured_with_usage(llm, schema, messages, usage_sink)
 
     plan = dict(result) if isinstance(result, dict) else {}
     return _strip_plan_identifiers(plan)
@@ -346,6 +395,7 @@ def draft_entity_fields(
     context: str,
     *,
     model: str | None = None,
+    usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Extract one entity's descriptive fields from free-text ``context``.
 
@@ -366,6 +416,11 @@ def draft_entity_fields(
             or a conversation snippet.
         model: Optional explicit model name override; when ``None`` the drafter
             tier resolves the configured drafter (or primary) model.
+        usage_sink: Optional callback notified of this call's token usage as
+            ``(input_tokens, output_tokens, model_name)``. When given, the call
+            binds structured output with ``include_raw=True`` so usage can be
+            mined off the raw response (Issue #221). Default ``None`` leaves the
+            call (and its return) unchanged.
 
     Returns:
         A dict of the entity's descriptive fields, validating against
@@ -373,7 +428,6 @@ def draft_entity_fields(
     """
     llm = _build_chat_model(model=model, role="drafter")
     schema = _structured_output_schema(entity_type)
-    structured = llm.with_structured_output(schema)
 
     messages = [
         SystemMessage(content=_SYSTEM_PROMPT),
@@ -386,7 +440,7 @@ def draft_entity_fields(
             )
         ),
     ]
-    result = structured.invoke(messages)
+    result = _invoke_structured_with_usage(llm, schema, messages, usage_sink)
 
     fields = dict(result) if isinstance(result, dict) else {}
     return _strip_identifiers(fields)

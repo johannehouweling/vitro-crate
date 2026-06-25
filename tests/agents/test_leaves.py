@@ -31,35 +31,68 @@ from builder.tools._crate_mapping import draft_hints_schema
 
 
 class _FakeStructuredRunnable:
-    """The runnable returned by `model.with_structured_output(schema)`.
+    """The runnable returned by `model.with_structured_output(schema, ...)`.
 
-    Records the messages it was invoked with and returns canned output.
+    Records the messages it was invoked with and returns canned output. When the
+    leaf binds with ``include_raw=True`` (the usage-capture path) it returns the
+    langchain-shaped ``{"raw": AIMessage, "parsed": ..., "parsing_error": None}``
+    so the leaf can mine ``usage_metadata`` off the raw message; otherwise it
+    returns the bare parsed dict (the legacy contract).
     """
 
-    def __init__(self, parent: "FakeChatModel") -> None:
+    def __init__(self, parent: "FakeChatModel", *, include_raw: bool = False) -> None:
         self._parent = parent
+        self._include_raw = include_raw
 
     def invoke(self, messages: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
         self._parent.invoke_calls.append(messages)
+        if self._include_raw:
+            return {
+                "raw": self._parent.raw_message(),
+                "parsed": self._parent.canned_output,
+                "parsing_error": None,
+            }
         return self._parent.canned_output
 
 
 class FakeChatModel:
     """A fake LangChain chat model recording structured-output usage.
 
-    `with_structured_output(schema)` records the schema and returns a runnable
-    whose `.invoke(...)` yields `canned_output`. This lets the tests assert the
-    leaf goes through structured output exactly once without any network call.
+    `with_structured_output(schema, include_raw=...)` records the schema (and the
+    ``include_raw`` flag) and returns a runnable whose `.invoke(...)` yields
+    `canned_output`. Optionally carries a ``usage_metadata`` payload so the
+    usage-capture path can be exercised entirely offline.
     """
 
-    def __init__(self, canned_output: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        canned_output: dict[str, Any],
+        *,
+        usage_metadata: dict[str, Any] | None = None,
+        model_name: str | None = None,
+    ) -> None:
         self.canned_output = canned_output
+        self._usage_metadata = usage_metadata
+        self._model_name = model_name
         self.structured_schemas: list[Any] = []
         self.invoke_calls: list[Any] = []
+        self.include_raw_flags: list[bool] = []
 
-    def with_structured_output(self, schema: Any, **kwargs: Any) -> _FakeStructuredRunnable:
+    def raw_message(self) -> Any:
+        """Build the AIMessage the structured-output runnable returns as ``raw``."""
+        from langchain_core.messages import AIMessage
+
+        msg = AIMessage(content="", usage_metadata=self._usage_metadata)
+        if self._model_name is not None:
+            msg.response_metadata = {"model_name": self._model_name}
+        return msg
+
+    def with_structured_output(
+        self, schema: Any, *, include_raw: bool = False, **kwargs: Any
+    ) -> _FakeStructuredRunnable:
         self.structured_schemas.append(schema)
-        return _FakeStructuredRunnable(self)
+        self.include_raw_flags.append(include_raw)
+        return _FakeStructuredRunnable(self, include_raw=include_raw)
 
 
 @pytest.fixture(autouse=True)
@@ -526,6 +559,97 @@ class TestExtractPlanD5StripsFabricatedIdentifiers:
 
         assert plan["publications"][0]["title"] == "P"
         assert "doi" not in plan["publications"][0]
+
+
+# ---------------------------------------------------------------------------
+# Token-usage capture (Issue #221)
+#
+# The deterministic pipeline's leaves make their own chat-model calls; without
+# instrumentation their token usage is discarded and the eval `--arch pipeline`
+# arm records 0. The leaves accept an optional `usage_sink` callback: when given,
+# the leaf binds structured output with `include_raw=True`, mines
+# `(input_tokens, output_tokens, model_name)` off the raw AIMessage (the SAME
+# provider-agnostic source the ReAct model node uses), and reports it through the
+# sink. With no sink the behaviour is unchanged (the legacy bare-parsed contract).
+# ---------------------------------------------------------------------------
+
+
+class TestDraftEntityFieldsUsageCapture:
+    def test_usage_sink_receives_token_usage(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"name": "Acetaminophen"},
+            usage_metadata={"input_tokens": 120, "output_tokens": 35, "total_tokens": 155},
+            model_name="gpt-4o-mini",
+        )
+        captured: list[tuple[Any, Any, Any]] = []
+
+        out = leaves.draft_entity_fields(
+            "MolecularEntity",
+            "context",
+            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+        )
+
+        assert out["name"] == "Acetaminophen"
+        assert captured == [(120, 35, "gpt-4o-mini")]
+
+    def test_usage_sink_binds_structured_output_with_include_raw(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel(
+            {"name": "x"},
+            usage_metadata={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+        )
+        _patch_build_chat_model["model"] = fake
+
+        leaves.draft_entity_fields("Study", "context", usage_sink=lambda *_: None)
+
+        assert fake.include_raw_flags == [True]
+
+    def test_no_usage_sink_keeps_legacy_contract(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # Without a sink the leaf must NOT request include_raw and must still
+        # return the bare parsed dict (backward compatible).
+        fake = FakeChatModel({"name": "Acetaminophen"})
+        _patch_build_chat_model["model"] = fake
+
+        out = leaves.draft_entity_fields("MolecularEntity", "context")
+
+        assert out["name"] == "Acetaminophen"
+        assert fake.include_raw_flags == [False]
+
+
+class TestExtractPlanUsageCapture:
+    def test_usage_sink_receives_token_usage(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"study": {"name": "S"}},
+            usage_metadata={"input_tokens": 500, "output_tokens": 80, "total_tokens": 580},
+            model_name="gpt-4o-mini",
+        )
+        captured: list[tuple[Any, Any, Any]] = []
+
+        plan = leaves.extract_plan(
+            _DOC_CONTEXT,
+            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+        )
+
+        assert plan["study"]["name"] == "S"
+        assert captured == [(500, 80, "gpt-4o-mini")]
+
+    def test_no_usage_sink_keeps_legacy_contract(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({"study": {"name": "S"}})
+        _patch_build_chat_model["model"] = fake
+
+        plan = leaves.extract_plan(_DOC_CONTEXT)
+
+        assert plan["study"]["name"] == "S"
+        assert fake.include_raw_flags == [False]
 
 
 def _flatten_keys(schema: Any) -> set[str]:
