@@ -1738,6 +1738,19 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
     identifier-bearing fields are never committed from the user's prose — those
     come from lookups, so an identifier `commit` is refused (the interpret leaf
     coerces it to `skip`).
+    - **Person/agent fields are committed as ENTITY references, not strings
+      (#275).** A `creator` / `author` / `publisher` / `editor` / `contributor`
+      gap requires an ISA Person reference, so `_apply_value` routes its value to
+      `_apply_person_value`: the prose is parsed into a name (plus an optional
+      ORCID / affiliation), a Person is minted via the `draft_person` tool, and
+      its `@id` is linked onto the gap entity's field as a `{"@id": …}` reference
+      (a root/crate-level person gap is satisfied by minting alone — the builder
+      auto-wires every Person onto the Root Data Entity as an author). A supplied
+      ORCID is attached **only** after `lookup_orcid` confirms its family name
+      (D5); an unverified one is dropped (the name still mints a Person).
+      Committing such a field as a literal string would leave the "creator MUST be
+      of type Person" SHACL shape unsatisfied, so the gap would re-emit every
+      round and `isa=fail` — the #275 re-ask loop this fixes.
 
   **Offline / no-provider determinism.** With no provider configured the exchange
   degrades to the original deterministic ask-and-set: phrase = the human-readable

@@ -1486,3 +1486,213 @@ class TestFromFileReadsAndExtracts:
         assert applied.fields.get("cas") != "103-90-2", (
             "D5: an identifier must come from a lookup, not file extraction"
         )
+
+
+# ---------------------------------------------------------------------------
+# (#275) A person/agent-typed field (creator/author/...) answered with a free-
+# text name must mint a Person ENTITY and link it by REFERENCE — never store a
+# literal string. A literal string leaves the ISA "creator MUST be of type
+# Person" SHACL shape unsatisfied so the gap re-emits every round and isa=fail.
+# These run over the REAL gap engine so they assert the gap actually closes.
+# ---------------------------------------------------------------------------
+
+
+def _backbone_with_creator_gap() -> AgentEngine:
+    """A BASE/ISA/TOX-passing backbone whose Study/Assay still lack a creator.
+
+    ``assess_gaps`` over this state emits a real ``schema:creator`` gap for the
+    Study and the Assay (and a root/Investigation one) — the exact gap the
+    S-VHPS26 run looped on.
+    """
+    return AgentEngine(state=_backbone())
+
+
+def _creator_gaps(engine: AgentEngine) -> list[Gap]:
+    """The live ``schema:creator`` gaps assessed over ``engine.state``."""
+    return [
+        g for g in assess_gaps(engine.state).gaps if "creator" in (g.property or "")
+    ]
+
+
+def _study_creator_gap(engine: AgentEngine) -> Gap:
+    """The Study's live ``schema:creator`` gap (asserts exactly one exists)."""
+    study_gaps = [
+        g
+        for g in _creator_gaps(engine)
+        if (g.entity_type == "Study") or str(g.entity_id or "").endswith("Study_st1")
+    ]
+    assert study_gaps, "expected a real Study creator gap on the backbone"
+    return study_gaps[0]
+
+
+class TestPersonFieldMintsPersonEntity:
+    """#275: a creator/author answer becomes a Person reference, not a string."""
+
+    def test_creator_plain_name_mints_person_and_closes_gap(self, monkeypatch):
+        """A plain name answered for a Study ``creator`` gap mints a Person and
+        links it BY REFERENCE; the creator gap must not re-appear on re-assess."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = _backbone_with_creator_gap()
+        gap = _study_creator_gap(engine)
+
+        # Drive only the Study creator gap, then a clean re-assess so the loop
+        # terminates promptly (mirrors the existing two-report pattern).
+        _single_ask_gap_report(
+            monkeypatch,
+            gap,
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+        # No provider -> deterministic ask-and-set path (offline determinism).
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+
+        human = ScriptedHuman(input_answers=[_value("Fabian Wagenaars")])
+        run_guidance(engine, human, max_rounds=5)
+
+        # A Person entity was minted (NOT a literal string on the Study).
+        persons = engine.state.list_entities("Person")
+        assert persons, "a creator answer must mint a Person entity (#275)"
+        person = next(
+            p for p in persons if (p.fields.get("familyName") == "Wagenaars")
+        )
+        assert person.fields.get("givenName") == "Fabian"
+
+        # The Study's creator is a REFERENCE to that Person, never a literal.
+        study = _get(engine, "st1")
+        creator = study.fields.get("creator")
+        assert isinstance(creator, dict) and "@id" in creator, (
+            "creator must be an {'@id': ...} reference, not a string (#275)"
+        )
+        assert not isinstance(creator, str)
+
+        # The real gap engine now finds NO creator gap for the Study (it closed),
+        # and ISA conformance holds for the person requirement.
+        remaining = _creator_gaps(engine)
+        study_remaining = [
+            g
+            for g in remaining
+            if (g.entity_type == "Study") or str(g.entity_id or "").endswith("Study_st1")
+        ]
+        assert study_remaining == [], (
+            "the Study creator gap must not re-appear once a Person is linked (#275)"
+        )
+        assert assess_gaps(engine.state).conformance.get("isa") is True
+
+    def test_creator_name_with_orcid_verifies_and_attaches(self, monkeypatch):
+        """A name + ORCID answer mints a Person with the VERIFIED ORCID (D5: the
+        ORCID is only trusted once a lookup confirms the family name)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = _backbone_with_creator_gap()
+        gap = _study_creator_gap(engine)
+
+        _single_ask_gap_report(
+            monkeypatch,
+            gap,
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+
+        # Stub the ORCID lookup so the verification is offline and deterministic
+        # (D5): it resolves to a record whose familyName matches the answer.
+        calls: list[str] = []
+
+        def _fake_lookup_orcid(orcid_id: str):
+            calls.append(orcid_id)
+            return {
+                "found": True,
+                "data": {
+                    "givenName": "Fabian",
+                    "familyName": "Wagenaars",
+                    "name": "Fabian Wagenaars",
+                },
+                "error": None,
+            }
+
+        monkeypatch.setattr(guidance, "lookup_orcid", _fake_lookup_orcid)
+
+        human = ScriptedHuman(
+            input_answers=[_value("Fabian Wagenaars, ORCID: 0000-0003-4766-7358")]
+        )
+        run_guidance(engine, human, max_rounds=5)
+
+        assert calls, "a supplied ORCID must be verified via lookup_orcid (D5)"
+        person = next(
+            p
+            for p in engine.state.list_entities("Person")
+            if p.fields.get("familyName") == "Wagenaars"
+        )
+        assert person.fields.get("orcid") == "0000-0003-4766-7358", (
+            "a verified ORCID must be attached to the Person (#275)"
+        )
+
+        study = _get(engine, "st1")
+        creator = study.fields.get("creator")
+        assert isinstance(creator, dict) and "@id" in creator
+        assert assess_gaps(engine.state).conformance.get("isa") is True
+
+    def test_unverified_orcid_is_not_attached(self, monkeypatch):
+        """D5: an ORCID whose family name does NOT match the answer is dropped —
+        the Person is still minted (a name is descriptive), just without it."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = _backbone_with_creator_gap()
+        gap = _study_creator_gap(engine)
+
+        _single_ask_gap_report(
+            monkeypatch,
+            gap,
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+
+        # The lookup resolves to a DIFFERENT person -> unverified -> dropped.
+        monkeypatch.setattr(
+            guidance,
+            "lookup_orcid",
+            lambda _o: {
+                "found": True,
+                "data": {"familyName": "SomeoneElse"},
+                "error": None,
+            },
+        )
+
+        human = ScriptedHuman(
+            input_answers=[_value("Fabian Wagenaars, ORCID: 0000-0003-4766-7358")]
+        )
+        run_guidance(engine, human, max_rounds=5)
+
+        person = next(
+            p
+            for p in engine.state.list_entities("Person")
+            if p.fields.get("familyName") == "Wagenaars"
+        )
+        assert not person.fields.get("orcid"), (
+            "an unverified ORCID must NOT be attached to the Person (D5, #275)"
+        )
+
+    def test_creator_answer_is_never_a_literal_string(self, monkeypatch):
+        """Regression for the exact bug: the answer must never land as a literal
+        ``creator`` string (which leaves isa=fail)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = _backbone_with_creator_gap()
+        gap = _study_creator_gap(engine)
+        _single_ask_gap_report(
+            monkeypatch,
+            gap,
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+
+        human = ScriptedHuman(input_answers=[_value("Fabian Wagenaars")])
+        run_guidance(engine, human, max_rounds=5)
+
+        creator = _get(engine, "st1").fields.get("creator")
+        assert not isinstance(creator, str), (
+            "the regression: a creator must never be committed as a literal string"
+        )
