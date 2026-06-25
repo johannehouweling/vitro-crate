@@ -1148,15 +1148,26 @@ def read_file_sample(
             the caller has already determined this is a text file. Avoids
             redundant _detect_mime_type and content checks during scanning.
         mode: Reading mode:
-            - "content" (default): First N lines of the file (legacy behavior).
+            - "content" (default): First *lines* lines of the file. ``lines``
+              directly controls how much is returned (Issue #240).
             - "summary": File-type-aware summary (columns for CSV, keys for JSON,
               sheet names for XLSX, page count for PDF, etc.).
             - "overview": File metadata (name, size, MIME type) plus the summary.
 
     Returns:
-        A string with the file content/summary, or None if the file cannot be read.
+        A string with the file content/summary, a directory-guidance message
+        when *path* is a directory (Issue #240), or None if the file cannot be
+        read.
     """
     file_path = Path(path)
+    if file_path.is_dir():
+        # A directory handed to a file reader (e.g. read_file_sample(<dir>,
+        # mode='overview')) used to return a silent None, which looped a weak
+        # model. Return a clear, actionable signal instead (Issue #240).
+        return (
+            f"{path} is a directory, not a file — use list_scanned_files to "
+            f"browse the inventory, then read a specific file by its path."
+        )
     if not file_path.is_file():
         return None
 

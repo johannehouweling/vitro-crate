@@ -712,12 +712,12 @@ TOOL_SPECS = [
     },
     {
         "name": "read_file_sample",
-        "description": "Read a sample from a file. Use mode 'content' (first N lines), 'summary' (file-type-aware overview like columns for CSV, keys for JSON, page count for PDF), or 'overview' (file metadata + summary). Use this instead of read_multiple_files when inspecting a single file.",
+        "description": "Read a sample from a single FILE (not a directory). Use mode 'content' (first N lines, where N is the 'lines' argument — raise it to read more), 'summary' (file-type-aware overview like columns for CSV, keys for JSON, page count for PDF), or 'overview' (file metadata + summary). Use this instead of read_multiple_files when inspecting a single file. Passing a directory returns guidance to use list_scanned_files; to read a small file IN FULL prefer read_file.",
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to the file to read"},
-                "lines": {"type": "integer", "description": "Number of lines to read in 'content' mode (default 20)"},
+                "lines": {"type": "integer", "description": "Number of lines to return in 'content' mode (default 20). This directly controls how much is returned — raise it (e.g. 1000) to read more of the file."},
                 "mode": {
                     "type": "string",
                     "enum": ["content", "summary", "overview"],
@@ -746,7 +746,7 @@ TOOL_SPECS = [
     },
     {
         "name": "read_file",
-        "description": "Read a supported file in full by extension (txt, csv, json, xlsx, docx, md, pdf) and return its text content. Use read_file_sample instead when you only need a preview of a large file.",
+        "description": "Read a supported FILE in full by extension (txt, csv, json, xlsx, docx, md, pdf) and return its text content. Text/JSON come back COMPLETE up to 64 KiB (a 32 KB JSON is returned whole — do NOT re-read it expecting more). A file larger than the budget is returned with an explicit '[truncated: showing first 64 KiB of N KiB; … do not re-read]' marker: re-reading the same way will NOT return more, so move on. A directory path returns guidance to use list_scanned_files. Use read_file_sample only when you want a small preview of a large file.",
         "parameters": {
             "type": "object",
             "properties": {
