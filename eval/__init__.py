@@ -13,7 +13,12 @@ real LLM calls and is triggered by a human with credentials (``python -m eval``)
 from __future__ import annotations
 
 from eval.agent_api import AgentFactory, BuildAgent, BuildOutcome
-from eval.corpus import DEFAULT_CORPUS, EvalCase, reaches_isa_tox_conformance
+from eval.corpus import (
+    DEFAULT_CORPUS,
+    EvalCase,
+    meets_entity_quota,
+    reaches_isa_tox_conformance,
+)
 from eval.metrics import ProfileMetrics, crate_graph_hash, mine_profile_metrics
 from eval.report import compare_reports, write_report
 from eval.runner import CaseResult, EvalReport, run_eval
@@ -29,6 +34,7 @@ __all__ = [
     "ProfileMetrics",
     "compare_reports",
     "crate_graph_hash",
+    "meets_entity_quota",
     "mine_profile_metrics",
     "reaches_isa_tox_conformance",
     "run_eval",
