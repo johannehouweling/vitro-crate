@@ -1598,6 +1598,16 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   the loop. It is NOT a ReAct/LLM-orchestrated agent: CODE owns control flow, the
   LLM only *drafts* a suggested value, and the user confirms every uncertain
   commit (D5). It is invoked **only for a real interactive user** (see §14.6.1).
+  The loop **advances over un-progressable gaps** rather than aborting on the
+  first one (#230): each round it draws the next *actionable* gap (`report-only`
+  gaps are never drawn — see below), and a gap it cannot progress (e.g. the user
+  skips it) is added to a **per-report skip-set** so the loop moves on to the gap
+  behind it. It only stops once the whole report is exhausted with no progress —
+  one cryptic, uncommittable gap can no longer abandon the 200 behind it — and is
+  still hard-bounded by `max_rounds`. The skip-set is cleared on every commit (the
+  re-assessed report is fresh). ask-user prompts are **human-readable** (a direct
+  question naming the field + entity, the reason, any suggestion, and the expected
+  format), never the raw failed-check `message`.
 
 **The deliberate split — automated vs interactive.** Stages 1–4 are the
 **automated** build: `run_pipeline` (§14.5) runs them with **no HITL**, so it
@@ -1665,10 +1675,19 @@ recommended, MAY = optional):
 Each `Gap` carries `{tier, source, entity_id, entity_type, property, message,
 suggestion, fix_hint, auto_fixable}`: `suggestion` is the expected propertyID
 IRI / ontology term / parameter description from the profile or MIT YAML;
-`fix_hint` is a deterministic tool name (`"fix_required_issues"`), `"draft"`, or
-`"ask-user"`. `GapReport` adds `{gaps, conformance, mit_overall, fair_summary,
-counts}`, with `gaps` sorted **all MUST, then SHOULD, then MAY**, stable
-secondary by `(source, entity_id, property)`.
+`fix_hint` is a deterministic tool name (`"fix_required_issues"`), `"draft"`,
+`"ask-user"`, or **`"report-only"`** (#230). A `report-only` gap is one the
+guidance loop can *not* commit deterministically from the gap's own fields — it
+has no settable entity field (`entity_id is None`) and its property maps to no
+Root Data Entity metadata slot (`_CRATE_SETTABLE_FIELDS` — which mirrors
+guidance's `_apply_value`). **Every FAIR gap is `report-only`** (its property is
+an indicator id like `RDA-F1-02M`, not a field), as are **crate-level MIT gaps
+whose field is not a crate slot**; they stay in the report for context but the
+guidance loop never spends an ask-user/draft turn on them. `GapReport` adds
+`{gaps, conformance, mit_overall, fair_summary, counts}`, with `gaps` sorted
+**all MUST, then SHOULD, then MAY**, then **committable before `report-only`**
+within a tier, stable secondary by `(source, entity_id, property)` — so the loop
+always reaches the gaps it can act on first.
 
 **`auto_fixable` is the load-bearing field** — it is `True` iff
 `fix_required_issues` can clear the gap deterministically from state alone. The
