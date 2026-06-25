@@ -1360,6 +1360,19 @@ INPUT (dir / zip / conversation)
 
 - **Spine = code.** The Priority 1–4 heuristic (§4) becomes control flow, not prose.
 - **Leaves = cheap model.** Drafting/disambiguation only (binds the §4.4 drafter tier).
+- **Leaf context = bounded file BODIES, not just filenames (#231).** The single
+  `extract`/`draft` leaf is fed by `pipeline.py::_gather_context`, which now reads a
+  bounded BODY excerpt of each non-tabular rich file (`.json` / `.docx` / `.pdf` …)
+  via the existing `builder/tools/file_readers.read_file` — preferring the cheap
+  tabular `first_rows` preview the scanner already captured. Reads are **fail-closed
+  to `state.approved_scan_roots`** (same `_contain` guard as `engine.py`), never
+  raise out of the spine (reader errors are logged + skipped), and are capped per
+  file AND in total by `pipeline.py::_MAX_CONTEXT_CHARS` so the one bounded call
+  stays token-safe. Before #231 the leaf saw filenames + tiny previews only, so
+  `extract_plan` returned an empty plan and the backbone fell back to the literal
+  default names; now document titles/abstracts/SOP headings reach the leaf. The
+  empty-context path is still a strict no-op (`""` ⇒ no provider call), preserving
+  the no-provider determinism guarantee.
 - **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
   `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.
@@ -1520,7 +1533,10 @@ existing toolbox. The sequence:
    supplied this alone yields `{base, isa, tox}` on an empty crate (§14.3).
 2. **Draft entities** — the §14.2 bounded **drafter-leaf is now wired in here**
    (was a deferral): `_draft_entities` gathers a free-text context from what the
-   engine carries (crate `title`/`description` + a scanned-file digest) and, for
+   engine carries (crate `title`/`description` + a scanned-file digest that now
+   includes **bounded BODY excerpts** of non-tabular rich files — `.json` / `.docx`
+   / `.pdf` — read fail-closed to `approved_scan_roots` and capped by
+   `_MAX_CONTEXT_CHARS`, #231) and, for
    each draftable entity missing descriptive fields, calls `draft_entity_fields`
    (`leaves.py`) and applies only the returned **non-identifier descriptive**
    fields (fill, don't clobber). It is a **strict no-op when no LLM provider is

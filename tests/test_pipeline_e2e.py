@@ -39,6 +39,7 @@ deterministic spine end to end without ever leaving the process.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -546,3 +547,123 @@ class TestPipelineE2ENoProviderSafety:
         assert {"Investigation", "Study", "Assay"} <= {
             e.type for e in engine.state.list_entities()
         }
+
+
+# ---------------------------------------------------------------------------
+# 5: extraction-context fidelity — bodies of rich files drive the plan (#231)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractionContextFidelity:
+    """`_gather_context` now reads non-tabular rich file BODIES, so a study-specific
+    title in a ``.json`` / ``.docx`` reaches the extraction leaf and the
+    materialized Study gets a real name — NOT the literal default ``"Study"`` (#231).
+
+    Before #231 the spine fed the bounded extraction leaf only filenames + tiny
+    tabular previews, so ``extract_plan`` saw nothing and returned an empty plan,
+    and the backbone fell back to the literal ``"Study"`` default. The guard uses a
+    stub ``extract_plan`` that echoes a study title ONLY when the context actually
+    carries the document body marker — so a passing test proves the BODY made it
+    into the context.
+    """
+
+    _BODY_MARKER = "TPO-INHIBITION-SVHPS26"
+
+    def test_materialized_study_name_is_not_the_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A study title carried in a ``.json`` body materializes a real Study name.
+
+        The stub ``extract_plan`` echoes a study name ONLY when the gathered context
+        contains the document body marker (which lives in the ``.json`` BODY, never
+        the filename). Running ``_materialize_plan`` on a backbone-free engine then
+        creates the Study from the plan — proving the body reached the leaf and the
+        Study is named from it, not the literal ``"Study"`` default.
+        """
+        import builder.agents.pipeline as pipeline_mod
+        from builder.state import FileClassification
+
+        # Provider configured (no real model) so the leaf runs.
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+        study_name = "Methimazole TPO inhibition dose-response study"
+
+        def fake_extract_plan(
+            context: str, *, model: str | None = None, usage_sink: Any = None
+        ) -> dict[str, Any]:
+            # Echo a study name ONLY when the document BODY made it into context.
+            if self._BODY_MARKER in context:
+                return {"study": {"name": study_name}}
+            return {}
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)
+
+        # A non-tabular rich file whose BODY (not its filename) carries the marker.
+        body_file = tmp_path / "S-VHPS26.json"
+        body_file.write_text(
+            f'{{"studyTitle": "{self._BODY_MARKER}", "organism": "Rattus"}}',
+            encoding="utf-8",
+        )
+        fc = FileClassification(
+            path=str(body_file),
+            filename=body_file.name,
+            size=body_file.stat().st_size,
+            mime_type="application/json",
+            first_rows=None,  # non-tabular: the scanner captured no preview
+        )
+
+        state = CrateState()  # NO title — the ONLY signal is the file body.
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        state.scanned_files = [fc]
+        engine = _engine(state)
+
+        # Materialize the plan onto a backbone-free engine so the Study is created
+        # FROM the plan's (body-derived) name.
+        pipeline_mod._materialize_plan(engine)
+
+        study = next(
+            (e for e in engine.state.list_entities() if e.type == "Study"), None
+        )
+        assert study is not None, "the body-derived plan must materialize a Study"
+        name = str(study.fields.get("name") or "")
+        assert name == study_name
+        # The headline guard: NOT the literal default.
+        assert name != "Study"
+
+    def test_no_body_yields_no_study_specific_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Control: with no readable body, the leaf echoes nothing, so no Study is
+        materialized from a plan (the spine would fall back to the default)."""
+        import builder.agents.pipeline as pipeline_mod
+        from builder.state import FileClassification
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+        def fake_extract_plan(
+            context: str, *, model: str | None = None, usage_sink: Any = None
+        ) -> dict[str, Any]:
+            if self._BODY_MARKER in context:  # pragma: no cover - must not fire
+                return {"study": {"name": "should-not-happen"}}
+            return {}
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)
+
+        # A binary file with no first_rows whose body reader returns None.
+        blob = tmp_path / "data.pzfx"
+        blob.write_bytes(b"\x00\x01binary\x00not-text\x00")
+        fc = FileClassification(
+            path=str(blob),
+            filename=blob.name,
+            size=blob.stat().st_size,
+            mime_type="application/octet-stream",
+            first_rows=None,
+        )
+        state = CrateState()
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        state.scanned_files = [fc]
+        engine = _engine(state)
+
+        result = pipeline_mod._materialize_plan(engine)
+        # No body marker reached the leaf, so it echoed no study name.
+        assert result["study"] == 0
