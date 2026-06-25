@@ -924,4 +924,241 @@ class TestThinkingSpinnerPause:
         assert sp._paused.is_set() is False  # resumed after
 
 
+class TestCompletenessNudge:
+    """Issue #251: a deterministic present/missing/next-action nudge in the
+    per-turn brief steers the weak model to the next concrete step instead of
+    stalling once the obvious entities exist."""
+
+    def _state(self, *types: str):
+        """A CrateState pre-populated with one entity per requested type."""
+        from builder.state import CrateState, Entity
+
+        state = CrateState()
+        for i, t in enumerate(types):
+            state.add_entity(Entity(entity_id=f"e{i}", type=t))  # ty: ignore[invalid-argument-type]
+        return state
+
+    def test_nudge_lists_present_and_missing_with_next_action(self):
+        """Backbone + person + compounds but no process chain / files / export
+        => the nudge names what's present, what's missing, and a next action."""
+        from builder.agents.agent_loop import _completeness_nudge
+
+        state = self._state(
+            "Investigation",
+            "Study",
+            "Assay",
+            "Person",
+            "MolecularEntity",
+            "MolecularEntity",
+        )
+        nudge = _completeness_nudge(state)
+
+        # Present items are surfaced (with the ✓ marker)
+        assert "backbone ✓" in nudge
+        assert "person ✓" in nudge
+        # Compound count is surfaced
+        assert "2 compounds ✓" in nudge
+        # Missing items are named
+        assert "process chain" in nudge
+        assert "file" in nudge.lower()
+        assert "export" in nudge.lower()
+        # A concrete next-action hint with real tool names is present
+        assert "next:" in nudge.lower()
+        assert (
+            "draft_process_chain" in nudge
+            or "attach_files" in nudge
+            or "build_and_validate" in nudge
+            or "export_crate" in nudge
+        )
+
+    def test_nudge_is_short(self):
+        """The nudge stays token-cheap — a single short line."""
+        from builder.agents.agent_loop import _completeness_nudge
+
+        state = self._state("Investigation", "Study", "Assay", "Person")
+        nudge = _completeness_nudge(state)
+        assert nudge.count("\n") == 0
+        assert len(nudge) < 320
+
+    def test_complete_state_suggests_validate_and_export(self):
+        """When the crate looks complete (backbone, person, compounds, process
+        chain, files), the nudge suggests validate + export."""
+        from builder.agents.agent_loop import _completeness_nudge
+
+        state = self._state(
+            "Investigation",
+            "Study",
+            "Assay",
+            "Person",
+            "MolecularEntity",
+            "LabProcess",
+            "File",
+        )
+        nudge = _completeness_nudge(state)
+        assert "export_crate" in nudge or "export" in nudge.lower()
+        assert "build_and_validate" in nudge or "validate" in nudge.lower()
+
+    def test_empty_state_nudge_does_not_crash(self):
+        """An empty crate still yields a (short, non-crashing) nudge."""
+        from builder.agents.agent_loop import _completeness_nudge
+
+        nudge = _completeness_nudge(self._state())
+        assert isinstance(nudge, str)
+        # The very first thing to do on an empty crate is the backbone
+        assert "backbone" in nudge.lower()
+
+    def test_brief_includes_nudge_when_passed(self):
+        """_build_system_prompt_with_state surfaces the nudge when given one."""
+        from builder.agents.agent_loop import _build_system_prompt_with_state
+
+        nudge = "backbone ✓; missing: export → next: export_crate"
+        brief = _build_system_prompt_with_state(
+            session_id="sid",
+            entity_count=3,
+            file_count=0,
+            iteration_count=1,
+            nudge=nudge,
+        )
+        assert nudge in brief
+
+    def test_brief_omits_nudge_line_when_none(self):
+        """No nudge => the brief is unchanged (back-compat)."""
+        from builder.agents.agent_loop import _build_system_prompt_with_state
+
+        brief = _build_system_prompt_with_state(
+            session_id="sid",
+            entity_count=0,
+            file_count=0,
+            iteration_count=1,
+        )
+        assert "next:" not in brief.lower()
+
+
+class TestFinishBackstop:
+    """Issue #251: a deterministic finish backstop guarantees a crate lands on
+    disk when the session ends with un-exported entities — even when the weak
+    LLM stalled before ever calling export_crate."""
+
+    def _engine(self, *types: str):
+        """A real engine with one entity per requested type."""
+        from builder.engine import AgentEngine
+        from builder.state import Entity
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_backstop"
+        for i, t in enumerate(types):
+            engine.state.add_entity(Entity(entity_id=f"e{i}", type=t))  # ty: ignore[invalid-argument-type]
+        return engine
+
+    def _spy(self, engine):
+        """Replace engine.run_tool with a recording spy that no-ops the heavy
+        build/validate/export tools and records the call order."""
+        calls: list[str] = []
+
+        def fake_run_tool(tool_name: str, **kwargs):
+            calls.append(tool_name)
+            if tool_name == "export_crate":
+                return {"success": True, "crate_path": "/tmp/out-ro-crate", "error": None}
+            return {"ok": True}
+
+        engine.run_tool = fake_run_tool  # type: ignore[method-assign]
+        return calls
+
+    def test_backstop_builds_and_exports_when_entities_exist(self):
+        """Non-empty crate not yet exported => build_and_validate THEN
+        export_crate run, and the resolved path is surfaced."""
+        from builder.agents.agent_loop import _finish_backstop
+
+        engine = self._engine("Investigation", "Study")
+        calls = self._spy(engine)
+        surfaced: list[str] = []
+
+        result = _finish_backstop(engine, emit=surfaced.append)
+
+        assert "build_and_validate" in calls
+        assert "export_crate" in calls
+        # build_and_validate must precede export_crate
+        assert calls.index("build_and_validate") < calls.index("export_crate")
+        assert result is not None and result.get("success") is True
+        # The resolved path is surfaced to the user
+        assert any("ro-crate" in m for m in surfaced)
+
+    def test_backstop_noop_when_crate_empty(self):
+        """An empty crate => no build, no export (nothing to write)."""
+        from builder.agents.agent_loop import _finish_backstop
+
+        engine = self._engine()  # no entities
+        calls = self._spy(engine)
+
+        result = _finish_backstop(engine, emit=lambda _m: None)
+
+        assert calls == []
+        assert result is None
+
+    def test_backstop_is_idempotent(self):
+        """Calling the backstop twice exports only once (no double-export)."""
+        from builder.agents.agent_loop import _finish_backstop
+
+        engine = self._engine("Investigation")
+        calls = self._spy(engine)
+
+        _finish_backstop(engine, emit=lambda _m: None)
+        first = list(calls)
+        _finish_backstop(engine, emit=lambda _m: None)
+
+        assert calls.count("export_crate") == 1, (
+            f"export_crate must run at most once, got {calls}"
+        )
+        # The second call adds nothing
+        assert calls == first
+
+    def test_backstop_never_raises(self):
+        """A failure inside the export path is caught, not propagated out of the
+        exit path."""
+        from builder.agents.agent_loop import _finish_backstop
+
+        engine = self._engine("Investigation")
+
+        def boom(tool_name: str, **kwargs):
+            raise RuntimeError("export blew up")
+
+        engine.run_tool = boom  # type: ignore[method-assign]
+
+        # Must not raise
+        result = _finish_backstop(engine, emit=lambda _m: None)
+        assert result is None or result.get("success") is False
+
+    def test_backstop_honors_metadata_output_path(self):
+        """export_crate is called via run_tool with no explicit path so it honors
+        state.metadata.output_path; the resolved path is surfaced."""
+        from builder.agents.agent_loop import _finish_backstop
+
+        engine = self._engine("Investigation")
+        engine.state.metadata.output_path = "/tmp/custom-ro-crate"
+        captured: list[str] = []
+
+        def fake_run_tool(tool_name: str, **kwargs):
+            if tool_name == "export_crate":
+                # honor metadata.output_path exactly as export_crate would
+                path = kwargs.get("output_path") or engine.state.metadata.output_path
+                return {"success": True, "crate_path": path, "error": None}
+            return {"ok": True}
+
+        engine.run_tool = fake_run_tool  # type: ignore[method-assign]
+
+        _finish_backstop(engine, emit=captured.append)
+        assert any("custom-ro-crate" in m for m in captured)
+
+    def test_run_interactive_agent_calls_backstop_on_exit(self):
+        """run_interactive_agent must call the backstop on its exit paths."""
+        import inspect
+
+        from builder.agents import agent_loop
+
+        source = inspect.getsource(agent_loop.run_interactive_agent)
+        assert "_finish_backstop" in source, (
+            "run_interactive_agent must invoke _finish_backstop on session end"
+        )
+
+
 
