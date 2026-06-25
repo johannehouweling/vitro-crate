@@ -754,3 +754,369 @@ class TestReassessmentIntegration:
         # The real re-assessment after the deterministic repair has no MUST left.
         assert summary["remaining_gaps"]["must_open"] == 0
         assert summary["conformance"].get("tox") is True
+
+
+# ---------------------------------------------------------------------------
+# (LLM-mediated ask-user, Issue #244) — the "small guidance agent"
+#
+# When a provider is configured, the per-gap ask-user step is a bounded LLM
+# exchange: PHRASE the gap into one human question, INTERPRET the free-text
+# reply into a structured decision (commit / skip / clarify / from_file), and
+# COMMIT only a clean structured value. With no provider it stays deterministic.
+# The phrase/interpret leaves are STUBBED (monkeypatch) — no real LLM.
+# ---------------------------------------------------------------------------
+
+
+def _single_ask_gap_report(monkeypatch, gap: Gap, *, counts: dict[str, int]):
+    """Patch ``assess_gaps`` to return ``gap`` once, then an empty report.
+
+    Mirrors the existing two-report ``iter`` pattern: the gap is offered once,
+    then (whether or not it was committed) the next round sees a clean report so
+    the loop terminates promptly.
+    """
+    from builder.agents import guidance
+
+    reports = iter(
+        [
+            GapReport(gaps=[gap], counts=counts),
+            GapReport(gaps=[], counts={"must_open": 0, "should_open": 0, "may_open": 0}),
+        ]
+    )
+    monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
+
+
+def _study_desc_gap(tier: str = "MUST") -> Gap:
+    return Gap(
+        tier=tier,
+        source="shacl",
+        entity_id="st1",
+        entity_type="Study",
+        property="https://schema.org/description",
+        message="Study MUST have a description.",
+        suggestion="A free-text study description.",
+        fix_hint="ask-user",
+        auto_fixable=False,
+    )
+
+
+class TestLLMMediatedAskUser:
+    def _enable_provider(self, monkeypatch):
+        """Make ``get_provider()`` (as seen by guidance) report a provider."""
+        from builder.agents import guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+
+    def test_idk_reply_is_skipped_not_stored(self, monkeypatch):
+        """The headline regression: a free-text 'I don't know' reply must SKIP —
+        it must NEVER be stored verbatim as the field value (#244)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        original = _get(engine, "st1").fields.get("description")
+        self._enable_provider(monkeypatch)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        # The phrase leaf produces a clean question; the interpret leaf reads the
+        # musing as a SKIP (action="skip"), carrying no value.
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+        )
+        monkeypatch.setattr(
+            guidance,
+            "interpret_gap_reply",
+            lambda _q, _reply, _ctx: {"action": "skip"},
+        )
+
+        human = ScriptedHuman(
+            input_answers=[_value("No idea which file you are talking about")]
+        )
+        run_guidance(engine, human, max_rounds=5)
+
+        # The musing was NOT committed — the description is unchanged.
+        applied = _get(engine, "st1")
+        assert applied.fields.get("description") == original
+        assert applied.fields.get("description") != (
+            "No idea which file you are talking about"
+        )
+
+    def test_natural_language_reply_is_interpreted_to_clean_value(self, monkeypatch):
+        """A NL reply carrying a value is interpreted to a clean committed value,
+        not stored verbatim (#244)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        self._enable_provider(monkeypatch)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+        )
+
+        captured: dict[str, object] = {}
+
+        def _interpret(question, reply, ctx):
+            captured["reply"] = reply
+            return {
+                "action": "commit",
+                "value": "A dose-response study of acetaminophen hepatotoxicity.",
+            }
+
+        monkeypatch.setattr(guidance, "interpret_gap_reply", _interpret)
+
+        verbose = "well it's about how acetaminophen damages the liver, dose-response"
+        human = ScriptedHuman(input_answers=[_value(verbose)])
+        run_guidance(engine, human, max_rounds=5)
+
+        applied = _get(engine, "st1")
+        # The CLEAN interpreted value landed — not the user's raw musing.
+        assert applied.fields.get("description") == (
+            "A dose-response study of acetaminophen hepatotoxicity."
+        )
+        assert applied.fields.get("description") != verbose
+        assert captured["reply"] == verbose
+
+    def test_clarify_asks_at_most_one_follow_up_then_skips(self, monkeypatch):
+        """A clarify decision asks ONE follow-up; if still unresolved, it skips —
+        the clarify path can never loop (#244)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        original = _get(engine, "st1").fields.get("description")
+        self._enable_provider(monkeypatch)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+        )
+
+        # Every interpretation says "clarify" — without a cap this loops forever.
+        interpret_calls = {"n": 0}
+
+        def _always_clarify(question, reply, ctx):
+            interpret_calls["n"] += 1
+            return {"action": "clarify", "question": "Could you be more specific?"}
+
+        monkeypatch.setattr(guidance, "interpret_gap_reply", _always_clarify)
+
+        # The user keeps replying with vague answers.
+        human = ScriptedHuman(
+            input_answers=[_value("the assay"), _value("the other one"), _value("dunno")]
+        )
+        run_guidance(engine, human, max_rounds=5)
+
+        # At most ONE follow-up was asked (initial reply + one clarify = 2 inputs),
+        # and nothing was committed (a clarify never becomes a value).
+        assert len(human.inputs) <= 2, human.inputs
+        assert interpret_calls["n"] <= 2, interpret_calls["n"]
+        assert _get(engine, "st1").fields.get("description") == original
+
+    def test_clarify_then_commit_lands_the_clarified_value(self, monkeypatch):
+        """One clarify follow-up that yields a value commits the clarified value."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        self._enable_provider(monkeypatch)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+        )
+
+        decisions = iter(
+            [
+                {"action": "clarify", "question": "Which endpoint?"},
+                {"action": "commit", "value": "A viability assay study."},
+            ]
+        )
+        monkeypatch.setattr(
+            guidance, "interpret_gap_reply", lambda _q, _r, _c: next(decisions)
+        )
+
+        human = ScriptedHuman(
+            input_answers=[_value("an assay"), _value("cell viability")]
+        )
+        run_guidance(engine, human, max_rounds=5)
+
+        assert _get(engine, "st1").fields.get("description") == (
+            "A viability assay study."
+        )
+
+    def test_from_file_does_not_store_prose(self, monkeypatch):
+        """A 'it's in a file' reply must NOT store the user's prose; it records a
+        filename hint and does not commit a value (#244)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        original = _get(engine, "st1").fields.get("description")
+        self._enable_provider(monkeypatch)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        monkeypatch.setattr(
+            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+        )
+        monkeypatch.setattr(
+            guidance,
+            "interpret_gap_reply",
+            lambda _q, _r, _c: {"action": "from_file", "filename": "README.txt"},
+        )
+
+        human = ScriptedHuman(
+            input_answers=[_value("it's all written up in README.txt")]
+        )
+        summary = run_guidance(engine, human, max_rounds=5)
+
+        # The prose was NOT stored.
+        assert _get(engine, "st1").fields.get("description") == original
+        # The gap was surfaced (asked), not committed.
+        assert any(a.get("entity_id") == "st1" for a in summary["asked"])
+        assert not any(r.get("entity_id") == "st1" for r in summary["resolved"])
+
+    def test_phrase_leaf_question_is_shown_to_the_user(self, monkeypatch):
+        """The PHRASED question (not the raw SHACL message) is what the user sees."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        self._enable_provider(monkeypatch)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        phrased = "In one sentence, what does this study set out to find?"
+        monkeypatch.setattr(guidance, "phrase_gap_question", lambda _ctx: phrased)
+        monkeypatch.setattr(
+            guidance, "interpret_gap_reply", lambda _q, _r, _c: {"action": "skip"}
+        )
+
+        human = ScriptedHuman(input_answers=[_value("hmm")])
+        run_guidance(engine, human, max_rounds=5)
+
+        assert human.inputs, "the user must be prompted"
+        prompt = human.inputs[0][0]
+        assert phrased in prompt
+        # The raw failed-check SHACL message is NOT shown verbatim as the question.
+        assert "Study MUST have a description." not in prompt
+
+
+class TestNoProviderDeterministicFallback:
+    """With NO provider configured the guidance loop preserves today's
+    deterministic ask-and-set behavior (#244)."""
+
+    def test_no_provider_commits_nonempty_reply_verbatim(self, monkeypatch):
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        # No provider -> deterministic path; the leaves must NEVER be called.
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+
+        def _boom(*_a, **_k):  # pragma: no cover - must not run
+            raise AssertionError("no-provider path must not call the LLM leaves")
+
+        monkeypatch.setattr(guidance, "phrase_gap_question", _boom)
+        monkeypatch.setattr(guidance, "interpret_gap_reply", _boom)
+
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        human = ScriptedHuman(input_answers=[_value("A user-typed description.")])
+        run_guidance(engine, human, max_rounds=5)
+
+        # Deterministic: a non-empty reply is committed as-is (today's behavior).
+        assert _get(engine, "st1").fields.get("description") == (
+            "A user-typed description."
+        )
+
+    def test_no_provider_skip_does_not_commit(self, monkeypatch):
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        original = _get(engine, "st1").fields.get("description")
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap("SHOULD"),
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+
+        human = ScriptedHuman(input_answers=[_skip()])
+        run_guidance(engine, human, max_rounds=5)
+
+        # Deterministic: an empty/skipped reply commits nothing.
+        assert _get(engine, "st1").fields.get("description") == original
+
+
+class TestReportOnlyNeverAskedWithLLM:
+    """Report-only gaps stay report-only even with a provider configured:
+    they are never phrased, interpreted, or offered to the user (#244)."""
+
+    def test_report_only_gap_never_phrased_or_asked(self, monkeypatch):
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+
+        fair_gap = Gap(
+            tier="SHOULD",
+            source="fair",
+            entity_id=None,
+            entity_type=None,
+            property="RDA-F1-02M",
+            message="FAIR indicator RDA-F1-02M not met: globally unique id.",
+            suggestion="Dimension Findable (essential)",
+            fix_hint="report-only",
+            auto_fixable=False,
+        )
+        monkeypatch.setattr(
+            guidance,
+            "assess_gaps",
+            lambda _state: GapReport(
+                gaps=[fair_gap],
+                counts={"must_open": 0, "should_open": 1, "may_open": 0},
+            ),
+        )
+
+        def _boom(*_a, **_k):  # pragma: no cover - must not run
+            raise AssertionError("a report-only gap must never reach an LLM leaf")
+
+        monkeypatch.setattr(guidance, "phrase_gap_question", _boom)
+        monkeypatch.setattr(guidance, "interpret_gap_reply", _boom)
+
+        human = ScriptedHuman()
+        run_guidance(engine, human, max_rounds=5)
+
+        # The report-only gap was never offered to the user.
+        assert human.inputs == []
+        assert human.presented == []

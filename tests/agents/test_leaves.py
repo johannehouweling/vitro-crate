@@ -652,6 +652,231 @@ class TestExtractPlanUsageCapture:
         assert fake.include_raw_flags == [False]
 
 
+# ---------------------------------------------------------------------------
+# phrase_gap_question / interpret_gap_reply — the guidance leaves (Issue #244)
+#
+# The §14.6 guidance tail's per-gap step is a small bounded LLM exchange:
+#   - `phrase_gap_question(gap_context)` turns a cryptic gap (property,
+#     entity_type, MIT/FAIR rationale, suggestion) into ONE clear human question
+#     with a concrete example — never the raw SHACL/indicator text.
+#   - `interpret_gap_reply(question, reply, gap_context)` parses the user's
+#     free-text reply into a STRUCTURED decision so musings never become field
+#     values. Both are bounded structured-output calls on the drafter tier.
+# ---------------------------------------------------------------------------
+
+
+# A gap-context double the guidance loop assembles for a single gap.
+_GAP_CONTEXT = {
+    "property": "description",
+    "entity_type": "Study",
+    "tier": "MUST",
+    "message": "Study MUST have a description.",
+    "suggestion": "A free-text study description.",
+}
+
+
+class TestPhraseGapQuestionDrafterTier:
+    """Phrasing runs on the cheap drafter tier and is a single bounded call."""
+
+    def test_requests_drafter_role(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel({"question": "What does this study examine?"})
+
+        leaves.phrase_gap_question(_GAP_CONTEXT)
+
+        assert rec["calls"], "the leaf must build a chat model"
+        assert all(c.get("role") == "drafter" for c in rec["calls"]), (
+            "phrase_gap_question must build the chat model on the drafter tier"
+        )
+
+    def test_single_structured_output_call(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({"question": "What does this study examine?"})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.phrase_gap_question(_GAP_CONTEXT)
+
+        assert len(fake.structured_schemas) == 1, "exactly one structured-output bind"
+        assert len(fake.invoke_calls) == 1, "exactly one model invocation (a leaf)"
+
+
+class TestPhraseGapQuestionShape:
+    """The leaf returns one human question string."""
+
+    def test_returns_the_question_string(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"question": "In one sentence, what does this study examine?"}
+        )
+
+        question = leaves.phrase_gap_question(_GAP_CONTEXT)
+
+        assert isinstance(question, str)
+        assert question == "In one sentence, what does this study examine?"
+
+    def test_empty_model_output_returns_empty_string(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # A model that returns nothing usable -> empty string; the caller falls
+        # back to the deterministic prompt rather than asking a blank question.
+        _patch_build_chat_model["model"] = FakeChatModel({})
+
+        question = leaves.phrase_gap_question(_GAP_CONTEXT)
+
+        assert question == ""
+
+
+class TestInterpretGapReplyDrafterTier:
+    """Interpretation runs on the cheap drafter tier and is a single call."""
+
+    def test_requests_drafter_role(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel({"action": "skip"})
+
+        leaves.interpret_gap_reply("Question?", "I don't know", _GAP_CONTEXT)
+
+        assert rec["calls"], "the leaf must build a chat model"
+        assert all(c.get("role") == "drafter" for c in rec["calls"]), (
+            "interpret_gap_reply must build the chat model on the drafter tier"
+        )
+
+    def test_single_structured_output_call(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({"action": "commit", "value": "x"})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.interpret_gap_reply("Question?", "the value is x", _GAP_CONTEXT)
+
+        assert len(fake.structured_schemas) == 1, "exactly one structured-output bind"
+        assert len(fake.invoke_calls) == 1, "exactly one model invocation (a leaf)"
+
+
+class TestInterpretGapReplyDecision:
+    """The leaf returns a STRUCTURED decision, not free text."""
+
+    def test_commit_returns_clean_value(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"action": "commit", "value": "A hepatotoxicity dose-response study."}
+        )
+
+        decision = leaves.interpret_gap_reply(
+            "What does this study examine?",
+            "it's a dose-response study of liver toxicity",
+            _GAP_CONTEXT,
+        )
+
+        assert decision["action"] == "commit"
+        assert decision["value"] == "A hepatotoxicity dose-response study."
+
+    def test_idk_reply_returns_skip(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel({"action": "skip"})
+
+        decision = leaves.interpret_gap_reply(
+            "What does this study examine?",
+            "No idea which file you are talking about",
+            _GAP_CONTEXT,
+        )
+
+        assert decision["action"] == "skip"
+        # A musing must NEVER carry a value.
+        assert not decision.get("value")
+
+    def test_clarify_returns_one_follow_up(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"action": "clarify", "question": "Do you mean the in-vitro assay?"}
+        )
+
+        decision = leaves.interpret_gap_reply(
+            "What does this study examine?", "the assay", _GAP_CONTEXT
+        )
+
+        assert decision["action"] == "clarify"
+        assert decision["question"] == "Do you mean the in-vitro assay?"
+
+    def test_from_file_returns_filename_hint(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"action": "from_file", "filename": "README.txt"}
+        )
+
+        decision = leaves.interpret_gap_reply(
+            "What does this study examine?",
+            "it's all written up in README.txt",
+            _GAP_CONTEXT,
+        )
+
+        assert decision["action"] == "from_file"
+        assert decision["filename"] == "README.txt"
+        # D5: a from-file reply must NEVER smuggle a value into the field.
+        assert not decision.get("value")
+
+    def test_unknown_action_normalises_to_skip(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # An adversarial / malformed action must be coerced to the safe default
+        # (skip) so it can never become a field value.
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"action": "nonsense", "value": "garbage"}
+        )
+
+        decision = leaves.interpret_gap_reply("Q?", "whatever", _GAP_CONTEXT)
+
+        assert decision["action"] == "skip"
+        assert not decision.get("value")
+
+    def test_commit_without_value_normalises_to_skip(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # A "commit" with no usable value is not a commit — coerce to skip so the
+        # loop never writes an empty/whitespace value.
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"action": "commit", "value": "   "}
+        )
+
+        decision = leaves.interpret_gap_reply("Q?", "...", _GAP_CONTEXT)
+
+        assert decision["action"] == "skip"
+
+
+class TestGuidanceLeavesD5:
+    """D5: the interpret leaf must never let the model fabricate an identifier.
+
+    Identifier-bearing gaps are resolved by lookups, never by interpreting the
+    user's prose, so a 'commit' the model proposes for an identifier field is
+    refused (coerced to skip)."""
+
+    def test_identifier_gap_commit_is_refused(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {"action": "commit", "value": "103-90-2"}
+        )
+
+        decision = leaves.interpret_gap_reply(
+            "What is the CAS number?",
+            "103-90-2",
+            {"property": "cas", "entity_type": "MolecularEntity"},
+        )
+
+        assert decision["action"] == "skip", (
+            "D5: an identifier value must come from a lookup, not the user's prose"
+        )
+
+
 def _flatten_keys(schema: Any) -> set[str]:
     """Every property key appearing anywhere in a (possibly nested) JSON schema."""
     keys: set[str] = set()

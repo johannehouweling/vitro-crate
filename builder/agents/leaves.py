@@ -464,4 +464,302 @@ def draft_entity_fields(
     return _strip_identifiers(fields)
 
 
-__all__ = ["draft_entity_fields", "extract_plan"]
+# ---------------------------------------------------------------------------
+# Guidance leaves (Issue #244): the §14.6 HITL tail's per-gap LLM exchange.
+#
+# These two leaves let the guidance loop turn a cryptic gap into a real
+# conversation instead of an ask-and-set loop that stores raw prose:
+#   - ``phrase_gap_question`` rephrases the gap (property / entity_type / tier /
+#     MIT-FAIR rationale / suggestion) into ONE clear human question with a
+#     concrete example — never the raw SHACL / FAIR-indicator text.
+#   - ``interpret_gap_reply`` parses the user's free-text reply into a STRUCTURED
+#     decision (commit / skip / clarify / from_file) so a musing like "no idea
+#     which file you mean" can NEVER become a field value.
+#
+# Both are pure bounded leaves (a single structured-output call on the drafter
+# tier); they do not mutate state and do not orchestrate. The guidance loop owns
+# control flow and the commit. D5: the interpret leaf refuses to commit a value
+# for an identifier-bearing field — identifiers come from lookups, never the user.
+# ---------------------------------------------------------------------------
+
+# The structured decision actions ``interpret_gap_reply`` may return. ``commit``
+# carries a clean value; ``clarify`` carries one follow-up question; ``from_file``
+# carries an optional filename hint (NEVER a value — D5); ``skip`` covers "I don't
+# know" / empty / unusable replies.
+_INTERPRET_ACTIONS: frozenset[str] = frozenset(
+    {"commit", "skip", "clarify", "from_file"}
+)
+
+_PHRASE_SYSTEM_PROMPT = (
+    "You are the conversational guidance assistant for an ISA-Tox RO-Crate "
+    "builder. You are given a metadata GAP a validator found (a field, the entity "
+    "type it belongs to, why it matters, and a hint). Rephrase it as ONE short, "
+    "clear question a non-expert researcher can answer, with a concrete example of "
+    "a good answer. NEVER show raw SHACL shapes, FAIR indicator codes, property "
+    "IRIs, or validator jargon. Ask only for what the field needs."
+)
+
+_INTERPRET_SYSTEM_PROMPT = (
+    "You interpret a researcher's free-text reply to a metadata question for an "
+    "ISA-Tox RO-Crate. Return a STRUCTURED decision, never prose to store. Choose:\n"
+    "- 'commit' with a clean, concise 'value' ONLY when the reply clearly supplies "
+    "the requested information; rewrite it into a proper field value (do not store "
+    "the raw musing).\n"
+    "- 'skip' when the reply is 'I don't know', empty, off-topic, or a complaint "
+    "(e.g. 'no idea which file you mean'). A skip carries NO value.\n"
+    "- 'clarify' with one short follow-up 'question' when the reply is on-topic but "
+    "too vague to commit.\n"
+    "- 'from_file' with an optional 'filename' hint when the reply says the answer "
+    "lives in a file ('it's in README.txt'). Do NOT put the prose in a value.\n"
+    "NEVER fabricate identifiers (CAS, InChIKey, SMILES, PubChem CID, ORCID, ROR, "
+    "DOI, accessions, ontology codes): for an identifier field, prefer 'skip' — "
+    "those are resolved by lookup services, not from the user's text."
+)
+
+
+def _phrase_schema() -> dict[str, Any]:
+    """Structured-output schema for the phrasing leaf: one question string."""
+    return {
+        "title": "GapQuestion",
+        "type": "object",
+        "description": "One clear human question rephrasing a metadata gap.",
+        "properties": {
+            "question": {
+                "type": "string",
+                "description": (
+                    "A single clear question for the user, with a concrete example. "
+                    "No SHACL/FAIR/IRI jargon."
+                ),
+            }
+        },
+        "required": ["question"],
+        "additionalProperties": False,
+    }
+
+
+def _interpret_schema() -> dict[str, Any]:
+    """Structured-output schema for the interpret leaf: a typed decision.
+
+    By construction the schema offers no identifier field — ``value`` is a clean
+    descriptive value only, ``filename`` is a plain name hint, and a ``commit``
+    for an identifier-bearing field is refused downstream (D5).
+    """
+    return {
+        "title": "GapReplyDecision",
+        "type": "object",
+        "description": (
+            "A structured decision interpreting the user's reply. Free-text musings "
+            "must never become field values."
+        ),
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": sorted(_INTERPRET_ACTIONS),
+                "description": "What to do with the reply.",
+            },
+            "value": {
+                "type": "string",
+                "description": (
+                    "Only for action='commit': the clean field value rewritten "
+                    "from the reply. Never an identifier."
+                ),
+            },
+            "question": {
+                "type": "string",
+                "description": "Only for action='clarify': one short follow-up.",
+            },
+            "filename": {
+                "type": "string",
+                "description": (
+                    "Only for action='from_file': an optional file name/path hint."
+                ),
+            },
+        },
+        "required": ["action"],
+        "additionalProperties": False,
+    }
+
+
+def _gap_context_block(gap_context: dict[str, Any]) -> str:
+    """Render a gap-context dict into a compact, jargon-light block for a leaf.
+
+    The guidance loop assembles ``gap_context`` (property, entity_type, tier,
+    message, suggestion, plus optional crate title/description). We surface the
+    human-meaningful parts; the leaf is told to translate the rest, never to echo
+    raw validator text.
+    """
+    field = gap_context.get("property") or "this field"
+    parts: list[str] = [f"Field: {field}"]
+    entity_type = gap_context.get("entity_type")
+    if entity_type:
+        parts.append(f"Belongs to: {entity_type}")
+    tier = gap_context.get("tier")
+    if tier:
+        parts.append(f"Importance: {tier}")
+    message = gap_context.get("message")
+    if message:
+        parts.append(f"Why it matters: {message}")
+    suggestion = gap_context.get("suggestion")
+    if suggestion:
+        parts.append(f"Hint: {suggestion}")
+    return "\n".join(parts)
+
+
+def phrase_gap_question(
+    gap_context: dict[str, Any],
+    *,
+    model: str | None = None,
+    usage_sink: UsageSink | None = None,
+) -> str:
+    """Rephrase a metadata gap into ONE clear human question (#244).
+
+    A pure bounded leaf: a SINGLE structured-output call on the drafter tier
+    (``_build_chat_model(role="drafter")``) that turns ``gap_context`` (property,
+    entity_type, tier, MIT/FAIR rationale, suggestion) into one short question a
+    non-expert can answer, with a concrete example. It never echoes raw SHACL
+    shapes / FAIR indicator codes / property IRIs.
+
+    Args:
+        gap_context: The guidance loop's per-gap context dict (``property``,
+            ``entity_type``, ``tier``, ``message``, ``suggestion``, ...).
+        model: Optional explicit model override; ``None`` resolves the drafter tier.
+        usage_sink: Optional token-usage callback (see :func:`draft_entity_fields`).
+
+    Returns:
+        The phrased question string, or ``""`` when the model returns nothing
+        usable (the caller then falls back to its deterministic prompt).
+    """
+    llm = _build_chat_model(model=model, role="drafter")
+    messages = [
+        SystemMessage(content=_PHRASE_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                "Rephrase this metadata gap as one clear question for the user, "
+                "with a concrete example of a good answer:\n\n"
+                f"{_gap_context_block(gap_context)}"
+            )
+        ),
+    ]
+    result = _invoke_structured_with_usage(
+        llm, _phrase_schema(), messages, usage_sink
+    )
+    if isinstance(result, dict):
+        question = result.get("question")
+        if isinstance(question, str) and question.strip():
+            return question.strip()
+    return ""
+
+
+def interpret_gap_reply(
+    question: str,
+    reply: str,
+    gap_context: dict[str, Any],
+    *,
+    model: str | None = None,
+    usage_sink: UsageSink | None = None,
+) -> dict[str, Any]:
+    """Interpret a free-text reply into a STRUCTURED decision (#244).
+
+    A pure bounded leaf: a SINGLE structured-output call on the drafter tier that
+    maps the user's ``reply`` to one of ``{action: "commit", value}`` |
+    ``{action: "skip"}`` | ``{action: "clarify", question}`` |
+    ``{action: "from_file", filename?}``. Free-text musings (e.g. "no idea which
+    file you mean") map to ``skip`` — they are NEVER stored as field values.
+
+    D5: identifiers come from lookups, never the user's prose. A ``commit`` whose
+    field is identifier-bearing (:data:`_IDENTIFIER_SCALAR_FIELDS`) is refused and
+    coerced to ``skip``. A malformed/unknown action, or a ``commit`` with no usable
+    value, is also coerced to ``skip`` — the safe default that commits nothing.
+
+    Args:
+        question: The phrased question the user was answering (context for the leaf).
+        reply: The user's raw free-text reply.
+        gap_context: The per-gap context dict (notably ``property`` for the D5 guard).
+        model: Optional explicit model override; ``None`` resolves the drafter tier.
+        usage_sink: Optional token-usage callback (see :func:`draft_entity_fields`).
+
+    Returns:
+        A normalised decision dict whose ``action`` is one of
+        :data:`_INTERPRET_ACTIONS`; ``commit`` carries a non-empty ``value`` and
+        ``clarify`` carries a non-empty ``question`` (else both coerce to ``skip``).
+    """
+    llm = _build_chat_model(model=model, role="drafter")
+    messages = [
+        SystemMessage(content=_INTERPRET_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                f"Question asked:\n{question}\n\n"
+                f"User's reply:\n{reply}\n\n"
+                "Gap context:\n"
+                f"{_gap_context_block(gap_context)}\n\n"
+                "Return the structured decision."
+            )
+        ),
+    ]
+    result = _invoke_structured_with_usage(
+        llm, _interpret_schema(), messages, usage_sink
+    )
+    return _normalise_interpretation(result, gap_context)
+
+
+def _normalise_interpretation(
+    result: Any, gap_context: dict[str, Any]
+) -> dict[str, Any]:
+    """Coerce a raw interpret result into a safe, well-formed decision (D5).
+
+    Guards (the model output is never trusted as-is):
+      * an unknown/absent action -> ``skip``;
+      * ``commit`` with no usable (non-whitespace) value -> ``skip``;
+      * ``commit`` for an identifier-bearing field -> ``skip`` (identifiers come
+        from lookups, never the user — D5);
+      * ``clarify`` with no usable question -> ``skip``;
+      * ``from_file`` keeps only a clean ``filename`` hint and NEVER a value.
+    """
+    decision = result if isinstance(result, dict) else {}
+    action = decision.get("action")
+    if action not in _INTERPRET_ACTIONS:
+        return {"action": "skip"}
+
+    if action == "commit":
+        value = decision.get("value")
+        if not isinstance(value, str) or not value.strip():
+            return {"action": "skip"}
+        field = _local_property_name(gap_context.get("property"))
+        if field in _IDENTIFIER_SCALAR_FIELDS:
+            # D5: never let the user's prose become an identifier value.
+            return {"action": "skip"}
+        return {"action": "commit", "value": value.strip()}
+
+    if action == "clarify":
+        follow_up = decision.get("question")
+        if not isinstance(follow_up, str) or not follow_up.strip():
+            return {"action": "skip"}
+        return {"action": "clarify", "question": follow_up.strip()}
+
+    if action == "from_file":
+        filename = decision.get("filename")
+        out: dict[str, Any] = {"action": "from_file"}
+        if isinstance(filename, str) and filename.strip():
+            out["filename"] = filename.strip()
+        return out
+
+    return {"action": "skip"}
+
+
+def _local_property_name(iri: str | None) -> str:
+    """Local part of a property IRI (after the last ``/`` or ``#``).
+
+    Mirrors the guidance loop's ``_local_name`` so the D5 identifier check sees the
+    same field token the loop would commit to (e.g. ``.../cas`` -> ``cas``).
+    """
+    if not iri:
+        return ""
+    return iri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+
+
+__all__ = [
+    "draft_entity_fields",
+    "extract_plan",
+    "interpret_gap_reply",
+    "phrase_gap_question",
+]
