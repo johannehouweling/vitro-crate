@@ -112,6 +112,235 @@ def _strip_identifiers(fields: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Stage A: the bounded candidate-plan extractor (Issue #179).
+#
+# ``extract_plan`` is the *whole-document* sibling of ``draft_entity_fields``: a
+# SINGLE bounded structured-output call on the drafter tier that reads scanned
+# research docs and proposes a CANDIDATE PLAN of the ISA-Tox entities the docs
+# support — the study, the test/control compounds, cell lines, the
+# CellCulture→Exposure→EndpointReadout→DataAnalysis process chain, AOPs, people,
+# publications, files, and free-text notes for the user to confirm.
+#
+# It is a *proposal*, not committed truth: every field is optional and the model
+# is told to fill only what the context supports and to record ambiguity in
+# ``notes`` rather than invent. Crucially (D5) the plan proposes WHAT EXISTS *by
+# name only* — NO CAS / CID / InChIKey / SMILES / Cellosaurus accession / ORCID /
+# DOI / @id. Those identifiers are resolved later by deterministic lookups, never
+# guessed by this leaf. The schema the model sees carries no identifier field
+# (the strongest guard) and any identifier an adversarial model slips into the
+# output is defensively stripped (:func:`_strip_plan_identifiers`).
+# ---------------------------------------------------------------------------
+
+# D5: identifier-bearing keys an adversarial model might attach to any plan item.
+# Pruned from the schema the model sees AND stripped from the result. A superset
+# of :data:`_IDENTIFIER_SCALAR_FIELDS` with the plan-specific aliases the docs
+# might tempt the model toward (``cid``, ``cellosaurus``, ``@id``, ``id``).
+_PLAN_IDENTIFIER_FIELDS: frozenset[str] = _IDENTIFIER_SCALAR_FIELDS | frozenset(
+    {
+        "cid",
+        "inchi",
+        "cellosaurus",
+        "cellosaurus_accession",
+        "aop_url",
+        "@id",
+        "id",
+    }
+)
+
+_PLAN_SYSTEM_PROMPT = (
+    "You are a bounded planning extractor for ISA-Tox RO-Crates. Read the "
+    "provided research documents and propose a CANDIDATE PLAN of the entities "
+    "and connections the documents support: the study, test/control compounds, "
+    "cell lines, the CellCulture -> Exposure -> EndpointReadout -> DataAnalysis "
+    "process chain, AOPs (only if an AOP id is explicitly stated), people, "
+    "publications, and files. This is a PROPOSAL for the user to confirm, not "
+    "committed truth. Propose ONLY what the documents support; leave any field "
+    "you cannot support empty and record ambiguities or things the user should "
+    "confirm in 'notes'. Refer to compounds, cell lines, people and "
+    "publications BY NAME ONLY. NEVER include identifiers of any kind: no CAS, "
+    "PubChem CID, InChIKey, SMILES, InChI, Cellosaurus accession, ORCID, DOI, "
+    "or @id. Those are resolved later by dedicated lookup services, never by you."
+)
+
+
+def _plan_schema() -> dict[str, Any]:
+    """Build the structured-output schema for the candidate plan (D5-clean).
+
+    A hand-built JSON Schema describing the Plan shape. Every field is optional —
+    the model fills only what the docs support. By construction it contains NO
+    identifier field (no CAS/CID/InChIKey/SMILES/accession/ORCID/DOI/@id), so the
+    model is never even asked to produce one (the strongest D5 guard). Sections
+    stay open (``additionalProperties: true``) for descriptive long-tail fields,
+    but :func:`_strip_plan_identifiers` still scrubs the result as defense in
+    depth. A top-level ``title`` is added so langchain can use the schema as a
+    structured-output function spec.
+    """
+    str_field = {"type": "string"}
+
+    def _array_of(item_props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "type": "object",
+            "properties": item_props,
+            "additionalProperties": True,
+        }
+        if required:
+            item["required"] = required
+        return {"type": "array", "items": item}
+
+    return {
+        "title": "CandidatePlan",
+        "type": "object",
+        "description": (
+            "A candidate plan of the ISA-Tox entities the documents support. "
+            "All fields optional; propose only what the docs support and leave "
+            "the rest empty. Names only — no identifiers (D5)."
+        ),
+        "properties": {
+            "study": {
+                "type": "object",
+                "description": "The study the documents describe.",
+                "properties": {
+                    "name": {**str_field, "description": "Study name."},
+                    "description": {**str_field, "description": "Free-text study description."},
+                },
+                "additionalProperties": True,
+            },
+            "compounds": _array_of(
+                {
+                    "name": {**str_field, "description": "Compound name only (no identifiers)."},
+                    "role": {
+                        "type": "string",
+                        "enum": ["test", "control"],
+                        "description": "Whether the compound is the test article or a control.",
+                    },
+                },
+                required=["name"],
+            ),
+            "cell_lines": _array_of(
+                {"name": {**str_field, "description": "Cell-line name only (no accession)."}},
+                required=["name"],
+            ),
+            "process_chain": _array_of(
+                {
+                    "process_type": {
+                        "type": "string",
+                        "enum": ["CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"],
+                        "description": "Which step of the ISA-Tox LabProcess chain this is.",
+                    },
+                    "name": {**str_field, "description": "Step name."},
+                    "object_hint": {**str_field, "description": "Free-text hint of the input."},
+                    "result_hint": {**str_field, "description": "Free-text hint of the output."},
+                },
+                required=["process_type"],
+            ),
+            "aops": _array_of(
+                {"aop_id": {**str_field, "description": "AOP-Wiki id, only if explicitly stated."}},
+                required=["aop_id"],
+            ),
+            "people": _array_of(
+                {
+                    "name": {**str_field, "description": "Person's name only (no ORCID)."},
+                    "affiliation_name": {**str_field, "description": "Affiliation org name."},
+                },
+                required=["name"],
+            ),
+            "publications": _array_of(
+                {"title": {**str_field, "description": "Publication title only (no DOI)."}},
+                required=["title"],
+            ),
+            "files": _array_of(
+                {
+                    "path": {**str_field, "description": "File path or name."},
+                    "role": {
+                        "type": "string",
+                        "enum": ["raw", "processed", "condition_table", "other"],
+                        "description": "What kind of data file this is.",
+                    },
+                },
+                required=["path"],
+            ),
+            "notes": {
+                **str_field,
+                "description": (
+                    "Free-text: ambiguities, gaps, and anything the user should "
+                    "confirm. Use this instead of guessing."
+                ),
+            },
+        },
+        "additionalProperties": False,
+    }
+
+
+def _strip_plan_identifiers(value: Any) -> Any:
+    """Recursively drop any identifier field from a plan (D5, defense in depth).
+
+    Walks the plan's nested dicts/lists and removes every key in
+    :data:`_PLAN_IDENTIFIER_FIELDS` wherever it appears, so an identifier an
+    adversarial model slipped into any section (a compound's CAS, a person's
+    ORCID, a ``@id`` on any item) never propagates downstream.
+    """
+    if isinstance(value, dict):
+        return {
+            key: _strip_plan_identifiers(val)
+            for key, val in value.items()
+            if key not in _PLAN_IDENTIFIER_FIELDS
+        }
+    if isinstance(value, list):
+        return [_strip_plan_identifiers(item) for item in value]
+    return value
+
+
+def extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
+    """Propose a candidate plan of ISA-Tox entities from research docs.
+
+    Stage A of the §14 hybrid build loop: a pure leaf making a SINGLE bounded
+    structured-output call on the drafter tier
+    (``_build_chat_model(role="drafter")``) over the scanned-document ``context``.
+    It returns a CANDIDATE PLAN — the study, test/control compounds, cell lines,
+    the CellCulture→Exposure→EndpointReadout→DataAnalysis process chain, AOPs,
+    people, publications, files, and free-text ``notes`` — for the user to
+    confirm. It does not mutate state and does not orchestrate.
+
+    Every field is optional: the model proposes only what the context supports and
+    records ambiguity in ``notes`` rather than inventing. D5: the plan names WHAT
+    EXISTS — no identifiers (CAS/CID/InChIKey/SMILES/Cellosaurus accession/ORCID/
+    DOI/@id). The schema the model sees carries no identifier field, and any that
+    an adversarial model slips into the output is stripped recursively. Real
+    identifiers are resolved later by deterministic lookups, never by this leaf.
+
+    Args:
+        context: The scanned research documents (or an excerpt) to plan from.
+        model: Optional explicit model name override; when ``None`` the drafter
+            tier resolves the configured drafter (or primary) model.
+
+    Returns:
+        A candidate-plan dict free of fabricated identifiers. An empty/
+        uninformative context yields an empty-but-valid plan rather than
+        fabricated entities.
+    """
+    llm = _build_chat_model(model=model, role="drafter")
+    schema = _plan_schema()
+    structured = llm.with_structured_output(schema)
+
+    messages = [
+        SystemMessage(content=_PLAN_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                "Documents:\n"
+                f"{context}\n\n"
+                "Propose the candidate plan. Fill only what the documents "
+                "support; leave the rest empty and note ambiguities in 'notes'. "
+                "Names only — no identifiers."
+            )
+        ),
+    ]
+    result = structured.invoke(messages)
+
+    plan = dict(result) if isinstance(result, dict) else {}
+    return _strip_plan_identifiers(plan)
+
+
 def draft_entity_fields(
     entity_type: str,
     context: str,
@@ -163,4 +392,4 @@ def draft_entity_fields(
     return _strip_identifiers(fields)
 
 
-__all__ = ["draft_entity_fields"]
+__all__ = ["draft_entity_fields", "extract_plan"]
