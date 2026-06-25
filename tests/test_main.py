@@ -135,9 +135,16 @@ class TestInteractiveDispatch:
         args = parse_args(["--interactive", "--legacy-react"])
         assert args.legacy_react is True
 
-    def test_default_interactive_routes_to_pipeline_build(self, monkeypatch):
-        """--interactive (no opt-in) runs the deterministic pipeline + guidance."""
+    def test_default_interactive_routes_to_pipeline_build(self, monkeypatch, tmp_path):
+        """--interactive (no opt-in) runs the deterministic pipeline + guidance.
+
+        Supplies an --input folder with a file so the folder-driven build has
+        something to do (an empty state now short-circuits with a notice).
+        """
         self._stub_config(monkeypatch)
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "test.txt").write_text("hello\n")
         calls: list[str] = []
 
         import builder.agents.build as build_mod
@@ -156,7 +163,7 @@ class TestInteractiveDispatch:
             lambda *a, **kw: calls.append("react"),
         )
 
-        result = main(["--interactive"])
+        result = main(["--interactive", "--input", str(d)])
         assert result == 0
         assert calls == ["build"]
 
@@ -185,11 +192,18 @@ class TestInteractiveDispatch:
         assert result == 0
         assert calls == ["react"]
 
-    def test_default_interactive_engine_is_interactive(self, monkeypatch):
-        """The engine handed to the default pipeline build reports interactive HITL."""
+    def test_default_interactive_engine_is_interactive(self, monkeypatch, tmp_path):
+        """The engine handed to the default pipeline build reports interactive HITL.
+
+        Supplies an --input folder so the folder-driven build runs (an empty
+        state short-circuits with a notice before reaching the build).
+        """
         from builder.tools.hitl import is_interactive
 
         self._stub_config(monkeypatch)
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "test.txt").write_text("hello\n")
         seen: list[bool] = []
 
         import builder.agents.build as build_mod
@@ -200,8 +214,115 @@ class TestInteractiveDispatch:
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _capture)
 
-        result = main(["--interactive"])
+        result = main(["--interactive", "--input", str(d)])
         assert result == 0
         # The default interactive build must run behind a REAL interactive
         # interface, else run_interactive_build would skip guidance.
         assert seen == [True]
+
+
+class TestInteractiveNoInput:
+    """First-run UX for the default interactive build with no --input.
+
+    The default interactive build is folder-driven; with zero scanned files there
+    is genuinely nothing to build. These tests assert a friendly notice and a
+    graceful exit (no crash), with the real pipeline stubbed out.
+    """
+
+    def _stub_config(self, monkeypatch):
+        import builder.config as cfg
+
+        monkeypatch.setattr(cfg, "is_configured", lambda: True)
+        monkeypatch.setattr(cfg, "load_config", lambda: {})
+        monkeypatch.setattr(cfg, "merge_with_env", lambda c: None)
+
+    def test_no_input_prints_notice_and_returns_zero(self, monkeypatch, capsys):
+        """--interactive with no --input prints the notice and returns 0."""
+        self._stub_config(monkeypatch)
+        calls: list[str] = []
+
+        import builder.agents.build as build_mod
+
+        monkeypatch.setattr(
+            build_mod,
+            "run_interactive_build",
+            lambda engine, **kw: calls.append("build")
+            or {"pipeline": {}, "guidance": None},
+        )
+
+        result = main(["--interactive"])
+        captured = capsys.readouterr()
+        assert result == 0
+        assert "No input documents found" in captured.out
+        assert "--input" in captured.out
+        # Nothing to build: the pipeline build must not run.
+        assert calls == []
+
+    def test_with_input_does_not_print_notice(self, monkeypatch, capsys, tmp_path):
+        """--interactive with --input (files present) skips the notice and builds."""
+        self._stub_config(monkeypatch)
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "test.txt").write_text("hello\n")
+        calls: list[str] = []
+
+        import builder.agents.build as build_mod
+
+        monkeypatch.setattr(
+            build_mod,
+            "run_interactive_build",
+            lambda engine, **kw: calls.append("build")
+            or {"pipeline": {}, "guidance": None},
+        )
+
+        result = main(["--interactive", "--input", str(d)])
+        captured = capsys.readouterr()
+        assert result == 0
+        assert "No input documents found" not in captured.out
+        assert calls == ["build"]
+
+
+class TestInteractiveVerbosity:
+    """The interactive path raises the default log level to INFO for visibility."""
+
+    def test_interactive_default_verbose_is_info(self):
+        """setup_logging(0, interactive=True) yields effective level INFO."""
+        import logging
+
+        from main import setup_logging
+
+        root = logging.getLogger()
+        original = root.level
+        try:
+            setup_logging(0, interactive=True)
+            assert root.level == logging.INFO
+        finally:
+            root.setLevel(original)
+
+    def test_noninteractive_default_verbose_is_warning(self):
+        """setup_logging(0) (batch) keeps the WARNING default."""
+        import logging
+
+        from main import setup_logging
+
+        root = logging.getLogger()
+        original = root.level
+        try:
+            setup_logging(0, interactive=False)
+            assert root.level == logging.WARNING
+        finally:
+            root.setLevel(original)
+
+    def test_interactive_does_not_downgrade_explicit_debug(self):
+        """An explicit -vv (DEBUG) is never downgraded by the interactive bump."""
+        import logging
+
+        from main import setup_logging
+
+        root = logging.getLogger()
+        original = root.level
+        try:
+            setup_logging(2, interactive=True)
+            assert root.level == logging.DEBUG
+        finally:
+            root.setLevel(original)
