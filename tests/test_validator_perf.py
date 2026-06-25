@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
 from rocrate.rocrate import ROCrate
 
 from profiles.context import ISA_TOX_CONTEXT
@@ -139,6 +140,11 @@ class TestResultsUnchanged:
         base = next(r for r in results if r.profile == "base")
         assert base.passed_required is True
 
+    # Two full SHACL sweeps (patched vs unpatched, profile="all", severity="optional")
+    # sit right at the 30s edge on CI's 2-vCPU runner, intermittently tripping the
+    # global --timeout=30 (Issue #278). Give this intentionally-heavy comparison its
+    # own budget; the rest of the suite keeps the tight 30s default.
+    @pytest.mark.timeout(120)
     def test_patched_results_byte_identical_to_unpatched(self, monkeypatch):
         """Issue sets at every severity are identical with and without the patch.
 
