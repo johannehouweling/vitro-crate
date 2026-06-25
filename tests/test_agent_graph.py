@@ -6,6 +6,16 @@ with the expected node structure, routing behavior, and message flow.
 
 from __future__ import annotations
 
+import pytest
+
+# Cold-import flake mitigation: in CI we now shard the suite across fresh
+# `ubuntu-latest` matrix jobs (see .github/workflows/ci.yml). Whichever shard
+# this module lands in pays the first-time cost of importing torch / langgraph /
+# langchain, which can occasionally exceed the default 30s `--timeout`. Give the
+# whole module a generous 120s timeout so a cold runner doesn't flake on the
+# one-time import latency rather than a real hang.
+pytestmark = pytest.mark.timeout(120)
+
 
 class TestBuildAgentGraph:
     """Tests for the _build_agent_graph function."""
