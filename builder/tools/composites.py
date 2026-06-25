@@ -1163,6 +1163,50 @@ _COMPOUND_DATA_FIELDS: tuple[str, ...] = (
 )
 
 
+def _verify_compound_identifier(
+    state: CrateState,
+    entity: Entity,
+    field: str,
+    data: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Verify one MolecularEntity identifier, trusting PubChem's own primary key.
+
+    A PubChem CID is the **primary key of the PubChem record itself**: it is what
+    the authoritative name→CID lookup just returned for this compound. PubChem's
+    ``/compound/name`` endpoint (which ``verify_identifier`` re-queries) resolves
+    *names* and CAS synonyms, but NOT a bare numeric CID — so routing the CID back
+    through it always misses and D5 then clears the very identifier the authority
+    handed us (Issue #261). Re-verifying the authority's own primary key against
+    the wrong endpoint is the bug.
+
+    So when the entity's ``pubchem_cid`` is exactly the CID the primary lookup
+    returned (``data["pubchem_cid"]``), it is already confirmed by that
+    resolution: we mark it ``verified`` directly instead of clearing it. Every
+    other case — a different / hint-supplied / stale CID, or any non-CID field
+    such as ``cas`` — falls through to the normal :func:`verify_identifier`, which
+    still confirms against source and clears an unconfirmable value (D5 preserved,
+    CAS verification unchanged).
+    """
+    if field.lower() == "pubchem_cid":
+        lookup_cid = str(data.get("pubchem_cid") or "").strip()
+        entity_cid = str(entity.fields.get(field) or "").strip()
+        if lookup_cid and entity_cid and entity_cid == lookup_cid:
+            entity.set_field_status(field, "verified", "lookup")
+            if "pubchem" not in entity._provenance.lookups_used:
+                entity._provenance.lookups_used.append("pubchem")
+            return {
+                "verified": True,
+                "entity_id": entity.entity_id,
+                "field": field,
+                "message": (
+                    f"Verified {field} for {entity.type} via pubchem "
+                    "(authoritative name→CID lookup)"
+                ),
+                "suggested_fix": None,
+            }
+    return verify_identifier(state, entity.entity_id, field)
+
+
 def resolve_compound(
     state: CrateState,
     name: str,
@@ -1321,7 +1365,12 @@ def resolve_compound(
         for field in _COMPOUND_IDENTIFIER_FIELDS:
             if entity.fields.get(field) in (None, ""):
                 continue
-            verdict = verify_identifier(state, entity.entity_id, field)
+            # The CID is PubChem's own primary key for the record this lookup just
+            # returned — confirm it against that authoritative answer rather than
+            # re-querying the name endpoint (which cannot resolve a bare CID and so
+            # wrongly clears it — Issue #261). Every other field/value still goes
+            # through verify_identifier (clears the unconfirmable; D5 preserved).
+            verdict = _verify_compound_identifier(state, entity, field, data)
             verifications.append(
                 {
                     "field": field,

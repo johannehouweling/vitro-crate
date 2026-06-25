@@ -1118,6 +1118,21 @@ pass (and leaked into the HITL loop as unanswerable gaps), so they are gone.
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.
 
+**PubChem CID — verify against the authority's own answer (Issue #261).** A PubChem
+CID is the *primary key of the PubChem record itself*. PubChem's
+`/compound/name` endpoint (which `verify_identifier` re-queries) resolves *names*
+and CAS synonyms but **not** a bare numeric CID, so routing a CID back through it
+always missed — and D5 then cleared the very CID the authoritative name→CID lookup
+had just returned, on *every* compound. `resolve_compound` therefore confirms a
+`pubchem_cid` that equals the CID its primary `lookup_compound` returned directly
+against that resolution (`composites._verify_compound_identifier`), marking it
+`verified` rather than re-querying the wrong endpoint. A CID that is **not** the
+lookup's own answer (a hint-supplied / stale value) — and every non-CID field such
+as `cas` — still goes through the normal `verify_identifier`, which confirms
+against source and clears an unconfirmable value (D5 preserved, CAS unchanged).
+This is correct independent of the #252 warm cache, which previously only *masked*
+the false negative on the single-call happy path.
+
 ### Concurrency & Per-Host Rate Limiting (Issue #62)
 Independent lookups with no data dependency are issued **concurrently** via a
 bounded `concurrent.futures.ThreadPoolExecutor` (max ~6 workers), so cold paths
