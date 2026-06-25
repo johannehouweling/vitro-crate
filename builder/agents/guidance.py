@@ -1,12 +1,21 @@
-"""The guidance agent — HITL gap-resolution loop (Issue #179, task 2b-G).
+"""The guidance agent — HITL gap-resolution loop (Issue #179, task 2b-G; #244).
 
-This is the **deterministic, code-driven** loop that consumes the gap engine's
-prioritized :class:`~builder.tools.gap_analysis.GapReport` and resolves gaps with
-the human in the loop. It is the §14 hybrid architecture's "human-confirmed
-enrichment" half: **CODE owns control flow** (NOT a ReAct / LLM-orchestrated
-agent), the LLM is used *only* to draft a suggested value for a draftable gap, and
-the **user is the authority** — every commit of uncertain content is confirmed
-before it lands (D5: Verify, Don't Trust).
+This is the **code-driven** loop that consumes the gap engine's prioritized
+:class:`~builder.tools.gap_analysis.GapReport` and resolves gaps with the human in
+the loop. It is the §14 hybrid architecture's "human-confirmed enrichment" half:
+**CODE owns control flow** (NOT a ReAct / LLM-orchestrated agent) and the **user
+is the authority** — every commit of uncertain content is confirmed before it
+lands (D5: Verify, Don't Trust).
+
+The LLM is used only at bounded **leaves**: the drafter (:func:`draft_entity_fields`)
+suggests a value the user confirms, and — the #179 hybrid's "small guidance agent"
+(#244) — two more leaves make the *ask-user* step a small bounded exchange that
+**phrases** a cryptic gap as one clear question and **interprets** the free-text
+reply into a structured decision (commit / skip / clarify / from_file), so a
+musing like "no idea which file you mean" can never be stored verbatim as a field
+value. With no provider configured (or a leaf unavailable/flaky) the exchange
+degrades to the original deterministic ask-and-set, keeping offline runs
+deterministic.
 
 The loop (:func:`run_guidance`) per round:
 
@@ -22,10 +31,14 @@ The loop (:func:`run_guidance`) per round:
    - **draftable** (``fix_hint == "draft"``) -> draft a candidate value via
      :func:`draft_entity_fields`, **show it to the user and require confirmation
      before committing** (D5). On reject, fall through to *ask-user*.
-   - **ask-user** (``fix_hint == "ask-user"``) -> prompt via the
-     :class:`~builder.tools.hitl.HumanInterface` and apply the user's answer to
-     the entity through the existing ``set_fields`` / ``set_crate_metadata`` tools
-     (never hand-rolled JSON-LD).
+   - **ask-user** (``fix_hint == "ask-user"``) -> the LLM-mediated
+     phrase -> ask -> interpret exchange (#244, :func:`_resolve_ask_user`): one
+     clear phrased question via the :class:`~builder.tools.hitl.HumanInterface`,
+     the reply interpreted into a structured decision, and only a clean ``commit``
+     value applied through the existing ``set_fields`` / ``set_crate_metadata``
+     tools (never hand-rolled JSON-LD). ``skip``/``from_file`` commit nothing;
+     ``clarify`` asks at most one bounded follow-up. With no provider this is the
+     deterministic ask-and-set.
 
 4. Re-assess after each committed change; **never loop forever** — bounded by
    ``max_rounds`` and a per-report skip-set. A gap the loop cannot progress this
@@ -41,11 +54,15 @@ Determinism & safety contract:
 * **Explicit termination.** Two independent stop conditions (no actionable gap
   left / the whole report exhausted with no progress) plus the hard ``max_rounds``
   cap.
-* **Every LLM call is a bounded leaf.** The drafter leaf
-  (:func:`draft_entity_fields`) is the *only* model call, and its output is shown
-  to the user for confirmation before it is ever committed.
+* **Every LLM call is a bounded leaf.** The drafter (:func:`draft_entity_fields`)
+  and the guidance leaves (:func:`phrase_gap_question` / :func:`interpret_gap_reply`)
+  are single bounded calls gated on ``get_provider()``; the drafter's output is
+  confirmed before commit, and the interpreter's output is a *structured* decision
+  — a free-text reply is never stored verbatim.
 * **HITL is never removed.** ask-user and draft-confirm both route through the
   injected :class:`HumanInterface`; the loop cannot silently fabricate content.
+* **D5 at the leaf.** Identifier-bearing fields are never committed from the user's
+  prose (those come from lookups); the interpreter refuses such a commit.
 
 This is a clean library entrypoint — the CLI / spine wiring is a later PR.
 """
@@ -53,13 +70,36 @@ This is a clean library entrypoint — the CLI / spine wiring is a later PR.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 # Re-exported at module scope so the spine, tests, and the eval harness have a
-# single stable monkeypatch target — and so a flaky/absent LLM drafter can be
-# stubbed without importing langchain.
+# single stable monkeypatch target — and so a flaky/absent LLM drafter / guidance
+# leaf can be stubbed without importing langchain.
 from builder.agents.pipeline import draft_entity_fields
+from builder.config import get_provider
 from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
+
+# The guidance leaves (#244): PHRASE the gap into one human question, INTERPRET
+# the free-text reply into a structured decision. Imported at module scope as the
+# single monkeypatch target for tests, but guarded so that with langchain absent
+# the names resolve to ``None`` and the LLM path is simply skipped (it is gated on
+# ``get_provider()`` regardless). Typed as optional callables so the ``None``
+# fallback type-checks cleanly.
+phrase_gap_question: Callable[..., str] | None
+interpret_gap_reply: Callable[..., dict[str, Any]] | None
+try:  # pragma: no cover — exercised by both branches across the test matrix
+    from builder.agents.leaves import (
+        interpret_gap_reply as _interpret_leaf,
+    )
+    from builder.agents.leaves import (
+        phrase_gap_question as _phrase_leaf,
+    )
+
+    phrase_gap_question = _phrase_leaf
+    interpret_gap_reply = _interpret_leaf
+except Exception:  # pragma: no cover — langchain absent: LLM path is gated off anyway
+    phrase_gap_question = None
+    interpret_gap_reply = None
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -75,10 +115,46 @@ __all__ = ["run_guidance"]
 # gap never clears (e.g. a user value the validator still rejects).
 _DEFAULT_MAX_ROUNDS = 20
 
+# Cap on clarifying follow-ups within a SINGLE ask-user turn (#244). The interpret
+# leaf may ask for clarification, but a vague user could otherwise loop forever;
+# after this many follow-ups with no committable value the turn skips the gap.
+_MAX_CLARIFY_FOLLOW_UPS = 1
+
 # Descriptive context fields used for the draftable path. Mirrors the spine's
 # `_DESCRIPTIVE_APPLY_FIELDS`: the drafter leaf is only trusted for free-text
 # descriptive fields (identifiers come from lookups, D5).
 _DESCRIPTIVE_FIELDS: frozenset[str] = frozenset({"name", "description"})
+
+# D5: identifier-bearing field names the deterministic interpret fallback must
+# NEVER commit from the user's prose (those come from lookups). Mirrors
+# `builder.agents.leaves._IDENTIFIER_SCALAR_FIELDS`; kept local so the no-provider
+# / offline path stays free of the (langchain-importing) leaves module.
+_IDENTIFIER_FIELDS: frozenset[str] = frozenset(
+    {
+        "identifier",
+        "accession",
+        "inchikey",
+        "smiles",
+        "molecular_formula",
+        "pubchem_cid",
+        "cas",
+        "casrn",
+        "cas_number",
+        "orcid",
+        "ror",
+        "doi",
+        "term_code",
+        "in_defined_term_set",
+        "property_id",
+        "unit_code",
+        "url",
+    }
+)
+
+
+def _is_identifier_field(field: str) -> bool:
+    """Whether ``field`` (a local property name) is identifier-bearing (D5)."""
+    return field in _IDENTIFIER_FIELDS
 
 # Local property names that map onto crate-level (Root Data Entity) metadata via
 # `set_crate_metadata`, for a crate-level gap (entity_id is None). Anything else
@@ -230,7 +306,13 @@ def _ask_user_prompt(gap: Gap) -> str:
 
 
 def _ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | None:
-    """Prompt the human for ``gap`` and return their value, or ``None`` if skipped."""
+    """Deterministic ask-and-set: prompt with the canned prompt, return the reply.
+
+    This is the **no-provider / offline** behavior (#244): the user's non-empty
+    reply is returned verbatim (the caller commits it as-is) and an empty/skipped
+    reply returns ``None``. The LLM-mediated phrase/interpret exchange wraps this
+    only when a provider is configured (see :func:`_resolve_ask_user`).
+    """
     response = human.request_input(_ask_user_prompt(gap))
     if response.get("skipped"):
         return None
@@ -238,6 +320,172 @@ def _ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | Non
     if value is None or not str(value).strip():
         return None
     return str(value)
+
+
+def _reply_text(response: Any) -> str | None:
+    """Extract a non-empty reply string from a HumanInterface input response.
+
+    Returns the trimmed text, or ``None`` for a skip / empty reply (which the
+    interpret step would treat as a skip anyway).
+    """
+    if response.get("skipped"):
+        return None
+    value = response.get("value")
+    if value is None or not str(value).strip():
+        return None
+    return str(value)
+
+
+def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
+    """Assemble the per-gap context dict the guidance leaves consume (#244).
+
+    A compact, jargon-light digest of the gap plus the crate's title/description,
+    so :func:`phrase_gap_question` can rephrase it and :func:`interpret_gap_reply`
+    can interpret a reply in context. The ``property`` is the **local field name**
+    (not the raw IRI) so the interpret leaf's D5 identifier guard sees the same
+    token the loop would commit to.
+    """
+    field = _local_name(gap.property) or (gap.property or "")
+    context: dict[str, Any] = {
+        "property": field,
+        "entity_type": gap.entity_type,
+        "tier": gap.tier,
+        "message": gap.message,
+        "suggestion": gap.suggestion,
+    }
+    title = (engine.state.metadata.title or "").strip()
+    if title:
+        context["crate_title"] = title
+    description = (engine.state.metadata.description or "").strip()
+    if description:
+        context["crate_description"] = description
+    return context
+
+
+def _phrase_question(engine: AgentEngine, gap: Gap) -> str:
+    """Phrase ``gap`` as one human question via the LLM leaf, with a safe fallback.
+
+    Calls :func:`phrase_gap_question` (the drafter-tier leaf); on any failure or an
+    empty result it falls back to the deterministic :func:`_ask_user_prompt`, so a
+    flaky leaf never produces a blank question and never breaks the loop.
+    """
+    if phrase_gap_question is not None:
+        try:
+            question = phrase_gap_question(_gap_context(engine, gap))
+        except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
+            logger.warning("guidance: phrase leaf failed: %s", exc)
+            question = ""
+        if question and question.strip():
+            return question.strip()
+    return _ask_user_prompt(gap)
+
+
+def _deterministic_decision(gap: Gap, reply: str) -> dict[str, Any]:
+    """The deterministic interpret fallback: a non-empty reply is a commit (#244).
+
+    Used when the interpret leaf is unavailable or fails (and as the documented
+    no-provider behavior): treat a non-empty reply as a commit and an empty one as
+    a skip — *except* for an identifier-bearing field, where the user's prose must
+    NOT become an identifier value (D5), so it is skipped (identifiers come from
+    lookups). This preserves today's ask-and-set behavior without ever storing a
+    musing as an identifier.
+    """
+    if not reply or not reply.strip():
+        return {"action": "skip"}
+    field = _local_name(gap.property) or (gap.property or "")
+    if _is_identifier_field(field):
+        return {"action": "skip"}
+    return {"action": "commit", "value": reply.strip()}
+
+
+def _interpret_reply(
+    engine: AgentEngine, gap: Gap, question: str, reply: str
+) -> dict[str, Any]:
+    """Interpret ``reply`` into a structured decision via the LLM leaf.
+
+    Calls :func:`interpret_gap_reply` (the drafter-tier leaf) and returns its
+    normalised decision. On any failure it falls back to the **deterministic**
+    decision (:func:`_deterministic_decision`: non-empty reply -> commit, empty ->
+    skip, identifier field -> skip) — the same offline behavior the no-provider
+    path uses, so a flaky/unreachable leaf degrades to today's ask-and-set rather
+    than silently dropping the user's answer.
+    """
+    if interpret_gap_reply is None:  # pragma: no cover — provider gated elsewhere
+        return _deterministic_decision(gap, reply)
+    try:
+        return interpret_gap_reply(question, reply, _gap_context(engine, gap))
+    except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
+        logger.warning(
+            "guidance: interpret leaf failed (%s); deterministic fallback", exc
+        )
+        return _deterministic_decision(gap, reply)
+
+
+def _resolve_ask_user(
+    engine: AgentEngine, human: HumanInterface, gap: Gap
+) -> str | None:
+    """Run the LLM-mediated ask-user exchange for ``gap``; return a clean value.
+
+    The §14.6 "small guidance agent" (#244). When a provider is configured this is
+    a bounded PHRASE -> ask -> INTERPRET exchange:
+
+    * **PHRASE** the gap into one clear human question (never raw SHACL/FAIR text).
+    * **INTERPRET** the free-text reply into a structured decision:
+      ``commit`` -> return the clean value (the caller commits it via
+      :func:`_apply_value`); ``skip`` (covers "I don't know"/empty) -> return
+      ``None``; ``clarify`` -> ask ONE bounded follow-up
+      (:data:`_MAX_CLARIFY_FOLLOW_UPS`) then skip; ``from_file`` -> record the
+      filename hint and return ``None`` (NEVER store prose — file extraction is a
+      separate bounded reader, not this loop).
+
+    A free-text musing therefore can never become a field value (D5). With **no
+    provider** configured this degrades to the deterministic :func:`_ask_user`
+    (today's ask-and-set behavior), keeping offline runs deterministic.
+    """
+    # No provider -> deterministic ask-and-set (offline determinism, #244).
+    if get_provider() is None:
+        return _ask_user(engine, human, gap)
+
+    question = _phrase_question(engine, gap)
+    response = human.request_input(question)
+    reply = _reply_text(response)
+    if reply is None:
+        # An explicit skip / empty reply is a skip — never interpreted.
+        return None
+
+    follow_ups = 0
+    while True:
+        decision = _interpret_reply(engine, gap, question, reply)
+        action = decision.get("action")
+
+        if action == "commit":
+            value = decision.get("value")
+            # Defensive: the leaf normalises this, but never commit empty.
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            return None
+
+        if action == "clarify" and follow_ups < _MAX_CLARIFY_FOLLOW_UPS:
+            follow_ups += 1
+            follow_up = decision.get("question") or _ask_user_prompt(gap)
+            question = str(follow_up)
+            response = human.request_input(question)
+            reply = _reply_text(response)
+            if reply is None:
+                return None
+            continue
+
+        if action == "from_file":
+            filename = decision.get("filename")
+            logger.info(
+                "guidance: user says %s is in a file%s; not storing prose (#244)",
+                _local_name(gap.property) or gap.property,
+                f" ({filename})" if filename else "",
+            )
+            return None
+
+        # skip, an exhausted clarify budget, or any unrecognised action -> skip.
+        return None
 
 
 def _resolve_gap(
@@ -299,9 +547,9 @@ def _resolve_gap(
                 return False
         # No usable draft, or the user rejected it -> fall through to ask-user.
 
-    # --- ask-user: prompt and apply -------------------------------------------
+    # --- ask-user: phrase -> interpret -> apply (LLM-mediated, #244) ----------
     asked.append(record)
-    value = _ask_user(engine, human, gap)
+    value = _resolve_ask_user(engine, human, gap)
     if value is None:
         return False
     if _apply_value(engine, gap, value):

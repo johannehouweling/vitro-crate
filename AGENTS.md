@@ -1613,11 +1613,14 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   prioritized `GapReport` unifying SHACL + MIT + FAIR.
 - **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every
   `auto_fixable` gap deterministically from state alone, no prompt.
-- **Guidance** (`run_guidance` #218, §14.6.1) — the **deterministic, code-driven
-  HITL loop** that walks the remaining `auto_fixable=False` gaps with the user in
-  the loop. It is NOT a ReAct/LLM-orchestrated agent: CODE owns control flow, the
-  LLM only *drafts* a suggested value, and the user confirms every uncertain
-  commit (D5). It is invoked **only for a real interactive user** (see §14.6.1).
+- **Guidance** (`run_guidance` #218 / #244, §14.6.1) — the **code-driven HITL
+  loop** that walks the remaining `auto_fixable=False` gaps with the user in the
+  loop. CODE still owns control flow (it is NOT a ReAct/LLM-orchestrated agent),
+  but the per-gap ask-user step is now a **small bounded LLM exchange** — the #179
+  hybrid's "small guidance agent" (#244) — so a cryptic gap becomes a real
+  conversation instead of an ask-and-set loop that stored the user's raw prose
+  verbatim (the real bug: typing "no idea which file you mean" landed as the crate
+  `description`). It is invoked **only for a real interactive user** (see §14.6.1).
   The loop **advances over un-progressable gaps** rather than aborting on the
   first one (#230): each round it draws the next *actionable* gap (`report-only`
   gaps are never drawn — see below), and a gap it cannot progress (e.g. the user
@@ -1625,9 +1628,40 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   behind it. It only stops once the whole report is exhausted with no progress —
   one cryptic, uncommittable gap can no longer abandon the 200 behind it — and is
   still hard-bounded by `max_rounds`. The skip-set is cleared on every commit (the
-  re-assessed report is fresh). ask-user prompts are **human-readable** (a direct
-  question naming the field + entity, the reason, any suggestion, and the expected
-  format), never the raw failed-check `message`.
+  re-assessed report is fresh).
+
+  **The per-gap LLM exchange (#244).** When a provider is configured (gated on
+  `config.get_provider()`, like the pipeline leaves), each ask-user gap runs a
+  bounded **phrase → ask → interpret → commit** cycle using two new drafter-tier
+  leaves in `builder/agents/leaves.py` (internal pipeline calls, NOT four-place
+  LLM-advertised tools):
+  - **Phrase** (`phrase_gap_question(gap_context) -> str`) turns the gap
+    (property, entity_type, tier, MIT/FAIR rationale, suggestion) into ONE clear
+    question with a concrete example — never raw SHACL shapes / FAIR indicator
+    codes / property IRIs. On an empty/failed result it falls back to the
+    deterministic human-readable prompt.
+  - **Interpret** (`interpret_gap_reply(question, reply, gap_context) -> dict`)
+    parses the free-text reply into a **structured decision** — one of
+    `{action: "commit", value}` | `{action: "skip"}` (covers "I don't
+    know"/empty) | `{action: "clarify", question}` | `{action: "from_file",
+    filename?}`. **Free-text musings never become field values.**
+  - **Commit** — only a `commit`'s clean `value` reaches `_apply_value`
+    (`set_fields` / `set_crate_metadata`, never hand-rolled JSON-LD). `skip`
+    commits nothing; `clarify` asks at most **one** bounded follow-up
+    (`_MAX_CLARIFY_FOLLOW_UPS`) then skips, so the clarify path can't loop;
+    `from_file` records the filename hint and commits nothing (file extraction is
+    a separate bounded reader, not this loop — never store the prose). **D5:**
+    identifier-bearing fields are never committed from the user's prose — those
+    come from lookups, so an identifier `commit` is refused (the interpret leaf
+    coerces it to `skip`).
+
+  **Offline / no-provider determinism.** With no provider configured the exchange
+  degrades to the original deterministic ask-and-set: phrase = the human-readable
+  prompt, interpret = non-empty reply → commit, empty/skip → skip. The same
+  deterministic decision is used when a configured leaf is unavailable or raises,
+  so a flaky/unreachable LLM never silently drops the user's answer — and offline
+  tests and headless runs stay deterministic. ask-user prompts remain
+  **human-readable**, never the raw failed-check `message`.
 
 **The deliberate split — automated vs interactive.** Stages 1–4 are the
 **automated** build: `run_pipeline` (§14.5) runs them with **no HITL**, so it
