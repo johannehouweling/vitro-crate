@@ -624,6 +624,175 @@ def _select_process_for_protocol(
     return None
 
 
+# --- Deterministic standard process chain + file attachment (#262) ----------
+#
+# Before #262 the pipeline only drafted a process chain (and only attached files)
+# when an LLM provider returned a candidate plan with a `process_chain` section,
+# so the no-provider crate was structurally hollow: `lab_processes: []`,
+# `files: []`. Both shapes are deterministic given the Assay + the scanned-file
+# inventory the engine already carries, so the spine now drafts them in *code*,
+# regardless of whether a provider is configured — the legacy ReAct path did
+# both, and the deterministic spine must too.
+
+# The standard in-vitro derivation chain (AGENTS.md §14.3 / the gold S-VHPS21
+# shape): CellCulture → Exposure → EndpointReadout → DataAnalysis. `process_type`
+# is the load-bearing field (it drives `draft_process_chain`'s wiring + the §14.3
+# output synthesis); the `name` is a stable default so the process `@id`s are
+# deterministic with NO provider, and is overlaid with a plan step name only when
+# the plan actually supplies one (idempotent: the id stays keyed to the name).
+_STANDARD_CHAIN: tuple[dict[str, str], ...] = (
+    {"process_type": "CellCulture", "name": "Cell culture"},
+    {"process_type": "Exposure", "name": "Exposure"},
+    {"process_type": "EndpointReadout", "name": "Endpoint readout"},
+    {"process_type": "DataAnalysis", "name": "Data analysis"},
+)
+
+
+def _merge_plan_chain_names(
+    plan: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Build the chain spec: the standard 4 steps, overlaid with plan step names.
+
+    Always returns the full canonical chain (so the no-provider crate is never
+    hollow), but when *plan* carries a ``process_chain`` each plan step's ``name``
+    is overlaid onto the matching ``process_type`` so a provider's richer step
+    names drive the process ``@id``s. Plan process_types outside the standard four
+    are ignored here — ``draft_process_chain`` only wires the valid subtypes and a
+    bogus type would raise; the standard chain is the deterministic backbone.
+    """
+    plan_names: dict[str, str] = {}
+    for step in (plan or {}).get("process_chain") or []:
+        if not isinstance(step, dict):
+            continue
+        ptype = str(step.get("process_type") or "").strip()
+        name = str(step.get("name") or "").strip()
+        if ptype and name:
+            plan_names[ptype] = name
+
+    chain: list[dict[str, Any]] = []
+    for std in _STANDARD_CHAIN:
+        ptype = std["process_type"]
+        chain.append({"process_type": ptype, "hints": {"name": plan_names.get(ptype, std["name"])}})
+    return chain
+
+
+def _draft_standard_chain(
+    engine: AgentEngine, plan: dict[str, Any] | None
+) -> tuple[int, list[dict[str, Any]]]:
+    """Deterministically draft the standard process chain onto the scaffolded Assay.
+
+    Calls the existing idempotent ``draft_process_chain`` composite (NO hand-rolled
+    JSON-LD) with the full CellCulture → Exposure → EndpointReadout → DataAnalysis
+    chain, so EndpointReadout/DataAnalysis get the §14.3 result/object output
+    synthesis (the "no output" Violation trap) and the whole chain is wired under
+    the Assay. Plan step names (when a provider supplied them) are overlaid onto
+    the standard chain so the two paths share ONE chain rather than minting
+    duplicates. Runs regardless of provider. Returns
+    ``(process_count, step_summary)`` — the summary feeds protocol linking.
+    """
+    assay_id = _first_entity_id(engine, "Assay")
+    if not assay_id:
+        logger.warning("No Assay scaffolded; skipping process-chain materialization (#262).")
+        return 0, []
+
+    chain = _merge_plan_chain_names(plan)
+    try:
+        chain_result = engine.run_tool(
+            "draft_process_chain", assay_id=assay_id, chain=chain
+        )
+    except Exception as exc:  # noqa: BLE001 - a chain failure must not break the spine
+        logger.warning("draft_process_chain failed: %s", exc)
+        return 0, []
+
+    process_ids = list(chain_result.get("process_ids") or [])
+    logger.info(
+        "Materialized %d-step process chain under %s: %s (#262).",
+        len(process_ids),
+        assay_id,
+        ", ".join(s["process_type"] for s in _STANDARD_CHAIN),
+    )
+    return len(process_ids), list(chain_result.get("steps") or [])
+
+
+# Filename / MIME signals that a scanned file is *processed/analysed* output
+# (figures, prism/pzfx analysis files, results) rather than *raw* measurements.
+# Used only to stamp a descriptive `role` on the attached File — the structural
+# link is the same for both (under the Assay's hasPart), so a misclassification
+# never drops a file; it only mislabels its role.
+_PROCESSED_NAME_HINTS: tuple[str, ...] = (
+    "result",
+    "analysis",
+    "analy",
+    "processed",
+    "figure",
+    "plot",
+    "ic50",
+    "summary",
+)
+_PROCESSED_EXT_HINTS: tuple[str, ...] = (".prism", ".pzfx")
+
+
+def _file_role(filename: str, mime: str) -> str:
+    """Deterministic raw-vs-processed role for a scanned file (descriptive only)."""
+    lowered = (filename or "").lower()
+    if lowered.endswith(_PROCESSED_EXT_HINTS):
+        return "processed_data"
+    if any(hint in lowered for hint in _PROCESSED_NAME_HINTS):
+        return "processed_data"
+    return "raw_data"
+
+
+def _attach_scanned_files(engine: AgentEngine) -> int:
+    """Add every scanned file to the crate as a File and link it under the Assay.
+
+    Deterministic and provider-independent (#262): the engine already carries the
+    scanned-file inventory (``state.scanned_files``), so the spine adds each one as
+    a ``File`` entity and places it under the scaffolded Assay's ``hasPart`` via the
+    existing idempotent ``attach_files`` composite (NO hand-rolled JSON-LD). Files
+    are grouped by a deterministic raw/processed ``role`` so each batch is stamped
+    appropriately; nothing is skipped silently — what is attached is logged. Falls
+    back to the Study when no Assay exists. ``attach_files`` dedups by on-disk
+    source, so re-running mints no duplicates. Returns the number of File entities
+    attached.
+    """
+    if not engine.state.scanned_files:
+        return 0
+
+    target_id = _first_entity_id(engine, "Assay") or _first_entity_id(engine, "Study")
+    if not target_id:
+        logger.warning("No Assay/Study scaffolded; cannot attach scanned files (#262).")
+        return 0
+
+    # Group the scanned paths by deterministic role so each batch is stamped with
+    # the right descriptive role. The structural placement (under the Assay) is the
+    # same for every role, so a role misclassification never drops a file.
+    by_role: dict[str, list[str]] = {}
+    for fc in engine.state.scanned_files:
+        role = _file_role(fc.filename or "", fc.mime_type or "")
+        by_role.setdefault(role, []).append(fc.path)
+
+    attached_ids: set[str] = set()
+    for role in sorted(by_role):  # sorted ⇒ deterministic call order
+        paths = by_role[role]
+        try:
+            result = engine.run_tool(
+                "attach_files", to=target_id, paths=paths, role=role
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad batch must not break the spine
+            logger.warning("attach_files (%s) failed for %d file(s): %s", role, len(paths), exc)
+            continue
+        ids = list(result.get("file_ids") or [])
+        attached_ids.update(ids)
+        logger.info(
+            "Attached %d %s file(s) under %s (#262): %s",
+            len(ids),
+            role,
+            target_id,
+            ", ".join(ids) or "(none)",
+        )
+    return len(attached_ids)
+
+
 # --- Publication recovery from PDF text (#245) ------------------------------
 #
 # A plan publication carries a TITLE only (D5 — no DOI), but when the source
@@ -807,9 +976,21 @@ def _materialize_plan(
       then by step name) to choose the process; with no match it attaches to the
       central exposure/assay step, and an unresolvable link is left for the
       guidance loop rather than guessed (:func:`_select_process_for_protocol`).
-    * ``process_chain[]`` → ONE :func:`draft_process_chain` onto the scaffolded
-      Assay, mapping each step's ``process_type`` / ``name`` / hints (the
-      composite synthesizes EndpointReadout / DataAnalysis outputs).
+    * **process chain — ALWAYS, regardless of provider (#262).** ONE
+      :func:`draft_process_chain` lays the standard in-vitro chain (CellCulture →
+      Exposure → EndpointReadout → DataAnalysis) onto the scaffolded Assay
+      (:func:`_draft_standard_chain`). The composite synthesizes the
+      EndpointReadout / DataAnalysis outputs the build has no fallback for (the
+      §14.3 "no output" Violation trap). When a provider supplied a
+      ``process_chain``, each plan step's ``name`` is overlaid onto the matching
+      ``process_type`` so the two paths share ONE chain (no duplicate processes).
+      This runs even with NO provider, so the crate is never structurally hollow.
+    * **scanned files — ALWAYS, regardless of provider (#262).** Every
+      ``engine.state.scanned_files`` entry is added as a ``File`` entity and placed
+      under the scaffolded Assay (else Study) ``hasPart`` via the idempotent
+      :func:`attach_files` composite (:func:`_attach_scanned_files`), grouped by a
+      deterministic raw/processed ``role``. Nothing is skipped silently — what is
+      attached is logged. This runs even with NO provider.
     * each ``aops[]`` → :func:`materialize_aop_subgraph` onto the scaffolded
       Study (the only model input is the numeric ``aop_id``; every node id comes
       from AOP-Wiki — D5).
@@ -835,10 +1016,15 @@ def _materialize_plan(
 
     Guarantees:
 
-    * **No-op when no LLM provider is configured** (the same
+    * **The process chain + file attachment ALWAYS run (#262)** — they are pure,
+      deterministic, code-driven steps over the scaffolded Assay + the engine's
+      scanned-file inventory, so the crate is never structurally hollow even with
+      no provider. Stage A (``extract_plan``) and every *plan-driven* section below
+      are still **no-ops when no LLM provider is configured** (the same
       :func:`builder.config.get_provider` gate :func:`_draft_entities` uses) and
-      **no-op when there is no usable context** — Stage A is never called, so the
-      deterministic spine and its tests are unchanged.
+      when there is no usable context — Stage A is never called, so the
+      deterministic spine and its tests are unchanged (the chain/file steps stay
+      deterministic, so the no-provider graph-hash is identical across repeats).
     * **D5 (Verify, Don't Trust).** Only plan *names/titles* reach the composites;
       identifiers are produced by the composites' own lookups/verification and
       are never set or overwritten from the plan. ``extract_plan`` already strips
@@ -847,9 +1033,11 @@ def _materialize_plan(
       ids), so re-running the spine mints no duplicates.
 
     Returns ``{"study", "compounds", "cell_lines", "protocols", "processes",
-    "aops", "people", "publications", "publications_deferred"}`` — per-section
-    counts of what was materialized, plus the titles of publications that found no
-    confident DOI match and were deferred for a later resolution.
+    "files", "aops", "people", "publications", "publications_deferred"}`` —
+    per-section counts of what was materialized (``processes`` is the standard
+    chain's length, ``files`` the number of scanned files attached), plus the
+    titles of publications that found no confident DOI match and were deferred for
+    a later resolution.
     """
     result: dict[str, Any] = {
         "study": 0,
@@ -857,27 +1045,48 @@ def _materialize_plan(
         "cell_lines": 0,
         "protocols": 0,
         "processes": 0,
+        "files": 0,
         "aops": 0,
         "people": 0,
         "publications": 0,
         "publications_deferred": [],
     }
 
-    # Gate 1 — provider must be configured, else strict no-op (deterministic spine).
-    if get_provider() is None:
-        return result
+    # Extract the candidate plan FIRST (when there is a provider + usable context),
+    # so the deterministic steps below can overlay the plan's richer step names onto
+    # the standard chain. With no provider / no context this is a strict no-op and
+    # `plan` stays None — the deterministic process-chain + file-attachment steps
+    # still run, so the crate is never structurally hollow (#262).
+    plan: dict[str, Any] | None = None
+    if get_provider() is not None:
+        context = _gather_context(engine)
+        if context:
+            try:
+                extracted = extract_plan(context, usage_sink=usage_sink)
+            except Exception as exc:  # noqa: BLE001 - a flaky extractor must not break the spine
+                logger.warning("extract_plan failed; skipping plan materialization: %s", exc)
+                extracted = None
+            if isinstance(extracted, dict):
+                plan = extracted
 
-    # Gate 2 — there must be usable context to plan from, else strict no-op.
-    context = _gather_context(engine)
-    if not context:
-        return result
+    # --- process chain (#262): ALWAYS draft the standard 4-step in-vitro chain
+    # (CellCulture → Exposure → EndpointReadout → DataAnalysis) under the scaffolded
+    # Assay, deterministically and regardless of provider, so `lab_processes` is
+    # never empty. Plan step names (when a provider supplied them) are overlaid onto
+    # the standard chain so the two paths share ONE chain (no duplicates). The
+    # composite synthesizes EndpointReadout/DataAnalysis outputs (§14.3 trap). ---
+    n_processes, chain_steps_summary = _draft_standard_chain(engine, plan)
+    result["processes"] = n_processes
 
-    try:
-        plan = extract_plan(context, usage_sink=usage_sink)
-    except Exception as exc:  # noqa: BLE001 - a flaky extractor must not break the spine
-        logger.warning("extract_plan failed; skipping materialization: %s", exc)
-        return result
-    if not isinstance(plan, dict):
+    # --- file attachment (#262): ALWAYS add the scanned data files as File entities
+    # and link them under the Assay/Study, deterministically and regardless of
+    # provider, so `files` is never empty. ---
+    result["files"] = _attach_scanned_files(engine)
+
+    # Everything below is plan-driven and therefore provider-gated: with no plan
+    # (no provider / no context / extractor failure) the deterministic chain + file
+    # steps above are the whole of materialization and we return here.
+    if plan is None:
         return result
 
     # --- study: merge the plan's name/description onto the scaffolded backbone ---
@@ -923,30 +1132,10 @@ def _materialize_plan(
         except Exception as exc:  # noqa: BLE001
             logger.warning("draft_cell_line_sample failed for %r: %s", name, exc)
 
-    # --- process chain: ONE draft_process_chain onto the scaffolded Assay ---
-    assay_id = _first_entity_id(engine, "Assay")
-    chain_steps = [
-        {
-            "process_type": step["process_type"],
-            **(
-                {"hints": {"name": step["name"]}}
-                if str((step or {}).get("name") or "").strip()
-                else {}
-            ),
-        }
-        for step in (plan.get("process_chain") or [])
-        if isinstance(step, dict) and step.get("process_type")
-    ]
-    chain_steps_summary: list[dict[str, Any]] = []
-    if assay_id and chain_steps:
-        try:
-            chain_result = engine.run_tool(
-                "draft_process_chain", assay_id=assay_id, chain=chain_steps
-            )
-            result["processes"] = len(chain_result.get("process_ids") or [])
-            chain_steps_summary = list(chain_result.get("steps") or [])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("draft_process_chain failed: %s", exc)
+    # NOTE: the process chain is now drafted unconditionally ABOVE (#262) — the
+    # standard 4-step chain with the plan's step names overlaid — so there is no
+    # separate plan-driven chain step here; `chain_steps_summary` (from that call)
+    # is what the protocol linking below uses.
 
     # --- protocols: draft a LabProtocol from the name/description (D5 — no id) and
     # link the LabProcess(es) it governs via the `labprotocol` ref field, which the

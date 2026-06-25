@@ -679,7 +679,12 @@ class TestMaterializePlan:
             assert ent.fields.get("identifier") != "10.0/FAKE"
             assert ent.fields.get("doi") != "10.0/FAKE"
 
-    def test_no_provider_is_strict_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_provider_skips_only_the_plan_driven_sections(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no provider the PLAN-DRIVEN sections are a strict no-op (extract_plan
+        is never called), but the deterministic chain + file steps still run (#262).
+        """
         import builder.agents.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
@@ -691,14 +696,25 @@ class TestMaterializePlan:
 
         engine = _engine(self._titled_state())
         pipeline_mod._scaffold_backbone(engine)
-        before = {e.entity_id for e in engine.state.list_entities()}
         result = pipeline_mod._materialize_plan(engine)
-        after = {e.entity_id for e in engine.state.list_entities()}
-        assert before == after, "no-provider _materialize_plan must mint nothing"
-        assert result.get("compounds") == 0
-        assert result.get("aops") == 0
 
-    def test_no_context_is_strict_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The plan-driven sections mint nothing (no model, no lookups).
+        assert result.get("compounds") == 0
+        assert result.get("cell_lines") == 0
+        assert result.get("aops") == 0
+        assert result.get("people") == 0
+        assert result.get("publications") == 0
+        assert self._by_type(engine, "MolecularEntity") == []
+        assert self._by_type(engine, "AdverseOutcomePathway") == []
+        # But the deterministic process chain DID run (the #262 contract).
+        assert result.get("processes") == 4
+
+    def test_no_context_skips_only_the_plan_driven_sections(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With a provider but no usable context, extract_plan is never called and
+        the plan-driven sections mint nothing; the deterministic chain still runs.
+        """
         import builder.agents.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
@@ -711,11 +727,14 @@ class TestMaterializePlan:
         # Untitled / undescribed / unscanned crate carries no usable context.
         engine = _engine(CrateState())
         pipeline_mod._scaffold_backbone(engine)
-        before = {e.entity_id for e in engine.state.list_entities()}
         result = pipeline_mod._materialize_plan(engine)
-        after = {e.entity_id for e in engine.state.list_entities()}
-        assert before == after, "no-context _materialize_plan must mint nothing"
+
         assert result.get("compounds") == 0
+        assert result.get("aops") == 0
+        assert self._by_type(engine, "MolecularEntity") == []
+        # No scanned files ⇒ nothing attached, but the chain still ran.
+        assert result.get("files") == 0
+        assert result.get("processes") == 4
 
     def test_idempotent_no_duplicates(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline as pipeline_mod
@@ -1676,3 +1695,272 @@ class TestPipelineProgress:
         # Must not raise and must not print — a missing callback is a strict no-op.
         result = run_pipeline(engine)
         assert result["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# Issue #262 — the pipeline must DETERMINISTICALLY materialize the standard
+# in-vitro process chain AND attach the scanned data files. Both run with NO
+# provider configured (they are pure, code-driven steps), so the crate is never
+# structurally hollow (0 lab_processes / 0 files) even on the offline spine.
+# ---------------------------------------------------------------------------
+
+
+def _scanned(
+    path: str, filename: str, mime: str = "application/octet-stream"
+) -> FileClassification:
+    return FileClassification(
+        path=path, filename=filename, size=64, mime_type=mime, first_rows=None
+    )
+
+
+class TestMaterializeStandardProcessChain:
+    """`_materialize_plan` deterministically drafts the standard 4-step in-vitro
+    chain (CellCulture → Exposure → EndpointReadout → DataAnalysis) under the
+    scaffolded Assay — regardless of whether an LLM provider is configured.
+
+    Before #262 the pipeline only drafted a chain from a provider-extracted plan,
+    so the no-provider crate was structurally hollow (``lab_processes: []``).
+    """
+
+    def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
+        return [e for e in engine.state.list_entities() if e.type == type_name]
+
+    def _titled_state(self) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "TPO inhibition dose-response screen"
+        return state
+
+    def _no_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Force the no-provider path so the plan-driven section is a strict no-op."""
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
+
+        def boom(*args, **kwargs):  # pragma: no cover - must not run without a provider
+            raise AssertionError("extract_plan must not run without a provider")
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", boom)
+
+    def test_no_provider_drafts_full_chain_under_assay(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With NO provider, the standard 4-step chain is wired under the Assay."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._no_provider(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        procs = self._by_type(engine, "LabProcess")
+        assert {p.fields.get("process_type") for p in procs} == {
+            "CellCulture",
+            "Exposure",
+            "EndpointReadout",
+            "DataAnalysis",
+        }
+        # Every process belongs to the scaffolded Assay.
+        assay_id = next(
+            e.entity_id for e in engine.state.list_entities() if e.type == "Assay"
+        )
+        for proc in procs:
+            assay_ref = proc.fields.get("assay") or proc.fields.get("partOf")
+            ref = assay_ref.get("@id") if isinstance(assay_ref, dict) else assay_ref
+            if ref is not None:
+                assert str(ref).lstrip("#") == assay_id
+        # The result trace reflects the materialized chain.
+        assert result["processes"] >= 4
+
+    def test_endpoint_and_analysis_carry_outputs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """§14.3: EndpointReadout/DataAnalysis must carry a result (no Violation trap).
+
+        ``draft_process_chain`` synthesizes placeholder File outputs for the two
+        data-producing steps that have no build-time fallback, so neither dangles.
+        """
+        import builder.agents.pipeline as pipeline_mod
+
+        self._no_provider(monkeypatch)
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        procs = self._by_type(engine, "LabProcess")
+        for ptype in ("EndpointReadout", "DataAnalysis"):
+            proc = next(p for p in procs if p.fields.get("process_type") == ptype)
+            assert proc.fields.get("result"), (
+                f"{ptype} must carry a result output (the §14.3 no-output trap)"
+            )
+
+    def test_chain_is_idempotent_across_repeats(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Re-running the spine mints no duplicate processes (deterministic ids)."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._no_provider(monkeypatch)
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+        n1 = len(self._by_type(engine, "LabProcess"))
+        pipeline_mod._materialize_plan(engine)
+        n2 = len(self._by_type(engine, "LabProcess"))
+        assert n1 == n2 == 4
+
+    def test_chain_present_after_full_run_pipeline_no_provider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The full offline ``run_pipeline`` lands a non-empty process chain."""
+        from builder.agents.pipeline import run_pipeline
+
+        self._no_provider(monkeypatch)
+        engine = _engine(self._titled_state())
+        run_pipeline(engine)
+        procs = self._by_type(engine, "LabProcess")
+        assert {p.fields.get("process_type") for p in procs} == {
+            "CellCulture",
+            "Exposure",
+            "EndpointReadout",
+            "DataAnalysis",
+        }
+
+
+class TestMaterializeAttachScannedFiles:
+    """`_materialize_plan` deterministically adds every scanned data file as a File
+    entity and links it to a process/assay — regardless of provider (#262).
+
+    Before #262 the scanned files were never added to the crate (``files: []``);
+    the pipeline now attaches them through the existing ``attach_files`` composite.
+    """
+
+    def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
+        return [e for e in engine.state.list_entities() if e.type == type_name]
+
+    def _no_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Force the no-provider path so file attachment is the only file source."""
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
+
+        def boom(*args, **kwargs):  # pragma: no cover - must not run without a provider
+            raise AssertionError("extract_plan must not run without a provider")
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", boom)
+
+    def _state_with_files(self) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "TPO inhibition dose-response screen"
+        state.scanned_files = [
+            _scanned(
+                "data/dose_response_raw.xlsx",
+                "dose_response_raw.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            _scanned("analysis/ic50_results.prism", "ic50_results.prism"),
+            _scanned("docs/SOP.pdf", "SOP.pdf", "application/pdf"),
+        ]
+        return state
+
+    def test_no_provider_attaches_every_scanned_file(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With NO provider, each scanned file becomes a File entity in the crate."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._no_provider(monkeypatch)
+        engine = _engine(self._state_with_files())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        files = self._by_type(engine, "File")
+        attached_names = {f.fields.get("name") for f in files}
+        assert {
+            "dose_response_raw.xlsx",
+            "ic50_results.prism",
+            "SOP.pdf",
+        } <= attached_names
+        # The result trace records how many were attached (exactly the 3 scanned).
+        assert result["files"] == 3
+
+    def test_attached_files_are_linked_to_a_process_or_assay(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every scanned File is referenced by a process (result/object) or under
+        the Assay's hasPart — no silently orphaned data file."""
+        import builder.agents.pipeline as pipeline_mod
+        from builder.tools.provenance import _ref_ids
+
+        self._no_provider(monkeypatch)
+        engine = _engine(self._state_with_files())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        # Collect every entity_id referenced by a process input/output or any
+        # entity's hasPart (the two ways a File is wired into the structure).
+        referenced: set[str] = set()
+        for ent in engine.state.list_entities():
+            for fld in (
+                "object",
+                "result",
+                "input",
+                "output",
+                "samples",
+                "hasPart",
+                "has_part",
+            ):
+                referenced |= _ref_ids(ent.fields.get(fld))
+
+        scanned_basenames = {
+            "dose_response_raw.xlsx",
+            "ic50_results.prism",
+            "SOP.pdf",
+        }
+        scanned_files = [
+            f
+            for f in self._by_type(engine, "File")
+            if f.fields.get("name") in scanned_basenames
+        ]
+        assert scanned_files, "the scanned data files must be added as File entities"
+        for fe in scanned_files:
+            assert fe.entity_id in referenced, (
+                f"scanned file {fe.entity_id} is orphaned — not linked to any "
+                f"process/assay (hasPart/result/object)"
+            )
+
+    def test_no_scanned_files_attaches_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no scanned files the attach step attaches nothing (no crash).
+
+        The chain composite still synthesizes its §14.3 placeholder File outputs,
+        so the crate is not File-free; what must be true is that the *attachment*
+        step adds zero scanned files (``result["files"] == 0``).
+        """
+        import builder.agents.pipeline as pipeline_mod
+
+        self._no_provider(monkeypatch)
+        state = CrateState()
+        state.metadata.title = "A titled but file-less crate"
+        engine = _engine(state)
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        assert result["files"] == 0
+
+    def test_attachment_is_idempotent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Re-running mints no duplicate File entities (deduped by on-disk source)."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._no_provider(monkeypatch)
+        engine = _engine(self._state_with_files())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+        n1 = len(self._by_type(engine, "File"))
+        pipeline_mod._materialize_plan(engine)
+        n2 = len(self._by_type(engine, "File"))
+        # The 3 scanned files plus any synthesized chain placeholders, stable.
+        assert n1 == n2
