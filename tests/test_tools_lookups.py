@@ -27,8 +27,16 @@ class TestLookupCompound:
 
     @pytest.fixture(autouse=True)
     def _clear_cache(self):
+        # Clear BOTH the lru_cache and the shared in-process compound cache
+        # (Issue #252) so a compound resolved by an earlier test does not serve
+        # a later test from cache and starve its mock of calls.
+        from builder.tools._resolve_cache import compound_cache
+
         lookup_compound.cache_clear()
+        compound_cache.clear()
         yield
+        lookup_compound.cache_clear()
+        compound_cache.clear()
 
     def test_returns_correct_structure_on_success(self, monkeypatch):
         def mock_lookup_pubchem(name):

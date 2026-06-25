@@ -19,6 +19,13 @@ from collections.abc import Mapping
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.tools._resolve_cache import (
+    DEFAULT_RESOLVE_TIMEOUT,
+    compound_cache,
+    normalize_compound_name,
+    resolve_concurrency,
+    run_with_timeout,
+)
 from builder.tools.drafters import (
     VALID_PROCESS_TYPES,
     _make_entity_id,
@@ -31,7 +38,12 @@ from builder.tools.drafters import (
     draft_study,
 )
 from builder.tools.hitl import HumanInterface
-from builder.tools.lookups import lookup_compound, lookup_doi, lookup_orcid
+from builder.tools.lookups import (
+    lookup_compound,
+    lookup_doi,
+    lookup_orcid,
+    warm_compound_cache,
+)
 from builder.tools.verification import verify_identifier
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
@@ -1156,6 +1168,7 @@ def resolve_compound(
     name: str,
     hints: dict[str, Any] | None = None,
     verify: bool | None = None,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     """Resolve a chemical name to a verified ``MolecularEntity`` in ONE call.
 
@@ -1180,6 +1193,23 @@ def resolve_compound(
        entity as a fabricated id; the per-field verdicts are surfaced in the
        return value (``verified`` is the AND of all of them).
 
+    **Performance (Issue #252).** A single resolve used to fan out to up to SIX
+    PubChem round-trips — name->JSON + synonyms for the lookup, then a *fresh*
+    re-resolution of the same compound for each of the CAS and PubChem-CID
+    verifications — and under a concurrent burst a 429 storm multiplied the
+    retry/backoff across all of them (30-66s per compound observed). Three
+    in-process levers (all in :mod:`builder.tools._resolve_cache`) close that gap
+    without weakening D5:
+
+    * the lookup is warmed into a shared cache under the name AND the resolved
+      CAS / ``CID <cid>`` alias keys, so the two verify re-resolutions read the
+      already-fetched authoritative record instead of re-hitting PubChem
+      (6 round-trips -> ~2; a repeat name -> 0);
+    * a bounded client-side concurrency gate admits only a few resolves at once,
+      so a burst does not all storm PubChem and trip its rate limiter;
+    * a per-compound ``timeout`` bounds the lookup; on expiry it returns a
+      graceful ``{"ok": False, ...}`` partial result rather than hanging ~60s.
+
     It is **idempotent**: the entity id is derived deterministically from the
     name, so an existing ``MolecularEntity`` for this name is reused (its
     descriptive fields refreshed) rather than duplicated, consistent with the
@@ -1195,18 +1225,66 @@ def resolve_compound(
             identifiers against source. Pass ``False`` to skip verification (the
             return then reports ``verified`` as ``None``); use only when you will
             verify later, never to attach an unverified id.
+        timeout: Per-compound wall-clock budget (seconds) for the lookup. ``None``
+            uses :data:`~builder.tools._resolve_cache.DEFAULT_RESOLVE_TIMEOUT`;
+            ``<= 0`` disables the bound. On expiry the call returns a graceful
+            ``{"ok": False, "error": "...timeout..."}`` and creates no entity.
 
     Returns:
         On success ``{"entity_id", "name", "identifiers": {cas?, pubchem_cid?,
         ...}, "verifications": [{field, verified, message}], "verified": bool |
-        None, "source"}``. On a lookup miss ``{"ok": False, "error": ...}``.
+        None, "source"}``. On a lookup miss / timeout ``{"ok": False, "error":
+        ...}``.
     """
-    lookup = lookup_compound(name)
+    budget = DEFAULT_RESOLVE_TIMEOUT if timeout is None else timeout
+
+    # Canonical display name: strip + collapse internal whitespace (casing is
+    # preserved for display; ``_make_entity_id`` lowercases for the id). Used for
+    # entity-id derivation and the entity's ``name`` so the same compound under
+    # different whitespace resolves to ONE MolecularEntity (idempotency).
+    display_name = " ".join(str(name).split()) or name
+
+    # Fast path: an already-resolved compound (any casing/whitespace) is served
+    # straight from the shared in-process cache — no lookup, no throttle, no
+    # timeout. This makes a repeated compound instant across resolve_compound
+    # calls (Issue #252), the common case in a multi-compound run.
+    cache_key = normalize_compound_name(name)
+    cached = compound_cache.get(cache_key) if cache_key else None
+    if cached is not None and cached.get("found"):
+        lookup = cached
+    else:
+        # Bound the (network-bound) lookup and cap how many resolves run it at
+        # once, so a slow compound returns gracefully and a burst does not
+        # 429-storm PubChem.
+        def _do_lookup() -> dict[str, Any]:
+            with resolve_concurrency.slot():
+                return lookup_compound(name)
+
+        try:
+            completed, lookup = run_with_timeout(_do_lookup, budget)
+        except Exception as exc:  # a lookup that raised — fail gracefully
+            logger.exception("resolve_compound lookup failed for '%s'", name)
+            return {"ok": False, "error": f"Compound '{name}' lookup failed: {exc}"}
+        if not completed:
+            return {
+                "ok": False,
+                "error": (
+                    f"Compound '{name}' resolution exceeded its {budget:g}s "
+                    "timeout; skipped to avoid stalling the run."
+                ),
+            }
+
     if not lookup.get("found"):
         return {
             "ok": False,
             "error": lookup.get("error", f"Compound '{name}' not found"),
         }
+
+    # Warm the shared cache (name + resolved CAS / CID alias keys) so the CAS and
+    # PubChem-CID verifications below reuse this authoritative record instead of
+    # firing two more PubChem round-trips (Issue #252). Keyed by normalized name,
+    # so a later resolve of the same compound (any casing) is an instant hit.
+    warm_compound_cache(name, lookup)
 
     data = lookup.get("data") or {}
 
@@ -1219,15 +1297,17 @@ def resolve_compound(
             merged_hints[key] = value
 
     # Idempotent: reuse the deterministically-keyed MolecularEntity if present,
-    # refreshing its looked-up fields, rather than minting a duplicate.
-    entity_id = _make_entity_id("chem", name, merged_hints)
+    # refreshing its looked-up fields, rather than minting a duplicate. The id is
+    # derived from the whitespace-normalized display name, so the same compound
+    # under different spacing maps to ONE entity.
+    entity_id = _make_entity_id("chem", display_name, merged_hints)
     existing = state.get_entity(entity_id)
     if existing is not None and existing.type == "MolecularEntity":
         entity = existing
-        refreshed = {**merged_hints, "name": name}
+        refreshed = {**merged_hints, "name": display_name}
         entity.set_fields_from_dict(refreshed, source="lookup")
     else:
-        entity = draft_molecular_entity(state, name, merged_hints)
+        entity = draft_molecular_entity(state, display_name, merged_hints)
 
     identifiers = {
         key: data[key]
@@ -1260,7 +1340,7 @@ def resolve_compound(
 
     return {
         "entity_id": entity.entity_id,
-        "name": name,
+        "name": display_name,
         "identifiers": identifiers,
         "verifications": verifications,
         "verified": verified,
