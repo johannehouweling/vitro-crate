@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -211,6 +212,14 @@ class AgentEngine:
         self.human_interface = human_interface
         self._running = False
         self.profiler: ProfilingLogger | None = None
+        # Optional tool-event observer (#266): invoked at the start and end of
+        # every ``run_tool`` call with ``(tool_name, "start"|"end")``. Default
+        # ``None`` is a strict no-op (no behavior change). The deterministic
+        # pipeline runs tools via ``run_tool`` (not LangChain), so this is the
+        # single hook the interactive build's progress spinner subscribes to in
+        # order to show the currently-running tool. A callback that raises must
+        # never break ``run_tool`` (it is UI chrome).
+        self.on_tool_event: Callable[[str, str], None] | None = None
         # Per-session memo of build_and_validate results keyed on
         # (validation-input hash, profile, severity) so consecutive validations
         # of an unchanged crate skip the ~3.7s SHACL re-run (#155).
@@ -451,12 +460,33 @@ class AgentEngine:
         )
         return None
 
+    def _fire_tool_event(self, tool_name: str, phase: str) -> None:
+        """Notify the optional ``on_tool_event`` observer (#266).
+
+        Best-effort: a ``None`` observer is a no-op, and an observer that raises
+        is logged but never propagated — the callback is UI chrome (the interactive
+        build's progress spinner) and must never break a tool call.
+        """
+        cb = self.on_tool_event
+        if cb is None:
+            return
+        try:
+            cb(tool_name, phase)
+        except Exception:  # noqa: BLE001 — a UI callback must never break run_tool
+            logger.debug("on_tool_event(%s, %s) raised", tool_name, phase, exc_info=True)
+
     def run_tool(self, tool_name: str, **kwargs) -> Any:
         """Execute a tool by name with kwargs.
 
         Looks up the tool function from the registry and calls it.
         Records the call in the reasoning log and the profiling log
         (if a profiler is active).
+
+        Fires the optional ``on_tool_event`` observer with ``(tool_name, "start")``
+        before and ``(tool_name, "end")`` after the call (#266) — the "end" event
+        fires even when the tool raises (``finally``-guarded), and a raising
+        observer never breaks the call. The observer defaults to ``None`` (a strict
+        no-op), so behaviour is unchanged when it is unset.
 
         Args:
             tool_name: Name of the tool to execute.
@@ -468,6 +498,14 @@ class AgentEngine:
         Raises:
             ValueError: If the tool name is not recognised.
         """
+        self._fire_tool_event(tool_name, "start")
+        try:
+            return self._run_tool_impl(tool_name, **kwargs)
+        finally:
+            self._fire_tool_event(tool_name, "end")
+
+    def _run_tool_impl(self, tool_name: str, **kwargs) -> Any:
+        """The actual tool dispatch (wrapped by :meth:`run_tool` for events)."""
         import time as _time
 
         _start = _time.perf_counter()

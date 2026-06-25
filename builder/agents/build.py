@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import inspect
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from builder.agents.progress_spinner import ProgressSpinner
 from builder.tools.hitl import is_interactive
 from builder.tools.session import save_session
 
@@ -139,8 +141,81 @@ def run_interactive_build(
     Raises:
         CrateExportError: If the final on-disk export fails (surfaced first).
     """
-    emit: OutputChannel = output or (lambda _msg: None)
+    base_emit: OutputChannel = output or (lambda _msg: None)
+    human: HumanInterface | None = getattr(engine, "human_interface", None)
+    interactive = is_interactive(human)
 
+    # Live progress spinner (#266): only on the REAL interactive path (an
+    # interactive HumanInterface — the CLI's ConsoleHumanInterface), so the
+    # headless / simulated path (the A/B eval, batch, tests) stays completely
+    # silent — no spinner, no daemon thread, no stdout noise — and the built
+    # @graph hash is unperturbed (the spinner is pure UI). When active it:
+    #   * subscribes to engine.on_tool_event so the live region shows the
+    #     currently-running deterministic tool (the pipeline runs tools via
+    #     engine.run_tool, not LangChain, so this is the only per-tool signal), and
+    #   * receives the existing #253 phase-progress strings via set_current.
+    # The prior engine.on_tool_event hook is restored afterwards.
+    spinner: ProgressSpinner | None = ProgressSpinner() if interactive else None
+    emit = _spinner_emit(base_emit, spinner)
+    prior_tool_event = engine.on_tool_event
+    if spinner is not None:
+        engine.on_tool_event = lambda tool, _phase: (
+            spinner.set_current(tool) if _phase == "start" else None
+        )
+
+    spinner_ctx = spinner if spinner is not None else nullcontext()
+    try:
+        with spinner_ctx:
+            return _run_build_body(
+                engine,
+                human=human,
+                interactive=interactive,
+                emit=emit,
+                pipeline_runner=pipeline_runner,
+                guidance_runner=guidance_runner,
+                exporter=exporter,
+            )
+    finally:
+        # Restore the prior tool-event hook even if the build raised (#266).
+        engine.on_tool_event = prior_tool_event
+
+
+def _spinner_emit(base_emit: OutputChannel, spinner: ProgressSpinner | None) -> OutputChannel:
+    """Wrap *base_emit* so each progress line also drives the spinner (#266).
+
+    With no spinner this is exactly *base_emit* (a strict pass-through — the
+    headless path is unchanged). With a spinner, every emitted line is fed into
+    ``spinner.set_current`` (the live region shows the latest phase, e.g. the
+    #253 ``Scaffolding ISA backbone…`` strings) **and** still forwarded to
+    *base_emit* so persistent lines (``Scanning ✓``, the guidance summary, the
+    final ``Crate written to <path>``) print above the spinner as before.
+    """
+    if spinner is None:
+        return base_emit
+
+    def emit(msg: str) -> Any:
+        spinner.set_current(msg)
+        return base_emit(msg)
+
+    return emit
+
+
+def _run_build_body(
+    engine: AgentEngine,
+    *,
+    human: HumanInterface | None,
+    interactive: bool,
+    emit: OutputChannel,
+    pipeline_runner: PipelineRunner | None,
+    guidance_runner: GuidanceRunner | None,
+    exporter: Exporter | None,
+) -> dict[str, Any]:
+    """Run the pipeline → (guidance) → export → save sequence (#266 spinner body).
+
+    Split out of :func:`run_interactive_build` so the spinner context manager can
+    wrap the whole build (pipeline + guidance) with the wiring decisions made once
+    by the caller. Behaviour is identical to the pre-#266 inline body.
+    """
     # Progress (#241): the input is already scanned by engine.initialize(); lead
     # with a concise inventory line so the user sees the build picking up.
     scanned = len(getattr(engine.state, "scanned_files", []) or [])
@@ -150,8 +225,7 @@ def run_interactive_build(
     pipeline_runner = pipeline_runner or _default_pipeline_runner()
     pipeline_result = _run_pipeline_with_progress(pipeline_runner, engine, emit)
 
-    human: HumanInterface | None = getattr(engine, "human_interface", None)
-    if not is_interactive(human):
+    if not interactive:
         # Headless / simulated: run the automated pipeline ALONE so the A/B stays
         # a clean automated-vs-automated comparison. No guidance, no summary —
         # but the build is still completed, so it must still be written to disk.

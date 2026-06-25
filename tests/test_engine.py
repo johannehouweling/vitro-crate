@@ -501,3 +501,70 @@ class TestScanRootApproval:
         r = engine.run_tool("scan_files", path=str(sub))
         assert isinstance(r, list) and len(r) == 1
         assert human.present_calls == [], "already-approved path must not prompt"
+
+
+class TestOnToolEvent:
+    """The optional ``on_tool_event`` callback lets the pipeline spinner show the
+    currently-running tool (#266). The deterministic pipeline runs tools via
+    ``engine.run_tool`` (not LangChain), so without this hook there is no
+    per-tool signal. It must default to ``None`` (no behavior change when unset)
+    and must never let a callback exception break ``run_tool``.
+    """
+
+    def test_default_on_tool_event_is_none(self) -> None:
+        """A fresh engine has no tool-event callback (strict no-op by default)."""
+        engine = AgentEngine()
+        assert engine.on_tool_event is None
+
+    def test_callback_fires_start_then_end_when_set(self) -> None:
+        """The callback receives (tool_name, 'start') then (tool_name, 'end')."""
+        engine = AgentEngine()
+        engine.initialize()
+        events: list[tuple[str, str]] = []
+        engine.on_tool_event = lambda name, phase: events.append((name, phase))
+
+        engine.run_tool("draft_investigation", hints={"name": "Inv"})
+
+        assert events == [
+            ("draft_investigation", "start"),
+            ("draft_investigation", "end"),
+        ]
+
+    def test_end_fires_even_when_tool_raises(self) -> None:
+        """The 'end' event still fires when the tool body raises (finally-guarded)."""
+        import pytest
+
+        engine = AgentEngine()
+        engine.initialize()
+        events: list[tuple[str, str]] = []
+        engine.on_tool_event = lambda name, phase: events.append((name, phase))
+
+        with pytest.raises(ValueError):
+            engine.run_tool("nonexistent_tool_xyz")
+
+        # start fired before the lookup; end still fired despite the raise.
+        assert ("nonexistent_tool_xyz", "start") in events
+        assert ("nonexistent_tool_xyz", "end") in events
+
+    def test_unset_callback_no_calls_no_error(self) -> None:
+        """With no callback set, run_tool behaves exactly as before (no error)."""
+        engine = AgentEngine()
+        engine.initialize()
+        # No callback set; must run cleanly and return the entity.
+        result = engine.run_tool("draft_investigation", hints={"name": "X"})
+        assert result is not None
+        assert result.type == "Investigation"
+
+    def test_raising_callback_does_not_break_run_tool(self) -> None:
+        """A callback that raises must not abort the tool call (#266)."""
+        engine = AgentEngine()
+        engine.initialize()
+
+        def _boom(_name: str, _phase: str) -> None:
+            raise RuntimeError("spinner blew up")
+
+        engine.on_tool_event = _boom
+        # The tool still runs and returns its result despite the bad callback.
+        result = engine.run_tool("draft_investigation", hints={"name": "Y"})
+        assert result is not None
+        assert result.fields.get("name") == "Y"
