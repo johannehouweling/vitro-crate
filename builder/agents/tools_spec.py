@@ -59,6 +59,36 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "draft_process_chain",
+        "description": "Create and wire a whole LabProcess derivation chain in ONE idempotent call: Sample ->[CellCulture]-> Sample ->[Exposure]-> table ->[EndpointReadout]-> raw ->[DataAnalysis]-> figures. Pass the parent assay_id and an ordered chain of steps; each step is {process_type, hints?, object?, result?}. Steps are always wired in canonical order (CellCulture->Exposure->EndpointReadout->DataAnalysis) and a subset is fine (partial chains work). CRITICAL: it SYNTHESIZES the missing outputs that EndpointReadout/DataAnalysis require (they have no build-time fallback) so the chain never dangles into a validation error — placeholder File/Sample entities with NO fabricated data. Explicit object/result you pass win over synthesis. Set validate=true to also run build_and_validate. Prefer this over draft_process+link for the standard chain. Example: draft_process_chain(assay_id='assay_cell_viability_assay', chain=[{'process_type':'CellCulture','hints':{'name':'Seed MDCK'}},{'process_type':'Exposure','hints':{'duration':'24h'}},{'process_type':'EndpointReadout','hints':{}},{'process_type':'DataAnalysis','hints':{}}]).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assay_id": {"type": "string", "description": "entity_id of the parent Assay every process belongs to."},
+                "chain": {
+                    "type": "array",
+                    "description": "Ordered list of process steps to create and wire.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "process_type": {
+                                "type": "string",
+                                "enum": ["CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"],
+                                "description": "Which domain LabProcess subtype this step is.",
+                            },
+                            "hints": draft_hints_schema("LabProcess"),
+                            "object": {"type": ["array", "string"], "description": "Explicit input entity id(s) the process consumes (overrides the inherited upstream output)."},
+                            "result": {"type": ["array", "string"], "description": "Explicit output entity id(s) the process produces (overrides synthesis)."},
+                        },
+                        "required": ["process_type"],
+                    },
+                },
+                "validate": {"type": "boolean", "description": "Also run build_and_validate and return it under 'validation'."},
+            },
+            "required": ["assay_id", "chain"],
+        },
+    },
+    {
         "name": "materialize_aop_subgraph",
         "description": "Turn ONE AOP-Wiki id into the full crate subgraph in one call: an AdverseOutcomePathway node plus every KeyEvent (MIE/KE/AO, discriminated by eventType) and KeyEventRelationship, all cross-linked deterministically from AOP-Wiki (never fabricated). Pass only the numeric aop_id; optionally pass study_id to wire the AOP onto that Study (schema:mentions). Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting when you want the whole pathway in the crate. Example: materialize_aop_subgraph(aop_id='610', study_id='study_silychristin_exposure').",
         "parameters": {
