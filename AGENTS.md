@@ -1329,7 +1329,8 @@ Study via `mentions`/`aop`). The only LLM-supplied input is the numeric `aop_id`
 ### 14.4 Migration tasks (each its own `jh-*` branch + PR, TDD)
 
 Pipeline (#179): (1) `fix_required_issues` deterministic repair loop — *the keystone*;
-(2) drafters as real LLM leaves; (3) composite meta-tools incl. `draft_process_chain`
+(2) drafters as real LLM leaves — **done** (see [the drafter-leaf](#the-drafter-leaf-leavespy)
+below); (3) composite meta-tools incl. `draft_process_chain`
 — **done**: it synthesizes the EndpointReadout/DataAnalysis outputs the build has no
 fallback for (closing the §14.3 Violation trap) and wires the whole chain in one
 idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine — **done as an
@@ -1339,6 +1340,34 @@ deterministic, code-driven orchestrator that does NOT yet replace the
 via the eval harness (`python -m eval --arch pipeline`) so the A/B gate (task 6)
 can prove it before any cutover; (5) shrink tail agent; (6) **A/B eval harness —
 decision gate**; (7) prompt + docs.
+
+#### The drafter-leaf (`leaves.py`)
+
+Task 2's "Leaves = cheap model" primitive (§14.2). `builder/agents/leaves.py`
+exposes a single pure function — **`draft_entity_fields(entity_type: str,
+context: str, *, model: str | None = None) -> dict`** — the smallest unit of LLM
+work in the pipeline: free-text/context in → a structured dict of one entity's
+fields out, in a **single bounded model call**. It is a **library leaf, not an
+LLM-callable tool** — the deterministic spine (task 4) imports and calls it; the
+ReAct agent never sees it, so it needs **no four-place tool registration**. It
+does **not** mutate `CrateState` and does **not** orchestrate; the spine feeds
+its result into the deterministic `draft_*` state mutators.
+
+Contract:
+- **Drafter tier.** The call goes through `_build_chat_model(role="drafter")`
+  (§4.4), so a cheap model does the extraction. With no drafter model configured
+  this resolves to the primary model — a strict no-op.
+- **Structured output.** The output is constrained by the entity's typed hint
+  schema `_crate_mapping.draft_hints_schema(entity_type)` via the model's
+  structured-output / function-calling, so the returned dict validates against
+  that schema. The schema gets a top-level `title` (`<EntityType>Fields`) so
+  langchain can use it directly as a function spec.
+- **D5 — no fabricated identifiers.** Identifier-bearing scalar fields (CAS /
+  InChIKey / SMILES / PubChem CID / ORCID / ROR / DOI / Cellosaurus accession /
+  ontology codes / IRIs) and all entity-reference fields (`_REF_FIELDS`) are
+  **removed from the schema the model sees** — it is never even asked for an
+  identifier — *and* defensively stripped from the result. Those fields are left
+  empty for a downstream **lookup** to fill, never guessed.
 
 Toolbox completion (companion issue, parallel disjoint lanes): `materialize_aop_subgraph`;
 ~~the identifier-PropertyValue family~~ **done (#180)** — landed as deterministic

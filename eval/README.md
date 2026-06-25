@@ -58,17 +58,30 @@ data — all inputs are in-repo and offline:
 |-----------|--------|-------------------|
 | `minimal-backbone` | `minimal` | Build a conformant ISA-Tox backbone from a short brief. |
 | `structured-svhps21` | `structured` | Scan the in-repo `tests/fixtures/svhps21_input` folder (README + raw/processed CSVs) and build from its structured metadata. |
+| `structured-svhps22` | `structured` | **Entity-drafting** case: scan a *richer* `tests/fixtures/svhps22_input` folder (README naming a compound + cell line + protocol, plus raw/processed CSVs) and draft the full ISA-Tox domain set. Carries a `min_entities` content quota (below). |
 | `unstructured-conversation` | `unstructured` | No metadata files — the whole crate is elicited from the prompt. |
 
 **Success predicate** (shared, strict): a case succeeds when its crate reaches
 `{base, isa, tox}` REQUIRED conformance via `build_and_validate`
 (`reaches_isa_tox_conformance`).
 
+**Content-quality signal** (additive, per-case): conformance only measures whether
+the agent *acted* — an almost-empty backbone can pass it. A case may also declare
+`min_entities` (a minimum count of domain entities by `@type`); the harness then
+records `meets_quota` + `entity_counts` (`meets_entity_quota`) so the A/B can
+compare whether the drafted *content* is actually there, not just that the agent
+acted. `min_entities` never changes the success predicate — cases without it report
+`meets_quota = None`. The `structured-svhps22` case uses it to demand a compound, a
+cell line, and both attached data files; `structured-svhps21` (conformance-only)
+is deliberately kept as the looser baseline.
+
 ## The metrics
 
 Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runner.py)):
 
 - **success** (bool) + the per-layer **conformance** map;
+- **content quality** — `meets_quota` (bool / `None`) + `entity_counts`, recorded for
+  cases that declare a `min_entities` quota (see above); `None` otherwise;
 - **tokens** — input / output / total, summed from the run's `profile.ndjson`
   (`node_end`/`model` events);
 - **latency** — wall-clock seconds for the build;
