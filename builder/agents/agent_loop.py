@@ -230,6 +230,182 @@ _FILE_READ_TOOLS = frozenset(
 # from the agent itself or from the backstop.
 _EXPORTED_FLAG = "_crate_exported_this_session"
 
+# ---------------------------------------------------------------------------
+# Issue #263: stall recovery (Fix A) + autonomous continuation (Fix B)
+# ---------------------------------------------------------------------------
+
+# Per-request wall-clock timeout default (seconds) for the chat model when no
+# VITRO_REQUEST_TIMEOUT is set. A real --legacy-react run hung with a 349s+ model
+# invoke and no timeout, so the turn never ended and the #254 backstop never ran.
+_DEFAULT_REQUEST_TIMEOUT = 120.0
+
+# Maximum autonomous (non-prompted) re-invocations the loop will chain off a
+# single user message before checking back in with the user. Bounds the
+# auto-continue so narration can never spin forever (Fix B).
+_MAX_AUTONOMOUS_TURNS = 15
+
+# How many consecutive empty completions (no tool calls and ~empty text) end the
+# turn gracefully. The first empty is one strike; we retry ONCE, so the second
+# empty stops the auto-continue and lets the #254 finish-backstop run (Fix A).
+_MAX_EMPTY_COMPLETIONS = 2
+
+# Internal directive injected on an autonomous re-invocation (Fix B). It is NOT
+# read from stdin — the loop continues the agent toward a complete, validated,
+# exported crate and tells it to only ask when it genuinely needs input.
+_AUTO_CONTINUE_DIRECTIVE = (
+    "Continue working autonomously toward a complete, validated, and exported "
+    "ISA-Tox RO-Crate. Take the next concrete step (draft the missing entities, "
+    "wire the process chain, attach files, then build_and_validate and "
+    "export_crate). Do not ask me to confirm routine steps — only ask a question "
+    "if you genuinely need information that only I can provide."
+)
+
+# Lower-cased openers that mark an interrogative reply even without a trailing
+# '?' (a weak model often drops the mark). Kept deliberately small and specific
+# so plain narration ("Let me draft...") is never mistaken for a question.
+_INTERROGATIVE_OPENERS = (
+    "could you",
+    "can you",
+    "would you",
+    "will you",
+    "do you",
+    "did you",
+    "should i",
+    "shall i",
+    "which ",
+    "what ",
+    "where ",
+    "when ",
+    "who ",
+    "how ",
+    "are you",
+    "is it",
+    "please confirm",
+    "please provide",
+    "please specify",
+    "let me know",
+)
+
+
+def _reply_is_question(reply: str | None) -> bool:
+    """Return True when the agent's final reply is a genuine question to the user.
+
+    Issue #263 (Fix B): after a turn ends the loop must decide whether to prompt
+    the user or auto-continue. This is the deterministic heuristic for "the agent
+    is actually asking me something":
+
+    1. The (stripped) reply ends with ``?`` — the strongest signal; a trailing
+       question mark anywhere on the last non-empty line counts so a question
+       after a line of narration is still caught.
+    2. OR the reply opens with a known interrogative phrase (``could you``,
+       ``which``, ``please confirm`` …) — a fallback for when a weak model drops
+       the question mark.
+
+    Empty/whitespace-only replies are never questions (they are the stall
+    symptom, handled by the empty-completion recovery). The heuristic is
+    intentionally conservative: it errs toward auto-continue (narration) rather
+    than re-prompting, because the bug being fixed is *over*-prompting.
+    """
+    if not reply:
+        return False
+    text = reply.strip()
+    if not text:
+        return False
+    # A trailing '?' on the last non-empty line is the clearest question signal.
+    last_line = text.splitlines()[-1].strip()
+    if last_line.endswith("?"):
+        return True
+    lowered = text.lower()
+    return any(lowered.startswith(opener) for opener in _INTERROGATIVE_OPENERS)
+
+
+def _crate_is_complete(engine: AgentEngine) -> bool:
+    """Return True when the crate has entities AND validation fully passes.
+
+    Issue #263 (Fix B): completion short-circuits the autonomous loop so the
+    agent stops re-invoking once there is nothing left to do. "Complete" means
+    the in-memory crate is non-empty and the last write-back of
+    ``state.validation`` (populated by ``build_and_validate`` via the #153
+    write-back) shows all three profiles passing with no REQUIRED gaps. This is a
+    pure read over engine state and never raises.
+    """
+    try:
+        if not engine.state.list_entities():
+            return False
+        val = engine.state.validation
+        return bool(
+            val.base_passed
+            and val.isa_passed
+            and val.tox_passed
+            and not val.required_issues
+        )
+    except Exception:  # noqa: BLE001 — a completeness probe must never raise.
+        logger.debug("completeness probe failed", exc_info=True)
+        return False
+
+
+def _reply_is_empty_completion(reply: str | None) -> bool:
+    """Return True when a turn produced no meaningful text (the stall symptom).
+
+    A bare/whitespace reply with no tool activity is the empty completion the
+    weak model emits when it stalls (#263 Fix A). We treat very short non-word
+    replies as empty too (e.g. a lone ``.``).
+    """
+    if not reply:
+        return True
+    return not reply.strip()
+
+
+def _invoke_with_timeout(
+    app: Any,
+    payload: dict[str, Any],
+    config: Any,
+    *,
+    timeout: float,
+) -> tuple[dict[str, Any] | None, str]:
+    """Run ``app.invoke(payload, config)`` under a wall-clock guard (#263 Fix A).
+
+    The provider-level request timeout on the chat model is the first line of
+    defence, but a hung graph (or a provider that ignores its own timeout) could
+    still block the turn forever — which is exactly what happened in the reported
+    run (349s+ with no response). This runs the invoke on a daemon worker thread
+    and waits at most ``timeout`` seconds for it:
+
+    - completes in time → ``(result, "ok")``
+    - raises inside invoke → ``(None, "error")`` (the exception is logged, never
+      propagated, so it can never escape the loop)
+    - exceeds ``timeout`` → ``(None, "timeout")`` — the worker is abandoned as a
+      daemon thread (it cannot block process exit) and the turn ends gracefully
+      so the existing #254 finish-backstop can still run.
+
+    This function NEVER raises and NEVER hangs longer than ``timeout``.
+    """
+    outcome: dict[str, Any] = {"result": None, "error": None}
+
+    def _worker() -> None:
+        try:
+            outcome["result"] = app.invoke(payload, config)
+        except BaseException as exc:  # noqa: BLE001 — captured, surfaced as "error".
+            # Capture *everything* (including provider SDK errors) so nothing
+            # escapes the worker thread and crashes the loop. Genuinely fatal
+            # signals on the main thread (KeyboardInterrupt) are unaffected.
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=_worker, daemon=True, name="vitro-model-invoke")
+    worker.start()
+    worker.join(timeout)
+
+    if worker.is_alive():
+        logger.warning(
+            "Model invoke exceeded %.1fs wall-clock timeout; ending turn gracefully",
+            timeout,
+        )
+        return None, "timeout"
+    if outcome["error"] is not None:
+        logger.warning("Model invoke raised: %s", outcome["error"])
+        return None, "error"
+    return outcome["result"], "ok"
+
 
 def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> str:
     """Actionable message for the LLM when a file reader can't return text.
@@ -371,12 +547,39 @@ def _detect_provider() -> str | None:
     return None
 
 
+def _get_request_timeout() -> float:
+    """Return the per-request wall-clock timeout (seconds) for the chat model.
+
+    Issue #263: a real ``--legacy-react`` run hung when the final model invoke
+    ran 349s+ with no response and no timeout, so the turn never ended and the
+    #254 finish-backstop never exported. A finite request timeout is the first
+    line of defence (the loop's wall-clock guard in :func:`_invoke_with_timeout`
+    is the second). Precedence:
+
+        1. Environment variable ``VITRO_REQUEST_TIMEOUT`` (seconds)
+        2. Built-in default (120s)
+
+    A non-positive or unparseable value falls back to the default so the model
+    is never built without a finite timeout.
+    """
+    env_val = os.environ.get("VITRO_REQUEST_TIMEOUT")
+    if env_val is not None:
+        try:
+            parsed = float(env_val)
+            if parsed > 0:
+                return parsed
+        except (ValueError, TypeError):
+            pass
+    return _DEFAULT_REQUEST_TIMEOUT
+
+
 def _build_chat_model(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
     max_retries: int | None = None,
     role: str = "orchestrator",
+    timeout: float | None = None,
 ) -> Any:
     """Build a LangChain chat model for the given or detected provider.
 
@@ -402,6 +605,10 @@ def _build_chat_model(
             Falls back to ``OPENAI_BASE_URL`` env var, then provider default.
         role: ``"orchestrator"`` (default) or ``"drafter"``. Selects the model
             tier when ``model`` is not given explicitly.
+        timeout: Per-request wall-clock timeout in seconds wired onto the model
+            (Issue #263). Falls back to ``VITRO_REQUEST_TIMEOUT`` then a finite
+            built-in default so the model is never built without one — a silent
+            provider stall can never hang a turn forever.
 
     Returns:
         A LangChain ``BaseChatModel`` instance.
@@ -412,6 +619,9 @@ def _build_chat_model(
     if max_retries is None:
         env_val = os.environ.get("VITRO_MAX_RETRIES")
         max_retries = int(env_val) if env_val is not None else 3
+
+    if timeout is None:
+        timeout = _get_request_timeout()
 
     provider = provider or _detect_provider()
     if provider is None:
@@ -450,6 +660,8 @@ def _build_chat_model(
             "model": resolved_model,
             "temperature": 0,
             "max_retries": max_retries,
+            # "timeout" is the public alias of ChatOpenAI.request_timeout (#263).
+            "timeout": timeout,
         }
         if api_key:
             kwargs["api_key"] = api_key
@@ -471,6 +683,9 @@ def _build_chat_model(
             "model": resolved_model,
             "temperature": 0,
             "max_retries": max_retries,
+            # "timeout" is the public alias of ChatAnthropic
+            # .default_request_timeout (#263).
+            "timeout": timeout,
         }
         if api_key:
             kwargs["api_key"] = api_key
@@ -1302,7 +1517,13 @@ def run_interactive_agent(
     from langchain_core.runnables import RunnableConfig
 
     tools = _build_langchain_tools(engine)
-    llm = _build_chat_model(provider=provider, model=model, base_url=base_url)
+    # The wall-clock guard (#263 Fix A) uses the same finite timeout that is
+    # wired onto the chat model, so the loop-level guard and the provider-level
+    # request timeout agree.
+    request_timeout = _get_request_timeout()
+    llm = _build_chat_model(
+        provider=provider, model=model, base_url=base_url, timeout=request_timeout
+    )
 
     # Build the explicit StateGraph instead of using create_agent()
     # The system prompt is prepended by the model node on every invocation.
@@ -1556,12 +1777,17 @@ def run_interactive_agent(
             "callbacks": [_ToolSpinnerCallback(spinner)],
         }
         with spinner:
-            result = app.invoke(
+            # Wall-clock guard (#263 Fix A): a hung greeting must never block the
+            # session from starting. On timeout/error we fall through to the
+            # static fallback panel below.
+            result, outcome = _invoke_with_timeout(
+                app,
                 {"messages": [HumanMessage(content=greeting_prompt)]},
                 greeting_config,
+                timeout=request_timeout,
             )
         root_logger.setLevel(old_root_level)
-        reply = _extract_reply(result)
+        reply = _extract_reply(result) if (outcome == "ok" and result) else ""
         if reply:
             _print_reply(reply)
         else:
@@ -1632,6 +1858,124 @@ def run_interactive_agent(
         """
         _finish_backstop(engine, emit=console.print)
 
+    import random
+
+    TOX_SPINNER_PHRASES = [
+        "intoxicating",
+        "ro-creating",
+        "culturing",
+        "FAIR-washing",
+        "re-FAIR-ifying",
+        "blaming the student",
+        "appeasing the cells",
+        "fighting reviewer 2",
+        "haggling the IC50",
+        "bribing the curve",
+        "vortexing",
+        "rehydrating",
+        "titrating",
+        "resuspending",
+        "denaturing self-doubt",
+        "autoclaving",
+        "thawing the -80",
+        "centrifuging",
+        "pipetting",
+        "decoding",
+        "finding a working pipette",
+        "side-eyeing",
+        "labelling 'compound X'",
+        "miscounting colonies",
+        "warming up, emotionally",
+        "manifesting p<0.05",
+        "praying to FAIR gods",
+        "hallucinating responsibly",
+        "FAIR-ifying",
+        "exposing",
+        "meta-dating",
+        "re-using",
+        "finding",
+        "interoperating",
+        "re-using, eventually",
+        "double-gloving",
+        "brewing coffee",
+        "replacing, reducing, refusing",
+    ]
+
+    def _run_turn(message_content: str) -> tuple[str, str]:
+        """Run ONE model invocation and return ``(reply, outcome)`` (#263).
+
+        Wraps the spinner, the wall-clock timeout guard (:func:`_invoke_with_timeout`),
+        reply printing, and the best-effort session save. ``outcome`` is one of
+        ``"ok"`` / ``"timeout"`` / ``"error"`` / ``"recursion"``. This NEVER
+        raises and NEVER hangs longer than ``request_timeout`` — so the caller
+        (the main loop / autonomous continuation) can always fall through to the
+        #254 finish-backstop on the exit path.
+        """
+        # Temporarily mute WARNING+ logs to avoid interleaving with the spinner.
+        root_logger = logging.getLogger()
+        old_root_level = root_logger.level
+        root_logger.setLevel(logging.ERROR)
+
+        spinner = _ThinkingSpinner(console, random.choice(TOX_SPINNER_PHRASES))
+        main_config = {
+            **thread_config,
+            "callbacks": [_ToolSpinnerCallback(spinner)],
+        }
+        outcome = "ok"
+        reply = ""
+        try:
+            with spinner:
+                result, outcome = _invoke_with_timeout(
+                    app,
+                    {"messages": [HumanMessage(content=message_content)]},
+                    main_config,
+                    timeout=request_timeout,
+                )
+        except GraphRecursionError:
+            # The turn hit the recursion_limit safety net — treat as a graceful
+            # end so the loop stops auto-continuing and the backstop can run.
+            outcome = "recursion"
+        finally:
+            root_logger.setLevel(old_root_level)
+
+        if outcome == "ok" and result:
+            reply = _extract_reply(result)
+            if reply:
+                _print_reply(reply)
+        elif outcome == "timeout":
+            console.print(
+                "[yellow]The model stopped responding[/yellow] and I ended this "
+                "step to avoid hanging. Your work so far is saved."
+            )
+            console.print()
+        elif outcome == "recursion":
+            console.print(
+                "[yellow]I reached the step limit for this request[/yellow] and "
+                "stopped to avoid an endless loop. Your session is saved — try a "
+                "smaller or more specific request, or ask me to continue."
+            )
+            console.print()
+        elif outcome == "error":
+            console.print(
+                "[yellow]I hit an error on that step[/yellow] and stopped. Your "
+                "work so far is saved."
+            )
+            console.print()
+
+        # Best-effort session autosave (always attempted, even on a bad outcome).
+        try:
+            from builder.tools.session import save_session
+
+            save_result = save_session(engine.state, always_write=(outcome != "ok"))
+            if not save_result.get("success", True):
+                logger.warning(
+                    "Session save failed: %s", save_result.get("error", "Unknown error")
+                )
+        except Exception:
+            logger.exception("Unexpected error during session save")
+
+        return reply, outcome
+
     # ── Main loop ───────────────────────────────────────────────────────
     while True:
         try:
@@ -1661,108 +2005,71 @@ def run_interactive_agent(
         if not user_input:
             continue
 
+        # ── One user message → possibly several model turns ─────────────────
+        # Fix B (#263): after the first (user-driven) turn, decide deterministically
+        # whether to PROMPT the user (a genuine question) or AUTO-CONTINUE the
+        # agent without reading stdin (it just narrated/worked). The autonomous
+        # run is bounded by _MAX_AUTONOMOUS_TURNS and stops as soon as the crate
+        # is complete. Fix A (#263): consecutive empty completions (the stall
+        # symptom) end the run after one retry so the #254 backstop can land the
+        # crate. _run_turn never raises and never hangs past request_timeout, so
+        # an exception can never escape this loop body.
         try:
-            import random
+            message = user_input
+            empty_streak = 0
+            for _autonomous_turn in range(_MAX_AUTONOMOUS_TURNS + 1):
+                reply, outcome = _run_turn(message)
 
-            TOX_SPINNER_PHRASES = [
-                "intoxicating",
-                "ro-creating",
-                "culturing",
-                "FAIR-washing",
-                "re-FAIR-ifying",
-                "blaming the student",
-                "appeasing the cells",
-                "fighting reviewer 2",
-                "haggling the IC50",
-                "bribing the curve",
-                "vortexing",
-                "rehydrating",
-                "titrating",
-                "resuspending",
-                "denaturing self-doubt",
-                "autoclaving",
-                "thawing the -80",
-                "centrifuging",
-                "pipetting",
-                "decoding",
-                "finding a working pipette",
-                "side-eyeing",
-                "labelling 'compound X'",
-                "miscounting colonies",
-                "warming up, emotionally",
-                "manifesting p<0.05",
-                "praying to FAIR gods",
-                "hallucinating responsibly",
-                "FAIR-ifying",
-                "exposing",
-                "meta-dating",
-                "re-using",
-                "finding",
-                "interoperating",
-                "re-using, eventually",
-                "double-gloving",
-                "brewing coffee",
-                "replacing, reducing, refusing",
-            ]
+                # A non-ok outcome (timeout / error / recursion) ends the turn
+                # gracefully; fall back to prompting the user.
+                if outcome != "ok":
+                    break
 
-            # Temporarily mute WARNING+ logs to avoid interleaving with spinner
-            root_logger = logging.getLogger()
-            old_root_level = root_logger.level
-            root_logger.setLevel(logging.ERROR)
+                # Empty-completion recovery (Fix A): retry ONCE, then stop.
+                if _reply_is_empty_completion(reply):
+                    empty_streak += 1
+                    if empty_streak >= _MAX_EMPTY_COMPLETIONS:
+                        logger.info(
+                            "Ending turn after %d consecutive empty completions",
+                            empty_streak,
+                        )
+                        break
+                    message = _AUTO_CONTINUE_DIRECTIVE
+                    continue
+                empty_streak = 0
 
-            # Create a fresh thinking spinner + callback for this iteration
-            spinner = _ThinkingSpinner(console, random.choice(TOX_SPINNER_PHRASES))
-            main_config = {
-                **thread_config,
-                "callbacks": [_ToolSpinnerCallback(spinner)],
-            }
-            with spinner:
-                result = app.invoke(
-                    {"messages": [HumanMessage(content=user_input)]},
-                    main_config,
+                # A genuine question → stop and prompt the user (current
+                # behavior). A user-typed message still overrides next loop.
+                if _reply_is_question(reply):
+                    break
+
+                # The crate is finished → stop auto-continuing and check in.
+                if _crate_is_complete(engine):
+                    logger.info("Crate complete — ending autonomous run")
+                    break
+
+                # Otherwise the agent just narrated/worked → AUTO-CONTINUE with
+                # an internal directive, WITHOUT reading stdin. The cap on the
+                # enclosing range bounds this so it can never spin forever.
+                message = _AUTO_CONTINUE_DIRECTIVE
+            else:
+                # The for-loop exhausted the cap without breaking → check in.
+                logger.info(
+                    "Reached max autonomous turns (%d) — checking in with the user",
+                    _MAX_AUTONOMOUS_TURNS,
                 )
-
-            root_logger.setLevel(old_root_level)
-            reply = _extract_reply(result)
-            if reply:
-                _print_reply(reply)
-
-            try:
-                from builder.tools.session import save_session
-
-                result = save_session(engine.state)
-                if not result.get("success", True):
-                    logger.warning("Session save failed: %s", result.get("error", "Unknown error"))
-                    console.print(
-                        "[dim]⚠ Session autosave failed: "
-                        f"{result.get('error', 'Unknown error')}[/dim]"
-                    )
-            except Exception:
-                # Fallback: logging is best-effort
-                logger.exception("Unexpected error during session save")
-
-        except GraphRecursionError:
-            # The turn hit the recursion_limit safety net — stop gracefully
-            # instead of surfacing a raw error, and persist the session.
-            root_logger.setLevel(old_root_level)
-            console.print(
-                "[yellow]I reached the step limit for this request[/yellow] and "
-                "stopped to avoid an endless loop. Your session is saved — try a "
-                "smaller or more specific request, or ask me to continue."
-            )
-            try:
-                from builder.tools.session import save_session
-
-                result = save_session(engine.state, always_write=True)
-                if not result.get("success", True):
-                    logger.warning(
-                        "Session save on recursion error failed: %s",
-                        result.get("error", "Unknown error"),
-                    )
-            except Exception:
-                logger.exception("Unexpected error during session save on recursion")
+                console.print(
+                    "[dim]I've worked autonomously for a while — let me know how "
+                    "you'd like to proceed.[/dim]"
+                )
+                console.print()
+        except KeyboardInterrupt:
+            # Ctrl+C during a turn / the autonomous run: stop working and return
+            # to the prompt so the user can interject (preserve interruptibility).
             console.print()
-        except Exception as exc:
+            console.print("[dim]Stopped — back to you.[/dim]")
+            console.print()
+        except Exception as exc:  # noqa: BLE001 — the loop must never crash.
             logger.exception("Agent error")
             console.print(f"[red bold]Error:[/red bold] {exc}")
             console.print()
