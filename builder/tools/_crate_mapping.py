@@ -17,10 +17,12 @@ local fragment; Files use a relative URI path.
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from rocrate.model import ContextEntity, DataEntity, File, Person
@@ -35,6 +37,8 @@ from profiles.models.tox import (
     LabProcessEndpointReadout,
     LabProcessExposure,
 )
+
+logger = logging.getLogger(__name__)
 
 ROCRATE_SPEC = "https://w3id.org/ro/crate/1.2"
 # The ISA layer the tox profile actually extends (profiles/shapes/tox/profile.ttl
@@ -510,11 +514,47 @@ def _mint_id(entity: Entity) -> str:
     return "#" + _slug(t) + "_" + eid
 
 
+def _contain_dest(raw: str, fallback: str) -> str:
+    """Contain a crate-relative ``dest_path`` so it can never escape the crate
+    output dir (#167).
+
+    ``ro-crate-py`` writes a File at ``output_dir / dest_path`` and only blocks
+    *absolute* dest paths, so an LLM/injection-set ``../../../escaped.csv`` would
+    write source bytes **outside** the crate. This normalises *raw*, rejects an
+    absolute path or any ``..`` component that climbs out of the crate root, and
+    falls back to a safe in-crate *fallback* (``data/<slug>``) when the requested
+    destination would escape. A remote URL is left untouched (it is not a write).
+    """
+    if raw.startswith(("http://", "https://")) or raw.startswith("#"):
+        return raw
+    # Absolute paths (POSIX or drive/UNC) can never stay inside the crate root.
+    pure = Path(raw)
+    if pure.is_absolute() or raw.startswith(("/", "\\")):
+        logger.warning("Refusing absolute dest_path %r; falling back to %r", raw, fallback)
+        return fallback
+    # Normalise and reject anything that climbs above the crate root.
+    normalized = PurePosixPath(os.path.normpath(raw.replace("\\", "/")))
+    parts = normalized.parts
+    if not parts or parts[0] in ("..", os.pardir) or any(p == ".." for p in parts):
+        logger.warning("Refusing traversal dest_path %r; falling back to %r", raw, fallback)
+        return fallback
+    return normalized.as_posix()
+
+
 def _file_dest(fe: Entity) -> str:
-    """A relative URI path for a File data entity."""
+    """A relative URI path for a File data entity, contained to the crate root.
+
+    The destination is sandboxed (#167): a traversal/absolute ``dest_path`` set
+    by the LLM (or via prompt injection) is refused and replaced with the safe
+    ``data/<slug>`` fallback so no payload byte is ever written outside the crate
+    output directory.
+    """
     f = fe.fields
+    fallback = f"data/{_slug(f.get('name') or fe.entity_id)}"
     path = f.get("dest_path") or f.get("path") or f.get("contentUrl")
-    return str(path) if path else f"data/{_slug(f.get('name') or fe.entity_id)}"
+    if not path:
+        return fallback
+    return _contain_dest(str(path), fallback)
 
 
 def _file_source(fe: Entity, input_path: str | None) -> str | None:
@@ -526,6 +566,11 @@ def _file_source(fe: Entity, input_path: str | None) -> str | None:
     in-place builds where ``output_path == input_path`` are safe). Returns
     ``None`` for remote (``http(s)://``) references or files not found on disk —
     leaving the File as a metadata-only reference rather than a phantom copy.
+
+    Security (#167): when ``input_path`` is known, a source is refused unless its
+    **realpath** stays inside ``input_path``. This contains a symlink whose
+    target escapes the input tree (the resolved path is what gets matched), so
+    injection cannot package an arbitrary local file into the shareable crate.
     """
     f = fe.fields
     raw = f.get("path") or f.get("contentUrl") or f.get("dest_path")
@@ -537,7 +582,22 @@ def _file_source(fe: Entity, input_path: str | None) -> str | None:
     src = Path(raw)
     if not src.is_absolute() and input_path:
         src = Path(input_path) / raw
-    return str(src) if src.is_file() else None
+    if not src.is_file():
+        return None
+    # Contain against the input tree: refuse a source whose realpath escapes
+    # ``input_path`` (e.g. a symlink pointing outside it). With no input_path we
+    # cannot define a boundary, so fall back to the prior is_file() behaviour.
+    if input_path:
+        from builder.tools.scanner import _contain
+
+        if _contain(src, {str(Path(input_path).resolve())}) is None:
+            logger.warning(
+                "Refusing File source %s — realpath escapes input tree %s (#167)",
+                src,
+                input_path,
+            )
+            return None
+    return str(src)
 
 
 def _resolve_many(idx: dict[str, Any], value: Any) -> list[Any]:

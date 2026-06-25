@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 
 from builder.engine import AgentEngine
@@ -110,26 +108,28 @@ class TestAgentEngine:
         assert "draft_investigation" in tools
         assert "scan_files" in tools
 
-    def test_run_tool_read_multiple_files_registered(self):
-        """run_tool can call read_multiple_files via the engine."""
+    def test_run_tool_read_multiple_files_registered(self, tmp_path):
+        """run_tool can call read_multiple_files via the engine.
+
+        The read tools are sandboxed to ``approved_scan_roots`` (#167), so the
+        files must live inside an approved root for the read to succeed.
+        """
         engine = AgentEngine()
         engine.initialize()
-        a = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
-        a.write("hello\nworld\n")
-        a.close()
-        b = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
-        b.write("foo\nbar\n")
-        b.close()
-        try:
-            result = engine.run_tool("read_multiple_files", paths=[a.name, b.name])
-            assert result is not None
-            assert isinstance(result, dict)
-            assert result["count"] == 2
-            assert "hello" in result["files"][a.name]
-            assert "foo" in result["files"][b.name]
-        finally:
-            os.unlink(a.name)
-            os.unlink(b.name)
+        # Approve a directory and read files that live inside it.
+        data = tmp_path / "data"
+        data.mkdir()
+        engine.state.approved_scan_roots.add(str(data.resolve()))
+        a = data / "a.txt"
+        a.write_text("hello\nworld\n")
+        b = data / "b.txt"
+        b.write_text("foo\nbar\n")
+        result = engine.run_tool("read_multiple_files", paths=[str(a), str(b)])
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result["count"] == 2
+        assert "hello" in result["files"][str(a)]
+        assert "foo" in result["files"][str(b)]
 
     def test_scan_files_non_list_result_does_not_overwrite_state(self, monkeypatch):
         """run_tool preserves scanned_files if scan_files returns a non-list."""
