@@ -290,59 +290,297 @@ class TestTokenSummary:
         assert "0" in output
 
 
-class TestLiveRefresh:
-    """Regression guards for the live dashboard auto-refresh (#121).
+class _DummyLive:
+    """A stand-in for ``rich.live.Live`` that records every ``update()`` call."""
 
-    The dashboard appeared to "only update on load" because watchfiles' ``step``
-    (a debounce quiet-period) was set to the render interval (2000ms), so a
-    steady stream of profiler writes never went quiet long enough to be yielded.
-    A secondary bug blanked the profile panel whenever only crate_state.json
-    changed (profile mtime unchanged -> records became []).
+    def __init__(self, *a, **k) -> None:
+        self.updates: list = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a) -> bool:
+        return False
+
+    def update(self, renderable, *a, **k) -> None:
+        self.updates.append(renderable)
+
+
+class TestLiveRefresh:
+    """Regression guards for the live dashboard auto-refresh (#267).
+
+    Two confirmed root causes, both fixed here:
+
+    1. The old ``_change_touches`` basename filter discarded the atomic-save
+       signal. ``save_session`` writes ``crate_state.json`` via tempfile +
+       ``os.replace``; on macOS the watch batch contains ONLY the temp file
+       (``.crate_state_tmp_*``), which the filter explicitly EXCLUDED — so
+       ``live.update()`` never fired. The filter is gone; we render on EVERY
+       wake (event OR timeout).
+    2. The session was pinned at startup (``sessions[0]`` once). A fresh
+       ``--interactive`` run creates a NEW session dir the dashboard never
+       followed. Now, with no explicit ``session_id``, the loop re-resolves the
+       newest session on every wake.
+
+    Earlier #121 fix retained: ``_read_records_cached`` (mtime cache) so
+    ``profile.ndjson`` isn't needlessly re-parsed.
     """
 
-    def test_watch_step_is_small_and_decoupled_from_refresh_interval(
+    def test_watch_is_called_with_session_dir_root_and_event_or_timeout(
         self, tmp_path, monkeypatch
     ) -> None:
-        """``watch()`` must be called with a small fixed ``step`` (the watchfiles
-        default), independent of ``refresh_interval`` — otherwise updates are
-        throttled to multi-second intervals and the dashboard looks frozen."""
+        """``watch()`` must poll the SESSION_DIR root with ``yield_on_timeout``
+        and a ``rust_timeout`` derived from ``refresh_interval`` — so the loop
+        wakes on every change AND at least every ``refresh_interval`` even with
+        zero events (the bulletproof poll fallback vs FSEvents quirks)."""
         import rich.live
         import watchfiles
 
-        from builder.tools.dashboard import _WATCH_STEP_MS, _run_live_dashboard
+        from builder.tools import dashboard as d
 
-        profile_path = tmp_path / "profile.ndjson"
-        profile_path.write_text(json.dumps({"event": "node_end", "node": "model"}) + "\n")
+        session_dir = tmp_path / "20260626_a"
+        session_dir.mkdir()
+        (session_dir / "profile.ndjson").write_text(
+            json.dumps({"event": "node_end", "node": "model"}) + "\n"
+        )
+        monkeypatch.setattr(d, "SESSION_DIR", tmp_path)
 
         captured: dict = {}
 
         def fake_watch(*paths, **kwargs):
-            captured["step"] = kwargs.get("step")
             captured["paths"] = paths
-            return iter(())  # no changes -> loop body skipped, returns immediately
-
-        class _DummyLive:
-            def __init__(self, *a, **k) -> None:
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a) -> bool:
-                return False
-
-            def update(self, *a) -> None:
-                pass
+            captured["rust_timeout"] = kwargs.get("rust_timeout")
+            captured["yield_on_timeout"] = kwargs.get("yield_on_timeout")
+            return iter(())  # no wakes -> loop body skipped, returns immediately
 
         monkeypatch.setattr(watchfiles, "watch", fake_watch)
         monkeypatch.setattr(rich.live, "Live", _DummyLive)
 
-        _run_live_dashboard(profile_path, "sess", refresh_interval=2.0)
+        d._run_live_dashboard(session_id=None, refresh_interval=2.0)
 
-        assert _WATCH_STEP_MS <= 100
-        assert captured["step"] == _WATCH_STEP_MS
-        # The bug was step == int(refresh_interval * 1000) == 2000.
-        assert captured["step"] != 2000
+        # Watch the SESSION_DIR ROOT, not an individual session/file.
+        assert captured["paths"] == (str(tmp_path),)
+        assert captured["yield_on_timeout"] is True
+        assert captured["rust_timeout"] == int(2.0 * 1000)
+
+    def test_renders_on_timeout_wake_with_no_events(self, tmp_path, monkeypatch) -> None:
+        """A timeout/empty wake (the poll path) must trigger a render — NOT only
+        a filtered file event. This is the core #267 fix: even when the atomic
+        save surfaces solely as temp-file churn (or no event at all), the loop
+        still rebuilds and renders."""
+        import rich.live
+        import watchfiles
+
+        from builder.tools import dashboard as d
+
+        session_dir = tmp_path / "20260626_a"
+        session_dir.mkdir()
+        (session_dir / "profile.ndjson").write_text(
+            json.dumps({"event": "node_end", "node": "model"}) + "\n"
+        )
+        monkeypatch.setattr(d, "SESSION_DIR", tmp_path)
+
+        live = _DummyLive()
+
+        def fake_watch(*paths, **kwargs):
+            # One empty (timeout) batch, then stop.
+            yield set()
+
+        monkeypatch.setattr(watchfiles, "watch", fake_watch)
+        monkeypatch.setattr(rich.live, "Live", lambda *a, **k: live)
+
+        d._run_live_dashboard(session_id=None, refresh_interval=2.0)
+
+        # The empty/timeout wake produced a render.
+        assert len(live.updates) >= 1
+
+    def test_renders_on_temp_file_only_event(self, tmp_path, monkeypatch) -> None:
+        """When the only change surfaced is a ``.crate_state_tmp_*`` event (the
+        macOS atomic-save signature), the loop must STILL render. The old
+        basename filter dropped this exact event — that was the bug."""
+        import rich.live
+        import watchfiles
+
+        from builder.tools import dashboard as d
+
+        session_dir = tmp_path / "20260626_a"
+        session_dir.mkdir()
+        (session_dir / "profile.ndjson").write_text(
+            json.dumps({"event": "node_end", "node": "model"}) + "\n"
+        )
+        monkeypatch.setattr(d, "SESSION_DIR", tmp_path)
+
+        live = _DummyLive()
+        tmp_evt = str(session_dir / ".crate_state_tmp_abc")
+
+        def fake_watch(*paths, **kwargs):
+            yield {(1, tmp_evt)}  # deleted/added temp churn only
+
+        monkeypatch.setattr(watchfiles, "watch", fake_watch)
+        monkeypatch.setattr(rich.live, "Live", lambda *a, **k: live)
+
+        d._run_live_dashboard(session_id=None, refresh_interval=2.0)
+
+        assert len(live.updates) >= 1
+
+    def test_follows_newest_session_per_wake_when_unpinned(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """With no explicit ``session_id``, the loop re-resolves the newest
+        session on EVERY wake via ``list_sessions_available`` and renders it —
+        so a fresh ``--interactive`` run is followed live, no restart (#267)."""
+        import rich.live
+        import watchfiles
+
+        from builder.tools import dashboard as d
+
+        old = tmp_path / "20260626_old"
+        old.mkdir()
+        (old / "profile.ndjson").write_text(
+            json.dumps({"event": "node_end", "node": "model"}) + "\n"
+        )
+        monkeypatch.setattr(d, "SESSION_DIR", tmp_path)
+
+        live = _DummyLive()
+        consults: list = []
+        formatted: list = []
+
+        real_list = d.list_sessions_available
+
+        def spy_list(*a, **k):
+            result = real_list(*a, **k)
+            consults.append([s["session_id"] for s in result])
+            return result
+
+        def fake_format(session_id, records):
+            formatted.append(session_id)
+            return f"render::{session_id}"
+
+        def fake_watch(*paths, **kwargs):
+            # First wake: only the old session exists.
+            yield set()
+            # Between wakes a NEW (newer) session dir appears.
+            new = tmp_path / "20260627_new"
+            new.mkdir()
+            (new / "profile.ndjson").write_text(
+                json.dumps({"event": "node_end", "node": "model"}) + "\n"
+            )
+            # Make the new dir unambiguously newer by mtime.
+            import os
+            import time
+
+            t = time.time() + 100
+            os.utime(new, (t, t))
+            yield set()
+
+        monkeypatch.setattr(d, "list_sessions_available", spy_list)
+        monkeypatch.setattr(d, "format_session_summary", fake_format)
+        monkeypatch.setattr(watchfiles, "watch", fake_watch)
+        monkeypatch.setattr(rich.live, "Live", lambda *a, **k: live)
+
+        d._run_live_dashboard(session_id=None, refresh_interval=2.0)
+
+        # list_sessions_available consulted on every wake (not just startup).
+        assert len(consults) >= 2
+        # The newest session was rendered after it appeared.
+        assert "20260627_new" in formatted
+        assert formatted[-1] == "20260627_new"
+
+    def test_explicit_session_id_stays_pinned(self, tmp_path, monkeypatch) -> None:
+        """An explicitly passed ``session_id`` stays pinned across wakes even if
+        a newer session dir appears — the dashboard must not wander."""
+        import rich.live
+        import watchfiles
+
+        from builder.tools import dashboard as d
+
+        pinned = tmp_path / "20260626_pinned"
+        pinned.mkdir()
+        (pinned / "profile.ndjson").write_text(
+            json.dumps({"event": "node_end", "node": "model"}) + "\n"
+        )
+        monkeypatch.setattr(d, "SESSION_DIR", tmp_path)
+
+        live = _DummyLive()
+        formatted: list = []
+
+        def fake_format(session_id, records):
+            formatted.append(session_id)
+            return f"render::{session_id}"
+
+        def fake_watch(*paths, **kwargs):
+            # A newer session appears, but we must stay pinned.
+            newer = tmp_path / "20260627_newer"
+            newer.mkdir()
+            (newer / "profile.ndjson").write_text(
+                json.dumps({"event": "node_end", "node": "model"}) + "\n"
+            )
+            import os
+            import time
+
+            t = time.time() + 100
+            os.utime(newer, (t, t))
+            yield set()
+
+        monkeypatch.setattr(d, "format_session_summary", fake_format)
+        monkeypatch.setattr(watchfiles, "watch", fake_watch)
+        monkeypatch.setattr(rich.live, "Live", lambda *a, **k: live)
+
+        d._run_live_dashboard(session_id="20260626_pinned", refresh_interval=2.0)
+
+        assert formatted, "should have rendered"
+        assert set(formatted) == {"20260626_pinned"}
+
+    def test_no_crash_when_session_dir_has_no_sessions(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """SESSION_DIR exists but is empty (no sessions yet) — the loop must wake,
+        render an empty state, and not crash while waiting for one to appear."""
+        import rich.live
+        import watchfiles
+
+        from builder.tools import dashboard as d
+
+        monkeypatch.setattr(d, "SESSION_DIR", tmp_path)  # empty dir, no sessions
+
+        live = _DummyLive()
+
+        def fake_watch(*paths, **kwargs):
+            yield set()  # one timeout wake, then stop
+
+        monkeypatch.setattr(watchfiles, "watch", fake_watch)
+        monkeypatch.setattr(rich.live, "Live", lambda *a, **k: live)
+
+        # Must not raise.
+        d._run_live_dashboard(session_id=None, refresh_interval=2.0)
+
+    def test_static_fallback_when_watchfiles_unavailable(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """When ``watchfiles`` can't be imported, fall back to a static snapshot
+        (printed once) instead of crashing."""
+        import builtins
+
+        from builder.tools import dashboard as d
+
+        session_dir = tmp_path / "20260626_a"
+        session_dir.mkdir()
+        (session_dir / "profile.ndjson").write_text(
+            json.dumps({"event": "node_end", "node": "model"}) + "\n"
+        )
+        monkeypatch.setattr(d, "SESSION_DIR", tmp_path)
+
+        real_import = builtins.__import__
+
+        def blocked_import(name, *a, **k):
+            if name == "watchfiles":
+                raise ImportError("watchfiles not installed")
+            return real_import(name, *a, **k)
+
+        monkeypatch.setattr(builtins, "__import__", blocked_import)
+
+        # Must not raise — falls back to a one-shot static render.
+        d._run_live_dashboard(session_id=None, refresh_interval=2.0)
 
     def test_records_cache_reused_when_profile_unchanged(self, tmp_path) -> None:
         """A crate_state-only refresh (profile.ndjson mtime unchanged) reuses the
@@ -380,82 +618,3 @@ class TestLiveRefresh:
         assert len(records2) == 2
         assert mtime2 != mtime
 
-    def test_watches_session_directory_so_atomic_saves_are_caught(
-        self, tmp_path, monkeypatch
-    ) -> None:
-        """save_session writes crate_state.json atomically (tempfile + os.replace),
-        which swaps the inode a file-path watcher holds — so a watcher bound to the
-        FILE silently stops seeing updates and the dashboard only refreshes on
-        reload. The fix watches the session DIRECTORY, which catches the rename
-        (and crate_state.json first appearing after startup)."""
-        import rich.live
-        import watchfiles
-
-        from builder.tools.dashboard import _run_live_dashboard
-
-        session_dir = tmp_path / "sess1"
-        session_dir.mkdir()
-        profile_path = session_dir / "profile.ndjson"
-        profile_path.write_text(json.dumps({"event": "node_end", "node": "model"}) + "\n")
-
-        captured: dict = {}
-
-        def fake_watch(*paths, **kwargs):
-            captured["paths"] = paths
-            return iter(())
-
-        class _DummyLive:
-            def __init__(self, *a, **k) -> None:
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a) -> bool:
-                return False
-
-            def update(self, *a) -> None:
-                pass
-
-        monkeypatch.setattr(watchfiles, "watch", fake_watch)
-        monkeypatch.setattr(rich.live, "Live", _DummyLive)
-
-        _run_live_dashboard(profile_path, "sess1", refresh_interval=2.0)
-
-        # Watch the directory, NOT the individual files (the old, broken behavior
-        # watched profile.ndjson / crate_state.json paths and missed atomic renames).
-        assert captured["paths"] == (str(session_dir),)
-
-    def test_change_touches_only_relevant_files(self) -> None:
-        """The directory watch fires on temp/export churn too; only re-render when
-        profile.ndjson or crate_state.json actually changed."""
-        from builder.tools.dashboard import _change_touches
-
-        prof = "/s/profile.ndjson"
-        crate = "/s/crate_state.json"
-        watched = {prof, crate}
-        # watchfiles yields a set of (Change, path); the helper inspects only path.
-        assert _change_touches({(2, prof)}, watched) is True
-        assert _change_touches({(1, crate)}, watched) is True
-        # the atomic-save temp churn must NOT trigger a re-render
-        assert _change_touches({(1, "/s/.crate_state_tmp_abc")}, watched) is False
-        assert _change_touches(set(), watched) is False
-
-    def test_change_touches_matches_relative_watched_vs_absolute_event(self) -> None:
-        """REGRESSION: SESSION_DIR is relative ('sessions'), so `watched` holds
-        RELATIVE paths, but watchfiles yields ABSOLUTE paths. Full-string matching
-        never hit and the dashboard stopped refreshing — match by basename."""
-        from builder.tools.dashboard import _change_touches
-
-        # watched built from a relative SESSION_DIR; events arrive absolute.
-        watched = {"sessions/20260626_x/profile.ndjson", "sessions/20260626_x/crate_state.json"}
-        assert _change_touches(
-            {(2, "/Users/me/repo/sessions/20260626_x/profile.ndjson")}, watched
-        ) is True
-        assert _change_touches(
-            {(1, "/Users/me/repo/sessions/20260626_x/crate_state.json")}, watched
-        ) is True
-        # unrelated absolute churn still ignored
-        assert _change_touches(
-            {(1, "/Users/me/repo/sessions/20260626_x/.crate_state_tmp_x")}, watched
-        ) is False
