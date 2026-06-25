@@ -25,6 +25,22 @@ from builder.tools.composites import resolve_compound
 pytestmark = pytest.mark.timeout(120)
 
 
+@pytest.fixture(autouse=True)
+def _clear_resolve_caches():
+    """Reset the shared in-process compound cache between tests (Issue #252).
+
+    ``resolve_compound`` warms a process-wide cache; without this an earlier
+    test's resolution could serve a later one from cache and starve its mock.
+    """
+    from builder.tools._resolve_cache import compound_cache, resolve_concurrency
+
+    compound_cache.clear()
+    resolve_concurrency.reset()
+    yield
+    compound_cache.clear()
+    resolve_concurrency.reset()
+
+
 def _by_type(state: CrateState, type_name: str) -> list:
     return [e for e in state.list_entities() if e.type == type_name]
 

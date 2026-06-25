@@ -1120,6 +1120,29 @@ honours that cap even when many workers fire at once. Different hosts are
 throttled independently, so parallel lookups across services are not serialised.
 Both functions remain `lru_cache`d, so this only benefits cold paths.
 
+### Compound Resolution Performance (Issue #252)
+`resolve_compound` used to fan a single compound out to up to **six** PubChem
+round-trips — name→JSON + synonyms for the lookup, then a *fresh* re-resolution
+of the same compound for each of the CAS and PubChem-CID verifications — so under
+a concurrent burst a 429 storm multiplied retry/backoff across all of them
+(30–66s per compound observed). Three in-process levers in
+`builder/tools/_resolve_cache.py` close that gap without weakening D5 (identifiers
+still come from the authority and are verified):
+
+- **Shared in-process cache** keyed by *normalized* name (strip + collapse
+  whitespace + casefold), warmed with the resolved CAS / `CID <cid>` alias keys.
+  `lookup_compound` consults it before any network work, so the two verify
+  re-resolutions read the already-fetched authoritative record (6 round-trips →
+  ~2) and a repeated compound is instant (0 round-trips). The alias keys hold the
+  exact record PubChem returned, so verification still confirms against the
+  authority's own answer.
+- **Bounded concurrency gate** (`_ResolveConcurrency`, default 4) admits only a
+  few resolves at once, so a burst does not all storm PubChem and trip its rate
+  limiter — complementing the per-host throttle, which spaces each request.
+- **Per-compound timeout** (`run_with_timeout`, default 20s) bounds the lookup; on
+  expiry `resolve_compound` returns a graceful `{"ok": False, …timeout…}` partial
+  result and creates no entity, rather than hanging ~60s on a stuck round-trip.
+
 ## 11. Key Design Decisions
 
 ### D1: Toolbox over Graph

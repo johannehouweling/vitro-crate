@@ -15,6 +15,7 @@ import logging
 import time
 from typing import Any
 
+from builder.tools._resolve_cache import compound_cache, normalize_compound_name
 from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop as lookup_aop_wiki
 from lookups.bao import lookup_bao_term as lookup_bao_term_ols
@@ -52,6 +53,14 @@ def _failure(error: str, transient: bool = False) -> dict[str, Any]:
 def lookup_compound(name: str) -> dict[str, Any]:
     """Look up a chemical compound by name via PubChem.
 
+    Consults a shared in-process cache (keyed by *normalized* name) before doing
+    any network work, so a repeated compound — or a re-resolution by a resolved
+    CAS / ``CID <cid>`` alias key warmed by :func:`resolve_compound` — is served
+    without a fresh PubChem round-trip (Issue #252). Only successful and
+    definitive-not-found results are cached; a transient failure is never stored
+    (mirroring the ``lru_cache`` "errors raise, so are not cached" contract), so a
+    retry re-hits the network.
+
     Args:
         name: Compound name (e.g. "Silychristin A").
 
@@ -62,7 +71,25 @@ def lookup_compound(name: str) -> dict[str, Any]:
                   iupac_name, pubchem_cid keys (or empty dict).
             error: Error message or None on success.
     """
-    time.sleep(0.05)
+    cache_key = normalize_compound_name(name)
+    cached = compound_cache.get(cache_key) if cache_key else None
+    if cached is not None:
+        return cached
+
+    result = _lookup_compound_uncached(name)
+    # Cache successful and definitive not-found results (not transient outages),
+    # so a later retry of a transient failure still re-hits the source.
+    if cache_key and not result.get("transient"):
+        compound_cache.put(cache_key, result)
+    return result
+
+
+def _lookup_compound_uncached(name: str) -> dict[str, Any]:
+    """Resolve a compound from PubChem (then a ChEBI fallback) with no caching.
+
+    The cache-aware :func:`lookup_compound` wraps this; splitting it out keeps the
+    in-process cache concern out of the resolution logic.
+    """
     try:
         # Multi-strategy: try as name first, then CAS/CID-style variants.
         raw = name.strip()
@@ -113,6 +140,36 @@ def lookup_compound(name: str) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("PubChem lookup failed for '%s'", name)
         return _failure(f"PubChem lookup failed: {exc}")
+
+
+def warm_compound_cache(name: str, result: dict[str, Any]) -> None:
+    """Prime the in-process compound cache for ``name`` and its identifier aliases.
+
+    After :func:`resolve_compound` resolves a compound once, the subsequent CAS /
+    ``CID <cid>`` *verification* re-resolutions hit :func:`lookup_compound` with a
+    different key (the bare CAS, ``"CID <cid>"``) than the original name — which
+    would otherwise be cache misses and fire fresh PubChem round-trips. Warming
+    those alias keys here points them at the SAME authoritative record, collapsing
+    the verify step's two re-resolutions to zero network calls (Issue #252). D5 is
+    preserved: the alias keys carry the exact record PubChem returned, so the
+    verify still confirms identifiers against the authority's own answer.
+
+    A transient or not-found result is not warmed (only a real hit has aliases to
+    register), so a retry can still re-hit the source.
+    """
+    if not result.get("found"):
+        return
+    name_key = normalize_compound_name(name)
+    if name_key:
+        compound_cache.put(name_key, result)
+    data = result.get("data") or {}
+    cas = str(data.get("cas") or "").strip()
+    if cas:
+        compound_cache.put(normalize_compound_name(cas), result)
+    cid = str(data.get("pubchem_cid") or "").strip()
+    if cid:
+        # verify_identifier re-resolves a CID as the query "CID <cid>".
+        compound_cache.put(normalize_compound_name(f"CID {cid}"), result)
 
 
 @functools.lru_cache(maxsize=256)
