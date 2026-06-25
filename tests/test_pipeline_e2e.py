@@ -617,8 +617,10 @@ class TestExtractionContextFidelity:
         state.scanned_files = [fc]
         engine = _engine(state)
 
-        # Materialize the plan onto a backbone-free engine so the Study is created
-        # FROM the plan's (body-derived) name.
+        # Follow the real run_pipeline order: scaffold the ISA backbone, then
+        # materialize the plan, which merges the (body-derived) Study name onto
+        # the scaffolded Study (fill-don't-clobber over the generic default).
+        pipeline_mod._scaffold_backbone(engine)
         pipeline_mod._materialize_plan(engine)
 
         study = next(
