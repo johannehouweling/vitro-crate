@@ -559,3 +559,50 @@ class TestUnitsThreadedIntoProcesses:
         assert cell_nodes, "CellLineSample node should exist"
         addl = cell_nodes[0].get("additionalProperty")
         assert addl is not None, "CellLineSample should carry additionalProperty"
+
+    def test_cell_line_organ_tissue_become_additional_properties(self):
+        """CellLineSample organ/tissue -> additionalProperty PropertyValue nodes
+        carrying the ISA-Tox param/{organ,tissue} propertyID (gold #SampleCell_MDCK1).
+        """
+        state = CrateState()
+        draft_cell_line_sample(
+            state,
+            "MDCK-I",
+            {"accession": "CVCL_0592", "organ": "Brain", "tissue": "Neural tissue"},
+        )
+        graph = _graph(state)
+        pv_nodes = [
+            n
+            for n in graph
+            if "PropertyValue"
+            in (n["@type"] if isinstance(n.get("@type"), list) else [n.get("@type")])
+        ]
+        by_name = {n.get("name"): n for n in pv_nodes}
+        assert "Organ" in by_name, f"Organ PropertyValue expected; got {set(by_name)}"
+        assert "Tissue" in by_name, f"Tissue PropertyValue expected; got {set(by_name)}"
+        assert by_name["Organ"].get("value") == "Brain"
+        assert by_name["Tissue"].get("value") == "Neural tissue"
+        assert by_name["Organ"].get("propertyID") == {
+            "@id": "https://w3id.org/ro/crate/isa-tox/1.0/param/organ"
+        }, "Organ PV must carry the ISA-Tox param/organ propertyID as an @id node"
+        assert by_name["Tissue"].get("propertyID") == {
+            "@id": "https://w3id.org/ro/crate/isa-tox/1.0/param/tissue"
+        }, "Tissue PV must carry the ISA-Tox param/tissue propertyID as an @id node"
+        # The CellLineSample must reference both via additionalProperty.
+        cell_nodes = [n for n in graph if n.get("additionalType") == "CellLine"]
+        assert cell_nodes, "CellLineSample node should exist"
+        addl_ids = {
+            (it.get("@id") if isinstance(it, dict) else it)
+            for it in (cell_nodes[0].get("additionalProperty") or [])
+        }
+        assert by_name["Organ"]["@id"] in addl_ids
+        assert by_name["Tissue"]["@id"] in addl_ids
+
+    def test_cell_line_organ_tissue_absent_emits_nothing(self):
+        """No organ/tissue field -> no Organ/Tissue PropertyValue fabricated (D5)."""
+        state = CrateState()
+        draft_cell_line_sample(state, "HepG2", {"accession": "CVCL_0027"})
+        graph = _graph(state)
+        names = {n.get("name") for n in graph}
+        assert "Organ" not in names
+        assert "Tissue" not in names

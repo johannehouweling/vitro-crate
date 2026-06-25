@@ -256,3 +256,107 @@ class TestAssaysReverseAlias:
         root = _by_id(graph, "./")
         assert root is not None
         assert "#Assay_assay_1" in _ids(root.get("assays")) + _ids(root.get("hasPart"))
+
+
+class TestProcessAdditionalProperty:
+    """A LabProcess's additionalProperty references resolve to in-state
+    PropertyValue nodes (gold #report_analysis -> [#pv_repro_score])."""
+
+    def _state(self) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "Analysis crate"
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1"))
+        state.add_entity(
+            _ent(
+                "pv_repro",
+                "PropertyValue",
+                name="reproducibility score",
+                value=100,
+                unitText="percent",
+            )
+        )
+        state.add_entity(
+            _ent(
+                "report",
+                "LabProcess",
+                name="Crate quality & reproducibility report",
+                process_type="DataAnalysis",
+                assay_id="assay_1",
+                additionalProperty="pv_repro",
+            )
+        )
+        return state
+
+    def test_dataanalysis_additional_property_references_property_value(self):
+        graph = _graph(self._state())
+        proc = _by_id(graph, "#LabProcess_report")
+        assert proc is not None, "DataAnalysis LabProcess node should exist"
+        pv = _by_id(graph, "#PropertyValue_pv_repro")
+        assert pv is not None, "the PropertyValue must round-trip into the graph"
+        assert pv["@id"] in _ids(proc.get("additionalProperty")), (
+            "DataAnalysis additionalProperty must reference the in-state PropertyValue"
+        )
+
+    def test_no_additional_property_fabricated_when_unresolvable(self):
+        """An additionalProperty pointing at no in-state entity (and no IRI) is
+        dropped, never fabricated (D5)."""
+        state = CrateState()
+        state.metadata.title = "Analysis crate"
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1"))
+        state.add_entity(
+            _ent(
+                "report",
+                "LabProcess",
+                name="Report",
+                process_type="DataAnalysis",
+                assay_id="assay_1",
+                additionalProperty="does_not_exist",
+            )
+        )
+        graph = _graph(state)
+        proc = _by_id(graph, "#LabProcess_report")
+        assert proc is not None
+        assert _ids(proc.get("additionalProperty")) == []
+
+
+class TestSourceCodeFileTyping:
+    """draft_file gains additional_types + programming_language so a script
+    round-trips as @type:[File, SoftwareSourceCode] (gold plot.py)."""
+
+    def test_source_code_file_emits_typed_node(self):
+        state = CrateState()
+        state.metadata.title = "Code crate"
+        from builder.tools.provenance import draft_file
+
+        draft_file(
+            state,
+            "plot.py",
+            additional_types=["SoftwareSourceCode"],
+            programming_language="Python",
+        )
+        graph = _graph(state)
+        node = next(
+            (n for n in graph if n.get("@id", "").endswith("plot.py")), None
+        )
+        assert node is not None, "plot.py File node should exist"
+        types = node["@type"] if isinstance(node.get("@type"), list) else [node.get("@type")]
+        assert "File" in types and "SoftwareSourceCode" in types, (
+            f"@type should be [File, SoftwareSourceCode]; got {node.get('@type')}"
+        )
+        assert node.get("programmingLanguage") == "Python"
+        # encodingFormat is still auto-derived from the extension.
+        assert node.get("encodingFormat") == "text/x-python"
+
+    def test_plain_file_stays_single_typed(self):
+        state = CrateState()
+        state.metadata.title = "Code crate"
+        from builder.tools.provenance import draft_file
+
+        draft_file(state, "raw.csv")
+        graph = _graph(state)
+        node = next((n for n in graph if n.get("@id", "").endswith("raw.csv")), None)
+        assert node is not None
+        assert node.get("@type") == "File", "plain File keeps scalar @type"
+        assert "programmingLanguage" not in node

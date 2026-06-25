@@ -76,6 +76,11 @@ _REF_FIELDS = frozenset(
         "about",
         # schema:about alias for a Study/Assay's LabProcess list (PageTab-aligned).
         "labProcesses",
+        # schema:additionalProperty — PropertyValue reference(s) wired onto a
+        # LabProcess (#180, gold #report_analysis). Held here so _scalar_props
+        # strips the raw id/{@id} rather than leaking it onto the node; it is
+        # re-emitted as a resolved reference by _add_processes.
+        "additionalProperty",
         # schema:funder — root/Investigation funding Organization reference(s).
         "funder",
         # schema:measurementMethod — the Assay's BAO method DefinedTerm reference.
@@ -344,9 +349,16 @@ _STRUCT_FIELDS = frozenset(
         "substrate",
         "acceptance_criteria",
         "evaluation_criteria",
-        # CellLineSample characteristics promoted to additionalProperty (#143).
+        # CellLineSample characteristics promoted to additionalProperty PropertyValue
+        # nodes (#143 passage/growth, #180 organ/tissue) — consumed structurally,
+        # never emitted as raw literals on the Sample node.
         "passage",
         "growth",
+        "organ",
+        "tissue",
+        # draft_file's extra @type term(s) — consumed to co-type the File node
+        # (#180, e.g. SoftwareSourceCode), never emitted as a literal property.
+        "additional_types",
     }
 )
 
@@ -664,34 +676,59 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
 
 
 # CellLineSample fields promoted to schema:additionalProperty Characteristic
-# PropertyValue nodes (ISA Sample Characteristics): name -> propertyID IRI (#143).
-_CELL_LINE_CHARACTERISTICS: dict[str, str | None] = {
-    "passage": "https://bioregistry.io/EFO:0007061",  # passage number
-    "growth": "http://www.bioassayontology.org/bao#BAO_0002648",  # growth properties
-}
+# PropertyValue nodes (ISA Sample Characteristics; #143, #180).
+#
+# Each entry maps the recognised state field (plus any drafter aliases) to the
+# PropertyValue's display ``name`` and its ``propertyID`` ontology IRI. ``organ``
+# and ``tissue`` mirror the gold crate's #SampleCell_MDCK1 characteristics
+# (PropertyValue "Organ"/"Tissue" with the ISA-Tox ``param/{organ,tissue}``
+# propertyID); ``passage``/``growth`` keep their lower-case ISA names (#143).
+@dataclass(frozen=True)
+class _Characteristic:
+    aliases: tuple[str, ...]  # candidate state field names (first non-empty wins)
+    name: str  # PropertyValue display name
+    property_id: str | None  # ontology IRI for propertyID, or None
+
+
+_CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
+    _Characteristic(("passage",), "passage", "https://bioregistry.io/EFO:0007061"),
+    _Characteristic(
+        ("growth",), "growth", "http://www.bioassayontology.org/bao#BAO_0002648"
+    ),
+    _Characteristic(
+        ("organ",), "Organ", f"{PROFILE_ISATOX}/param/organ"
+    ),
+    _Characteristic(
+        ("tissue",), "Tissue", f"{PROFILE_ISATOX}/param/tissue"
+    ),
+)
+# NB: the field names above (passage/growth/organ/tissue) are also listed in
+# _STRUCT_FIELDS so _scalar_props strips them from the Sample node — they round-trip
+# only as additionalProperty PropertyValue characteristics, never as raw literals.
 
 
 def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
     """Build CharacteristicValue (PropertyValue) nodes for a CellLineSample.
 
-    Promotes recognised culture-characteristic fields (``passage``, ``growth``)
-    to ISA Sample Characteristics — schema:additionalProperty PropertyValue nodes
-    carrying the value and, when known, the property's ontology IRI as
-    ``propertyID``. Returns an empty list when none are present.
+    Promotes recognised culture-characteristic fields (``passage``, ``growth``,
+    ``organ``, ``tissue``) to ISA Sample Characteristics — schema:additionalProperty
+    PropertyValue nodes carrying the value and, when known, the property's ontology
+    IRI as ``propertyID``. Returns an empty list when none are present (D5: a field
+    that is absent is never fabricated).
     """
     out: list[Any] = []
-    for field_name, property_id in _CELL_LINE_CHARACTERISTICS.items():
-        value = cl.fields.get(field_name)
+    for char in _CELL_LINE_CHARACTERISTICS:
+        value = _first_field(cl, char.aliases)
         if value in (None, ""):
             continue
         props: dict[str, Any] = {}
-        if property_id:
-            props["propertyID"] = {"@id": property_id}
+        if char.property_id:
+            props["propertyID"] = {"@id": char.property_id}
         out.append(
             CharacteristicValue(
                 crate,
-                param_id(field_name, str(value)),
-                name=field_name,
+                param_id(char.name, str(value)),
+                name=char.name,
                 value=str(value),
                 properties=props or None,
             )
@@ -841,6 +878,19 @@ def _add_leaves(
         source = (
             _file_source(fe, state.metadata.input_path) if materialize_payload else None
         )
+        # Co-type a source-code (or otherwise extra-typed) File as a @type list,
+        # e.g. ["File", "SoftwareSourceCode"] for an analysis script (#180, gold
+        # plot.py). A plain File keeps its scalar @type. additional_types is
+        # consumed here, never emitted as a stray literal (see _STRUCT_FIELDS).
+        file_type: Any = "File"
+        extra_types = fe.fields.get("additional_types")
+        if extra_types:
+            seen: set[str] = set()
+            file_type = []
+            for t in ["File", *extra_types]:
+                if t and t not in seen:
+                    seen.add(t)
+                    file_type.append(t)
         _idx_add(
             idx,
             fe,
@@ -849,7 +899,7 @@ def _add_leaves(
                     crate,
                     source,
                     dest_path=_file_dest(fe),
-                    properties={"@type": "File", **_scalar_props(fe)},
+                    properties={"@type": file_type, **_scalar_props(fe)},
                 )
             ),
         )
@@ -1440,6 +1490,12 @@ def _add_processes(
             materialize_payload=materialize_payload,
         )
         _idx_add(idx, proc, node)
+        # Wire any additionalProperty references onto the process (gold
+        # #report_analysis -> [#pv_repro_score]). Mirrors the root/assay reference
+        # wiring: only PropertyValues already present in state (or bare IRIs) are
+        # referenced; an unresolvable, non-IRI value is dropped, never fabricated
+        # (D5 — the score itself is computed elsewhere, not here).
+        _wire_references(node, "additionalProperty", f.get("additionalProperty"), idx)
         assay = _resolve_one(idx, f.get("assay_id"))
         if assay is not None:
             assay.append_to("about", node)
