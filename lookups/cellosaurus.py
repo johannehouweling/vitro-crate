@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import time
+from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
@@ -45,7 +46,10 @@ def lookup_cellosaurus(accession: str) -> dict:
     """
     try:
         time.sleep(0.1)
-        data = http_get_json(f"{_BASE}/{accession}?format=json")
+        # Percent-encode the caller-supplied accession so a value containing a
+        # "/" or ".." cannot break out of the cell-line path or inject query
+        # params (Issue #170). ``safe=""`` encodes every reserved char.
+        data = http_get_json(f"{_BASE}/{quote(accession, safe='')}?format=json")
         if data is NOT_FOUND:
             return {}
         # API wraps result: {"Cellosaurus": {"cell-line-list": [...]}}
