@@ -79,3 +79,90 @@ def lookup_orcid(orcid_id: str) -> dict:
         raise
     except Exception:
         return {}
+
+
+@functools.lru_cache(maxsize=256)
+def _search_orcid_by_name(
+    given: str, family: str, affiliation: str | None
+) -> tuple[tuple[tuple[str, str], ...], ...]:
+    """Cached ORCID expanded-search returning hashable candidate tuples.
+
+    Returns a tuple of candidates, each a tuple of ``(key, value)`` pairs, so the
+    cached value is immutable and never shared-mutated. :func:`lookup_orcid_by_name`
+    rehydrates these into fresh dicts for callers.
+    """
+    family = (family or "").strip()
+    given = (given or "").strip()
+    if not family:
+        return ()
+
+    # Lucene query against ORCID's indexed name fields. Family name is the
+    # strongest signal; given name and affiliation narrow it when present.
+    terms = [f'family-name:"{family}"']
+    if given:
+        terms.append(f'given-names:"{given}"')
+    if affiliation:
+        terms.append(f'affiliation-org-name:"{affiliation.strip()}"')
+    query = " AND ".join(terms)
+
+    try:
+        time.sleep(0.1)
+        data = http_get_json(
+            f"{_BASE}/expanded-search/",
+            params={"q": query, "rows": "10"},
+            headers=_HEADERS,
+        )
+        if data is NOT_FOUND:
+            return ()
+
+        out: list[tuple[tuple[str, str], ...]] = []
+        for row in data.get("expanded-result") or []:
+            orcid_id = row.get("orcid-id")
+            if not orcid_id:
+                continue
+            institutions = row.get("institution-name") or []
+            out.append(
+                (
+                    ("orcid", str(orcid_id)),
+                    ("given", row.get("given-names") or ""),
+                    ("family", row.get("family-names") or ""),
+                    ("affiliation", institutions[0] if institutions else ""),
+                )
+            )
+        return tuple(out)
+    except TransientLookupError:
+        raise
+    except Exception:
+        return ()
+
+
+def lookup_orcid_by_name(
+    given: str, family: str, affiliation: str | None = None
+) -> list[dict]:
+    """Search the ORCID public registry for people matching a name.
+
+    Uses the ORCID public ``/v3.0/expanded-search`` endpoint (no auth) via the
+    shared rate-limited HTTP layer, so candidate ORCID iDs can be discovered for
+    a citation author who is not already in the crate. The caller is responsible
+    for disambiguating and verifying any candidate before use (D5: never attach
+    an unverified ORCID).
+
+    Args:
+        given: The author's given (first) name. May be an initial.
+        family: The author's family (last) name. Required — a blank family name
+            returns no candidates without issuing a request.
+        affiliation: Optional institution name; when given it is added to the
+            query to bias the search, but candidates from any affiliation are
+            still returned (ranking/filtering is left to the caller).
+
+    Returns:
+        A list of candidate dicts, each ``{orcid, given, family, affiliation}``
+        in the order ORCID returned them. Empty when nothing matched. Raises
+        :class:`TransientLookupError` on a transient API failure so a momentary
+        outage is never mistaken for "no such person".
+    """
+    return [dict(candidate) for candidate in _search_orcid_by_name(given, family, affiliation)]
+
+
+# Expose the underlying cache so tests can clear it like the other lookups.
+lookup_orcid_by_name.cache_clear = _search_orcid_by_name.cache_clear  # ty: ignore[unresolved-attribute]

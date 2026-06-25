@@ -478,6 +478,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent), the fast path to a BASE-passing crate
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
+draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
 draft_investigation(hints: dict) → Entity
 draft_study(investigation_id: str, hints: dict) → Entity
 draft_assay(study_id: str, hints: dict) → Entity
@@ -515,6 +516,33 @@ These three types live in the shared `aop_entities` CrateState collection and
 build via `_crate_mapping` as `ContextEntity` nodes typed by their own AOP class.
 With `study_id`, the AOP is wired onto that Study via the `aop` reference (an
 alias of `schema:mentions`), closing the largest gold-crate fidelity gap.
+
+`draft_publication_with_authors` (Issue #180, deferred item) is the citation
+counterpart of the composites above and the **only engine-routed, HITL-capable
+drafter** (registered `takes_human=True`; the engine injects the active
+`HumanInterface` as a `human_interface` kwarg). It calls `lookup_doi`, ensures the
+`ScholarlyArticle` exists in state, and for EACH author creates/reuses a `Person`
+wired as the article's `author`, harmonizing the author's `@id` to their **ORCID**
+via a verify-first cascade (stop at first success): **(a)** the Crossref ORCID on
+the author; **(b)** an in-crate `Person` with a *verified* ORCID matching the
+author's family name + given/initial (affiliation-preferred) — this resolves the
+gold case where citation `Fabian Wagenaars` reuses root `F.M.A. Wagenaars`'s ORCID
+`0000-0003-4766-7358`; **(c)** a public ORCID search
+(`lookups.orcid.lookup_orcid_by_name`, the `/v3.0/expanded-search` endpoint via the
+shared rate-limited HTTP layer); **(d)** fallback to a synthesized
+`#CitationAuthor_<Given>_<Family>` Person (the legacy behavior). **Confidence rule
+for (c):** auto-accept **only** a *single* candidate that is a STRONG match (family
++ full — not initial-only — given name) and that passes name verification;
+*anything else* — multiple candidates, a weak / initial-only match, or a sole
+strong match that fails verification — **escalates to HITL** (`present` the ranked
+candidates plus a none/skip option, then optionally `request_input` for a pasted
+ORCID). **D5:** an ORCID from (a) or (c), and an HITL-chosen one, is attached only
+after `lookup_orcid` resolves it and the family name matches; (b) is already
+verified; an ORCID-resolved Person also carries its ORCID `identifier`
+PropertyValue at build via the shared `_identifier_pv` path. HITL fires **only** on
+genuine ambiguity — never when an author is confidently resolved or confidently
+absent — and when no `human_interface` is available an ambiguous author falls back
+to a synthesized id rather than guessing.
 The `hints` parameter is **typed per entity type** (Issue #90). Each `draft_*`
 tool advertises a JSON-Schema built by `_crate_mapping.draft_hints_schema(type)`
 from the single source of truth `_crate_mapping.ENTITY_DRAFT_SCHEMA` — allowed

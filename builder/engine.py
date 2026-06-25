@@ -317,10 +317,15 @@ class AgentEngine:
             spec = registry.get_spec(tool_name)
             if spec is None:
                 raise ValueError(f"Unknown tool: {tool_name!r}")
+            call_kwargs = dict(kwargs)
+            # Inject the active HITL adapter for tools that escalate ambiguous
+            # decisions to the human (e.g. draft_publication_with_authors, #180).
+            if spec.takes_human:
+                call_kwargs["human_interface"] = self.human_interface
             if spec.takes_state:
-                result = spec.fn(self.state, **kwargs)
+                result = spec.fn(self.state, **call_kwargs)
             else:
-                result = spec.fn(**kwargs)
+                result = spec.fn(**call_kwargs)
 
         # Memoize a fresh, non-error build_and_validate result for the debounce
         # above (#155). Bounded so a long session cannot grow the cache without

@@ -15,6 +15,7 @@ consistent with the "Toolbox, Not Graph" design (AGENTS.md §1).
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
@@ -23,9 +24,13 @@ from builder.tools.drafters import (
     draft_assay,
     draft_investigation,
     draft_process,
+    draft_publication,
     draft_sample,
     draft_study,
 )
+from builder.tools.hitl import HumanInterface
+from builder.tools.lookups import lookup_doi, lookup_orcid
+from lookups.orcid import lookup_orcid_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -515,6 +520,421 @@ def materialize_aop_subgraph(
 
 
 # ---------------------------------------------------------------------------
+# Publication authors + ORCID harmonization (Issue #180, deferred item)
+#
+# A citation author who is not already an in-crate Person used to get a
+# synthesized blank id (#CitationAuthor_<Given>_<Family>). This composite
+# resolves each author's @id to their ORCID when it can be determined — with
+# strict verification (D5) and bounded HITL only on genuine ambiguity.
+# ---------------------------------------------------------------------------
+
+
+def _norm(text: Any) -> str:
+    """Lowercase + collapse whitespace + drop trailing dots (for name matching)."""
+    return " ".join(str(text or "").lower().replace(".", " ").split())
+
+
+def _given_tokens(given: Any) -> list[str]:
+    """Tokenise a given name into comparable parts ('F.M.A.' -> ['f','m','a'])."""
+    return [t for t in _norm(given).split() if t]
+
+
+def _is_initial(token: str) -> bool:
+    return len(token) == 1
+
+
+def _given_match(a: Any, b: Any) -> str:
+    """Strength of a given-name match: 'full', 'initial', or '' (no match).
+
+    'full' requires the leading given tokens to share a non-initial first name
+    (e.g. 'Fabian' vs 'Fabian Marinus'); 'initial' requires only the first
+    initial to agree (e.g. 'F.' / 'F.M.A.' vs 'Fabian'). An empty given on
+    either side is treated as an initial-strength match (family-only signal).
+    """
+    ta, tb = _given_tokens(a), _given_tokens(b)
+    if not ta or not tb:
+        return "initial"
+    fa, fb = ta[0], tb[0]
+    if not _is_initial(fa) and not _is_initial(fb):
+        return "full" if fa == fb else ""
+    # At least one side is an initial — compare first letters.
+    return "initial" if fa[0] == fb[0] else ""
+
+
+def _names_match(given_a: Any, family_a: Any, given_b: Any, family_b: Any) -> str:
+    """Match strength between two (given, family) names: 'full' | 'initial' | ''."""
+    if not _norm(family_a) or _norm(family_a) != _norm(family_b):
+        return ""
+    return _given_match(given_a, given_b)
+
+
+def _bare_orcid(value: Any) -> str:
+    """Strip any URL prefix from an ORCID, returning the bare 0000-... id."""
+    return str(value or "").strip().rstrip("/").rsplit("/", 1)[-1]
+
+
+def _verify_orcid(orcid_id: str, family: str, lookup_orcid_fn: Any) -> dict | None:
+    """Resolve an ORCID and return its record IFF the family name roughly matches.
+
+    D5: an ORCID is only trusted once :func:`lookup_orcid` resolves it AND the
+    resolved family name matches the author's. Returns the resolved data dict on
+    success, else ``None`` (a transient outage also yields ``None`` — we never
+    attach an unverified ORCID).
+    """
+    bare = _bare_orcid(orcid_id)
+    if not bare:
+        return None
+    result = lookup_orcid_fn(bare)
+    if not result.get("found"):
+        return None
+    data = result.get("data") or {}
+    resolved_family = data.get("familyName", "")
+    if _norm(resolved_family) and _norm(resolved_family) == _norm(family):
+        return data
+    return None
+
+
+def _find_in_crate_person(
+    state: CrateState, given: str, family: str, affiliation: str | None
+) -> Entity | None:
+    """An in-crate Person with a VERIFIED ORCID matching this author, or None.
+
+    Family must match and the given name must match at least at initial strength
+    (this resolves 'Fabian Wagenaars' -> root 'F.M.A. Wagenaars'). When several
+    qualify, an affiliation match is preferred, then a full-given match.
+    """
+    candidates: list[tuple[int, Entity]] = []
+    aff_norm = _norm(affiliation)
+    for person in state.list_entities("Person"):
+        if not person.fields.get("orcid"):
+            continue
+        status = person.get_field_status("orcid")
+        if status is None or status.status != "verified":
+            continue
+        strength = _names_match(
+            given, family, person.fields.get("givenName"), person.fields.get("familyName")
+        )
+        if not strength:
+            continue
+        score = 0
+        if strength == "full":
+            score += 1
+        if aff_norm and aff_norm == _norm(person.fields.get("affiliation")):
+            score += 2
+        candidates.append((score, person))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda sc: sc[0], reverse=True)
+    return candidates[0][1]
+
+
+def _pick_from_human(
+    response: Mapping[str, Any] | None, candidates: list[dict], options: list[str]
+) -> str | None:
+    """Extract a chosen bare ORCID from a HITL ``present`` response, or None.
+
+    Accepts a pick expressed as an explicit ORCID in ``comments``/``edits`` or as
+    an option label/index. A ``skipped``/``rejected`` action yields ``None``.
+    """
+    if not response or response.get("action") in ("skipped", "rejected"):
+        return None
+    by_orcid = {_bare_orcid(c["orcid"]): c for c in candidates}
+    # 1. An edits dict naming the orcid.
+    edits = response.get("edits") or {}
+    for value in edits.values():
+        bare = _bare_orcid(value)
+        if bare in by_orcid:
+            return bare
+    # 2. Free-text comments containing an orcid or an option label.
+    comments = str(response.get("comments") or "").strip()
+    if comments:
+        bare = _bare_orcid(comments)
+        if bare in by_orcid:
+            return bare
+        for idx, label in enumerate(options):
+            if comments == label or comments == str(idx) or comments == str(idx + 1):
+                if idx < len(candidates):
+                    return _bare_orcid(candidates[idx]["orcid"])
+    return None
+
+
+def _resolve_via_search(
+    given: str,
+    family: str,
+    affiliation: str | None,
+    human: HumanInterface | None,
+    lookup_orcid_fn: Any,
+    lookup_by_name_fn: Any,
+) -> str | None:
+    """Search ORCID and resolve to a verified bare ORCID, escalating if ambiguous.
+
+    Auto-accepts iff there is exactly ONE candidate that is a STRONG match
+    (family + full given name). Anything else — multiple candidates, a weak /
+    initial-only match, or a single match that fails name verification — is
+    escalated to HITL (``present`` the candidates + a none/skip option, then
+    optionally ``request_input`` for a pasted ORCID). Returns a verified bare
+    ORCID, or ``None`` (no confident answer; caller falls back to synthesis).
+    """
+    candidates = list(lookup_by_name_fn(given, family, affiliation) or [])
+    if not candidates:
+        return None
+
+    strong = [
+        c
+        for c in candidates
+        if _names_match(given, family, c.get("given"), c.get("family")) == "full"
+    ]
+
+    # Auto-accept ONLY a single, strong, name-verified candidate.
+    if len(candidates) == 1 and len(strong) == 1:
+        verified = _verify_orcid(strong[0]["orcid"], family, lookup_orcid_fn)
+        if verified is not None:
+            return _bare_orcid(strong[0]["orcid"])
+        # Fall through to HITL — a sole strong match that fails verification is
+        # ambiguous, not confidently absent.
+
+    # Genuine ambiguity (or a single weak / unverifiable match): escalate.
+    if human is None:
+        return None
+
+    options = [
+        f"{c.get('given', '')} {c.get('family', '')} — {c.get('orcid')}"
+        + (f" ({c['affiliation']})" if c.get("affiliation") else "")
+        for c in candidates
+    ]
+    options.append("None of these / skip")
+    context = (
+        f"Multiple ORCID candidates for citation author '{given} {family}'. "
+        "Pick the correct one (or skip to leave it unresolved):"
+    )
+    chosen = _pick_from_human(human.present(context, options), candidates, options)
+    if chosen is None:
+        # Last chance: let the user paste an ORCID directly.
+        resp = human.request_input(
+            f"Paste the ORCID for '{given} {family}' (or skip):", "identifier"
+        )
+        if not resp.get("skipped"):
+            chosen = _bare_orcid(resp.get("value"))
+    if not chosen:
+        return None
+
+    # An HITL-chosen ORCID is still verified before use (D5).
+    verified = _verify_orcid(chosen, family, lookup_orcid_fn)
+    return _bare_orcid(chosen) if verified is not None else None
+
+
+def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entity:
+    """Find-or-create a Person whose @id is the ORCID URL, with a verified ORCID."""
+    bare = _bare_orcid(orcid)
+    orcid_url = f"https://orcid.org/{bare}"
+    existing = state.get_entity(orcid_url) or state.get_entity(bare)
+    if existing is not None and existing.type == "Person":
+        person = existing
+    else:
+        person = Entity(
+            entity_id=orcid_url,
+            type="Person",
+            _provenance=EntityProvenance(created_by="lookup"),
+        )
+        state.add_entity(person)
+    fields: dict[str, Any] = {"orcid": bare}
+    given = data.get("givenName")
+    family = data.get("familyName")
+    name = data.get("name") or (f"{given or ''} {family or ''}".strip())
+    if name:
+        fields["name"] = name
+    if given:
+        fields["givenName"] = given
+    if family:
+        fields["familyName"] = family
+    affiliation = data.get("affiliation_name")
+    if affiliation:
+        fields["affiliation"] = affiliation
+    person.set_fields_from_dict(fields, source="lookup")
+    person.set_field_status("orcid", "verified", "lookup")
+    return person
+
+
+def _synthesize_citation_author(state: CrateState, given: str, family: str) -> Entity:
+    """Create (or reuse) the fallback #CitationAuthor_<Given>_<Family> Person."""
+    parts = [p for p in (str(given or "").strip(), str(family or "").strip()) if p]
+    label = "_".join(parts).replace(" ", "_") or "Unknown"
+    entity_id = f"#CitationAuthor_{label}"
+    existing = state.get_entity(entity_id)
+    if existing is not None:
+        return existing
+    person = Entity(
+        entity_id=entity_id,
+        type="Person",
+        _provenance=EntityProvenance(created_by="llm"),
+    )
+    person.set_fields_from_dict(
+        {
+            "name": " ".join(parts) or "Unknown Author",
+            **({"givenName": given} if given else {}),
+            **({"familyName": family} if family else {}),
+        },
+        source="llm",
+    )
+    state.add_entity(person)
+    return person
+
+
+def _ensure_publication(state: CrateState, doi: str, data: dict) -> Entity:
+    """Find-or-create the ScholarlyArticle Publication for a DOI (no author wiring)."""
+    bare_doi = data.get("identifier") or doi
+    for pub in state.list_entities("Publication"):
+        ident = str(pub.fields.get("identifier") or "")
+        if ident and (ident == str(bare_doi) or _bare_orcid(ident) == _bare_orcid(doi)):
+            return pub
+        if pub.fields.get("doi") and _norm(pub.fields["doi"]) == _norm(doi):
+            return pub
+    hints: dict[str, Any] = {}
+    if data.get("name"):
+        hints["name"] = data["name"]
+    if data.get("headline"):
+        hints["headline"] = data["headline"]
+    if data.get("datePublished"):
+        hints["datePublished"] = data["datePublished"]
+    if data.get("url"):
+        hints["url"] = data["url"]
+    return draft_publication(state, str(bare_doi), hints)
+
+
+def _wire_author(pub: Entity, person: Entity) -> None:
+    """Append a Person reference onto the publication's ``author`` list (deduped)."""
+    refs = pub.fields.get("author") or []
+    if not isinstance(refs, list):
+        refs = [refs]
+    ids = {(r.get("@id") if isinstance(r, dict) else r) for r in refs}
+    if person.entity_id not in ids:
+        refs = [*refs, {"@id": person.entity_id}]
+    pub.fields["author"] = refs
+    pub.set_field_status("author", "filled", "lookup")
+
+
+def draft_publication_with_authors(
+    state: CrateState,
+    doi: str,
+    human_interface: HumanInterface | None = None,
+) -> dict[str, Any]:
+    """Draft a publication and wire each author, harmonizing @ids to ORCIDs (#180).
+
+    Looks the DOI up via Crossref, ensures the ``ScholarlyArticle`` exists in
+    state, and for EACH author creates/reuses a ``Person`` wired as the article's
+    ``author``. Each author's ``@id`` is resolved by this cascade (first hit wins):
+
+    1. **Crossref ORCID** on the author — verified via :func:`lookup_orcid`
+       (resolved family name must match) — used as ``https://orcid.org/<id>``.
+    2. **In-crate Person** with a verified ORCID matching the author's family +
+       given/initial (affiliation-preferred) — reused (e.g. citation
+       'Fabian Wagenaars' → root 'F.M.A. Wagenaars').
+    3. **Public ORCID search** (:func:`lookups.orcid.lookup_orcid_by_name`): a
+       single STRONG (family + full given) match is verified and used; anything
+       ambiguous (multiple candidates, or a weak/initial-only match) is escalated
+       to HITL via ``human_interface`` (pick a candidate / paste an ORCID / skip).
+    4. **Fallback**: a synthesized ``#CitationAuthor_<Given>_<Family>`` Person.
+
+    D5: an ORCID from (1) or (3) — and an HITL-chosen one — is only attached after
+    it resolves and the name roughly matches; (2) is already verified. HITL fires
+    ONLY on genuine ambiguity, never when an author is confidently resolved or
+    confidently absent.
+
+    Args:
+        state: The crate state to draft into.
+        doi: The DOI to resolve (with or without a URL prefix).
+        human_interface: HITL adapter injected by the engine; when ``None`` the
+            search step cannot escalate, so an ambiguous author falls back to a
+            synthesized id rather than guessing (D5).
+
+    Returns:
+        On success ``{"publication_id", "doi", "authors": [{name, person_id,
+        orcid, resolution}], "hitl": int}``. On a DOI miss
+        ``{"ok": False, "error": ...}``.
+    """
+    lookup = lookup_doi(doi)
+    if not lookup.get("found"):
+        return {"ok": False, "error": lookup.get("error", f"DOI '{doi}' not found")}
+
+    data = lookup.get("data") or {}
+    pub = _ensure_publication(state, doi, data)
+
+    authors_out: list[dict[str, Any]] = []
+    hitl_count = 0
+    for author in data.get("author", []):
+        given = author.get("givenName", "")
+        family = author.get("familyName", "")
+        affiliation = author.get("affiliation")
+        resolution = "synthesized"
+        person: Entity | None = None
+
+        # (a) Crossref ORCID on the author.
+        crossref_orcid = author.get("identifier")
+        if crossref_orcid:
+            verified = _verify_orcid(crossref_orcid, family, lookup_orcid)
+            if verified is not None:
+                person = _ensure_person_for_orcid(state, crossref_orcid, verified)
+                resolution = "crossref_orcid"
+
+        # (b) In-crate Person with a verified ORCID.
+        if person is None:
+            match = _find_in_crate_person(state, given, family, affiliation)
+            if match is not None:
+                person = match
+                resolution = "in_crate"
+
+        # (c) Public ORCID search (auto-accept ONE strong match; else HITL).
+        if person is None:
+            prompts_before = _hitl_prompt_count(human_interface)
+            searched = _resolve_via_search(
+                given,
+                family,
+                affiliation,
+                human_interface,
+                lookup_orcid,
+                lookup_orcid_by_name,
+            )
+            if _hitl_prompt_count(human_interface) > prompts_before:
+                hitl_count += 1
+            if searched:
+                verified = _verify_orcid(searched, family, lookup_orcid)
+                if verified is not None:
+                    person = _ensure_person_for_orcid(state, searched, verified)
+                    resolution = "orcid_search"
+
+        # (d) Fallback synthesized author.
+        if person is None:
+            person = _synthesize_citation_author(state, given, family)
+            resolution = "synthesized"
+
+        _wire_author(pub, person)
+        authors_out.append(
+            {
+                "name": f"{given} {family}".strip(),
+                "person_id": person.entity_id,
+                "orcid": _bare_orcid(person.fields.get("orcid")) or None,
+                "resolution": resolution,
+            }
+        )
+
+    return {
+        "publication_id": pub.entity_id,
+        "doi": data.get("identifier") or doi,
+        "authors": authors_out,
+        "hitl": hitl_count,
+    }
+
+
+def _hitl_prompt_count(human: HumanInterface | None) -> int:
+    """Best-effort count of prompts a recording interface has made (for hitl stat)."""
+    if human is None:
+        return 0
+    return len(getattr(human, "present_calls", []) or []) + len(
+        getattr(human, "input_calls", []) or []
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
@@ -523,4 +943,10 @@ TOOL_REGISTRY.register("scaffold_isa_backbone", scaffold_isa_backbone, takes_sta
 TOOL_REGISTRY.register("draft_process_chain", draft_process_chain, takes_state=True)
 TOOL_REGISTRY.register(
     "materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True
+)
+TOOL_REGISTRY.register(
+    "draft_publication_with_authors",
+    draft_publication_with_authors,
+    takes_state=True,
+    takes_human=True,
 )
