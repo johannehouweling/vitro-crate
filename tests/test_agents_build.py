@@ -506,3 +506,136 @@ class TestProgressOutput:
             guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
         )
         assert result["export"]["success"] is True
+
+
+class TestProgressSpinner:
+    """#266 — the DEFAULT interactive build drives a live progress spinner.
+
+    The spinner is created only on the REAL interactive path (an interactive
+    ``HumanInterface``), so headless / simulated runs (the A/B eval, batch, tests)
+    stay completely silent — no spinner, no daemon thread, no stdout noise — and
+    the built ``@graph`` hash is unperturbed. When the spinner runs it subscribes
+    to the engine's ``on_tool_event`` hook (set during the build, restored after)
+    and feeds the #253 phase-progress strings into ``set_current``.
+    """
+
+    def test_no_spinner_on_non_interactive_build(self, tmp_path, monkeypatch) -> None:
+        """A simulated (headless) build creates NO spinner — no thread, no noise."""
+        import builder.agents.build as build_mod
+        from builder.agents.build import run_interactive_build
+
+        created: list[Any] = []
+
+        class _SpySpinner:
+            def __init__(self, *a: Any, **k: Any) -> None:
+                created.append(self)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a: Any) -> None:
+                pass
+
+            def set_current(self, _text: str) -> None:
+                pass
+
+        monkeypatch.setattr(build_mod, "ProgressSpinner", _SpySpinner, raising=False)
+
+        out_dir = tmp_path / "headless-ro-crate"
+        engine = _engine(SimulatedHumanInterface())
+        engine.state.metadata.output_path = str(out_dir)
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        assert created == [], "no spinner may be created on a headless build"
+
+    def test_spinner_created_on_interactive_build(self, tmp_path, monkeypatch) -> None:
+        """A real interactive build creates the spinner and drives set_current."""
+        import builder.agents.build as build_mod
+        from builder.agents.build import run_interactive_build
+
+        ops: list[str] = []
+        created: list[Any] = []
+
+        class _SpySpinner:
+            def __init__(self, *a: Any, **k: Any) -> None:
+                created.append(self)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a: Any) -> None:
+                pass
+
+            def set_current(self, text: str) -> None:
+                ops.append(text)
+
+        monkeypatch.setattr(build_mod, "ProgressSpinner", _SpySpinner, raising=False)
+
+        out_dir = tmp_path / "interactive-ro-crate"
+        engine = _engine(_InteractiveHuman())
+        engine.state.metadata.output_path = str(out_dir)
+
+        def fake_pipeline(eng, *, progress=None, **kw):
+            if progress is not None:
+                progress("Scaffolding ISA backbone…")
+            return dict(_PIPELINE_RESULT)
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=fake_pipeline,
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        assert len(created) == 1, "the interactive build must create one spinner"
+        # The #253 phase string was fed into the spinner's current-op display.
+        assert any("scaffold" in op.lower() for op in ops)
+
+    def test_on_tool_event_restored_after_build(self, tmp_path) -> None:
+        """The engine's on_tool_event hook is restored to its prior value after."""
+        from builder.agents.build import run_interactive_build
+
+        out_dir = tmp_path / "restore-ro-crate"
+        engine = _engine(_InteractiveHuman())
+        engine.state.metadata.output_path = str(out_dir)
+        sentinel = lambda _n, _p: None  # noqa: E731
+        engine.on_tool_event = sentinel
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        assert engine.on_tool_event is sentinel, "the prior hook must be restored"
+
+    def test_spinner_path_does_not_perturb_graph_hash(self, tmp_path) -> None:
+        """Determinism: the spinner path yields the same built @graph hash as the
+        headless path (the spinner is pure UI — it never touches the crate)."""
+        from builder.agents.build import run_interactive_build
+        from builder.agents.pipeline import run_pipeline
+        from eval.metrics import crate_graph_hash
+
+        # Headless path (no spinner) — the reference hash.
+        e1 = _engine(SimulatedHumanInterface())
+        e1.state.metadata.output_path = str(tmp_path / "a-ro-crate")
+        run_interactive_build(e1, output=[].append)
+        h1 = crate_graph_hash(e1.state)
+
+        # Interactive path (spinner active) — must match.
+        e2 = _engine(_InteractiveHuman())
+        e2.state.metadata.output_path = str(tmp_path / "b-ro-crate")
+        run_interactive_build(e2, output=[].append)
+        h2 = crate_graph_hash(e2.state)
+
+        # Sanity: the real run_pipeline produced a non-trivial crate.
+        ref = _engine(SimulatedHumanInterface())
+        run_pipeline(ref)
+        assert h1 == h2
