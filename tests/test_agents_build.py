@@ -618,24 +618,36 @@ class TestProgressSpinner:
 
     def test_spinner_path_does_not_perturb_graph_hash(self, tmp_path) -> None:
         """Determinism: the spinner path yields the same built @graph hash as the
-        headless path (the spinner is pure UI — it never touches the crate)."""
+        headless path (the spinner is pure UI — it never touches the crate).
+
+        Both paths run the REAL deterministic pipeline (so the comparison is
+        meaningful); only the interactive path drives the spinner. The HITL
+        guidance tail is stubbed with a graph-neutral no-op so the test isolates
+        the spinner's effect on the built ``@graph`` WITHOUT paying for a second
+        full SHACL guidance run — which made the test run three heavy real builds
+        and blow the CI per-test ``--timeout`` (#266).
+        """
         from builder.agents.build import run_interactive_build
-        from builder.agents.pipeline import run_pipeline
+        from builder.state import CrateState
         from eval.metrics import crate_graph_hash
 
-        # Headless path (no spinner) — the reference hash.
+        # A guidance runner that touches NOTHING (the interactive _InteractiveHuman
+        # approves/skips every gap, so real guidance is a graph no-op here anyway).
+        noop_guidance = lambda eng, human, **kw: {}  # noqa: E731
+
+        # Headless path (no spinner) — runs the real pipeline; the reference hash.
         e1 = _engine(SimulatedHumanInterface())
         e1.state.metadata.output_path = str(tmp_path / "a-ro-crate")
         run_interactive_build(e1, output=[].append)
         h1 = crate_graph_hash(e1.state)
 
-        # Interactive path (spinner active) — must match.
+        # Interactive path (spinner ACTIVE) — same real pipeline, must match.
         e2 = _engine(_InteractiveHuman())
         e2.state.metadata.output_path = str(tmp_path / "b-ro-crate")
-        run_interactive_build(e2, output=[].append)
+        run_interactive_build(e2, guidance_runner=noop_guidance, output=[].append)
         h2 = crate_graph_hash(e2.state)
 
-        # Sanity: the real run_pipeline produced a non-trivial crate.
-        ref = _engine(SimulatedHumanInterface())
-        run_pipeline(ref)
         assert h1 == h2
+        # Sanity: the real pipeline produced a non-trivial crate (not the empty
+        # default), so the equality above is a real signal, not two empty hashes.
+        assert h1 != crate_graph_hash(CrateState())

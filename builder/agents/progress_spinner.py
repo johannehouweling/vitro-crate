@@ -89,6 +89,18 @@ class ProgressSpinner:
 
     Colour convention mirrors the legacy ``_ThinkingSpinner``: green = working,
     dim = elapsed/meta, cyan = the current op.
+
+    **Non-TTY safety (CI / piped).** A live animation only makes sense on a real
+    terminal. When the console is NOT a terminal (``console.is_terminal`` is
+    falsey — CI, a pipe, a captured/redirected stream), the spinner is built in a
+    *silent* mode: it opens **no** Rich ``Live`` region (so no Rich background
+    refresh thread) and starts **no** daemon tick thread, and every public method
+    (:meth:`set_current` / :meth:`pause` / :meth:`resume` / :meth:`__enter__` /
+    :meth:`__exit__`) is a cheap, safe no-op. This keeps the headless / CI path
+    free of background threads to start, stop and join under a ``--timeout``
+    thread-dumper, so it can never hang there; on a real TTY it animates exactly
+    as before. A console without an ``is_terminal`` attribute (e.g. a test fake)
+    defaults to the animated path.
     """
 
     def __init__(
@@ -121,10 +133,21 @@ class ProgressSpinner:
         # Set while a HITL prompt owns the terminal: the tick thread must not
         # repaint the Rich Live region over the prompt (else stdin is unusable).
         self._paused = threading.Event()
-        self._status = console.status(
-            self._render(), spinner="dots", spinner_style="green"
-        )
-        self._thread = threading.Thread(target=self._tick, daemon=True)
+        # Only animate on a real terminal. A non-terminal output (CI, a pipe, a
+        # captured stream) gets the silent no-op mode: no Live region, no Rich
+        # refresh thread, no daemon tick thread — nothing to hang on teardown.
+        # A console missing ``is_terminal`` (a test fake) defaults to animated.
+        self._active: bool = bool(getattr(console, "is_terminal", True))
+        if self._active:
+            self._status: Any | None = console.status(
+                self._render(), spinner="dots", spinner_style="green"
+            )
+            self._thread: threading.Thread | None = threading.Thread(
+                target=self._tick, daemon=True
+            )
+        else:
+            self._status = None
+            self._thread = None
 
     # ------------------------------------------------------------------
     # Rendering
@@ -147,8 +170,11 @@ class ProgressSpinner:
         while not self._stop.wait(self._tick_interval):
             if self._paused.is_set():
                 continue
+            status = self._status
+            if status is None:  # silent mode never starts this thread; belt-and-braces
+                break
             try:
-                self._status.update(self._render())
+                status.update(self._render())
             except Exception:  # noqa: BLE001 — a torn-down Live must not crash the thread
                 break
 
@@ -161,9 +187,12 @@ class ProgressSpinner:
 
         Records the op and repaints immediately — unless paused, in which case the
         op is remembered but the Live region is left alone so a HITL prompt stays
-        readable (the next resume/tick picks it up).
+        readable (the next resume/tick picks it up). On a non-TTY (silent mode)
+        the op is still remembered but there is no Live region to repaint.
         """
         self._current = text
+        if not self._active or self._status is None:
+            return  # silent mode: remember the op, paint nothing
         if self._paused.is_set():
             return
         try:
@@ -175,16 +204,25 @@ class ProgressSpinner:
         """Tear down the Live region and stop ticking so a HITL prompt is clean.
 
         Called (via :func:`builder.tools.hitl.suspend_console_animation`) when the
-        guidance tail needs ``input()`` mid-build. Best-effort and idempotent.
+        guidance tail needs ``input()`` mid-build. Best-effort and idempotent. A
+        no-op in silent mode (there is no Live region owning the terminal).
         """
         self._paused.set()
+        if not self._active or self._status is None:
+            return
         try:
             self._status.stop()
         except Exception:  # noqa: BLE001
             logger.debug("spinner pause: status.stop failed", exc_info=True)
 
     def resume(self) -> None:
-        """Restart the Live region after a HITL prompt completes."""
+        """Restart the Live region after a HITL prompt completes.
+
+        A no-op in silent mode (there was no Live region to restart).
+        """
+        if not self._active or self._status is None:
+            self._paused.clear()
+            return
         try:
             self._status.start()
         except Exception:  # noqa: BLE001
@@ -196,15 +234,24 @@ class ProgressSpinner:
     # ------------------------------------------------------------------
 
     def __enter__(self) -> "ProgressSpinner":
-        self._status.__enter__()
-        self._thread.start()
+        # In silent mode (non-TTY) there is no Live region and no tick thread to
+        # start — just register so a HITL prompt's suspend/resume stays valid.
+        if self._active and self._status is not None and self._thread is not None:
+            self._status.__enter__()
+            self._thread.start()
         register_console_animation(self)
         return self
 
     def __exit__(self, *exc: Any) -> None:
         unregister_console_animation(self)
+        # Silent mode: nothing was started, so nothing to stop or join.
+        if not self._active:
+            return
         self._stop.set()
-        self._thread.join(timeout=1.0)
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        if self._status is None:
+            return
         try:
             self._status.__exit__(*exc)
         except Exception:  # noqa: BLE001 — teardown must never raise on exit
