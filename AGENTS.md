@@ -1354,8 +1354,12 @@ Pipeline (#179): (1) `fix_required_issues` deterministic repair loop — *the ke
 below); (3) composite meta-tools incl. `draft_process_chain`
 — **done**: it synthesizes the EndpointReadout/DataAnalysis outputs the build has no
 fallback for (closing the §14.3 Violation trap) and wires the whole chain in one
-idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine replaces the
-`should_continue` ReAct loop; (5) shrink tail agent; (6) **A/B eval harness —
+idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine — **done as an
+opt-in parallel path** (`builder/agents/pipeline.py::run_pipeline`, see §14.5): a
+deterministic, code-driven orchestrator that does NOT yet replace the
+`should_continue` ReAct loop. **ReAct stays the DEFAULT**; the spine is selectable
+via the eval harness (`python -m eval --arch pipeline`) so the A/B gate (task 6)
+can prove it before any cutover; (5) shrink tail agent; (6) **A/B eval harness —
 decision gate**; (7) prompt + docs.
 
 #### The drafter-leaf (`leaves.py`)
@@ -1438,6 +1442,47 @@ build-path-only change.
 > lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
 > catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`) — plus
 > the import lists in `tests/test_tools_spec.py`, or CI fails.
+
+### 14.5 The pipeline spine (task 4 — `builder/agents/pipeline.py`)
+
+`run_pipeline(engine: AgentEngine) -> dict` is the deterministic, code-driven
+orchestrator of §14.2 — the Priority 1-4 heuristic (§4) expressed as **control
+flow, not prose**, with **no LLM deciding control flow**. It operates on an
+already-`initialize()`-d engine (so scanning + approved-roots happened in the
+engine) and routes every step through `engine.run_tool(...)` (so each is profiled
+and validation is cached); it never re-implements tool logic, only orchestrates the
+existing toolbox. The sequence:
+
+1. **Scaffold** the ISA backbone via `scaffold_isa_backbone` — always, and
+   idempotent (existing layers are reused). The spine supplies deterministic
+   backbone **names** (from `state.metadata.title` when present, else stable
+   defaults) because a bare `draft_study` populates only the entity_id, not the
+   `name` field, and the ISA profile REQUIRES a non-empty Study `name`. With names
+   supplied this alone yields `{base, isa, tox}` on an empty crate (§14.3).
+2. **Draft entities** from what state already carries — a deliberate **no-op
+   today**: there is no deterministic file→entity extraction, so turning scanned
+   files / free text into typed entities is the bounded LLM "drafter-leaf" a later
+   PR binds here (§14.2). Pre-seeded entities are carried into the build as-is.
+3. **build_and_validate** in memory (no disk write).
+4. **Fix loop** — `fix_required_issues` + re-validate, **bounded to ≤3 rounds**,
+   stopping when no REQUIRED issue remains *or* a round fixes nothing (deterministic
+   dispatch only; the loop is monotone over the rule set, so a no-progress round
+   means the rest needs the LLM leaf).
+5. Returns `{ok, conformance, issues, scaffold, drafted, fix_rounds}`.
+
+**Determinism contract:** same input state ⇒ identical built `@graph` — the
+headline win the eval harness asserts (`crate_graph_hash` equal across runs).
+
+**Measurable via the same harness.** `eval/pipeline_factory.py`
+(`make_pipeline_agent_factory` → `PipelineBuildAgent`) implements the same
+`BuildAgent` contract as the ReAct factory: it builds a headless engine
+(`SimulatedHumanInterface`), `initialize(input_path=case.input_path)` (which
+approves the input dir under the fail-closed guard), runs `run_pipeline`, and
+returns the final `CrateState`/`session_id` exactly like `ReActBuildAgent`.
+`eval/__main__.py` adds `--arch react|pipeline` (DEFAULT `react`) selecting the
+factory, so `python -m eval --arch pipeline --label pipeline` runs the same
+corpus/metrics/report against the spine — diffable vs the frozen `react-baseline`.
+The spine calls **no model**, so it runs in CI for real (zero tokens).
 
 The pre-migration ReAct baseline is frozen at git tag **`react-baseline`** for the A/B.
 
