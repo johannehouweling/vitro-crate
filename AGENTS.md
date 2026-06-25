@@ -1500,6 +1500,75 @@ The spine calls **no model**, so it runs in CI for real (zero tokens).
 
 The pre-migration ReAct baseline is frozen at git tag **`react-baseline`** for the A/B.
 
+### 14.6 The hybrid build loop and the gap engine (`builder/tools/gap_analysis.py`)
+
+The full hybrid ISA-Tox build loop runs in five stages, all deterministic except
+where a bounded LLM leaf is explicitly invoked:
+
+```
+Extract → Materialize → Assess → Auto-resolve → Guidance
+ (leaf)    (deterministic   │      (deterministic   (small strong-model
+            scaffold +       │       fix loop)        agent: ambiguity + HITL)
+            draft mutators)  ▼
+                          gap engine
+```
+
+**Extract** pulls structured fields from input via the cheap drafter-leaf
+(§14.4); **Materialize** turns them into linked entities through the
+deterministic `scaffold_isa_backbone` / `draft_*` / `draft_process_chain`
+mutators; **Assess** runs the gap engine (this section); **Auto-resolve** clears
+every `auto_fixable` gap via `fix_required_issues` (§5, the keystone); and
+**Guidance** is the small tail agent that handles only what the deterministic
+path cannot — genuine ambiguity, missing content, and HITL.
+
+**Stage C — the gap engine.** `assess_gaps(state: CrateState) -> GapReport`
+(`builder/tools/gap_analysis.py`) unifies the three assessors into ONE
+prioritized gap list the Guidance stage consumes. It is a **pure, deterministic,
+idempotent library function** (no LLM, no network, never mutates `state`) — and a
+**library function only, NOT a four-place LLM tool**: the spine/guidance *code*
+imports and calls it. It calls (does not re-implement) the three assessors:
+
+- `build_and_validate(state, severity="optional", profile="all")` — one widest
+  sweep yields REQUIRED + RECOMMENDED + OPTIONAL SHACL issues, each already
+  routed to `{entity_id, property, message, fix, severity, profile}`.
+- `assess_mit_coverage`'s underlying YAML logic — every unfilled MIT parameter is
+  a domain-enrichment gap.
+- `assess_fair_maturity` — every *failing* indicator is a gap.
+
+**Tiering** mirrors the §6 validation layers (MUST = blocking, SHOULD =
+recommended, MAY = optional):
+
+| Source | Gap → tier |
+|--------|------------|
+| SHACL `required` (Violation) | **MUST** |
+| SHACL `recommended` (warning) | **SHOULD** |
+| SHACL `optional` | **MAY** |
+| MIT param, `additional: false` (core) | **SHOULD** |
+| MIT param, `additional: true` | **MAY** |
+| FAIR failing indicator, `essential` | **SHOULD** |
+| FAIR failing indicator, otherwise | **MAY** |
+
+Each `Gap` carries `{tier, source, entity_id, entity_type, property, message,
+suggestion, fix_hint, auto_fixable}`: `suggestion` is the expected propertyID
+IRI / ontology term / parameter description from the profile or MIT YAML;
+`fix_hint` is a deterministic tool name (`"fix_required_issues"`), `"draft"`, or
+`"ask-user"`. `GapReport` adds `{gaps, conformance, mit_overall, fair_summary,
+counts}`, with `gaps` sorted **all MUST, then SHOULD, then MAY**, stable
+secondary by `(source, entity_id, property)`.
+
+**`auto_fixable` is the load-bearing field** — it is `True` iff
+`fix_required_issues` can clear the gap deterministically from state alone. The
+engine decides this by re-using the repair loop's **own** rule predicates
+(`builder/tools/repair.py` `_RULES`, `_resolve_state_entity`,
+`_unique_unwired_file`) read-only, so the gap engine and the repair loop can
+never drift on what "deterministically fixable" means: today the single
+`missing_process_output` rule makes an `EndpointReadout`/`DataAnalysis` missing
+its `result`/`output` auto-fixable **iff exactly one un-wired `File` is in state**
+(unambiguous target); two-or-more (ambiguous) or zero (needs new content, D5)
+files, and every non-SHACL or non-REQUIRED gap, are `auto_fixable=False` →
+`"ask-user"`/`"draft"`. The Auto-resolve stage runs `fix_required_issues`; what
+remains is exactly the `auto_fixable=False` set the Guidance stage works through.
+
 ---
 
 *This document is a living design artifact. Update as architectural decisions evolve.*
