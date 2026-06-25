@@ -269,8 +269,16 @@ class AgentEngine:
         if debounce_hit:
             pass  # cached build_and_validate result reused; SHACL skipped
         elif tool_name == "present_to_human":
+            # Emit a hitl_wait marker *before* blocking on the human (#193). The
+            # tool_call event is only logged after this returns — i.e. after the
+            # human responds — so without this marker a pending HITL pause is
+            # invisible to the dashboard's ▶/⏸ status inference.
+            if self.profiler is not None:
+                self.profiler.log_event(event="hitl_wait", tool=tool_name)
             result = self.human_interface.present(kwargs.get("context", ""), kwargs.get("options"))
         elif tool_name == "request_input":
+            if self.profiler is not None:
+                self.profiler.log_event(event="hitl_wait", tool=tool_name)
             result = self.human_interface.request_input(
                 kwargs.get("prompt", ""), kwargs.get("field_type", "text")
             )
