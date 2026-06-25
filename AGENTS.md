@@ -575,10 +575,22 @@ duplicates are dropped), and a plain File keeps its scalar `@type`.
 ### Entity Management Tools
 ```
 set_fields(entity_id: str, fields: dict, source="llm") → Entity
+set_crate_metadata(title=None, description=None, accession=None, release_date=None, date_modified=None) → {title, description, accession, release_date, date_modified}  # set Root Data Entity (crate-level) scalar metadata
 remove_entity(entity_id: str, cascade: bool = False) → bool
 list_entities(entity_type: str | None) → [Entity]
 list_scanned_files(name_contains=None, mime_contains=None, offset=0, limit=200) → {total_scanned, matched, files:[{path, filename, size, mime_type}]}
 ```
+`set_crate_metadata` (Issue #180) is the single setter for **crate-level**
+metadata — the scalar properties of the Root Data Entity (`./`), as opposed to
+`set_fields` which mutates a graph *entity*. It writes onto `CrateState.metadata`:
+`title` / `description` / `accession` map to the root's `name` / `description` /
+`identifier`, and `release_date` / `date_modified` add `release_date` /
+`date_modified` to `CrateMetadata` (defaulting to `None`, so sessions saved
+before these fields existed still load) and emit `schema:releaseDate` /
+`schema:dateModified` on the root at build time (the gold S-VHPS21 root carries
+both alongside the auto-set `datePublished`). Only the arguments actually passed
+(non-empty) are written — a date is never fabricated (D5) — and ro-crate-py's
+auto-set `datePublished` is left untouched unless explicitly overridden.
 `list_scanned_files` retrieves the **full** raw scan inventory from
 `CrateState.scanned_files`. `scan_files` only surfaces a ~15-file sample and its
 output is later pruned from history (D12), so this is how the agent re-reads the

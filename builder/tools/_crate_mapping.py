@@ -632,6 +632,13 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     )
     if m.accession:
         crate.root_dataset["identifier"] = m.accession
+    # Root dates (#180). Emit schema:releaseDate / schema:dateModified only when
+    # set — never fabricated (D5). ro-crate-py auto-sets datePublished at crate
+    # construction, so it is left untouched here unless explicitly provided.
+    if m.release_date:
+        crate.root_dataset["releaseDate"] = m.release_date
+    if m.date_modified:
+        crate.root_dataset["dateModified"] = m.date_modified
     crate.root_dataset["additionalType"] = "Investigation"
     # Base RO-Crate MUST: the Root Data Entity has a license. The ISA-Tox shape
     # endorses this exact placeholder when none is available.
