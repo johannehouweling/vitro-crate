@@ -261,6 +261,24 @@ def _plan_schema() -> dict[str, Any]:
                 {"name": {**str_field, "description": "Cell-line name only (no accession)."}},
                 required=["name"],
             ),
+            "protocols": _array_of(
+                {
+                    "name": {**str_field, "description": "Protocol name only (no identifiers)."},
+                    "description": {
+                        **str_field,
+                        "description": "Free-text description of the protocol.",
+                    },
+                    "process_hint": {
+                        **str_field,
+                        "description": (
+                            "Free-text hint of which process step this protocol "
+                            "governs, e.g. the process_type ('EndpointReadout') or "
+                            "a step name. Optional."
+                        ),
+                    },
+                },
+                required=["name"],
+            ),
             "process_chain": _array_of(
                 {
                     "process_type": {

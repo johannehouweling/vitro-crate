@@ -305,6 +305,13 @@ class TestMaterializePlan:
             {"name": "Sodium iodide", "role": "control"},
         ],
         "cell_lines": [{"name": "FRTL-5"}],
+        "protocols": [
+            {
+                "name": "Amplex Red TPO activity readout",
+                "description": "Fluorometric TPO activity assay protocol.",
+                "process_hint": "EndpointReadout",
+            }
+        ],
         "process_chain": [
             {"process_type": "CellCulture", "name": "Seed cells"},
             {"process_type": "Exposure", "name": "Dose"},
@@ -403,8 +410,17 @@ class TestMaterializePlan:
                 "error": None,
             }
 
+        # resolve_publication -> search_works_by_title. Default: NO candidates, so
+        # the default-plan publication stays deferred (D5). Tests that need a
+        # confident match override this stub.
+        def fake_search_works_by_title(title):
+            return []
+
         monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
         monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
+        monkeypatch.setattr(
+            composites_mod, "search_works_by_title", fake_search_works_by_title
+        )
         monkeypatch.setattr(tool_lookups, "lookup_aop", fake_lookup_aop)
 
     def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
@@ -438,6 +454,25 @@ class TestMaterializePlan:
         ptypes = {p.fields.get("process_type") for p in procs}
         assert ptypes == {"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"}
 
+        # Protocol → LabProtocol minted from the name/description (D5: no id), and
+        # linked to the EndpointReadout process it governs (executesLabProtocol).
+        protos = self._by_type(engine, "LabProtocol")
+        assert [p.fields.get("name") for p in protos] == [
+            "Amplex Red TPO activity readout"
+        ]
+        proto_id = protos[0].entity_id
+        readout = next(
+            p for p in procs if p.fields.get("process_type") == "EndpointReadout"
+        )
+        labprotocol_ref = readout.fields.get("labprotocol")
+        ref_id = (
+            labprotocol_ref.get("@id")
+            if isinstance(labprotocol_ref, dict)
+            else labprotocol_ref
+        )
+        assert str(ref_id).lstrip("#") == proto_id
+        assert result["protocols"] >= 1
+
         # AOP → AdverseOutcomePathway subgraph.
         assert self._by_type(engine, "AdverseOutcomePathway")
         assert self._by_type(engine, "KeyEvent")
@@ -463,6 +498,125 @@ class TestMaterializePlan:
         assert result["processes"] >= 1
         assert result["aops"] >= 1
         assert result["people"] >= 1
+
+    def test_protocol_minted_and_linked_to_process(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#222: a plan protocol mints a LabProtocol linked to a process (D5).
+
+        A plan carries a protocol NAME/description only (no identifier). The spine
+        mints exactly one LabProtocol and wires it onto the LabProcess it governs
+        via the ``labprotocol`` ref (``executesLabProtocol`` at build time).
+        """
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        plan = {
+            "protocols": [
+                {"name": "MTT viability protocol", "description": "MTT assay."}
+            ],
+            "process_chain": [
+                {"process_type": "Exposure", "name": "Dose"},
+                {"process_type": "EndpointReadout", "name": "Read viability"},
+            ],
+        }
+        self._stub_extract_plan(monkeypatch, plan)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        protos = self._by_type(engine, "LabProtocol")
+        assert len(protos) == 1
+        assert protos[0].fields.get("name") == "MTT viability protocol"
+        # D5: a protocol minted from a name carries no fabricated identifier.
+        assert not protos[0].fields.get("identifier")
+        assert result["protocols"] == 1
+
+        # The protocol is linked to at least one LabProcess.
+        proc_refs = [
+            p.fields.get("labprotocol")
+            for p in self._by_type(engine, "LabProcess")
+            if p.fields.get("labprotocol")
+        ]
+        assert proc_refs, "the protocol must be linked to a process"
+
+    def test_confident_publication_match_mints_entity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#224: a confident title match mints a ScholarlyArticle, not deferred."""
+        import builder.agents.pipeline as pipeline_mod
+        import builder.tools.composites as composites_mod
+
+        self._enable_provider(monkeypatch)
+        title = "On TPO inhibition in vitro"
+        self._stub_extract_plan(monkeypatch, {"publications": [{"title": title}]})
+        self._stub_lookups(monkeypatch)
+
+        # Confident Crossref candidate (exact title, high score) → commit the DOI.
+        def fake_search_works_by_title(query):
+            return [{"doi": "10.1234/tpo", "title": title, "score": 99.0}]
+
+        # The drafter re-looks the DOI up; canned article data (no network).
+        def fake_lookup_doi(doi):
+            return {
+                "found": True,
+                "data": {
+                    "identifier": "10.1234/tpo",
+                    "name": title,
+                    "author": [{"givenName": "Ada", "familyName": "Lovelace"}],
+                },
+                "error": None,
+            }
+
+        monkeypatch.setattr(
+            composites_mod, "search_works_by_title", fake_search_works_by_title
+        )
+        monkeypatch.setattr(composites_mod, "lookup_doi", fake_lookup_doi)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        pubs = self._by_type(engine, "Publication")
+        assert len(pubs) == 1
+        assert pubs[0].fields.get("identifier") == "10.1234/tpo"
+        assert result["publications"] >= 1
+        assert title not in result["publications_deferred"]
+
+    def test_no_confident_publication_match_stays_deferred(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#224: no confident match → no entity, title stays deferred (D5)."""
+        import builder.agents.pipeline as pipeline_mod
+        import builder.tools.composites as composites_mod
+
+        self._enable_provider(monkeypatch)
+        title = "An unfindable paper"
+        self._stub_extract_plan(monkeypatch, {"publications": [{"title": title}]})
+        self._stub_lookups(monkeypatch)
+
+        # No candidate clears the confidence gate → resolve_publication returns
+        # ok=False and mints nothing; the spine must NOT fabricate a DOI.
+        def fake_search_works_by_title(query):
+            return [{"doi": "10.9/unrelated", "title": "A different paper", "score": 99.0}]
+
+        def boom_lookup_doi(doi):  # pragma: no cover - must not be reached
+            raise AssertionError("lookup_doi must not run without a confident match")
+
+        monkeypatch.setattr(
+            composites_mod, "search_works_by_title", fake_search_works_by_title
+        )
+        monkeypatch.setattr(composites_mod, "lookup_doi", boom_lookup_doi)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        assert self._by_type(engine, "Publication") == []
+        assert result["publications"] == 0
+        assert title in result["publications_deferred"]
 
     def test_d5_no_fabricated_identifiers_from_plan(
         self, monkeypatch: pytest.MonkeyPatch

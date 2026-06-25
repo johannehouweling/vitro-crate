@@ -417,6 +417,60 @@ def _split_person_name(name: str) -> tuple[str, str]:
     return " ".join(parts[:-1]), parts[-1]
 
 
+# The conservative default process a protocol governs when the plan gives no (or
+# an unmatched) hint: the central exposure/assay step, then a measurement readout.
+_PROTOCOL_DEFAULT_PROCESS_TYPES: tuple[str, ...] = (
+    "Exposure",
+    "EndpointReadout",
+    "DataAnalysis",
+    "CellCulture",
+)
+
+
+def _select_process_for_protocol(
+    steps: list[dict[str, Any]], process_hint: str
+) -> str | None:
+    """Pick the LabProcess id a plan protocol governs (D5-conservative).
+
+    ``steps`` is :func:`draft_process_chain`'s per-step summary (each a dict with
+    ``process_id`` / ``process_type``). The free-text ``process_hint`` from the
+    plan is matched, in order, against (1) a step's ``process_type`` and (2) a
+    substring of its name; on no match we fall back to the central
+    exposure/assay step (:data:`_PROTOCOL_DEFAULT_PROCESS_TYPES`). Returns the
+    chosen ``process_id`` or ``None`` when there are no processes to link to —
+    the protocol is still minted; only the (uncertain) link is left for the
+    guidance loop. No identifier is ever fabricated.
+    """
+    if not steps:
+        return None
+
+    hint = process_hint.strip().lower()
+    if hint:
+        # (1) match the hint against a step's process_type (case-insensitive).
+        for step in steps:
+            ptype = str(step.get("process_type") or "")
+            if ptype.lower() == hint and step.get("process_id"):
+                return str(step["process_id"])
+        # (2) match the hint as a substring of a step name.
+        for step in steps:
+            sname = str(step.get("name") or "").lower()
+            if sname and (hint in sname or sname in hint) and step.get("process_id"):
+                return str(step["process_id"])
+
+    # No usable hint / no match — conservatively attach to the central step.
+    by_type = {str(s.get("process_type") or ""): s for s in steps}
+    for ptype in _PROTOCOL_DEFAULT_PROCESS_TYPES:
+        step = by_type.get(ptype)
+        if step and step.get("process_id"):
+            return str(step["process_id"])
+
+    # Fall back to the first process that has an id.
+    for step in steps:
+        if step.get("process_id"):
+            return str(step["process_id"])
+    return None
+
+
 def _materialize_plan(
     engine: AgentEngine, usage_sink: UsageSink | None = None
 ) -> dict[str, Any]:
@@ -442,6 +496,14 @@ def _materialize_plan(
     * each ``cell_lines[]`` → ``draft_cell_line_sample`` (a ``CellLineSample``
       from the name only; the Cellosaurus accession is a later lookup, not the
       plan).
+    * each ``protocols[]`` → ``draft_protocol`` (a ``LabProtocol`` from the
+      name/description only — D5: no identifier) which is then linked to the
+      ``LabProcess`` it governs via the ``labprotocol`` reference field (resolved
+      to ``executesLabProtocol`` at build time, isa_tox.md). The plan's optional
+      free-text ``process_hint`` is matched conservatively (by ``process_type``,
+      then by step name) to choose the process; with no match it attaches to the
+      central exposure/assay step, and an unresolvable link is left for the
+      guidance loop rather than guessed (:func:`_select_process_for_protocol`).
     * ``process_chain[]`` → ONE :func:`draft_process_chain` onto the scaffolded
       Assay, mapping each step's ``process_type`` / ``name`` / hints (the
       composite synthesizes EndpointReadout / DataAnalysis outputs).
@@ -452,16 +514,14 @@ def _materialize_plan(
       ``givenName`` / ``familyName`` split of that name (ISA REQUIRES a non-empty
       given name; splitting a name is descriptive parsing, not identifier
       fabrication, so it is D5-safe). ORCID stays empty for a later lookup.
-    * each ``publications[]`` is **deferred, not materialized.** A plan carries a
-      title ONLY (D5 — no DOI), but ISA REQUIRES a ScholarlyArticle to have an
-      identifier and BASE requires the auto-wired root ``citation`` @id to be an
-      absolute URI — both unreachable from a title alone without fabricating a
-      DOI. Per D5 (Verify, Don't Trust) we never invent that DOI here; the title
-      is surfaced under ``publications_deferred`` for a later
-      ``draft_publication_with_authors(doi=...)`` once a DOI is resolved. This
-      follows the project's design docs over the literal task wording, which
-      conflict on this one point (see ``.claude/CLAUDE.md``: "follow the
-      documents and say so").
+    * each ``publications[]`` → :func:`resolve_publication` (#219/#224). A plan
+      carries a title ONLY (D5 — no DOI); the composite searches Crossref by title
+      and commits a DOI-backed ``ScholarlyArticle`` (+ authors) ONLY on a
+      confident match (counted under ``publications``). On no confident match it
+      returns ``ok=False`` and creates nothing, so the title is kept under
+      ``publications_deferred`` for a later resolution. A DOI is never fabricated
+      from a title — the identifier always comes from the Crossref lookup, never
+      the plan (D5).
 
     Guarantees:
 
@@ -476,15 +536,16 @@ def _materialize_plan(
     * **Idempotent.** Every composite reuses an existing entity (deterministic
       ids), so re-running the spine mints no duplicates.
 
-    Returns ``{"study", "compounds", "cell_lines", "processes", "aops",
-    "people", "publications", "publications_deferred"}`` — per-section counts of
-    what was materialized, plus the titles of publications deferred for a later
-    DOI lookup (``publications`` is therefore always ``0`` in this stage).
+    Returns ``{"study", "compounds", "cell_lines", "protocols", "processes",
+    "aops", "people", "publications", "publications_deferred"}`` — per-section
+    counts of what was materialized, plus the titles of publications that found no
+    confident DOI match and were deferred for a later resolution.
     """
     result: dict[str, Any] = {
         "study": 0,
         "compounds": 0,
         "cell_lines": 0,
+        "protocols": 0,
         "processes": 0,
         "aops": 0,
         "people": 0,
@@ -560,14 +621,62 @@ def _materialize_plan(
         for step in (plan.get("process_chain") or [])
         if isinstance(step, dict) and step.get("process_type")
     ]
+    chain_steps_summary: list[dict[str, Any]] = []
     if assay_id and chain_steps:
         try:
             chain_result = engine.run_tool(
                 "draft_process_chain", assay_id=assay_id, chain=chain_steps
             )
             result["processes"] = len(chain_result.get("process_ids") or [])
+            chain_steps_summary = list(chain_result.get("steps") or [])
         except Exception as exc:  # noqa: BLE001
             logger.warning("draft_process_chain failed: %s", exc)
+
+    # --- protocols: draft a LabProtocol from the name/description (D5 — no id) and
+    # link the LabProcess(es) it governs via the `labprotocol` ref field, which the
+    # crate mapping resolves to `executesLabProtocol` (isa_tox.md). The plan may
+    # carry a free-text `process_hint`; we map it to a process conservatively (by
+    # process_type, then by step name) and, when nothing matches, fall back to the
+    # central exposure/assay step. An unresolvable hint links nothing and is left
+    # for the guidance loop rather than guessed at. ---
+    for protocol in plan.get("protocols") or []:
+        name = str((protocol or {}).get("name") or "").strip()
+        if not name:
+            continue
+        proto_hints: dict[str, Any] = {"name": name}
+        description = str((protocol or {}).get("description") or "").strip()
+        if description:
+            proto_hints["description"] = description
+        try:
+            proto = engine.run_tool("draft_protocol", hints=proto_hints)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("draft_protocol failed for %r: %s", name, exc)
+            continue
+        result["protocols"] += 1
+
+        proto_id = getattr(proto, "entity_id", None)
+        if not proto_id:
+            continue
+        target_process_id = _select_process_for_protocol(
+            chain_steps_summary, str((protocol or {}).get("process_hint") or "")
+        )
+        if target_process_id is None:
+            continue
+        try:
+            # `labprotocol` is a reference field on LabProcess (-> executesLabProtocol);
+            # set_fields wires it, the crate mapping resolves it at build time.
+            engine.run_tool(
+                "set_fields",
+                entity_id=target_process_id,
+                fields={"labprotocol": proto_id},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "linking protocol %r to process %r failed: %s",
+                proto_id,
+                target_process_id,
+                exc,
+            )
 
     # --- AOPs: materialize each subgraph and wire it onto the scaffolded Study ---
     study_id = _first_entity_id(engine, "Study")
@@ -601,14 +710,27 @@ def _materialize_plan(
         except Exception as exc:  # noqa: BLE001
             logger.warning("draft_person failed for %r: %s", name, exc)
 
-    # --- publications: DEFERRED, not materialized (D5). A plan carries a title
-    # only, but ISA REQUIRES a ScholarlyArticle identifier and BASE requires the
-    # auto-wired root citation @id to be an absolute URI — neither reachable from
-    # a title without fabricating a DOI, which D5 forbids. Surface the titles for a
-    # later draft_publication_with_authors(doi=...) once a DOI is resolved. ---
+    # --- publications: resolve each title via resolve_publication (#219/#224). A
+    # plan carries a title ONLY (D5 — no DOI). resolve_publication searches Crossref
+    # by title and commits a DOI-backed ScholarlyArticle (+ authors) ONLY on a
+    # confident match; on no confident match it returns ok=False and creates
+    # nothing, so the title is kept under `publications_deferred`. A DOI is never
+    # fabricated from a title here — the identifier always comes from the Crossref
+    # lookup, never the plan. ---
     for publication in plan.get("publications") or []:
         title = str((publication or {}).get("title") or "").strip()
-        if title:
+        if not title:
+            continue
+        try:
+            pub_result = engine.run_tool("resolve_publication", title=title)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("resolve_publication failed for %r: %s", title, exc)
+            result["publications_deferred"].append(title)
+            continue
+        if isinstance(pub_result, dict) and pub_result.get("ok"):
+            result["publications"] += 1
+        else:
+            # No confident DOI match — keep the title for a later resolution (D5).
             result["publications_deferred"].append(title)
 
     return result
