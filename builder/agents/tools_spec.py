@@ -102,6 +102,18 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "resolve_publication",
+        "description": "Resolve a publication TITLE to a DOI-backed ScholarlyArticle in ONE call (the citation counterpart of resolve_compound): it searches Crossref by title (query.bibliographic), applies a STRICT confidence gate, and on a confident match builds the publication + authors via draft_publication_with_authors(doi=...). D5 confidence gate: a DOI is committed ONLY when the top candidate clears BOTH Crossref's relevance score floor AND a normalized-title near-exact match — a high score on a different paper, a weak score on the right title, or no candidate all return {ok:false, reason:'no confident DOI match', title} and create NO entity. A DOI is never fabricated from a title. Idempotent (keyed by the resolved DOI). Returns {ok, doi, entity_id, title, score}. Example: resolve_publication(title='Adverse outcome pathway-based assessment of TPO inhibition in vitro').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Publication title to resolve to a DOI, e.g. 'Adverse outcome pathway-based assessment of TPO inhibition in vitro'."},
+                "verify": {"type": "boolean", "description": "Reserved for parity with resolve_compound; the DOI is implicitly verified by the Crossref resolution. Accepted and ignored."},
+            },
+            "required": ["title"],
+        },
+    },
+    {
         "name": "materialize_aop_subgraph",
         "description": "Turn ONE AOP-Wiki id into the full crate subgraph in one call: an AdverseOutcomePathway node plus every KeyEvent (MIE/KE/AO, discriminated by eventType) and KeyEventRelationship, all cross-linked deterministically from AOP-Wiki (never fabricated). Pass only the numeric aop_id; optionally pass study_id to wire the AOP onto that Study (schema:mentions). Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting when you want the whole pathway in the crate. Example: materialize_aop_subgraph(aop_id='610', study_id='study_silychristin_exposure').",
         "parameters": {

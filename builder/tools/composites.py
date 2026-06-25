@@ -33,6 +33,7 @@ from builder.tools.drafters import (
 from builder.tools.hitl import HumanInterface
 from builder.tools.lookups import lookup_compound, lookup_doi, lookup_orcid
 from builder.tools.verification import verify_identifier
+from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
 
 logger = logging.getLogger(__name__)
@@ -943,6 +944,150 @@ def _hitl_prompt_count(human: HumanInterface | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Publication resolution: title -> Crossref -> DOI -> publication (Issue #179)
+#
+# Closes the gap PR #217 deferred: a plan carries a publication *title* only
+# (D5 — no DOI), but ISA REQUIRES a ScholarlyArticle with an identifier. This
+# composite resolves the title to a DOI via a Crossref title-search, gated by a
+# strict confidence rule so a DOI is only ever committed when it is genuinely the
+# titled work — never fabricated (D5) — then reuses draft_publication_with_authors
+# (#192) to build the ScholarlyArticle + authors from that DOI.
+# ---------------------------------------------------------------------------
+
+# D5 confidence gate. A Crossref title-search hit is only trusted as the DOI for a
+# title when BOTH hold:
+#   1. Crossref's relevance ``score`` clears _MIN_CROSSREF_SCORE, AND
+#   2. the candidate's normalized title is a near-exact match for the query
+#      (exact after normalization, OR a containment match with a high token
+#      overlap) — so a high score on a *different* paper is rejected.
+# Either alone is too weak (a high score can rank an unrelated work first; a title
+# match alone says nothing about Crossref's own confidence), so the gate is the
+# AND of the two. A miss creates NO entity and reports the reason — never a guess.
+_MIN_CROSSREF_SCORE: float = 50.0
+_MIN_TITLE_TOKEN_OVERLAP: float = 0.9
+
+
+def _norm_title(text: Any) -> str:
+    """Lowercase + collapse whitespace + drop punctuation (for title matching)."""
+    lowered = str(text or "").lower()
+    kept = "".join(c if (c.isalnum() or c.isspace()) else " " for c in lowered)
+    return " ".join(kept.split())
+
+
+def _title_overlap(query: str, candidate: str) -> float:
+    """Fraction of the query's title tokens present in the candidate's (0..1).
+
+    A symmetric near-exact signal: 1.0 on an exact normalized match, and high
+    when one title is contained in / shares almost all tokens with the other
+    (e.g. a trailing subtitle on the Crossref side). 0.0 when either is empty.
+    """
+    q = set(_norm_title(query).split())
+    c = set(_norm_title(candidate).split())
+    if not q or not c:
+        return 0.0
+    if q == c:
+        return 1.0
+    # Token overlap against the *smaller* set, so a subtitle on one side does not
+    # penalise an otherwise-exact match.
+    return len(q & c) / min(len(q), len(c))
+
+
+def _confident_match(
+    title: str, candidates: list[dict] | tuple[dict, ...]
+) -> dict | None:
+    """Return the single confident Crossref candidate for *title*, or None (D5).
+
+    Confidence requires the top-scoring candidate to clear BOTH the Crossref
+    score floor and the normalized-title near-exact threshold. Anything weaker —
+    a low score, a title mismatch, or no candidates — yields ``None`` so the
+    caller commits no DOI and fabricates nothing.
+    """
+    best: dict | None = None
+    best_overlap = 0.0
+    for cand in candidates:
+        if float(cand.get("score") or 0.0) < _MIN_CROSSREF_SCORE:
+            continue
+        overlap = _title_overlap(title, cand.get("title", ""))
+        if overlap >= _MIN_TITLE_TOKEN_OVERLAP and overlap > best_overlap:
+            best, best_overlap = cand, overlap
+    return best
+
+
+def resolve_publication(
+    state: CrateState,
+    title: str,
+    verify: bool | None = None,
+) -> dict[str, Any]:
+    """Resolve a publication TITLE to a DOI-backed ``ScholarlyArticle`` in ONE call.
+
+    Closes the gap PR #217 deferred: a plan carries a publication *title* only
+    (D5 — no DOI), but ISA REQUIRES a ``ScholarlyArticle`` to have an identifier
+    and BASE requires the auto-wired root ``citation`` ``@id`` to be an absolute
+    URI — both unreachable from a title alone without a DOI. This composite is the
+    citation counterpart of :func:`resolve_compound`: the ONLY model-supplied
+    input is the ``title``; the identifier comes straight from Crossref, gated so
+    nothing is fabricated (D5):
+
+    1. :func:`~lookups.crossref.search_works_by_title` runs a Crossref
+       ``query.bibliographic`` search and returns candidate works ranked by
+       Crossref's relevance ``score``.
+    2. **D5 confidence gate** (:func:`_confident_match`): a candidate is accepted
+       ONLY when it clears BOTH the Crossref score floor (``_MIN_CROSSREF_SCORE``)
+       AND a normalized-title near-exact match (``_MIN_TITLE_TOKEN_OVERLAP``).
+       A high score on a *different* paper, a weak score on the right title, or no
+       candidate all fail the gate — in which case this returns
+       ``{ok: False, reason: "no confident DOI match", title}`` and creates NO
+       entity. A DOI is never invented from a title.
+    3. On a confident match it delegates to
+       :func:`draft_publication_with_authors` with the resolved DOI, which builds
+       the ``ScholarlyArticle`` and wires every author as a ``Person`` (the ORCID
+       cascade is already handled there).
+
+    It is **idempotent**, keyed by the resolved DOI: re-running reuses the existing
+    ``Publication`` (``draft_publication_with_authors`` find-or-creates it by DOI)
+    rather than minting a duplicate, consistent with the other composites.
+
+    This is called by code (materialize / guidance), not chosen by the weak model;
+    it is registered four-place for consistency with :func:`resolve_compound`.
+
+    Args:
+        state: The crate state to resolve into.
+        title: The publication title to resolve (e.g. from an extracted plan).
+        verify: Reserved for parity with :func:`resolve_compound`; the DOI is
+            implicitly verified by the Crossref resolution
+            (:func:`draft_publication_with_authors` re-looks up the DOI, so an
+            unresolvable DOI yields no publication). Accepted and ignored.
+
+    Returns:
+        On a confident match ``{"ok": True, "doi", "entity_id", "title",
+        "score"}``. On no confident match ``{"ok": False, "reason": "no confident
+        DOI match", "title"}`` (and no entity is created).
+    """
+    del verify  # parity-only with resolve_compound; see docstring.
+    candidates = list(search_works_by_title(title) or [])
+    match = _confident_match(title, candidates)
+    if match is None:
+        return {"ok": False, "reason": "no confident DOI match", "title": title}
+
+    doi = str(match["doi"])
+    drafted = draft_publication_with_authors(state, doi)
+    # A DOI that survived the confidence gate but fails the Crossref re-lookup in
+    # the drafter (e.g. a transient outage) yields no publication — surface it as
+    # an unconfident result rather than a fabricated entity (D5).
+    entity_id = drafted.get("publication_id")
+    if not entity_id:
+        return {"ok": False, "reason": "no confident DOI match", "title": title}
+
+    return {
+        "ok": True,
+        "doi": drafted.get("doi", doi),
+        "entity_id": entity_id,
+        "title": title,
+        "score": float(match.get("score") or 0.0),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Compound resolution: lookup -> draft -> verify (Issue #179, task 3)
 # ---------------------------------------------------------------------------
 
@@ -1094,6 +1239,7 @@ from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 TOOL_REGISTRY.register("scaffold_isa_backbone", scaffold_isa_backbone, takes_state=True)
 TOOL_REGISTRY.register("draft_process_chain", draft_process_chain, takes_state=True)
 TOOL_REGISTRY.register("resolve_compound", resolve_compound, takes_state=True)
+TOOL_REGISTRY.register("resolve_publication", resolve_publication, takes_state=True)
 TOOL_REGISTRY.register(
     "materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True
 )

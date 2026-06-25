@@ -499,6 +499,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent), the fast path to a BASE-passing crate
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier, in one idempotent call; carries the looked-up CAS + PubChem CID and never keeps an unverified id (D5)
+resolve_publication(title: str, verify=None) → {ok, doi, entity_id, title, score} | {ok: False, reason, title}  # composite: publication title → Crossref title-search → confidence gate → draft_publication_with_authors(doi=…), in one idempotent call; commits a DOI only on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5)
 draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
 draft_investigation(hints: dict) → Entity
 draft_study(investigation_id: str, hints: dict) → Entity
@@ -554,6 +555,24 @@ the per-field verdicts are surfaced in `verifications` and `verified` is the AND
 them. Looked-up identifier fields win over same-named caller `hints`, and the
 entity id is derived deterministically from the name so re-running reuses the
 entity rather than duplicating it.
+
+`resolve_publication` (Issue #179) is the citation counterpart of
+`resolve_compound`, closing the gap PR #217 deferred: a plan carries a
+publication *title* only (D5 — no DOI), but ISA REQUIRES a `ScholarlyArticle` with
+an identifier (and BASE requires the auto-wired root `citation` `@id` to be an
+absolute URI) — both unreachable from a title alone. From the single
+model-supplied `title` it (1) runs a Crossref `query.bibliographic` title-search
+(`lookups.crossref.search_works_by_title`) for candidate works ranked by
+Crossref's relevance `score`; (2) applies a **D5 confidence gate** — a candidate
+is committed ONLY when it clears BOTH the Crossref score floor AND a
+normalized-title near-exact match (token-overlap threshold), so a high score on a
+*different* paper, a weak score on the right title, or no candidate all return
+`{ok: False, reason: "no confident DOI match", title}` and create NO entity (a DOI
+is never fabricated from a title); (3) on a confident match delegates to
+`draft_publication_with_authors(doi=…)`, reusing its DOI→`ScholarlyArticle`+authors
+path (the ORCID cascade is handled there). It is idempotent (keyed by the resolved
+DOI). It is invoked by code (materialize / guidance), not chosen by the weak
+model, but is registered four-place for consistency with `resolve_compound`.
 
 `draft_publication_with_authors` (Issue #180, deferred item) is the citation
 counterpart of the composites above and the **only engine-routed, HITL-capable
