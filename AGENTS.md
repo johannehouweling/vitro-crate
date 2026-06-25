@@ -294,16 +294,27 @@ directly (check `ro-crate-1.1_2.2`). On PR #116 CI that fetch flaked
 turning a transient blip into red CI and violating #59's "runs offline" criterion.
 `profiles/validator.py` makes validation offline-safe:
 
-- **Pinned local contexts.** `profiles/contexts/ro-crate-1.1-context.jsonld` and
+- **Pinned local contexts, deny-by-default for everything else (SSRF guard, #168).**
+  `profiles/contexts/ro-crate-1.1-context.jsonld` and
   `ro-crate-1.2-context.jsonld` are committed copies of the RO-Crate JSON-LD
   contexts. `_install_offline_context_loader()` (run at import) intercepts the
   `HttpRequester` GET/HEAD proxy (and `fetch_fresh`) and serves these well-known
   context URLs from disk, so both resolution paths get the bundled copy and never
-  touch the wire. It also sets `ROCRATE_VALIDATOR_AUTO_WARM=0` to suppress
-  rocrate_validator's best-effort cache warm-up (pure network traffic we don't
-  need, since the context is bundled and the warm-up's other artifact — the spec
-  HTML page — is unused by any check). Refresh the bundled files only when the
-  pinned RO-Crate context version changes.
+  touch the wire. Any **other** outbound dereference — a crafted `@context` (or any
+  crate-controlled IRI) in an *untrusted* crate pointing at e.g. cloud metadata
+  `169.254.169.254` or an internal host — is **refused, not fetched**:
+  `_blocked_remote_response()` returns a benign synthetic-200 empty JSON-LD document
+  (`{"@context": {}}`) for every non-allowlisted URL. Failing closed with a valid
+  200 (rather than raising) is deliberate: rocrate_validator's JSON-LD document
+  loader (`_patched_source_to_json`) catches a fetch *exception* and falls back to
+  rdflib's own `urllib` opener — which would perform the very request we are
+  blocking — so serving an empty context keeps resolution on our intercept (no
+  urllib fallback, no network), injects no term mappings from the crafted context,
+  and raises no spurious REQUIRED content issue. It also sets
+  `ROCRATE_VALIDATOR_AUTO_WARM=0` to suppress rocrate_validator's best-effort cache
+  warm-up (pure network traffic we don't need, since the context is bundled and the
+  warm-up's other artifact — the spec HTML page — is unused by any check). Refresh
+  the bundled files only when the pinned RO-Crate context version changes.
 - **Transport failure ≠ content violation.** If a remote resource genuinely can't
   be dereferenced, rocrate_validator swallows the connection error inside the
   check and re-emits it as a REQUIRED *content* issue. `validate_crate` and
@@ -313,8 +324,11 @@ turning a transient blip into red CI and violating #59's "runs offline" criterio
   never a false negative in `build_and_validate` (which maps the exception to
   `{"ok": False, "error": ...}`). The regression test
   `tests/test_offline_validation.py` runs validation with the HTTP transport hard-
-  blocked and asserts green + no spurious REQUIRED issue; the #59 e2e harness also
-  runs with the network disabled to prove the path is offline-safe.
+  blocked and asserts green + no spurious REQUIRED issue;
+  `tests/test_validation_ssrf.py` validates a crate whose `@context` points at an
+  attacker URL and asserts **no** outbound request reaches it (deny-by-default);
+  the #59 e2e harness also runs with the network disabled to prove the path is
+  offline-safe.
 
 #### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
 Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
