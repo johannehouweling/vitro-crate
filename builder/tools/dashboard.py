@@ -953,6 +953,22 @@ def run_dashboard(session_id: str | None = None, refresh_interval: float = 2.0) 
         print("\nDashboard closed.")
 
 
+def _change_touches(changes: Any, watched: set[str]) -> bool:
+    """Whether any watchfiles change touches one of *watched* file paths.
+
+    Watching the session DIRECTORY (see :func:`_run_live_dashboard`) also surfaces
+    churn from temp files — ``save_session`` writes ``.crate_state_tmp_*`` then
+    ``os.replace``\\ s it over ``crate_state.json`` — plus any exported payload. We
+    re-render only when ``profile.ndjson`` or ``crate_state.json`` actually changed
+    so unrelated churn doesn't thrash the display. ``changes`` is the
+    ``set[tuple[Change, str]]`` yielded by ``watchfiles.watch``.
+    """
+    try:
+        return any(path in watched for _change, path in changes)
+    except TypeError:
+        return False
+
+
 def _run_live_dashboard(
     profile_path: Path,
     session_id: str,
@@ -986,15 +1002,20 @@ def _run_live_dashboard(
         console.print(_build())
         return
 
-    # Watch both profile.ndjson and crate_state.json so CrateState updates too.
-    watch_paths = [str(profile_path)]
-    if crate_state_path.exists():
-        watch_paths.append(str(crate_state_path))
+    # Watch the session DIRECTORY, not the individual files. ``save_session``
+    # writes crate_state.json atomically (tempfile + ``os.replace``), which swaps
+    # the inode a file-path watcher holds — so a watcher bound to crate_state.json
+    # silently stopped seeing updates and the dashboard only refreshed on reload.
+    # Watching the directory catches the rename (and crate_state.json first
+    # appearing after the dashboard started). Filter to the two files we render
+    # from so unrelated temp/export churn doesn't thrash the display.
+    watched = {str(profile_path), str(crate_state_path)}
 
     with Live(
         _build(), console=console, refresh_per_second=1 / refresh_interval, screen=False
     ) as live:
         # `step` is watchfiles' debounce quiet-period (see _WATCH_STEP_MS), not
         # the render interval — keep it small so updates aren't throttled.
-        for _changes in watch(*watch_paths, step=_WATCH_STEP_MS):
-            live.update(_build())
+        for changes in watch(str(session_path), step=_WATCH_STEP_MS):
+            if _change_touches(changes, watched):
+                live.update(_build())

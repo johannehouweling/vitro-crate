@@ -379,3 +379,64 @@ class TestLiveRefresh:
         records2, mtime2 = _read_records_cached(profile_path, mtime, records)
         assert len(records2) == 2
         assert mtime2 != mtime
+
+    def test_watches_session_directory_so_atomic_saves_are_caught(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """save_session writes crate_state.json atomically (tempfile + os.replace),
+        which swaps the inode a file-path watcher holds — so a watcher bound to the
+        FILE silently stops seeing updates and the dashboard only refreshes on
+        reload. The fix watches the session DIRECTORY, which catches the rename
+        (and crate_state.json first appearing after startup)."""
+        import rich.live
+        import watchfiles
+
+        from builder.tools.dashboard import _run_live_dashboard
+
+        session_dir = tmp_path / "sess1"
+        session_dir.mkdir()
+        profile_path = session_dir / "profile.ndjson"
+        profile_path.write_text(json.dumps({"event": "node_end", "node": "model"}) + "\n")
+
+        captured: dict = {}
+
+        def fake_watch(*paths, **kwargs):
+            captured["paths"] = paths
+            return iter(())
+
+        class _DummyLive:
+            def __init__(self, *a, **k) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a) -> bool:
+                return False
+
+            def update(self, *a) -> None:
+                pass
+
+        monkeypatch.setattr(watchfiles, "watch", fake_watch)
+        monkeypatch.setattr(rich.live, "Live", _DummyLive)
+
+        _run_live_dashboard(profile_path, "sess1", refresh_interval=2.0)
+
+        # Watch the directory, NOT the individual files (the old, broken behavior
+        # watched profile.ndjson / crate_state.json paths and missed atomic renames).
+        assert captured["paths"] == (str(session_dir),)
+
+    def test_change_touches_only_relevant_files(self) -> None:
+        """The directory watch fires on temp/export churn too; only re-render when
+        profile.ndjson or crate_state.json actually changed."""
+        from builder.tools.dashboard import _change_touches
+
+        prof = "/s/profile.ndjson"
+        crate = "/s/crate_state.json"
+        watched = {prof, crate}
+        # watchfiles yields a set of (Change, path); the helper inspects only path.
+        assert _change_touches({(2, prof)}, watched) is True
+        assert _change_touches({(1, crate)}, watched) is True
+        # the atomic-save temp churn must NOT trigger a re-render
+        assert _change_touches({(1, "/s/.crate_state_tmp_abc")}, watched) is False
+        assert _change_touches(set(), watched) is False
