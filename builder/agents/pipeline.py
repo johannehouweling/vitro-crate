@@ -17,22 +17,27 @@ The sequence mirrors AGENTS.md §14.2::
    ``draft_study`` defaults only the entity_id, not the ``name`` field, so the
    spine supplies deterministic backbone names (derived from the crate title when
    present, else stable defaults) so ISA passes with zero LLM involvement.
-2. **Draft entities** from what state already has. The existing drafters are pure
-   state mutations, but turning scanned files / free-text into typed entities is
-   the bounded *extraction* job the §14.2 "drafter-leaf" (a cheap LLM) will own —
-   there is no deterministic file→entity path today. So this step is a deliberate
-   no-op when there is nothing already-structured to draft; the backbone suffices
-   for conformance. A future PR swaps in the LLM drafter-leaf here.
+2. **Draft entities** — enrich entities via the bounded §14.2 "drafter-leaf"
+   (``draft_entity_fields``, a cheap LLM). The spine gathers a free-text context
+   from what the engine carries (crate title / description + scanned-file digest)
+   and, for each draftable entity missing descriptive fields, applies only the
+   leaf's NON-identifier fields. **This step is a strict no-op when no LLM provider
+   is configured** (the deterministic spine, its tests, and the A/B path are
+   unchanged) and when there is no usable context. It is D5-safe: identifiers are
+   never set or overwritten — those come from lookups.
 3. **build_and_validate** in memory (no disk write).
 4. **Fix loop**: call ``fix_required_issues`` and re-validate, bounded to
    ``_MAX_FIX_ROUNDS`` rounds, stopping when no REQUIRED issue remains or a round
    makes no progress (deterministic dispatch only — see :mod:`builder.tools.repair`).
 5. Return a result dict with the final per-layer conformance.
 
-Determinism contract: the same input state ⇒ an identical built ``@graph`` (the
-headline win the eval harness asserts). Every step is deterministic — the
-scaffold is idempotent, drafting is pure, and the fix loop uses only
-deterministic dispatch — so re-running on an equal state yields an equal crate.
+Determinism contract: with **no LLM provider configured** every step is
+deterministic — the scaffold is idempotent, the drafter-leaf step is a strict
+no-op (it never calls a model), and the fix loop uses only deterministic
+dispatch — so the same input state ⇒ an identical built ``@graph`` (the headline
+win the eval harness asserts on the deterministic A/B path). When a provider IS
+configured the drafter-leaf (step 2) introduces a bounded, D5-safe extraction
+call, trading strict graph-hash determinism for richer drafted content.
 """
 
 from __future__ import annotations
@@ -40,10 +45,91 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from builder.config import get_provider
+
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
 
 logger = logging.getLogger(__name__)
+
+
+def draft_entity_fields(
+    entity_type: str, context: str, *, model: str | None = None
+) -> dict[str, Any]:
+    """Lazy, no-op-safe shim over :func:`builder.agents.leaves.draft_entity_fields`.
+
+    The real leaf lives in :mod:`builder.agents.leaves`, which imports
+    ``langchain_core`` at module load. The deterministic spine, however, must stay
+    importable (and runnable) in the **default environment without the
+    ``langchain`` extra** — that is how the eval ``--arch pipeline`` path and CI run
+    it with zero tokens. So we import the leaf lazily, *inside* this shim, and only
+    ever after :func:`_draft_entities` has confirmed an LLM provider is configured
+    (an unconfigured provider short-circuits before this is ever called).
+
+    Defining the leaf as a module-level attribute here also gives tests a stable
+    monkeypatch target (``builder.agents.pipeline.draft_entity_fields``).
+    """
+    from builder.agents.leaves import draft_entity_fields as _leaf
+
+    return _leaf(entity_type, context, model=model)
+
+
+# Fields the drafter-leaf result must NEVER write onto a state entity (D5: Verify,
+# Don't Trust). The leaf already prunes identifier-bearing fields from the schema
+# the model sees and strips them from its output; we defend in depth here so the
+# spine never sets an identifier / `@id` / `entity_id` regardless of what the leaf
+# returns. Identifiers come from lookups, never from extraction.
+_FORBIDDEN_APPLY_FIELDS: frozenset[str] = frozenset(
+    {
+        "@id",
+        "id",
+        "entity_id",
+        "identifier",
+        "accession",
+        "inchikey",
+        "smiles",
+        "molecular_formula",
+        "pubchem_cid",
+        "cas",
+        "casrn",
+        "cas_number",
+        "orcid",
+        "ror",
+        "doi",
+        "term_code",
+        "in_defined_term_set",
+        "property_id",
+        "unit_code",
+        "url",
+    }
+)
+
+# Entity types the drafter-leaf enriches with descriptive fields. The backbone
+# (Investigation / Study / Assay) is always present after the scaffold step; the
+# domain types are enriched only when already seeded in state. Process / reference
+# / contextual types are intentionally excluded — their content is wired
+# deterministically (link / resolver), not extracted as free text.
+_DRAFTABLE_ENTITY_TYPES: frozenset[str] = frozenset(
+    {
+        "Investigation",
+        "Study",
+        "Assay",
+        "MolecularEntity",
+        "CellLineSample",
+        "LabProtocol",
+        "Sample",
+        "Person",
+        "Organization",
+        "Publication",
+    }
+)
+
+# Descriptive fields the spine is willing to fill from the leaf. Restricting to a
+# small, safe set keeps the enrichment bounded and predictable (the leaf may return
+# a long open-schema tail). These are non-identifier free-text fields only.
+_DESCRIPTIVE_APPLY_FIELDS: frozenset[str] = frozenset(
+    {"name", "description"}
+)
 
 # Upper bound on deterministic fix-loop rounds. Each round runs
 # fix_required_issues (which itself validates twice), so this caps the worst-case
@@ -93,19 +179,129 @@ def _scaffold_backbone(engine: AgentEngine) -> dict[str, Any]:
     return engine.run_tool("scaffold_isa_backbone", **hints)
 
 
-def _draft_entities(engine: AgentEngine) -> dict[str, Any]:
-    """Step 2 — draft entities from what state already carries (deterministic).
+def _gather_context(engine: AgentEngine) -> str:
+    """Assemble a free-text context string for the drafter-leaf from the engine.
 
-    There is no deterministic file→entity extraction today: turning scanned files
-    / free text into typed entities is the bounded LLM "drafter-leaf" the §14.2
-    architecture introduces in a later PR. To keep the spine fully deterministic
-    we draft nothing speculatively here — the scaffolded backbone already reaches
-    ``{base, isa, tox}`` conformance, and any pre-seeded entities in state are
-    carried into the build as-is. This is an intentional, documented deferral.
+    Pulls from what an initialized engine actually carries: the crate title and
+    description (``state.metadata``) and the scanned-file inventory
+    (``state.scanned_files`` — filenames plus any first-row previews the scanner
+    captured). Returns ``""`` when nothing usable is available, which the caller
+    treats as a strict no-op (no provider call is made).
+
+    The context is intentionally a *digest*, not the full file bodies — the leaf is
+    a bounded single call, and the spine never re-reads disk here.
     """
-    # Report what was already present so the result is informative; mutate nothing.
+    state = engine.state
+    parts: list[str] = []
+
+    title = (state.metadata.title or "").strip()
+    if title:
+        parts.append(f"Title: {title}")
+    description = (state.metadata.description or "").strip()
+    if description:
+        parts.append(f"Description: {description}")
+
+    if state.scanned_files:
+        file_lines: list[str] = []
+        for f in state.scanned_files:
+            line = f"- {f.filename}"
+            if f.first_rows:
+                preview = " | ".join(str(r) for r in f.first_rows[:3])
+                if preview.strip():
+                    line += f": {preview}"
+            file_lines.append(line)
+        if file_lines:
+            parts.append("Scanned files:\n" + "\n".join(file_lines))
+
+    return "\n\n".join(parts).strip()
+
+
+def _draft_entities(engine: AgentEngine) -> dict[str, Any]:
+    """Step 2 — enrich entities via the bounded drafter-leaf (§14.2).
+
+    Wires the cheap-model drafter-leaf (:func:`draft_entity_fields`) into the
+    spine: it gathers a free-text ``context`` from what the engine carries (crate
+    title / description + scanned-file digest), and for each draftable entity that
+    is missing descriptive fields it calls the leaf with ``(entity_type, context)``
+    and applies only the returned **non-identifier descriptive** fields.
+
+    Guarantees:
+
+    * **No-op when no LLM provider is configured.** Detected via
+      :func:`builder.config.get_provider`. With no provider the spine stays fully
+      deterministic — nothing is mutated and the leaf is never imported/called, so
+      the existing pipeline tests and the deterministic A/B path are unchanged.
+    * **No-op when there is no usable context** (untitled, undescribed, unscanned
+      crate) — there is nothing to extract from, so the leaf is not called.
+    * **D5 (Verify, Don't Trust).** Identifier / ``@id`` / ``entity_id`` fields are
+      never set or overwritten (:data:`_FORBIDDEN_APPLY_FIELDS`); the spine applies
+      only what the leaf returns and never fabricates. The leaf itself already
+      strips identifiers — this is defence in depth.
+    * **Fill, don't clobber.** Only fields the entity is *missing* (or carries an
+      empty value for) are filled; existing values are preserved.
+
+    Returns ``{"drafted": [<entity ids enriched>], "fields_applied": <n>}``.
+    """
     drafted: list[str] = []
-    return {"drafted": drafted, "deferred_to_llm_leaf": True}
+    fields_applied = 0
+    noop = {"drafted": drafted, "fields_applied": fields_applied}
+
+    # Gate 1 — provider must be configured, else strict no-op (deterministic spine).
+    if get_provider() is None:
+        return noop
+
+    # Gate 2 — there must be usable context to extract from, else strict no-op.
+    context = _gather_context(engine)
+    if not context:
+        return noop
+
+    for entity in engine.state.list_entities():
+        if entity.type not in _DRAFTABLE_ENTITY_TYPES:
+            continue
+
+        # Only enrich entities that are missing at least one descriptive field;
+        # nothing to do for already-complete ones.
+        missing = [
+            field
+            for field in _DESCRIPTIVE_APPLY_FIELDS
+            if not str(entity.fields.get(field) or "").strip()
+        ]
+        if not missing:
+            continue
+
+        try:
+            leaf_fields = draft_entity_fields(entity.type, context)
+        except Exception as exc:  # noqa: BLE001 - a flaky leaf must not break the spine
+            logger.warning(
+                "drafter-leaf failed for %s (%s); skipping enrichment: %s",
+                entity.entity_id,
+                entity.type,
+                exc,
+            )
+            continue
+
+        if not isinstance(leaf_fields, dict):
+            continue
+
+        applied: dict[str, Any] = {}
+        for field, value in leaf_fields.items():
+            # D5: never set an identifier / @id / entity_id.
+            if field in _FORBIDDEN_APPLY_FIELDS:
+                continue
+            # Bound enrichment to the safe descriptive set, and only fields the
+            # entity is actually missing (fill, don't clobber).
+            if field not in missing:
+                continue
+            if value is None or not str(value).strip():
+                continue
+            applied[field] = value
+
+        if applied:
+            entity.set_fields_from_dict(applied, source="llm")
+            drafted.append(entity.entity_id)
+            fields_applied += len(applied)
+
+    return {"drafted": drafted, "fields_applied": fields_applied}
 
 
 def _run_fix_loop(engine: AgentEngine) -> tuple[dict[str, Any], int]:
@@ -156,9 +352,11 @@ def run_pipeline(engine: AgentEngine) -> dict[str, Any]:
     (so scanning + approved-roots have happened). The spine then runs, in code:
     scaffold backbone → draft entities → build_and_validate → bounded fix loop.
 
-    No LLM decides control flow and every step is deterministic, so the same input
-    state yields the same built crate (the determinism guarantee the eval harness
-    asserts).
+    No LLM decides control flow. With **no LLM provider configured** every step is
+    deterministic (the drafter-leaf step is a strict no-op), so the same input
+    state yields the same built crate — the determinism guarantee the deterministic
+    A/B path of the eval harness asserts. When a provider is configured, the
+    bounded drafter-leaf (step 2) enriches entities with descriptive content.
 
     Args:
         engine: An initialized headless :class:`~builder.engine.AgentEngine`. The

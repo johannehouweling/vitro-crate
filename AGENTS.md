@@ -1351,7 +1351,9 @@ Study via `mentions`/`aop`). The only LLM-supplied input is the numeric `aop_id`
 
 Pipeline (#179): (1) `fix_required_issues` deterministic repair loop — *the keystone*;
 (2) drafters as real LLM leaves — **done** (see [the drafter-leaf](#the-drafter-leaf-leavespy)
-below); (3) composite meta-tools incl. `draft_process_chain`
+below), and the leaf is now **wired into the spine's `_draft_entities` hook** (§14.5
+step 2 — was a deferral), gated to a strict no-op when no LLM provider is configured;
+(3) composite meta-tools incl. `draft_process_chain`
 — **done**: it synthesizes the EndpointReadout/DataAnalysis outputs the build has no
 fallback for (closing the §14.3 Violation trap) and wires the whole chain in one
 idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine — **done as an
@@ -1459,10 +1461,18 @@ existing toolbox. The sequence:
    defaults) because a bare `draft_study` populates only the entity_id, not the
    `name` field, and the ISA profile REQUIRES a non-empty Study `name`. With names
    supplied this alone yields `{base, isa, tox}` on an empty crate (§14.3).
-2. **Draft entities** from what state already carries — a deliberate **no-op
-   today**: there is no deterministic file→entity extraction, so turning scanned
-   files / free text into typed entities is the bounded LLM "drafter-leaf" a later
-   PR binds here (§14.2). Pre-seeded entities are carried into the build as-is.
+2. **Draft entities** — the §14.2 bounded **drafter-leaf is now wired in here**
+   (was a deferral): `_draft_entities` gathers a free-text context from what the
+   engine carries (crate `title`/`description` + a scanned-file digest) and, for
+   each draftable entity missing descriptive fields, calls `draft_entity_fields`
+   (`leaves.py`) and applies only the returned **non-identifier descriptive**
+   fields (fill, don't clobber). It is a **strict no-op when no LLM provider is
+   configured** (detected via `config.get_provider()`, the same check the rest of
+   the code uses) *and* when there is no usable context — so the deterministic
+   spine, its tests, and the deterministic A/B path are unchanged (the leaf is
+   never even imported on that path). **D5-safe:** identifier / `@id` / `entity_id`
+   fields are never set or overwritten — those come from lookups. Returns
+   `{drafted: [<ids>], fields_applied: <n>}`.
 3. **build_and_validate** in memory (no disk write).
 4. **Fix loop** — `fix_required_issues` + re-validate, **bounded to ≤3 rounds**,
    stopping when no REQUIRED issue remains *or* a round fixes nothing (deterministic
@@ -1470,8 +1480,12 @@ existing toolbox. The sequence:
    means the rest needs the LLM leaf).
 5. Returns `{ok, conformance, issues, scaffold, drafted, fix_rounds}`.
 
-**Determinism contract:** same input state ⇒ identical built `@graph` — the
-headline win the eval harness asserts (`crate_graph_hash` equal across runs).
+**Determinism contract:** with **no LLM provider configured** the drafter-leaf
+step (2) is a strict no-op, so every step is deterministic and the same input
+state ⇒ an identical built `@graph` — the headline win the deterministic A/B path
+of the eval harness asserts (`crate_graph_hash` equal across runs, zero tokens in
+CI). When a provider *is* configured, step 2 makes a bounded, D5-safe extraction
+call, trading strict graph-hash determinism for richer drafted content.
 
 **Measurable via the same harness.** `eval/pipeline_factory.py`
 (`make_pipeline_agent_factory` → `PipelineBuildAgent`) implements the same
