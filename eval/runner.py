@@ -25,7 +25,7 @@ from typing import Any, Callable
 
 from builder.state import CrateState
 from eval.agent_api import AgentFactory, BuildOutcome
-from eval.corpus import EvalCase, reaches_isa_tox_conformance
+from eval.corpus import EvalCase, meets_entity_quota, reaches_isa_tox_conformance
 from eval.metrics import crate_graph_hash, mine_profile_metrics
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,12 @@ class CaseResult:
     profile (representative of one build); latency is the first repeat's wall
     clock. ``crate_hashes`` holds one hash per repeat, and ``deterministic`` is
     ``True``/``False`` when there is more than one repeat to compare, else ``None``.
+
+    ``meets_quota`` / ``entity_counts`` are the additive content-quality signal:
+    for cases that declare ``min_entities`` they say whether the build drafted the
+    demanded domain content (and how much of each demanded type it drafted). For
+    cases without a quota, ``meets_quota`` is ``None`` and ``entity_counts`` empty
+    — the signal is purely additive and never affects ``success``.
     """
 
     case_id: str
@@ -72,6 +78,8 @@ class CaseResult:
     deterministic: bool | None
     repeats: int
     error: str | None = None
+    meets_quota: bool | None = None
+    entity_counts: dict[str, int] = field(default_factory=dict)
 
     @property
     def total_tokens(self) -> int:
@@ -96,6 +104,8 @@ class CaseResult:
             "deterministic": self.deterministic,
             "repeats": self.repeats,
             "error": self.error,
+            "meets_quota": self.meets_quota,
+            "entity_counts": self.entity_counts,
         }
 
 
@@ -180,6 +190,7 @@ def _run_case(
     state = first_outcome.state
 
     predicate = reaches_isa_tox_conformance(state)
+    quota = meets_entity_quota(state, case.min_entities)
 
     profile_records = (
         profile_reader(first_outcome.session_id) if first_outcome.session_id else []
@@ -205,6 +216,8 @@ def _run_case(
         deterministic=deterministic,
         repeats=max(1, repeats),
         error=error,
+        meets_quota=quota["meets_quota"],
+        entity_counts=quota["entity_counts"],
     )
 
 
