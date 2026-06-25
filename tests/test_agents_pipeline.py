@@ -279,6 +279,317 @@ class TestDraftEntitiesWiring:
         assert result.get("fields_applied") == 0
 
 
+class TestMaterializePlan:
+    """Stage B (`_materialize_plan`) turns the extracted candidate plan into real
+    domain entities via the deterministic composites (Issue #179 task 2b-B).
+
+    `extract_plan` (the whole-document leaf) is STUBBED at its pipeline import
+    site — no model, no network — and the composites' own lookups
+    (`lookup_compound` / `verify_identifier` / `lookup_aop`) are stubbed too, so
+    these tests are fully offline. The contract under test:
+
+    * a canned plan materializes the expected MolecularEntity / CellLineSample /
+      LabProcess chain / AOP subgraph / Person / Publication entities in state;
+    * with NO provider configured, the step is a STRICT no-op;
+    * with a provider but NO usable context, the step is a strict no-op;
+    * D5 — no identifier from the plan is ever set on an entity; identifiers come
+      only from the composites' lookups/verification;
+    * idempotent — running the spine twice produces no duplicates;
+    * `run_pipeline` still reaches `{base, isa, tox}` conformance with a plan.
+    """
+
+    _PLAN: dict = {
+        "study": {"name": "TPO inhibition study", "description": "A TPO assay."},
+        "compounds": [
+            {"name": "Methimazole", "role": "test"},
+            {"name": "Sodium iodide", "role": "control"},
+        ],
+        "cell_lines": [{"name": "FRTL-5"}],
+        "process_chain": [
+            {"process_type": "CellCulture", "name": "Seed cells"},
+            {"process_type": "Exposure", "name": "Dose"},
+            {"process_type": "EndpointReadout", "name": "Read TPO"},
+            {"process_type": "DataAnalysis", "name": "Fit dose-response"},
+        ],
+        "aops": [{"aop_id": "610"}],
+        "people": [{"name": "Ada Lovelace", "affiliation_name": "Analytical Engine"}],
+        "publications": [{"title": "On TPO inhibition in vitro"}],
+        "files": [{"path": "data/raw.csv", "role": "raw"}],
+        "notes": "Confirm the control compound role.",
+    }
+
+    def _titled_state(self) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "TPO inhibition dose-response screen"
+        state.metadata.description = "A cell-based in vitro TPO inhibition assay."
+        return state
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def _stub_extract_plan(
+        self, monkeypatch: pytest.MonkeyPatch, plan: dict | None = None
+    ) -> list[str]:
+        """Patch the pipeline's `extract_plan` shim to return a canned plan."""
+        import builder.agents.pipeline as pipeline_mod
+
+        seen: list[str] = []
+
+        def fake_extract_plan(context, *, model=None):
+            seen.append(context)
+            return dict(self._PLAN if plan is None else plan)
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)
+        return seen
+
+    def _stub_lookups(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stub every network lookup the composites would otherwise hit."""
+        import builder.tools.composites as composites_mod
+        from builder.tools import lookups as tool_lookups
+
+        # resolve_compound -> lookup_compound (imported into composites' namespace).
+        def fake_lookup_compound(name):
+            return {
+                "found": True,
+                "data": {
+                    "cas": "60-56-0",
+                    "pubchem_cid": "1349907",
+                    "smiles": "C1=CN(C(=S)N1)C",
+                    "source": "pubchem",
+                },
+                "error": None,
+            }
+
+        # verify_identifier marks the field verified without touching the network.
+        def fake_verify_identifier(state, entity_id, field):
+            ent = state.get_entity(entity_id)
+            if ent is not None:
+                ent.set_field_status(field, "verified", "lookup")
+            return {"verified": True, "entity_id": entity_id, "field": field, "message": "ok"}
+
+        # materialize_aop_subgraph -> lookup_aop (imported lazily from tool_lookups).
+        def fake_lookup_aop(aop_id):
+            iri = f"https://aopwiki.org/aops/{aop_id}"
+            mie = "https://aopwiki.org/events/1"
+            ao = "https://aopwiki.org/events/2"
+            ker = "https://aopwiki.org/relationships/1"
+            return {
+                "found": True,
+                "data": {
+                    "aop": {
+                        "@id": iri,
+                        "@type": "AdverseOutcomePathway",
+                        "name": f"AOP {aop_id}",
+                        "identifier": str(aop_id),
+                        "url": iri,
+                        "has_molecular_initiating_event": [{"@id": mie}],
+                        "has_adverse_outcome": [{"@id": ao}],
+                        "has_key_event_relationship": [{"@id": ker}],
+                    },
+                    "events": [
+                        {"@id": mie, "@type": "KeyEvent", "name": "MIE",
+                         "eventType": "Molecular Initiating Event"},
+                        {"@id": ao, "@type": "KeyEvent", "name": "AO",
+                         "eventType": "Adverse Outcome"},
+                    ],
+                    "relationships": [
+                        {"@id": ker, "@type": "KeyEventRelationship",
+                         "upstream_event": {"@id": mie},
+                         "downstream_event": {"@id": ao}},
+                    ],
+                },
+                "error": None,
+            }
+
+        monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
+        monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
+        monkeypatch.setattr(tool_lookups, "lookup_aop", fake_lookup_aop)
+
+    def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
+        return [e for e in engine.state.list_entities() if e.type == type_name]
+
+    def test_materializes_plan_entities(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        seen = self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        # Scaffold first so the assay/study ids exist for the chain/aop wiring.
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        # The leaf saw the real gathered context (the crate title).
+        assert seen and any("TPO inhibition" in ctx for ctx in seen)
+
+        # Compounds → MolecularEntity (one per plan compound).
+        chems = self._by_type(engine, "MolecularEntity")
+        assert {c.fields.get("name") for c in chems} == {"Methimazole", "Sodium iodide"}
+
+        # Cell line → CellLineSample.
+        cells = self._by_type(engine, "CellLineSample")
+        assert [c.fields.get("name") for c in cells] == ["FRTL-5"]
+
+        # Process chain → 4 LabProcess steps wired to the assay.
+        procs = self._by_type(engine, "LabProcess")
+        ptypes = {p.fields.get("process_type") for p in procs}
+        assert ptypes == {"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"}
+
+        # AOP → AdverseOutcomePathway subgraph.
+        assert self._by_type(engine, "AdverseOutcomePathway")
+        assert self._by_type(engine, "KeyEvent")
+
+        # Person from the name, with a deterministic given/family split so it is
+        # ISA-conformant (a non-empty given name is REQUIRED). No ORCID (D5).
+        people = self._by_type(engine, "Person")
+        ada = next(p for p in people if p.fields.get("name") == "Ada Lovelace")
+        assert ada.fields.get("givenName") == "Ada"
+        assert ada.fields.get("familyName") == "Lovelace"
+        assert not ada.fields.get("orcid")
+
+        # Publications are DEFERRED (title-only cannot be ISA-conformant without a
+        # fabricated DOI — D5), so no Publication entity is minted; the title is
+        # surfaced for a later DOI lookup instead.
+        assert self._by_type(engine, "Publication") == []
+        assert "On TPO inhibition in vitro" in result["publications_deferred"]
+        assert result["publications"] == 0
+
+        # The result is informative (per-section counts).
+        assert result["compounds"] >= 2
+        assert result["cell_lines"] >= 1
+        assert result["processes"] >= 1
+        assert result["aops"] >= 1
+        assert result["people"] >= 1
+
+    def test_d5_no_fabricated_identifiers_from_plan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """D5: identifiers come from the composites' lookups, never the plan.
+
+        The plan carries only names. A MolecularEntity's `cas`/`pubchem_cid` must
+        be the LOOKED-UP value (here the stubbed `60-56-0` / `1349907`), and a
+        fabricated DOI an adversarial plan smuggles in must never land on any
+        entity (the title-only publication is deferred, not materialized).
+        """
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        # A plan that adversarially tries to smuggle identifiers (should be ignored
+        # by the materialization — names only are passed to the composites).
+        plan = {
+            "compounds": [{"name": "Methimazole", "role": "test", "cas": "FAKE-CAS"}],
+            "publications": [{"title": "Some paper", "doi": "10.0/FAKE"}],
+        }
+        self._stub_extract_plan(monkeypatch, plan)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        chem = self._by_type(engine, "MolecularEntity")[0]
+        # The CAS is the looked-up value, NOT the plan's fabricated one.
+        assert chem.fields.get("cas") == "60-56-0"
+        assert chem.fields.get("cas") != "FAKE-CAS"
+
+        # The publication is deferred (title surfaced) and no entity carries the
+        # plan's fabricated DOI anywhere in state.
+        assert "Some paper" in result["publications_deferred"]
+        for ent in engine.state.list_entities():
+            assert ent.fields.get("identifier") != "10.0/FAKE"
+            assert ent.fields.get("doi") != "10.0/FAKE"
+
+    def test_no_provider_is_strict_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
+
+        def boom(*args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("extract_plan must not run without a provider")
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", boom)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        before = {e.entity_id for e in engine.state.list_entities()}
+        result = pipeline_mod._materialize_plan(engine)
+        after = {e.entity_id for e in engine.state.list_entities()}
+        assert before == after, "no-provider _materialize_plan must mint nothing"
+        assert result.get("compounds") == 0
+        assert result.get("aops") == 0
+
+    def test_no_context_is_strict_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+
+        def boom(*args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("extract_plan must not run without context")
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", boom)
+
+        # Untitled / undescribed / unscanned crate carries no usable context.
+        engine = _engine(CrateState())
+        pipeline_mod._scaffold_backbone(engine)
+        before = {e.entity_id for e in engine.state.list_entities()}
+        result = pipeline_mod._materialize_plan(engine)
+        after = {e.entity_id for e in engine.state.list_entities()}
+        assert before == after, "no-context _materialize_plan must mint nothing"
+        assert result.get("compounds") == 0
+
+    def test_idempotent_no_duplicates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+        counts_1 = {
+            t: len(self._by_type(engine, t))
+            for t in ("MolecularEntity", "CellLineSample", "LabProcess",
+                      "AdverseOutcomePathway", "KeyEvent", "Person", "Publication")
+        }
+        # Re-run on the SAME engine — composites are idempotent, so no dups.
+        pipeline_mod._materialize_plan(engine)
+        counts_2 = {
+            t: len(self._by_type(engine, t))
+            for t in ("MolecularEntity", "CellLineSample", "LabProcess",
+                      "AdverseOutcomePathway", "KeyEvent", "Person", "Publication")
+        }
+        assert counts_1 == counts_2
+
+    def test_run_pipeline_with_plan_reaches_conformance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from builder.agents.pipeline import run_pipeline
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+        # Keep the field-enrichment leaf a no-op (it is separately tested) so this
+        # test isolates materialization + the existing build/fix path.
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(
+            pipeline_mod, "draft_entity_fields", lambda *a, **k: {}
+        )
+
+        engine = _engine(self._titled_state())
+        result = run_pipeline(engine)
+
+        assert result["conformance"] == {"base": True, "isa": True, "tox": True}
+        assert result["ok"] is True
+        # The materialized plan is reflected in the result trace.
+        assert "materialized" in result
+        assert result["materialized"]["compounds"] >= 2
+
+
 class TestDeterminism:
     def test_identical_graph_hash_across_runs(self) -> None:
         """Same input ⇒ identical built @graph hash — the headline win to assert."""
