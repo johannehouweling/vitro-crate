@@ -922,83 +922,83 @@ def run_static_dashboard(session_id: str | None = None) -> None:
 def run_dashboard(session_id: str | None = None, refresh_interval: float = 2.0) -> None:
     """Run a live-updating dashboard using watchfiles.
 
-    If *session_id* is None, uses the most recent session with profile data.
+    If *session_id* is None, the dashboard *follows the newest session*: it
+    re-resolves the most recent session on every refresh, so a fresh
+    ``--interactive`` run is picked up live with no restart (#267). If an
+    explicit *session_id* is given, the dashboard stays pinned to it.
 
-    The display refreshes whenever ``profile.ndjson`` is modified — new tool
-    calls and node events appear in near-real-time.
+    The display refreshes on every filesystem change under :data:`SESSION_DIR`
+    AND at least every *refresh_interval* seconds even with no events (a poll
+    fallback that is robust against FSEvents/atomic-save quirks).
 
     Press Ctrl+C to exit.
     """
-    sessions = list_sessions_available()
-    if not sessions:
-        print("No session data found. Run the agent first to generate profile data.")
-        return
-
-    if session_id is None:
-        target = sessions[0]
-    else:
-        matches = [s for s in sessions if s["session_id"] == session_id]
-        if not matches:
+    if session_id is not None:
+        sessions = list_sessions_available()
+        if not any(s["session_id"] == session_id for s in sessions):
             print(f"Session not found: {session_id}")
             return
-        target = matches[0]
-
-    profile_path = target["profile_path"]
 
     try:
-        _run_live_dashboard(profile_path, target["session_id"], refresh_interval)
+        _run_live_dashboard(session_id=session_id, refresh_interval=refresh_interval)
     except KeyboardInterrupt:
         pass
     finally:
         print("\nDashboard closed.")
 
 
-def _change_touches(changes: Any, watched: set[str]) -> bool:
-    """Whether any watchfiles change touches one of *watched* file paths.
-
-    Watching the session DIRECTORY (see :func:`_run_live_dashboard`) also surfaces
-    churn from temp files — ``save_session`` writes ``.crate_state_tmp_*`` then
-    ``os.replace``\\ s it over ``crate_state.json`` — plus any exported payload. We
-    re-render only when ``profile.ndjson`` or ``crate_state.json`` actually changed
-    so unrelated churn doesn't thrash the display. ``changes`` is the
-    ``set[tuple[Change, str]]`` yielded by ``watchfiles.watch``.
-
-    Matching is by **basename**, not full path. ``watchfiles`` yields ABSOLUTE
-    paths, but ``watched`` is built from ``SESSION_DIR`` which is *relative*
-    (``Path("sessions")``), so a full-string ``path in watched`` never matched and
-    the dashboard stopped refreshing entirely (regression from the dir-watch
-    change). Comparing file names is robust to relative-vs-absolute and symlinked
-    paths.
-    """
-    names = {Path(p).name for p in watched}
-    try:
-        return any(Path(path).name in names for _change, path in changes)
-    except TypeError:
-        return False
-
-
 def _run_live_dashboard(
-    profile_path: Path,
-    session_id: str,
+    session_id: str | None,
     refresh_interval: float,
 ) -> None:
-    """Inner live-dashboard loop with Rich ``Live`` display and file-watching."""
+    """Inner live-dashboard loop with Rich ``Live`` display and file-watching.
+
+    Watches the :data:`SESSION_DIR` *root* (not an individual session/file) and
+    rebuilds + renders on **every wake** — both real change events and the
+    periodic timeout wake (``yield_on_timeout``). This is the #267 fix:
+
+    * The previous basename filter (``_change_touches``) discarded the atomic
+      save signal. ``save_session`` writes ``crate_state.json`` via tempfile +
+      ``os.replace``; on macOS the change batch contains ONLY the temp file
+      (``.crate_state_tmp_*``), which the filter excluded — so the render never
+      fired. Rendering on every wake (event OR timeout) removes that whole
+      failure mode.
+    * The session was pinned at startup. With *session_id* None we re-resolve
+      the newest session via :func:`list_sessions_available` on every wake, so a
+      new run is followed live. An explicit *session_id* stays pinned.
+
+    The ``profile.ndjson`` mtime cache (:func:`_read_records_cached`) is kept so
+    the profile isn't needlessly re-parsed; ``crate_state.json`` is re-read each
+    render (via :func:`format_session_summary` -> :func:`_load_cratestate`).
+    """
     from rich.console import Console
     from rich.layout import Layout
     from rich.live import Live
 
     console = Console()
-    session_path = profile_path.parent
-    crate_state_path = session_path / "crate_state.json"
-    last_mtime: float = 0.0
-    records: list[dict[str, Any]] = []
+
+    # Per-session mtime cache for profile.ndjson. Keyed by session_id so that,
+    # when following the newest session, switching sessions doesn't reuse a stale
+    # cache from a different run.
+    cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+
+    def _resolve_session() -> str | None:
+        """Pick the session to render this wake: pinned, or the newest one."""
+        if session_id is not None:
+            return session_id
+        sessions = list_sessions_available()
+        return sessions[0]["session_id"] if sessions else None
 
     def _build() -> Layout:
-        nonlocal last_mtime, records
-        # Re-read profile only when it changed; reuse the cache otherwise so a
-        # crate_state-only refresh doesn't blank the profile panel (#121).
+        sid = _resolve_session()
+        if sid is None:
+            # No sessions yet — render an empty placeholder and keep polling.
+            return format_session_summary("(waiting for a session…)", [])
+        profile_path = SESSION_DIR / sid / "profile.ndjson"
+        last_mtime, records = cache.get(sid, (0.0, []))
         records, last_mtime = _read_records_cached(profile_path, last_mtime, records)
-        return format_session_summary(session_id, records)
+        cache[sid] = (last_mtime, records)
+        return format_session_summary(sid, records)
 
     try:
         from watchfiles import watch
@@ -1010,20 +1010,29 @@ def _run_live_dashboard(
         console.print(_build())
         return
 
-    # Watch the session DIRECTORY, not the individual files. ``save_session``
-    # writes crate_state.json atomically (tempfile + ``os.replace``), which swaps
-    # the inode a file-path watcher holds — so a watcher bound to crate_state.json
-    # silently stopped seeing updates and the dashboard only refreshed on reload.
-    # Watching the directory catches the rename (and crate_state.json first
-    # appearing after the dashboard started). Filter to the two files we render
-    # from so unrelated temp/export churn doesn't thrash the display.
-    watched = {str(profile_path), str(crate_state_path)}
+    # SESSION_DIR may not exist yet (no run has written a session). watchfiles
+    # cannot watch a missing path, so create the root; per-session dirs appear
+    # under it as runs start and the follow-newest loop picks them up.
+    try:
+        SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        logger.warning("Could not create session dir %s", SESSION_DIR)
 
     with Live(
         _build(), console=console, refresh_per_second=1 / refresh_interval, screen=False
     ) as live:
-        # `step` is watchfiles' debounce quiet-period (see _WATCH_STEP_MS), not
-        # the render interval — keep it small so updates aren't throttled.
-        for changes in watch(str(session_path), step=_WATCH_STEP_MS):
-            if _change_touches(changes, watched):
-                live.update(_build())
+        # Watch the SESSION_DIR ROOT with an event-OR-timeout loop:
+        #   * ``yield_on_timeout`` + ``rust_timeout`` wake the loop at least every
+        #     ``refresh_interval`` even with zero FS events (poll fallback);
+        #   * any real change also wakes it immediately.
+        # On every wake we rebuild + render unconditionally — no path filtering,
+        # so atomic-save temp churn can no longer hide the update (#267).
+        # ``step`` stays small (watchfiles' debounce quiet-period) so a steady
+        # stream of writes is surfaced promptly.
+        for _changes in watch(
+            str(SESSION_DIR),
+            step=_WATCH_STEP_MS,
+            rust_timeout=int(refresh_interval * 1000),
+            yield_on_timeout=True,
+        ):
+            live.update(_build())
