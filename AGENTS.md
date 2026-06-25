@@ -1291,10 +1291,15 @@ The `profile.ndjson` log produced by `ProfilingLogger` is the foundation for a l
 
 ## 14. Architecture Evolution: Deterministic Pipeline (planned — Issue #179)
 
-> **Status:** Decided direction, migration in progress (Issue #179). The as-built
-> agent loop is the prose-prompt ReAct StateGraph of §4 / D1; this section is the
-> **convergence target**. It supersedes the earlier "keep flat ReAct, structure in
-> the tool layer only" stance once the A/B gate (task 6 below) confirms it.
+> **Status:** Cutover DONE for the interactive build (Issue #179). The A/B gate
+> (task 6) is decided: on the 3 shared corpus cases the deterministic pipeline
+> reached **3/3** ISA-Tox conformance vs ReAct **1/3** (the weak LLM stalled at
+> 0–1 iterations on the hard cases), so the **deterministic pipeline + HITL
+> guidance tail is now the DEFAULT interactive architecture** (`main.py
+> --interactive` → `run_interactive_build`). The prose-prompt ReAct StateGraph of
+> §4 / D1 is **retained behind `--legacy-react`**, not deleted — the system-prompt
+> strip is a separate follow-up (task 7). This supersedes the earlier "keep flat
+> ReAct, structure in the tool layer only" stance.
 
 ### 14.1 Decision
 
@@ -1311,7 +1316,11 @@ retained only for the conversational / unstructured-input tail**.
 beats ReAct on reliability" claim — ReAct often has a higher final pass rate. The
 defensible win *for this system* (known step ordering + rigid SHACL-validated output +
 weak executor) is **cost, latency, reproducibility, testability, predictability** — not
-blanket correctness. Therefore the full cutover is **gated on an in-repo A/B** (task 6).
+blanket correctness. The cutover was **gated on an in-repo A/B** (task 6) and that gate
+has now passed for the interactive build (3/3 vs 1/3 ISA-Tox conformance on the shared
+corpus — the pipeline ALSO won on correctness for these cases because the weak executor
+stalled), so the pipeline is the default interactive path with ReAct retained behind an
+opt-in flag.
 
 ### 14.2 Target shape
 
@@ -1374,13 +1383,24 @@ step 2 — was a deferral), gated to a strict no-op when no LLM provider is conf
 (3) composite meta-tools incl. `draft_process_chain`
 — **done**: it synthesizes the EndpointReadout/DataAnalysis outputs the build has no
 fallback for (closing the §14.3 Violation trap) and wires the whole chain in one
-idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine — **done as an
-opt-in parallel path** (`builder/agents/pipeline.py::run_pipeline`, see §14.5): a
-deterministic, code-driven orchestrator that does NOT yet replace the
-`should_continue` ReAct loop. **ReAct stays the DEFAULT**; the spine is selectable
-via the eval harness (`python -m eval --arch pipeline`) so the A/B gate (task 6)
-can prove it before any cutover; (5) shrink tail agent; (6) **A/B eval harness —
-decision gate**; (7) prompt + docs.
+idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine — **done and now
+the DEFAULT interactive path** (`builder/agents/pipeline.py::run_pipeline`, see §14.5):
+a deterministic, code-driven orchestrator. Post-A/B-gate (task 6) it **replaces** the
+`should_continue` ReAct loop as the default `main.py --interactive` build (via
+`run_interactive_build`, §14.6.1); ReAct is retained behind `--legacy-react` (the
+`should_continue` graph itself is untouched pending the task-7 prompt strip). The spine
+is also selectable in the eval harness (`python -m eval --arch pipeline`); (5) the tail
+— **done**: the gap engine
+(`assess_gaps` #215, §14.6) feeds the deterministic HITL guidance loop
+(`run_guidance` #218, §14.6.1), now **wired into the interactive build path**
+(`run_interactive_build`, `builder/agents/build.py`) so a real user gets the
+guidance tail after the automated pipeline while the A/B path (simulated /
+headless) runs the guidance-free pipeline alone; (6) **A/B eval harness — decision
+gate — done & PASSED**: the harness compared the two architectures on the shared
+corpus and the pipeline won (3/3 vs 1/3 ISA-Tox conformance), triggering the
+interactive cutover above; (7) prompt + docs — **pending** (strip the orchestration
+prose from `system_prompt.py` now that code owns control flow; the ReAct loop stays
+reachable via `--legacy-react` until then).
 
 #### The drafter-leaf (`leaves.py`)
 
@@ -1496,7 +1516,14 @@ existing toolbox. The sequence:
    stopping when no REQUIRED issue remains *or* a round fixes nothing (deterministic
    dispatch only; the loop is monotone over the rule set, so a no-progress round
    means the rest needs the LLM leaf).
-5. Returns `{ok, conformance, issues, scaffold, drafted, fix_rounds}`.
+5. Returns `{ok, conformance, issues, scaffold, materialized, drafted, fix_rounds}`.
+
+`run_pipeline` is the **automated** build and stays **guidance-free** — the HITL
+guidance tail is invoked *around* it by the interactive entrypoint
+(`run_interactive_build`, §14.6.1), never inside the spine, so the A/B eval can
+drive the spine non-interactively. Post-A/B-gate (3/3 vs 1/3 ISA-Tox conformance)
+this spine is the **default** `main.py --interactive` build; ReAct is opt-in via
+`--legacy-react`.
 
 **Determinism contract:** with **no LLM provider configured** the drafter-leaf
 step (2) is a strict no-op, so every step is deterministic and the same input
@@ -1520,24 +1547,74 @@ The pre-migration ReAct baseline is frozen at git tag **`react-baseline`** for t
 
 ### 14.6 The hybrid build loop and the gap engine (`builder/tools/gap_analysis.py`)
 
-The full hybrid ISA-Tox build loop runs in five stages, all deterministic except
-where a bounded LLM leaf is explicitly invoked:
+The full hybrid ISA-Tox build loop runs in five stages — the first four are the
+**automated pipeline** (`run_pipeline`, §14.5) and the fifth is the **interactive
+HITL tail** (`run_guidance`). Every stage is deterministic *code* except the two
+explicit bounded LLM leaves (Extract's `extract_plan`, and the drafter the
+guidance tail uses to *suggest* a value the user must confirm):
 
 ```
-Extract → Materialize → Assess → Auto-resolve → Guidance
- (leaf)    (deterministic   │      (deterministic   (small strong-model
-            scaffold +       │       fix loop)        agent: ambiguity + HITL)
-            draft mutators)  ▼
-                          gap engine
+        ┌───────────── AUTOMATED PIPELINE (run_pipeline) ──────────────┐
+INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Guidance (run_guidance)
+        (leaf)    (deterministic   │      (deterministic         (deterministic HITL loop:
+                  composites)      │       fix loop)              ask-user / draft+confirm;
+                                   ▼                              INTERACTIVE ONLY)
+                                gap engine
 ```
 
-**Extract** pulls structured fields from input via the cheap drafter-leaf
-(§14.4); **Materialize** turns them into linked entities through the
-deterministic `scaffold_isa_backbone` / `draft_*` / `draft_process_chain`
-mutators; **Assess** runs the gap engine (this section); **Auto-resolve** clears
-every `auto_fixable` gap via `fix_required_issues` (§5, the keystone); and
-**Guidance** is the small tail agent that handles only what the deterministic
-path cannot — genuine ambiguity, missing content, and HITL.
+- **Extract** (`extract_plan`, leaf #213, §14.4) — the bounded whole-document
+  extractor pulls a *candidate plan* (names/titles only, no identifiers — D5)
+  from the input context in a single model call.
+- **Materialize** (`_materialize_plan` via the idempotent composites #217, §14.5)
+  — deterministically turns each plan section into linked ISA-Tox entities through
+  `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /
+  `draft_process_chain` / `materialize_aop_subgraph` / `draft_person`. Identifiers
+  come from the composites' own lookups, never from the plan.
+- **Assess** (`assess_gaps`, the gap engine #215, this section) — one
+  prioritized `GapReport` unifying SHACL + MIT + FAIR.
+- **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every
+  `auto_fixable` gap deterministically from state alone, no prompt.
+- **Guidance** (`run_guidance` #218, §14.6.1) — the **deterministic, code-driven
+  HITL loop** that walks the remaining `auto_fixable=False` gaps with the user in
+  the loop. It is NOT a ReAct/LLM-orchestrated agent: CODE owns control flow, the
+  LLM only *drafts* a suggested value, and the user confirms every uncertain
+  commit (D5). It is invoked **only for a real interactive user** (see §14.6.1).
+
+**The deliberate split — automated vs interactive.** Stages 1–4 are the
+**automated** build: `run_pipeline` (§14.5) runs them with **no HITL**, so it
+never blocks on a user and the A/B eval can drive it non-interactively
+(`--arch pipeline`, a clean automated-vs-automated comparison vs ReAct).
+`run_pipeline` therefore stays **guidance-free** — the Guidance tail (stage 5) is
+HITL and lives **outside** the spine, in the interactive entrypoint
+(`run_interactive_build`, §14.6.1). A headless / simulated run is exactly
+`run_pipeline` alone; a real user gets `run_pipeline` *then* `run_guidance`.
+
+#### 14.6.1 The interactive entrypoint (`builder/agents/build.py`)
+
+`run_interactive_build(engine, *, pipeline_runner=None, guidance_runner=None,
+output=None) -> dict` joins the two halves into the end-to-end sequence a real
+user runs. It:
+
+1. runs the **automated** pipeline (`run_pipeline`) — always;
+2. runs the **HITL guidance tail** (`run_guidance(engine, engine.human_interface)`)
+   **iff the engine's `HumanInterface` is interactive**;
+3. surfaces a concise summary of the guidance results
+   (`format_guidance_summary` — gaps resolved / asked / remaining per tier, plus
+   final base/isa/tox conformance) via the injected `output` channel (e.g. the
+   CLI's `print` / console writer);
+4. returns `{"pipeline": <run_pipeline result>, "guidance": <run_guidance result
+   or None>}` — `guidance` is `None` exactly when the path was non-interactive.
+
+**The interactive signal.** "Interactive vs headless" is read from a single,
+optional `HumanInterface.is_interactive` attribute via the fail-closed helper
+`builder.tools.hitl.is_interactive(human)`: a `None` interface, one that omits the
+attribute, or one that sets it falsy is **non-interactive**; only a frontend
+backed by a real user sets it `True`. The default `SimulatedHumanInterface`
+(used by the A/B eval, batch runs, and the test suite) is `is_interactive = False`,
+so behind it `run_interactive_build` degrades to `run_pipeline` alone and
+`run_guidance` is **never invoked** — guidance can never block a headless build.
+Both runners are injectable so the wiring is unit-tested with no SHACL / no LLM /
+no network (`tests/test_agents_build.py`).
 
 **Stage C — the gap engine.** `assess_gaps(state: CrateState) -> GapReport`
 (`builder/tools/gap_analysis.py`) unifies the three assessors into ONE

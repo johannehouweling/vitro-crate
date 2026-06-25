@@ -75,7 +75,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--interactive",
         "-I",
         action="store_true",
-        help="Run in interactive agent mode (requires LangChain extra + API key)",
+        help="Run in interactive build mode (deterministic pipeline + HITL "
+        "guidance tail; requires LangChain extra + API key)",
+    )
+    parser.add_argument(
+        "--legacy-react",
+        action="store_true",
+        help="With --interactive, use the legacy ReAct agent loop instead of the "
+        "default deterministic pipeline + guidance build (retained pending the "
+        "system-prompt strip; see AGENTS.md §14)",
     )
     parser.add_argument(
         "--provider",
@@ -363,7 +371,17 @@ def main(argv: list[str] | None = None) -> int:
         if not _ensure_configured():
             return 1
 
-    engine = AgentEngine()
+    # The DEFAULT interactive build is the deterministic pipeline + HITL guidance
+    # tail (AGENTS.md §14.6.1), so it must run behind a REAL interactive
+    # HumanInterface — else run_interactive_build would (correctly) skip guidance.
+    # The legacy ReAct loop (--legacy-react) keeps the headless simulated default;
+    # its own HITL routes through the agent loop, not the guidance tail.
+    if args.interactive and not args.legacy_react:
+        from builder.tools.hitl import ConsoleHumanInterface
+
+        engine = AgentEngine(human_interface=ConsoleHumanInterface())
+    else:
+        engine = AgentEngine()
 
     if args.resume:
         logger.info("Resuming session: %s", args.resume)
@@ -391,16 +409,28 @@ def main(argv: list[str] | None = None) -> int:
         entity_count,
     )
 
-    # Interactive agent mode — enter the LangChain REPL
+    # Interactive build mode. Post-cutover (AGENTS.md §14, gated on the in-repo
+    # A/B: pipeline reached 3/3 ISA-Tox conformance vs ReAct 1/3) the DEFAULT is
+    # the deterministic pipeline + HITL guidance tail. The legacy ReAct loop is
+    # retained behind --legacy-react (pending the task-7 prompt strip), not deleted.
     if args.interactive:
-        from builder.agents.agent_loop import run_interactive_agent
+        if args.legacy_react:
+            from builder.agents.agent_loop import run_interactive_agent
 
-        run_interactive_agent(
-            engine,
-            provider=args.provider,
-            model=args.model,
-            base_url=args.api_base,
-        )
+            run_interactive_agent(
+                engine,
+                provider=args.provider,
+                model=args.model,
+                base_url=args.api_base,
+            )
+            return 0
+
+        # Default: automated pipeline, then the guidance tail for the real user
+        # (run_interactive_build gates guidance on the interactive interface and
+        # surfaces a concise summary via the output channel).
+        from builder.agents.build import run_interactive_build
+
+        run_interactive_build(engine, output=print)
         return 0
 
     # Batch / info mode — print summary and exit

@@ -112,3 +112,96 @@ class TestMain:
         result = main(["--dashboard", "--resume", "test_session"])
         assert result == 0
         assert called == ["test_session"]
+
+
+class TestInteractiveDispatch:
+    """The interactive build path: pipeline+guidance is the DEFAULT; ReAct is opt-in.
+
+    The A/B gate (AGENTS.md §14) decided the cutover — the deterministic
+    pipeline + HITL guidance is now the default interactive architecture and the
+    legacy ReAct loop is retained behind ``--legacy-react``. These tests mock the
+    run functions (no live LLM, no network) and assert only the dispatch routing.
+    """
+
+    def _stub_config(self, monkeypatch):
+        """Make --interactive proceed without a real LLM config check."""
+        import builder.config as cfg
+
+        monkeypatch.setattr(cfg, "is_configured", lambda: True)
+        monkeypatch.setattr(cfg, "load_config", lambda: {})
+        monkeypatch.setattr(cfg, "merge_with_env", lambda c: None)
+
+    def test_legacy_react_flag_is_parsed(self):
+        args = parse_args(["--interactive", "--legacy-react"])
+        assert args.legacy_react is True
+
+    def test_default_interactive_routes_to_pipeline_build(self, monkeypatch):
+        """--interactive (no opt-in) runs the deterministic pipeline + guidance."""
+        self._stub_config(monkeypatch)
+        calls: list[str] = []
+
+        import builder.agents.build as build_mod
+
+        monkeypatch.setattr(
+            build_mod,
+            "run_interactive_build",
+            lambda engine, **kw: calls.append("build") or {"pipeline": {}, "guidance": None},
+        )
+
+        import builder.agents.agent_loop as agent_loop
+
+        monkeypatch.setattr(
+            agent_loop,
+            "run_interactive_agent",
+            lambda *a, **kw: calls.append("react"),
+        )
+
+        result = main(["--interactive"])
+        assert result == 0
+        assert calls == ["build"]
+
+    def test_legacy_react_flag_routes_to_react(self, monkeypatch):
+        """--interactive --legacy-react runs the legacy ReAct loop, not the pipeline."""
+        self._stub_config(monkeypatch)
+        calls: list[str] = []
+
+        import builder.agents.build as build_mod
+
+        monkeypatch.setattr(
+            build_mod,
+            "run_interactive_build",
+            lambda engine, **kw: calls.append("build") or {"pipeline": {}, "guidance": None},
+        )
+
+        import builder.agents.agent_loop as agent_loop
+
+        monkeypatch.setattr(
+            agent_loop,
+            "run_interactive_agent",
+            lambda *a, **kw: calls.append("react"),
+        )
+
+        result = main(["--interactive", "--legacy-react"])
+        assert result == 0
+        assert calls == ["react"]
+
+    def test_default_interactive_engine_is_interactive(self, monkeypatch):
+        """The engine handed to the default pipeline build reports interactive HITL."""
+        from builder.tools.hitl import is_interactive
+
+        self._stub_config(monkeypatch)
+        seen: list[bool] = []
+
+        import builder.agents.build as build_mod
+
+        def _capture(engine, **kw):
+            seen.append(is_interactive(engine.human_interface))
+            return {"pipeline": {}, "guidance": None}
+
+        monkeypatch.setattr(build_mod, "run_interactive_build", _capture)
+
+        result = main(["--interactive"])
+        assert result == 0
+        # The default interactive build must run behind a REAL interactive
+        # interface, else run_interactive_build would skip guidance.
+        assert seen == [True]

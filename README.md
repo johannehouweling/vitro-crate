@@ -102,20 +102,28 @@ export VITRO_ANTHROPIC_DRAFTER_MODEL="claude-haiku-4"
 
 ## Usage
 
-### Interactive agent mode (recommended)
+### Interactive build mode (recommended)
 
-Start a conversational session where the LLM agent walks you through crate creation:
+`--interactive` runs the **deterministic pipeline + human-in-the-loop guidance**
+build: code drives the known step ordering (scaffold the ISA backbone, draft and
+materialize entities, validate, auto-fix REQUIRED issues) and then walks you
+through any remaining gaps it cannot close on its own. This is the default since
+the in-repo A/B gate (it reached full ISA-Tox conformance on the shared corpus
+where the legacy ReAct loop stalled).
 
 ```bash
 # With existing research data folder:
 uv run python -m main --interactive -i /path/to/experiment/
 
-# Start fresh (no input — build everything from conversation):
+# Start fresh (no input — build the backbone, then guided enrichment):
 uv run python -m main --interactive
 
 # Specify provider / model / endpoint:
 uv run python -m main --interactive --provider openai --model gpt-4o-mini
 uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
+
+# Legacy conversational ReAct agent (retained; being phased out):
+uv run python -m main --interactive --legacy-react
 ```
 
 ### Configuration file (pre-populated)
@@ -203,7 +211,10 @@ Options:
   -i, --input PATH       Path to input directory with research data
   -o, --output PATH      Output path for the ARC directory (RO-Crate)
   -r, --resume SESSION   Resume a previous session by ID
-  -I, --interactive      Run in interactive agent mode (requires LangChain + API key)
+  -I, --interactive      Run in interactive build mode: deterministic pipeline +
+                         HITL guidance tail (requires LangChain + API key)
+      --legacy-react     With --interactive, use the legacy ReAct agent loop
+                         instead of the default pipeline+guidance build
   -p, --provider STR     LLM provider: 'openai' or 'anthropic' (auto-detected from env)
   -m, --model STR        Model name override (e.g. gpt-4o-mini, llama3.2, claude-sonnet-4)
   -b, --api-base URL     Custom API base URL for OpenAI-compatible providers

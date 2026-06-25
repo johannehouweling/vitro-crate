@@ -54,6 +54,16 @@ class HumanInterface(Protocol):
 
     Implementations adapt the agent's HITL requests to a concrete frontend
     (CLI prompt, Streamlit widget, FastAPI round-trip, test double, …).
+
+    An **optional** ``is_interactive: bool`` attribute is the single signal the
+    interactive build path uses to decide whether to run the HITL guidance tail
+    after the automated pipeline (AGENTS.md §14.6.1): a frontend backed by a REAL
+    user sets it ``True``; the headless :class:`SimulatedHumanInterface` (and the
+    A/B eval, batch runs, and tests that use it) leaves it ``False`` so guidance is
+    never invoked non-interactively. It is **deliberately NOT a required Protocol
+    member** — making it required would force every existing adapter / test double
+    to declare it. Read it via the fail-closed :func:`is_interactive` helper, which
+    treats an interface that omits it (or no interface at all) as non-interactive.
     """
 
     def present(
@@ -82,7 +92,13 @@ class SimulatedHumanInterface:
     without blocking on a real user — EXCEPT for scan-root escalations, which
     it denies: the simulator can never be the approver for filesystem access
     (fail-closed, #197).
+
+    ``is_interactive`` is ``False`` — this is the headless default, so the
+    interactive build path (AGENTS.md §14.6) never runs the HITL guidance tail
+    behind it (the A/B eval and batch runs stay automated-only).
     """
+
+    is_interactive: bool = False
 
     def present(
         self,
@@ -111,6 +127,73 @@ class SimulatedHumanInterface:
         """Log the request and return a skip response."""
         logger.info("HITL input request: %s (type=%s)", prompt, field_type)
         return {"value": None, "skipped": True}
+
+
+class ConsoleHumanInterface:
+    """A REAL interactive HITL interface that prompts on the terminal (stdin).
+
+    This is the CLI frontend the **default interactive build path** runs behind
+    (`main.py --interactive` → `run_interactive_build`, AGENTS.md §14.6.1). Unlike
+    :class:`SimulatedHumanInterface` it is ``is_interactive = True``, so the
+    guidance tail actually runs and routes its ask-user prompts / draft
+    confirmations to the user via ``input()``.
+
+    A scan-root escalation still routes through the user — they are the only
+    legitimate approver for widening filesystem access (#197); a non-affirmative
+    answer denies it (fail-closed). An empty answer to an input request is a skip.
+    Reading from a closed / non-tty stdin (``EOFError``) is treated as decline /
+    skip so the loop never hangs or crashes on a piped invocation.
+    """
+
+    is_interactive: bool = True
+
+    def present(
+        self,
+        context: str,
+        options: list[str] | None = None,
+        purpose: str | None = None,
+    ) -> HumanResponse:
+        """Show *context* + *options* and read an approve/reject decision."""
+        print(context)
+        if options:
+            print(f"Options: {', '.join(options)}")
+        suffix = " [y/N]: " if purpose == SCAN_ROOT_PURPOSE else " [Y/n]: "
+        try:
+            answer = input(f"Approve?{suffix}").strip().lower()
+        except EOFError:
+            answer = ""
+        if purpose == SCAN_ROOT_PURPOSE:
+            # Fail-closed: a new scan root requires an explicit affirmative.
+            approved = answer in ("y", "yes")
+        else:
+            approved = answer in ("", "y", "yes")
+        action = "approved" if approved else "rejected"
+        return {"action": action, "comments": None, "edits": None}
+
+    def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
+        """Prompt the user for a value; an empty answer (or EOF) is a skip."""
+        print(prompt)
+        try:
+            value = input(f"({field_type}) > ").strip()
+        except EOFError:
+            value = ""
+        if not value:
+            return {"value": None, "skipped": True}
+        return {"value": value, "skipped": False}
+
+
+def is_interactive(human: HumanInterface | None) -> bool:
+    """Whether *human* is a REAL interactive frontend (vs headless/simulated).
+
+    The single gate the interactive build path uses to decide whether to run the
+    HITL guidance tail after the automated pipeline (AGENTS.md §14.6). Reads the
+    optional :attr:`HumanInterface.is_interactive` signal **fail-closed**: a
+    ``None`` interface (a headless engine), an interface that does not declare the
+    attribute, or one that declares it falsy is treated as **non-interactive**.
+    Only an interface that explicitly sets ``is_interactive`` truthy — a frontend
+    backed by a real user — returns ``True``.
+    """
+    return bool(getattr(human, "is_interactive", False))
 
 
 # Shared default simulator backing the module-level convenience functions.
@@ -144,10 +227,12 @@ def request_input(
 
 __all__ = [
     "SCAN_ROOT_PURPOSE",
+    "ConsoleHumanInterface",
     "HumanInterface",
     "HumanResponse",
     "InputResponse",
     "SimulatedHumanInterface",
+    "is_interactive",
     "present_to_human",
     "request_input",
 ]
