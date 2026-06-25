@@ -67,6 +67,19 @@ def _is_forbidden_root(path: Path) -> bool:
     A path that merely *descends* from one of these (e.g. a project folder
     under the home directory) is allowed — only the bare roots are blocked.
     """
+    # Match the path BEFORE resolving symlinks too (#167): on macOS several
+    # forbidden roots are symlinks (``/etc`` -> ``/private/etc``, ``/var`` ->
+    # ``/private/var``), so resolving first would alias ``/etc`` to a path NOT in
+    # the static set and let it through. Checking the literal absolute form as
+    # well closes that hole without weakening any existing check.
+    try:
+        absolute = path if path.is_absolute() else Path.cwd() / path
+        absolute = Path(os.path.normpath(str(absolute)))
+    except OSError:
+        return True
+    if str(absolute) in _FORBIDDEN_STATIC_ROOTS:
+        return True
+
     try:
         resolved = path.resolve()
     except OSError:
@@ -90,6 +103,62 @@ def _is_within(dest: Path, target: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _contain(candidate: str | Path, approved_roots: set[str] | None) -> Path | None:
+    """Resolve *candidate* and confirm it is sandboxed under an approved root.
+
+    This is the single containment primitive shared by the file-reading tool
+    dispatch (``engine.run_tool``) and the export source/dest resolvers
+    (``_crate_mapping``). It **fails closed** (#167, completing #197):
+
+    1. ``None``/empty ``approved_roots`` ⇒ nothing is approved ⇒ return ``None``.
+    2. The candidate is resolved with ``Path.resolve()`` (which follows
+       symlinks), so a symlink whose *realpath* escapes the approved tree is
+       refused — the resolved target, not the link, is what gets matched.
+    3. The resolved target must be inside (equal to or a descendant of) the
+       *resolved* form of at least one approved root. A bare ``..`` that climbs
+       out, or an absolute path outside every root, fails this check.
+    4. The hard denylist (:func:`_is_forbidden_root`) refuses the filesystem
+       root, the user's home directory, and OS/system trees even when one of
+       those somehow appears in ``approved_roots``.
+
+    Args:
+        candidate: The model-supplied path to gate (a file or directory).
+        approved_roots: Set of approved absolute directory paths. ``None`` or an
+            empty set means *nothing is approved*.
+
+    Returns:
+        The resolved :class:`~pathlib.Path` when contained, else ``None``.
+    """
+    if not approved_roots:
+        return None
+    try:
+        resolved = Path(candidate).resolve()
+    except OSError:
+        # Cannot even resolve it (broken symlink, permission) ⇒ fail closed.
+        return None
+
+    # The resolved target must never be a forbidden root itself.
+    if _is_forbidden_root(resolved):
+        return None
+
+    for root in approved_roots:
+        # A forbidden root can never authorise containment, even if listed.
+        # Pass the literal root so the denylist catches symlinked OS trees
+        # (e.g. ``/etc``) before they alias to a non-forbidden resolved path.
+        if _is_forbidden_root(Path(root)):
+            continue
+        try:
+            root_resolved = Path(root).resolve()
+        except OSError:
+            continue
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError:
+            continue
+        return resolved
+    return None
 
 
 # Scientific-format MIME registry (Issue #148).

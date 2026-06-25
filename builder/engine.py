@@ -115,6 +115,29 @@ def _validation_input_hash(state: CrateState) -> str:
     ).hexdigest()
 
 
+# File-reading tools that take a model-supplied path and must be sandboxed to
+# ``approved_scan_roots`` before they touch disk (#167). ``scan_files`` already
+# receives its own approved-roots injection and is handled separately; the rest
+# are gated by :meth:`AgentEngine._gate_file_read`. The value is the kwarg that
+# names the path(s): a single string for the per-file readers, ``"paths"`` (a
+# list) for ``read_multiple_files``.
+_FILE_READ_TOOLS: dict[str, str] = {
+    "read_file": "path",
+    "read_excel": "path",
+    "read_docx": "path",
+    "read_file_sample": "path",
+    "extract_pdf_text": "path",
+    "preview_archive": "path",
+    "unzip_file": "path",
+    "read_multiple_files": "paths",
+    "scan_files": "path",  # gated via its own injection, listed for completeness
+}
+
+# Sentinel meaning "the gate allows this call to proceed unchanged". A distinct
+# object (never a tool's own return value) so ``is`` comparison is unambiguous.
+_GATE_OK = object()
+
+
 class AgentEngine:
     """Orchestrator for the LLM agent toolbox loop.
 
@@ -232,6 +255,61 @@ class AgentEngine:
     # Tool execution
     # ------------------------------------------------------------------
 
+    def _gate_file_read(self, tool_name: str, kwargs: dict[str, Any]) -> Any:
+        """Sandbox a file-reading tool to ``approved_scan_roots`` (#167).
+
+        Returns :data:`_GATE_OK` when the call may proceed unchanged. Otherwise
+        returns the tool's *refusal* value — ``None`` for the single-path readers
+        and ``preview_archive``, an ``error`` dict for ``unzip_file`` — so the
+        agent sees a benign "unreadable" result rather than escaping the sandbox.
+
+        For ``read_multiple_files`` the out-of-root paths are filtered out
+        in-place (added to ``skipped``) so an in-tree batch still works; only
+        when *every* path is refused do we short-circuit with an empty result.
+
+        The check is fail-closed: with no approved roots, every read is refused.
+        Containment resolves the realpath, so a symlink escaping the tree fails.
+        """
+        from builder.tools.scanner import _contain
+
+        roots = self.state.approved_scan_roots
+
+        if tool_name == "read_multiple_files":
+            paths = kwargs.get("paths") or []
+            allowed = [p for p in paths if _contain(p, roots) is not None]
+            refused = [p for p in paths if p not in allowed]
+            # Stash the refused paths so the dispatch can fold them back into the
+            # tool's own ``skipped`` list (the tool only sees the filtered batch).
+            self._read_multiple_refused = refused
+            if not allowed:
+                return {
+                    "files": {},
+                    "count": 0,
+                    "skipped": list(paths),
+                    "message": (
+                        "Refused: no path was inside an approved scan root (#167)."
+                    ),
+                }
+            if refused:
+                kwargs["paths"] = allowed
+            return _GATE_OK
+
+        path = kwargs.get(_FILE_READ_TOOLS[tool_name])
+        if path is not None and _contain(path, roots) is not None:
+            return _GATE_OK
+
+        logger.warning(
+            "Refusing %s on %s — not inside an approved scan root (#167)",
+            tool_name,
+            path,
+        )
+        if tool_name == "unzip_file":
+            return {
+                "error": f"Refused: {path} is not inside an approved scan root.",
+                "message": "Refused to extract a path outside the approved roots.",
+            }
+        return None
+
     def run_tool(self, tool_name: str, **kwargs) -> Any:
         """Execute a tool by name with kwargs.
 
@@ -271,6 +349,27 @@ class AgentEngine:
             }
         except ImportError:
             pass
+
+        # -- Security sandbox: contain every file-reading tool (#167) -----------
+        # The read/extract/archive tools take a model-supplied path and would
+        # otherwise read ANY local file (e.g. ``read_file('/etc/passwd')``), so a
+        # prompt-injected metadata file could exfiltrate secrets. Gate them here
+        # against ``approved_scan_roots`` with the SAME fail-closed containment
+        # the scanner uses (#198/#197): a path outside an approved root — or any
+        # read at all when no root is approved — is refused before the file is
+        # touched. Symlink escape is refused because containment resolves the
+        # realpath. ``scan_files`` keeps its own dedicated injection above.
+        self._read_multiple_refused: list[str] = []
+        if tool_name in _FILE_READ_TOOLS and tool_name != "scan_files":
+            refused = self._gate_file_read(tool_name, kwargs)
+            if refused is not _GATE_OK:
+                self.state.iteration_count += 1
+                self.state.log_reasoning(
+                    "refuse_unsandboxed_read",
+                    tool_name,
+                    "Refused: path outside approved scan roots (#167)",
+                )
+                return refused
 
         # build_and_validate debounce (#155): when the validation inputs
         # (entities + crate metadata) and the requested scope are unchanged since
@@ -315,6 +414,16 @@ class AgentEngine:
             if tool_name == "scan_files":
                 tool_kwargs["approved_roots"] = self.state.approved_scan_roots.copy()
             result = tool_fn(**tool_kwargs)
+            # Fold sandbox-refused paths back into read_multiple_files' own
+            # ``skipped`` list so the agent sees them as unread (#167).
+            if (
+                tool_name == "read_multiple_files"
+                and self._read_multiple_refused
+                and isinstance(result, dict)
+            ):
+                result["skipped"] = list(result.get("skipped", [])) + [
+                    p for p in self._read_multiple_refused if p not in result.get("skipped", [])
+                ]
             # Auto-store scan results in state. Do NOT register the scanned path
             # as an approved root here — that fail-open auto-approve (#197) let
             # the agent scan arbitrary locations by simply naming them.
