@@ -295,8 +295,55 @@ def draft_property_value(state: CrateState, name: str, hints: dict) -> Entity:
     return entity
 
 
+def split_person_name(name: str) -> tuple[str, str]:
+    """Split a full name into ``(givenName, familyName)`` deterministically.
+
+    A purely descriptive parse of a person's name (no identifier involved, so
+    D5-safe). The contract:
+
+    * **Inverted "Last, First" form** — a comma is the strongest split signal:
+      ``"Wagenaars, J." -> ("J.", "Wagenaars")``. The text before the first comma
+      is the family name, the text after is the given name; the comma and
+      surrounding whitespace are stripped (internal dots in initials are kept).
+    * **Plain "First Last" form** — the last whitespace-separated token is the
+      family name and the rest is the given name: ``"Ada Lovelace" ->
+      ("Ada", "Lovelace")``.
+    * **Lone token** — a single bare token is treated as a *family-name
+      candidate*, NOT silently mapped into the given name (the surname must never
+      masquerade as a first name): ``"Wagenaars" -> ("", "Wagenaars")``. The
+      empty given name is a genuine gap surfaced for a later lookup/guidance step
+      rather than a fabricated first name.
+
+    Returns ``("", "")`` for an empty/whitespace-only name.
+    """
+    text = (name or "").strip()
+    if not text:
+        return "", ""
+
+    # Inverted "Last, First" form wins (a comma). Split on the FIRST comma so a
+    # trailing-suffix comma never inverts the wrong way; strip the comma and
+    # surrounding whitespace but keep internal dots ("J." stays "J.").
+    if "," in text:
+        family_part, _, given_part = text.partition(",")
+        return given_part.strip(), family_part.strip()
+
+    parts = text.split()
+    if len(parts) == 1:
+        # A lone bare token is a family-name candidate, not a first name.
+        return "", parts[0]
+    return " ".join(parts[:-1]), parts[-1]
+
+
 def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     """Create a Person entity.
+
+    When the caller supplies neither ``givenName`` nor ``familyName`` in *hints*,
+    a deterministic :func:`split_person_name` split of *name* is applied so EVERY
+    ``draft_person`` path (materialize / ReAct / guidance / direct) produces an
+    ISA-shaped Person — the ISA profile REQUIRES a non-empty ``schema:givenName``.
+    Splitting a name is descriptive parsing, not identifier fabrication, so it is
+    D5-safe; ORCID stays empty for a later lookup. An explicit ``givenName`` /
+    ``familyName`` the caller passes is preserved (never overwritten by the split).
 
     Args:
         state: The crate state to add the entity to.
@@ -308,6 +355,14 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     """
     merged_hints = dict(hints)
     merged_hints["name"] = name
+    # Fall back to a deterministic split only when the caller gave no explicit
+    # name parts at all (a partial hint is respected as-is, not second-guessed).
+    if not merged_hints.get("givenName") and not merged_hints.get("familyName"):
+        given, family = split_person_name(name)
+        if given:
+            merged_hints["givenName"] = given
+        if family:
+            merged_hints["familyName"] = family
     entity_id = _make_entity_id("person", name, hints)
     entity = Entity(
         entity_id=entity_id,

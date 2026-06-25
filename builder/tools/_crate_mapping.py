@@ -236,6 +236,8 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
     "Person": EntityDraftSchema(
         scalar_fields={
             "name": "Person's name (passed as the `name` argument).",
+            "givenName": "Given (first) name. ISA REQUIRES a non-empty given name.",
+            "familyName": "Family (last) name.",
             "orcid": "ORCID iD (resolves the entity @id when present).",
             "email": "Email address.",
             "affiliation": "Affiliation (organization name or ROR id).",

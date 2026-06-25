@@ -1106,3 +1106,116 @@ class TestGatherContext:
         # The binary body itself contributed nothing readable.
         context = _gather_context(engine)
         assert "binary-not-text" not in context
+
+
+# ---------------------------------------------------------------------------
+# Issue #232 (b) — deterministic person-name splitting must not mis-place a
+# surname into givenName, and EVERY draft_person path must be ISA-shaped.
+# Appended at the END to avoid colliding with the sibling (#231) edits.
+# ---------------------------------------------------------------------------
+
+
+class TestSplitPersonName:
+    """`_split_person_name` contract.
+
+    - "Last, First" / comma form is inverted to (given, family).
+    - Trailing punctuation around the comma is stripped.
+    - A lone bare surname is treated as a family-name candidate, NOT silently
+      mis-placed into givenName (the "Wagenaars" bug).
+    - A plain "First Last" still splits on the last token.
+    """
+
+    def test_comma_form_is_inverted(self) -> None:
+        from builder.agents.pipeline import _split_person_name
+
+        assert _split_person_name("Wagenaars, J.") == ("J.", "Wagenaars")
+
+    def test_comma_form_full_given(self) -> None:
+        from builder.agents.pipeline import _split_person_name
+
+        assert _split_person_name("Lovelace, Ada") == ("Ada", "Lovelace")
+
+    def test_comma_form_multi_token_given(self) -> None:
+        from builder.agents.pipeline import _split_person_name
+
+        assert _split_person_name("van Helsing, Abraham A.") == (
+            "Abraham A.",
+            "van Helsing",
+        )
+
+    def test_lone_surname_is_family_candidate_not_given(self) -> None:
+        from builder.agents.pipeline import _split_person_name
+
+        given, family = _split_person_name("Wagenaars")
+        # The bug: the surname used to land in givenName. It must not.
+        assert given == ""
+        assert family == "Wagenaars"
+
+    def test_plain_first_last_unchanged(self) -> None:
+        from builder.agents.pipeline import _split_person_name
+
+        assert _split_person_name("Ada Lovelace") == ("Ada", "Lovelace")
+
+    def test_three_token_name(self) -> None:
+        from builder.agents.pipeline import _split_person_name
+
+        assert _split_person_name("Ada King Lovelace") == ("Ada King", "Lovelace")
+
+    def test_empty_name(self) -> None:
+        from builder.agents.pipeline import _split_person_name
+
+        assert _split_person_name("   ") == ("", "")
+
+
+class TestDraftPersonSplit:
+    """Every `draft_person` path must be able to produce a split, ISA-shaped
+    Person — not only the materialize path.
+
+    `draft_person` falls back to `_split_person_name` when the caller supplies
+    neither `givenName` nor `familyName`, so a bare `draft_person(name=...)` call
+    (ReAct / guidance / direct) is ISA-conformant. An explicit split the caller
+    passes wins. ORCID stays empty (D5)."""
+
+    def test_falls_back_to_split_when_no_hint(self) -> None:
+        from builder.state import CrateState
+        from builder.tools.drafters import draft_person
+
+        state = CrateState()
+        person = draft_person(state, "Ada Lovelace", {})
+        assert person.fields.get("givenName") == "Ada"
+        assert person.fields.get("familyName") == "Lovelace"
+        assert person.fields.get("name") == "Ada Lovelace"
+        assert not person.fields.get("orcid")
+
+    def test_comma_form_via_draft_person(self) -> None:
+        from builder.state import CrateState
+        from builder.tools.drafters import draft_person
+
+        state = CrateState()
+        person = draft_person(state, "Wagenaars, J.", {})
+        assert person.fields.get("givenName") == "J."
+        assert person.fields.get("familyName") == "Wagenaars"
+
+    def test_explicit_split_hint_wins(self) -> None:
+        from builder.state import CrateState
+        from builder.tools.drafters import draft_person
+
+        state = CrateState()
+        person = draft_person(
+            state, "Ada Lovelace", {"givenName": "A.", "familyName": "Lovelace"}
+        )
+        # The caller's explicit split is preserved, not recomputed from name.
+        assert person.fields.get("givenName") == "A."
+        assert person.fields.get("familyName") == "Lovelace"
+
+    def test_partial_hint_does_not_trigger_split(self) -> None:
+        """If the caller supplies ONLY givenName, the split fallback does not run
+        (we don't second-guess a partial explicit hint)."""
+        from builder.state import CrateState
+        from builder.tools.drafters import draft_person
+
+        state = CrateState()
+        person = draft_person(state, "Ada Lovelace", {"givenName": "Ada"})
+        assert person.fields.get("givenName") == "Ada"
+        # familyName is left to a later step; the fallback did not overwrite given.
+        assert not person.fields.get("familyName")

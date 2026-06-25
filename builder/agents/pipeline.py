@@ -47,6 +47,13 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from builder.config import get_provider
 
+# Deterministic given/family split lives in the pure drafter module so the
+# materialize path here and every direct ``draft_person`` call share ONE contract
+# (comma-form inverted; a lone token kept as a family-name candidate, never
+# mis-placed into givenName). Re-exported under the legacy private name so the
+# materialize-path callsite and tests can keep using ``_split_person_name``.
+from builder.tools.drafters import split_person_name as _split_person_name
+
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
 
@@ -481,23 +488,6 @@ def _first_entity_id(engine: AgentEngine, entity_type: str) -> str | None:
         (e.entity_id for e in engine.state.list_entities() if e.type == entity_type),
         None,
     )
-
-
-def _split_person_name(name: str) -> tuple[str, str]:
-    """Split a full name into ``(givenName, familyName)`` deterministically.
-
-    A purely descriptive parse of the plan's name (no identifier involved, so
-    D5-safe): the last whitespace-separated token is the family name and the rest
-    is the given name. ISA REQUIRES a non-empty given name on a Person, so a
-    single-token name maps wholesale to the given name (family left empty). Used
-    to make a plan-materialized Person ISA-conformant without an external lookup.
-    """
-    parts = name.split()
-    if not parts:
-        return "", ""
-    if len(parts) == 1:
-        return parts[0], ""
-    return " ".join(parts[:-1]), parts[-1]
 
 
 # The conservative default process a protocol governs when the plan gives no (or
