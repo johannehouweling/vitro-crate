@@ -1,0 +1,37 @@
+METHODS / PROTOCOL — TPO inhibition dose-response screen
+========================================================
+
+This describes the full experimental workflow as four steps. A complete in-vitro
+tox study runs the chain: cell culture -> exposure -> endpoint readout -> data
+analysis. Each step below maps onto one process in that chain.
+
+1. CELL CULTURE
+   FRTL-5 TPO-overexpressing rat thyroid follicular cells were maintained in
+   Coon's modified Ham's F-12 medium supplemented with 5% calf serum and a six-
+   hormone mix. Cells were passaged at ~80% confluence and seeded into black
+   96-well microplates the day before exposure.
+   - Culture medium: Coon's modified Ham's F-12 + 5% calf serum
+   - Seeding density: 2.0e4 cells/well
+
+2. EXPOSURE
+   Seeded cells were exposed to Methimazole across a four-point dose series
+   (0, 0.3, 3, 30 uM) for 1 hour at 37 C. Each concentration was a separate well.
+   - Compound: Methimazole
+   - Concentrations: 0, 0.3, 3, 30 uM
+   - Exposure duration: 1 hour
+   - Microplate: black 96-well
+
+3. ENDPOINT READOUT
+   TPO enzymatic activity was measured with an Amplex Red fluorometric assay.
+   Fluorescence (relative fluorescence units, RFU) was read on a plate reader.
+   - Detection instrument: fluorescence microplate reader
+   - Endpoint: TPO activity (RFU)
+   - Assay kit: Amplex Red
+
+4. DATA ANALYSIS
+   Per-well RFU values were normalized to the vehicle control and fitted with a
+   four-parameter log-logistic dose-response model to estimate the IC50.
+   - Computational tool: four-parameter log-logistic fit
+   - Data calculation: vehicle-normalized dose-response, IC50 estimation
+
+Protocol name: Amplex Red fluorometric TPO activity readout

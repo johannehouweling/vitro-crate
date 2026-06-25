@@ -30,8 +30,10 @@ class TestEvalCase:
 
 
 class TestDefaultCorpus:
-    def test_is_non_empty_and_sized_three_to_four(self) -> None:
-        assert 3 <= len(DEFAULT_CORPUS) <= 4
+    def test_is_non_empty_and_sized_three_to_five(self) -> None:
+        # Three input tiers, plus the two richer structured/arbitrary cases that
+        # carry a min_entities content-quality floor (Issue #179).
+        assert 3 <= len(DEFAULT_CORPUS) <= 5
 
     def test_case_ids_are_unique(self) -> None:
         ids = [c.case_id for c in DEFAULT_CORPUS]

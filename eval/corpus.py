@@ -43,6 +43,14 @@ _STRUCTURED_INPUT = _REPO_ROOT / "tests" / "fixtures" / "svhps21_input"
 # protocol + a couple of data files + a README, so a build must draft several
 # distinct domain entities rather than just a backbone.
 _DRAFTING_INPUT = _REPO_ROOT / "tests" / "fixtures" / "svhps22_input"
+# A realistic *arbitrary* research folder (Issue #179, decision-gate task 6): the
+# raw documents a researcher actually keeps — a study description, a methods /
+# protocol write-up, a compound list, and nested measurement + analysis CSVs, with
+# NO metadata file. It exercises the full scan -> extract -> materialize -> assess
+# path for both archs, and a *good* build must draft a COMPLETE in-vitro tox study
+# (the four-step process chain), not just a backbone. Lives under eval/ so the
+# A/B owns its own fixture independently of the tests/ end-to-end fixtures.
+_ARBITRARY_TOX_INPUT = _REPO_ROOT / "eval" / "fixtures" / "arbitrary_tox_folder"
 
 
 @dataclass(frozen=True)
@@ -270,6 +278,156 @@ def _drafting_state() -> CrateState:
     return state
 
 
+def _arbitrary_tox_folder_state() -> CrateState:
+    """A *complete* in-vitro tox study — the offline stand-in for a good build.
+
+    This is what a strong agent would materialize from the
+    ``arbitrary_tox_folder`` fixture: not just a backbone + one Exposure, but the
+    full ISA-Tox study described in ``profiles/docs/isa_tox.md`` — the ISA
+    backbone, the contributors, a cell line, a compound, a protocol, the two
+    attached data files, and the **four-step derivation chain** (CellCulture →
+    Exposure → EndpointReadout → DataAnalysis). It is REQUIRED-clean across
+    base/ISA/ISA-Tox *and* satisfies that case's complete-study ``min_entities``
+    quota, so the content-quality signal is exercisable offline with a mock agent.
+
+    The process I/O uses the builder's interchangeable I/O aliases (``samples`` /
+    ``object`` / ``input`` for consumed inputs, ``result`` / ``output`` for
+    produced outputs; see :mod:`builder.tools._crate_mapping`) so the readout's
+    raw File and the analysis's processed File wire onto ``schema:result`` /
+    ``schema:object`` — the MUSTs those two steps would otherwise miss.
+    """
+    from builder.state import CrateState, Entity, EntityProvenance, EntityType
+
+    def _ent(entity_id: str, type_: EntityType, **fields: object) -> Entity:
+        return Entity(
+            entity_id=entity_id,
+            type=type_,
+            fields=fields,
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+
+    title = "TPO inhibition dose-response screen"
+    description = (
+        "A cell-based in vitro assay screening Methimazole for its capacity to "
+        "inhibit thyroid peroxidase (TPO) activity in a TPO-overexpressing FRTL-5 "
+        "rat thyroid follicular cell model, reported as a dose-response IC50."
+    )
+
+    state = CrateState()
+    state.metadata.title = title
+    state.metadata.description = description
+    state.metadata.accession = "ARB-TOX-01"
+
+    # ISA backbone.
+    state.add_entity(
+        _ent("inv", "Investigation", name=title, description=description, identifier="ARB-TOX-01")
+    )
+    state.add_entity(
+        _ent(
+            "study",
+            "Study",
+            name=title,
+            description=description,
+            identifier="ARB-TOX-01",
+            investigation_id="inv",
+            datePublished="2025-11-10",
+        )
+    )
+    state.add_entity(
+        _ent(
+            "assay",
+            "Assay",
+            name="TPO inhibition dose-response assay",
+            identifier="ARB-TOX-01-assay",
+            study_id="study",
+        )
+    )
+
+    # Contributors.
+    state.add_entity(
+        _ent(
+            "author",
+            "Person",
+            name="Marije Vonk",
+            givenName="Marije",
+            familyName="Vonk",
+            orcid="0000-0002-1825-0097",
+        )
+    )
+    state.add_entity(_ent("org", "Organization", name="Universiteit Utrecht"))
+
+    # Domain entities: cell line, compound, protocol.
+    state.add_entity(_ent("cell", "CellLineSample", name="FRTL-5 TPO-overexpressing cells"))
+    state.add_entity(_ent("compound", "MolecularEntity", name="Methimazole"))
+    state.add_entity(
+        _ent("protocol", "LabProtocol", name="Amplex Red fluorometric TPO activity readout")
+    )
+
+    # The raw + processed data files from the fixture folder.
+    state.add_entity(
+        _ent(
+            "raw",
+            "File",
+            name="dose_response_raw.csv",
+            path="measurements/dose_response_raw.csv",
+        )
+    )
+    state.add_entity(
+        _ent("proc", "File", name="ic50_results.csv", path="analysis/ic50_results.csv")
+    )
+
+    # The full four-step derivation chain: CellCulture → Exposure →
+    # EndpointReadout → DataAnalysis.
+    state.add_entity(
+        _ent(
+            "culture",
+            "LabProcess",
+            name="FRTL-5 cell culture",
+            process_type="CellCulture",
+            assay_id="assay",
+            samples="cell",
+            protocol_id="protocol",
+        )
+    )
+    state.add_entity(
+        _ent(
+            "exposure",
+            "LabProcess",
+            name="Methimazole TPO inhibition exposure",
+            process_type="Exposure",
+            assay_id="assay",
+            samples="cell",
+            chemicals="compound",
+            protocol_id="protocol",
+        )
+    )
+    state.add_entity(
+        _ent(
+            "readout",
+            "LabProcess",
+            name="Amplex Red TPO activity readout",
+            process_type="EndpointReadout",
+            assay_id="assay",
+            samples="cell",
+            output="raw",  # the raw measurement File (schema:result MUST)
+            protocol_id="protocol",
+        )
+    )
+    state.add_entity(
+        _ent(
+            "analysis",
+            "LabProcess",
+            name="Dose-response IC50 analysis",
+            process_type="DataAnalysis",
+            assay_id="assay",
+            input="raw",  # raw data consumed (schema:object MUST)
+            output="proc",  # processed-data File produced (schema:result MUST)
+            protocol_id="protocol",
+        )
+    )
+    return state
+
+
 DEFAULT_CORPUS: tuple[EvalCase, ...] = (
     EvalCase(
         case_id="minimal-backbone",
@@ -345,5 +503,55 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
             "this description, validating until base, ISA, and ISA-Tox all pass."
         ),
         build_state=_unstructured_state,
+    ),
+    EvalCase(
+        case_id="arbitrary-tox-folder",
+        description=(
+            "Realistic arbitrary research folder (Issue #179, decision-gate task "
+            "6): scan an in-repo folder of raw documents a researcher actually "
+            "keeps — a study description, a methods/protocol write-up, a compound "
+            "list, and nested measurement + analysis CSVs, with NO metadata file — "
+            "and build the COMPLETE in-vitro tox study. This is the case that "
+            "exercises the full scan -> extract -> materialize -> assess path for "
+            "BOTH archs (not a pre-seeded backbone). Success is the strict "
+            "{base, isa, tox} conformance gate; the additive min_entities quota is "
+            "set to a complete-study floor (the four-step process chain, a cell "
+            "line, a compound, a protocol, the data files) so the A/B compares "
+            "whether the build drafted a WHOLE study, not just that it acted."
+        ),
+        # An arbitrary folder with no metadata file is the unstructured tier — the
+        # whole crate must be elicited from the raw documents the agent scans.
+        kind="unstructured",
+        prompt=(
+            "Scan the provided input folder. Read the study description, the "
+            "methods/protocol write-up, the compound list, and both data files, "
+            "then build the full ISA-Tox RO-Crate for this in-vitro toxicology "
+            "study: the Investigation/Study/Assay backbone; the contributors; the "
+            "test compound and the cell line; the lab protocol; the complete "
+            "four-step process chain (Cell Culture -> Exposure -> Endpoint "
+            "Readout -> Data Analysis) wired to its inputs and outputs; and attach "
+            "the raw measurement and processed-results files. Then build and "
+            "validate until base, ISA, and ISA-Tox all pass."
+        ),
+        input_path=str(_ARBITRARY_TOX_INPUT),
+        build_state=_arbitrary_tox_folder_state,
+        # Complete-study quota (counted from profiles/docs/isa_tox.md): the ISA
+        # backbone is 3 entities (Investigation + Study + Assay); a complete study
+        # adds >= 1 CellLine Sample, >= 1 MolecularEntity (the test chemical), >= 1
+        # LabProtocol, the full four-step LabProcess chain (CellCulture, Exposure,
+        # EndpointReadout, DataAnalysis = 4), and the raw + processed data Files
+        # (>= 2). That is a conservative floor: it demands the WHOLE derivation
+        # chain, so an agent that reaches conformance with only a backbone + one
+        # Exposure (which the strict predicate alone accepts) still misses the bar.
+        min_entities={
+            "Investigation": 1,
+            "Study": 1,
+            "Assay": 1,
+            "CellLineSample": 1,
+            "MolecularEntity": 1,
+            "LabProtocol": 1,
+            "LabProcess": 4,
+            "File": 2,
+        },
     ),
 )
