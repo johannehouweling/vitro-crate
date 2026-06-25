@@ -112,6 +112,13 @@ _PLAN: dict[str, Any] = {
         {"name": "Sodium iodide", "role": "control"},
     ],
     "cell_lines": [{"name": "FRTL-5 TPO-overexpressing cells"}],
+    "protocols": [
+        {
+            "name": "Amplex Red fluorometric TPO activity readout",
+            "description": "Fluorometric TPO activity assay protocol.",
+            "process_hint": "EndpointReadout",
+        }
+    ],
     "process_chain": [
         {"process_type": "CellCulture", "name": "FRTL-5 cell culture"},
         {"process_type": "Exposure", "name": "Methimazole exposure"},
@@ -247,8 +254,16 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
             "error": None,
         }
 
+    # resolve_publication → search_works_by_title. No candidates (offline), so the
+    # title-only publication stays deferred (D5) and the build is deterministic.
+    def fake_search_works_by_title(title: str) -> list[dict[str, Any]]:
+        return []
+
     monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
     monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
+    monkeypatch.setattr(
+        composites_mod, "search_works_by_title", fake_search_works_by_title
+    )
     monkeypatch.setattr(tool_lookups, "lookup_aop", fake_lookup_aop)
 
 
@@ -298,15 +313,12 @@ class TestPipelineE2EConformanceAndFidelity:
         build that drops the four-step derivation chain (or any other chunk of the
         study) falls below the count and trips this guard.
 
-        NOTE: the bar is the *total* count, not the corpus' per-type quota. The
-        per-type ``arbitrary-tox-folder`` floor includes ``LabProtocol: 1``, but the
-        §14 spine's plan schema (:func:`builder.agents.leaves.extract_plan`) carries
-        no protocol section and ``_materialize_plan`` never calls ``draft_protocol``,
-        so ``run_pipeline`` cannot currently mint a LabProtocol from a candidate
-        plan. Asserting the per-type quota here would therefore assert something the
-        deterministic spine genuinely cannot satisfy today; the summed-count bar is
-        the honest, non-drifting fidelity floor. (The spine still produces 19 ≥ 12
-        entities — it over-delivers on the chain, files, and AOP subgraph.)
+        NOTE: the bar asserted here is the *total* count, not the corpus' per-type
+        quota. As of #222/#224 the spine DOES mint a ``LabProtocol`` from the plan's
+        protocol section (asserted directly in
+        :meth:`test_fidelity_expected_entity_types_present`); the summed-count bar is
+        kept here as the honest, non-drifting aggregate fidelity floor. (The spine
+        over-delivers on the chain, files, AOP subgraph, and now the protocol.)
         """
         from builder.agents.pipeline import run_pipeline
 
@@ -364,6 +376,15 @@ class TestPipelineE2EConformanceAndFidelity:
             "EndpointReadout",
             "DataAnalysis",
         }
+
+        # #222: a LabProtocol is minted from the plan and linked to the process it
+        # governs (executesLabProtocol) — the per-type corpus floor demands >= 1.
+        protos = state.list_entities("LabProtocol")
+        assert protos, "the spine must mint a LabProtocol from the plan"
+        linked = [
+            p.fields.get("labprotocol") for p in procs if p.fields.get("labprotocol")
+        ]
+        assert linked, "the LabProtocol must be linked to a LabProcess"
 
     def test_result_trace_reflects_materialized_plan(
         self, monkeypatch: pytest.MonkeyPatch
