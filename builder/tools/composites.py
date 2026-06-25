@@ -157,7 +157,7 @@ def draft_process_chain(
     state: CrateState,
     assay_id: str,
     chain: list[dict[str, Any]] | None = None,
-    validate: bool | None = None,
+    validate_after: bool | None = None,
 ) -> dict[str, Any]:
     """Create and wire a LabProcess derivation chain in ONE idempotent call.
 
@@ -211,15 +211,20 @@ def draft_process_chain(
         state: The crate state to wire the chain into.
         assay_id: entity_id of the parent Assay every process belongs to.
         chain: Ordered list of step dicts (see above). ``None``/empty is a no-op.
-        validate: When true, also run a full ``build_and_validate`` and return it
-            under ``"validation"`` (weak models may pass ``None`` for this
-            optional arg; that is treated as false).
+        validate_after: When true, also run a full ``build_and_validate`` and
+            return it under ``"validation"`` (weak models may pass ``None`` for
+            this optional arg; that is treated as false). Named
+            ``validate_after`` (not ``validate``) to avoid shadowing
+            ``pydantic.BaseModel.validate`` in the generated arg schema; the
+            suffix differs from the sibling ``scaffold_isa_backbone`` whose
+            ``validate_base`` runs only the base profile, whereas this runs the
+            full three-pass ``build_and_validate``.
 
     Returns:
         ``{"assay_id", "process_ids", "steps", "synthesized"}`` — the ordered
         process entity ids, a per-step summary (``{process_id, process_type,
         object, result}``), and the list of placeholder entity ids synthesized.
-        ``"validation"`` is added when ``validate`` is true.
+        ``"validation"`` is added when ``validate_after`` is true.
 
     Raises:
         ValueError: If ``assay_id`` is missing/not an Assay, or a step has an
@@ -315,7 +320,7 @@ def draft_process_chain(
         "synthesized": synthesized,
     }
 
-    if validate:
+    if validate_after:
         from builder.tools.validation import build_and_validate
 
         result["validation"] = build_and_validate(state)

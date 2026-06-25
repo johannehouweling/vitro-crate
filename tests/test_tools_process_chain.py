@@ -14,6 +14,9 @@ The validation-heavy class carries a 120s timeout (the #184 lesson) because each
 
 from __future__ import annotations
 
+import inspect
+import warnings
+
 import pytest
 
 from builder.engine import AgentEngine
@@ -251,7 +254,70 @@ class TestChainPassesValidation:
     def test_optional_validate_flag_returns_report(self):
         state, assay_id = _scaffold()
         result = draft_process_chain(
-            state, assay_id, chain=_FULL_CHAIN, validate=True
+            state, assay_id, chain=_FULL_CHAIN, validate_after=True
         )
         assert "validation" in result
         assert result["validation"]["ok"] is True, result["validation"]
+
+    def test_validate_after_default_skips_validation(self):
+        """Omitting the flag (and passing None) must NOT run validation."""
+        state, assay_id = _scaffold()
+        result = draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        assert "validation" not in result
+
+        state2, assay_id2 = _scaffold()
+        result2 = draft_process_chain(
+            state2, assay_id2, chain=_FULL_CHAIN, validate_after=None
+        )
+        assert "validation" not in result2
+
+
+class TestNoPydanticShadowWarning:
+    """The optional validation flag must not be named ``validate`` — that
+    shadows ``pydantic.BaseModel.validate`` and makes pydantic emit a
+    ``UserWarning`` on every run, for both the ``_build_args_schema`` model
+    and the ``StructuredTool.from_function`` model (#189)."""
+
+    def test_signature_has_no_validate_shadowing_param(self):
+        """The function must not expose a ``validate`` parameter."""
+        params = inspect.signature(draft_process_chain).parameters
+        assert "validate" not in params, (
+            "draft_process_chain still has a 'validate' param that shadows "
+            f"BaseModel.validate; params: {list(params)}"
+        )
+        assert "validate_after" in params
+
+    def test_args_schema_emits_no_shadow_warning(self):
+        """Building the LLM-facing pydantic args model must not warn."""
+        pytest.importorskip("pydantic")
+        from typing import Any, cast
+
+        from builder.agents.agent_loop import _build_args_schema
+        from builder.agents.tools_spec import TOOL_SPECS
+
+        spec = next(s for s in TOOL_SPECS if s["name"] == "draft_process_chain")
+        name = cast(str, spec["name"])
+        params = cast(dict[str, Any], spec["parameters"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            _build_args_schema(name, params)
+
+    def test_structured_tool_emits_no_shadow_warning(self):
+        """Introspecting the function signature for a tool must not warn."""
+        StructuredTool = pytest.importorskip(
+            "langchain_core.tools"
+        ).StructuredTool
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            StructuredTool.from_function(
+                func=draft_process_chain,
+                name="draft_process_chain",
+                description="wire a process chain",
+            )
+        shadow = [
+            w
+            for w in caught
+            if issubclass(w.category, UserWarning) and "shadows" in str(w.message)
+        ]
+        assert not shadow, [str(w.message) for w in shadow]

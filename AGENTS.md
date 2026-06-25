@@ -642,7 +642,7 @@ orphaned.
 
 ### Derivation Chain Tools
 ```
-draft_process_chain(assay_id: str, chain: [{process_type, hints?, object?, result?}], validate=None) → {assay_id, process_ids, steps, synthesized}  # composite: create + wire the whole CellCulture→Exposure→EndpointReadout→DataAnalysis chain in one idempotent call, synthesizing the EndpointReadout/DataAnalysis outputs the build has no fallback for
+draft_process_chain(assay_id: str, chain: [{process_type, hints?, object?, result?}], validate_after=None) → {assay_id, process_ids, steps, synthesized}  # composite: create + wire the whole CellCulture→Exposure→EndpointReadout→DataAnalysis chain in one idempotent call, synthesizing the EndpointReadout/DataAnalysis outputs the build has no fallback for
 link(from_id: str, relation: str, to_id: str) → {from_id, relation, to_id}
 attach_files(to: str, name_contains=None, mime_contains=None, paths=None, role=None) → {attached, file_ids, to}
 check_provenance() → {ok, issues:[{entity_id, property, message, fix, severity, profile}]}
