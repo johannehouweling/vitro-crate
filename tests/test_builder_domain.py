@@ -208,9 +208,10 @@ class TestLabProcessSubtypes:
         assert "#MolecularEntity_chem_1" in _ids(table.get("about"))
 
     def test_exposure_condition_table_is_typed_csvw(self, tmp_path):
-        # Issue #94: the condition table must be typed CSVW — a linked schema
-        # entity with per-column datatype + propertyUrl, the cell-line/compound
-        # columns resolving to their entity ids (valueUrl).
+        # Issue #94 / #180: the condition table must be typed CSVW — a linked
+        # schema entity with the gold crate's full 10-column schema, each column
+        # carrying datatype + propertyUrl, the cell-line/compound columns
+        # resolving to their entity ids (valueUrl).
         state = self._state_with_process(
             "Exposure",
             samples="sample_cult",
@@ -232,7 +233,18 @@ class TestLabProcessSubtypes:
 
         cols = [by_id[cid] for cid in _ids(schema.get("columns"))]
         by_title = {c["titles"]: c for c in cols}
-        assert set(by_title) == {"cell_line", "compound", "concentration", "unit", "duration"}
+        assert set(by_title) == {
+            "well_id",
+            "assay",
+            "cell_line",
+            "compound",
+            "concentration_value",
+            "concentration_unit",
+            "exposure_duration",
+            "experiment",
+            "technical_replicate",
+            "control",
+        }
         # every column is typed: datatype + propertyUrl
         for col in by_title.values():
             assert col["datatype"]

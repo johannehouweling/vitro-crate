@@ -1147,7 +1147,54 @@ def _synth_sample(crate: ROCrate, sid: str, name: str, derives_from: Any = None)
     return Sample(crate, identifier=ident, name=name, properties=props or None)
 
 
-_CONDITION_TABLE_HEADER = "cell_line,compound,concentration,unit,duration\n"
+# Typed CSVW columns for the condition table: each maps a CSV column to an
+# ontology property (propertyUrl) with a declared datatype. The cell-line and
+# compound columns additionally resolve to in-crate entity ids (valueUrl, filled
+# at build time), so the per-well design table is machine-readable rather than a
+# header-only placeholder. The 10-column contract mirrors the gold S-VHPS21 crate
+# (Issue #180, Lane D — extends the original 5-column schema from #94).
+_CONDITION_TABLE_COLUMNS: tuple[dict[str, str], ...] = (
+    {"titles": "well_id", "datatype": "string",
+     "propertyUrl": "http://purl.org/dc/terms/identifier"},
+    {"titles": "assay", "datatype": "string",
+     "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C60819"},
+    {"titles": "cell_line", "datatype": "string",
+     "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C16403"},
+    {"titles": "compound", "datatype": "string",
+     "propertyUrl": "http://purl.obolibrary.org/obo/CHEBI_23367"},
+    {"titles": "concentration_value", "datatype": "double",
+     "propertyUrl": "http://purl.obolibrary.org/obo/PATO_0000033"},
+    {"titles": "concentration_unit", "datatype": "string",
+     "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039"},
+    {"titles": "exposure_duration", "datatype": "string",
+     "propertyUrl": "https://bioregistry.io/NCIT:C83280"},
+    {"titles": "experiment", "datatype": "string",
+     "propertyUrl": "https://bioregistry.io/EFO:0002091"},
+    {"titles": "technical_replicate", "datatype": "string",
+     "propertyUrl": "https://bioregistry.io/EFO:0002090"},
+    {"titles": "control", "datatype": "string",
+     "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C28143"},
+)
+
+# Header line (column titles, in order) for the materialised condition-table CSV.
+# Derived from _CONDITION_TABLE_COLUMNS so the placeholder header and the typed
+# CSVW schema can never drift apart.
+_CONDITION_TABLE_HEADER = ",".join(c["titles"] for c in _CONDITION_TABLE_COLUMNS) + "\n"
+
+# Typed CSVW columns for the per-well raw-measurements table emitted as the
+# EndpointReadout's result (Issue #180, Lane D). Typed exactly the way the
+# condition table is (datatype + propertyUrl); the cell-content (measurement
+# rows) is never fabricated — D5 — so the materialised CSV is header-only.
+_RAW_MEASUREMENTS_COLUMNS: tuple[dict[str, str], ...] = (
+    {"titles": "well_id", "datatype": "string",
+     "propertyUrl": "http://purl.org/dc/terms/identifier"},
+    {"titles": "measured_value", "datatype": "double",
+     "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000109"},
+    {"titles": "measured_unit", "datatype": "string",
+     "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039"},
+)
+
+_RAW_MEASUREMENTS_HEADER = ",".join(c["titles"] for c in _RAW_MEASUREMENTS_COLUMNS) + "\n"
 
 
 def _condition_table_rel(exp_pid: str) -> str:
@@ -1158,18 +1205,10 @@ def _condition_table_rel(exp_pid: str) -> str:
     """
     return f"data/{_slug(exp_pid)}_condition_table.csv"
 
-# Typed CSVW columns for the condition table: each maps a CSV column to an
-# ontology property (propertyUrl) with a declared datatype. The cell-line and
-# compound columns additionally resolve to in-crate entity ids (valueUrl, filled
-# at build time), so the per-well design table is machine-readable rather than a
-# header-only placeholder. Issue #94.
-_CONDITION_TABLE_COLUMNS: tuple[dict[str, str], ...] = (
-    {"titles": "cell_line", "datatype": "string", "propertyUrl": "http://schema.org/name"},
-    {"titles": "compound", "datatype": "string", "propertyUrl": "http://schema.org/mentions"},
-    {"titles": "concentration", "datatype": "double", "propertyUrl": "http://schema.org/value"},
-    {"titles": "unit", "datatype": "string", "propertyUrl": "http://schema.org/unitText"},
-    {"titles": "duration", "datatype": "string", "propertyUrl": "http://schema.org/duration"},
-)
+
+def _raw_measurements_rel(er_pid: str) -> str:
+    """Crate-relative path of an EndpointReadout's raw-measurements CSV."""
+    return f"data/{_slug(er_pid)}_raw_measurements.csv"
 
 
 def _node_id(node: Any) -> str | None:
@@ -1177,43 +1216,76 @@ def _node_id(node: Any) -> str | None:
     return getattr(node, "id", None)
 
 
+def _build_csvw_schema(
+    crate: ROCrate,
+    *,
+    schema_id: str,
+    schema_name: str,
+    id_prefix: str,
+    columns: tuple[dict[str, str], ...],
+    value_urls: dict[str, str | None] | None = None,
+) -> ContextEntity:
+    """Build a ``csvw:Schema`` entity from a tuple of typed column descriptors.
+
+    Each column is emitted as a ``csvw:Column`` graph node (ro-crate-py requires
+    nested objects to be referenceable entities, not inline dicts) carrying its
+    ``datatype`` and ``propertyUrl``. Columns named in ``value_urls`` additionally
+    get a ``valueUrl`` resolving to an in-crate entity id (emitted as an ``{@id}``
+    reference). Shared by the condition table and the raw-measurements table so
+    both are typed the same way (Issue #180, Lane D).
+    """
+    value_urls = value_urls or {}
+    schema = crate.add(
+        ContextEntity(
+            crate,
+            schema_id,
+            properties={
+                "@type": ["csvw:Schema", "CreativeWork"],
+                "name": schema_name,
+            },
+        )
+    )
+    for col in columns:
+        title = col["titles"]
+        props: dict[str, Any] = {"@type": "csvw:Column", **col}
+        # Emit propertyUrl as an {@id} reference rather than a bare string:
+        # RO-Crate 1.2's base profile flags an IRI value used as a string when
+        # that IRI is also a described entity (e.g. the cell-line NCIT_C16403,
+        # which a CellLineSample materialises as a `cell line` DefinedTerm). The
+        # CSVW range of propertyUrl is a URI, so an {@id} is the faithful form.
+        if col.get("propertyUrl"):
+            props["propertyUrl"] = {"@id": col["propertyUrl"]}
+        if value_urls.get(title):
+            # Same rule for valueUrl: emit the resolved Sample / MolecularEntity
+            # link as an {@id} reference, never a bare string @id.
+            props["valueUrl"] = {"@id": value_urls[title]}
+        column = crate.add(
+            ContextEntity(crate, f"{id_prefix}_col_{title}", properties=props)
+        )
+        schema.append_to("columns", column)
+    return schema
+
+
 def _build_condition_table_schema(
     crate: ROCrate, exp_slug: str, cells: list[Any], chems: list[Any]
 ) -> ContextEntity:
     """The csvw:Schema entity describing the condition table's typed columns.
 
-    Each column is a ``csvw:Column`` graph node (ro-crate-py requires nested
-    objects to be referenceable entities, not inline dicts) carrying a datatype
-    and propertyUrl. The cell-line and compound columns additionally carry a
-    ``valueUrl`` resolving to the in-crate Sample / MolecularEntity id, so a
-    row's value maps to its entity.
+    The cell-line and compound columns resolve their ``valueUrl`` to the in-crate
+    Sample / MolecularEntity id, so a row's value maps to its entity (#94, #180).
     """
-    value_urls = {
+    value_urls: dict[str, str | None] = {
         "cell_line": _node_id(cells[0]) if cells else None,
         "compound": _node_id(chems[0]) if chems else None,
     }
-    schema = crate.add(
-        ContextEntity(
-            crate,
-            f"#{exp_slug}_condition_table_schema",
-            properties={
-                "@type": ["csvw:Schema", "CreativeWork"],
-                "name": "Condition table schema",
-            },
-        )
+    return _build_csvw_schema(
+        crate,
+        schema_id=f"#{exp_slug}_condition_table_schema",
+        schema_name="Condition table schema",
+        id_prefix=f"#{exp_slug}",
+        columns=_CONDITION_TABLE_COLUMNS,
+        value_urls=value_urls,
     )
-    for col in _CONDITION_TABLE_COLUMNS:
-        title = col["titles"]
-        props: dict[str, Any] = {"@type": "csvw:Column", **col}
-        if value_urls.get(title):
-            # Emit valueUrl as an {@id} reference (not a bare string): RO-Crate 1.2
-            # REQUIRES entity links be reference objects, and flags string @ids.
-            props["valueUrl"] = {"@id": value_urls[title]}
-        column = crate.add(
-            ContextEntity(crate, f"#{exp_slug}_col_{title}", properties=props)
-        )
-        schema.append_to("columns", column)
-    return schema
 
 
 def _synth_condition_table(
@@ -1269,6 +1341,78 @@ def _synth_condition_table(
     # conformsTo (RO-Crate conformance — not a bare inline tableSchema dict).
     # Issue #94.
     schema = _build_condition_table_schema(crate, _slug(exp_pid), cells, chems)
+    table["tableSchema"] = {"@id": schema.id}
+    table.append_to("conformsTo", schema)
+    return table
+
+
+def _add_csvw_table_file(
+    crate: ROCrate,
+    output_dir: Path | None,
+    *,
+    rel: str,
+    name: str,
+    header: str,
+    materialize_payload: bool,
+) -> File:
+    """Add a ``File`` that is also a ``csvw:Table``, materialising a header-only CSV.
+
+    Shared by the condition table and the raw-measurements table: a bare
+    ``csvw:Table`` is rejected by the ISA shape, so the node is a ``File`` (a valid
+    process result) carrying only its header row in-payload — measurement / well
+    rows are never fabricated (D5). The in-memory validate path skips the write.
+    """
+    source: str | None = None
+    if materialize_payload and output_dir is not None:
+        dest = output_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            dest.write_text(header, encoding="utf-8")
+        # Point source at the file we just wrote so ro-crate-py records it as
+        # payload (its _copy_file no-ops when source and dest are the same file).
+        source = str(dest)
+    return crate.add(
+        File(
+            crate,
+            source,
+            dest_path=rel,
+            properties={"@type": ["File", "csvw:Table"], "name": name},
+        )
+    )
+
+
+def _synth_raw_measurements(
+    crate: ROCrate,
+    output_dir: Path | None,
+    er_pid: str,
+    *,
+    materialize_payload: bool = True,
+) -> File:
+    """An EndpointReadout's typed per-well raw-measurements ``csvw:Table``.
+
+    Emitted *alongside* the process's explicit result file(s) — never as a
+    substitute — so the "EndpointReadout MUST have a result" repair contract
+    (resultless readouts still fire the issue) is untouched. Typed the same way as
+    the condition table: a ``File``/``csvw:Table`` linked to a ``csvw:Schema``
+    whose 3 columns carry datatype + propertyUrl. The CSV is header-only; no
+    measurement rows are fabricated (D5). Issue #180, Lane D.
+    """
+    rel = _raw_measurements_rel(er_pid)
+    table = _add_csvw_table_file(
+        crate,
+        output_dir,
+        rel=rel,
+        name="Raw measurements",
+        header=_RAW_MEASUREMENTS_HEADER,
+        materialize_payload=materialize_payload,
+    )
+    schema = _build_csvw_schema(
+        crate,
+        schema_id=f"#{_slug(er_pid)}_raw_measurements_schema",
+        schema_name="Raw measurements schema",
+        id_prefix=f"#{_slug(er_pid)}_raw",
+        columns=_RAW_MEASUREMENTS_COLUMNS,
+    )
     table["tableSchema"] = {"@id": schema.id}
     table.append_to("conformsTo", schema)
     return table
@@ -1384,13 +1528,25 @@ def _build_process(
         )
 
     if ptype == "EndpointReadout":
+        # When the readout already emits result file(s), additionally synthesize a
+        # typed raw-measurements csvw:Table alongside them (mirroring the gold
+        # crate's EndpointReadout → raw_measurements.csv; Issue #180, Lane D). It
+        # is appended, never substituted, so a resultless readout still fires the
+        # "MUST have a result" issue for the deterministic repair loop (#179).
+        er_result = list(result)
+        if er_result:
+            er_result.append(
+                _synth_raw_measurements(
+                    crate, output_dir, pid, materialize_payload=materialize_payload
+                )
+            )
         return LabProcessEndpointReadout(
             crate,
             identifier=pid,
             name=name,
             samples=(samples or obj or None),
             labprotocol=protocol,
-            result=result,
+            result=er_result,
             detection_instrument=f.get("detection_instrument", "unknown"),
             instrument_manufacturer=f.get("instrument_manufacturer", "unknown"),
             measured_entity=f.get("measured_entity", "unknown"),
