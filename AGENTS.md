@@ -1087,7 +1087,13 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
 ### Multi-Strategy Lookups
 For chemicals, `lookup_compound` tries by name, then CAS, then **ChEBI** (via
 OLS4) — a PubChem miss now falls back to resolving a ChEBI IRI rather than a
-hard not-found. If all fail, ask the user for SMILES/InChI.
+hard not-found. If all fail, ask the user for SMILES/InChI. The ChEBI fallback's
+identity rides on **context-declared keys** so the `MolecularEntity` compacts
+cleanly under RO-Crate 1.2 (Issue #243): the ChEBI CURIE on `chebiId`
+(`schema:identifier`, mirroring `cas`/`pubchemCid`) and the dereferenceable
+ontology IRI on `sameAs` as an `{"@id": …}` node. The legacy bare
+`chebi_id`/`chebi_iri` keys were absent from the `@context` and failed the base
+pass (and leaked into the HITL loop as unanswerable gaps), so they are gone.
 
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.

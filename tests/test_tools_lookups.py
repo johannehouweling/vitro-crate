@@ -100,8 +100,15 @@ class TestLookupCompound:
         result = lookup_compound("water")
         assert result["found"] is True
         assert result["data"]["source"] == "chebi"
-        assert result["data"]["chebi_iri"] == "http://purl.obolibrary.org/obo/CHEBI_15377"
-        assert result["data"]["chebi_id"] == "CHEBI:15377"
+        # ChEBI identity rides on context-declared keys (Issue #243): the IRI as a
+        # ``sameAs`` @id node and the CURIE as ``chebiId`` (schema:identifier) — not
+        # the bare ``chebi_iri`` / ``chebi_id`` keys that fail @context compaction.
+        assert result["data"]["sameAs"] == {
+            "@id": "http://purl.obolibrary.org/obo/CHEBI_15377"
+        }
+        assert result["data"]["chebiId"] == "CHEBI:15377"
+        assert "chebi_iri" not in result["data"]
+        assert "chebi_id" not in result["data"]
         assert result["data"]["iupac_name"] == "water"
         assert result["error"] is None
 
@@ -641,7 +648,12 @@ class TestLookupCompoundChebiFallback:
         )
         result = lookup_compound("alpha-D-glucose")
         assert result["found"] is True
-        assert result["data"]["chebi_id"] == "CHEBI_28061"
+        # Context-valid ChEBI identity (Issue #243): CURIE under ``chebiId``,
+        # ontology IRI under a ``sameAs`` @id node.
+        assert result["data"]["chebiId"] == "CHEBI_28061"
+        assert result["data"]["sameAs"] == {
+            "@id": "http://purl.obolibrary.org/obo/CHEBI_28061"
+        }
         assert result["data"]["source"] == "chebi"
 
     def test_fails_when_both_pubchem_and_chebi_miss(self, monkeypatch):

@@ -143,6 +143,87 @@ class TestOfflineContextResolution:
         assert base.passed_required, [(i.check_id, i.message) for i in base.issues]
 
 
+class TestChebiResolvedCompoundContext:
+    """A ChEBI-resolved compound must serialise to context-valid JSON-LD (#243).
+
+    The PubChem-miss → ChEBI fallback in ``lookup_compound`` historically emitted
+    bare ``chebi_id`` / ``chebi_iri`` keys onto the MolecularEntity. Those keys are
+    NOT declared in the RO-Crate ``@context``, so RO-Crate 1.2 compaction rejects
+    them and the base pass fails on every crate that resolved a compound via ChEBI
+    (and the failure leaked into the HITL loop as an unanswerable gap). The ChEBI
+    identity must instead round-trip through context-valid keys.
+    """
+
+    @staticmethod
+    def _chebi_state(monkeypatch):
+        """A CrateState with a single ChEBI-resolved MolecularEntity.
+
+        Drives the *real* ``lookup_compound`` ChEBI fallback (PubChem patched to
+        miss, OLS/ChEBI patched to hit) and the real ``resolve_compound`` so the
+        keys the entity carries are exactly the ones the production path emits.
+        """
+        from builder.state import CrateState
+        from builder.tools import composites, lookups
+
+        lookups.lookup_compound.cache_clear()
+
+        def fake_pubchem(query):  # noqa: ANN001 — no PubChem hit, force the ChEBI branch
+            return {}
+
+        def fake_chebi(query, ontology):  # noqa: ANN001
+            assert ontology == "chebi"
+            return {
+                "@id": "http://purl.obolibrary.org/obo/CHEBI_28748",
+                "termCode": "CHEBI:28748",
+                "name": "doxorubicin",
+            }
+
+        monkeypatch.setattr(lookups, "lookup_pubchem", fake_pubchem)
+        monkeypatch.setattr(lookups, "lookup_ontology_term_ols", fake_chebi)
+
+        state = CrateState()
+        state.metadata.title = "ChEBI crate"
+        # verify=False keeps this fully offline (no source round-trip).
+        result = composites.resolve_compound(state, name="Doxorubicin", verify=False)
+        assert "error" not in result, result
+        return state, result
+
+    def test_chebi_compound_passes_base_validation(self, monkeypatch):
+        from builder.tools.validation import build_and_validate
+
+        state, _ = self._chebi_state(monkeypatch)
+        report = build_and_validate(state, profile="base")
+
+        assert report["conformance"].get("base") is True, [
+            (i["entity_id"], i["property"], i["message"]) for i in report["issues"]
+        ]
+        # No @context violation about an undeclared key (the #243 symptom).
+        joined = " ".join(i["message"] for i in report["issues"]).lower()
+        assert "not present in the @context" not in joined, report["issues"]
+        assert "chebi_id" not in joined and "chebi_iri" not in joined, report["issues"]
+
+    def test_chebi_identity_present_in_context_valid_form(self, monkeypatch):
+        state, _ = self._chebi_state(monkeypatch)
+        mol = next(e for e in state.list_entities() if e.type == "MolecularEntity")
+
+        # The ChEBI identity is retained — but only under context-declared keys,
+        # never the bare ``chebi_id`` / ``chebi_iri`` keys that fail compaction.
+        assert "chebi_id" not in mol.fields
+        assert "chebi_iri" not in mol.fields
+
+        serialised = " ".join(str(v) for v in mol.fields.values())
+        assert "CHEBI:28748" in serialised
+        assert "http://purl.obolibrary.org/obo/CHEBI_28748" in serialised
+
+        from profiles.context import ISA_TOX_CONTEXT
+
+        context_terms = set(ISA_TOX_CONTEXT[0])
+        for key in mol.fields:
+            if key.startswith("@") or key == "entity_id":
+                continue
+            assert key in context_terms, f"MolecularEntity key {key!r} not in @context"
+
+
 class TestTransportErrorNotReportedAsRequired:
     """A connection error during a pass is an error, not a spurious REQUIRED."""
 

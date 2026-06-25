@@ -1142,8 +1142,12 @@ _COMPOUND_DATA_FIELDS: tuple[str, ...] = (
     "inchi",
     "formula",
     "mass",
-    "chebi_id",
-    "chebi_iri",
+    # ChEBI fallback identity, in context-declared keys (Issue #243): ``chebiId``
+    # (the CURIE, schema:identifier) and ``sameAs`` (the dereferenceable ontology
+    # IRI as an @id node). The legacy bare ``chebi_id`` / ``chebi_iri`` keys are
+    # gone — they were absent from the @context and failed base-profile validation.
+    "chebiId",
+    "sameAs",
 )
 
 
