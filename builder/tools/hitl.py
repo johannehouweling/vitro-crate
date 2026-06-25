@@ -10,10 +10,69 @@ as thin wrappers over a shared default simulator for backward compatibility.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import threading
+from collections.abc import Iterator
 from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 logger = logging.getLogger(__name__)
+
+
+# --- console animation suspension -------------------------------------------
+# A long-running CLI animation (e.g. the legacy agent loop's "thinking" spinner,
+# a Rich ``Live`` region driven by a daemon thread) repaints the terminal
+# continuously, which clobbers a blocking ``input()`` prompt — the user cannot
+# read or answer a HITL question (scan-root approval, ask-user) while it ticks.
+# The animation registers itself here; the console HITL prompts suspend it for
+# the duration of ``input()``. Frontend-agnostic: a non-CLI HumanInterface never
+# registers anything and these become no-ops.
+_active_animation: Any = None
+_animation_lock = threading.Lock()
+
+
+def register_console_animation(animation: Any) -> None:
+    """Register the active terminal animation so console prompts can pause it.
+
+    ``animation`` must expose ``pause()`` and ``resume()``. The most recent
+    registration wins (CLI animations are not nested).
+    """
+    global _active_animation
+    with _animation_lock:
+        _active_animation = animation
+
+
+def unregister_console_animation(animation: Any) -> None:
+    """Clear the registered animation, but only if it is *animation*."""
+    global _active_animation
+    with _animation_lock:
+        if _active_animation is animation:
+            _active_animation = None
+
+
+@contextlib.contextmanager
+def suspend_console_animation() -> Iterator[None]:
+    """Pause any registered console animation for the duration of the block.
+
+    Best-effort: no registered animation is a no-op, and a ``pause``/``resume``
+    that raises is logged but never propagated — UI chrome must not break a HITL
+    prompt. ``resume`` always runs, even if the body raises.
+    """
+    with _animation_lock:
+        animation = _active_animation
+    if animation is not None:
+        try:
+            animation.pause()
+        except Exception:  # noqa: BLE001 — never let UI chrome break a prompt
+            logger.debug("console animation pause failed", exc_info=True)
+    try:
+        yield
+    finally:
+        if animation is not None:
+            try:
+                animation.resume()
+            except Exception:  # noqa: BLE001 — never let UI chrome break a prompt
+                logger.debug("console animation resume failed", exc_info=True)
 
 
 class HumanResponse(TypedDict):
@@ -154,14 +213,17 @@ class ConsoleHumanInterface:
         purpose: str | None = None,
     ) -> HumanResponse:
         """Show *context* + *options* and read an approve/reject decision."""
-        print(context)
-        if options:
-            print(f"Options: {', '.join(options)}")
         suffix = " [y/N]: " if purpose == SCAN_ROOT_PURPOSE else " [Y/n]: "
-        try:
-            answer = input(f"Approve?{suffix}").strip().lower()
-        except EOFError:
-            answer = ""
+        # Suspend any active terminal spinner so the prompt is readable and stdin
+        # is not fighting a Rich Live repaint (legacy loop scan-root approval).
+        with suspend_console_animation():
+            print(context)
+            if options:
+                print(f"Options: {', '.join(options)}")
+            try:
+                answer = input(f"Approve?{suffix}").strip().lower()
+            except EOFError:
+                answer = ""
         if purpose == SCAN_ROOT_PURPOSE:
             # Fail-closed: a new scan root requires an explicit affirmative.
             approved = answer in ("y", "yes")
@@ -172,11 +234,12 @@ class ConsoleHumanInterface:
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Prompt the user for a value; an empty answer (or EOF) is a skip."""
-        print(prompt)
-        try:
-            value = input(f"({field_type}) > ").strip()
-        except EOFError:
-            value = ""
+        with suspend_console_animation():
+            print(prompt)
+            try:
+                value = input(f"({field_type}) > ").strip()
+            except EOFError:
+                value = ""
         if not value:
             return {"value": None, "skipped": True}
         return {"value": value, "skipped": False}
