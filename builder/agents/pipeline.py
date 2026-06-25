@@ -43,7 +43,7 @@ call, trading strict graph-hash determinism for richer drafted content.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from builder.config import get_provider
 
@@ -52,9 +52,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# A usage sink receives one leaf call's token usage as
+# ``(input_tokens, output_tokens, model_name)``. The spine passes a sink that
+# logs each leaf call's usage to the engine profiler so the eval harness records
+# real per-case token counts for the ``--arch pipeline`` arm (Issue #221).
+UsageSink = Callable[[int | None, int | None, str | None], None]
+
 
 def draft_entity_fields(
-    entity_type: str, context: str, *, model: str | None = None
+    entity_type: str,
+    context: str,
+    *,
+    model: str | None = None,
+    usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Lazy, no-op-safe shim over :func:`builder.agents.leaves.draft_entity_fields`.
 
@@ -67,14 +77,20 @@ def draft_entity_fields(
     (an unconfigured provider short-circuits before this is ever called).
 
     Defining the leaf as a module-level attribute here also gives tests a stable
-    monkeypatch target (``builder.agents.pipeline.draft_entity_fields``).
+    monkeypatch target (``builder.agents.pipeline.draft_entity_fields``). The
+    ``usage_sink`` is forwarded so the leaf can report its token usage (#221).
     """
     from builder.agents.leaves import draft_entity_fields as _leaf
 
-    return _leaf(entity_type, context, model=model)
+    return _leaf(entity_type, context, model=model, usage_sink=usage_sink)
 
 
-def extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
+def extract_plan(
+    context: str,
+    *,
+    model: str | None = None,
+    usage_sink: UsageSink | None = None,
+) -> dict[str, Any]:
     """Lazy, no-op-safe shim over :func:`builder.agents.leaves.extract_plan`.
 
     Stage A of the §14 hybrid loop: the whole-document candidate-plan extractor.
@@ -83,11 +99,60 @@ def extract_plan(context: str, *, model: str | None = None) -> dict[str, Any]:
     lazily (inside this shim) and only ever after :func:`_materialize_plan` has
     confirmed an LLM provider is configured. Defining the leaf as a module-level
     attribute here also gives tests a stable monkeypatch target
-    (``builder.agents.pipeline.extract_plan``).
+    (``builder.agents.pipeline.extract_plan``). The ``usage_sink`` is forwarded so
+    the leaf can report its token usage (#221).
     """
     from builder.agents.leaves import extract_plan as _leaf
 
-    return _leaf(context, model=model)
+    return _leaf(context, model=model, usage_sink=usage_sink)
+
+
+def _as_int(value: Any) -> int:
+    """Coerce a possibly-missing/None token count to a non-negative int."""
+    if value is None:
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _make_usage_logger(
+    engine: AgentEngine, totals: dict[str, int]
+) -> UsageSink:
+    """Build a :data:`UsageSink` that records one leaf call's token usage (#221).
+
+    For each leaf call it (1) accumulates ``input``/``output`` tokens into
+    *totals* (the running per-run sum the spine surfaces in ``run_pipeline``'s
+    result) and (2) logs a ``node_end``/``node="model"`` event to the engine
+    profiler — the SAME profile-event shape the ReAct model node emits — so
+    :func:`eval.metrics.mine_profile_metrics` mines pipeline tokens identically to
+    the ReAct arm with no runner/factory changes. When no profiler is active (e.g.
+    an engine that was never initialized) the accumulation still happens; only the
+    profile write is skipped.
+    """
+
+    def _sink(
+        input_tokens: int | None,
+        output_tokens: int | None,
+        model_name: str | None,
+    ) -> None:
+        in_t = _as_int(input_tokens)
+        out_t = _as_int(output_tokens)
+        totals["input_tokens"] += in_t
+        totals["output_tokens"] += out_t
+        profiler = getattr(engine, "profiler", None)
+        if profiler is not None:
+            profiler.log_event(
+                event="node_end",
+                node="model",
+                iteration=engine.state.iteration_count,
+                input_tokens=in_t,
+                output_tokens=out_t,
+                model_name=model_name,
+            )
+
+    return _sink
 
 
 # Fields the drafter-leaf result must NEVER write onto a state entity (D5: Verify,
@@ -232,7 +297,9 @@ def _gather_context(engine: AgentEngine) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _draft_entities(engine: AgentEngine) -> dict[str, Any]:
+def _draft_entities(
+    engine: AgentEngine, usage_sink: UsageSink | None = None
+) -> dict[str, Any]:
     """Step 2 — enrich entities via the bounded drafter-leaf (§14.2).
 
     Wires the cheap-model drafter-leaf (:func:`draft_entity_fields`) into the
@@ -286,7 +353,9 @@ def _draft_entities(engine: AgentEngine) -> dict[str, Any]:
             continue
 
         try:
-            leaf_fields = draft_entity_fields(entity.type, context)
+            leaf_fields = draft_entity_fields(
+                entity.type, context, usage_sink=usage_sink
+            )
         except Exception as exc:  # noqa: BLE001 - a flaky leaf must not break the spine
             logger.warning(
                 "drafter-leaf failed for %s (%s); skipping enrichment: %s",
@@ -348,7 +417,9 @@ def _split_person_name(name: str) -> tuple[str, str]:
     return " ".join(parts[:-1]), parts[-1]
 
 
-def _materialize_plan(engine: AgentEngine) -> dict[str, Any]:
+def _materialize_plan(
+    engine: AgentEngine, usage_sink: UsageSink | None = None
+) -> dict[str, Any]:
     """Stage B (§14) — materialize the extracted candidate plan via composites.
 
     Bridges the bounded whole-document extractor (:func:`extract_plan`, Stage A)
@@ -431,7 +502,7 @@ def _materialize_plan(engine: AgentEngine) -> dict[str, Any]:
         return result
 
     try:
-        plan = extract_plan(context)
+        plan = extract_plan(context, usage_sink=usage_sink)
     except Exception as exc:  # noqa: BLE001 - a flaky extractor must not break the spine
         logger.warning("extract_plan failed; skipping materialization: %s", exc)
         return result
@@ -606,14 +677,23 @@ def run_pipeline(engine: AgentEngine) -> dict[str, Any]:
 
     Returns:
         ``{"ok", "conformance", "issues", "scaffold", "materialized", "drafted",
-        "fix_rounds"}`` — the final ``build_and_validate`` verdict (``ok`` /
-        per-layer ``conformance`` / routed ``issues``) plus a small trace of what
-        each step did. ``conformance`` always carries the ``base`` / ``isa`` /
-        ``tox`` keys.
+        "fix_rounds", "usage"}`` — the final ``build_and_validate`` verdict
+        (``ok`` / per-layer ``conformance`` / routed ``issues``) plus a small
+        trace of what each step did. ``conformance`` always carries the ``base`` /
+        ``isa`` / ``tox`` keys. ``usage`` is the accumulated token usage across all
+        leaf LLM calls (``{"input_tokens", "output_tokens", "total_tokens"}``,
+        all 0 when no provider is configured) — additive (#221), and ALSO written
+        to ``profile.ndjson`` as ``node_end``/``node="model"`` events so the eval
+        harness mines it exactly as it does the ReAct arm.
     """
+    # Accumulate per-run leaf token usage; the sink also logs each call to the
+    # profiler so eval/runner.py mines it via the same path as the ReAct arm.
+    totals = {"input_tokens": 0, "output_tokens": 0}
+    usage_sink = _make_usage_logger(engine, totals)
+
     scaffold = _scaffold_backbone(engine)
-    materialized = _materialize_plan(engine)
-    drafted = _draft_entities(engine)
+    materialized = _materialize_plan(engine, usage_sink)
+    drafted = _draft_entities(engine, usage_sink)
     validation, fix_rounds = _run_fix_loop(engine)
 
     return {
@@ -624,4 +704,9 @@ def run_pipeline(engine: AgentEngine) -> dict[str, Any]:
         "materialized": materialized,
         "drafted": drafted,
         "fix_rounds": fix_rounds,
+        "usage": {
+            "input_tokens": totals["input_tokens"],
+            "output_tokens": totals["output_tokens"],
+            "total_tokens": totals["input_tokens"] + totals["output_tokens"],
+        },
     }

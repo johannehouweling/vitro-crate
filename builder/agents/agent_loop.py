@@ -461,6 +461,49 @@ def _tool_names_from_state(state: dict[str, Any]) -> list[str]:
     return [tc.get("name", "") for tc in tool_calls]
 
 
+def _extract_token_usage(message: Any) -> tuple[int | None, int | None]:
+    """Extract ``(input_tokens, output_tokens)`` from a LangChain ``AIMessage``.
+
+    Provider-agnostic and the SINGLE source of truth for usage mining across the
+    ReAct model node (:func:`_wrap_model_node`) and the deterministic pipeline's
+    bounded leaves (:mod:`builder.agents.leaves`), so both arms of the eval
+    harness record token counts with identical semantics:
+
+    1. Prefer the standardised ``usage_metadata`` (langchain-core >=0.3).
+    2. Fall back to provider-specific ``response_metadata["token_usage"]`` /
+       ``["usage"]`` (``prompt_tokens`` / ``completion_tokens`` aliases).
+
+    Returns ``(None, None)`` when neither source carries usage (e.g. an offline
+    fake model) so callers can record a clean zero without crashing.
+    """
+    if message is None:
+        return None, None
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+    usage = getattr(message, "usage_metadata", None)
+    if usage is not None:
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
+
+    if input_tokens is None or output_tokens is None:
+        meta = getattr(message, "response_metadata", None) or {}
+        tu = meta.get("token_usage") or meta.get("usage") or {}
+        if input_tokens is None:
+            input_tokens = tu.get("prompt_tokens") or tu.get("input_tokens")
+        if output_tokens is None:
+            output_tokens = tu.get("completion_tokens") or tu.get("output_tokens")
+
+    return input_tokens, output_tokens
+
+
+def _extract_model_name(message: Any) -> str | None:
+    """Extract the model name from an ``AIMessage``'s ``response_metadata``."""
+    resp_meta: dict = getattr(message, "response_metadata", None) or {}
+    return resp_meta.get("model_name") or resp_meta.get("model")
+
+
 def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> Any:
     """Wrap the model node to log ``node_start``/``node_end`` timing.
 
@@ -488,21 +531,8 @@ def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> A
         response_text: str | None = None
         if out_messages:
             last_msg = out_messages[-1]
-            # Prefer the standardised usage_metadata (langchain-core >=0.3)
-            usage = getattr(last_msg, "usage_metadata", None)
-            if usage is not None:
-                input_tokens = usage.get("input_tokens")
-                output_tokens = usage.get("output_tokens")
-            # Fall back to response_metadata (provider-specific)
-            if input_tokens is None or output_tokens is None:
-                meta = getattr(last_msg, "response_metadata", None) or {}
-                tu = meta.get("token_usage") or meta.get("usage") or {}
-                if input_tokens is None:
-                    input_tokens = tu.get("prompt_tokens") or tu.get("input_tokens")
-                if output_tokens is None:
-                    output_tokens = tu.get("completion_tokens") or tu.get("output_tokens")
-            resp_meta: dict = getattr(last_msg, "response_metadata", None) or {}
-            model_name = resp_meta.get("model_name") or resp_meta.get("model")
+            input_tokens, output_tokens = _extract_token_usage(last_msg)
+            model_name = _extract_model_name(last_msg)
             # Capture the model's reply text — truncate to avoid bloating profile
             content = getattr(last_msg, "content", None)
             if content:

@@ -83,3 +83,85 @@ class TestPipelineAgentWiring:
         assert outcome.error is not None
         assert "pipeline exploded" in outcome.error
         assert isinstance(outcome.state, CrateState)
+
+
+class TestPipelineTokenAccounting:
+    """Issue #221 — the eval case record must sum the deterministic spine's leaf
+    LLM token usage, the SAME way the ReAct arm does (mined from profile.ndjson).
+    Previously the pipeline arm recorded 0 because the leaves' usage was discarded.
+
+    Fully offline: a fake leaf reports a known usage payload through the
+    ``usage_sink`` the spine passes it; the real ``run_pipeline`` logs those as
+    ``node_end``/``node="model"`` profile events, and ``run_eval`` mines them with
+    its default (disk-backed) profile reader.
+    """
+
+    def test_eval_record_sums_pipeline_leaf_tokens(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+        from eval.runner import run_eval
+
+        # Provider "configured" + a fake leaf that emits a known usage payload on
+        # every call. No real model, no network.
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+        monkeypatch.setattr(pipeline_mod, "extract_plan", lambda *a, **k: {})
+
+        calls = {"n": 0}
+
+        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+            calls["n"] += 1
+            if usage_sink is not None:
+                usage_sink(100, 25, "gpt-4o-mini")
+            return {"description": f"drafted {entity_type}"}
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+
+        # A custom agent: real engine (so a real profile.ndjson is written), seed
+        # a title so the drafter has usable context, then run the REAL spine.
+        class _SpineAgent:
+            def __init__(self) -> None:
+                self._engine = AgentEngine(human_interface=SimulatedHumanInterface())
+
+            def build(self, case):  # type: ignore[no-untyped-def]
+                self._engine.initialize(input_path=case.input_path)
+                # Give the drafter usable context so it makes leaf calls.
+                self._engine.state.metadata.title = "Token accounting probe"
+                error = None
+                try:
+                    pipeline_mod.run_pipeline(self._engine)
+                except Exception as exc:  # noqa: BLE001
+                    error = str(exc)
+                finally:
+                    self._engine.close_profiler()
+                return BuildOutcome(
+                    state=self._engine.state,
+                    session_id=self._engine.state.session_id,
+                    error=error,
+                )
+
+        minimal = next(c for c in DEFAULT_CORPUS if c.kind == "minimal")
+        report = run_eval(lambda: _SpineAgent(), [minimal], repeats=1, label="pipe-tok")
+
+        res = report.results[0]
+        assert calls["n"] >= 1, "the spine must have made >=1 leaf call"
+        # The eval record sums every leaf call (calls × 100/25) — non-zero, in the
+        # SAME fields the ReAct arm uses.
+        assert res.input_tokens == 100 * calls["n"]
+        assert res.output_tokens == 25 * calls["n"]
+        assert res.total_tokens == 125 * calls["n"]
+
+    def test_no_provider_records_clean_zero_through_eval(self) -> None:
+        """The no-provider pipeline path records a clean 0 — no crash, no leak."""
+        from eval.runner import run_eval
+
+        # The real PipelineBuildAgent with NO provider configured: the spine's
+        # drafter/plan steps are strict no-ops, so the record is a clean zero.
+        factory = make_pipeline_agent_factory()
+        minimal = next(c for c in DEFAULT_CORPUS if c.kind == "minimal")
+        report = run_eval(factory, [minimal], repeats=1, label="pipe-zero")
+
+        res = report.results[0]
+        assert res.input_tokens == 0
+        assert res.output_tokens == 0
+        assert res.total_tokens == 0

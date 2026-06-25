@@ -171,7 +171,7 @@ class TestDraftEntitiesWiring:
         self._enable_provider(monkeypatch)
         calls: list[tuple[str, str]] = []
 
-        def fake_leaf(entity_type, context, *, model=None):
+        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
             calls.append((entity_type, context))
             # A descriptive field plus an identifier the leaf would normally strip
             # — assert the wiring NEVER applies the identifier even if present.
@@ -214,7 +214,7 @@ class TestDraftEntitiesWiring:
 
         self._enable_provider(monkeypatch)
 
-        def fake_leaf(entity_type, context, *, model=None):
+        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
             return {"name": "LEAF NAME", "description": "leaf desc"}
 
         monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
@@ -337,7 +337,7 @@ class TestMaterializePlan:
 
         seen: list[str] = []
 
-        def fake_extract_plan(context, *, model=None):
+        def fake_extract_plan(context, *, model=None, usage_sink=None):
             seen.append(context)
             return dict(self._PLAN if plan is None else plan)
 
@@ -588,6 +588,150 @@ class TestMaterializePlan:
         # The materialized plan is reflected in the result trace.
         assert "materialized" in result
         assert result["materialized"]["compounds"] >= 2
+
+
+class TestTokenAccounting:
+    """Issue #221 — the deterministic spine's leaf LLM calls must record their
+    token usage to ``profile.ndjson`` in the SAME shape the ReAct model node
+    uses, so ``eval/runner.py`` mines real per-case tokens for ``--arch pipeline``
+    (it previously recorded 0 because the leaves' usage was discarded).
+
+    Offline: the leaf is stubbed and reports a known usage payload via the
+    ``usage_sink`` the spine passes it; the engine writes ``node_end``/
+    ``node="model"`` events that :func:`eval.metrics.mine_profile_metrics` sums.
+    """
+
+    def _seeded_state(self) -> CrateState:
+        import uuid
+
+        state = CrateState()
+        # A unique session id so each test writes its OWN profile.ndjson; the
+        # _engine() default is second-precision, which collides under -n 2 and
+        # would mix one test's model events into another's profile (read below).
+        state.session_id = f"tok-{uuid.uuid4().hex[:12]}"
+        state.metadata.title = "TPO inhibition dose-response screen"
+        state.metadata.description = "A cell-based in vitro TPO inhibition assay."
+        state.add_entity(_entity("inv1", "Investigation", name="Inv"))
+        state.add_entity(_entity("st1", "Study", name="St", investigation_id="inv1"))
+        state.add_entity(_entity("as1", "Assay", name="As", study_id="st1"))
+        # Two bare entities (missing a description) for the leaf to enrich, so the
+        # spine makes >1 leaf call and we assert usage is ACCUMULATED across them.
+        state.add_entity(_entity("chem1", "MolecularEntity", name="Methimazole"))
+        state.add_entity(_entity("per1", "Person", name="Jane Doe"))
+        return state
+
+    def _mine(self, engine: AgentEngine):
+        import shutil
+        from pathlib import Path
+
+        from builder.tools.dashboard import read_profile
+        from builder.tools.profiler import SESSION_DIR
+        from eval.metrics import mine_profile_metrics
+
+        engine.close_profiler()  # flush + close before reading
+        session_dir = Path(SESSION_DIR) / engine.state.session_id
+        try:
+            return mine_profile_metrics(read_profile(session_dir / "profile.ndjson"))
+        finally:
+            # Don't litter sessions/ with this test's unique-id profile dir.
+            shutil.rmtree(session_dir, ignore_errors=True)
+
+    def test_draft_entities_records_accumulated_tokens(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+            # Each leaf call reports a known usage payload through the sink.
+            if usage_sink is not None:
+                usage_sink(100, 20, "gpt-4o-mini")
+            return {"description": f"drafted {entity_type}"}
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+
+        engine = _engine(self._seeded_state())
+        totals = {"input_tokens": 0, "output_tokens": 0}
+        sink = pipeline_mod._make_usage_logger(engine, totals)
+        result = pipeline_mod._draft_entities(engine, sink)
+
+        # The spine enriched every entity missing a descriptive field; at least
+        # the two bare domain entities, so >1 leaf call is made (we assert usage
+        # is ACCUMULATED, not just recorded once).
+        n_calls = len(result["drafted"])
+        assert n_calls >= 2
+
+        # The running accumulator summed every leaf call (n_calls × 100/20).
+        assert totals["input_tokens"] == 100 * n_calls
+        assert totals["output_tokens"] == 20 * n_calls
+
+        # …and those landed in profile.ndjson as node_end/model events, so the
+        # eval runner mines them identically to the ReAct arm.
+        pm = self._mine(engine)
+        assert pm.input_tokens == 100 * n_calls
+        assert pm.output_tokens == 20 * n_calls
+        assert pm.total_tokens == 120 * n_calls
+
+    def test_no_provider_records_clean_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        # No provider → the leaf is never called and no model events are written.
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
+
+        def boom(*args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("leaf must not run without a provider")
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", boom)
+
+        engine = _engine(self._seeded_state())
+        pipeline_mod._draft_entities(engine)
+
+        pm = self._mine(engine)
+        assert pm.input_tokens == 0
+        assert pm.output_tokens == 0
+        assert pm.total_tokens == 0
+
+    def test_run_pipeline_returns_usage_dict(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``run_pipeline``'s result additively surfaces the accumulated usage."""
+        import builder.agents.pipeline as pipeline_mod
+        from builder.agents.pipeline import run_pipeline
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+        # Make the plan stage a no-op (empty plan) so only the drafter leaf runs.
+        monkeypatch.setattr(pipeline_mod, "extract_plan", lambda *a, **k: {})
+
+        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+            if usage_sink is not None:
+                usage_sink(50, 10, "gpt-4o-mini")
+            return {"description": f"drafted {entity_type}"}
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+
+        import shutil
+        from pathlib import Path
+
+        from builder.tools.profiler import SESSION_DIR
+
+        engine = _engine(self._seeded_state())
+        try:
+            result = run_pipeline(engine)
+        finally:
+            engine.close_profiler()
+            shutil.rmtree(
+                Path(SESSION_DIR) / engine.state.session_id, ignore_errors=True
+            )
+
+        assert "usage" in result
+        usage = result["usage"]
+        # At least the two seeded bare entities were drafted (50/10 each).
+        assert usage["input_tokens"] >= 100
+        assert usage["output_tokens"] >= 20
+        assert usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
 
 
 class TestDeterminism:
