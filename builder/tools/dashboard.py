@@ -962,9 +962,17 @@ def _change_touches(changes: Any, watched: set[str]) -> bool:
     re-render only when ``profile.ndjson`` or ``crate_state.json`` actually changed
     so unrelated churn doesn't thrash the display. ``changes`` is the
     ``set[tuple[Change, str]]`` yielded by ``watchfiles.watch``.
+
+    Matching is by **basename**, not full path. ``watchfiles`` yields ABSOLUTE
+    paths, but ``watched`` is built from ``SESSION_DIR`` which is *relative*
+    (``Path("sessions")``), so a full-string ``path in watched`` never matched and
+    the dashboard stopped refreshing entirely (regression from the dir-watch
+    change). Comparing file names is robust to relative-vs-absolute and symlinked
+    paths.
     """
+    names = {Path(p).name for p in watched}
     try:
-        return any(path in watched for _change, path in changes)
+        return any(Path(path).name in names for _change, path in changes)
     except TypeError:
         return False
 
