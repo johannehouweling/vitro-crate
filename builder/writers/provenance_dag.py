@@ -24,6 +24,7 @@ renderer and the builder agree on what an input/output edge is; the bare
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 from pathlib import Path
@@ -272,7 +273,22 @@ def _tag(node: dict[str, Any]) -> str:
 
 
 def _escape(text: str) -> str:
-    return text.replace('"', "'").replace("\n", " ").strip()
+    """Make a crate-controlled string safe to interpolate into a Mermaid label.
+
+    Mermaid node labels are quoted strings whose contents are rendered as HTML
+    by mermaid.js, so unescaped crate data (entity names/descriptions) is a
+    stored-XSS vector — a name like ``<img src=x onerror=alert(1)>`` would run
+    when the embedded diagram is opened (#169). We therefore HTML-escape the
+    metacharacters (``& < > "``) so the text renders inert, collapse newlines so
+    the label stays single-line, and strip surrounding whitespace.
+
+    The intentional markup the writers add around a label (``<br/>``,
+    ``<small>``) is composed *after* this call, so it stays live; only the
+    dynamic text is neutralised. ``"`` becomes ``&quot;`` (not ``'``) so a label
+    can never break out of its quoted Mermaid string either.
+    """
+    escaped = html.escape(text, quote=True)
+    return escaped.replace("\n", " ").replace("\r", " ").strip()
 
 
 def _mermaid_node(mid: str, node: dict[str, Any]) -> str:
@@ -738,7 +754,9 @@ _HTML_TEMPLATE = """\
 <div id="graph"><p class="err">Rendering… (needs network access for mermaid.js)</p></div>
 <script type="module">
   import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-  mermaid.initialize({{ startOnLoad: false, securityLevel: 'loose' }});
+  // securityLevel 'strict' (the default) sandboxes labels and disables click
+  // handlers so crate-controlled node text can't execute as HTML/JS (#169).
+  mermaid.initialize({{ startOnLoad: false, securityLevel: 'strict' }});
   const src = {source};
   try {{
     const {{ svg }} = await mermaid.render('provenance-dag', src);
@@ -774,7 +792,9 @@ def render_mermaid_html(mermaid: str, *, title: str = "Provenance DAG") -> str:
 
 
 def _crate_node_label(n: dict[str, Any]) -> str:
-    name = n["label"] or n["id"]
+    # ``label`` is already escaped (see build_crate_graph); the ``id`` fallback
+    # is crate-controlled too, so escape it before it reaches the HTML label.
+    name = n["label"] or _escape(n["id"])
     if n["status"] == "external":
         return f"🔗 {name}<br/><small>outside crate</small>"
     if n["status"] == "dangling":
