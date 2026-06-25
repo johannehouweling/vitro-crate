@@ -16,6 +16,9 @@ sessions/
 input/
 output/
 
+# A/B evaluation harness reports (live runs write here; never commit)
+eval_reports/
+
 .pytest_cache/
 .mypy_cache/
 .claude/CLAUDE.md

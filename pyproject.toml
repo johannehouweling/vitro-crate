@@ -51,5 +51,5 @@ exclude = ["tests", "tests/*.py"]
 select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "eval/tests"]
 python_files = ["test_*.py"]
