@@ -93,6 +93,8 @@ from rocrate_validator.services import DEFAULT_PROFILES_PATH  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SHAPES_DIR = Path(__file__).resolve().parent / "shapes"
 
+logger = logging.getLogger(__name__)
+
 
 def _patch_bundled_isa_ontology() -> None:
     """Work around an upstream syntax bug in roc-validator 0.10.0.
@@ -120,7 +122,59 @@ def _patch_bundled_isa_ontology() -> None:
 _patch_bundled_isa_ontology()
 
 
-logger = logging.getLogger(__name__)
+def _patch_in_memory_descriptor_id() -> None:
+    """Skip the working-directory walk on the in-memory (dict) validation path (#115).
+
+    ``validate_crate_dict`` validates a metadata *dict* via
+    ``services.validate_metadata_as_dict``, which builds the RO-Crate through
+    ``ROCrate.from_metadata_dict``. That factory hardcodes the crate URI to
+    ``"./"`` (the current working directory) and dispatches to
+    ``ROCrateLocalFolder``. The base-pass check ``ro-crate-1.2`` then resolves the
+    metadata-descriptor id via ``ROCrateLocalFolder.metadata_descriptor_id``,
+    which does ``base_path.rglob("*ro-crate-metadata.json")`` over that URI — a
+    **recursive walk of the entire CWD tree** on every pass, every call.
+
+    On any real run the CWD is a checkout (``.venv``, ``.git``, many git
+    worktrees) or a large extracted dataset, so that walk dominated wall-clock:
+    profiling pinned it at ~57s of a ~69s three-pass sweep (#115). It is pure
+    waste on the dict path — there is *no* crate on disk, and the descriptor id is
+    the fixed convention ``ro-crate-metadata.json`` (exactly what the upstream walk
+    falls back to when it finds no candidate). So we wrap ``from_metadata_dict`` to
+    pre-seed the instance's cached ``_metadata_descriptor_id`` with that canonical
+    constant; the property then returns it immediately and never walks the disk.
+
+    Correctness is preserved: the value is identical to the upstream no-candidate
+    fallback, and the patch is scoped to ``from_metadata_dict`` — used *only* by
+    the in-memory dict path — so the on-disk ``validate_crate`` (which legitimately
+    discovers a descriptor in a real crate directory) is untouched. The patch is
+    idempotent so repeated imports don't re-wrap it.
+    """
+    try:
+        from rocrate_validator.rocrate.base import ROCrate as _RVROCrate
+        from rocrate_validator.rocrate.metadata import ROCrateMetadata as _RVMetadata
+    except ImportError as exc:  # pragma: no cover - validator always present here
+        logger.debug("Could not patch in-memory descriptor id: %s", exc)
+        return
+
+    original = getattr(_RVROCrate.from_metadata_dict, "__wrapped__", None)
+    if original is not None:
+        return  # already patched (idempotent)
+
+    _original_from_metadata_dict = _RVROCrate.from_metadata_dict
+
+    def _from_metadata_dict_no_walk(metadata_dict: dict):  # noqa: ANN202
+        crate = _original_from_metadata_dict(metadata_dict)
+        # Short-circuit the rglob over the CWD: seed the cached descriptor id with
+        # the canonical constant (the upstream no-candidate fallback value).
+        crate._metadata_descriptor_id = _RVMetadata.METADATA_FILE_DESCRIPTOR  # ty: ignore[unresolved-attribute]
+        return crate
+
+    _from_metadata_dict_no_walk.__wrapped__ = _original_from_metadata_dict  # ty: ignore[unresolved-attribute]
+    # from_metadata_dict is a @staticmethod; re-wrap to preserve that binding.
+    _RVROCrate.from_metadata_dict = staticmethod(_from_metadata_dict_no_walk)  # ty: ignore[invalid-assignment]
+
+
+_patch_in_memory_descriptor_id()
 
 
 # ---------------------------------------------------------------------------
