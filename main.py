@@ -22,21 +22,34 @@ from builder.engine import AgentEngine
 logger = logging.getLogger(__name__)
 
 
-def setup_logging(verbose: int = 0) -> None:
+def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
     """Configure logging for the builder.
 
     Levels:
         0 = WARNING (only warnings and errors)
         1 = INFO    (normal progress)
         2 = DEBUG   (verbose/tool internals)
+
+    The interactive build drives a multi-step deterministic pipeline whose
+    progress is logged at INFO; with the default WARNING level the run looks
+    dead. When *interactive* is set and the user has not requested any extra
+    verbosity (``verbose == 0``), the effective level is raised to INFO so that
+    pipeline progress is visible. A user-requested higher verbosity (``-v`` /
+    ``-vv``) is never downgraded.
     """
     level_map = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}
     level = level_map.get(verbose, logging.WARNING)
+    if interactive and verbose == 0:
+        level = logging.INFO
     logging.basicConfig(
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # basicConfig is a no-op once the root logger has handlers (e.g. a prior
+    # call in the same process), so set the level explicitly to honour the
+    # interactive bump and the requested verbosity deterministically.
+    logging.getLogger().setLevel(level)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -340,7 +353,11 @@ def main(argv: list[str] | None = None) -> int:
     Returns 0 on success, 1 on error.
     """
     args = parse_args(argv)
-    setup_logging(args.verbose)
+    # The default interactive build (pipeline + guidance) logs progress at INFO;
+    # bump the default level there so the run does not look dead. The legacy
+    # ReAct loop keeps its own output, so the bump applies to the whole
+    # interactive path.
+    setup_logging(args.verbose, interactive=args.interactive)
 
     logger.info("ISA-Tox RO-Crate Builder v0.1.0")
 
@@ -422,6 +439,18 @@ def main(argv: list[str] | None = None) -> int:
                 provider=args.provider,
                 model=args.model,
                 base_url=args.api_base,
+            )
+            return 0
+
+        # The default interactive build is folder-driven: with no scanned files
+        # there is genuinely nothing to build. Tell the user how to proceed
+        # instead of exiting near-silently, then return gracefully.
+        if len(engine.state.scanned_files) == 0:
+            print(
+                "No input documents found. The interactive build is "
+                "folder-driven: pass --input <folder> to build an ISA-Tox crate "
+                "from your research documents, or use --legacy-react for the "
+                "conversational agent."
             )
             return 0
 
