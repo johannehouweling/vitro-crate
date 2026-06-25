@@ -42,6 +42,12 @@ class InputResponse(TypedDict):
     skipped: bool
 
 
+# Sentinel ``purpose`` value marking a request to approve a NEW filesystem
+# scan root. The default/simulated interface must DENY these — it can never be
+# the approver for filesystem access (fail-closed, #197).
+SCAN_ROOT_PURPOSE = "scan_root"
+
+
 @runtime_checkable
 class HumanInterface(Protocol):
     """Dependency-injection point for human-in-the-loop interaction.
@@ -50,8 +56,18 @@ class HumanInterface(Protocol):
     (CLI prompt, Streamlit widget, FastAPI round-trip, test double, …).
     """
 
-    def present(self, context: str, options: list[str] | None = None) -> HumanResponse:
-        """Present content to the human and return their decision."""
+    def present(
+        self,
+        context: str,
+        options: list[str] | None = None,
+        purpose: str | None = None,
+    ) -> HumanResponse:
+        """Present content to the human and return their decision.
+
+        *purpose* optionally classifies the request (e.g. ``"scan_root"`` for a
+        request to approve a new filesystem scan root). Implementations may use
+        it to apply stricter handling to security-sensitive escalations.
+        """
         ...
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
@@ -63,14 +79,32 @@ class SimulatedHumanInterface:
     """Default non-interactive interface: auto-approves and skips input.
 
     Reproduces the previous stub behaviour so headless/batch runs proceed
-    without blocking on a real user.
+    without blocking on a real user — EXCEPT for scan-root escalations, which
+    it denies: the simulator can never be the approver for filesystem access
+    (fail-closed, #197).
     """
 
-    def present(self, context: str, options: list[str] | None = None) -> HumanResponse:
-        """Log the presentation and return a simulated-approved response."""
+    def present(
+        self,
+        context: str,
+        options: list[str] | None = None,
+        purpose: str | None = None,
+    ) -> HumanResponse:
+        """Log the presentation and return a simulated decision.
+
+        Benign checkpoints (entity review, etc.) auto-approve as before. A
+        scan-root escalation (``purpose == "scan_root"``) is DENIED — the
+        non-interactive default must not silently widen filesystem access.
+        """
         logger.info("HITL presentation: %s", context)
         if options:
             logger.info("HITL options: %s", options)
+        if purpose == SCAN_ROOT_PURPOSE:
+            logger.warning(
+                "Denying simulated approval of a new scan root (fail-closed): %s",
+                context,
+            )
+            return {"action": "rejected", "comments": None, "edits": None}
         return {"action": "approved", "comments": None, "edits": None}
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
@@ -86,13 +120,14 @@ _default_interface: HumanInterface = SimulatedHumanInterface()
 def present_to_human(
     context: str,
     options: list[str] | None = None,
+    purpose: str | None = None,
 ) -> HumanResponse:
     """Present content to the human via the default simulated interface.
 
     Backward-compatible wrapper; new code should inject a
     :class:`HumanInterface` into :class:`~builder.engine.AgentEngine` instead.
     """
-    return _default_interface.present(context, options)
+    return _default_interface.present(context, options, purpose)
 
 
 def request_input(
@@ -108,6 +143,7 @@ def request_input(
 
 
 __all__ = [
+    "SCAN_ROOT_PURPOSE",
     "HumanInterface",
     "HumanResponse",
     "InputResponse",

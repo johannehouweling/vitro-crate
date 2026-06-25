@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _directory_to_approve(scanned_path: str) -> str:
+def _directory_to_approve(scanned_path: str) -> str | None:
     """Return the directory to add to ``approved_scan_roots`` for *scanned_path*.
 
     The approved root must be a *directory*: the guard treats roots as
@@ -36,16 +36,26 @@ def _directory_to_approve(scanned_path: str) -> str:
       the archive's parent — approving the parent would expose unrelated
       sibling files, weakening the D9 approved-roots guard rail;
     - any other file -> its parent directory.
+
+    Returns ``None`` when the resulting directory is a forbidden root (the
+    filesystem root, the user's home directory, or an OS/system tree). A
+    forbidden directory can never become an approved scan root (#197).
     """
-    from builder.tools.scanner import _is_archive
+    from builder.tools.scanner import _is_archive, _is_forbidden_root
 
     p = Path(scanned_path).resolve()
     if p.is_dir():
-        return str(p)
-    if _is_archive(p):
+        candidate = p
+    elif _is_archive(p):
         # Mirror unzip_file's extraction layout: <parent>/<stem>_extracted
-        return str(p.parent / f"{p.stem}_extracted")
-    return str(p.parent)
+        candidate = p.parent / f"{p.stem}_extracted"
+    else:
+        candidate = p.parent
+
+    if _is_forbidden_root(candidate):
+        logger.warning("Refusing to approve forbidden scan root: %s", candidate)
+        return None
+    return str(candidate)
 
 
 # Validation layers stack as a pyramid (BASE -> ISA -> TOX); ordering REQUIRED
@@ -149,13 +159,25 @@ class AgentEngine:
         from builder.tools.scanner import scan_files
 
         if input_path:
-            scanned = scan_files(input_path)
-            self.state.scanned_files = scanned
+            # Approve the directory whose contents we inventory (the extraction
+            # dir for an archive), not the raw input path — see
+            # _directory_to_approve. This is a user-provided input path, the
+            # only legitimate way (besides a real approval) for a root to enter
+            # the allowlist (#197). A forbidden root yields None and is refused.
             self.state.metadata.input_path = input_path
-            # Approve the directory whose contents we inventoried (the
-            # extraction dir for an archive), not the raw input path — see
-            # _directory_to_approve. Locks the guard even on an empty scan.
-            self.state.approved_scan_roots.add(_directory_to_approve(input_path))
+            approved = _directory_to_approve(input_path)
+            if approved is not None:
+                self.state.approved_scan_roots.add(approved)
+                # The scanner fails closed, so it must receive a concrete
+                # allowlist. For an archive the literal input path differs from
+                # its extraction dir, so approve the input path for this one
+                # scan too; the persistent root remains the extraction dir.
+                scan_roots = self.state.approved_scan_roots | {str(Path(input_path).resolve())}
+                self.state.scanned_files = scan_files(input_path, approved_roots=scan_roots)
+            else:
+                logger.warning(
+                    "Refusing to initialize scan on forbidden input path: %s", input_path
+                )
 
         if not self.state.session_id:
             self.state.session_id = _config.now().strftime("%Y%m%d_%H%M%S")
@@ -284,26 +306,19 @@ class AgentEngine:
             )
         elif tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
-            # Inject approved roots for scan_files
+            # Inject approved roots for scan_files. Fail closed (#197): always
+            # pass a concrete allowlist — an EMPTY set, never None — so the
+            # scanner refuses when nothing has been approved. The agent's own
+            # scan call must NEVER auto-approve a new root; roots are added only
+            # by initialize() (a user-provided input path) or a real approval.
             tool_kwargs = dict(kwargs)
             if tool_name == "scan_files":
-                tool_kwargs["approved_roots"] = (
-                    self.state.approved_scan_roots.copy()
-                    if self.state.approved_scan_roots
-                    else None
-                )
+                tool_kwargs["approved_roots"] = self.state.approved_scan_roots.copy()
             result = tool_fn(**tool_kwargs)
-            # Auto-store scan results in state, and register the scanned
-            # path as an approved root if none were set yet.
+            # Auto-store scan results in state. Do NOT register the scanned path
+            # as an approved root here — that fail-open auto-approve (#197) let
+            # the agent scan arbitrary locations by simply naming them.
             if tool_name == "scan_files" and isinstance(result, list):
-                # Lock the guard to the scanned area on the first scan, even if
-                # it returned nothing — otherwise approved_scan_roots stays
-                # empty, run_tool keeps passing approved_roots=None, and the
-                # guard is effectively disabled (any path becomes scannable).
-                if not self.state.approved_scan_roots:
-                    self.state.approved_scan_roots.add(
-                        _directory_to_approve(kwargs.get("path", ""))
-                    )
                 if result:
                     self.state.scanned_files = result
                     self.state.log_reasoning(

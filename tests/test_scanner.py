@@ -14,12 +14,30 @@ from builder.tools.scanner import (
 )
 
 
+def _scan(path, **kwargs):
+    """Test helper: scan *path* with it pre-approved.
+
+    The scanner now fails CLOSED (#197): a scan is refused unless the target is
+    inside an approved root. These unit tests exercise pure scanning/classification
+    behaviour, so we approve the target itself. For an archive we also approve its
+    extraction dir (``<stem>_extracted``) so the post-extract recursion is allowed.
+    Tests that specifically exercise the guard pass ``approved_roots`` explicitly.
+    """
+    if "approved_roots" in kwargs:
+        return scan_files(path, **kwargs)
+    p = Path(path).resolve()
+    approved = {str(p)}
+    # Archives extract next to themselves; approve that dir too.
+    approved.add(str(p.parent / f"{p.stem}_extracted"))
+    return scan_files(path, approved_roots=approved, **kwargs)
+
+
 class TestScanFiles:
     """Tests for the scan_files function."""
 
     def test_empty_directory_returns_empty_list(self, tmp_path):
         """scan_files on an empty directory should return an empty list."""
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
         assert result == []
 
     def test_single_text_file_returns_one_classification(self, tmp_path):
@@ -28,7 +46,7 @@ class TestScanFiles:
         data_file = tmp_path / "readme.txt"
         data_file.write_text("hello world\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert len(result) == 1
         fc = result[0]
@@ -44,7 +62,7 @@ class TestScanFiles:
         # Create a hidden file
         (tmp_path / ".hidden").write_text("shh\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert len(result) == 1
         assert result[0].filename == "visible.txt"
@@ -54,7 +72,7 @@ class TestScanFiles:
         csv_file = tmp_path / "data.csv"
         csv_file.write_text("col1,col2,col3\n1,2,3\n4,5,6\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert len(result) == 1
         fc = result[0]
@@ -66,7 +84,7 @@ class TestScanFiles:
         csv_file = tmp_path / "data.csv"
         csv_file.write_text("col1,col2,col3\n1,2,3\n4,5,6\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         fc = result[0]
         assert fc.first_rows is not None
@@ -77,7 +95,7 @@ class TestScanFiles:
         """scan_files does not populate first_rows for plain text files."""
         (tmp_path / "readme.txt").write_text("hello world\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert result[0].first_rows is None
 
@@ -86,7 +104,7 @@ class TestScanFiles:
         tsv_file = tmp_path / "data.tsv"
         tsv_file.write_text("col1\tcol2\n1\t2\n3\t4\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         fc = result[0]
         assert fc.first_rows is not None
@@ -95,7 +113,7 @@ class TestScanFiles:
     def test_nonexistent_directory_returns_empty_list(self, tmp_path):
         """scan_files on a non-existent directory should return [] gracefully."""
         nonexistent = tmp_path / "does_not_exist"
-        result = scan_files(str(nonexistent))
+        result = _scan(str(nonexistent))
         assert result == []
 
     def test_unreadable_directory_returns_empty_list(self, tmp_path):
@@ -108,7 +126,7 @@ class TestScanFiles:
         # Remove read permission for all
         unreadable.chmod(stat.S_IRUSR)
 
-        result = scan_files(str(unreadable))
+        result = _scan(str(unreadable))
         assert result == []
 
         # Restore so cleanup works
@@ -127,7 +145,7 @@ class TestScanFilesArchive:
             zf.writestr("file1.txt", "hello\n")
             zf.writestr("file2.txt", "world\n")
 
-        result = scan_files(str(zip_path))
+        result = _scan(str(zip_path))
 
         assert isinstance(result, list)
         assert len(result) == 2
@@ -142,7 +160,7 @@ class TestScanFilesArchive:
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("a.txt", "content\n")
 
-        result = scan_files(str(zip_path))
+        result = _scan(str(zip_path))
 
         assert isinstance(result, list)
         assert len(result) == 1
@@ -157,7 +175,7 @@ class TestScanFilesArchive:
             zf.writestr("subdir/", b"")
             zf.writestr("subdir/data.csv", "a,b\n1,2\n")
 
-        result = scan_files(str(zip_path))
+        result = _scan(str(zip_path))
 
         assert isinstance(result, list)
         assert len(result) == 1  # only the file, not the dir entry
@@ -168,7 +186,7 @@ class TestScanFilesArchive:
         zip_path = tmp_path / "corrupt.zip"
         zip_path.write_bytes(b"this is not a zip file")
 
-        result = scan_files(str(zip_path))
+        result = _scan(str(zip_path))
 
         assert isinstance(result, list)
         assert result == []
@@ -183,7 +201,7 @@ class TestScanFilesArchive:
             zf.writestr("__MACOSX/subdir/._notes.txt", b"\x00\x02")
             zf.writestr("data.csv", "a,b\n1,2\n")
 
-        result = scan_files(str(zip_path))
+        result = _scan(str(zip_path))
 
         assert isinstance(result, list)
         filenames = [f.filename for f in result]
@@ -544,7 +562,7 @@ class TestScannerTiming:
         for i in range(250):
             (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert len(result) == 250
         # Should have at least "Progress: 100/..." and "Progress: 200/..."
@@ -568,7 +586,7 @@ class TestScannerTiming:
         for i in range(3):
             (tmp_path / f"file_{i}.txt").write_text(f"content {i}\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert len(result) == 3
         progress_messages = [r for r in caplog.records if "Progress" in r.getMessage()]
@@ -632,6 +650,65 @@ class TestApprovedRoots:
         assert result[0].filename == "file.csv"
 
 
+class TestApprovedRootsFailClosed:
+    """Fail-closed contract for the approved-scan-roots guard (#197).
+
+    With NO approved roots (None or empty) the scanner must REFUSE and never
+    walk the target. Forbidden system/home roots must be denied even when
+    explicitly present in *approved_roots*.
+    """
+
+    def test_none_approved_roots_refuses_and_does_not_walk(self, tmp_path, caplog):
+        """None approved_roots ⇒ refuse, return [], and never descend."""
+        (tmp_path / "data.csv").write_text("a,b\n1,2\n")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "nested.txt").write_text("nested")
+
+        with mock.patch("builder.tools.scanner._safe_walk") as walk:
+            result = scan_files(str(tmp_path), approved_roots=None)
+
+        assert result == []
+        walk.assert_not_called()  # never traversed
+        assert any("not in approved roots" in r.getMessage() for r in caplog.records)
+
+    def test_empty_approved_roots_refuses_and_does_not_walk(self, tmp_path):
+        """An empty set ⇒ nothing approved ⇒ refuse without walking."""
+        (tmp_path / "data.csv").write_text("a,b\n1,2\n")
+
+        with mock.patch("builder.tools.scanner._safe_walk") as walk:
+            result = scan_files(str(tmp_path), approved_roots=set())
+
+        assert result == []
+        walk.assert_not_called()
+
+    def test_filesystem_root_refused_regardless_of_approved_roots(self):
+        """scan_files('/') is refused even with an approved root present."""
+        with mock.patch("builder.tools.scanner._safe_walk") as walk:
+            assert scan_files("/", approved_roots={"/"}) == []
+            assert scan_files("/", approved_roots={"/some/dir"}) == []
+        walk.assert_not_called()
+
+    def test_denylisted_roots_refused_even_when_explicitly_approved(self, tmp_path):
+        """Forbidden roots cannot be scanned even if passed in approved_roots."""
+        home = str(Path.home())
+        for forbidden in ("/", home, "/System", "/usr", "/etc", "/Users"):
+            with mock.patch("builder.tools.scanner._safe_walk") as walk:
+                result = scan_files(forbidden, approved_roots={forbidden})
+            assert result == [], f"{forbidden} should be refused"
+            walk.assert_not_called()
+
+    def test_normal_subdir_under_temp_root_is_allowed(self, tmp_path):
+        """A legitimate subdir under an approved (non-forbidden) root scans."""
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / "data.csv").write_text("a,b\n1,2\n")
+
+        result = scan_files(str(root), approved_roots={str(root.resolve())})
+
+        assert len(result) == 1
+        assert result[0].filename == "data.csv"
+
+
 class TestPruneHiddenDirs:
     """Tests for Issue #69: prune hidden/.git/__MACOSX subtrees during walk."""
 
@@ -642,7 +719,7 @@ class TestPruneHiddenDirs:
         (tmp_path / ".git" / "objects" / "abc123").write_text("fake pack\n")
         (tmp_path / "data.txt").write_text("real data\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         filenames = [f.filename for f in result]
         assert "data.txt" in filenames
@@ -655,7 +732,7 @@ class TestPruneHiddenDirs:
         (tmp_path / ".hidden_dir" / "secret.csv").write_text("a,b\n1,2\n")
         (tmp_path / "visible.csv").write_text("c,d\n3,4\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         filenames = [f.filename for f in result]
         assert "visible.csv" in filenames
@@ -668,7 +745,7 @@ class TestPruneHiddenDirs:
         (tmp_path / "__MACOSX" / "._junk.txt").write_text("junk\n")
         (tmp_path / "real.csv").write_text("x,y\n1,2\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         filenames = [f.filename for f in result]
         assert "real.csv" in filenames
@@ -683,7 +760,7 @@ class TestPruneHiddenDirs:
         (sub / ".cache" / "deep.txt").write_text("hidden\n")
         (sub / "good.txt").write_text("visible\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert all(".cache" not in f.path for f in result)
         assert len(result) == 1
@@ -694,7 +771,7 @@ class TestPruneHiddenDirs:
         (tmp_path / "visible.txt").write_text("hello\n")
         (tmp_path / ".hidden.txt").write_text("shh\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert len(result) == 1
         assert result[0].filename == "visible.txt"
@@ -708,7 +785,7 @@ class TestMaxFilesCap:
         for i in range(150):
             (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
 
-        result = scan_files(str(tmp_path), max_files=50)
+        result = _scan(str(tmp_path), max_files=50)
 
         assert len(result) == 50
 
@@ -717,7 +794,7 @@ class TestMaxFilesCap:
         for i in range(50):
             (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         assert len(result) == 50
 
@@ -730,7 +807,7 @@ class TestMaxFilesCap:
         for i in range(150):
             (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
 
-        scan_files(str(tmp_path), max_files=50)
+        _scan(str(tmp_path), max_files=50)
 
         warning_messages = [r for r in caplog.records if "max_files" in r.getMessage().lower()]
         assert len(warning_messages) == 1
@@ -741,7 +818,7 @@ class TestMaxFilesCap:
         csv_content = f"{long_line}\ncol1,col2\n1,2\n"
         (tmp_path / "long.csv").write_text(csv_content)
 
-        result = scan_files(str(tmp_path), max_line_length=100)
+        result = _scan(str(tmp_path), max_line_length=100)
 
         fc = result[0]
         assert fc.first_rows is not None
@@ -752,7 +829,7 @@ class TestMaxFilesCap:
         line = "x" * 300
         (tmp_path / "data.csv").write_text(f"{line}\na,b\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         fc = result[0]
         assert fc.first_rows is not None
@@ -762,7 +839,7 @@ class TestMaxFilesCap:
         """scan_files with max_line_length does not affect shorter lines."""
         (tmp_path / "data.csv").write_text("a,b\n1,2\n3,4\n")
 
-        result = scan_files(str(tmp_path), max_line_length=100)
+        result = _scan(str(tmp_path), max_line_length=100)
 
         fc = result[0]
         assert fc.first_rows is not None
@@ -782,7 +859,7 @@ class TestReducedStats:
             "builder.tools.scanner._detect_mime_type",
             wraps=_detect_mime_type,
         ) as mock_mime:
-            result = scan_files(str(tmp_path), max_files=100)
+            result = _scan(str(tmp_path), max_files=100)
 
         assert len(result) == 1
         assert result[0].mime_type == "text/csv"
@@ -795,7 +872,7 @@ class TestReducedStats:
         csv_file = tmp_path / "data.csv"
         csv_file.write_text("col1,col2\n1,2\n3,4\n")
 
-        result = scan_files(str(tmp_path))
+        result = _scan(str(tmp_path))
 
         fc = result[0]
         assert fc.first_rows is not None

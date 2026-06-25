@@ -27,15 +27,25 @@ def read_directory(path: str) -> CrateState:
     Returns:
         A CrateState seeded with scanned file information.
     """
-    from builder.tools.scanner import scan_files
+    from builder.tools.scanner import _is_forbidden_root, scan_files
 
     state = CrateState()
 
     dir_path = Path(path)
-    state.metadata.input_path = str(dir_path.resolve())
+    resolved = dir_path.resolve()
+    state.metadata.input_path = str(resolved)
     state.metadata.title = dir_path.name
 
-    scanned = scan_files(path)
+    # A user-provided input directory is a legitimate scan root. Approve it and
+    # pass the allowlist to the now fail-closed scanner (#197). A forbidden root
+    # (filesystem root, home dir, system tree) is refused outright.
+    if _is_forbidden_root(resolved):
+        logger.warning("Refusing to read forbidden directory: %s", resolved)
+        scanned: list = []
+    else:
+        approved = {str(resolved)}
+        state.approved_scan_roots.add(str(resolved))
+        scanned = scan_files(path, approved_roots=approved)
     state.scanned_files = scanned
 
     state.session_id = _config.now().strftime("%Y%m%d_%H%M%S")
