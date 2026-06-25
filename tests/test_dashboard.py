@@ -440,3 +440,22 @@ class TestLiveRefresh:
         # the atomic-save temp churn must NOT trigger a re-render
         assert _change_touches({(1, "/s/.crate_state_tmp_abc")}, watched) is False
         assert _change_touches(set(), watched) is False
+
+    def test_change_touches_matches_relative_watched_vs_absolute_event(self) -> None:
+        """REGRESSION: SESSION_DIR is relative ('sessions'), so `watched` holds
+        RELATIVE paths, but watchfiles yields ABSOLUTE paths. Full-string matching
+        never hit and the dashboard stopped refreshing — match by basename."""
+        from builder.tools.dashboard import _change_touches
+
+        # watched built from a relative SESSION_DIR; events arrive absolute.
+        watched = {"sessions/20260626_x/profile.ndjson", "sessions/20260626_x/crate_state.json"}
+        assert _change_touches(
+            {(2, "/Users/me/repo/sessions/20260626_x/profile.ndjson")}, watched
+        ) is True
+        assert _change_touches(
+            {(1, "/Users/me/repo/sessions/20260626_x/crate_state.json")}, watched
+        ) is True
+        # unrelated absolute churn still ignored
+        assert _change_touches(
+            {(1, "/Users/me/repo/sessions/20260626_x/.crate_state_tmp_x")}, watched
+        ) is False
