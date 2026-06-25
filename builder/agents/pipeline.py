@@ -490,6 +490,52 @@ def _first_entity_id(engine: AgentEngine, entity_type: str) -> str | None:
     )
 
 
+# The generic placeholder names the scaffold leaves on a backbone layer when no
+# title was available (kept in sync with the `_DEFAULT_*` constants above). A
+# field still carrying its layer's placeholder is treated as "empty" by the
+# fill-don't-clobber merge below, so a real plan name overwrites it.
+_GENERIC_BACKBONE_NAMES: frozenset[str] = frozenset(
+    {_DEFAULT_INVESTIGATION_NAME, _DEFAULT_STUDY_NAME, _DEFAULT_ASSAY_NAME}
+)
+
+
+def _merge_backbone_layer(engine: AgentEngine, entity_type: str, hints: dict[str, str]) -> bool:
+    """Fill the plan's name/description onto an existing backbone layer.
+
+    The backbone is scaffolded BEFORE the plan is materialized, and
+    ``scaffold_isa_backbone`` *reuses* an existing entity (its hints reach the
+    drafter only on creation). So the plan's Study name would otherwise be
+    dropped — the scaffolded Study keeps its generic placeholder. This applies the
+    plan's descriptive fields directly onto the already-scaffolded entity, via the
+    entity model (``set_fields_from_dict``, source ``"llm"``), **fill-don't-clobber**:
+    a field is overwritten only when it is empty or still carries the layer's
+    generic placeholder name, so a real, specific scaffolded name is never lost.
+
+    D5-safe: only descriptive ``name`` / ``description`` are merged — never an
+    identifier. Returns ``True`` iff at least one field was applied.
+    """
+    entity = next(
+        (e for e in engine.state.list_entities() if e.type == entity_type), None
+    )
+    if entity is None:
+        return False
+
+    to_apply: dict[str, str] = {}
+    for field, value in hints.items():
+        new_value = str(value or "").strip()
+        if not new_value:
+            continue
+        current = str(entity.fields.get(field) or "").strip()
+        # Fill when empty or still the generic placeholder; otherwise keep what's
+        # there (the scaffold derived a real name from the crate title — it wins).
+        if not current or current in _GENERIC_BACKBONE_NAMES:
+            to_apply[field] = new_value
+
+    if to_apply:
+        entity.set_fields_from_dict(to_apply, source="llm")
+    return bool(to_apply)
+
+
 # The conservative default process a protocol governs when the plan gives no (or
 # an unmatched) hint: the central exposure/assay step, then a measurement readout.
 _PROTOCOL_DEFAULT_PROCESS_TYPES: tuple[str, ...] = (
@@ -643,7 +689,13 @@ def _materialize_plan(
     if not isinstance(plan, dict):
         return result
 
-    # --- study: merge the plan's name/description into the scaffolded backbone ---
+    # --- study: merge the plan's name/description onto the scaffolded backbone ---
+    # The backbone is scaffolded BEFORE this step, and scaffold_isa_backbone reuses
+    # the existing Study (dropping its hints), so re-calling it here would be a
+    # no-op on the name. Apply the plan's descriptive fields directly onto the
+    # already-scaffolded Study, fill-don't-clobber, so a generic "Study"
+    # placeholder is replaced by the plan name while a real (title-derived) name is
+    # preserved. D5-safe: only name/description are merged, never identifiers.
     study_plan = plan.get("study")
     if isinstance(study_plan, dict) and (study_plan.get("name") or study_plan.get("description")):
         study_hints = {
@@ -652,10 +704,10 @@ def _materialize_plan(
             if str(study_plan.get(key) or "").strip()
         }
         try:
-            engine.run_tool("scaffold_isa_backbone", study=study_hints)
-            result["study"] = 1
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("scaffold_isa_backbone (plan study) failed: %s", exc)
+            if _merge_backbone_layer(engine, "Study", study_hints):
+                result["study"] = 1
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("merge plan study name failed: %s", exc)
 
     # --- compounds: resolve_compound mints the MolecularEntity + verified ids ---
     for compound in plan.get("compounds") or []:
