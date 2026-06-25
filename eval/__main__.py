@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from builder.config import load_config, merge_with_env
 from eval.agent_api import BuildAgent
 from eval.corpus import DEFAULT_CORPUS
 from eval.report import write_report
@@ -96,6 +97,15 @@ def run_main(
     logging.basicConfig(level=logging.INFO)
 
     if agent_factory is None:
+        # LIVE path only: the ReAct factory reads provider/api_key/base_url/model
+        # from the environment (builder.agents.agent_loop), so bridge any creds
+        # kept solely in ~/.config/vitro-crate/config.toml into os.environ first —
+        # mirroring how the interactive CLI hydrates via merge_with_env(). Without
+        # this a live run with creds only in config.toml raises "No LLM provider
+        # configured" (#179). The offline/mock path (injected agent_factory) skips
+        # this entirely so its tests stay config-free.
+        merge_with_env(load_config())
+
         from eval.react_factory import make_react_agent_factory
 
         agent_factory = make_react_agent_factory(
