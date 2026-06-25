@@ -45,7 +45,7 @@ class RecordingHumanInterface:
         self.present_calls: list[tuple[str, list[str] | None]] = []
         self.input_calls: list[tuple[str, str]] = []
 
-    def present(self, context, options=None):
+    def present(self, context, options=None, purpose=None):
         self.present_calls.append((context, options))
         return self.present_response
 

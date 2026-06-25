@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 
 from builder.engine import AgentEngine
 from builder.state import CrateState
@@ -164,9 +165,12 @@ def _make_zip(tmp_path, name="study.zip", with_sibling=False):
 
 
 class TestScanApprovedRoots:
-    """The approved-roots guard must (a) not be wiped by an empty scan,
-    (b) allow follow-up scans of extracted contents, and (c) NOT over-broaden
-    to expose unrelated sibling files (D9)."""
+    """Fail-closed approved-roots guard (#197). The agent's own scan_files
+    call must NEVER auto-approve a new root: with no approved roots the scan
+    is refused and the set stays empty. Roots are added only by initialize()
+    (a user-provided input path) or an explicit real approval. The guard must
+    (a) not be wiped by an empty scan, (b) allow follow-up scans of extracted
+    contents, and (c) NOT over-broaden to expose unrelated sibling files (D9)."""
 
     def test_empty_scan_result_does_not_overwrite_state(self, monkeypatch):
         """A denied/empty scan must NOT wipe a populated inventory with zero."""
@@ -180,8 +184,24 @@ class TestScanApprovedRoots:
         assert result == []
         assert engine.state.scanned_files == ["existing1", "existing2"]
 
-    def test_directory_scan_approves_that_directory(self, tmp_path):
-        """Scanning a directory approves that directory; a subdir is allowed."""
+    def test_agent_scan_with_no_roots_refuses_and_does_not_autoapprove(self, tmp_path):
+        """Fail-closed: with no approved roots, the agent's scan is refused and
+        no root is added (the set stays empty)."""
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "a.txt").write_text("a")
+
+        engine = AgentEngine()
+        assert engine.state.approved_scan_roots == set()
+
+        r = engine.run_tool("scan_files", path=str(d))
+
+        assert r == []  # refused
+        assert engine.state.approved_scan_roots == set(), "agent scan must not auto-approve"
+        assert engine.state.scanned_files == []  # nothing stored
+
+    def test_directory_scan_after_initialize_allows_subdir(self, tmp_path):
+        """initialize() approves the input dir; a subdir is then scannable."""
         d = tmp_path / "data"
         d.mkdir()
         (d / "a.txt").write_text("a")
@@ -190,19 +210,19 @@ class TestScanApprovedRoots:
         (sub / "c.txt").write_text("c")
 
         engine = AgentEngine()
-        engine.run_tool("scan_files", path=str(d))
+        engine.initialize(str(d))
         assert str(d.resolve()) in engine.state.approved_scan_roots
 
         r = engine.run_tool("scan_files", path=str(sub))
         assert len(r) == 1  # subdir of an approved root is allowed
 
-    def test_zip_scan_approves_extracted_dir_not_parent(self, tmp_path):
-        """A zip approves its extraction dir, NOT the archive's parent — so a
-        sibling file next to the zip stays out of reach (security)."""
+    def test_initialize_zip_approves_extracted_dir_not_parent(self, tmp_path):
+        """initialize(zip) approves the extraction dir, NOT the archive's parent
+        — so a sibling file next to the zip stays out of reach (security)."""
         zpath = _make_zip(tmp_path, with_sibling=True)
 
         engine = AgentEngine()
-        engine.run_tool("scan_files", path=str(zpath))
+        engine.initialize(str(zpath))
 
         extracted = str((tmp_path / "study_extracted").resolve())
         assert extracted in engine.state.approved_scan_roots
@@ -215,12 +235,12 @@ class TestScanApprovedRoots:
         assert len(engine.state.scanned_files) >= 2
 
     def test_followup_scan_of_extracted_dir_is_not_denied(self, tmp_path):
-        """run_tool path: scan a zip, then scan its extracted dir — allowed."""
+        """initialize a zip, then the agent scans its extracted dir — allowed."""
         zpath = _make_zip(tmp_path, name="d.zip")
 
         engine = AgentEngine()
-        r1 = engine.run_tool("scan_files", path=str(zpath))
-        assert len(r1) >= 2
+        engine.initialize(str(zpath))
+        assert len(engine.state.scanned_files) >= 2
 
         extracted = zpath.parent / "d_extracted"
         r2 = engine.run_tool("scan_files", path=str(extracted))
@@ -239,24 +259,25 @@ class TestScanApprovedRoots:
         r = engine.run_tool("scan_files", path=str(extracted))
         assert len(r) >= 2, "extracted dir denied on the initialize() entry path"
 
-    def test_empty_first_scan_locks_guard(self, tmp_path):
-        """An empty first scan must still lock the guard, not leave it open."""
+    def test_empty_first_scan_does_not_open_guard(self, tmp_path):
+        """An agent scan of an unapproved (even empty) dir leaves the guard
+        closed: nothing is approved and a later scan is still denied."""
         empty = tmp_path / "empty"
         empty.mkdir()
 
         engine = AgentEngine()
         r1 = engine.run_tool("scan_files", path=str(empty))
         assert r1 == []
-        assert engine.state.approved_scan_roots, "guard left wide open after empty scan"
+        assert engine.state.approved_scan_roots == set(), "guard must stay closed"
 
-        # An unrelated path must now be denied (guard is active).
+        # An unrelated path must remain denied (guard never opened).
         other = tmp_path / "other"
         other.mkdir()
         (other / "f.txt").write_text("x")
         r2 = engine.run_tool("scan_files", path=str(other))
         assert r2 == []
 
-    def test_unrelated_dir_scan_denied_after_first(self, tmp_path):
+    def test_unrelated_dir_scan_denied_after_initialize(self, tmp_path):
         """The agent cannot wander into an unrelated directory unprompted."""
         d1 = tmp_path / "d1"
         d1.mkdir()
@@ -266,9 +287,17 @@ class TestScanApprovedRoots:
         (d2 / "b.txt").write_text("b")
 
         engine = AgentEngine()
-        r1 = engine.run_tool("scan_files", path=str(d1))
-        assert len(r1) == 1
+        engine.initialize(str(d1))
+        assert len(engine.state.scanned_files) == 1
 
         r2 = engine.run_tool("scan_files", path=str(d2))
         assert r2 == []  # d2 is not under the approved root (d1)
         assert len(engine.state.scanned_files) == 1  # inventory preserved
+
+    def test_initialize_does_not_approve_forbidden_root(self, tmp_path, monkeypatch):
+        """A forbidden dir (e.g. the user's home) can never become an approved
+        root, even when handed to initialize()."""
+        engine = AgentEngine()
+        engine.initialize(str(Path.home()))
+        assert str(Path.home()) not in engine.state.approved_scan_roots
+        assert engine.state.approved_scan_roots == set()

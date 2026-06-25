@@ -19,7 +19,7 @@ class MockHumanInterface:
         self.present_calls: list[tuple[str, list[str] | None]] = []
         self.input_calls: list[tuple[str, str]] = []
 
-    def present(self, context, options=None):
+    def present(self, context, options=None, purpose=None):
         self.present_calls.append((context, options))
         return {"action": "edited", "comments": "fix it", "edits": {"name": "X"}}
 
@@ -41,6 +41,19 @@ class TestSimulatedHumanInterface:
     def test_request_input_returns_skipped_input_response(self):
         resp = SimulatedHumanInterface().request_input("DOI?", "identifier")
         assert resp == {"value": None, "skipped": True}
+
+    def test_present_denies_scan_root_escalation(self):
+        """Fail-closed (#197): the simulator must NOT auto-approve a request to
+        add a new scan root — it cannot be the approver for filesystem access."""
+        resp = SimulatedHumanInterface().present(
+            "Approve scanning /etc?", options=["Approve", "Deny"], purpose="scan_root"
+        )
+        assert resp["action"] == "rejected"
+
+    def test_present_still_approves_benign_checkpoints(self):
+        """Non-scan-root checkpoints keep the convenient auto-approve behaviour."""
+        resp = SimulatedHumanInterface().present("Review investigation", purpose="entity_review")
+        assert resp["action"] == "approved"
 
 
 class TestBackwardCompatibleFunctions:

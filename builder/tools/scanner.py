@@ -39,6 +39,50 @@ class _UnsafeArchiveError(Exception):
     uncompressed-size cap (zip-bomb)."""
 
 
+# Directories that must NEVER be scanned, even if somehow present in
+# ``approved_roots`` (D9 hard denylist, #197). These are filesystem roots,
+# the user's home directory itself, and OS/system trees. Legitimate
+# *subdirectories* (e.g. ``~/Desktop/project``) are still allowed — only the
+# bare roots themselves are forbidden.
+_FORBIDDEN_STATIC_ROOTS = frozenset(
+    {
+        "/",
+        "/System",
+        "/Library",
+        "/private",
+        "/var",
+        "/etc",
+        "/usr",
+        "/Users",
+        "/Volumes",
+    }
+)
+
+
+def _is_forbidden_root(path: Path) -> bool:
+    """Return True if *path* is a forbidden scan root (hard denylist, #197).
+
+    Refuses the filesystem root, the user's home directory itself, and known
+    OS/system trees regardless of whether they appear in ``approved_roots``.
+    A path that merely *descends* from one of these (e.g. a project folder
+    under the home directory) is allowed — only the bare roots are blocked.
+    """
+    try:
+        resolved = path.resolve()
+    except OSError:
+        # If we cannot even resolve it, treat it as forbidden (fail closed).
+        return True
+    if str(resolved) in _FORBIDDEN_STATIC_ROOTS:
+        return True
+    try:
+        if resolved == Path.home().resolve():
+            return True
+    except (OSError, RuntimeError):
+        # Path.home() can raise if HOME is unset; fail closed on the home check.
+        return True
+    return False
+
+
 def _is_within(dest: Path, target: Path) -> bool:
     """Return True if *target* resolves inside *dest* (Zip-Slip guard)."""
     try:
@@ -371,35 +415,54 @@ def scan_files(
 
     .. security::
 
-       The scanner **only** accepts paths that descend from one of the
-       *approved_roots* — directories the user has explicitly permitted.
-       If *approved_roots* is ``None`` (the default) the first path scanned
-       is auto-approved and becomes the sole root for subsequent calls.
+       The scanner fails **closed** (#197): it only accepts paths that descend
+       from one of the *approved_roots* — directories the user has explicitly
+       permitted. If *approved_roots* is ``None`` or empty, **nothing** is
+       approved and the scan is refused without walking. A hard denylist
+       (filesystem root, the user's home directory, OS/system trees) is always
+       refused even if such a path appears in *approved_roots*. There is no
+       auto-approval of the first scanned path — roots are added only through an
+       explicit user-provided input path or a real approval.
 
     Args:
         path: Path to the directory **or** archive to inspect.
         approved_roots: Set of resolved absolute directory paths that are
-            allowed for scanning.  Pass ``None`` on the first call to
-            auto-approve the target.
+            allowed for scanning. ``None`` or an empty set means *nothing is
+            approved* and the scan is refused.
         max_files: Maximum number of files to return. 0 means unlimited.
             When exceeded, the list is truncated and a warning is logged.
         max_line_length: Maximum length for each ``first_rows`` line.
             0 means unlimited. Longer lines are truncated.
 
     Returns:
-        A list of ``FileClassification`` records.
+        A list of ``FileClassification`` records (empty when refused).
     """
     target = Path(path).resolve()
 
-    # -- Security guard: approved-roots check -----------------------------------
-    if approved_roots is not None:
-        if not any(str(target) == r or str(target).startswith(r + "/") for r in approved_roots):
-            logger.warning(
-                "Refusing to scan %s — not in approved roots: %s",
-                target,
-                approved_roots,
-            )
-            return []
+    # -- Security guard: fail closed on approved-roots --------------------------
+    # No approved roots (None or empty) => nothing is approved => REFUSE. Never
+    # walk a target that is not inside an explicitly approved root (#197).
+    if not approved_roots:
+        logger.warning(
+            "Refusing to scan %s — not in approved roots: %s",
+            target,
+            approved_roots,
+        )
+        return []
+    if not any(str(target) == r or str(target).startswith(r + "/") for r in approved_roots):
+        logger.warning(
+            "Refusing to scan %s — not in approved roots: %s",
+            target,
+            approved_roots,
+        )
+        return []
+
+    # -- Security guard: hard denylist (forbidden roots) ------------------------
+    # Refuse filesystem root, the home directory, and OS/system trees even if
+    # they were somehow added to approved_roots (#197).
+    if _is_forbidden_root(target):
+        logger.warning("Refusing to scan forbidden root: %s", target)
+        return []
 
     # -- Security guard: don't follow symlinks out of the resolved path ---------
     _follows_symlinks = False
@@ -426,8 +489,15 @@ def scan_files(
             logger.warning("Could not extract archive: %s", result["error"])
             return []
         extracted_dir = result["extracted_to"]
-        # Scan extracted directory recursively
-        return scan_files(extracted_dir)
+        # Scan extracted directory recursively. The extraction dir is derived
+        # from an already-approved archive, so add it to the allowlist for the
+        # recursive call — otherwise the fail-closed guard would refuse it.
+        return scan_files(
+            extracted_dir,
+            approved_roots=set(approved_roots) | {str(Path(extracted_dir).resolve())},
+            max_files=max_files,
+            max_line_length=max_line_length,
+        )
 
     # -- Directory case --------------------------------------------------------
     if not target.is_dir():
