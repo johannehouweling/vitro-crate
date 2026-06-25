@@ -1219,3 +1219,118 @@ class TestDraftPersonSplit:
         assert person.fields.get("givenName") == "Ada"
         # familyName is left to a later step; the fallback did not overwrite given.
         assert not person.fields.get("familyName")
+
+
+# ---------------------------------------------------------------------------
+# Issue #232 (a) — the plan's backbone name must land on the already-scaffolded
+# backbone (the scaffold runs BEFORE the plan is materialized).
+# ---------------------------------------------------------------------------
+
+
+class TestMaterializeBackboneNaming:
+    """`_materialize_plan` must merge the plan's Study name/description onto the
+    backbone that `_scaffold_backbone` already created.
+
+    `scaffold_isa_backbone` *reuses* an existing Study (its hints reach the
+    drafter only on creation). So on an UNTITLED crate the Study keeps the generic
+    "Study" placeholder even when the plan supplies a real name — this asserts the
+    merge now lands (fill-don't-clobber).
+    """
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def _stub_extract_plan(self, monkeypatch: pytest.MonkeyPatch, plan: dict) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        def fake_extract_plan(context, *, model=None, usage_sink=None):
+            return dict(plan)
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)
+
+    def _study(self, engine: AgentEngine) -> Entity:
+        return next(e for e in engine.state.list_entities() if e.type == "Study")
+
+    def _untitled_with_context(self) -> CrateState:
+        """An UNTITLED crate that still carries usable context (a scanned file), so
+        `_materialize_plan` does not no-op on the context gate but the backbone is
+        named with the generic default rather than a title."""
+        from builder.state import FileClassification
+
+        state = CrateState()
+        state.scanned_files = [
+            FileClassification(
+                path="data/notes.txt",
+                filename="notes.txt",
+                size=10,
+                mime_type="text/plain",
+                first_rows=None,
+            )
+        ]
+        return state
+
+    def test_plan_study_name_lands_on_scaffolded_backbone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On an untitled crate, the plan's study.name must overwrite the generic
+        "Study" placeholder the scaffold left behind."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(
+            monkeypatch,
+            {"study": {"name": "TPO inhibition study", "description": "A TPO assay."}},
+        )
+
+        engine = _engine(self._untitled_with_context())
+        pipeline_mod._scaffold_backbone(engine)
+        # Sanity: the scaffold left the generic default name (the pre-fix state).
+        assert self._study(engine).fields.get("name") == "Study"
+
+        result = pipeline_mod._materialize_plan(engine)
+
+        study = self._study(engine)
+        assert study.fields.get("name") == "TPO inhibition study"
+        assert study.fields.get("description") == "A TPO assay."
+        assert result["study"] == 1
+
+    def test_no_plan_name_keeps_default_nonempty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: with no plan study (and no title) the Study keeps a
+        non-empty default name — ISA REQUIRES a non-empty Study name."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch, {"compounds": []})
+
+        engine = _engine(self._untitled_with_context())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        name = self._study(engine).fields.get("name")
+        assert isinstance(name, str) and name.strip(), "Study name must stay non-empty"
+
+    def test_existing_specific_name_is_not_clobbered(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fill-don't-clobber: a Study that already carries a real (non-default)
+        name must NOT be overwritten by the plan."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch, {"study": {"name": "Plan-supplied name"}})
+
+        state = self._untitled_with_context()
+        state.metadata.title = "A real, specific study title"
+        engine = _engine(state)
+        pipeline_mod._scaffold_backbone(engine)
+        # The titled scaffold named the Study from the title (a real name).
+        assert self._study(engine).fields.get("name") == "A real, specific study title"
+
+        pipeline_mod._materialize_plan(engine)
+
+        # The specific name wins over the plan (fill-don't-clobber).
+        assert self._study(engine).fields.get("name") == "A real, specific study title"
