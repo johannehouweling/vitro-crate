@@ -37,20 +37,36 @@ def test_csvw_to_frictionless_maps_columns():
     schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
     assert "fields" in schema
     names = [f["name"] for f in schema["fields"]]
-    assert names == ["cell_line", "compound", "concentration", "unit", "duration"]
+    # The full 10-column condition-table schema (Issue #180, Lane D).
+    assert names == [
+        "well_id",
+        "assay",
+        "cell_line",
+        "compound",
+        "concentration_value",
+        "concentration_unit",
+        "exposure_duration",
+        "experiment",
+        "technical_replicate",
+        "control",
+    ]
     by_name = {f["name"]: f for f in schema["fields"]}
     # double -> number, string -> string (Frictionless types)
-    assert by_name["concentration"]["type"] == "number"
+    assert by_name["concentration_value"]["type"] == "number"
     assert by_name["cell_line"]["type"] == "string"
 
 
 def test_populate_condition_table_writes_rows(tmp_path):
     state = _exposure_state()
+    # Population fills whatever columns the data provides; the schema describes
+    # all 10, missing columns are written empty (extrasaction="ignore").
     rows = [
-        {"cell_line": "HepG2", "compound": "Aspirin", "concentration": "10",
-         "unit": "uM", "duration": "24h"},
-        {"cell_line": "HepG2", "compound": "Aspirin", "concentration": "100",
-         "unit": "uM", "duration": "24h"},
+        {"well_id": "A1", "cell_line": "HepG2", "compound": "Aspirin",
+         "concentration_value": "10", "concentration_unit": "uM",
+         "exposure_duration": "24h"},
+        {"well_id": "A2", "cell_line": "HepG2", "compound": "Aspirin",
+         "concentration_value": "100", "concentration_unit": "uM",
+         "exposure_duration": "24h"},
     ]
     result = populate_condition_table(state, "proc_exp", rows, output_dir=str(tmp_path))
     assert result["ok"] is True
@@ -58,15 +74,17 @@ def test_populate_condition_table_writes_rows(tmp_path):
     with open(csv_path, newline="", encoding="utf-8") as fh:
         reader = list(csv.DictReader(fh))
     assert len(reader) == 2
-    assert reader[0]["concentration"] == "10"
-    assert reader[1]["concentration"] == "100"
+    assert reader[0]["concentration_value"] == "10"
+    assert reader[1]["concentration_value"] == "100"
+    assert reader[0]["well_id"] == "A1"
 
 
 def test_populated_table_validates_with_inferred_schema(tmp_path):
     state = _exposure_state()
     rows = [
-        {"cell_line": "HepG2", "compound": "Aspirin", "concentration": "10",
-         "unit": "uM", "duration": "24h"},
+        {"well_id": "A1", "cell_line": "HepG2", "compound": "Aspirin",
+         "concentration_value": "10", "concentration_unit": "uM",
+         "exposure_duration": "24h"},
     ]
     result = populate_condition_table(state, "proc_exp", rows, output_dir=str(tmp_path))
     schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)

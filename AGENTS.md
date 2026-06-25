@@ -654,14 +654,33 @@ with `profile="data"`.
 
 `populate_condition_table` (Issue #144) writes the per-well rows into an
 Exposure's CSVW condition table — replacing the header-only placeholder #94
-materialises — either from a list of row dicts (keyed by the column titles
-`cell_line`/`compound`/`concentration`/`unit`/`duration`) or by attaching a
-user-supplied plate-map CSV. It targets the exact path the build wires
-(`_crate_mapping._condition_table_rel`), so the #94 CSVW typing (`tableSchema`)
-stays attached to the populated table. The companion bridge
-`data_content.csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)` converts those CSVW
-column descriptors into the Frictionless `{fields:[...]}` shape, so `validate_table`
-needs no hand-authored schema for the populated table.
+materialises — either from a list of row dicts (keyed by the condition-table
+column titles) or by attaching a user-supplied plate-map CSV. The condition
+table's typed schema is the gold S-VHPS21 crate's full **10 columns** (#180,
+Lane D): `well_id`, `assay`, `cell_line`, `compound`, `concentration_value`,
+`concentration_unit`, `exposure_duration`, `experiment`, `technical_replicate`,
+`control` — each with a `datatype` + ontology `propertyUrl` (and a `valueUrl`
+resolving the cell-line/compound columns to their in-crate Sample /
+MolecularEntity id). Population fills whatever columns the data provides; the
+schema describes all 10 and missing cells are written empty. It targets the
+exact path the build wires (`_crate_mapping._condition_table_rel`), so the #94
+CSVW typing (`tableSchema`) stays attached to the populated table. The companion
+bridge `data_content.csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)` converts
+those CSVW column descriptors into the Frictionless `{fields:[...]}` shape (the
+single source of truth — `_CONDITION_TABLE_HEADER` is also derived from the
+column constant, so the placeholder header and the typed schema cannot drift),
+so `validate_table` needs no hand-authored schema for the populated table.
+
+An `EndpointReadout` that already emits result file(s) additionally emits a typed
+`raw_measurements.csv` `csvw:Table` (#180, Lane D) — 3 columns (`well_id`,
+`measured_value`, `measured_unit`), typed the same way the condition table is
+(`datatype` + `propertyUrl`). It is **appended** to the readout's results, never
+substituted, so a resultless readout still fires the "MUST have a result" issue
+for `fix_required_issues`. The CSV is header-only — no measurement rows are
+fabricated (D5). Both tables emit `propertyUrl`/`valueUrl` as `{@id}` references
+(not bare strings): RO-Crate 1.2's base profile flags an IRI value used as a
+string when that IRI is also a described entity (e.g. the cell-line `NCIT_C16403`,
+which a `CellLineSample` materialises as a `cell line` `DefinedTerm`).
 
 `build_and_validate` is the agent's primary build/fix loop: it assembles the
 crate from `CrateState` **in memory** and validates the generated JSON-LD
@@ -1248,9 +1267,21 @@ the assay's `hasPart` (un-parented from the root). All five new alias keys
 (`funder`, `measurementMethod`, `studies`, `assays`, `resources`, `dataFiles`,
 `labProcesses`) joined `_REF_FIELDS` so `_scalar_props` strips them as resolver
 inputs rather than leaking the raw id onto the node (D5: an unresolvable, non-IRI
-value is dropped, never guessed). Remaining lanes: CSVW schema extensions
-(condition-table columns, `raw_measurements`); `set_crate_metadata` (fidelity, **not** a
-validity blocker — `datePublished` is auto-set by ro-crate-py).
+value is dropped, never guessed). The **CSVW payload** lane is also **done (#180
+Lane D)** — deterministic build-path wiring, **not** new LLM tools: the Exposure
+condition table grows from 5 to the gold crate's full **10 typed columns**
+(`_crate_mapping._CONDITION_TABLE_COLUMNS`), and an EndpointReadout that already
+emits result file(s) additionally emits a typed `raw_measurements.csv`
+`csvw:Table` (3 columns, `_crate_mapping._synth_raw_measurements`), appended (never
+substituted) so the "MUST have a result" repair contract is untouched. Both
+schemas are built by a shared `_build_csvw_schema` and emit `propertyUrl`/`valueUrl`
+as `{@id}` references (RO-Crate 1.2 flags an IRI-as-string when it is also a
+described entity, e.g. the cell-line `NCIT_C16403` `DefinedTerm`). The header-only
+placeholders never fabricate measurement/well rows (D5). Deferred from Lane D:
+`extend_draft_file_for_source_code` (`@type: [File, SoftwareSourceCode]` +
+`programmingLanguage`). Remaining lanes: `set_crate_metadata` (fidelity, **not** a
+validity blocker — `datePublished` is auto-set by ro-crate-py); Lane E
+characteristics/properties fidelity.
 
 > **Tool-registration contract:** every new LLM tool must be registered in **four**
 > lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
