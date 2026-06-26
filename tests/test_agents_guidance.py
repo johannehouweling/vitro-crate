@@ -1696,3 +1696,198 @@ class TestPersonFieldMintsPersonEntity:
         assert not isinstance(creator, str), (
             "the regression: a creator must never be committed as a literal string"
         )
+
+
+# ---------------------------------------------------------------------------
+# (Commit 1, #179) The root ``./`` citation MUST gap: its answer is persisted
+# via the publication composites and the gap is NEVER re-asked.
+#
+# ROOT CAUSE the test pins:
+#   * the root citation MUST gap surfaces with ``entity_id == "./"`` and
+#     ``property == "http://schema.org/citation"``;
+#   * ``_resolve_entity_id`` returns ``None`` (``state.get_entity("./")`` is None,
+#     repair strips ``"./"`` -> ``""``), and ``citation`` is not a crate-metadata
+#     slot, so the OLD ``_apply_value`` silently dropped the answer (returned
+#     False) -> the always-highest-priority citation MUST gap was re-drawn and
+#     re-asked after ANY other commit (the per-report skip-set is reset on every
+#     commit), so the user was asked 6+ times and the answer never landed.
+#
+# FIX: route the root citation answer to the publication composites
+# (``draft_publication_with_authors`` for a DOI/URL, else ``resolve_publication``
+# for a title) and add a per-RUN persistent skip-set keyed by gap IDENTITY so an
+# un-appliable / already-answered gap is not re-drawn even after a commit clears
+# the per-report index set.
+# ---------------------------------------------------------------------------
+
+
+def _root_citation_gap(tier: Tier = "MUST") -> Gap:
+    """The root Data Entity ``citation`` MUST gap as the gap engine emits it."""
+    return Gap(
+        tier=tier,
+        source="shacl",
+        entity_id="./",
+        entity_type=None,
+        property="http://schema.org/citation",
+        message="The Root Data Entity SHOULD reference a citation.",
+        suggestion="A publication DOI or title.",
+        fix_hint="ask-user",
+        auto_fixable=False,
+    )
+
+
+class TestRootCitationGapPersistsAndIsNotReAsked:
+    def _record_run_tool(self, engine, monkeypatch):
+        """Record ``engine.run_tool`` calls and stub the publication composites.
+
+        The composites make network calls (Crossref / ORCID), so they are stubbed
+        to a deterministic success; every call is recorded so the test can assert
+        the citation answer was routed to them.
+        """
+        calls: list[tuple[str, dict]] = []
+        real_run_tool = engine.run_tool
+
+        def _spy(tool_name, **kwargs):
+            calls.append((tool_name, dict(kwargs)))
+            if tool_name == "draft_publication_with_authors":
+                return {"publication_id": "pub1", "doi": kwargs.get("doi"), "authors": []}
+            if tool_name == "resolve_publication":
+                return {"ok": True, "doi": "10.1/x", "entity_id": "pub1"}
+            return real_run_tool(tool_name, **kwargs)
+
+        monkeypatch.setattr(engine, "run_tool", _spy)
+        return calls
+
+    def test_doi_answer_routes_to_draft_publication_with_authors(self, monkeypatch):
+        """A DOI answer for the root citation gap calls
+        ``draft_publication_with_authors`` (the answer is persisted, not dropped)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        calls = self._record_run_tool(engine, monkeypatch)
+
+        _single_ask_gap_report(
+            monkeypatch,
+            _root_citation_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        human = ScriptedHuman(input_answers=[_value("10.1016/j.tox.2021.152898")])
+        summary = run_guidance(engine, human, max_rounds=5)
+
+        pub_calls = [c for c in calls if c[0] == "draft_publication_with_authors"]
+        assert pub_calls, (
+            "a DOI answer to the root citation gap must call "
+            "draft_publication_with_authors (#179)"
+        )
+        assert pub_calls[0][1].get("doi") == "10.1016/j.tox.2021.152898"
+        # The gap was recorded as resolved (the answer landed, not silently dropped).
+        assert any(
+            "citation" in (r.get("property") or "") for r in summary["resolved"]
+        ), "the citation answer must be recorded as resolved, never dropped"
+
+    def test_title_answer_routes_to_resolve_publication(self, monkeypatch):
+        """A non-DOI (title) answer routes to ``resolve_publication``."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        calls = self._record_run_tool(engine, monkeypatch)
+
+        _single_ask_gap_report(
+            monkeypatch,
+            _root_citation_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        title = "Adverse outcome pathway-based assessment of TPO inhibition in vitro"
+        human = ScriptedHuman(input_answers=[_value(title)])
+        run_guidance(engine, human, max_rounds=5)
+
+        resolve_calls = [c for c in calls if c[0] == "resolve_publication"]
+        assert resolve_calls, (
+            "a title answer to the root citation gap must call resolve_publication (#179)"
+        )
+        assert resolve_calls[0][1].get("title") == title
+        assert not any(c[0] == "draft_publication_with_authors" for c in calls)
+
+    def test_citation_gap_is_asked_at_most_once_across_the_run(self, monkeypatch):
+        """The headline regression: the always-highest-priority root citation MUST
+        gap must be asked AT MOST ONCE even when other gaps keep committing and
+        re-assessment keeps re-emitting it (the per-RUN skip-set, #179)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+
+        # The citation gap stays UN-progressable from the loop's POV: the stubbed
+        # DOI lookup finds no confident match (the common live case — a title /
+        # unresolvable DOI), so ``_apply_citation_value`` returns False and the
+        # same citation gap re-emits every re-assess. A SECOND, progress-making gap
+        # commits each round, which CLEARS the per-report index skip-set — so
+        # without a per-RUN identity skip-set the citation gap would be re-drawn
+        # and re-asked every round.
+        calls: list[tuple[str, dict]] = []
+        real_run_tool = engine.run_tool
+
+        def _spy(tool_name, **kwargs):
+            calls.append((tool_name, dict(kwargs)))
+            if tool_name == "draft_publication_with_authors":
+                return {"ok": False, "error": "DOI did not resolve"}
+            if tool_name == "resolve_publication":
+                return {"ok": False, "reason": "no confident DOI match"}
+            return real_run_tool(tool_name, **kwargs)
+
+        monkeypatch.setattr(engine, "run_tool", _spy)
+
+        citation_gap = _root_citation_gap()
+        # A distinct committable gap on the Study, re-emitted with a FRESH value
+        # each round so committing it always makes progress (re-assess returns a
+        # report that still contains the citation gap).
+        round_n = {"i": 0}
+
+        def _assess(_state):
+            round_n["i"] += 1
+            i = round_n["i"]
+            if i > 6:
+                # Eventually the Study desc is satisfied; only the citation remains
+                # and it is now in the per-RUN skip-set -> the loop terminates.
+                return GapReport(
+                    gaps=[citation_gap],
+                    counts={"must_open": 1, "should_open": 0, "may_open": 0},
+                )
+            study_gap = Gap(
+                tier="MUST",
+                source="shacl",
+                entity_id="st1",
+                entity_type="Study",
+                property=f"https://schema.org/keywords#round{i}",
+                message="Study needs another keyword.",
+                suggestion="A keyword.",
+                fix_hint="ask-user",
+                auto_fixable=False,
+            )
+            return GapReport(
+                gaps=[citation_gap, study_gap],
+                counts={"must_open": 2, "should_open": 0, "may_open": 0},
+            )
+
+        monkeypatch.setattr(guidance, "assess_gaps", _assess)
+
+        # Always-available answers: a DOI for the citation, a keyword for the Study.
+        human = ScriptedHuman(
+            input_answers=[_value("10.1/citation")] + [_value("kw") for _ in range(20)]
+        )
+        run_guidance(engine, human, max_rounds=15)
+
+        # Count how many times the CITATION question was put to the user.
+        citation_prompts = [
+            p for (p, _ftype) in human.inputs if "citation" in p.lower()
+        ]
+        assert len(citation_prompts) <= 1, (
+            f"the root citation gap must be asked at most once, got "
+            f"{len(citation_prompts)} prompts: {citation_prompts}"
+        )
