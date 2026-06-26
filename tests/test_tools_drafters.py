@@ -471,6 +471,88 @@ class TestDraftDefinedTerm:
             for n in mentioned
         ), f"a DefinedTerm should be a mentions target; got {ids}"
 
+    def test_iri_is_used_as_id_but_never_stored_as_a_field(self):
+        """The looked-up IRI sets the @id but must NOT leak as an entity field.
+
+        Regression for #286: ``draft_defined_term`` copied the IRI into
+        ``merged_hints["entity_id"]`` and then ``set_fields_from_dict`` stored
+        it as a literal ``entity_id`` field, which serialized as a bare JSON-LD
+        key not in the @context and failed base validation.
+        """
+        state = CrateState()
+        iri = "http://www.bioassayontology.org/bao#BAO_0002993"
+        entity = draft_defined_term(
+            state, "cell viability assay", {"term_code": "BAO:0002993", "url": iri}
+        )
+        # (a) the IRI is used as the entity's stable @id handle.
+        assert entity.entity_id == iri
+        # (b) but neither entity_id nor @id may exist as a literal FIELD.
+        assert "entity_id" not in entity.fields
+        assert "@id" not in entity.fields
+
+    def test_assembled_node_has_no_entity_id_key(self):
+        """The DefinedTerm @graph node must not carry a bare ``entity_id`` key.
+
+        Regression for #286: such a key is absent from the RO-Crate @context and
+        fails base conformance ("the occurrences of the JSON-LD key 'entity_id'
+        are not allowed in the compacted format").
+        """
+        state = CrateState()
+        iri = "http://www.bioassayontology.org/bao#BAO_0002993"
+        draft_defined_term(state, "cell viability assay", {"url": iri})
+        graph = _graph(state)
+        node = _node_by_id(graph, iri)
+        assert node is not None, "DefinedTerm should be in @graph under its IRI @id"
+        assert "entity_id" not in node, f"entity_id leaked onto the node: {node}"
+
+    def test_explicit_entity_id_hint_sets_id_without_leaking_field(self):
+        """An explicit ``entity_id`` hint (an IRI) still sets the @id, not a field."""
+        state = CrateState()
+        iri = "http://purl.obolibrary.org/obo/GO_0006915"
+        entity = draft_defined_term(state, "apoptosis", {"entity_id": iri})
+        assert entity.entity_id == iri
+        assert "entity_id" not in entity.fields
+        graph = _graph(state)
+        node = _node_by_id(graph, iri)
+        assert node is not None
+        assert "entity_id" not in node
+
+
+class TestDraftersDoNotLeakReservedKeys:
+    """Audit (#286): no drafter may persist internal @id/type handles as fields."""
+
+    def test_no_drafter_persists_entity_id_or_at_id_as_a_field(self):
+        """Passing entity_id/@id/type/@type to any drafter never makes a field."""
+        reserved = {
+            "entity_id": "http://example.org/x",
+            "@id": "http://example.org/x",
+            "type": "Bogus",
+            "@type": "Bogus",
+        }
+        state = CrateState()
+        inv = draft_investigation(state, {"name": "Inv", **reserved})
+        study = draft_study(state, inv.entity_id, {"name": "Study", **reserved})
+        entities = [
+            inv,
+            study,
+            draft_assay(state, study.entity_id, {"name": "Assay", **reserved}),
+            draft_molecular_entity(state, "Caffeine", dict(reserved)),
+            draft_cell_line_sample(state, "HepG2", dict(reserved)),
+            draft_process(state, study.entity_id, "CellCulture", dict(reserved)),
+            draft_defined_term(state, "apoptosis", {"term_code": "GO:0006915", **reserved}),
+            draft_property_value(state, "pH", {"value": "7", **reserved}),
+            draft_person(state, "Ada Lovelace", dict(reserved)),
+            draft_organization(state, "ACME", dict(reserved)),
+            draft_protocol(state, {"name": "Proto", **reserved}),
+            draft_sample(state, {"name": "Sample", **reserved}),
+            draft_publication(state, "10.1/x", dict(reserved)),
+        ]
+        for ent in entities:
+            for key in ("entity_id", "@id", "type", "@type"):
+                assert key not in ent.fields, (
+                    f"{ent.type} leaked reserved key {key!r} into fields: {ent.fields}"
+                )
+
 
 class TestDraftPropertyValue:
     """Tests for draft_property_value (Issue #141)."""

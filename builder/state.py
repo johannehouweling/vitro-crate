@@ -58,6 +58,13 @@ CompletionStatus = Literal["missing", "filled", "verified"]
 CompletionSource = Literal["scanner", "llm", "user", "lookup"]
 InputType = Literal["directory", "conversation"]
 
+# Internal @id / @type handles that live on the Entity itself (the ``entity_id``
+# and ``type`` attributes), NOT as schema.org properties. They must never be
+# stored in ``Entity.fields``: a field named ``entity_id`` / ``@id`` / ``type`` /
+# ``@type`` serializes as a bare JSON-LD key absent from the RO-Crate @context
+# and fails base conformance (Issue #286). ``set_fields_from_dict`` drops them.
+_RESERVED_INTERNAL_KEYS: frozenset[str] = frozenset({"entity_id", "@id", "type", "@type"})
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -181,8 +188,23 @@ class Entity:
     def set_fields_from_dict(
         self, values: dict[str, Any], source: CompletionSource = "llm"
     ) -> None:
-        """Set multiple fields at once, marking each as filled."""
+        """Set multiple fields at once, marking each as filled.
+
+        Reserved internal handles (``entity_id`` / ``@id`` / ``type`` /
+        ``@type``) are silently dropped rather than stored as fields: they are
+        the entity's own ``entity_id`` / ``type`` attributes, not schema.org
+        properties, and would otherwise serialize as bare JSON-LD keys absent
+        from the RO-Crate @context, failing base validation (Issue #286).
+        """
         for field_name, value in values.items():
+            if field_name in _RESERVED_INTERNAL_KEYS:
+                logger.debug(
+                    "Dropping reserved internal key %r from fields of entity %s; "
+                    "it is an @id/@type handle, not a property.",
+                    field_name,
+                    self.entity_id,
+                )
+                continue
             self.fields[field_name] = value
             self.set_field_status(field_name, "filled", source)
 

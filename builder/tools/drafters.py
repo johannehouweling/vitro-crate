@@ -227,11 +227,16 @@ def draft_defined_term(state: CrateState, name: str, hints: dict) -> Entity:
     if "in_defined_term_set" in merged_hints:
         merged_hints["inDefinedTermSet"] = merged_hints.pop("in_defined_term_set")
 
-    # A looked-up term carries a dereferenceable IRI; use it as the entity_id so
-    # _mint_id keeps it as the @id (an IRI containing "://" is preserved verbatim).
+    # A looked-up term carries a dereferenceable IRI; use it as the entity's
+    # entity_id so _mint_id keeps it as the @id (an IRI containing "://" is
+    # preserved verbatim). The IRI is the entity's @id HANDLE, not a property, so
+    # the entity_id/@id keys are stripped from merged_hints before
+    # set_fields_from_dict — otherwise they would serialize as bare JSON-LD keys
+    # absent from the @context and fail base validation (Issue #286).
     iri = merged_hints.get("entity_id") or merged_hints.get("@id") or merged_hints.get("url")
-    if iri and "entity_id" not in hints:
-        merged_hints["entity_id"] = iri
+    merged_hints.pop("entity_id", None)
+    merged_hints.pop("@id", None)
+    if iri:
         entity_id = str(iri)
     else:
         entity_id = _make_entity_id("dt", name, merged_hints)
