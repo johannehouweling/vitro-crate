@@ -195,6 +195,34 @@ def _is_person_field(field: str) -> bool:
     return field in _PERSON_FIELDS
 
 
+# (Commit 1, #179) Citation-typed fields whose ISA/BASE value MUST be a
+# ``ScholarlyArticle`` ENTITY REFERENCE (with an absolute-URI ``@id``), never a
+# literal string. The root Data Entity's ``citation`` MUST gap surfaces with
+# ``entity_id == "./"``, which ``_resolve_entity_id`` cannot map to a state entity
+# and which is not a crate-metadata slot — so committing the prose as a string did
+# nothing and the always-highest-priority gap was re-asked every round. These are
+# instead routed to the publication composites (see :func:`_apply_citation_value`).
+_CITATION_FIELDS: frozenset[str] = frozenset({"citation"})
+
+
+def _is_citation_field(field: str) -> bool:
+    """Whether ``field`` (a local property name) is a citation-typed field."""
+    return field in _CITATION_FIELDS
+
+
+def _gap_is_root(engine: AgentEngine, gap: Gap) -> bool:
+    """Whether ``gap`` targets the Root Data Entity (``./`` / no state entity).
+
+    A root/crate-level gap is one whose ``entity_id`` is ``None`` or the literal
+    ``"./"``, or one that ``_resolve_entity_id`` cannot map back to a real state
+    entity (the build's root ``./`` node folds the Investigation and has no
+    separate state node — see :func:`builder.tools.repair._resolve_state_entity`).
+    """
+    if gap.entity_id is None or gap.entity_id == "./":
+        return True
+    return _resolve_entity_id(engine, gap) is None
+
+
 # An ORCID iD anywhere in free text — the 16-digit, dash-grouped form (final
 # group may end in X), with an optional ``https://orcid.org/`` URL prefix so the
 # whole token (URL and all) is captured and can be stripped from the name.
@@ -208,6 +236,10 @@ _ORCID_LABEL_RE = re.compile(
     r"\b[,;]?\s*orcid(?:\s*id)?\s*[:=]?\s*",
     re.IGNORECASE,
 )
+# A DOI anywhere in free text — the ``10.<registrant>/<suffix>`` form (mirrors the
+# pipeline's ``_DOI_RE``). Used to route a root citation answer to the DOI-based
+# publication composite rather than a title search (Commit 1, #179).
+_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>]+", re.IGNORECASE)
 # An affiliation introduced by a leading "(" or an "@"/"affiliation:" marker.
 _AFFILIATION_RE = re.compile(
     r"(?:\baffiliation\s*[:=]\s*|\s+@\s*|\s*\(\s*)(?P<aff>[^()]+?)\s*\)?$",
@@ -231,6 +263,20 @@ def _local_name(iri: str | None) -> str:
     if not iri:
         return ""
     return iri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+
+
+# A gap's stable IDENTITY, used by the per-RUN skip-set (Commit 1, #179). Two gaps
+# from different reports are "the same gap" when these four fields match — the
+# loop keys un-progressable gaps by identity (NOT by report index, which is reset
+# on every commit) so an already-tried gap (e.g. the always-highest-priority root
+# citation MUST gap) is never re-drawn even after a different gap commits and a
+# fresh re-assess re-emits it.
+GapIdentity = tuple[str | None, str | None, str | None, str]
+
+
+def _gap_identity(gap: Gap) -> GapIdentity:
+    """A stable identity tuple ``(source, entity_id, property, message)`` for ``gap``."""
+    return (gap.source, gap.entity_id, gap.property, gap.message)
 
 
 def _resolve_entity_id(engine: AgentEngine, gap: Gap) -> str | None:
@@ -378,6 +424,49 @@ def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     return True
 
 
+def _apply_citation_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
+    """Resolve a root ``citation`` answer to a ``ScholarlyArticle`` (Commit 1, #179).
+
+    The root Data Entity's ``citation`` requirement (BASE: the auto-wired root
+    ``citation`` ``@id`` must be an absolute URI; ISA: a ``ScholarlyArticle`` with
+    an identifier) cannot be satisfied by committing the user's prose as a literal
+    string — ``set_fields`` has no resolvable state target for the ``./`` root, and
+    ``citation`` is not a crate-metadata slot, so the OLD path silently dropped the
+    answer and the always-highest-priority gap was re-asked every round.
+
+    Instead the answer is routed to the existing publication composites (never
+    hand-rolled JSON-LD, AGENTS.md §4.7), mirroring how :func:`_apply_person_value`
+    special-cases person fields. The builder auto-wires the resulting
+    ``ScholarlyArticle`` onto ``root_dataset.citation``:
+
+    * an answer carrying a **DOI** (or a DOI inside a URL) -> ``draft_publication_
+      with_authors(doi=…)`` — the DOI is re-looked-up, so an unresolvable DOI mints
+      nothing (D5);
+    * otherwise the answer is treated as a **title** ->
+      ``resolve_publication(title=…)`` — which commits a DOI-backed
+      ``ScholarlyArticle`` ONLY on a confident Crossref match (D5).
+
+    Returns ``True`` iff a publication entity was created so the gap clears, else
+    ``False`` (no usable answer, or no confident match — committing nothing).
+    """
+    text = (value or "").strip()
+    if not text:
+        return False
+
+    doi_match = _DOI_RE.search(text)
+    try:
+        if doi_match:
+            result = engine.run_tool(
+                "draft_publication_with_authors", doi=doi_match.group(0)
+            )
+            return isinstance(result, dict) and bool(result.get("publication_id"))
+        result = engine.run_tool("resolve_publication", title=text)
+        return isinstance(result, dict) and bool(result.get("ok"))
+    except Exception as exc:  # noqa: BLE001 — a flaky lookup must not break the loop
+        logger.warning("guidance: citation resolution failed for %r: %s", text, exc)
+        return False
+
+
 def _apply_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     """Commit ``value`` for ``gap`` via the existing set tools. Returns success.
 
@@ -393,6 +482,11 @@ def _apply_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     "creator MUST be of type Person" SHACL shape unsatisfied and the gap would
     re-emit every round (the #275 re-ask loop). Drafting a Person and linking it
     by reference closes the gap properly.
+
+    The root ``citation`` field (Commit 1, #179) is likewise routed to
+    :func:`_apply_citation_value`: its value must be a ``ScholarlyArticle``
+    reference resolved through the publication composites, not a literal string,
+    so a string commit dropped the answer and the gap was re-asked every round.
     """
     field = _local_name(gap.property) or (gap.property or "")
     if not field:
@@ -401,6 +495,10 @@ def _apply_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     # (#275) Person/agent fields need a Person reference, not a literal string.
     if _is_person_field(field):
         return _apply_person_value(engine, gap, value)
+
+    # (#179) The root citation gap needs a resolved ScholarlyArticle, not a string.
+    if _is_citation_field(field) and _gap_is_root(engine, gap):
+        return _apply_citation_value(engine, gap, value)
 
     state_id = _resolve_entity_id(engine, gap)
     if state_id is not None:
@@ -1042,9 +1140,16 @@ def run_guidance(
     # advances to the next actionable gap instead of re-offering the same one; the
     # set is cleared whenever a commit invalidates the report (a fresh re-assess).
     skipped: set[int] = set()
+    # (Commit 1, #179) The per-RUN skip-set, keyed by gap IDENTITY (not report
+    # index). A gap the loop surfaced/answered but could NOT progress is recorded
+    # here and never re-drawn, even after a different gap commits and resets the
+    # per-report ``skipped`` index set above. This stops the always-highest-
+    # priority root citation MUST gap (which re-emits every round when its answer
+    # cannot be applied) from being re-asked 6+ times.
+    tried_identities: set[GapIdentity] = set()
 
     for _ in range(max(0, max_rounds)):
-        index = _next_actionable_index(report, skipped)
+        index = _next_actionable_index(report, skipped, tried_identities)
 
         # --- termination: the whole report is exhausted -----------------------
         # No actionable gap remains that we have not already tried this round —
@@ -1064,17 +1169,23 @@ def run_guidance(
         )
 
         if progressed:
-            # State changed: re-assess from scratch and forget the skip-set (the
-            # gap indices no longer refer to the same gaps).
+            # State changed: re-assess from scratch and forget the per-report
+            # index skip-set (the gap indices no longer refer to the same gaps).
+            # The per-RUN identity skip-set persists so an already-tried gap that
+            # re-emits is not re-drawn.
             report = assess_gaps(engine.state)
             skipped = set()
         else:
-            # This one gap is not resolvable right now (e.g. skipped); skip it and
-            # let the next round draw the next actionable gap in the SAME report.
+            # This one gap is not resolvable right now (e.g. skipped or its answer
+            # could not be applied). Skip it BOTH by report index (so the next
+            # round draws the next actionable gap in the SAME report) AND by
+            # identity (so it is not re-drawn even after a later commit clears the
+            # index set and a fresh re-assess re-emits it — the #179 re-ask fix).
             # The loop only stops once EVERY gap in the report is exhausted, so a
             # single un-progressable gap never abandons the ones behind it. Still
             # bounded by ``max_rounds``.
             skipped.add(index)
+            tried_identities.add(_gap_identity(gap))
 
     return {
         "resolved": resolved,
@@ -1085,13 +1196,25 @@ def run_guidance(
     }
 
 
-def _next_actionable_index(report: GapReport, skipped: set[int]) -> int | None:
+def _next_actionable_index(
+    report: GapReport,
+    skipped: set[int],
+    tried_identities: set[GapIdentity] | None = None,
+) -> int | None:
     """Index of the highest-priority *actionable, not-yet-skipped* gap, or ``None``.
 
     The report is already sorted MUST -> SHOULD -> MAY (committable before
     ``report-only`` within a tier), so we walk it in order and return the index of
-    the first gap that is BOTH actionable and not in ``skipped`` (indices into
-    ``report.gaps`` the loop has already tried and could not progress this round).
+    the first gap that is actionable and not yet excluded. A gap is excluded when
+    it is either:
+
+    * in ``skipped`` — indices into THIS report's ``gaps`` the loop has tried and
+      could not progress this round (reset on every commit); or
+    * in ``tried_identities`` (Commit 1, #179) — the per-RUN set of gap IDENTITIES
+      (``_gap_identity``) the loop surfaced/answered but could NOT progress, kept
+      across re-assessments so an un-appliable / already-answered gap (e.g. the
+      always-highest-priority root citation MUST gap) is not re-drawn even after a
+      different gap commits and clears the per-report index ``skipped`` set.
 
     A gap is **actionable** when it has a resolution route the loop can drive:
     ``auto_fixable``, or a ``fix_hint`` of ``fix_required_issues`` / ``draft`` /
@@ -1102,6 +1225,8 @@ def _next_actionable_index(report: GapReport, skipped: set[int]) -> int | None:
     """
     for index, gap in enumerate(report.gaps):
         if index in skipped:
+            continue
+        if tried_identities is not None and _gap_identity(gap) in tried_identities:
             continue
         if gap.fix_hint == REPORT_ONLY:
             continue
