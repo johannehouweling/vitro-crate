@@ -32,7 +32,7 @@ from typing import Any
 
 from builder.state import CrateState, Entity
 from builder.tools._crate_mapping import _mint_id
-from builder.tools.provenance import _OUTPUT_FIELDS, _ref_ids
+from builder.tools.provenance import _INPUT_FIELDS, _OUTPUT_FIELDS, _ref_ids
 from builder.tools.provenance import link as _link
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,13 @@ def _resolve_state_entity(state: CrateState, focus_id: str | None) -> Entity | N
 # TOX REQUIRED violation, not a benign gap the build would synthesize.
 _OUTPUT_REQUIRED_TYPES = frozenset({"EndpointReadout", "DataAnalysis"})
 
+# Domain process types whose TOX shape REQUIRES a schema:object (input). Only
+# DataAnalysis declares the missing-input Violation (profiles/shapes/tox/
+# 5_lab_process_data_analysis.ttl: schema:object sh:minCount 1); EndpointReadout
+# requires only a result. A missing object on a DataAnalysis is therefore the
+# symmetric counterpart of the missing-output Violation.
+_INPUT_REQUIRED_TYPES = frozenset({"DataAnalysis"})
+
 
 def _process_type(entity: Entity) -> str:
     return entity.fields.get("process_type") or entity.fields.get("additionalType") or ""
@@ -155,6 +162,74 @@ def _repair_missing_process_output(
     return f"link({entity.entity_id!r}, 'result', {target.entity_id!r})"
 
 
+# Sample/File are the entity types eligible to be wired as a process input
+# (schema:object): a Sample is the canonical material input, a File the canonical
+# data input. Other types (MolecularEntity, CellLineSample, …) are external
+# starting materials the bundled isa-ro-crate shape forbids as a process object.
+_INPUT_CANDIDATE_TYPES = ("Sample", "File")
+
+
+def _already_roled(state: CrateState) -> set[str]:
+    """entity_ids already wired as some process's input OR output.
+
+    An input repair only ever wires a *free-floating* entity (one with no
+    structural role yet); an entity already consumed or produced by a process —
+    notably the process's own ``result`` File — is never a candidate input, so it
+    is excluded here.
+    """
+    roled: set[str] = set()
+    for proc in state.list_entities("LabProcess"):
+        for fld in (*_INPUT_FIELDS, *_OUTPUT_FIELDS):
+            roled |= _ref_ids(proc.fields.get(fld))
+    return roled
+
+
+def _unique_unwired_input(state: CrateState) -> Entity | None:
+    """The single free-floating Sample/File eligible as a process input, or None.
+
+    Mirrors :func:`_unique_unwired_file`: returns ``None`` when zero (needs new
+    content) or 2+ (ambiguous) such candidates exist — both are deferred to the
+    LLM rather than guessed (D5). A candidate is a Sample/File not yet wired as any
+    process input or output, so a process's own ``result`` is never mis-wired as
+    its input.
+    """
+    roled = _already_roled(state)
+    candidates = [
+        e
+        for t in _INPUT_CANDIDATE_TYPES
+        for e in state.list_entities(t)
+        if e.entity_id not in roled
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _applies_missing_process_input(issue: dict[str, Any], entity: Entity | None) -> bool:
+    """A REQUIRED missing-input (schema:object) issue on a DataAnalysis."""
+    if entity is None or entity.type != "LabProcess":
+        return False
+    if _process_type(entity) not in _INPUT_REQUIRED_TYPES:
+        return False
+    return _local_property(issue.get("property")) in _INPUT_FIELDS
+
+
+def _repair_missing_process_input(
+    state: CrateState, issue: dict[str, Any], entity: Entity | None
+) -> str | None:
+    """Wire the unique free-floating Sample/File as this process's ``object`` input.
+
+    The symmetric counterpart of :func:`_repair_missing_process_output`. Declines
+    (returns ``None``, no mutation) when the target is not unambiguous — zero
+    candidates (new content needed) or 2+ (genuine ambiguity) — so the LLM leaf
+    decides. Never creates an entity and never fabricates an id (D5).
+    """
+    assert entity is not None  # guarded by _applies_missing_process_input
+    target = _unique_unwired_input(state)
+    if target is None:
+        return None
+    _link(state, entity.entity_id, "object", target.entity_id)
+    return f"link({entity.entity_id!r}, 'object', {target.entity_id!r})"
+
+
 # The ordered dispatch table. First rule whose ``applies`` is true and whose
 # ``repair`` does not decline wins; the rest are skipped for that issue.
 _RULES: tuple[RepairRule, ...] = (
@@ -162,6 +237,11 @@ _RULES: tuple[RepairRule, ...] = (
         name="missing_process_output",
         applies=_applies_missing_process_output,
         repair=_repair_missing_process_output,
+    ),
+    RepairRule(
+        name="missing_process_input",
+        applies=_applies_missing_process_input,
+        repair=_repair_missing_process_input,
     ),
 )
 

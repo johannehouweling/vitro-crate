@@ -174,6 +174,7 @@ def _shacl_auto_fixable(state: CrateState, issue: dict[str, Any]) -> bool:
             _RULES,
             _resolve_state_entity,
             _unique_unwired_file,
+            _unique_unwired_input,
         )
     except ImportError:  # pragma: no cover — repair is a sibling module
         return False
@@ -182,11 +183,15 @@ def _shacl_auto_fixable(state: CrateState, issue: dict[str, Any]) -> bool:
     for rule in _RULES:
         if not rule.applies(issue, entity):
             continue
-        # The sole rule today (missing_process_output) is fixable iff a single
-        # un-wired File exists. Mirror that "would the repair decline?" check
-        # without mutating state, rather than re-deriving each rule's internals.
+        # Mirror each rule's "would the repair decline?" check without mutating
+        # state, rather than re-deriving each rule's internals:
+        # missing_process_output is fixable iff a single un-wired File exists;
+        # missing_process_input (its symmetric counterpart) iff a single
+        # free-floating Sample/File candidate exists.
         if rule.name == "missing_process_output":
             return _unique_unwired_file(state) is not None
+        if rule.name == "missing_process_input":
+            return _unique_unwired_input(state) is not None
         # An unknown future rule that owns the shape is treated as auto-fixable;
         # the repair loop is the source of truth and re-validates after.
         return True

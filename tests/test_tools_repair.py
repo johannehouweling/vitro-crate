@@ -73,6 +73,47 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
     return state
 
 
+def _data_analysis_missing_object(n_inputs: int = 1) -> CrateState:
+    """A backbone + a DataAnalysis with no ``object`` (input) + ``n_inputs`` free Samples.
+
+    The DataAnalysis already satisfies its other two TOX requirements (a ``result``
+    File and an ``additionalProperty`` PropertyValue) so the ONLY remaining REQUIRED
+    Violation is the missing ``schema:object`` (input). That issue is the symmetric
+    counterpart of the missing-output Violation, and is deterministically fixable
+    iff exactly one un-wired Sample/File candidate exists (unambiguous target).
+    """
+    state = _backbone()
+    # The DataAnalysis's own produced output (so the missing-result Violation does
+    # not also fire) and a PropertyValue (so the missing-additionalProperty
+    # Violation does not also fire) — isolating the missing-``object`` Violation.
+    state.add_entity(
+        _entity("pv1", "PropertyValue", name="Computational Tool", value="Python")
+    )
+    state.add_entity(
+        _entity("da_out", "File", name="processed.csv", dest_path="data/processed.csv")
+    )
+    state.add_entity(
+        _entity(
+            "da1",
+            "LabProcess",
+            process_type="DataAnalysis",
+            name="Analysis",
+            assay_id="as1",
+            result="da_out",
+            additionalProperty="pv1",
+            data_processing="mean",
+            software="Python",
+        )
+    )
+    # The free, un-roled Sample(s) that are candidate inputs. (The DataAnalysis's
+    # own result File is wired as an OUTPUT, so it is never a candidate input.)
+    for i in range(n_inputs):
+        state.add_entity(
+            _entity(f"s{i}", "Sample", name=f"raw input {i}", additionalType="Sample")
+        )
+    return state
+
+
 class TestReturnShape:
     def test_returns_ok_fixed_remaining(self):
         result = fix_required_issues(CrateState())
@@ -227,3 +268,97 @@ class TestRegistered:
         from builder.agents.tools_spec import TOOL_SPECS
 
         assert any(s["name"] == "fix_required_issues" for s in TOOL_SPECS)
+
+
+class TestDeterministicInputRepair:
+    """The symmetric counterpart of TestDeterministicLinkRepair (#179, Lane 2).
+
+    A DataAnalysis missing its required ``object`` (input) whose UNIQUE un-wired
+    Sample/File already exists in state is auto-wired as that process's input —
+    mirroring the existing missing-output rule.
+    """
+
+    def test_links_unique_sample_as_process_object(self):
+        """A missing process input with exactly one free Sample is auto-linked."""
+        state = _data_analysis_missing_object(n_inputs=1)
+
+        result = fix_required_issues(state)
+
+        # The Sample is now wired as the DataAnalysis's object (input) in state.
+        da = state.get_entity("da1")
+        assert da is not None
+        wired = da.fields.get("object") or da.fields.get("input")
+        wired_ids = wired if isinstance(wired, list) else [wired]
+        assert "s0" in wired_ids, da.fields
+
+        # The tox REQUIRED issue is gone and recorded under ``fixed`` with the
+        # new rule name (re-validation inside fix_required_issues confirms ``ok``).
+        assert result["ok"] is True, result
+        assert result["remaining"] == [], result["remaining"]
+        assert any(
+            item["rule"] == "missing_process_input"
+            and (item["issue"]["property"] or "").endswith("object")
+            for item in result["fixed"]
+        ), result["fixed"]
+
+    def test_each_fixed_item_records_what_was_done(self):
+        state = _data_analysis_missing_object(n_inputs=1)
+        result = fix_required_issues(state)
+        assert result["fixed"], result
+        item = result["fixed"][0]
+        assert item["rule"] == "missing_process_input"
+        assert item.get("action"), "a fixed item must record the repair action taken"
+
+
+class TestAmbiguousAndNewContentInputDeferred:
+    def test_ambiguous_input_left_in_remaining(self):
+        """Two candidate Samples == ambiguous: NOT auto-linked, left for the LLM (D5)."""
+        state = _data_analysis_missing_object(n_inputs=2)
+        da_before = state.get_entity("da1")
+        assert da_before is not None
+        before_fields = dict(da_before.fields)
+
+        result = fix_required_issues(state)
+
+        # No deterministic repair could be made: object/input untouched.
+        da = state.get_entity("da1")
+        assert da is not None
+        assert da.fields.get("object") == before_fields.get("object")
+        assert da.fields.get("input") == before_fields.get("input")
+
+        assert result["ok"] is False
+        assert any(
+            (item["issue"]["property"] or "").endswith("object")
+            for item in result["remaining"]
+        ), result["remaining"]
+
+    def test_new_content_input_not_fabricated(self):
+        """A missing object with NO candidate Sample/File needs NEW content -> remaining.
+
+        ``fix_required_issues`` must NOT fabricate an input entity or any id (D5).
+        """
+        state = _data_analysis_missing_object(n_inputs=0)
+        sample_count_before = len(state.list_entities("Sample"))
+
+        result = fix_required_issues(state)
+
+        assert len(state.list_entities("Sample")) == sample_count_before, (
+            "must not fabricate an input entity"
+        )
+        assert result["ok"] is False
+        assert any(
+            (item["issue"]["property"] or "").endswith("object")
+            for item in result["remaining"]
+        ), result["remaining"]
+        for item in result["remaining"]:
+            assert item.get("reason"), "a remaining item must record why it deferred"
+
+    def test_input_repair_is_idempotent(self):
+        """Running twice yields the same end-state (second run is a no-op)."""
+        state = _data_analysis_missing_object(n_inputs=1)
+        fix_required_issues(state)
+        after_first = state.to_json()
+        second = fix_required_issues(state)
+        assert state.to_json() == after_first
+        assert second["ok"] is True
+        assert second["fixed"] == []

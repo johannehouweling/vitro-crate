@@ -86,6 +86,42 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
     return state
 
 
+def _data_analysis_missing_object(n_inputs: int = 1) -> CrateState:
+    """Backbone + a DataAnalysis with no ``object`` (input) + ``n_inputs`` free Samples.
+
+    The TOX MUST issue 'DataAnalysis MUST have a schema:object' is auto-fixable iff
+    exactly one free-floating Sample/File candidate exists (the symmetric
+    deterministic-repair rule's predicate). The DataAnalysis already satisfies its
+    other two TOX requirements (a ``result`` File and an ``additionalProperty``)
+    so the missing-``object`` MUST gap is isolated.
+    """
+    state = _backbone()
+    state.add_entity(
+        _entity("pv1", "PropertyValue", name="Computational Tool", value="Python")
+    )
+    state.add_entity(
+        _entity("da_out", "File", name="processed.csv", dest_path="data/processed.csv")
+    )
+    state.add_entity(
+        _entity(
+            "da1",
+            "LabProcess",
+            process_type="DataAnalysis",
+            name="Analysis",
+            assay_id="as1",
+            result="da_out",
+            additionalProperty="pv1",
+            data_processing="mean",
+            software="Python",
+        )
+    )
+    for i in range(n_inputs):
+        state.add_entity(
+            _entity(f"s{i}", "Sample", name=f"raw input {i}", additionalType="Sample")
+        )
+    return state
+
+
 # ---------------------------------------------------------------------------
 # Return shape
 # ---------------------------------------------------------------------------
@@ -404,6 +440,43 @@ class TestAutoFixable:
         assert ident
         assert all(g.auto_fixable is False for g in ident)
         assert all(g.fix_hint == "ask-user" for g in ident)
+
+    def test_deterministically_repairable_input_must_is_auto_fixable(self):
+        """A missing DataAnalysis object with ONE free Sample is auto-fixable."""
+        report = assess_gaps(_data_analysis_missing_object(n_inputs=1))
+        object_gaps = [
+            g
+            for g in report.gaps
+            if g.tier == "MUST" and (g.property or "").endswith("object")
+        ]
+        assert object_gaps, "the missing-object MUST gap should be present"
+        assert all(g.auto_fixable for g in object_gaps), [
+            (g.message, g.auto_fixable) for g in object_gaps
+        ]
+        assert all(g.fix_hint == "fix_required_issues" for g in object_gaps)
+
+    def test_ambiguous_missing_object_is_not_auto_fixable(self):
+        """TWO candidate Samples == ambiguous: the repair loop declines -> ask-user."""
+        report = assess_gaps(_data_analysis_missing_object(n_inputs=2))
+        object_gaps = [
+            g
+            for g in report.gaps
+            if g.tier == "MUST" and (g.property or "").endswith("object")
+        ]
+        assert object_gaps
+        assert all(g.auto_fixable is False for g in object_gaps)
+        assert all(g.fix_hint == "ask-user" for g in object_gaps)
+
+    def test_no_candidate_missing_object_is_not_auto_fixable(self):
+        """No free Sample/File == needs NEW content (D5): not auto-fixable."""
+        report = assess_gaps(_data_analysis_missing_object(n_inputs=0))
+        object_gaps = [
+            g
+            for g in report.gaps
+            if g.tier == "MUST" and (g.property or "").endswith("object")
+        ]
+        assert object_gaps
+        assert all(g.auto_fixable is False for g in object_gaps)
 
 
 # ---------------------------------------------------------------------------

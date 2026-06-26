@@ -946,12 +946,16 @@ this closes that gap. It runs `build_and_validate`, dispatches each issue throug
 small, ordered table of issue-shape → repair rules (`builder/tools/repair.py`,
 `RepairRule`), then **re-validates** to confirm what actually cleared (it trusts the
 validator's verdict, not a rule's optimism). A repair runs **only when the correct
-value is already determined by state** — e.g. an `EndpointReadout`/`DataAnalysis`
-missing its `result` where exactly **one** un-wired `File` already exists in state
-is auto-wired via `link` (the §14.3 "no output fallback" trap). Anything needing
-**new content, a new entity, or a fabricated identifier — or a genuinely ambiguous
-target (2+ candidates) — is out of scope (D5)** and returned under `remaining` for a
-bounded LLM leaf. It is **idempotent and side-effect-safe**: if nothing is
+value is already determined by state**. Two symmetric rules are wired today:
+`missing_process_output` — an `EndpointReadout`/`DataAnalysis` missing its `result`
+where exactly **one** un-wired `File` already exists in state is auto-wired as its
+`result` via `link` (the §14.3 "no output fallback" trap); and
+`missing_process_input` — a `DataAnalysis` missing its required `schema:object`
+(input) where exactly **one** free-floating `Sample`/`File` (one wired as no
+process input or output) already exists is auto-wired as its `object`. Anything
+needing **new content, a new entity, or a fabricated identifier — or a genuinely
+ambiguous target (2+ candidates) — is out of scope (D5)** and returned under
+`remaining` for a bounded LLM leaf. It is **idempotent and side-effect-safe**: if nothing is
 deterministically fixable it mutates nothing and returns every issue in `remaining`.
 It maps a validation focus-node `@id` (e.g. `./#LabProcess_er1`) back to its state
 entity by inverting `_crate_mapping._mint_id`. Each `fixed` item carries
@@ -2036,14 +2040,17 @@ always reaches the gaps it can act on first.
 `fix_required_issues` can clear the gap deterministically from state alone. The
 engine decides this by re-using the repair loop's **own** rule predicates
 (`builder/tools/repair.py` `_RULES`, `_resolve_state_entity`,
-`_unique_unwired_file`) read-only, so the gap engine and the repair loop can
-never drift on what "deterministically fixable" means: today the single
-`missing_process_output` rule makes an `EndpointReadout`/`DataAnalysis` missing
-its `result`/`output` auto-fixable **iff exactly one un-wired `File` is in state**
-(unambiguous target); two-or-more (ambiguous) or zero (needs new content, D5)
-files, and every non-SHACL or non-REQUIRED gap, are `auto_fixable=False` →
-`"ask-user"`/`"draft"`. The Auto-resolve stage runs `fix_required_issues`; what
-remains is exactly the `auto_fixable=False` set the Guidance stage works through.
+`_unique_unwired_file`, `_unique_unwired_input`) read-only, so the gap engine and
+the repair loop can never drift on what "deterministically fixable" means: the two
+symmetric rules make a process-edge gap auto-fixable **iff its target is the single
+unambiguous candidate in state** — `missing_process_output` (an
+`EndpointReadout`/`DataAnalysis` missing its `result`/`output`) iff exactly one
+un-wired `File` exists, and `missing_process_input` (a `DataAnalysis` missing its
+`schema:object`) iff exactly one free-floating `Sample`/`File` exists. Two-or-more
+(ambiguous) or zero (needs new content, D5) candidates, and every non-SHACL or
+non-REQUIRED gap, are `auto_fixable=False` → `"ask-user"`/`"draft"`. The
+Auto-resolve stage runs `fix_required_issues`; what remains is exactly the
+`auto_fixable=False` set the Guidance stage works through.
 
 ---
 
