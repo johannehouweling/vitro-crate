@@ -22,7 +22,18 @@
 
 ## 1. Architecture Overview
 
-The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists researchers in creating profile-conformant RO-Crates for *in vitro* toxicology data. Rather than a rigid pipeline with predefined steps, the system gives an LLM agent a set of tools and lets it decide the order of operations based on the current state.
+The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists researchers in creating profile-conformant RO-Crates for *in vitro* toxicology data.
+
+> **Two first-class build variants.** The builder ships **two supported,
+> actively-explored architectures over the same toolbox** (see §14): a
+> **deterministic pipeline + HITL guidance tail** (the `--interactive` default —
+> code owns the step ordering, the LLM is confined to bounded leaves) and the
+> **ReAct agent loop** (`--legacy-react` — the LLM orchestrates tool calls). Both
+> are maintained; this is an ongoing A/B exploration, **not** a migration that ends
+> in deleting ReAct. The rest of §1–§4 describes the ReAct loop; §14 describes the
+> deterministic pipeline and the relationship between the two.
+
+The ReAct variant gives an LLM agent a set of tools and lets it decide the order of operations based on the current state, rather than following a rigid pipeline with predefined steps.
 
 ### High-Level Flow
 
@@ -387,6 +398,11 @@ This project builds on the existing RO-Crate Python ecosystem rather than reinve
 These packages are imported directly — we do not fork or vendor them. Version requirements are declared in `pyproject.toml`.
 
 ### Agent Graph (LangGraph / StateGraph)
+
+> This section describes the **ReAct variant** (`--interactive --legacy-react`),
+> one of the two first-class build paths (§14). It is a **supported, maintained**
+> architecture, not a deprecated one; the deterministic pipeline (the
+> `--interactive` default) is described in §14.
 
 The agent loop uses an **explicitly constructed StateGraph** built by `_build_agent_graph()` in `builder/agents/agent_loop.py`. This replaces the earlier `create_agent()` factory pattern (Issue #37), giving us full control over node names, routing logic, and middleware integration.
 
@@ -1388,17 +1404,35 @@ State is isolated per session. Parallel sessions are straightforward.
 ### Profiling Dashboard
 The `profile.ndjson` log produced by `ProfilingLogger` is the foundation for a live-status web UI. A frontend could tail this file to show real-time tool timing, node execution times, and iteration counters — without any changes to the builder's internals.
 
-## 14. Architecture Evolution: Deterministic Pipeline (planned — Issue #179)
+## 14. Architecture Evolution: Two First-Class Variants (Issue #179)
 
-> **Status:** Cutover DONE for the interactive build (Issue #179). The A/B gate
-> (task 6) is decided: on the 3 shared corpus cases the deterministic pipeline
-> reached **3/3** ISA-Tox conformance vs ReAct **1/3** (the weak LLM stalled at
-> 0–1 iterations on the hard cases), so the **deterministic pipeline + HITL
-> guidance tail is now the DEFAULT interactive architecture** (`main.py
-> --interactive` → `run_interactive_build`). The prose-prompt ReAct StateGraph of
-> §4 / D1 is **retained behind `--legacy-react`**, not deleted — the system-prompt
-> strip is a separate follow-up (task 7). This supersedes the earlier "keep flat
-> ReAct, structure in the tool layer only" stance.
+> **Status: BOTH architectures are first-class, supported, and actively
+> explored.** The deterministic pipeline (Issue #179) and the prose-prompt ReAct
+> StateGraph of §4 / D1 are **both maintained build paths** — this is an ongoing
+> A/B exploration, **not** a one-way migration that ends in deleting ReAct.
+>
+> - **Default — deterministic pipeline + HITL guidance tail.** `main.py
+>   --interactive` → `run_interactive_build` runs the deterministic pipeline by
+>   default because it is cheaper, lower-latency, reproducible, and testable, and
+>   it won the in-repo A/B gate (task 6): on the 3 shared corpus cases it reached
+>   **3/3** ISA-Tox conformance vs ReAct **1/3** (the weak LLM stalled at 0–1
+>   iterations on the hard cases).
+> - **Supported alternative — ReAct loop (`--legacy-react`).** The ReAct
+>   StateGraph remains a **fully-supported** path, **kept and explored — NOT
+>   slated for deletion.** The honest, broader picture is that a deep-research pass
+>   refuted the blanket "plan-and-execute always beats ReAct" claim — ReAct often
+>   has a *higher final pass rate* — so its flexible, conversational exploration is
+>   worth keeping as a first-class variant we continue to study alongside the
+>   pipeline.
+> - **Withdrawn — the planned "system-prompt strip (task 7)" / removal track.**
+>   It is **no longer planned** now that ReAct is kept as a supported variant: the
+>   ReAct orchestration prose in `system_prompt.py` stays, because it is exactly
+>   what the `--legacy-react` path relies on.
+>
+> This replaces the earlier "keep flat ReAct, structure in the tool layer only"
+> stance with a **two-variant** design — pick the pipeline for deterministic,
+> cheaper, reproducible builds; pick ReAct for flexible conversational
+> exploration.
 
 ### 14.1 Decision
 
@@ -1415,11 +1449,13 @@ retained only for the conversational / unstructured-input tail**.
 beats ReAct on reliability" claim — ReAct often has a higher final pass rate. The
 defensible win *for this system* (known step ordering + rigid SHACL-validated output +
 weak executor) is **cost, latency, reproducibility, testability, predictability** — not
-blanket correctness. The cutover was **gated on an in-repo A/B** (task 6) and that gate
+blanket correctness. Making the pipeline the **default** was **gated on an in-repo A/B**
+(task 6) and that gate
 has now passed for the interactive build (3/3 vs 1/3 ISA-Tox conformance on the shared
 corpus — the pipeline ALSO won on correctness for these cases because the weak executor
-stalled), so the pipeline is the default interactive path with ReAct retained behind an
-opt-in flag.
+stalled), so the pipeline is the **default** interactive path while ReAct stays a
+**fully-supported, actively-explored variant** behind `--legacy-react` (kept, not
+removed).
 
 ### 14.2 Target shape
 
@@ -1486,7 +1522,7 @@ KeyEvents + M KeyEventRelationships) in one tool. Fully deterministic: port
 JSON) + `builder.py:265-278` (`crate.add(ContextEntity(...))` per node, then wire AOP to
 Study via `mentions`/`aop`). The only LLM-supplied input is the numeric `aop_id`.
 
-### 14.4 Migration tasks (each its own `jh-*` branch + PR, TDD)
+### 14.4 Pipeline build-out tasks (each its own `jh-*` branch + PR, TDD)
 
 Pipeline (#179): (1) `fix_required_issues` deterministic repair loop — *the keystone*;
 (2) drafters as real LLM leaves — **done** (see [the drafter-leaf](#the-drafter-leaf-leavespy)
@@ -1497,11 +1533,11 @@ step 2 — was a deferral), gated to a strict no-op when no LLM provider is conf
 fallback for (closing the §14.3 Violation trap) and wires the whole chain in one
 idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine — **done and now
 the DEFAULT interactive path** (`builder/agents/pipeline.py::run_pipeline`, see §14.5):
-a deterministic, code-driven orchestrator. Post-A/B-gate (task 6) it **replaces** the
-`should_continue` ReAct loop as the default `main.py --interactive` build (via
-`run_interactive_build`, §14.6.1); ReAct is retained behind `--legacy-react` (the
-`should_continue` graph itself is untouched pending the task-7 prompt strip). The spine
-is also selectable in the eval harness (`python -m eval --arch pipeline`); (5) the tail
+a deterministic, code-driven orchestrator. Post-A/B-gate (task 6) it is the **default**
+`main.py --interactive` build (via `run_interactive_build`, §14.6.1); the ReAct loop is
+a **fully-supported alternative** behind `--legacy-react`, and its `should_continue`
+graph is **kept intact** (the orchestration prose it relies on stays — see task 7). The
+spine is also selectable in the eval harness (`python -m eval --arch pipeline`); (5) the tail
 — **done**: the gap engine
 (`assess_gaps` #215, §14.6) feeds the deterministic HITL guidance loop
 (`run_guidance` #218, §14.6.1), now **wired into the interactive build path**
@@ -1509,10 +1545,13 @@ is also selectable in the eval harness (`python -m eval --arch pipeline`); (5) t
 guidance tail after the automated pipeline while the A/B path (simulated /
 headless) runs the guidance-free pipeline alone; (6) **A/B eval harness — decision
 gate — done & PASSED**: the harness compared the two architectures on the shared
-corpus and the pipeline won (3/3 vs 1/3 ISA-Tox conformance), triggering the
-interactive cutover above; (7) prompt + docs — **pending** (strip the orchestration
-prose from `system_prompt.py` now that code owns control flow; the ReAct loop stays
-reachable via `--legacy-react` until then).
+corpus and the pipeline won (3/3 vs 1/3 ISA-Tox conformance), making the pipeline the
+interactive default above; (7) prompt strip — **WITHDRAWN / no longer planned.** This
+task originally meant to strip the orchestration prose from `system_prompt.py` once code
+owned control flow. Now that the ReAct loop is **kept as a first-class supported variant**
+(reachable via `--legacy-react`, see the §14 status block), that prose is **retained** —
+it is exactly what the ReAct path needs — so there is no removal track. Docs are kept in
+sync to describe **both** variants.
 
 #### The drafter-leaf (`leaves.py`)
 
