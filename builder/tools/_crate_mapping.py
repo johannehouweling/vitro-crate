@@ -489,6 +489,23 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     return {k: v for k, v in entity.fields.items() if k not in drop and not k.startswith("@")}
 
 
+def _bare_doi(raw: str) -> str:
+    """Strip a DOI's URL or CURIE prefix down to the bare ``10.xxxx/...`` form.
+
+    Recognises ``https://doi.org/`` / ``http://doi.org/`` URL forms and a ``doi:``
+    CURIE prefix (case-insensitive). Returns the input unchanged when no prefix is
+    present (it is already bare). Used to rebuild the canonical
+    ``https://doi.org/<bare>`` @id from whatever DOI form a field carries (#179).
+    """
+    value = raw.strip()
+    for prefix in ("https://doi.org/", "http://doi.org/"):
+        if value.startswith(prefix):
+            return value[len(prefix):]
+    if value.lower().startswith("doi:"):
+        return value[len("doi:"):]
+    return value
+
+
 def _mint_id(entity: Entity) -> str:
     """A spec-correct @id: resolvable URI when available, else `#`-fragment.
 
@@ -506,11 +523,22 @@ def _mint_id(entity: Entity) -> str:
     if t == "MolecularEntity" and f.get("pubchem_cid"):
         return f"https://pubchem.ncbi.nlm.nih.gov/compound/{f['pubchem_cid']}"
     if t == "Publication":
-        ident = str(f.get("identifier", ""))
-        doi = f.get("doi") or (ident if ident.startswith("10.") else None)
-        if doi:
-            d = str(doi).strip()
-            return d if d.startswith("http") else f"https://doi.org/{d}"
+        # Recognise a DOI on either `doi` or `identifier` in URL, CURIE, or bare
+        # form. The real pipeline never sets a `doi` field — Crossref returns the
+        # DOI as the full URL `https://doi.org/10...` on `identifier` (#179).
+        # Because that value does not start with the literal `"10."`, the old
+        # branch fell through to a `#Publication_...` fragment, so the auto-wired
+        # root `citation` referenced a fragment @id and the base check
+        # ro-crate-1.2_19.1 failed ("Citation … must be an absolute URI"). Minting
+        # the absolute `https://doi.org/<bare>` URL keeps the citation @id valid.
+        raw = str(f.get("doi") or f.get("identifier") or "").strip()
+        is_doi = (
+            raw.startswith("10.")
+            or "doi.org/" in raw
+            or raw.lower().startswith("doi:")
+        )
+        if is_doi:
+            return raw if raw.startswith("http") else f"https://doi.org/{_bare_doi(raw)}"
     if eid.startswith(("#", "http://", "https://", "./")) or "://" in eid:
         return eid
     return "#" + _slug(t) + "_" + eid
