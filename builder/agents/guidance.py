@@ -693,6 +693,54 @@ def _known_fields(entity: Any) -> dict[str, str]:
     return known
 
 
+def _ground_entityless_gap(engine: AgentEngine, gap: Gap, context: dict[str, Any]) -> None:
+    """Ground a typed-but-entity-less gap in the real in-state instance (Commit 2).
+
+    MIT gaps are emitted crate-level with ``entity_id=None`` carrying only an
+    ``entity_type`` (e.g. ``"CellLineSample"``). Without grounding, the phrase leaf
+    sees a bare TYPE and no name, so the model invents the stock example ("HepG2").
+    Here, for such a gap, we look up the type's instances in state and thread the
+    REAL name(s) into ``context`` so the leaf NEVER receives a bare type with no
+    name (D5: no fabrication):
+
+    * exactly one instance -> set ``entity_name`` (and ``known_fields``) from it;
+    * several instances -> surface their display names in a disambiguating
+      ``known_fields["instances"]`` entry (the leaf must phrase generically about
+      *the named instances*, never invent one).
+
+    Mutates ``context`` in place; a no-op when there is no type or no named
+    instance (the prompt-side D5 guard then forbids inventing a name).
+    """
+    entity_type = gap.entity_type
+    if not entity_type:
+        return
+    try:
+        instances = engine.state.list_entities(entity_type)
+    except (KeyError, ValueError) as exc:  # pragma: no cover — unknown type is rare
+        logger.debug("guidance: cannot list %s instances: %s", entity_type, exc)
+        return
+    named = [
+        (entity, name)
+        for entity in instances
+        if (name := _entity_display_name(entity))
+    ]
+    if not named:
+        return
+    if len(named) == 1:
+        entity, name = named[0]
+        context["entity_name"] = name
+        known = _known_fields(entity)
+        if known:
+            context["known_fields"] = known
+        return
+    # Several instances: surface their names for disambiguation rather than
+    # leaving the leaf with a bare nameless type.
+    names = [name for _entity, name in named]
+    known = dict(context.get("known_fields") or {})
+    known["instances"] = "; ".join(names)
+    context["known_fields"] = known
+
+
 def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
     """Assemble the per-gap context dict the guidance leaves consume (#244, #257).
 
@@ -708,6 +756,12 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
     the entity BY NAME — never a bare "this chemical / this protocol / this cell
     line". The entity's own type takes precedence over the gap's coarser
     ``entity_type`` when they differ.
+
+    When the gap is **entity-less but typed** (an MIT gap with ``entity_id=None``
+    carrying only ``entity_type``, Commit 2 / #179), the type's in-state instances
+    are looked up and the REAL instance name(s) threaded in
+    (:func:`_ground_entityless_gap`) so the leaf is never handed a bare type with
+    no name — which is what made the model invent the stock "HepG2" example.
     """
     field = _local_name(gap.property) or (gap.property or "")
     context: dict[str, Any] = {
@@ -729,6 +783,10 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
             known = _known_fields(entity)
             if known:
                 context["known_fields"] = known
+    else:
+        # (Commit 2, #179) An entity-less but typed gap (MIT, entity_id=None):
+        # ground it in the type's real in-state instance(s).
+        _ground_entityless_gap(engine, gap, context)
     title = (engine.state.metadata.title or "").strip()
     if title:
         context["crate_title"] = title

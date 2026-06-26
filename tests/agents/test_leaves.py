@@ -1034,6 +1034,39 @@ class TestPhraseGapQuestionNamesEntity:
 
 
 # ---------------------------------------------------------------------------
+# (Commit 2, #179) No entity name => ask generically, NEVER fabricate one.
+#
+# An MIT/crate-level gap can reach the phrase leaf with an entity_type but NO
+# entity_name (the gap is emitted with entity_id=None). The OLD prompt only
+# forbade vague phrasing "when an entity name is given" — with none given, the
+# model invented the stock example "HepG2" (which also spawned the spurious
+# "what is the correct UTF-8 file name (replace %2B with +)" question). The
+# prompt must now, when NO name is given, tell the model to ask generically
+# about "the <entity_type>" and EXPLICITLY forbid inventing a specific name,
+# identifier, or example value (D5: no fabrication).
+# ---------------------------------------------------------------------------
+
+
+class TestPhraseGapQuestionForbidsFabricatedName:
+    """When no entity name is provided the prompt must forbid inventing one."""
+
+    def test_prompt_forbids_inventing_a_name_when_none_given(self) -> None:
+        prompt = leaves._PHRASE_SYSTEM_PROMPT.lower()
+        # The prompt must address the NO-name case (ask generically about the type)
+        # and explicitly forbid fabricating a specific name / identifier / example.
+        assert "no" in prompt and "name" in prompt, prompt
+        # It must forbid INVENTING / FABRICATING / MAKING UP a specific value.
+        assert any(
+            word in prompt for word in ("invent", "fabricat", "make up", "made-up")
+        ), "the phrase prompt must forbid fabricating a name/identifier (D5)"
+
+    def test_no_name_prompt_does_not_seed_a_specific_example_name(self) -> None:
+        # D5 regression: the prompt must not seed a concrete entity NAME the model
+        # could parrot when none is given (the 'HepG2' fabrication).
+        assert "hepg2" not in leaves._PHRASE_SYSTEM_PROMPT.lower()
+
+
+# ---------------------------------------------------------------------------
 # extract_field_from_file — the bounded file-extraction leaf (Issue #257, fix C)
 #
 # When the user points the guidance loop at a file ("the CAS number is in
