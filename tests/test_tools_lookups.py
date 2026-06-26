@@ -12,6 +12,7 @@ from builder.tools.lookups import (
     lookup_aop,
     lookup_bao_term,
     lookup_cell_line,
+    lookup_cell_line_by_name,
     lookup_compound,
     lookup_doi,
     lookup_dtxsid,
@@ -232,6 +233,145 @@ class TestLookupCellLine:
 
         monkeypatch.setattr("builder.tools.lookups.lookup_cellosaurus", mock_lookup_cellosaurus)
         result = lookup_cell_line("CVCL_0000")
+        assert result["found"] is False
+        assert result["data"] == {}
+        assert isinstance(result["error"], str)
+
+
+class TestLookupCellLineByName:
+    """Tests for lookup_cell_line_by_name — Cellosaurus NAME → accession (#179).
+
+    The wrapper applies a D5 confidence gate over ``search_cellosaurus``: it
+    commits an accession ONLY when exactly one candidate's primary identifier or
+    a synonym matches the queried name exactly (case-insensitive). Anything
+    ambiguous or weak returns the standard ``{found: False}`` failure — a CVCL
+    accession is never guessed.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        lookup_cell_line_by_name.cache_clear()
+        yield
+        lookup_cell_line_by_name.cache_clear()
+
+    def test_exact_name_match_returns_accession(self, monkeypatch):
+        """An exact primary-identifier match yields the CVCL accession (high confidence)."""
+
+        def mock_search(name, rows=10):
+            return (
+                {
+                    "accession": "CVCL_0027",
+                    "name": "HepG2",
+                    "synonyms": ["Hep G2", "Hep-G2"],
+                },
+                {"accession": "CVCL_W371", "name": "HepG2 hALR", "synonyms": []},
+                {"accession": "CVCL_5765", "name": "HepG2/C3A", "synonyms": ["Hep-G2/C3A"]},
+            )
+
+        monkeypatch.setattr("builder.tools.lookups.search_cellosaurus", mock_search)
+        result = lookup_cell_line_by_name("HepG2")
+        assert result["found"] is True
+        assert result["data"]["accession"] == "CVCL_0027"
+        assert result["data"]["name"] == "HepG2"
+        assert result["error"] is None
+
+    def test_exact_match_is_case_insensitive(self, monkeypatch):
+        """Casing/whitespace differences still count as an exact match."""
+
+        def mock_search(name, rows=10):
+            return (
+                {"accession": "CVCL_0027", "name": "HepG2", "synonyms": []},
+            )
+
+        monkeypatch.setattr("builder.tools.lookups.search_cellosaurus", mock_search)
+        result = lookup_cell_line_by_name("  hepg2 ")
+        assert result["found"] is True
+        assert result["data"]["accession"] == "CVCL_0027"
+
+    def test_synonym_exact_match_returns_accession(self, monkeypatch):
+        """An exact match on a synonym (not the primary id) still resolves."""
+
+        def mock_search(name, rows=10):
+            return (
+                {"accession": "CVCL_0027", "name": "HepG2", "synonyms": ["Hep G2"]},
+            )
+
+        monkeypatch.setattr("builder.tools.lookups.search_cellosaurus", mock_search)
+        result = lookup_cell_line_by_name("Hep G2")
+        assert result["found"] is True
+        assert result["data"]["accession"] == "CVCL_0027"
+
+    def test_no_exact_match_only_partial_returns_failure(self, monkeypatch):
+        """Only fuzzy/prefix hits (no exact match) → failure, no guessed accession (D5)."""
+
+        def mock_search(name, rows=10):
+            # Solr prefix matches: none of these EQUALS "HepG" exactly.
+            return (
+                {"accession": "CVCL_0027", "name": "HepG2", "synonyms": ["Hep G2"]},
+                {"accession": "CVCL_W371", "name": "HepG2 hALR", "synonyms": []},
+            )
+
+        monkeypatch.setattr("builder.tools.lookups.search_cellosaurus", mock_search)
+        result = lookup_cell_line_by_name("HepG")
+        assert result["found"] is False
+        assert result["data"] == {}
+        assert isinstance(result["error"], str)
+
+    def test_ambiguous_multiple_exact_matches_returns_failure(self, monkeypatch):
+        """Two candidates exactly matching the name is ambiguous → failure (D5)."""
+
+        def mock_search(name, rows=10):
+            return (
+                {"accession": "CVCL_0001", "name": "ABC", "synonyms": []},
+                {"accession": "CVCL_0002", "name": "abc", "synonyms": []},
+            )
+
+        monkeypatch.setattr("builder.tools.lookups.search_cellosaurus", mock_search)
+        result = lookup_cell_line_by_name("ABC")
+        assert result["found"] is False
+        assert result["data"] == {}
+        assert isinstance(result["error"], str)
+
+    def test_no_candidates_returns_failure(self, monkeypatch):
+        """No candidates at all → failure (not found)."""
+        monkeypatch.setattr(
+            "builder.tools.lookups.search_cellosaurus", lambda name, rows=10: ()
+        )
+        result = lookup_cell_line_by_name("NoSuchCellLineXYZ")
+        assert result["found"] is False
+        assert result["data"] == {}
+        assert isinstance(result["error"], str)
+
+    def test_blank_name_returns_failure(self, monkeypatch):
+        """A blank name returns a graceful failure."""
+        monkeypatch.setattr(
+            "builder.tools.lookups.search_cellosaurus", lambda name, rows=10: ()
+        )
+        result = lookup_cell_line_by_name("   ")
+        assert result["found"] is False
+        assert result["data"] == {}
+
+    def test_transient_failure_is_marked_transient(self, monkeypatch):
+        """A transient outage is surfaced as found=False, transient=True (offline-safe)."""
+        from lookups._http import TransientLookupError
+
+        def mock_search(name, rows=10):
+            raise TransientLookupError("timed out")
+
+        monkeypatch.setattr("builder.tools.lookups.search_cellosaurus", mock_search)
+        result = lookup_cell_line_by_name("HepG2")
+        assert result["found"] is False
+        assert result["data"] == {}
+        assert result.get("transient") is True
+
+    def test_never_throws_exception(self, monkeypatch):
+        """An unexpected error never leaks — it returns a graceful failure."""
+
+        def mock_search(name, rows=10):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr("builder.tools.lookups.search_cellosaurus", mock_search)
+        result = lookup_cell_line_by_name("HepG2")
         assert result["found"] is False
         assert result["data"] == {}
         assert isinstance(result["error"], str)

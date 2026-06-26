@@ -53,7 +53,8 @@ Entity management & provenance:
 
 Lookups & verification:
 - lookup_compound: Look up a compound in PubChem
-- lookup_cell_line: Look up a cell line in Cellosaurus
+- lookup_cell_line: Look up a cell line in Cellosaurus by accession (CVCL_*)
+- lookup_cell_line_by_name: Resolve a cell-line name (e.g. 'HepG2') to its Cellosaurus accession; commits an accession only on a confident exact match
 - lookup_aop: Look up an AOP in AOP-Wiki
 - lookup_bao_term: Look up a BAO ontology term
 - lookup_ontology_term: Look up a term in any OLS ontology (efo/obi/ncit/uberon/chebi/…)

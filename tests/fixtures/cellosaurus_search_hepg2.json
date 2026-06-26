@@ -1,0 +1,33 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {"type": "primary", "value": "CVCL_0027"}
+        ],
+        "name-list": [
+          {"type": "identifier", "value": "HepG2"},
+          {"type": "synonym", "value": "Hep G2"},
+          {"type": "synonym", "value": "Hep-G2"}
+        ]
+      },
+      {
+        "accession-list": [
+          {"type": "primary", "value": "CVCL_W371"}
+        ],
+        "name-list": [
+          {"type": "identifier", "value": "HepG2 hALR"}
+        ]
+      },
+      {
+        "accession-list": [
+          {"type": "primary", "value": "CVCL_5765"}
+        ],
+        "name-list": [
+          {"type": "identifier", "value": "HepG2/C3A"},
+          {"type": "synonym", "value": "Hep-G2/C3A"}
+        ]
+      }
+    ]
+  }
+}
