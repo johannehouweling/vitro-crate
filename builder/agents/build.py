@@ -44,7 +44,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["run_interactive_build", "format_guidance_summary", "CrateExportError"]
+__all__ = [
+    "run_interactive_build",
+    "format_guidance_summary",
+    "format_gap_summary",
+    "CrateExportError",
+]
 
 # A pipeline_runner runs the automated deterministic spine once over an engine,
 # mutating engine.state and returning the spine's result dict. The real
@@ -92,6 +97,17 @@ def run_interactive_build(
     non-interactive / simulated path (the A/B eval, batch, tests) runs the
     automated pipeline alone and ``run_guidance`` is never invoked. When guidance
     runs, a concise summary of its results is surfaced via *output*.
+
+    **Headless gap summary (#179, Lane 5; #296).** On the non-interactive path
+    there is no human to answer, so ``run_guidance`` cannot run — but the user is
+    still shown the build's posture. After the pipeline + export, the build emits a
+    single, non-blocking summary line (the open MUST count plus base/isa/tox
+    conformance) via *output*. It is derived from the validation result the
+    pipeline ALREADY computed (``pipeline_result``) — it does **not** re-run a
+    fresh ``assess_gaps`` (whose ``severity="optional"`` SHACL+MIT+FAIR sweep is
+    the #115 tox-pass bottleneck), so the summary adds negligible time to a build
+    that already validated. Pure observability — it never prompts and never mutates
+    state (D5).
 
     Finally — **after** guidance, so the *enriched* crate is what lands — the
     deterministic on-disk export (:func:`builder.tools.builder.export_crate`)
@@ -227,10 +243,16 @@ def _run_build_body(
 
     if not interactive:
         # Headless / simulated: run the automated pipeline ALONE so the A/B stays
-        # a clean automated-vs-automated comparison. No guidance, no summary —
-        # but the build is still completed, so it must still be written to disk.
+        # a clean automated-vs-automated comparison. ``run_guidance`` is NEVER
+        # invoked here — there is no human to answer — so the build is still
+        # completed and written to disk. But the user is shown the build's posture:
+        # a ONE-SHOT, non-blocking summary (open MUST count + base/isa/tox
+        # conformance) derived from the validation the pipeline ALREADY computed
+        # (#179, Lane 5; #296 — no second full SHACL sweep). Pure observability —
+        # it never prompts and never mutates state (D5).
         logger.debug("Non-interactive build: skipping the HITL guidance tail")
         export_result = _export_crate_to_disk(engine, exporter, emit)
+        emit(format_gap_summary(pipeline_result))
         _final_save(engine)
         return {
             "pipeline": pipeline_result,
@@ -377,6 +399,49 @@ def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
             f"isa={_mark('isa')} tox={_mark('tox')}"
         ),
         f"  rounds: {rounds}",
+    ]
+    return "\n".join(lines)
+
+
+def format_gap_summary(pipeline_result: dict[str, Any] | None) -> str:
+    """Render a concise headless build-posture summary from the pipeline result.
+
+    Used on the headless path (#179, Lane 5) — where ``run_guidance`` never runs —
+    to report the build's posture in one line: the count of open **MUST** issues
+    plus the final per-layer (``base`` / ``isa`` / ``tox``) conformance.
+
+    **Reuse, don't re-validate (#296).** The values come straight from the
+    validation result the deterministic pipeline ALREADY computed
+    (``run_pipeline`` returns ``{"conformance", "issues", ...}`` from its
+    required-severity fix loop), so this adds negligible time. It deliberately does
+    NOT call ``assess_gaps`` — that sweeps the heaviest ``severity="optional"``
+    SHACL pass plus MIT/FAIR (the #115 tox-pass bottleneck), which on the headless
+    path is both a real per-build UX regression and a CI timeout. The pipeline only
+    validates at REQUIRED severity, so SHOULD/MAY gaps are not computed on this fast
+    path; the line reports that they were not assessed rather than fabricating a
+    count (D5 — read-only reporting of real state). Wording is deliberately distinct
+    from :func:`format_guidance_summary` (no "resolved"/"asked" verbs) since no
+    interactive guidance ran.
+    """
+    result = pipeline_result or {}
+    issues = result.get("issues") or []
+    conformance = result.get("conformance") or {}
+
+    # REQUIRED issues from the pipeline's required-severity fix loop -> open MUST.
+    must_open = sum(
+        1 for issue in issues if isinstance(issue, dict) and issue.get("severity") == "required"
+    )
+
+    def _mark(layer: str) -> str:
+        return "pass" if conformance.get(layer) else "fail"
+
+    lines = [
+        "Headless build complete (no interactive guidance):",
+        f"  open gaps: {must_open} MUST (SHOULD/MAY not assessed on the fast build)",
+        (
+            f"  conformance: base={_mark('base')} "
+            f"isa={_mark('isa')} tox={_mark('tox')}"
+        ),
     ]
     return "\n".join(lines)
 

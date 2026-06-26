@@ -214,6 +214,171 @@ class TestGuidanceSummary:
         assert "asked" not in joined
 
 
+class TestHeadlessGapSummary:
+    """#179 (Lane 5) — the HEADLESS build surfaces a one-shot gap summary.
+
+    On the non-interactive path ``run_guidance`` is never called (there is no
+    human to answer), but the user still deserves to SEE the MUST/conformance
+    posture. ``run_interactive_build`` emits a single, non-blocking summary line
+    on the headless path. It must NOT prompt and must NOT call ``run_guidance``.
+
+    **Perf (#296).** The summary is derived from the validation result the
+    pipeline ALREADY computed (``pipeline_result["issues"]`` / ``["conformance"]``)
+    — it does NOT re-run a fresh ``assess_gaps`` (which sweeps the heaviest
+    ``severity="optional"`` SHACL pass + MIT + FAIR, the #115 tox-pass bottleneck).
+    So the summary adds negligible time to a build that already validated.
+    """
+
+    # A pipeline result with two open REQUIRED (MUST) issues and a failing tox
+    # layer — what the spine's required-severity fix loop leaves behind.
+    _PIPELINE_WITH_GAPS: dict[str, Any] = {
+        "ok": False,
+        "conformance": {"base": True, "isa": True, "tox": False},
+        "issues": [
+            {"severity": "required", "entity_id": "p1", "property": "result"},
+            {"severity": "required", "entity_id": "p2", "property": "output"},
+        ],
+        "scaffold": {},
+        "materialized": {},
+        "drafted": {},
+        "fix_rounds": 1,
+    }
+
+    def test_headless_emits_summary_with_must_count_and_conformance(self) -> None:
+        from builder.agents.build import run_interactive_build
+
+        guidance_calls: list[Any] = []
+        engine = _engine(SimulatedHumanInterface())
+
+        lines: list[str] = []
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(self._PIPELINE_WITH_GAPS),
+            guidance_runner=lambda eng, human, **kw: guidance_calls.append(human)
+            or dict(_GUIDANCE_RESULT),
+            output=lines.append,
+        )
+
+        # run_guidance was NOT called on this headless path.
+        assert guidance_calls == []
+
+        joined = "\n".join(lines)
+        lower = joined.lower()
+        # The MUST count derived from the pipeline's REQUIRED issues is surfaced.
+        assert "must" in lower
+        assert "2" in joined  # two open REQUIRED issues
+        # Per-layer conformance from the pipeline result is surfaced.
+        assert "base" in lower
+        assert "isa" in lower
+        assert "tox" in lower
+        # No guidance ("resolved"/"asked") wording — guidance never ran.
+        assert "resolved" not in lower
+        assert "asked" not in lower
+
+    def test_headless_summary_does_not_run_fresh_assess_gaps(self, monkeypatch) -> None:
+        """#296 — the headless summary must NOT re-validate (no fresh assess_gaps).
+
+        Re-running ``assess_gaps`` on the headless path re-ran the heaviest
+        ``severity="optional"`` SHACL sweep, blowing the CI per-test budget. The
+        summary must derive purely from the already-computed pipeline result. We
+        assert ``build_and_validate`` (which a fresh ``assess_gaps`` would call) is
+        never invoked from the build after the pipeline returns.
+        """
+        import builder.tools.validation as validation_mod
+        from builder.agents.build import run_interactive_build
+
+        validate_calls: list[Any] = []
+        real_bav = validation_mod.build_and_validate
+
+        def spy_bav(*a: Any, **k: Any) -> dict[str, Any]:
+            validate_calls.append((a, k))
+            return real_bav(*a, **k)
+
+        # Spy on the canonical entry point a fresh assess_gaps would call. The
+        # injected pipeline runner does NOT call build_and_validate, so any call
+        # observed here would come from the headless summary path.
+        monkeypatch.setattr(validation_mod, "build_and_validate", spy_bav)
+
+        engine = _engine(SimulatedHumanInterface())
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(self._PIPELINE_WITH_GAPS),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        assert validate_calls == [], (
+            "the headless summary must reuse the pipeline result, not re-validate"
+        )
+
+    def test_headless_gap_summary_is_one_shot_and_nonblocking(self) -> None:
+        """The headless summary never prompts the human (no present/request_input)."""
+        from builder.agents.build import run_interactive_build
+
+        prompts: list[str] = []
+
+        class _RecordingHuman:
+            is_interactive = False
+
+            def present(self, context, options=None, purpose=None):
+                prompts.append("present")
+                return {"action": "approved", "comments": None, "edits": None}
+
+            def request_input(self, prompt, field_type="text"):
+                prompts.append("request_input")
+                return {"value": None, "skipped": True}
+
+        engine = _engine(_RecordingHuman())
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(self._PIPELINE_WITH_GAPS),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=[].append,
+        )
+
+        assert prompts == [], "the headless gap summary must not prompt the human"
+
+    def test_interactive_path_does_not_emit_headless_gap_summary(self) -> None:
+        """The interactive path runs guidance, NOT the one-shot headless summary."""
+        from builder.agents.build import run_interactive_build
+
+        engine = _engine(_InteractiveHuman())
+
+        lines: list[str] = []
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=lines.append,
+        )
+
+        joined = "\n".join(lines).lower()
+        # The interactive guidance summary is what shows ("resolved"/"asked").
+        assert "resolved" in joined
+        # The headless-only "no interactive guidance" wording does NOT appear.
+        assert "no interactive guidance" not in joined
+
+    def test_format_gap_summary_from_pipeline_result(self) -> None:
+        """The summary formatter derives MUST count + conformance from the result."""
+        from builder.agents.build import format_gap_summary
+
+        text = format_gap_summary(self._PIPELINE_WITH_GAPS)
+        assert isinstance(text, str)
+        lower = text.lower()
+        assert "2" in text  # two REQUIRED issues -> MUST count
+        assert "must" in lower
+        assert "base" in lower and "isa" in lower and "tox" in lower
+
+    def test_format_gap_summary_handles_missing_fields(self) -> None:
+        """A result lacking issues/conformance yields a short, non-crashing line."""
+        from builder.agents.build import format_gap_summary
+
+        text = format_gap_summary({})
+        assert isinstance(text, str)
+        assert text  # non-empty, no crash
+
+
 class TestDeterministicExport:
     """The interactive build writes the enriched crate to disk (#233).
 
@@ -616,6 +781,11 @@ class TestProgressSpinner:
 
         assert engine.on_tool_event is sentinel, "the prior hook must be restored"
 
+    # This test runs the REAL deterministic pipeline TWICE (headless + interactive),
+    # each doing a full base→ISA→ISA-Tox SHACL sweep in the fix loop — genuinely
+    # heavy, near the default 30s CI per-test budget under -n2 contention. Bump just
+    # this test (the #278 precedent; do NOT blanket-mark the fast wiring tests).
+    @pytest.mark.timeout(120)
     def test_spinner_path_does_not_perturb_graph_hash(self, tmp_path) -> None:
         """Determinism: the spinner path yields the same built @graph hash as the
         headless path (the spinner is pure UI — it never touches the crate).
