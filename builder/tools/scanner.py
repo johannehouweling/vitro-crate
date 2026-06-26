@@ -322,6 +322,38 @@ _TABULAR_MIME_TYPES = {
 
 _TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls"}
 
+# How many tabular rows to capture for the scanner's cheap `first_rows` preview of
+# an Excel workbook — enough to show the header + a few data rows, without reading
+# the whole sheet (Issue #179, Commit 2).
+_EXCEL_PREVIEW_ROWS = 20
+
+
+def _excel_preview(path: str) -> str | None:
+    """Capture a bounded tabular preview of an Excel workbook for ``first_rows``.
+
+    Routes through the proper Excel reader (:func:`builder.tools.file_readers.read_excel`,
+    the same path :func:`read_file` uses) rather than the raw-bytes
+    :func:`read_file_sample` sampler, whose NUL-byte binary guard correctly rejects
+    the zip/OLE2 container and so left ``first_rows`` unset for every ``.xlsx``
+    (Issue #179, Commit 2). Bounded to :data:`_EXCEL_PREVIEW_ROWS` rows so the
+    preview stays cheap. Never raises: any reader/dependency error yields ``None``
+    (the caller then simply leaves ``first_rows`` unset, exactly as before).
+
+    Returns the pipe-delimited preview text, or ``None`` when nothing readable was
+    produced.
+    """
+    # Lazy import: keep the scanner importable without the optional Excel deps.
+    from builder.tools.file_readers import read_excel
+
+    try:
+        return read_excel(path, max_rows=_EXCEL_PREVIEW_ROWS)
+    except (OSError, ValueError, ImportError) as exc:
+        logger.warning("Excel preview failed for %s; leaving first_rows unset: %s", path, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001 - a malformed workbook must not break the scan
+        logger.warning("Unexpected Excel-preview error for %s; skipping: %s", path, exc)
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Archive helpers
@@ -606,17 +638,23 @@ def scan_files(
         is_tabular = mime in _TABULAR_MIME_TYPES or entry.suffix.lower() in _TABULAR_SUFFIXES
         first_rows: list[str] | None = None
         if is_tabular:
-            # For binary office formats (xlsx/xls) the extension says "tabular" but
-            # the content is a zip/OLE2 container — do NOT pass already_text=True
-            # because that bypasses the NUL-byte binary guard and the raw PK\x03\x04…
-            # bytes would be read as mojibake (Issue #51 regression).
-            _is_binary_ext = entry.suffix.lower() in {".xlsx", ".xls"}
-            sample = read_file_sample(
-                str(entry),
-                lines=20,
-                precomputed_size=file_size,
-                already_text=not _is_binary_ext,
-            )
+            # Office formats (xlsx/xls) are genuinely tabular but binary (a
+            # zip/OLE2 container): the raw-bytes sampler's NUL-byte binary guard
+            # (Issue #51) rejects them, so `read_file_sample(already_text=False)`
+            # returned None and left `first_rows` unset — which forced every .xlsx
+            # down the budget-consuming body-read path in the pipeline's
+            # `_gather_context` (Issue #179, Commit 2). Read them through the proper
+            # Excel reader (the same `read_excel` path `read_file` uses) so the
+            # cheap preview is captured; CSV/TSV stay on the fast text sampler.
+            if entry.suffix.lower() in {".xlsx", ".xls"}:
+                sample = _excel_preview(str(entry))
+            else:
+                sample = read_file_sample(
+                    str(entry),
+                    lines=20,
+                    precomputed_size=file_size,
+                    already_text=True,
+                )
             if sample is not None:
                 lines = sample.splitlines()
                 if max_line_length > 0:
