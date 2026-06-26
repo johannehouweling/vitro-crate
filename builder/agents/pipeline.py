@@ -524,6 +524,38 @@ def _first_entity_id(engine: AgentEngine, entity_type: str) -> str | None:
     )
 
 
+def _find_or_draft_organization(engine: AgentEngine, name: str) -> str | None:
+    """Return the entity_id of an Organization named *name*, minting one if absent.
+
+    De-dup by name: an existing in-state Organization with the same (stripped)
+    ``name`` is reused so two affiliations sharing a name yield ONE Organization
+    rather than duplicates. Otherwise a new one is minted via the ``draft_organization``
+    tool (never hand-rolled JSON-LD). D5-safe: only the plan's affiliation *name* is
+    used — no ROR / IRI is fabricated here. Returns ``None`` on an empty name or if
+    drafting fails (logged), so a failure never breaks the spine.
+    """
+    name = name.strip()
+    if not name:
+        return None
+    existing = next(
+        (
+            e.entity_id
+            for e in engine.state.list_entities()
+            if e.type == "Organization"
+            and str(e.fields.get("name") or "").strip() == name
+        ),
+        None,
+    )
+    if existing is not None:
+        return existing
+    try:
+        org = engine.run_tool("draft_organization", name=name, hints={})
+    except Exception as exc:  # noqa: BLE001 - a drafting failure must not break the spine
+        logger.warning("draft_organization failed for %r: %s", name, exc)
+        return None
+    return getattr(org, "entity_id", None)
+
+
 def _set_ref_field(
     engine: AgentEngine,
     entity_id: str,
@@ -1294,7 +1326,13 @@ def _materialize_plan(
         except Exception as exc:  # noqa: BLE001
             logger.warning("materialize_aop_subgraph failed for %r: %s", aop_id, exc)
 
-    # --- people: a Person from the name + a deterministic given/family split ---
+    # --- people: a Person from the name + a deterministic given/family split,
+    # plus an Organization minted (or reused) from `affiliation_name` and wired
+    # onto the Person's `affiliation` reference (#179 Lane 1). The plan carries a
+    # name only — no ROR/IRI — so the Organization is identifier-free (D5); the
+    # build's `_wire_reference` resolves the affiliation to the Organization's
+    # `@id`. Organizations are de-duplicated by name so two people sharing an
+    # affiliation reference ONE Organization. ---
     for person in plan.get("people") or []:
         name = str((person or {}).get("name") or "").strip()
         if not name:
@@ -1306,10 +1344,21 @@ def _materialize_plan(
         if family:
             person_hints["familyName"] = family
         try:
-            engine.run_tool("draft_person", name=name, hints=person_hints)
+            drafted = engine.run_tool("draft_person", name=name, hints=person_hints)
             result["people"] += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning("draft_person failed for %r: %s", name, exc)
+            continue
+
+        affiliation_name = str((person or {}).get("affiliation_name") or "").strip()
+        person_id = getattr(drafted, "entity_id", None)
+        if not affiliation_name or not person_id:
+            continue
+        org_id = _find_or_draft_organization(engine, affiliation_name)
+        if org_id is not None:
+            # `affiliation` is resolved to the Organization `@id` at build time
+            # (_crate_mapping._wire_reference); set_fields stores the ref id.
+            _set_ref_field(engine, person_id, "affiliation", org_id)
 
     # --- publications: materialize each via resolve_publication (#219/#224), with
     # a PDF-text recovery step (#245). A plan publication carries a TITLE only

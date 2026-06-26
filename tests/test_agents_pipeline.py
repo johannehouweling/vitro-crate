@@ -760,6 +760,113 @@ class TestMaterializePlan:
         }
         assert counts_1 == counts_2
 
+    @staticmethod
+    def _affiliation_ref_id(person: Entity) -> str | None:
+        """The bare entity_id a Person's ``affiliation`` field points at.
+
+        ``set_fields`` stores the reference verbatim (a bare id or an
+        ``{"@id": …}`` object), so normalize both to the leading-``#``-stripped id.
+        """
+        value = person.fields.get("affiliation")
+        ref = value.get("@id") if isinstance(value, dict) else value
+        return str(ref).lstrip("#") if ref else None
+
+    def test_person_affiliation_mints_organization_and_links(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lane 1 — a plan ``people[].affiliation_name`` mints an Organization and
+        wires the Person's ``affiliation`` onto it.
+
+        ``extract_plan`` already surfaces ``affiliation_name`` (leaves.py), but the
+        deterministic materialize people-loop previously dropped it: the crate ended
+        up with ZERO Organization entities and the Person carried no affiliation.
+        """
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        # (a) an Organization named after the plan affiliation exists in state.
+        orgs = self._by_type(engine, "Organization")
+        analytical = [
+            o for o in orgs if o.fields.get("name") == "Analytical Engine"
+        ]
+        assert len(analytical) == 1, "exactly one Organization should be minted"
+
+        # (b) the Person's affiliation references that Organization's id.
+        ada = next(
+            p
+            for p in self._by_type(engine, "Person")
+            if p.fields.get("name") == "Ada Lovelace"
+        )
+        assert self._affiliation_ref_id(ada) == analytical[0].entity_id
+
+    def test_shared_affiliation_is_deduplicated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two people with the SAME affiliation_name produce ONE Organization,
+        both referencing it (no duplicate orgs)."""
+        import builder.agents.pipeline as pipeline_mod
+
+        plan = dict(self._PLAN)
+        plan["people"] = [
+            {"name": "Ada Lovelace", "affiliation_name": "Analytical Engine"},
+            {"name": "Charles Babbage", "affiliation_name": "Analytical Engine"},
+        ]
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch, plan)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        orgs = [
+            o
+            for o in self._by_type(engine, "Organization")
+            if o.fields.get("name") == "Analytical Engine"
+        ]
+        assert len(orgs) == 1, "shared affiliation must mint exactly one Organization"
+
+        org_id = orgs[0].entity_id
+        people = {
+            p.fields.get("name"): p for p in self._by_type(engine, "Person")
+        }
+        assert self._affiliation_ref_id(people["Ada Lovelace"]) == org_id
+        assert self._affiliation_ref_id(people["Charles Babbage"]) == org_id
+
+    def test_person_without_affiliation_mints_no_organization(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A person with no affiliation_name mints no Organization and gets no
+        affiliation field — no regression, no fabrication (D5)."""
+        import builder.agents.pipeline as pipeline_mod
+
+        plan = dict(self._PLAN)
+        plan["people"] = [{"name": "Ada Lovelace"}]
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch, plan)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        assert self._by_type(engine, "Organization") == []
+        ada = next(
+            p
+            for p in self._by_type(engine, "Person")
+            if p.fields.get("name") == "Ada Lovelace"
+        )
+        assert not ada.fields.get("affiliation")
+
     def test_run_pipeline_with_plan_reaches_conformance(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
