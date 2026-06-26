@@ -104,15 +104,20 @@ export VITRO_ANTHROPIC_DRAFTER_MODEL="claude-haiku-4"
 
 ### Interactive build mode (recommended)
 
-`--interactive` runs the **deterministic pipeline + human-in-the-loop guidance**
-build: code drives the known step ordering (scaffold the ISA backbone, draft and
-materialize entities, validate, auto-fix REQUIRED issues) and then walks you
-through any remaining gaps it cannot close on its own. This is the default since
-the in-repo A/B gate (it reached full ISA-Tox conformance on the shared corpus
-where the legacy ReAct loop stalled).
+`--interactive` offers **two supported build architectures over the same toolbox**.
+Both are maintained — pick the one that fits how you want to work:
+
+| Variant | Flag | What it does | When to pick it |
+| --- | --- | --- | --- |
+| **Deterministic pipeline + HITL guidance** (default) | `--interactive` | Code drives the known step ordering (scaffold the ISA backbone, draft and materialize entities, validate, auto-fix REQUIRED issues), then walks you through any remaining gaps it can't close on its own. | You want a **deterministic, cheaper, reproducible** build. It is the default and won the in-repo A/B gate (full ISA-Tox conformance on the shared corpus where the ReAct loop stalled). |
+| **Conversational ReAct agent** | `--interactive --legacy-react` | An LLM agent decides the order of tool calls turn by turn. | You want **flexible, conversational exploration** and to let the model drive. |
+
+Both variants are first-class and actively maintained — this is an ongoing
+exploration, not a one-way migration. See the architecture docs (`AGENTS.md` §14)
+for the full comparison.
 
 ```bash
-# With existing research data folder:
+# Default deterministic pipeline — with an existing research data folder:
 uv run python -m main --interactive -i /path/to/experiment/
 
 # Start fresh (no input — build the backbone, then guided enrichment):
@@ -122,7 +127,7 @@ uv run python -m main --interactive
 uv run python -m main --interactive --provider openai --model gpt-4o-mini
 uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
 
-# Legacy conversational ReAct agent (retained; being phased out):
+# Conversational ReAct agent (supported alternative):
 uv run python -m main --interactive --legacy-react
 ```
 
