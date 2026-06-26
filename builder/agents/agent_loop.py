@@ -230,6 +230,39 @@ _FILE_READ_TOOLS = frozenset(
 # from the agent itself or from the backstop.
 _EXPORTED_FLAG = "_crate_exported_this_session"
 
+# Attribute holding the entity-count fingerprint of the last in-loop auto-export
+# (#287 Fix A). A completed build auto-exports the crate to disk so the user
+# always gets a crate (the new deterministic pipeline already exports on every
+# completed build, #233); this fingerprint makes the auto-export idempotent —
+# it re-exports only when the crate has changed since the last auto-export
+# (so the *latest* crate always lands), never twice for the same build.
+_AUTO_EXPORT_FINGERPRINT_FLAG = "_crate_auto_export_fingerprint"
+
+# Attribute holding the optional single-arg console sink the loop installs so an
+# in-loop auto-export can surface the absolute crate path to the user (#287 Fix
+# A). Default ``None`` is a strict no-op (mirrors ``on_tool_event``, #266), so a
+# headless/test engine without a console behaves identically.
+_AUTO_EXPORT_EMIT_FLAG = "on_auto_export"
+
+# ---------------------------------------------------------------------------
+# Issue #287 Fix B: loop-breaker for repeated non-progress tool calls
+# ---------------------------------------------------------------------------
+
+# How many CONSECUTIVE identical non-progress tool calls (same tool name + same
+# args returning the same directory/None/error result) the loop tolerates before
+# it intervenes. A weak model looped ~36× on a directory/non-existent read,
+# burning millions of tokens; a small threshold breaks that fast without tripping
+# on legitimately-repeated DISTINCT calls or a single normal retry.
+_LOOP_BREAKER_THRESHOLD = 3
+
+# Attributes holding the loop-breaker's per-engine detection state: the signature
+# (tool name + sorted args) of the last call and the consecutive-repeat count of
+# the same non-progress result. Kept on the engine so the state survives across
+# the per-call tool closures and resets cleanly when a distinct/progress call
+# arrives.
+_LOOP_BREAKER_LAST_SIG_FLAG = "_loop_breaker_last_signature"
+_LOOP_BREAKER_COUNT_FLAG = "_loop_breaker_repeat_count"
+
 # ---------------------------------------------------------------------------
 # Issue #263: stall recovery (Fix A) + autonomous continuation (Fix B)
 # ---------------------------------------------------------------------------
@@ -428,6 +461,193 @@ def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> 
     )
 
 
+# ---------------------------------------------------------------------------
+# Issue #287 Fix A: auto-export the crate on every completed in-loop build
+# ---------------------------------------------------------------------------
+
+
+def _emit_auto_export(engine: AgentEngine, message: str) -> None:
+    """Surface an in-loop auto-export status line via the engine's emit sink.
+
+    The loop installs a single-arg sink at ``engine.<_AUTO_EXPORT_EMIT_FLAG>``
+    (``console.print``); a missing/``None`` sink is a strict no-op (mirrors the
+    #266 ``on_tool_event`` pattern), so a headless/test engine without a console
+    behaves identically. A raising sink is swallowed — surfacing is UI chrome and
+    must never break a tool call.
+    """
+    sink = getattr(engine, _AUTO_EXPORT_EMIT_FLAG, None)
+    if sink is None:
+        return
+    try:
+        sink(message)
+    except Exception:  # noqa: BLE001 — a UI sink must never break a tool call.
+        logger.debug("auto-export emit sink raised", exc_info=True)
+
+
+def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
+    """Export the crate to disk after a successful in-loop ``build_and_validate``.
+
+    Issue #287 Fix A: the legacy ReAct loop only wrote a crate via the finish
+    backstop, which runs on the EXIT path (quit/EOF). In a live run the user kept
+    the session alive, the weak model never called ``export_crate``, and a fully
+    built, base-VALID crate (70+ entities) was NEVER written. The deterministic
+    pipeline already exports on every completed build (#233); this brings the
+    legacy loop in line.
+
+    Fires when, and only when:
+      * the crate has entities (an empty crate has nothing to write), AND
+      * the build passed BASE conformance (``build_result["conformance"]["base"]``
+        — the same gate the pipeline uses; ISA/Tox may still have gaps but a
+        base-valid crate is worth landing), AND
+      * the crate has changed since the last auto-export (entity-count
+        fingerprint) — so the *latest* crate always lands and an unchanged repeat
+        build never re-exports (idempotency).
+
+    On a successful export the ``_EXPORTED_FLAG`` is stamped (so ``_finish_backstop``
+    stays a no-op and never double-exports) and the resolved ABSOLUTE crate path is
+    surfaced via the engine's emit sink. ``export_crate`` is called with no explicit
+    path so it honors ``state.metadata.output_path`` (CLI ``--output`` / default
+    ``<input>-ro-crate/``) then the session fallback. NEVER raises: an export
+    failure is logged and surfaced but the build result still flows back to the
+    model unchanged (the finish backstop can retry on exit).
+    """
+    try:
+        if not isinstance(build_result, dict):
+            return
+        # A build error or a base-conformance miss must not export — only a
+        # base-valid, non-empty crate is worth landing.
+        if build_result.get("error"):
+            return
+        conformance = build_result.get("conformance") or {}
+        if not conformance.get("base"):
+            return
+        if not engine.state.list_entities():
+            return
+
+        # Idempotency: re-export only when the crate changed since the last
+        # auto-export, so the latest crate always lands and a repeat build of an
+        # unchanged crate is a no-op (no double-export for the same build).
+        fingerprint = len(engine.state.list_entities())
+        last = getattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, None)
+        if last == fingerprint and getattr(engine, _EXPORTED_FLAG, False):
+            return
+
+        # No explicit path → export_crate honors state.metadata.output_path
+        # (CLI --output / default <input>-ro-crate/) then the session fallback.
+        result = engine.run_tool("export_crate")
+    except Exception as exc:  # noqa: BLE001 — auto-export must never break the turn.
+        logger.warning("In-loop auto-export failed: %s", exc)
+        return
+
+    if isinstance(result, dict) and result.get("success"):
+        # Stamp BEFORE surfacing so any later backstop call is a strict no-op,
+        # and record the fingerprint so an unchanged repeat build won't re-export.
+        setattr(engine, _EXPORTED_FLAG, True)
+        setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, fingerprint)
+        crate_path = result.get("crate_path")
+        try:
+            from pathlib import Path
+
+            resolved = str(Path(crate_path).resolve()) if crate_path else crate_path
+        except (OSError, TypeError, ValueError):
+            resolved = crate_path
+        logger.info("In-loop auto-export wrote crate to %s", resolved)
+        _emit_auto_export(engine, f"Crate written to: {resolved}")
+        return
+
+    # export_crate returned a failure dict (it never raises by contract). Do NOT
+    # stamp the flag — the finish backstop should still try on exit.
+    error = (result or {}).get("error") if isinstance(result, dict) else result
+    logger.warning("In-loop auto-export: export_crate failed: %s", error)
+    _emit_auto_export(engine, f"Could not write the crate yet: {error}")
+
+
+# ---------------------------------------------------------------------------
+# Issue #287 Fix B: loop-breaker for repeated non-progress tool calls
+# ---------------------------------------------------------------------------
+
+
+def _is_non_progress_result(result: Any) -> bool:
+    """Return True when a tool result represents NO forward progress (#287 Fix B).
+
+    A weak model loops when a tool keeps handing back the same dead-end. Three
+    shapes count as non-progress:
+
+    1. An ``error`` dict — the wrapper turns a recoverable tool-body exception
+       into ``{"error": ..., "tool": ...}`` (e.g. a non-existent path).
+    2. A directory-guidance string — a reader handed a directory returns
+       ``"<path> is a directory, not a file …"`` (#240/#281).
+    3. An unreadable/None string — a reader that could not return text returns
+       ``"<tool> could not return text …"`` (#101/#148).
+
+    Anything else (real file content, a successful build dict, a list, …) is
+    progress and resets the loop-breaker. The check is purely structural so it
+    never raises.
+    """
+    if isinstance(result, dict):
+        return "error" in result
+    if isinstance(result, str):
+        return (
+            "is a directory, not a file" in result
+            or "could not return text" in result
+        )
+    return False
+
+
+def _call_signature(tool_name: str, kwargs: dict[str, Any]) -> tuple[str, tuple]:
+    """A hashable signature for a tool call (name + sorted, stringified args).
+
+    Args are stringified before sorting so unhashable values (lists/dicts a weak
+    model may pass) can't break signature comparison — the loop-breaker only
+    needs to know whether two calls are byte-identical, not to round-trip them.
+    """
+    try:
+        items = tuple(sorted((str(k), str(v)) for k, v in kwargs.items()))
+    except Exception:  # noqa: BLE001 — signature comparison must never raise.
+        items = (("__repr__", repr(kwargs)),)
+    return (tool_name, items)
+
+
+def _loop_breaker_intervention(engine: AgentEngine, tool_name: str) -> str:
+    """Build the corrective tool message that breaks a repeated non-progress loop.
+
+    Injects the actual ``list_scanned_files`` inventory (the concrete file paths
+    the model should read instead) plus a forceful directive to stop repeating the
+    identical call and pick a real file path. The inventory is fetched via
+    ``engine.run_tool('list_scanned_files')`` so it reflects the live scan; a
+    failure degrades to the directive alone (never raises).
+    """
+    inventory_block = ""
+    try:
+        inv = engine.run_tool("list_scanned_files")
+        if isinstance(inv, dict):
+            files = inv.get("files") or []
+            paths = [f.get("path") for f in files if isinstance(f, dict) and f.get("path")]
+            if paths:
+                shown = paths[:25]
+                listed = "\n".join(f"  - {p}" for p in shown)
+                more = (
+                    f"\n  …and {len(paths) - len(shown)} more "
+                    "(call list_scanned_files to page through them)."
+                    if len(paths) > len(shown)
+                    else ""
+                )
+                inventory_block = (
+                    f"\nScanned files you can read by their EXACT path:\n{listed}{more}"
+                )
+    except Exception:  # noqa: BLE001 — the inventory is best-effort.
+        logger.debug("loop-breaker: list_scanned_files failed", exc_info=True)
+
+    return (
+        f"STOP — you have called {tool_name} with the same arguments "
+        f"{_LOOP_BREAKER_THRESHOLD} times in a row and it is not making progress "
+        f"(the path is a directory, missing, or unreadable). Do NOT call "
+        f"{tool_name} again with those arguments. Pick a CONCRETE file path from "
+        f"the inventory below, or move on to drafting/validating entities."
+        f"{inventory_block}"
+    )
+
+
 def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
     """Build LangChain BaseTool instances from the engine's tool registry.
 
@@ -449,6 +669,20 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
         def _make_tool(tool_name: str, tool_desc: str, tool_params: dict) -> BaseTool:
             def _run(**kwargs: Any) -> Any:
+                # Loop-breaker (#287 Fix B): if this is the Nth consecutive
+                # IDENTICAL call that has been returning a non-progress result
+                # (directory/None/error), REFUSE to repeat it — return a forceful
+                # corrective tool message with the actual scanned-file inventory so
+                # a weak model stops looping (it ignored #281's directory message
+                # and looped ~36×). Distinct calls / a single retry never trip this.
+                signature = _call_signature(tool_name, kwargs)
+                last_sig = getattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, None)
+                repeat_count = getattr(engine, _LOOP_BREAKER_COUNT_FLAG, 0)
+                if last_sig == signature and repeat_count >= _LOOP_BREAKER_THRESHOLD:
+                    # Do NOT run the tool again — the identical non-progress call
+                    # is short-circuited and the model is steered elsewhere.
+                    return _loop_breaker_intervention(engine, tool_name)
+
                 try:
                     result = engine.run_tool(tool_name, **kwargs)
                 except (ValueError, KeyError, TypeError) as exc:
@@ -463,31 +697,63 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # otherwise escape both the ToolNode and the model loop.
                     # Genuinely fatal errors (SystemExit, KeyboardInterrupt) are
                     # intentionally NOT caught so they propagate normally.
-                    return {"error": str(exc), "tool": tool_name}
-                # scan_files returns the full list[FileClassification] (already
-                # stored in state); hand the LLM a compact summary instead of
-                # the raw blob so it gets a clear success signal and does not
-                # re-scan in a loop.
-                if tool_name == "scan_files" and isinstance(result, list):
-                    from builder.tools.scanner import summarize_scan_result
+                    result = {"error": str(exc), "tool": tool_name}
+                else:
+                    # scan_files returns the full list[FileClassification] (already
+                    # stored in state); hand the LLM a compact summary instead of
+                    # the raw blob so it gets a clear success signal and does not
+                    # re-scan in a loop.
+                    if tool_name == "scan_files" and isinstance(result, list):
+                        from builder.tools.scanner import summarize_scan_result
 
-                    return summarize_scan_result(result)
-                # The file-reading tools return None for missing/oversized/binary
-                # files; hand the LLM an actionable message so it stops re-calling
-                # them (#101, #148).
-                if tool_name in _FILE_READ_TOOLS and result is None:
-                    return _unreadable_file_message(
-                        kwargs.get("path", ""), tool_name
-                    )
-                # When the agent itself successfully exports, stamp the engine so
-                # the deterministic finish backstop (#251) does not double-export
-                # on session exit.
-                if (
-                    tool_name in ("export_crate", "build_crate")
-                    and isinstance(result, dict)
-                    and result.get("success")
-                ):
-                    setattr(engine, _EXPORTED_FLAG, True)
+                        result = summarize_scan_result(result)
+                    # The file-reading tools return None for missing/oversized/
+                    # binary files; hand the LLM an actionable message so it stops
+                    # re-calling them (#101, #148).
+                    elif tool_name in _FILE_READ_TOOLS and result is None:
+                        result = _unreadable_file_message(
+                            kwargs.get("path", ""), tool_name
+                        )
+                    # When the agent itself successfully exports, stamp the engine
+                    # so the deterministic finish backstop (#251) does not
+                    # double-export on session exit. Also record the entity-count
+                    # fingerprint so an unchanged follow-up build_and_validate does
+                    # not redundantly re-export (#287 Fix A idempotency).
+                    elif (
+                        tool_name in ("export_crate", "build_crate")
+                        and isinstance(result, dict)
+                        and result.get("success")
+                    ):
+                        setattr(engine, _EXPORTED_FLAG, True)
+                        try:
+                            setattr(
+                                engine,
+                                _AUTO_EXPORT_FINGERPRINT_FLAG,
+                                len(engine.state.list_entities()),
+                            )
+                        except Exception:  # noqa: BLE001 — fingerprint is best-effort.
+                            logger.debug("fingerprint stamp failed", exc_info=True)
+                    # Auto-export on every completed in-loop build (#287 Fix A):
+                    # the user kept the session alive and the weak model never
+                    # called export_crate, so a base-valid 70+-entity crate never
+                    # landed. Mirror the deterministic pipeline (#233) — write the
+                    # crate whenever build_and_validate passes base conformance.
+                    elif tool_name == "build_and_validate":
+                        _auto_export_after_build(engine, result)
+
+                # Update the loop-breaker detection state AFTER post-processing so
+                # it sees the same message the model sees. A repeated identical
+                # non-progress call increments the streak; any distinct call or a
+                # progress result resets it.
+                if last_sig == signature and _is_non_progress_result(result):
+                    setattr(engine, _LOOP_BREAKER_COUNT_FLAG, repeat_count + 1)
+                elif _is_non_progress_result(result):
+                    setattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, signature)
+                    setattr(engine, _LOOP_BREAKER_COUNT_FLAG, 1)
+                else:
+                    setattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, None)
+                    setattr(engine, _LOOP_BREAKER_COUNT_FLAG, 0)
+
                 return result
 
             _run.__name__ = tool_name
@@ -1537,6 +1803,15 @@ def run_interactive_agent(
 
     console = Console()
 
+    # In-loop auto-export surfacing (#287 Fix A): a completed in-loop build writes
+    # the crate to disk and reports its absolute path via this sink. The export
+    # fires deep inside ``app.invoke`` (under the Rich Live spinner), so we BUFFER
+    # the line here and flush it from ``_run_turn`` once the spinner has torn down,
+    # keeping the transcript clean. Installed on the engine like ``on_tool_event``
+    # (#266); a headless engine leaves it ``None`` (a strict no-op).
+    auto_export_lines: list[str] = []
+    setattr(engine, _AUTO_EXPORT_EMIT_FLAG, auto_export_lines.append)
+
     if max_iterations is None:
         from builder.config import get_max_iterations
 
@@ -1937,6 +2212,12 @@ def run_interactive_agent(
             outcome = "recursion"
         finally:
             root_logger.setLevel(old_root_level)
+
+        # Flush any in-loop auto-export status lines buffered during the invoke
+        # (#287 Fix A) now the spinner's Live region is gone, so "Crate written
+        # to: <abs path>" lands cleanly in the transcript.
+        while auto_export_lines:
+            console.print(auto_export_lines.pop(0))
 
         if outcome == "ok" and result:
             reply = _extract_reply(result)

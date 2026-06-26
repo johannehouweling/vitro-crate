@@ -1643,3 +1643,356 @@ class TestTimeoutEndsTurnGracefully:
         assert backstop_calls["n"] >= 1
 
 
+# ---------------------------------------------------------------------------
+# Issue #287: export-on-completed-build (Fix A) + repeated-non-progress
+# loop-breaker (Fix B). The engine/tools are stubbed; no SHACL / LLM / network.
+# ---------------------------------------------------------------------------
+
+
+class TestExportOnCompletedBuild:
+    """Issue #287 Fix A: a successful in-loop build_and_validate auto-exports the
+    crate to disk (no quit needed), surfaces the absolute path, stamps the
+    _EXPORTED_FLAG, and leaves the finish backstop a no-op afterward."""
+
+    def _engine_with_entities(self, *types: str):
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_export_287"
+        for i, t in enumerate(types or ("Investigation", "Study")):
+            engine.state.add_entity(Entity(entity_id=f"e{i}", type=t))
+        return engine
+
+    def _install_spy(self, engine, *, build_result, export_result):
+        """Replace engine.run_tool with a recording spy returning canned results
+        for build_and_validate / export_crate; record the call order."""
+        calls: list[str] = []
+
+        def fake_run_tool(tool_name: str, **kwargs):
+            calls.append(tool_name)
+            if tool_name == "build_and_validate":
+                return dict(build_result)
+            if tool_name in ("export_crate", "build_crate"):
+                return dict(export_result)
+            return {"ok": True}
+
+        engine.run_tool = fake_run_tool  # type: ignore[method-assign]
+        return calls
+
+    def test_successful_build_and_validate_auto_exports_once(self):
+        from builder.agents.agent_loop import (
+            _EXPORTED_FLAG,
+            _build_langchain_tools,
+            _finish_backstop,
+        )
+
+        engine = self._engine_with_entities("Investigation", "Study")
+        calls = self._install_spy(
+            engine,
+            build_result={
+                "ok": True,
+                "conformance": {"base": True, "isa": True, "tox": True},
+                "issues": [],
+            },
+            export_result={
+                "success": True,
+                "crate_path": "/tmp/S-VHPS26-ro-crate",
+                "error": None,
+            },
+        )
+
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        result = tools["build_and_validate"].invoke({"severity": None, "profile": None})
+
+        # build_and_validate ran, then export_crate was triggered exactly once.
+        assert "build_and_validate" in calls
+        assert calls.count("export_crate") == 1, f"expected one export, got {calls}"
+        # The original build result is still returned to the model.
+        assert isinstance(result, dict) and result.get("ok") is True
+        # The flag is stamped so the finish backstop is a no-op.
+        assert getattr(engine, _EXPORTED_FLAG, False) is True
+
+        # A subsequent finish backstop must NOT double-export.
+        before = calls.count("export_crate")
+        _finish_backstop(engine, emit=lambda _m: None)
+        assert calls.count("export_crate") == before, (
+            f"finish backstop must not double-export, got {calls}"
+        )
+
+    def test_crate_path_is_surfaced(self):
+        """The absolute crate path is surfaced through the loop's output channel."""
+        from builder.agents.agent_loop import _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation")
+        self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={
+                "success": True,
+                "crate_path": "/tmp/out-ro-crate",
+                "error": None,
+            },
+        )
+
+        surfaced: list[str] = []
+        # The loop installs an emit sink on the engine for in-loop exports.
+        engine.on_auto_export = surfaced.append  # type: ignore[attr-defined]
+
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        tools["build_and_validate"].invoke({})
+
+        assert any("ro-crate" in m for m in surfaced), (
+            f"the crate path must be surfaced, got {surfaced}"
+        )
+
+    def test_failed_build_does_not_export(self):
+        """A build_and_validate that does not pass base conformance never exports."""
+        from builder.agents.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation")
+        calls = self._install_spy(
+            engine,
+            build_result={
+                "ok": False,
+                "conformance": {"base": False},
+                "issues": [{"x": 1}],
+            },
+            export_result={
+                "success": True,
+                "crate_path": "/tmp/out-ro-crate",
+                "error": None,
+            },
+        )
+
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        tools["build_and_validate"].invoke({})
+
+        assert "export_crate" not in calls, f"a failed build must not export, got {calls}"
+        assert getattr(engine, _EXPORTED_FLAG, False) is False
+
+    def test_empty_crate_does_not_export(self):
+        """A successful build over an EMPTY crate (no entities) never exports."""
+        from builder.agents.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_export_287_empty"
+        calls = self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={
+                "success": True,
+                "crate_path": "/tmp/out-ro-crate",
+                "error": None,
+            },
+        )
+
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        tools["build_and_validate"].invoke({})
+
+        assert "export_crate" not in calls, f"empty crate must not export, got {calls}"
+        assert getattr(engine, _EXPORTED_FLAG, False) is False
+
+    def test_re_export_when_state_changes_between_builds(self):
+        """A second build after the crate has grown re-exports (the latest crate
+        always lands); a second build with NO change does not re-export."""
+        from builder.agents.agent_loop import _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation")
+        calls = self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={
+                "success": True,
+                "crate_path": "/tmp/out-ro-crate",
+                "error": None,
+            },
+        )
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+
+        tools["build_and_validate"].invoke({})
+        assert calls.count("export_crate") == 1
+        # No state change → a repeat build must NOT re-export.
+        tools["build_and_validate"].invoke({})
+        assert calls.count("export_crate") == 1, f"no change → no re-export, got {calls}"
+        # The crate grows → the next build re-exports the latest crate.
+        engine.state.add_entity(Entity(entity_id="new", type="Study"))
+        tools["build_and_validate"].invoke({})
+        assert calls.count("export_crate") == 2, f"grown crate → re-export, got {calls}"
+
+    def test_failed_export_does_not_crash_or_stamp(self):
+        """When the auto-export itself fails, the build result is still returned
+        and the flag is not stamped (so the finish backstop can retry on exit)."""
+        from builder.agents.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation")
+        self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={"success": False, "crate_path": None, "error": "disk full"},
+        )
+
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        result = tools["build_and_validate"].invoke({})
+
+        assert isinstance(result, dict) and result.get("ok") is True
+        assert getattr(engine, _EXPORTED_FLAG, False) is False
+
+
+class TestRepeatedNonProgressLoopBreaker:
+    """Issue #287 Fix B: N consecutive IDENTICAL non-progress tool calls trigger
+    a loop-breaker that injects the list_scanned_files inventory and steers the
+    model to a concrete file path."""
+
+    def _engine(self):
+        from builder.engine import AgentEngine
+        from builder.state import FileClassification
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_loopbreaker_287"
+        engine.state.scanned_files = [
+            FileClassification(
+                path="/data/run/Assay_OATP1C1/results.csv",
+                filename="results.csv",
+                size=1234,
+                mime_type="text/csv",
+            )
+        ]
+        return engine
+
+    def _install_dir_reader(self, engine, message):
+        """engine.run_tool returns the same directory message for every read."""
+        calls: list[tuple[str, tuple]] = []
+
+        def fake_run_tool(tool_name: str, **kwargs):
+            calls.append((tool_name, tuple(sorted(kwargs.items()))))
+            if tool_name == "read_file_sample":
+                # Mirror what file_readers does for a directory: a real string.
+                return message
+            if tool_name == "list_scanned_files":
+                from builder.tools.management import list_scanned_files
+
+                return list_scanned_files(engine.state, **kwargs)
+            return {"ok": True}
+
+        engine.run_tool = fake_run_tool  # type: ignore[method-assign]
+        return calls
+
+    def test_identical_directory_reads_trigger_intervention(self):
+        from builder.agents.agent_loop import (
+            _LOOP_BREAKER_THRESHOLD,
+            _build_langchain_tools,
+        )
+
+        engine = self._engine()
+        dir_msg = (
+            "/data/run/Assay_OATP1C1 is a directory, not a file — use "
+            "list_scanned_files to browse the inventory, then read a specific "
+            "file by its path."
+        )
+        calls = self._install_dir_reader(engine, dir_msg)
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        reader = tools["read_file_sample"]
+
+        args = {"path": "/data/run/Assay_OATP1C1"}
+        results = []
+        for _ in range(_LOOP_BREAKER_THRESHOLD + 1):
+            results.append(reader.invoke(dict(args)))
+
+        # The first calls pass through the directory message unchanged. On/after
+        # the threshold the loop-breaker injects the inventory and steers the
+        # model — the final result must NOT be the bare directory message.
+        last = str(results[-1])
+        assert last != dir_msg, "the loop-breaker must change the repeated result"
+        assert "results.csv" in last, (
+            f"the loop-breaker must inject the scanned-file inventory, got: {last}"
+        )
+        # The underlying read tool was NOT called yet again after the breaker
+        # fired (the identical non-progress call is refused/short-circuited).
+        read_calls = [c for c in calls if c[0] == "read_file_sample"]
+        assert len(read_calls) <= _LOOP_BREAKER_THRESHOLD, (
+            f"the identical read must be refused after the threshold, got {calls}"
+        )
+
+    def test_error_dict_results_trigger_intervention(self):
+        from builder.agents.agent_loop import (
+            _LOOP_BREAKER_THRESHOLD,
+            _build_langchain_tools,
+        )
+
+        engine = self._engine()
+        calls: list[tuple[str, tuple]] = []
+
+        def fake_run_tool(tool_name: str, **kwargs):
+            calls.append((tool_name, tuple(sorted(kwargs.items()))))
+            if tool_name == "read_file":
+                # A missing path raises -> the wrapper turns it into an error dict.
+                raise ValueError("Entity not found: /nope")
+            if tool_name == "list_scanned_files":
+                from builder.tools.management import list_scanned_files
+
+                return list_scanned_files(engine.state, **kwargs)
+            return {"ok": True}
+
+        engine.run_tool = fake_run_tool  # type: ignore[method-assign]
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        reader = tools["read_file"]
+
+        results = []
+        for _ in range(_LOOP_BREAKER_THRESHOLD + 1):
+            results.append(reader.invoke({"path": "/nope"}))
+
+        last = str(results[-1])
+        assert "results.csv" in last, (
+            f"repeated error results must trigger the inventory injection, got {last}"
+        )
+
+    def test_distinct_calls_do_not_trigger(self):
+        """Repeated but DISTINCT directory reads never trip the loop-breaker."""
+        from builder.agents.agent_loop import (
+            _LOOP_BREAKER_THRESHOLD,
+            _build_langchain_tools,
+        )
+
+        engine = self._engine()
+
+        def fake_run_tool(tool_name: str, **kwargs):
+            if tool_name == "read_file_sample":
+                return (
+                    f"{kwargs.get('path')} is a directory, not a file — use "
+                    "list_scanned_files."
+                )
+            return {"ok": True}
+
+        engine.run_tool = fake_run_tool  # type: ignore[method-assign]
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        reader = tools["read_file_sample"]
+
+        # Each call has a DISTINCT path → never the same non-progress result.
+        for i in range(_LOOP_BREAKER_THRESHOLD + 3):
+            res = str(reader.invoke({"path": f"/data/dir_{i}"}))
+            assert "results.csv" not in res, (
+                f"distinct calls must not trip the loop-breaker, got {res}"
+            )
+
+    def test_single_repeat_below_threshold_does_not_trigger(self):
+        """A repeat below the threshold passes the result through unchanged."""
+        from builder.agents.agent_loop import (
+            _LOOP_BREAKER_THRESHOLD,
+            _build_langchain_tools,
+        )
+
+        engine = self._engine()
+        dir_msg = "/data/d is a directory, not a file — use list_scanned_files."
+        self._install_dir_reader(engine, dir_msg)
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        reader = tools["read_file_sample"]
+
+        # Repeat one fewer than the threshold → still the bare directory message.
+        for _ in range(_LOOP_BREAKER_THRESHOLD - 1):
+            res = str(reader.invoke({"path": "/data/d"}))
+            assert "results.csv" not in res, (
+                f"below threshold must not inject the inventory, got {res}"
+            )
+
+
