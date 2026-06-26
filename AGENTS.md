@@ -260,6 +260,19 @@ list_scanned_files …". `read_file_sample`'s `lines` argument controls how much
 of each tool's call args (`run_tool: read_file(path='…')`) so the recorded action
 shows *which* path/hints a tool ran with, not just its result.
 
+**Repeated non-progress loop-breaker (Issue #287, legacy ReAct only):** even with
+the directory/`None` messages above, a weak model (DeepSeek-flash) re-issued the
+*same* `read_file_sample`/`read_file` call on a directory / non-existent path ~36×
+in a row, burning millions of tokens. The `_run` wrapper in `_build_langchain_tools`
+now tracks the last tool-call signature (name + sorted args) and the consecutive
+count of the **same non-progress result** (a directory message, an unreadable/`None`
+message, or an `{"error": …}` dict — `_is_non_progress_result`) on the engine. After
+`_LOOP_BREAKER_THRESHOLD` (3) identical non-progress repeats it **refuses to run the
+call again** and returns a forceful corrective message carrying the live
+`list_scanned_files` inventory (concrete file paths to read instead). Any *distinct*
+call or any *progress* result resets the counter, so legitimately-repeated different
+calls and a single normal retry never trip it.
+
 #### Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.
 Each drafter collects hints, calls the LLM, and ensures identifiers come from
@@ -1822,6 +1835,19 @@ build (interactive *and* headless), so the user always gets a crate on disk and
 logged, surfaced via `output`, and re-raised as `CrateExportError` so the CLI
 signals a non-zero exit. The exporter is injectable so the wiring is unit-tested
 with no ro-crate-py / disk (`tests/test_agents_build.py`).
+
+**Legacy ReAct now mirrors this (#287).** "only the legacy ReAct loop exported,
+because the LLM chose to" was itself a bug: in a live `--legacy-react` run the weak
+model *never* chose `export_crate` while the user kept the session alive, so a
+base-valid 70+-entity crate was never written (`_finish_backstop`, #251, only runs
+on the quit/EOF exit path). The legacy loop now auto-exports on **every** completed
+in-loop build too: `_auto_export_after_build` in `builder/agents/agent_loop.py` fires
+after a `build_and_validate` that passes **base** conformance over a non-empty crate,
+calling `export_crate` with no explicit path (same destination resolution as above),
+stamping `_EXPORTED_FLAG` (so `_finish_backstop` stays a no-op — no double-export),
+and surfacing the absolute crate path. It is idempotent via an entity-count
+fingerprint: it re-exports only when the crate changed since the last auto-export, so
+the *latest* crate always lands and an unchanged repeat build is a no-op.
 
 **Progress + persistence (#241 / #242).** Before these the default `--interactive`
 (pipeline) path *felt dead*: the deterministic spine ran for ~tens of seconds with
