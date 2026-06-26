@@ -302,6 +302,137 @@ class TestDraftEntitiesWiring:
         assert result.get("fields_applied") == 0
 
 
+class TestGatherContextMetadataFirst:
+    """`_gather_context` must feed the structured METADATA files to the leaf, not
+    only filenames + the paper (Issue #179 / real S-VHPS26 run).
+
+    Root cause (pre-fix): the 8000-char body budget is ONE shared pool and the
+    per-file cap is ``min(remaining, _MAX_CONTEXT_CHARS)``, so the FIRST file read
+    can consume the whole budget. Files are processed in plain scan order with no
+    metadata prioritization, so a large early bulk-data file zeroes the budget and
+    the richest structured metadata — a BioStudies ``<acc>.json`` export, an
+    assay-metadata ``.xlsx``, a SOP ``.docx`` — never reaches ``extract_plan``.
+
+    The fix: (a) order metadata-bearing files FIRST, and (b) cap each file fairly
+    so no single early file starves the rest.
+    """
+
+    _JSON_SENTINEL = "BIOSTUDIES_ACCESSION_SENTINEL_S_VHPS26"
+    _META_XLSX_SENTINEL = "ASSAY_METADATA_SHEET_SENTINEL"
+    _DATA_SENTINEL = "BULK_DATA_FILE_BODY_SENTINEL"
+
+    def _state_with_files(self, root: Path) -> CrateState:
+        """A scanned-file inventory that reproduces the S-VHPS26 ordering trap.
+
+        A LARGE bulk-data ``.xlsx`` is listed FIRST (its stubbed body alone exceeds
+        the whole 8000-char budget), followed by the metadata-bearing files whose
+        bodies carry unique sentinels. All paths are inside *root* (an approved
+        scan root) so the fail-closed containment guard admits them.
+        """
+        from builder.agents.pipeline import _MAX_CONTEXT_CHARS
+
+        state = CrateState()
+        state.metadata.title = "S-VHPS26 metadata-first context"
+        state.approved_scan_roots = {str(root)}
+
+        names = [
+            "aaa_big_data.xlsx",  # bulk data, sorts FIRST alphabetically
+            "S-VHPS26.json",  # BioStudies accession export (metadata)
+            "assay_metadata.xlsx",  # assay-metadata sheet (metadata)
+            "protocol_SOP.docx",  # SOP doc
+            "zzz_more_data.xlsx",  # more bulk data, sorts LAST
+        ]
+        # Bodies: the FIRST file's body alone overflows the total budget; the
+        # metadata files carry unique sentinel tokens near their start.
+        self._bodies = {
+            "aaa_big_data.xlsx": (self._DATA_SENTINEL + " ") * (_MAX_CONTEXT_CHARS * 2),
+            "S-VHPS26.json": self._JSON_SENTINEL + ' {"accession": "S-VHPS26"}',
+            "assay_metadata.xlsx": self._META_XLSX_SENTINEL + " | cell line | dose",
+            "protocol_SOP.docx": "Standard operating procedure heading.",
+            "zzz_more_data.xlsx": (self._DATA_SENTINEL + " ") * (_MAX_CONTEXT_CHARS * 2),
+        }
+        for name in names:
+            p = root / name
+            p.write_text("placeholder")  # real file so _contain resolves it
+            state.scanned_files.append(
+                FileClassification(
+                    path=str(p),
+                    filename=name,
+                    size=len(self._bodies[name]),
+                    mime_type="application/octet-stream",
+                    first_rows=None,  # forces the body-read path for every file
+                )
+            )
+        return state
+
+    def _stub_reader(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stub the body reader to return the sized bodies keyed by filename."""
+        import builder.tools.file_readers as fr_mod
+
+        def fake_read_file(path, *args, **kwargs):
+            return self._bodies.get(Path(path).name)
+
+        monkeypatch.setattr(fr_mod, "read_file", fake_read_file)
+
+    def test_biostudies_json_sentinel_reaches_context(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The BioStudies ``<acc>.json`` body MUST reach the gathered context even
+        though a much larger bulk-data file is scanned first.
+
+        Pre-fix this FAILS: the first file (``aaa_big_data.xlsx``) exhausts the
+        whole 8000-char budget, so the JSON sentinel never appears.
+        """
+        import builder.agents.pipeline as pipeline_mod
+
+        self._stub_reader(monkeypatch)
+        engine = _engine(self._state_with_files(tmp_path))
+
+        context = pipeline_mod._gather_context(engine)
+
+        assert self._JSON_SENTINEL in context, (
+            "the BioStudies .json metadata body must reach the leaf context"
+        )
+
+    def test_metadata_body_precedes_bulk_data_body(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A metadata-named file's body must appear BEFORE a bulk data file's body."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._stub_reader(monkeypatch)
+        engine = _engine(self._state_with_files(tmp_path))
+
+        context = pipeline_mod._gather_context(engine)
+
+        # The metadata .xlsx sentinel must appear, and before any bulk-data body.
+        meta_idx = context.find(self._META_XLSX_SENTINEL)
+        data_idx = context.find(self._DATA_SENTINEL)
+        assert meta_idx != -1, "the assay-metadata file body must reach the context"
+        if data_idx != -1:
+            assert meta_idx < data_idx, (
+                "metadata-named file body must precede a bulk data file body"
+            )
+
+    def test_total_budget_ceiling_is_respected(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The overall 8000-char body budget stays the ceiling — no single file
+        (and not the fair per-file slices summed) blows it."""
+        import builder.agents.pipeline as pipeline_mod
+        from builder.agents.pipeline import _MAX_CONTEXT_CHARS
+
+        self._stub_reader(monkeypatch)
+        engine = _engine(self._state_with_files(tmp_path))
+
+        context = pipeline_mod._gather_context(engine)
+
+        # Total body content (sentinels are a proxy: the two huge data files alone
+        # would each exceed the budget if uncapped) stays bounded. Allow headroom
+        # for the non-body scaffolding (title line, filename headers).
+        assert len(context) <= _MAX_CONTEXT_CHARS + 2000
+
+
 class TestMaterializePlan:
     """Stage B (`_materialize_plan`) turns the extracted candidate plan into real
     domain entities via the deterministic composites (Issue #179 task 2b-B).
