@@ -1693,6 +1693,23 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   are merged onto the already-scaffolded Study (fill-don't-clobber: only when the
   field is empty or still the generic placeholder), and each `people[]` is split
   into `givenName`/`familyName` so the Person is ISA-conformant (#232).
+  **Entity→provenance wiring (#273).** Resolving a compound / cell line MINTS the
+  entity but leaves it a graph orphan unless something references it, so after the
+  `compounds[]` / `cell_lines[]` sections run, `_materialize_plan` wires the
+  collected ids deterministically through `set_fields` (never hand-rolled JSON-LD)
+  using the canonical ISA-Tox reference fields: each resolved `MolecularEntity` →
+  the **Exposure** LabProcess via `chemicals` (ISA forbids a MolecularEntity as a
+  process object — objects MUST be File/Sample/BioSample — so the build connects
+  the compound THROUGH the Exposure's CSVW condition table, `schema:about` →
+  MolecularEntity + the `compound` column's `valueUrl`; `_crate_mapping
+  ._build_process`/`_synth_condition_table`); the resolved `CellLineSample` → the
+  **CellCulture** LabProcess via `cell_line` (its consumed input, replacing the
+  synthesized generic `..._input` placeholder); and BOTH are surfaced on the
+  scaffolded Study via `schema:mentions` (the `chemicals` / `cell_lines`→
+  `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
+  compounds alike — is reachable from the backbone at a glance (orphan count → 0).
+  Idempotent: `set_fields` writes the same deterministic ids, so re-running mints
+  no duplicates.
 - **Assess** (`assess_gaps`, the gap engine #215, this section) — one
   prioritized `GapReport` unifying SHACL + MIT + FAIR.
 - **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every

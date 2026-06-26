@@ -786,6 +786,226 @@ class TestMaterializePlan:
         assert result["materialized"]["compounds"] >= 2
 
 
+def _types(node: dict) -> set[str]:
+    """The @type(s) of a graph node as a set of strings."""
+    t = node.get("@type")
+    if isinstance(t, list):
+        return {str(x) for x in t}
+    return {str(t)} if t is not None else set()
+
+
+class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
+    """Issue #273 — resolved compounds and the cell line must be WIRED into the
+    provenance, not left as orphans.
+
+    The materialize path already RESOLVES the right MolecularEntity / CellLineSample
+    entities, but before #273 it never linked them into the process chain, so the
+    exported crate flagged them all as ``⚠ orphan``. The fix wires them with the
+    canonical ISA-Tox reference fields:
+
+    * each resolved ``MolecularEntity`` → the Exposure LabProcess via the
+      ``chemicals`` ref field. ISA forbids a MolecularEntity as a process object
+      (objects MUST be File/Sample/BioSample), so the compound is connected THROUGH
+      the Exposure's CSVW condition table (``schema:about`` → MolecularEntity) and,
+      at a glance, on the Study via ``schema:mentions`` (the ``chemicals`` Study
+      mention).
+    * the resolved ``CellLineSample`` → the CellCulture LabProcess via the
+      ``cell_line`` ref field (its consumed input), replacing the synthesized
+      generic ``..._input`` placeholder; also surfaced on the Study via
+      ``cell_lines`` (``biologicalModels``, an alias of ``schema:mentions``).
+
+    Reachability is asserted against the *built* ``@graph`` (the exact assembly
+    ``build_and_validate`` uses): every resolved MolecularEntity / CellLineSample
+    node must be referenced by at least one other node, i.e. orphan count → 0.
+    """
+
+    def _stub_lookups(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Like the base stub, but return a DISTINCT CID per compound name.
+
+        The base `_stub_lookups` hands the same canned PubChem CID to every
+        compound, so distinct compounds would collapse to ONE MolecularEntity node
+        (its build @id is the verified CID IRI). The #273 reachability test needs
+        the two plan compounds to be two distinct nodes, so override the compound
+        lookup with a per-name CID while keeping every other stub (verify / AOP /
+        Crossref) from the base.
+        """
+        super()._stub_lookups(monkeypatch)
+        import builder.tools.composites as composites_mod
+        from builder.tools._resolve_cache import compound_cache
+
+        # The compound resolution cache is process-global; a prior test (or the
+        # inherited ones, which use the base single-CID stub) can pre-cache these
+        # names and short-circuit the lookup, so distinct-CID resolution would be
+        # masked. Clear it so this test's stub always runs fresh (xdist-safe).
+        compound_cache.clear()
+
+        # Distinct CID per compound (the build keys a MolecularEntity node @id to
+        # its verified CID IRI, so distinct CIDs => distinct nodes). CAS stays the
+        # base stub's `60-56-0` so the inherited D5 test's exact-value assertion is
+        # preserved; only the (node-id-bearing) CID varies per name.
+        _cids = {"Methimazole": "1349907", "Sodium iodide": "5238"}
+
+        def fake_lookup_compound(name):
+            return {
+                "found": True,
+                "data": {
+                    "cas": "60-56-0",
+                    "pubchem_cid": _cids.get(name, "999999"),
+                    "smiles": "C1=CN(C(=S)N1)C",
+                    "source": "pubchem",
+                },
+                "error": None,
+            }
+
+        monkeypatch.setattr(
+            composites_mod, "lookup_compound", fake_lookup_compound
+        )
+
+    @staticmethod
+    def _referenced_ids(graph: list[dict]) -> set[str]:
+        """Every @id referenced by ANY node in *graph*.
+
+        Walks each node's property values for ``{"@id": ...}`` references (scalar,
+        list, or nested) EXCEPT the node's own ``@id``/``@type``, so a node that
+        only "references" itself is not counted as referenced.
+        """
+        referenced: set[str] = set()
+
+        def _collect(value: object) -> None:
+            if isinstance(value, dict):
+                ref = value.get("@id")
+                if isinstance(ref, str):
+                    referenced.add(ref)
+                else:
+                    for v in value.values():
+                        _collect(v)
+            elif isinstance(value, list):
+                for item in value:
+                    _collect(item)
+
+        for node in graph:
+            for key, value in node.items():
+                if key in ("@id", "@type"):
+                    continue
+                _collect(value)
+        return referenced
+
+    def _built_graph(self, engine: AgentEngine) -> list[dict]:
+        """The built crate's ``@graph`` — the same assembly build_and_validate uses."""
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(
+            engine.state,
+            output_dir=None,
+            materialize_payload=False,
+            include_all_scanned=False,
+        )
+        return crate.metadata.generate()["@graph"]
+
+    def test_compounds_and_cell_line_are_wired_not_orphaned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        # The Exposure carries the resolved MolecularEntity ids in `chemicals`.
+        procs = self._by_type(engine, "LabProcess")
+        exposure = next(p for p in procs if p.fields.get("process_type") == "Exposure")
+        chem_ids = {c.entity_id for c in self._by_type(engine, "MolecularEntity")}
+        assert chem_ids, "no MolecularEntity resolved — test setup is wrong"
+        wired_chems = exposure.fields.get("chemicals")
+        wired_chem_ids = {
+            (c.get("@id") if isinstance(c, dict) else c)
+            for c in (wired_chems if isinstance(wired_chems, list) else [wired_chems])
+        }
+        wired_chem_ids = {str(c).lstrip("#") for c in wired_chem_ids if c}
+        assert wired_chem_ids == {c.lstrip("#") for c in chem_ids}
+
+        # The CellCulture references the actual cell-line Sample via `cell_line`
+        # (not a synthesized generic `_input`).
+        cell_culture = next(
+            p for p in procs if p.fields.get("process_type") == "CellCulture"
+        )
+        cell_ids = {c.entity_id for c in self._by_type(engine, "CellLineSample")}
+        assert cell_ids, "no CellLineSample resolved — test setup is wrong"
+        wired_cell = cell_culture.fields.get("cell_line")
+        wired_cell_id = (
+            wired_cell.get("@id") if isinstance(wired_cell, dict) else wired_cell
+        )
+        assert str(wired_cell_id).lstrip("#") in {c.lstrip("#") for c in cell_ids}
+
+        # No resolved MolecularEntity / CellLineSample is an orphan in the BUILT
+        # graph: every one is referenced by at least one other node (#273).
+        graph = self._built_graph(engine)
+        referenced = self._referenced_ids(graph)
+        node_ids = {n.get("@id") for n in graph}
+
+        # A CellLineSample builds as @type Sample discriminated by
+        # additionalType="CellLine" (its intermediate derived samples are plain
+        # Samples), so detect it via that discriminator, not the state class name.
+        def _is_compound(n: dict) -> bool:
+            return "MolecularEntity" in _types(n)
+
+        def _is_cell_line(n: dict) -> bool:
+            return n.get("additionalType") == "CellLine"
+
+        domain_nodes = [n for n in graph if _is_compound(n) or _is_cell_line(n)]
+        # Both MolecularEntity (the two plan compounds) AND the CellLineSample must
+        # be present in the built graph (the resolver mints them; the compound node
+        # @id is the verified identifier IRI, not the state entity_id).
+        assert len([n for n in domain_nodes if _is_compound(n)]) == 2
+        assert any(_is_cell_line(n) for n in domain_nodes)
+        # …and NONE of them is an orphan: every one is referenced by another node.
+        orphans = [n["@id"] for n in domain_nodes if n["@id"] not in referenced]
+        assert orphans == [], f"orphaned resolved domain entities: {orphans}"
+        # The Study surfaces every compound + the cell line via schema:mentions
+        # (emitted under the context-aliased `chemicals` / `biologicalModels`
+        # keys), so each is reachable from the backbone at a glance (#273).
+        study_node = next(
+            n for n in graph if str(n.get("@id", "")).startswith("#Study_")
+        )
+
+        def _ref_ids(prop: object) -> set[str]:
+            items = prop if isinstance(prop, list) else [prop]
+            return {
+                (m.get("@id") if isinstance(m, dict) else m)
+                for m in items
+                if m is not None
+            }
+
+        compound_node_ids = {n["@id"] for n in domain_nodes if _is_compound(n)}
+        cell_node_ids = {n["@id"] for n in domain_nodes if _is_cell_line(n)}
+        assert compound_node_ids <= _ref_ids(study_node.get("chemicals"))
+        assert cell_node_ids <= _ref_ids(study_node.get("biologicalModels"))
+        assert node_ids  # graph is non-empty
+
+    def test_run_pipeline_with_links_preserves_conformance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Wiring the compounds/cell line must NOT regress ISA + Tox conformance."""
+        from builder.agents.pipeline import run_pipeline
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", lambda *a, **k: {})
+
+        engine = _engine(self._titled_state())
+        result = run_pipeline(engine)
+
+        assert result["conformance"] == {"base": True, "isa": True, "tox": True}
+        assert result["ok"] is True
+
+
 class TestPublicationFromPDF:
     """Issue #245 — when a plan publication's "title" is actually a PDF FILENAME,
     `_materialize_plan` must recover the real DOI/title from the PDF *text* and
