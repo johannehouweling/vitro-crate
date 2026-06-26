@@ -366,6 +366,7 @@ _TOOL_ICONS: dict[str, str] = {
     "remove_entity": "\U0001f4cb", "set_fields": "\U0001f4dd",
     "link": "\U0001f517", "attach_files": "\U0001f4ce", "check_provenance": "\U0001f9ec",
     "lookup_compound": "\U0001f50d", "lookup_cell_line": "\U0001f50d",
+    "lookup_cell_line_by_name": "\U0001f50d",
     "lookup_aop": "\U0001f50d", "lookup_bao_term": "\U0001f50d",
     "lookup_ontology_term": "\U0001f50d", "lookup_unit": "\U0001f50d",
     "lookup_dtxsid": "\U0001f50d",

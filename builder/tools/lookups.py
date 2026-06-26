@@ -21,7 +21,7 @@ from lookups.aopwiki import lookup_aop as lookup_aop_wiki
 from lookups.bao import lookup_bao_term as lookup_bao_term_ols
 from lookups.bao import lookup_ontology_term as lookup_ontology_term_ols
 from lookups.bao import lookup_unit as lookup_unit_ols
-from lookups.cellosaurus import lookup_cellosaurus
+from lookups.cellosaurus import lookup_cellosaurus, search_cellosaurus
 from lookups.comptox import lookup_dtxsid as lookup_dtxsid_comptox
 from lookups.crossref import lookup_doi as lookup_doi_crossref
 from lookups.orcid import lookup_orcid as lookup_orcid_api
@@ -197,6 +197,73 @@ def lookup_cell_line(accession: str) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("Cellosaurus lookup failed for '%s'", accession)
         return _failure(f"Cellosaurus lookup failed: {exc}")
+
+
+def _normalize_cell_line_name(value: str) -> str:
+    """Normalize a cell-line name for exact-match comparison (strip + casefold)."""
+    return " ".join((value or "").split()).casefold()
+
+
+@functools.lru_cache(maxsize=256)
+def lookup_cell_line_by_name(name: str) -> dict[str, Any]:
+    """Resolve a cell-line *name* to its Cellosaurus accession (confidence-gated).
+
+    The accession-based :func:`lookup_cell_line` requires a ``CVCL_*`` id up
+    front; this is the inverse — given a bare cell-line name (e.g. ``"HepG2"``,
+    ``"A549"``) it searches Cellosaurus and, **only on a confident exact match**,
+    returns the accession plus minimal metadata.
+
+    **D5 confidence gate (Verify, Don't Trust).** A Solr name search returns
+    prefix/token matches as well as exact ones, so committing the top hit would
+    risk a fabricated accession. The accession is committed ONLY when exactly one
+    candidate's primary identifier *or* a synonym equals the queried name
+    (case-insensitive, whitespace-collapsed). Zero exact matches, or two-or-more
+    (ambiguous), returns the standard ``{found: False}`` failure — an accession
+    is never guessed.
+
+    Args:
+        name: Cell-line name to resolve (e.g. ``"HepG2"``).
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True only on a confident, unambiguous exact match.
+            data: ``{accession, name, synonyms}`` on success, else ``{}``.
+            error: Error message, or None on success.
+        A transient outage is flagged ``transient=True`` so callers can retry
+        rather than treat it as a definitive miss.
+    """
+    query = (name or "").strip()
+    if not query:
+        return _failure("No cell-line name provided")
+    try:
+        candidates = search_cellosaurus(query)
+        if not candidates:
+            return _failure(f"Cell line '{name}' not found in Cellosaurus")
+
+        target = _normalize_cell_line_name(query)
+        exact = [
+            c
+            for c in candidates
+            if _normalize_cell_line_name(c.get("name", "")) == target
+            or any(_normalize_cell_line_name(s) == target for s in c.get("synonyms", []))
+        ]
+        if len(exact) == 1:
+            return _success(dict(exact[0]))
+        if len(exact) > 1:
+            accessions = ", ".join(c.get("accession", "?") for c in exact)
+            return _failure(
+                f"Ambiguous cell-line name '{name}' — {len(exact)} exact matches "
+                f"({accessions}); refine the name or use an accession"
+            )
+        return _failure(
+            f"No confident Cellosaurus match for cell-line name '{name}' "
+            f"(only partial matches)"
+        )
+    except TransientLookupError as exc:
+        return _failure(f"Cellosaurus unavailable (transient): {exc}", transient=True)
+    except Exception as exc:
+        logger.exception("Cellosaurus name search failed for '%s'", name)
+        return _failure(f"Cellosaurus name search failed: {exc}")
 
 
 @functools.lru_cache(maxsize=256)
@@ -429,6 +496,7 @@ from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("lookup_compound", lookup_compound, takes_state=False)
 TOOL_REGISTRY.register("lookup_cell_line", lookup_cell_line, takes_state=False)
+TOOL_REGISTRY.register("lookup_cell_line_by_name", lookup_cell_line_by_name, takes_state=False)
 TOOL_REGISTRY.register("lookup_aop", lookup_aop, takes_state=False)
 TOOL_REGISTRY.register("lookup_bao_term", lookup_bao_term, takes_state=False)
 TOOL_REGISTRY.register("lookup_ontology_term", lookup_ontology_term, takes_state=False)

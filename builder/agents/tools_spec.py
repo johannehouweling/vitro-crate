@@ -383,6 +383,15 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "lookup_cell_line_by_name",
+        "description": "Resolve a cell-line NAME (e.g. 'HepG2', 'A549') to its Cellosaurus accession (CVCL_*) via a name search. Use this when you have a cell-line name but no accession; feed the returned accession to draft_cell_line_sample. Returns the accession ONLY on a confident exact match — an ambiguous or partial-only name returns not-found rather than guessing an id.",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    },
+    {
         "name": "lookup_aop",
         "description": "Look up AOP via AOP-Wiki",
         "parameters": {

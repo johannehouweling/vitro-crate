@@ -19,7 +19,7 @@ from requests.exceptions import ConnectionError, Timeout
 from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop
 from lookups.bao import lookup_bao_term, lookup_ontology_term, lookup_unit
-from lookups.cellosaurus import lookup_cellosaurus
+from lookups.cellosaurus import lookup_cellosaurus, search_cellosaurus
 from lookups.comptox import lookup_dtxsid
 from lookups.crossref import lookup_doi, search_works_by_title
 from lookups.orcid import lookup_orcid
@@ -43,6 +43,7 @@ def _clear_caches():
     """Clear all lookup LRU caches before each test."""
     lookup_pubchem.cache_clear()
     lookup_cellosaurus.cache_clear()
+    search_cellosaurus.cache_clear()
     lookup_aop.cache_clear()
     lookup_ontology_term.cache_clear()
     lookup_dtxsid.cache_clear()
@@ -228,6 +229,101 @@ class TestCellosaurusContract:
         assert result["name"] == "MinimalCell"
         assert "disease" not in result
         assert "donorSex" not in result
+
+
+# ===========================================================================
+# Cellosaurus name search (search_cellosaurus, #179 Lane 6)
+# ===========================================================================
+
+
+class TestCellosaurusSearchContract:
+    """Contract tests for lookups.cellosaurus.search_cellosaurus (name → accession)."""
+
+    _SEARCH_URL = "https://api.cellosaurus.org/search/cell-line"
+
+    @responses.activate
+    def test_search_returns_ranked_candidates(self):
+        """A name search parses each match into {accession, name, synonyms}."""
+        responses.add(
+            responses.GET,
+            self._SEARCH_URL,
+            json=_load("cellosaurus_search_hepg2.json"),
+            status=200,
+        )
+
+        candidates = search_cellosaurus("HepG2")
+
+        # A tuple (immutable cached value), one entry per matching cell line.
+        assert isinstance(candidates, tuple)
+        assert len(candidates) == 3
+        top = candidates[0]
+        assert top["accession"] == "CVCL_0027"
+        assert top["name"] == "HepG2"
+        assert "Hep G2" in top["synonyms"]
+        # The other (non-exact) hits are still surfaced for the caller's gate.
+        assert {c["accession"] for c in candidates} == {
+            "CVCL_0027",
+            "CVCL_W371",
+            "CVCL_5765",
+        }
+
+    @responses.activate
+    def test_search_sends_name_query_and_json_format(self):
+        """The request carries the name as a Solr query and asks for JSON."""
+        responses.add(
+            responses.GET,
+            self._SEARCH_URL,
+            json=_load("cellosaurus_search_hepg2.json"),
+            status=200,
+        )
+
+        search_cellosaurus("HepG2")
+
+        sent = responses.calls[0].request
+        assert sent.url is not None
+        assert "HepG2" in sent.url
+        assert "format=json" in sent.url
+
+    @responses.activate
+    def test_search_blank_name_no_http_returns_empty(self):
+        """A blank name short-circuits with no HTTP call."""
+        assert search_cellosaurus("   ") == ()
+        assert len(responses.calls) == 0
+
+    @responses.activate
+    def test_search_no_matches_returns_empty(self):
+        """An empty cell-line-list yields an empty candidate tuple."""
+        responses.add(
+            responses.GET,
+            self._SEARCH_URL,
+            json={"Cellosaurus": {"cell-line-list": []}},
+            status=200,
+        )
+
+        assert search_cellosaurus("NoSuchCellLineXYZ") == ()
+
+    @responses.activate
+    def test_search_not_found_returns_empty(self):
+        """A 404 returns an empty candidate tuple (definitive not-found)."""
+        responses.add(
+            responses.GET,
+            self._SEARCH_URL,
+            status=404,
+        )
+
+        assert search_cellosaurus("HepG2") == ()
+
+    @responses.activate
+    def test_search_timeout_raises_transient(self):
+        """A timeout raises TransientLookupError, never a silent empty."""
+        responses.add(
+            responses.GET,
+            self._SEARCH_URL,
+            body=Timeout("timed out"),
+        )
+
+        with pytest.raises(TransientLookupError):
+            search_cellosaurus("HepG2")
 
 
 # ===========================================================================

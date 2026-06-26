@@ -838,7 +838,8 @@ process, returning issues in the same routable shape as `build_and_validate` (#8
 ```
 lookup_compound(name: str) → CompoundData | None   # PubChem (→ ChEBI fallback)
 lookup_dtxsid(query: str) → DtxsidData | None       # EPA CompTox (DTXSID)
-lookup_cell_line(accession: str) → CellLineData | None  # Cellosaurus
+lookup_cell_line(accession: str) → CellLineData | None  # Cellosaurus (accession CVCL_*)
+lookup_cell_line_by_name(name: str) → CellLineData | None  # Cellosaurus name → accession (confidence-gated; None on ambiguous/partial, D5)
 lookup_aop(aop_id: str) → AOPData | None            # AOP-Wiki
 lookup_bao_term(query: str) → TermData | None       # OLS/BAO
 lookup_ontology_term(query: str, ontology: str) → TermData | None  # OLS (any ontology)
