@@ -1848,11 +1848,18 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   The loop **advances over un-progressable gaps** rather than aborting on the
   first one (#230): each round it draws the next *actionable* gap (`report-only`
   gaps are never drawn — see below), and a gap it cannot progress (e.g. the user
-  skips it) is added to a **per-report skip-set** so the loop moves on to the gap
-  behind it. It only stops once the whole report is exhausted with no progress —
-  one cryptic, uncommittable gap can no longer abandon the 200 behind it — and is
-  still hard-bounded by `max_rounds`. The skip-set is cleared on every commit (the
-  re-assessed report is fresh).
+  skips it) is added to a **per-report skip-set** (indices into the current report)
+  so the loop moves on to the gap behind it. It only stops once the whole report is
+  exhausted with no progress — one cryptic, uncommittable gap can no longer abandon
+  the 200 behind it — and is still hard-bounded by `max_rounds`. The per-report
+  index skip-set is cleared on every commit (the re-assessed report is fresh).
+  Alongside it the loop keeps a **per-RUN skip-set keyed by gap IDENTITY**
+  (`(source, entity_id, property, message)`, #179): a gap surfaced/answered but not
+  progressed is recorded here and **never re-drawn for the rest of the run**, even
+  after a *different* gap commits and clears the per-report index set and a fresh
+  re-assess re-emits it. This stops the always-highest-priority root citation MUST
+  gap (which re-emits every round until a `ScholarlyArticle` is wired) from being
+  re-asked 6+ times — the #179 re-ask loop.
 
   **The per-gap LLM exchange (#244).** When a provider is configured (gated on
   `config.get_provider()`, like the pipeline leaves), each ask-user gap runs a
@@ -1891,6 +1898,34 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
       Committing such a field as a literal string would leave the "creator MUST be
       of type Person" SHACL shape unsatisfied, so the gap would re-emit every
       round and `isa=fail` — the #275 re-ask loop this fixes.
+    - **The root `citation` gap is resolved through the publication composites,
+      not stored as a string (#179).** The Root Data Entity's `citation`
+      requirement (BASE: the auto-wired root `citation` `@id` must be an absolute
+      URI; ISA: a `ScholarlyArticle` with an identifier) surfaces with
+      `entity_id == "./"`, which `_resolve_entity_id` cannot map to a state entity
+      and which is not a crate-metadata slot — so a string commit dropped the
+      answer and the always-highest-priority gap was re-asked every round. So
+      `_apply_value` routes a root `citation` answer to `_apply_citation_value`:
+      an answer carrying a DOI → `draft_publication_with_authors(doi=…)`, otherwise
+      it is treated as a title → `resolve_publication(title=…)` (both via
+      `engine.run_tool`, never hand-rolled JSON-LD). The builder auto-wires the
+      resulting `ScholarlyArticle` onto `root_dataset.citation`. D5: the DOI is
+      re-looked-up and a title only commits on a confident Crossref match.
+
+  **Entity-less MIT gaps are grounded in the real instance name (#179).** An MIT
+  gap is emitted crate-level with `entity_id=None` carrying only `entity_type`
+  (e.g. `CellLineSample`). `_resolve_entity_id` short-circuits to `None` for any
+  falsy `entity_id`, so without grounding the phrase leaf saw a bare TYPE and no
+  name and the model invented the stock example ("HepG2") — which also produced the
+  spurious "what is the correct UTF-8 file name (replace %2B with +)" question (no
+  such gap rule exists; it was hallucinated phrasing). `_gap_context` now, when
+  `_resolve_entity_id` is `None` but `entity_type` is set, looks the type's
+  instances up via `state.list_entities(entity_type)` and threads the REAL name in
+  (`entity_name` / `known_fields`); with several instances it surfaces their names
+  for disambiguation, so the leaf is **never** handed a bare type with no name.
+  The `_PHRASE_SYSTEM_PROMPT` reinforces this: with no entity name it must ask
+  generically about "the &lt;entity type&gt;" and is explicitly forbidden from
+  inventing a specific name, identifier, or example value (D5: no fabrication).
 
   **Offline / no-provider determinism.** With no provider configured the exchange
   degrades to the original deterministic ask-and-set: phrase = the human-readable

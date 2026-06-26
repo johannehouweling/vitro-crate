@@ -1238,6 +1238,112 @@ class TestQuestionNamesEntity:
 
 
 # ---------------------------------------------------------------------------
+# (Commit 2, #179) MIT gaps (entity_id=None) are GROUNDED in the real instance.
+#
+# MIT gaps are emitted crate-level with ``entity_id=None``, carrying only
+# ``entity_type`` (e.g. "CellLineSample"). ``_resolve_entity_id`` short-circuits
+# to None for any falsy entity_id, so the OLD ``_gap_context`` left the phrase
+# leaf with a bare TYPE and NO name -> the model invented "HepG2" (the stock
+# example). FIX: when ``_resolve_entity_id`` is None but ``entity_type`` is set,
+# look the instance(s) up via ``engine.state.list_entities(entity_type)`` and
+# thread the real display name into ``entity_name`` / ``known_fields``.
+# ---------------------------------------------------------------------------
+
+
+def _backbone_with_cell_line(name: str = "CHO-K1 OATP1C1") -> CrateState:
+    """Backbone + a single CellLineSample with a known instance name."""
+    state = _backbone()
+    state.add_entity(_entity("cl1", "CellLineSample", name=name))
+    return state
+
+
+def _mit_cell_line_gap() -> Gap:
+    """An MIT-style gap: crate-level (entity_id=None), carrying only the TYPE."""
+    return Gap(
+        tier="SHOULD",
+        source="mit",
+        entity_id=None,
+        entity_type="CellLineSample",
+        property="passage",
+        message="Record the cell line passage number.",
+        suggestion="The passage number at the time of the assay.",
+        fix_hint="ask-user",
+        auto_fixable=False,
+    )
+
+
+class TestMITGapGroundedInInstanceName:
+    def test_gap_context_grounds_entityless_mit_gap_in_the_instance(self):
+        """``_gap_context`` for an entity_id=None MIT gap resolves the single
+        in-state instance and threads its NAME in (#179, Commit 2)."""
+        from builder.agents.guidance import _gap_context
+
+        engine = AgentEngine(state=_backbone_with_cell_line("CHO-K1 OATP1C1"))
+        ctx = _gap_context(engine, _mit_cell_line_gap())
+
+        assert ctx.get("entity_name") == "CHO-K1 OATP1C1", (
+            "an entity_id=None MIT gap must be grounded in the real instance name"
+        )
+        known = ctx.get("known_fields") or {}
+        assert known.get("name") == "CHO-K1 OATP1C1"
+        assert ctx.get("entity_type") == "CellLineSample"
+
+    def test_phrased_question_names_the_real_cell_line_never_hepg2(self, monkeypatch):
+        """End-to-end: a phrased question for the MIT gap names the REAL cell line
+        ("CHO-K1") and never the fabricated stock example "HepG2" (#179)."""
+        from builder.agents import guidance
+        from builder.agents.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone_with_cell_line("CHO-K1 OATP1C1"))
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+        _single_ask_gap_report(
+            monkeypatch,
+            _mit_cell_line_gap(),
+            counts={"must_open": 0, "should_open": 1, "may_open": 0},
+        )
+
+        # A realistic phrase leaf: it grounds on the name it is handed, else it
+        # would invent the stock "HepG2" example (the bug).
+        def _phrase(ctx):
+            name = ctx.get("entity_name") or "HepG2"
+            return f"What passage number was {name} at during the assay?"
+
+        monkeypatch.setattr(guidance, "phrase_gap_question", _phrase)
+        monkeypatch.setattr(
+            guidance, "interpret_gap_reply", lambda _q, _r, _c: {"action": "skip"}
+        )
+
+        human = ScriptedHuman(input_answers=[_value("dunno")])
+        run_guidance(engine, human, max_rounds=5)
+
+        assert human.inputs, "the user must be prompted"
+        prompt = human.inputs[0][0]
+        assert "CHO-K1" in prompt
+        assert "hepg2" not in prompt.lower()
+
+    def test_multiple_instances_surface_their_names_not_a_bare_type(self):
+        """When several instances of the type exist, the gap context must surface
+        their names (disambiguation) rather than a bare nameless type (#179)."""
+        from builder.agents.guidance import _gap_context
+
+        state = _backbone()
+        state.add_entity(_entity("cl1", "CellLineSample", name="CHO-K1 OATP1C1"))
+        state.add_entity(_entity("cl2", "CellLineSample", name="HepaRG"))
+        engine = AgentEngine(state=state)
+
+        ctx = _gap_context(engine, _mit_cell_line_gap())
+
+        # The leaf must never receive a bare type with no name: the candidate
+        # instance names are surfaced somewhere in the grounding context.
+        blob = " ".join(
+            str(v) for v in (ctx.get("known_fields") or {}).values()
+        ) + " " + str(ctx.get("entity_name") or "")
+        assert "CHO-K1 OATP1C1" in blob and "HepaRG" in blob, (
+            "multiple instances must surface their names for disambiguation (#179)"
+        )
+
+
+# ---------------------------------------------------------------------------
 # (Issue #257, fix C) 'from_file' READS the file and EXTRACTS + COMMITS the value
 #
 # When the interpret leaf returns ``from_file`` and the named/likely file is

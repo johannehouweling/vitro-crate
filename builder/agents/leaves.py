@@ -522,7 +522,12 @@ _PHRASE_SYSTEM_PROMPT = (
     "an entity name is given, the question MUST name that specific entity (e.g. "
     "'What is the CAS Registry Number for Silychristin A?'), never a vague 'this "
     "chemical', 'this protocol', or 'this cell line' — the user must know WHICH "
-    "entity you mean."
+    "entity you mean. When NO entity name is given, ask GENERICALLY about 'the "
+    "<entity type>' (e.g. 'the cell line', 'the compound') and you are EXPLICITLY "
+    "FORBIDDEN from inventing a specific name, identifier, accession, or example "
+    "value to fill the blank — never make up a concrete cell-line / compound name "
+    "or a code the data does not provide. D5: never fabricate a specific name, "
+    "identifier, or value the data does not provide."
 )
 
 _INTERPRET_SYSTEM_PROMPT = (
