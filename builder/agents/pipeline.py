@@ -524,6 +524,28 @@ def _first_entity_id(engine: AgentEngine, entity_type: str) -> str | None:
     )
 
 
+def _set_ref_field(
+    engine: AgentEngine,
+    entity_id: str,
+    field: str,
+    value: str | list[str],
+) -> None:
+    """Set a single reference *field* on *entity_id* via the ``set_fields`` tool.
+
+    Thin wrapper used by the #273 entity→process/Study wiring: *field* is one of
+    the crate mapping's reference fields (``chemicals`` / ``cell_line`` /
+    ``cell_lines``) so the build resolves it to ``{"@id"}`` reference(s) rather than
+    a literal. Goes through the consolidated mutation tool (never hand-rolled
+    JSON-LD); a wiring failure is logged and never breaks the spine.
+    """
+    try:
+        engine.run_tool("set_fields", entity_id=entity_id, fields={field: value})
+    except Exception as exc:  # noqa: BLE001 - a wiring failure must not break the spine
+        logger.warning(
+            "linking %s=%r onto %r failed: %s", field, value, entity_id, exc
+        )
+
+
 # The generic placeholder names the scaffold leaves on a backbone layer when no
 # title was available (kept in sync with the `_DEFAULT_*` constants above). A
 # field still carrying its layer's placeholder is treated as "empty" by the
@@ -968,6 +990,20 @@ def _materialize_plan(
     * each ``cell_lines[]`` → ``draft_cell_line_sample`` (a ``CellLineSample``
       from the name only; the Cellosaurus accession is a later lookup, not the
       plan).
+    * **entity→provenance wiring (#273).** Resolving a compound / cell line MINTS
+      the entity but leaves it a graph ORPHAN unless something references it, so the
+      collected ids are wired deterministically via ``set_fields`` (never
+      hand-rolled JSON-LD) with the canonical ISA-Tox reference fields: every
+      resolved ``MolecularEntity`` → the **Exposure** LabProcess via ``chemicals``
+      (ISA forbids a MolecularEntity as a process object, so the build connects the
+      compound THROUGH the Exposure's CSVW condition table — ``schema:about`` →
+      MolecularEntity + the compound column ``valueUrl``), the resolved
+      ``CellLineSample`` → the **CellCulture** LabProcess via ``cell_line`` (its
+      consumed input, replacing the synthesized generic ``..._input``), and BOTH
+      onto the scaffolded Study via ``schema:mentions`` (``chemicals`` /
+      ``cell_lines``→``biologicalModels``) so every resolved entity — PubChem- AND
+      ChEBI-backed — is reachable from the backbone (orphan count → 0). Idempotent:
+      ``set_fields`` writes the same deterministic ids, so re-running mints no dups.
     * each ``protocols[]`` → ``draft_protocol`` (a ``LabProtocol`` from the
       name/description only — D5: no identifier) which is then linked to the
       ``LabProcess`` it governs via the ``labprotocol`` reference field (resolved
@@ -1110,27 +1146,87 @@ def _materialize_plan(
             logger.warning("merge plan study name failed: %s", exc)
 
     # --- compounds: resolve_compound mints the MolecularEntity + verified ids ---
+    # Collect each resolved MolecularEntity id so the test compounds can be WIRED
+    # into the Exposure below (#273) — without this they are graph orphans.
+    compound_ids: list[str] = []
     for compound in plan.get("compounds") or []:
         name = str((compound or {}).get("name") or "").strip()
         if not name:
             continue
         try:
             # D5: only the NAME is passed; identifiers come from the lookup.
-            engine.run_tool("resolve_compound", name=name)
+            resolved = engine.run_tool("resolve_compound", name=name)
             result["compounds"] += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning("resolve_compound failed for %r: %s", name, exc)
+            continue
+        # resolve_compound returns {"entity_id", ...} on a hit and {"ok": False}
+        # on a miss (which mints no entity, so there is nothing to wire). Capture
+        # the id (PubChem AND ChEBI hits alike) for the Exposure/Study linking.
+        cid = resolved.get("entity_id") if isinstance(resolved, dict) else None
+        if cid:
+            compound_ids.append(str(cid))
 
     # --- cell lines: a CellLineSample from the name only (accession is a lookup) ---
+    # Collect each minted CellLineSample id so the cell line can be wired into the
+    # CellCulture (and Study) below (#273) rather than left orphaned.
+    cell_line_ids: list[str] = []
     for cell_line in plan.get("cell_lines") or []:
         name = str((cell_line or {}).get("name") or "").strip()
         if not name:
             continue
         try:
-            engine.run_tool("draft_cell_line_sample", name=name, hints={})
+            cell = engine.run_tool("draft_cell_line_sample", name=name, hints={})
             result["cell_lines"] += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning("draft_cell_line_sample failed for %r: %s", name, exc)
+            continue
+        # draft_cell_line_sample returns the Entity it created/reused.
+        cid = getattr(cell, "entity_id", None)
+        if cid:
+            cell_line_ids.append(str(cid))
+
+    # --- wire resolved compounds + cell line into the provenance (#273) ---------
+    # The resolver/drafter above MINT the right domain entities, but they are
+    # orphans until something references them. Wire them deterministically with the
+    # canonical ISA-Tox reference fields (NEVER hand-rolled JSON-LD):
+    #   * each MolecularEntity → the Exposure LabProcess via `chemicals`. ISA
+    #     forbids a MolecularEntity as a process object (objects MUST be
+    #     File/Sample/BioSample), so the build connects the compound THROUGH the
+    #     Exposure's CSVW condition table (schema:about → MolecularEntity), with the
+    #     compound column's valueUrl resolving to its id (_crate_mapping
+    #     ._build_process / _synth_condition_table).
+    #   * the CellLineSample → the CellCulture LabProcess via `cell_line` (its
+    #     consumed input), replacing the synthesized generic `..._input` placeholder.
+    #   * both also surface on the Study via schema:mentions (`chemicals` /
+    #     `cell_lines`→biologicalModels) so every resolved entity is reachable at a
+    #     glance even when (e.g. a ChEBI-only compound) it is not the condition
+    #     table's first valueUrl column. Idempotent: `set_fields` overwrites the ref
+    #     field with the same deterministic ids, so re-running mints no duplicates.
+    chain_by_type = {
+        str(s.get("process_type") or ""): s for s in chain_steps_summary
+    }
+    if compound_ids:
+        exposure_step = chain_by_type.get("Exposure")
+        exposure_id = exposure_step.get("process_id") if exposure_step else None
+        if exposure_id:
+            _set_ref_field(engine, str(exposure_id), "chemicals", compound_ids)
+    if cell_line_ids:
+        culture_step = chain_by_type.get("CellCulture")
+        culture_id = culture_step.get("process_id") if culture_step else None
+        if culture_id:
+            # CellCulture consumes ONE cell line; use the first resolved one.
+            _set_ref_field(engine, str(culture_id), "cell_line", cell_line_ids[0])
+
+    # Surface both on the scaffolded Study via schema:mentions so every resolved
+    # entity is reachable from the backbone (no orphan), regardless of which
+    # condition-table column resolves to which id.
+    study_mention_id = _first_entity_id(engine, "Study")
+    if study_mention_id:
+        if compound_ids:
+            _set_ref_field(engine, study_mention_id, "chemicals", compound_ids)
+        if cell_line_ids:
+            _set_ref_field(engine, study_mention_id, "cell_lines", cell_line_ids)
 
     # NOTE: the process chain is now drafted unconditionally ABOVE (#262) — the
     # standard 4-step chain with the plan's step names overlaid — so there is no
