@@ -506,6 +506,29 @@ def _bare_doi(raw: str) -> str:
     return value
 
 
+def _chebi_purl(entity: Entity) -> str | None:
+    """The resolvable ChEBI PURL for a ChEBI-fallback MolecularEntity, or None.
+
+    ``lookup_compound``'s ChEBI fallback (no PubChem CID) carries the
+    dereferenceable ontology IRI on ``sameAs`` as an ``{"@id": <PURL>}`` node and
+    the ChEBI CURIE on ``chebiId`` (the OLS ``short_form`` ``CHEBI_<n>`` or the
+    ``CHEBI:<n>`` colon form). Prefer the ``sameAs`` PURL verbatim when it is a
+    ChEBI obo IRI, else derive ``http://purl.obolibrary.org/obo/CHEBI_<n>`` from
+    the ``chebiId`` CURIE. Returns None when neither is present so the caller falls
+    back to the local fragment — never fabricating an id (D5).
+    """
+    same_as = entity.fields.get("sameAs")
+    iri = same_as.get("@id") if isinstance(same_as, dict) else same_as
+    if isinstance(iri, str) and "obo/CHEBI_" in iri:
+        return iri.strip()
+    chebi_id = entity.fields.get("chebiId")
+    if chebi_id:
+        num = str(chebi_id).strip().replace("CHEBI:", "CHEBI_")
+        if num.startswith("CHEBI_"):
+            return f"http://purl.obolibrary.org/obo/{num}"
+    return None
+
+
 def _mint_id(entity: Entity) -> str:
     """A spec-correct @id: resolvable URI when available, else `#`-fragment.
 
@@ -520,8 +543,16 @@ def _mint_id(entity: Entity) -> str:
     if t == "Organization" and f.get("ror"):
         r = str(f["ror"]).strip()
         return r if r.startswith("http") else f"https://ror.org/{r.lstrip('/')}"
-    if t == "MolecularEntity" and f.get("pubchem_cid"):
-        return f"https://pubchem.ncbi.nlm.nih.gov/compound/{f['pubchem_cid']}"
+    if t == "MolecularEntity":
+        # A PubChem CID is the preferred clean external @id. A ChEBI-fallback
+        # compound (no CID) carries a resolvable ChEBI PURL on sameAs / chebiId —
+        # use it instead of a `#MolecularEntity_<eid>` fragment so the @id is
+        # externally resolvable (#179, D5: only ids the lookup produced).
+        if f.get("pubchem_cid"):
+            return f"https://pubchem.ncbi.nlm.nih.gov/compound/{f['pubchem_cid']}"
+        chebi_purl = _chebi_purl(entity)
+        if chebi_purl:
+            return chebi_purl
     if t == "Publication":
         # Recognise a DOI on either `doi` or `identifier` in URL, CURIE, or bare
         # form. The real pipeline never sets a `doi` field — Crossref returns the
