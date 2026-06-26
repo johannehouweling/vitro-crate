@@ -1178,6 +1178,14 @@ cleanly under RO-Crate 1.2 (Issue #243): the ChEBI CURIE on `chebiId`
 ontology IRI on `sameAs` as an `{"@id": …}` node. The legacy bare
 `chebi_id`/`chebi_iri` keys were absent from the `@context` and failed the base
 pass (and leaked into the HITL loop as unanswerable gaps), so they are gone.
+A ChEBI-only `MolecularEntity` (no `pubchem_cid`) takes that resolvable ChEBI
+**PURL** as its `@id` (`http://purl.obolibrary.org/obo/CHEBI_<n>`, derived from
+the `sameAs` IRI or the `chebiId` CURIE by `_crate_mapping._chebi_purl`) rather
+than a `#MolecularEntity_<eid>` fragment — preferring an externally resolvable
+identifier the lookup actually produced over a local fragment (Issue #179, D5:
+never fabricated; a compound with no `pubchem_cid` and no ChEBI identity still
+falls back to the fragment). `pubchem_cid` (the PubChem compound URL) still wins
+when both are present.
 
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.

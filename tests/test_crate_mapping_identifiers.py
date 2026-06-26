@@ -324,3 +324,94 @@ class TestPublicationRealPipelineDoiId:
         )
         pub = state.list_entities("Publication")[0]
         assert _mint_id(pub) == "https://doi.org/10.1234/abc"
+
+
+class TestChebiOnlyMolecularEntityId:
+    """A ChEBI-fallback MolecularEntity gets the resolvable ChEBI PURL @id (#179).
+
+    ``lookup_compound``'s ChEBI fallback returns a ``chebiId`` CURIE (the OLS
+    ``short_form``, e.g. ``CHEBI_1378``) and a ``sameAs`` ``{"@id": <PURL>}`` but
+    NO ``pubchem_cid``. The old ``_mint_id`` only promoted ``pubchem_cid`` to a
+    clean external @id, so a ChEBI-only compound fell through to a
+    ``#MolecularEntity_<eid>`` fragment even though it carries a resolvable PURL.
+    Prefer the external resolvable @id when present (D5: only ids the lookup
+    produced — never fabricated).
+    """
+
+    def _chebi_state(self, *, with_sameas: bool = True, with_chebi_id: bool = True) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "ChEBI compound crate"
+        fields: dict = {"name": "some flavonolignan", "iupac_name": "x"}
+        if with_chebi_id:
+            fields["chebiId"] = "CHEBI_1378"
+        if with_sameas:
+            fields["sameAs"] = {"@id": "http://purl.obolibrary.org/obo/CHEBI_1378"}
+        chem = Entity(
+            entity_id="chem_chebi",
+            type="MolecularEntity",
+            fields=fields,
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        state.add_entity(chem)
+        return state
+
+    def test_mint_id_prefers_chebi_purl(self):
+        chem = self._chebi_state().list_entities("MolecularEntity")[0]
+        assert (
+            _mint_id(chem) == "http://purl.obolibrary.org/obo/CHEBI_1378"
+        ), "ChEBI-only MolecularEntity @id must be the resolvable ChEBI PURL"
+
+    def test_mint_id_not_a_fragment(self):
+        chem = self._chebi_state().list_entities("MolecularEntity")[0]
+        assert not _mint_id(chem).startswith("#"), "must not fall through to a #fragment"
+
+    def test_node_built_under_chebi_purl(self):
+        graph = _graph(self._chebi_state())
+        chem = _by_id(graph, "http://purl.obolibrary.org/obo/CHEBI_1378")
+        assert chem is not None, "MolecularEntity node @id must be the ChEBI PURL"
+        assert chem.get("@type") == "MolecularEntity"
+
+    def test_chebi_id_curie_alone_resolves_purl(self):
+        """With only the `chebiId` CURIE (no sameAs) the PURL is still derived."""
+        chem = self._chebi_state(with_sameas=False).list_entities("MolecularEntity")[0]
+        assert _mint_id(chem) == "http://purl.obolibrary.org/obo/CHEBI_1378"
+
+    def test_colon_form_chebi_id_resolves_purl(self):
+        """A `CHEBI:1378` CURIE (colon form) also derives the underscore PURL."""
+        state = CrateState()
+        chem = Entity(
+            entity_id="chem_colon",
+            type="MolecularEntity",
+            fields={"name": "c", "chebiId": "CHEBI:1378"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        state.add_entity(chem)
+        assert _mint_id(chem) == "http://purl.obolibrary.org/obo/CHEBI_1378"
+
+    def test_pubchem_cid_still_wins_over_chebi(self):
+        """A compound carrying both still prefers the PubChem compound URL."""
+        state = CrateState()
+        chem = Entity(
+            entity_id="chem_both",
+            type="MolecularEntity",
+            fields={
+                "name": "c",
+                "pubchem_cid": "441764",
+                "sameAs": {"@id": "http://purl.obolibrary.org/obo/CHEBI_1378"},
+            },
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        state.add_entity(chem)
+        assert _mint_id(chem) == "https://pubchem.ncbi.nlm.nih.gov/compound/441764"
+
+    def test_no_chebi_no_pubchem_falls_back_to_fragment(self):
+        """D5: no resolvable id present -> the local fragment, never fabricated."""
+        state = CrateState()
+        chem = Entity(
+            entity_id="chem_plain",
+            type="MolecularEntity",
+            fields={"name": "mystery compound"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        state.add_entity(chem)
+        assert _mint_id(chem) == "#MolecularEntity_chem_plain"
