@@ -110,6 +110,34 @@ class TestScanFiles:
         assert fc.first_rows is not None
         assert fc.first_rows[0] == "col1\tcol2"
 
+    def test_xlsx_file_has_first_rows_populated(self, tmp_path):
+        """scan_files populates first_rows for .xlsx files (Issue #179, Commit 2).
+
+        Pre-fix this FAILS: ``.xlsx`` is a zip/OLE2 container, so the scanner's
+        ``read_file_sample(already_text=False)`` path hits the NUL-byte binary
+        guard and returns ``None``, leaving ``first_rows`` unset — which forces
+        every .xlsx down the budget-consuming body-read path in ``_gather_context``.
+        The fix routes genuinely tabular office formats through the proper Excel
+        reader so the cheap preview is captured.
+        """
+        import openpyxl
+
+        xlsx_file = tmp_path / "assay.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["compound", "dose", "viability"])
+        ws.append(["Methimazole", "10uM", "0.42"])
+        wb.save(xlsx_file)
+
+        result = _scan(str(tmp_path))
+
+        fc = next(f for f in result if f.filename == "assay.xlsx")
+        assert fc.first_rows is not None, ".xlsx first_rows must be populated"
+        # The Excel reader's pipe-delimited content carries the header cells.
+        joined = "\n".join(fc.first_rows)
+        assert "compound" in joined
+        assert "viability" in joined
+
     def test_nonexistent_directory_returns_empty_list(self, tmp_path):
         """scan_files on a non-existent directory should return [] gracefully."""
         nonexistent = tmp_path / "does_not_exist"

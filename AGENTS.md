@@ -1573,7 +1573,12 @@ INPUT (dir / zip / conversation)
     digest; (b) each file gets at most a FAIR per-file slice
     (`_per_file_cap = max(_MIN_PER_FILE_CHARS, _MAX_CONTEXT_CHARS // n)`) so an
     early large file can no longer starve the rest. The total budget is still the
-    binding ceiling.
+    binding ceiling. Complementarily, the scanner now populates `first_rows` for
+    genuinely tabular office formats (`.xlsx`/`.xls`) via the proper Excel reader
+    (`scanner._excel_preview` → `file_readers.read_excel`) instead of the raw-bytes
+    sampler the NUL-byte binary guard (Issue #51) correctly rejects — so a real
+    `.xlsx` takes the cheap-preview path rather than the budget-consuming body read.
+    The binary guard for truly binary files is unchanged.
 - **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
   `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.
