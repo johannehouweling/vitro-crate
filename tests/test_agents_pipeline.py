@@ -1006,6 +1006,183 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
         assert result["ok"] is True
 
 
+
+class TestMaterializeCompoundsFromFilenames:
+    """#258 — the DEFAULT pipeline path must end-to-end turn compound-bearing
+    DATA FILENAMES into MolecularEntities (the legacy ReAct path got 22; the
+    default path got 0). This drives the REAL ``extract_plan`` leaf (its chat
+    model faked offline to return the filename-derived compound NAMES the enriched
+    prompt steers a model toward) through ``_materialize_plan`` with the compound
+    lookups stubbed, so the whole filename → plan → ``resolve_compound`` →
+    MolecularEntity chain is exercised with NO network.
+
+    Contract:
+    * count of MolecularEntities goes 0 → N for the representative input;
+    * NAMES-ONLY (D5): only the plan NAME reaches ``resolve_compound``; the
+      MolecularEntity's CAS/CID is the LOOKED-UP value, never invented from a
+      filename or a plan field.
+    """
+
+    # The S-VHPS26 shape: compounds appear ONLY in the data filenames.
+    _COMPOUND_FILES = (
+        "S-VHPS26_P5_Silychristin+Verapamil.xlsx",
+        "S-VHPS26_Diclofenac+BSP.xlsx",
+    )
+    _EXPECTED_NAMES = {"Silychristin", "Verapamil", "Diclofenac", "BSP"}
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def _state_with_compound_files(self, tmp_path: Path) -> CrateState:
+        """A titled state whose scanned data files name compounds in their stems."""
+        state = CrateState()
+        state.metadata.title = "S-VHPS26 transporter interaction screen"
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        files: list[FileClassification] = []
+        for name in self._COMPOUND_FILES:
+            path = tmp_path / name
+            path.write_bytes(b"PK\x03\x04 xlsx stub")  # body irrelevant — names in filenames
+            files.append(
+                FileClassification(
+                    path=str(path),
+                    filename=name,
+                    size=path.stat().st_size,
+                    mime_type=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+                    # A tabular preview so _gather_context lists the filename
+                    # WITHOUT a disk read (the filename carries the compound names).
+                    first_rows=["well,value", "A1,1.0"],
+                )
+            )
+        state.scanned_files = files
+        return state
+
+    def _fake_extract_plan_chat_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> list[str]:
+        """Fake the REAL leaf's chat model so the genuine ``extract_plan`` code
+        path runs (its enriched prompt is built and fed the gathered context),
+        but the model deterministically returns the filename-derived compounds a
+        correctly-steered model would. Records the prompt text the model saw so a
+        test can assert the filenames actually reached the leaf."""
+        import builder.agents.leaves as leaves_mod
+
+        seen_prompts: list[str] = []
+        expected = self._EXPECTED_NAMES
+
+        class _Runnable:
+            def invoke(self, messages, *a, **k):
+                for msg in messages:
+                    content = getattr(msg, "content", "")
+                    if isinstance(content, str):
+                        seen_prompts.append(content)
+                # A steered model proposes the compound NAMES it read off the
+                # filenames — names only (D5: no identifiers).
+                return {
+                    "compounds": [
+                        {"name": n, "role": "test"} for n in sorted(expected)
+                    ]
+                }
+
+        class _Model:
+            def with_structured_output(self, schema, *, include_raw=False, **k):
+                return _Runnable()
+
+        monkeypatch.setattr(
+            leaves_mod, "_build_chat_model", lambda *a, **k: _Model()
+        )
+        return seen_prompts
+
+    # Per-name LOOKED-UP identifiers (offline) — the verified ids PubChem would
+    # have returned for these names. Distinct per name so a test can assert the
+    # right name resolved to the right (looked-up, not invented) CAS.
+    _LOOKUP_BY_NAME: dict[str, dict[str, str]] = {
+        "Silychristin": {"cas": "33889-69-9", "pubchem_cid": "441764"},
+        "Verapamil": {"cas": "52-53-9", "pubchem_cid": "2520"},
+        "Diclofenac": {"cas": "15307-86-5", "pubchem_cid": "3033"},
+        "BSP": {"cas": "71-67-0", "pubchem_cid": "9568"},
+    }
+
+    def _stub_compound_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stub ``resolve_compound``'s name->record lookup + verification offline,
+        so a name resolves to a VERIFIED (looked-up) identifier with no network —
+        the D5 path: the id comes from the lookup, never from the plan/filename."""
+        import builder.tools.composites as composites_mod
+
+        lookup_by_name = self._LOOKUP_BY_NAME
+
+        def fake_lookup_compound(name):
+            ids = lookup_by_name.get(str(name).strip())
+            if ids is None:
+                return {"found": False, "data": None, "error": "not found"}
+            return {"found": True, "data": {**ids, "source": "pubchem"}, "error": None}
+
+        def fake_verify_identifier(state, entity_id, field):
+            ent = state.get_entity(entity_id)
+            if ent is not None:
+                ent.set_field_status(field, "verified", "lookup")
+            return {"verified": True, "entity_id": entity_id, "field": field, "message": "ok"}
+
+        monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
+        monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
+
+    def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
+        return [e for e in engine.state.list_entities() if e.type == type_name]
+
+    def test_default_path_materializes_compounds_from_filenames(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        seen_prompts = self._fake_extract_plan_chat_model(monkeypatch)
+        self._stub_compound_lookup(monkeypatch)
+
+        engine = _engine(self._state_with_compound_files(tmp_path))
+
+        # BEFORE: the default path has produced zero compounds.
+        assert self._by_type(engine, "MolecularEntity") == []
+
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        # The real leaf actually saw the compound-bearing filenames.
+        joined = "\n".join(seen_prompts)
+        assert "Silychristin+Verapamil" in joined
+        assert "Diclofenac+BSP" in joined
+
+        # AFTER: 0 → N MolecularEntities, one per filename-derived compound name.
+        chems = self._by_type(engine, "MolecularEntity")
+        assert {c.fields.get("name") for c in chems} == self._EXPECTED_NAMES
+        assert result["compounds"] == len(self._EXPECTED_NAMES)
+
+    def test_names_only_identifiers_come_from_the_lookup(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """D5: only the NAME reaches ``resolve_compound``; each MolecularEntity's
+        CAS/CID is the LOOKED-UP value (never invented from the filename)."""
+        import builder.agents.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._fake_extract_plan_chat_model(monkeypatch)
+        self._stub_compound_lookup(monkeypatch)
+
+        engine = _engine(self._state_with_compound_files(tmp_path))
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        chems = {c.fields.get("name"): c for c in self._by_type(engine, "MolecularEntity")}
+        assert set(chems) == self._EXPECTED_NAMES, "all filename compounds minted"
+        # The CAS on each entity is the name's LOOKED-UP value, not a fabrication.
+        for name, expected in self._LOOKUP_BY_NAME.items():
+            assert chems[name].fields.get("cas") == expected["cas"]
+
+
+
 class TestPublicationFromPDF:
     """Issue #245 — when a plan publication's "title" is actually a PDF FILENAME,
     `_materialize_plan` must recover the real DOI/title from the PDF *text* and

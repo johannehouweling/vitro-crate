@@ -431,6 +431,104 @@ class TestExtractPlanShape:
         assert plan["notes"]
 
 
+def _prompt_text(fake: FakeChatModel) -> str:
+    """Concatenated text of every message the model was invoked with.
+
+    The leaf builds a ``[SystemMessage, HumanMessage]`` list; ``FakeChatModel``
+    records that list in ``invoke_calls``. Flattening it to one lowercase string
+    lets a test assert WHAT INSTRUCTIONS reach the model (e.g. "mine compound
+    names from the data filenames") without coupling to message ordering.
+    """
+    chunks: list[str] = []
+    for messages in fake.invoke_calls:
+        for msg in messages:
+            content = getattr(msg, "content", "")
+            if isinstance(content, str):
+                chunks.append(content)
+    return "\n".join(chunks).lower()
+
+
+class TestExtractPlanMinesCompoundsFromFilenames:
+    """#258: the bounded plan extractor must propose candidate compound NAMES
+    inferred from the DATA FILENAMES (and JSON/README bodies), not only from
+    prose — the legacy ReAct path got 22 compounds off filenames like
+    ``…_P5_Silychristin+Verapamil.xlsx`` while the bounded leaf got 0 because its
+    prompt never told the model to read names out of the filenames inventory.
+
+    These tests pin the PROMPT contract (the model is *instructed* to mine
+    compound names from filenames + bodies, names only — D5), offline, so the
+    real DeepSeek-flash call is steered the same way without any network.
+    """
+
+    # A scanned-files inventory whose ONLY compound signal is in the filenames —
+    # the S-VHPS26 shape that produced 0 compounds on the default path.
+    _FILENAME_CONTEXT = (
+        "Title: S-VHPS26 transporter interaction screen\n\n"
+        "Scanned files:\n"
+        "- S-VHPS26_P5_Silychristin+Verapamil.xlsx\n"
+        "- S-VHPS26_Diclofenac+BSP.xlsx\n"
+        "- conditions.csv"
+    )
+
+    def test_prompt_instructs_mining_compound_names_from_filenames(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel({})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.extract_plan(self._FILENAME_CONTEXT)
+
+        text = _prompt_text(fake)
+        # The model must be told to infer compound names from the FILENAMES …
+        assert "filename" in text, (
+            "extract_plan must instruct the model to read candidate compound "
+            "names from the data filenames (#258)"
+        )
+        # … and that the inferred items are COMPOUND candidates specifically.
+        assert "compound" in text
+
+    def test_prompt_keeps_names_only_discipline(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        """The filename-mining instruction must not weaken D5: names only."""
+        fake = FakeChatModel({})
+        _patch_build_chat_model["model"] = fake
+
+        leaves.extract_plan(self._FILENAME_CONTEXT)
+
+        text = _prompt_text(fake)
+        # The names-only / no-identifier discipline is still asserted in the prompt.
+        assert "name" in text
+        assert ("no identifier" in text) or ("never include identifiers" in text) or (
+            "identifiers of any kind" in text
+        ), "the filename-mining prompt must still forbid identifiers (D5)"
+
+    def test_filename_derived_compound_plan_round_trips(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        """A model that (correctly) returns filename-derived compound NAMES has
+        them preserved by the leaf (names only — no fabricated identifiers)."""
+        _patch_build_chat_model["model"] = FakeChatModel(
+            {
+                "compounds": [
+                    {"name": "Silychristin", "role": "test"},
+                    {"name": "Verapamil", "role": "test"},
+                    {"name": "Diclofenac", "role": "test"},
+                    {"name": "BSP", "role": "test"},
+                ]
+            }
+        )
+
+        plan = leaves.extract_plan(self._FILENAME_CONTEXT)
+
+        names = {c["name"] for c in plan.get("compounds", [])}
+        assert names == {"Silychristin", "Verapamil", "Diclofenac", "BSP"}
+        # D5: still no fabricated identifiers on any filename-derived compound.
+        for compound in plan["compounds"]:
+            for ident in ("cas", "pubchem_cid", "inchikey", "smiles", "@id"):
+                assert ident not in compound
+
+
 class TestExtractPlanEmptyContext:
     """An uninformative context yields an empty-but-valid plan, not fabrication."""
 
