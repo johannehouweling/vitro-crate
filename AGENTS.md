@@ -802,10 +802,20 @@ have **no build-time output fallback**, so a process with no explicit `result`
 (and, for DataAnalysis, no `object`) fires a tox REQUIRED Violation. The composite
 **synthesizes** the missing output — a placeholder `Sample` (via `draft_sample`)
 for a material producer (CellCulture) or a placeholder `File` (via `draft_file`)
-for a data producer (Exposure/EndpointReadout/DataAnalysis) — and `link`s it, so
-the chain never dangles. **Requires:** an existing `assay_id` + each step's
+for a data producer (EndpointReadout/DataAnalysis) — and `link`s it, so
+the chain never dangles. **The Exposure is the deliberate exception (#285):** it is
+NOT given a generic placeholder result here, because its build-time fallback
+(`_crate_mapping._synth_condition_table`) is the *semantically-correct* output — the
+CSVW **condition table** that `schema:about`-references the test MolecularEntities
+(the substances + doses the cells were exposed to). Synthesizing a generic result
+File would populate `result` and pre-empt that `table --about--> MolecularEntity`
+link, demoting the compounds to the weaker Study `schema:mentions` backstop. So the
+Exposure step is left output-less in state and the build emits the condition table
+as its result; the material flow still passes downstream via the step's inputs.
+**Requires:** an existing `assay_id` + each step's
 `process_type`. **Synthesizes (only when not supplied/derivable):** the produced
-output entity (and a DataAnalysis input `File` when it has no upstream step).
+output entity for EndpointReadout/DataAnalysis (and a DataAnalysis input `File`
+when it has no upstream step); the Exposure's output is the build's condition table.
 **Respects:** any explicit `object`/`result` you pass — those win over synthesis.
 Placeholders carry only structural metadata (name, crate path, role); they
 **never fabricate measurement values or identifiers** (D5) — they are header-less
@@ -1781,7 +1791,13 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
   compounds alike — is reachable from the backbone at a glance (orphan count → 0).
   Idempotent: `set_fields` writes the same deterministic ids, so re-running mints
-  no duplicates.
+  no duplicates. **Condition-table link now fires (#285).** `draft_process_chain`
+  no longer pre-empts the Exposure's build-time output with a generic placeholder
+  File (see §5), so the `chemicals` set here actually build into the Exposure's
+  CSVW condition table (`table --about--> MolecularEntity`): the compounds attach
+  as the *true conditions of the exposure process*, and the Study `mentions` edge
+  is a redundant backstop (still load-bearing for a compound the table cannot reach,
+  e.g. one resolved with no Exposure in the chain) rather than the primary link.
 - **Assess** (`assess_gaps`, the gap engine #215, this section) — one
   prioritized `GapReport` unifying SHACL + MIT + FAIR.
 - **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every

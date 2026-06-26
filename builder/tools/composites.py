@@ -176,6 +176,20 @@ _CHAIN_ORDER: tuple[str, ...] = (
 # the whole derivation chain connected and referenceable.
 _SAMPLE_PRODUCERS = frozenset({"CellCulture"})
 
+# Subtypes whose build-time output fallback is the *semantically-correct* output
+# entity, so synthesizing a generic placeholder here would PRE-EMPT it (Issue
+# #285). The Exposure's build fallback (``_crate_mapping._synth_condition_table``)
+# is the CSVW **condition table** — the per-well design table that
+# ``schema:about``-references the test MolecularEntities (the substances + doses
+# the cells were exposed to). That ``table --about--> MolecularEntity`` edge is
+# the TRUE ISA-Tox link, but it only fires when the Exposure has NO explicit
+# ``result``. If ``draft_process_chain`` eagerly synthesized a generic result
+# File, ``result`` would be populated, the condition table would never build, and
+# the compounds would ride only on the weaker Study ``schema:mentions`` backstop.
+# So we leave these steps' output to the build: the chain still flows downstream
+# via the step's inputs (``upstream_output = outputs or inputs``).
+_BUILD_SYNTHESIZES_OUTPUT = frozenset({"Exposure"})
+
 
 def _ref_ids(value: Any) -> set[str]:
     """Normalize a reference value (id / {@id} / list thereof) to bare ids."""
@@ -327,9 +341,13 @@ def draft_process_chain(
         # closed. Every producing step gets a real output entity in state (a
         # Sample for a material producer, a File for a data producer) — so the
         # next step can consume it by id and EndpointReadout / DataAnalysis never
-        # dangle into a tox Violation. ---
+        # dangle into a tox Violation. The EXCEPTION is a subtype whose build-time
+        # fallback is the semantically-correct output (the Exposure's CSVW
+        # condition table; #285): synthesizing a generic placeholder there would
+        # pre-empt the ``table --about--> MolecularEntity`` link, so we leave its
+        # output to the build (the chain still flows downstream via its inputs). ---
         outputs = _explicit_ids(step, "result", "output")
-        if not outputs:
+        if not outputs and ptype not in _BUILD_SYNTHESIZES_OUTPUT:
             placeholder = _synthesize_output(
                 state, proc, ptype, draft_sample, draft_file
             )
