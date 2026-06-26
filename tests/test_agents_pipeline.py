@@ -974,11 +974,8 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
 
         def _ref_ids(prop: object) -> set[str]:
             items = prop if isinstance(prop, list) else [prop]
-            return {
-                (m.get("@id") if isinstance(m, dict) else m)
-                for m in items
-                if m is not None
-            }
+            ids = (m.get("@id") if isinstance(m, dict) else m for m in items)
+            return {ref for ref in ids if isinstance(ref, str)}
 
         compound_node_ids = {n["@id"] for n in domain_nodes if _is_compound(n)}
         cell_node_ids = {n["@id"] for n in domain_nodes if _is_cell_line(n)}
