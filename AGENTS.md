@@ -1774,7 +1774,13 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   scaffolded BEFORE the plan is materialized, so the plan's Study name/description
   are merged onto the already-scaffolded Study (fill-don't-clobber: only when the
   field is empty or still the generic placeholder), and each `people[]` is split
-  into `givenName`/`familyName` so the Person is ISA-conformant (#232).
+  into `givenName`/`familyName` so the Person is ISA-conformant (#232). When a
+  `people[].affiliation_name` is present, an `Organization` is minted via
+  `draft_organization` (or an existing one of the same name is **reused**, so a
+  shared affiliation yields ONE Organization, not duplicates) and the Person's
+  `affiliation` reference is wired onto it via `set_fields` — the build resolves it
+  to the Organization's `@id` (`_crate_mapping._wire_reference`). D5-safe: only the
+  plan's affiliation *name* is used — no ROR/IRI is fabricated (#179 Lane 1).
   **Entity→provenance wiring (#273).** Resolving a compound / cell line MINTS the
   entity but leaves it a graph orphan unless something references it, so after the
   `compounds[]` / `cell_lines[]` sections run, `_materialize_plan` wires the
