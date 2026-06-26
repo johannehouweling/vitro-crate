@@ -347,6 +347,26 @@ supported levers are: gate the inner loop at `required` severity
 (`validate_crate_dict`'s default — fastest), and scope `profile` to a single pass
 when the full sweep isn't needed. A full 3-pass sweep is run only as a final gate.
 
+**Decision note — the residual tox cost is profile *composition*, not inference (#115).**
+A follow-up profiling pass ([docs/validator-profiling-115.md](docs/validator-profiling-115.md))
+split the dominant tox pass and found the bottleneck is **not** owlrl/SHACL: of the
+~3.6 s tox pass, owlrl inference is ~8% and SHACL evaluation ~6% — ~86% is
+`rocrate_validator`'s per-call profile composition + check-override resolution
+(`__set_current_validation_profile__`: shapes-graph assembly, sibling/override
+traversal, inherited-ontology parse), recomputed every `validate()` call with no
+reuse hook (so a long-lived worker does **not** amortize it). Measured levers:
+(a) `required`-vs-`OPTIONAL` gating is a real but modest ~1.3–1.4× — recommended as
+a maintainer policy for the disk path (switch the agent loop to `required`, reserve
+`OPTIONAL` for the final report), not flipped here because it changes which issues
+the loop sees; (b) **pass-folding** (one tox pass reporting all layers, attributing
+issues by originating profile id) is the only large lever (~2.3×) but is **not
+result-equivalent today**: the bundled `tox → isa → ro-crate` chain inherits
+RO-Crate **1.1**, while the dedicated base pass validates against **1.2** (#110), so
+folding would downgrade the base layer and change the issue set. It becomes safe
+only once the bundled chain is rebased onto 1.2 (#110) with a byte-identical
+issue-set test. No validator behaviour is changed in #115. The only order-of-
+magnitude path is an upstream injectable pre-composed shapes/ontology graph.
+
 **Offline-safe validation — bundled RO-Crate context, no network on the base pass (#117).**
 Every crate's `@context` points at the *remote* IRI
 `https://w3id.org/ro/crate/1.2/context`, and the base pass must dereference it to
