@@ -1537,6 +1537,19 @@ INPUT (dir / zip / conversation)
   default names; now document titles/abstracts/SOP headings reach the leaf. The
   empty-context path is still a strict no-op (`""` ⇒ no provider call), preserving
   the no-provider determinism guarantee.
+  - **Metadata-first, fair per-file budget (#179, real S-VHPS26 run).** The first
+    `_gather_context` (#231) used ONE shared `_MAX_CONTEXT_CHARS` pool and a
+    `min(remaining, _MAX_CONTEXT_CHARS)` per-file cap, with files in plain scan
+    order — so the FIRST file read could consume the whole budget and the richest
+    structured metadata (a BioStudies `<acc>.json` export, an assay-metadata
+    `.xlsx`, a SOP `.docx`/README), read later, got only its filename. The fix:
+    (a) the inventory is sorted **metadata-first** by `_metadata_read_priority`
+    (`*metadata*` → structured `*.json` → README/SOP/`.docx` docs → bulk data;
+    stable within ties) so high-signal files lead both the reads and the emitted
+    digest; (b) each file gets at most a FAIR per-file slice
+    (`_per_file_cap = max(_MIN_PER_FILE_CHARS, _MAX_CONTEXT_CHARS // n)`) so an
+    early large file can no longer starve the rest. The total budget is still the
+    binding ceiling.
 - **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
   `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.

@@ -270,12 +270,23 @@ _DEFAULT_ASSAY_NAME = "Assay"
 # file BODIES (`.json` / `.docx` / `.pdf` …) — not just filenames — so it must
 # cap how much disk content reaches the leaf so the one bounded call stays
 # affordable. The cap is applied BOTH per-file (each body excerpt is truncated to
-# `_MAX_CONTEXT_CHARS`) AND to the total accumulated body content (the running sum
-# of body excerpts never exceeds `_MAX_CONTEXT_CHARS`), so a folder of many large
-# files cannot blow the budget. ~8k chars is roughly a couple thousand tokens —
-# enough for a study title / abstract / SOP heading to survive, small enough to
-# stay cheap.
+# a FAIR per-file slice, see `_per_file_cap`) AND to the total accumulated body
+# content (the running sum of body excerpts never exceeds `_MAX_CONTEXT_CHARS`),
+# so a folder of many large files cannot blow the budget and no single early file
+# can starve the rest. ~8k chars is roughly a couple thousand tokens — enough for
+# a study title / abstract / SOP heading to survive, small enough to stay cheap.
 _MAX_CONTEXT_CHARS = 8000
+
+# Fair per-file floor for the body excerpt (Issue #179 / real S-VHPS26 run). The
+# pre-fix bug: one shared 8000-char pool + a `min(remaining, _MAX_CONTEXT_CHARS)`
+# per-file cap let the FIRST scanned file consume the WHOLE budget, so the richest
+# structured metadata (a BioStudies `<acc>.json`, an assay-metadata `.xlsx`, a SOP
+# `.docx`) — read later — got only its filename. We now read across files fairly:
+# each file gets at most `max(_MIN_PER_FILE_CHARS, _MAX_CONTEXT_CHARS // n)` chars
+# (`n` = files to read), so an early large file cannot zero the budget while still
+# leaving generous headroom when there are few files. A small floor guarantees
+# even a long inventory yields a usable slice per file.
+_MIN_PER_FILE_CHARS = 1500
 
 
 def _backbone_hints(engine: AgentEngine) -> dict[str, dict[str, str]]:
@@ -311,6 +322,47 @@ def _scaffold_backbone(engine: AgentEngine) -> dict[str, Any]:
     """
     hints = _backbone_hints(engine)
     return engine.run_tool("scaffold_isa_backbone", **hints)
+
+
+def _metadata_read_priority(filename: str) -> int:
+    """Read-ordering rank for *filename* — lower sorts FIRST (Issue #179).
+
+    The real S-VHPS26 run showed a large early *bulk-data* file starved the body
+    budget so the structured metadata files read later got only their filename.
+    Rank metadata-bearing files ahead of bulk data so they reach the leaf even
+    under a tight budget. Ties keep the caller's original (stable) scan order.
+
+    Ranks (case-insensitive on the basename):
+
+    * ``0`` — an explicit ``*metadata*`` file (highest signal);
+    * ``1`` — a BioStudies-style accession export / structured ``*.json``;
+    * ``2`` — a README / SOP / protocol document or any ``.docx``/``.md``/``.txt``;
+    * ``3`` — everything else (bulk data: ``.xlsx``/``.csv``/binary/…).
+    """
+    name = filename.lower()
+    if "metadata" in name:
+        return 0
+    if name.endswith(".json"):
+        return 1
+    doc_suffixes = (".docx", ".md", ".txt", ".rtf", ".odt")
+    doc_stems = ("readme", "sop", "protocol")
+    if name.endswith(doc_suffixes) or any(stem in name for stem in doc_stems):
+        return 2
+    return 3
+
+
+def _per_file_cap(n_files_to_read: int) -> int:
+    """Fair per-file body-excerpt cap given *n_files_to_read* files (Issue #179).
+
+    Each file gets at most an equal share of the total budget, with a floor so a
+    long inventory still yields a usable slice per file. This is the per-file
+    half of the fix — combined with the metadata-first ordering it guarantees the
+    high-signal metadata files get a fair slice instead of one early file eating
+    the whole 8000-char pool.
+    """
+    if n_files_to_read <= 0:
+        return _MAX_CONTEXT_CHARS
+    return max(_MIN_PER_FILE_CHARS, _MAX_CONTEXT_CHARS // n_files_to_read)
 
 
 def _read_body_excerpt(path: str, approved_roots: set[str], remaining: int) -> str | None:
@@ -370,17 +422,27 @@ def _gather_context(engine: AgentEngine) -> str:
     description (``state.metadata``) and the scanned-file inventory
     (``state.scanned_files``). For each scanned file it prefers the cheap tabular
     ``first_rows`` preview the scanner already captured; for non-tabular rich files
-    that lack a preview (``.json`` / ``.docx`` / ``.pdf`` …) it now reads a
+    that lack a preview (``.json`` / ``.docx`` / ``.pdf`` …) it reads a
     **bounded body excerpt** from disk via :func:`_read_body_excerpt` so document
     BODIES — study titles, abstracts, SOP headings — reach the single bounded leaf
     rather than filenames alone. Without this the leaf saw only filenames + tiny
     previews and ``extract_plan`` returned an empty plan, so the backbone fell back
     to the literal default names (#231).
 
+    **Metadata-first, fair per-file budget (Issue #179 / real S-VHPS26 run).** The
+    files whose bodies must be read are sorted by :func:`_metadata_read_priority`
+    so the structured METADATA files (``*metadata*``, BioStudies ``*.json``,
+    README/SOP/``.docx`` docs) are read BEFORE bulk data files, with the original
+    scan order preserved within each tier. Each file gets at most a FAIR slice
+    (:func:`_per_file_cap`) of the total :data:`_MAX_CONTEXT_CHARS` budget, so a
+    single large early file can no longer eat the whole pool and starve the rest
+    (the pre-fix bug). The running total is still capped at
+    :data:`_MAX_CONTEXT_CHARS`.
+
     Body reads are **fail-closed to ``state.approved_scan_roots``** and never raise
-    out of the spine (see :func:`_read_body_excerpt`). Output is bounded by
-    :data:`_MAX_CONTEXT_CHARS` per file AND in total, so the one bounded leaf call
-    stays token-safe regardless of how many large files were scanned.
+    out of the spine (see :func:`_read_body_excerpt`). Output is bounded both per
+    file AND in total, so the one bounded leaf call stays token-safe regardless of
+    how many large files were scanned.
 
     Returns ``""`` when nothing usable is available, which the caller treats as a
     strict no-op (no provider call is made) — preserving the no-context strict-noop
@@ -398,9 +460,24 @@ def _gather_context(engine: AgentEngine) -> str:
 
     if state.scanned_files:
         approved_roots = state.approved_scan_roots
-        file_lines: list[str] = []
+
+        # Order the WHOLE inventory metadata-first (stable within ties) so the
+        # highest-signal files lead both the disk reads and the emitted digest —
+        # the pre-fix bug let a large early bulk-data file eat the body budget and
+        # the structured metadata that followed got only its filename (#179).
+        ordered = sorted(
+            state.scanned_files, key=lambda f: _metadata_read_priority(f.filename)
+        )
+
+        # Files that need a disk body read = those without a cheap tabular preview.
+        # Each gets at most a FAIR per-file slice of the budget so an early large
+        # file cannot starve the later metadata.
+        n_to_read = sum(1 for f in ordered if not f.first_rows)
+        per_file_cap = _per_file_cap(n_to_read)
+
         body_budget = _MAX_CONTEXT_CHARS  # total body content across all files
-        for f in state.scanned_files:
+        file_lines: list[str] = []
+        for f in ordered:
             line = f"- {f.filename}"
             if f.first_rows:
                 # Prefer the cheap preview the scanner already captured — no disk read.
@@ -409,8 +486,10 @@ def _gather_context(engine: AgentEngine) -> str:
                     line += f": {preview}"
             elif body_budget > 0:
                 # No tabular preview: read a bounded body excerpt (fail-closed to
-                # approved roots; never raises) so the leaf sees the document body.
-                excerpt = _read_body_excerpt(f.path, approved_roots, body_budget)
+                # approved roots; never raises) under the fair per-file cap AND the
+                # running total budget, so the leaf sees the document body.
+                remaining = min(per_file_cap, body_budget)
+                excerpt = _read_body_excerpt(f.path, approved_roots, remaining)
                 if excerpt:
                     body_budget -= len(excerpt)
                     line += f":\n{excerpt}"
