@@ -478,6 +478,193 @@ class TestFallbackAndD5:
 
 
 # ---------------------------------------------------------------------------
+# Author affiliation must be an Organization reference, not a string (#179)
+# ---------------------------------------------------------------------------
+
+
+def _orgs(state: CrateState) -> list[Entity]:
+    return [e for e in state.list_entities() if e.type == "Organization"]
+
+
+def _affiliation_ref(person: Entity) -> str | None:
+    """The Organization @id a Person's ``affiliation`` references (bare or {@id})."""
+    ref = person.fields.get("affiliation")
+    if isinstance(ref, dict):
+        return ref.get("@id")
+    return ref if isinstance(ref, str) and ref else None
+
+
+class TestAuthorAffiliationIsOrganization:
+    """The ISA shape requires Person.affiliation to reference an Organization.
+
+    ROOT CAUSE (#179): ``_ensure_person_for_orcid`` stored
+    ``data['affiliation_name']`` as a STRING on ``affiliation`` and dropped the
+    ORCID-provided ``affiliation_ror``. The builder emitted that string (a literal
+    on a reference-only property) -> SHACL Violation, re-asked forever. The fix
+    find-or-drafts an Organization (preferring the ROR so its @id resolves to the
+    ROR IRI) and wires the Person's ``affiliation`` to that Organization.
+    """
+
+    def test_affiliation_becomes_organization_reference_with_ror(self, monkeypatch):
+        state = CrateState()
+        rec = _orcid_record("0000-0002-1825-0097", "Jane", "Doe", "Utrecht University")
+        rec["data"]["affiliation_ror"] = "05wg1m734"
+        _patch(
+            monkeypatch,
+            doi=lambda d: _doi_result(
+                {
+                    "givenName": "Jane",
+                    "familyName": "Doe",
+                    "identifier": "0000-0002-1825-0097",
+                }
+            ),
+            orcid=lambda o: rec,
+        )
+
+        draft_publication_with_authors(state, "10.1234/example")
+
+        person = _person_nodes(state)[0]
+        # NOT a bare name string.
+        assert person.fields.get("affiliation") != "Utrecht University"
+        # An Organization was drafted and the affiliation references it.
+        orgs = _orgs(state)
+        assert len(orgs) == 1
+        org = orgs[0]
+        assert org.fields.get("name") == "Utrecht University"
+        # D5: the ROR is preserved so the Organization @id resolves to the ROR IRI.
+        assert org.fields.get("ror") == "05wg1m734"
+        # The Person.affiliation is a REFERENCE to that Organization.
+        assert _affiliation_ref(person) == org.entity_id
+
+    def test_affiliation_name_only_still_becomes_organization(self, monkeypatch):
+        """An ORCID affiliation with a name but no ROR still yields an Organization."""
+        state = CrateState()
+        _patch(
+            monkeypatch,
+            doi=lambda d: _doi_result(
+                {
+                    "givenName": "Jane",
+                    "familyName": "Doe",
+                    "identifier": "0000-0002-1825-0097",
+                }
+            ),
+            orcid=lambda o: _orcid_record(
+                "0000-0002-1825-0097", "Jane", "Doe", "Utrecht University"
+            ),
+        )
+
+        draft_publication_with_authors(state, "10.1234/example")
+
+        person = _person_nodes(state)[0]
+        orgs = _orgs(state)
+        assert len(orgs) == 1
+        assert person.fields.get("affiliation") != "Utrecht University"
+        assert _affiliation_ref(person) == orgs[0].entity_id
+
+    def test_two_authors_share_one_organization(self, monkeypatch):
+        """Two authors with the same affiliation reuse ONE Organization (no dup)."""
+        state = CrateState()
+
+        def _orcid(o):  # noqa: ANN001
+            bare = o.rsplit("/", 1)[-1]
+            given = "Jane" if bare.endswith("0097") else "John"
+            return _orcid_record(bare, given, "Doe", "Utrecht University")
+
+        _patch(
+            monkeypatch,
+            doi=lambda d: _doi_result(
+                {
+                    "givenName": "Jane",
+                    "familyName": "Doe",
+                    "identifier": "0000-0002-1825-0097",
+                },
+                {
+                    "givenName": "John",
+                    "familyName": "Doe",
+                    "identifier": "0000-0002-1825-0098",
+                },
+            ),
+            orcid=_orcid,
+        )
+
+        draft_publication_with_authors(state, "10.1234/example")
+
+        # Both authors resolved; ONE shared Organization.
+        assert len(_person_nodes(state)) == 2
+        orgs = _orgs(state)
+        assert len(orgs) == 1
+        org_id = orgs[0].entity_id
+        for person in _person_nodes(state):
+            assert _affiliation_ref(person) == org_id
+
+    def test_no_affiliation_leaves_field_unset(self, monkeypatch):
+        """No ORCID affiliation -> no Organization, no affiliation literal (D5)."""
+        state = CrateState()
+        _patch(
+            monkeypatch,
+            doi=lambda d: _doi_result(
+                {
+                    "givenName": "Jane",
+                    "familyName": "Doe",
+                    "identifier": "0000-0002-1825-0097",
+                }
+            ),
+            orcid=lambda o: _orcid_record("0000-0002-1825-0097", "Jane", "Doe"),
+        )
+
+        draft_publication_with_authors(state, "10.1234/example")
+
+        assert _orgs(state) == []
+        person = _person_nodes(state)[0]
+        assert not person.fields.get("affiliation")
+
+    def test_affiliation_resolves_to_org_node_in_build(self, monkeypatch):
+        """The built crate emits Person.affiliation as an @id ref to the Org node."""
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from profiles.context import ISA_TOX_CONTEXT
+
+        state = CrateState()
+        rec = _orcid_record("0000-0002-1825-0097", "Jane", "Doe", "Utrecht University")
+        rec["data"]["affiliation_ror"] = "05wg1m734"
+        _patch(
+            monkeypatch,
+            doi=lambda d: _doi_result(
+                {
+                    "givenName": "Jane",
+                    "familyName": "Doe",
+                    "identifier": "0000-0002-1825-0097",
+                }
+            ),
+            orcid=lambda o: rec,
+        )
+
+        draft_publication_with_authors(state, "10.1234/example")
+
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, None, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+
+        person_node = next(
+            n for n in graph if n.get("@id") == "https://orcid.org/0000-0002-1825-0097"
+        )
+        affiliation = person_node.get("affiliation")
+        # Emitted as an @id reference, not a bare string.
+        assert isinstance(affiliation, dict) and affiliation.get("@id")
+        # The reference resolves to the Organization node (ROR IRI @id).
+        assert affiliation["@id"] == "https://ror.org/05wg1m734"
+        org_node = next(n for n in graph if n.get("@id") == "https://ror.org/05wg1m734")
+        assert "Organization" in (
+            org_node.get("@type")
+            if isinstance(org_node.get("@type"), list)
+            else [org_node.get("@type")]
+        )
+        assert org_node.get("name") == "Utrecht University"
+
+
+# ---------------------------------------------------------------------------
 # Registration & engine routing
 # ---------------------------------------------------------------------------
 

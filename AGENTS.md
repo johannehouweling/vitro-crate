@@ -692,7 +692,15 @@ verified; an ORCID-resolved Person also carries its ORCID `identifier`
 PropertyValue at build via the shared `_identifier_pv` path. HITL fires **only** on
 genuine ambiguity — never when an author is confidently resolved or confidently
 absent — and when no `human_interface` is available an ambiguous author falls back
-to a synthesized id rather than guessing.
+to a synthesized id rather than guessing. An ORCID-resolved author's
+**`affiliation` becomes an `schema:Organization` reference, never a literal
+string** (Issue #179 — the ISA shape flags a literal-string affiliation as a
+Violation): the ORCID record's `affiliation_name` (+ `affiliation_ror`) is
+find-or-drafted into an Organization (preferring the ROR so its `@id` resolves to
+the ROR IRI; D5 — a ROR is set only when the lookup returns one, never fabricated)
+and the Person's `affiliation` is wired to that Organization's `@id`. Authors
+sharing an affiliation reuse ONE Organization (deduped by name), so the build's
+`_wire_reference` resolves each `Person.affiliation` to the shared node.
 The `hints` parameter is **typed per entity type** (Issue #90). Each `draft_*`
 tool advertises a JSON-Schema built by `_crate_mapping.draft_hints_schema(type)`
 from the single source of truth `_crate_mapping.ENTITY_DRAFT_SCHEMA` — allowed

@@ -32,6 +32,7 @@ from builder.tools.drafters import (
     draft_assay,
     draft_investigation,
     draft_molecular_entity,
+    draft_organization,
     draft_process,
     draft_publication,
     draft_sample,
@@ -795,6 +796,38 @@ def _resolve_via_search(
     return _bare_orcid(chosen) if verified is not None else None
 
 
+def _find_or_draft_organization(
+    state: CrateState, name: str, ror: str | None = None
+) -> str | None:
+    """Return the entity_id of an Organization for ``name``, drafting one if absent.
+
+    The ISA shape requires ``Person.affiliation`` to reference a
+    ``schema:Organization`` — a literal string is a Violation (Issue #179). This
+    find-or-drafts the Organization an author's affiliation should reference.
+
+    De-dup by name: an existing in-state Organization with the same (stripped)
+    ``name`` is reused so two authors sharing an affiliation yield ONE Organization
+    (its ``ror`` is back-filled if this call carries one and it was missing).
+    Otherwise a new one is minted via the pure :func:`draft_organization` drafter
+    (never hand-rolled JSON-LD). D5-safe: a ``ror`` is set ONLY when supplied by
+    the lookup — never fabricated — so the build resolves the Organization's @id to
+    the ROR IRI when known, else a name-derived id. Returns ``None`` on an empty
+    name (a name-less affiliation cannot become an Organization reference).
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+    ror_value = (ror or "").strip()
+    for org in state.list_entities("Organization"):
+        if str(org.fields.get("name") or "").strip() == name:
+            if ror_value and not org.fields.get("ror"):
+                org.set_fields_from_dict({"ror": ror_value}, source="lookup")
+            return org.entity_id
+    hints: dict[str, Any] = {"ror": ror_value} if ror_value else {}
+    org = draft_organization(state, name, hints)
+    return org.entity_id
+
+
 def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entity:
     """Find-or-create a Person whose @id is the ORCID URL, with a verified ORCID."""
     bare = _bare_orcid(orcid)
@@ -819,9 +852,18 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
         fields["givenName"] = given
     if family:
         fields["familyName"] = family
-    affiliation = data.get("affiliation_name")
-    if affiliation:
-        fields["affiliation"] = affiliation
+    # Affiliation MUST reference a schema:Organization, not a literal string
+    # (ISA shape, Issue #179). Find-or-draft the Organization (preferring the
+    # ORCID-provided ROR so its @id resolves to the ROR IRI; D5: never fabricated)
+    # and wire the Person's `affiliation` to that Organization's reference id —
+    # the build's `_wire_reference` then resolves it to the Organization node.
+    affiliation_name = data.get("affiliation_name")
+    if affiliation_name:
+        org_id = _find_or_draft_organization(
+            state, affiliation_name, data.get("affiliation_ror")
+        )
+        if org_id is not None:
+            fields["affiliation"] = {"@id": org_id}
     person.set_fields_from_dict(fields, source="lookup")
     person.set_field_status("orcid", "verified", "lookup")
     return person
