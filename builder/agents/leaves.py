@@ -197,7 +197,19 @@ _PLAN_SYSTEM_PROMPT = (
     "publications, and files. This is a PROPOSAL for the user to confirm, not "
     "committed truth. Propose ONLY what the documents support; leave any field "
     "you cannot support empty and record ambiguities or things the user should "
-    "confirm in 'notes'. Refer to compounds, cell lines, people and "
+    "confirm in 'notes'. "
+    # #258: the test/control compounds are very often named ONLY in the data
+    # FILENAMES, not in prose — direct the model to mine them from the
+    # scanned-files inventory (the legacy ReAct path inferred them this way).
+    "IMPORTANT — find the test/control compounds by reading the DATA FILENAMES "
+    "in the scanned-files inventory as well as any prose, JSON, or README "
+    "bodies. Data files are routinely named after the chemical(s) they hold, "
+    "e.g. 'S-VHPS26_P5_Silychristin+Verapamil.xlsx' or 'Diclofenac+BSP.xlsx' — "
+    "propose each chemical token (split filename stems on '+', '_', '-', and "
+    "spaces; drop plate/well/replicate/date codes and the study accession) as a "
+    "separate compound NAME. Propose the chemical names you recognise even when "
+    "they appear only in a filename. "
+    "Refer to compounds, cell lines, people and "
     "publications BY NAME ONLY. NEVER include identifiers of any kind: no CAS, "
     "PubChem CID, InChIKey, SMILES, InChI, Cellosaurus accession, ORCID, DOI, "
     "or @id. Those are resolved later by dedicated lookup services, never by you."
@@ -365,6 +377,14 @@ def extract_plan(
     people, publications, files, and free-text ``notes`` — for the user to
     confirm. It does not mutate state and does not orchestrate.
 
+    The compounds in particular are mined from the **data FILENAMES** in the
+    scanned-files inventory as well as from prose/JSON/README bodies (#258): data
+    files are routinely named after the chemical(s) they hold (e.g.
+    ``…_Silychristin+Verapamil.xlsx``), and the legacy ReAct path recovered the
+    test articles exactly that way, so the prompt directs the model to propose
+    each chemical token in a filename stem as a candidate compound NAME (D5: name
+    only — the CAS/CID come later from ``resolve_compound``).
+
     Every field is optional: the model proposes only what the context supports and
     records ambiguity in ``notes`` rather than inventing. D5: the plan names WHAT
     EXISTS — no identifiers (CAS/CID/InChIKey/SMILES/Cellosaurus accession/ORCID/
@@ -398,7 +418,9 @@ def extract_plan(
                 f"{context}\n\n"
                 "Propose the candidate plan. Fill only what the documents "
                 "support; leave the rest empty and note ambiguities in 'notes'. "
-                "Names only — no identifiers."
+                "Remember the test/control compounds are often named only in the "
+                "data FILENAMES above — read the chemical names out of those "
+                "filenames too, not just the prose. Names only — no identifiers."
             )
         ),
     ]
