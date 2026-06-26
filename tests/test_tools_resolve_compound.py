@@ -151,6 +151,86 @@ class TestResolveCompoundIdempotent:
         assert first["entity_id"] == second["entity_id"]
 
 
+class TestResolveCompoundDedupByIdentity:
+    """Two DIFFERENT names that resolve to the SAME molecule collapse to ONE node.
+
+    ROOT CAUSE (#179): ``resolve_compound`` derived the entity id from the
+    NAME (``chem_<name>``) and only reused an entity when that name-derived id
+    already existed. So 'Indocyanine green' (CID 5282412) and 'ICG' (a synonym
+    resolving to the same molecule, same InChIKey) became TWO MolecularEntity
+    nodes; and when two names resolved to the SAME ``pubchem_cid`` the build
+    minted both with the same ``@id`` and ro-crate-py silently OVERWROTE one
+    (data loss). The fix dedups on the resolved chemical IDENTITY (pubchem_cid
+    -> inchikey -> cas -> chebiId), not the name.
+    """
+
+    @pytest.fixture
+    def same_molecule_two_names(self, monkeypatch):
+        """A lookup that returns the SAME molecule (CID + InChIKey) for two names."""
+        record = {
+            "found": True,
+            "error": None,
+            "data": {
+                "cas": "3599-32-4",
+                "smiles": "",
+                "inchikey": "MOFVSTNWEDAEEK-UHFFFAOYSA-M",
+                "inchi": "",
+                "formula": "C43H47N2NaO6S2",
+                "mass": "774.96",
+                "iupac_name": "indocyanine green",
+                "pubchem_cid": "5282412",
+            },
+        }
+
+        def fake_lookup(name):  # noqa: ANN001
+            # Same authoritative molecule regardless of the (different) names.
+            return dict(record)
+
+        def fake_verify(state, entity_id, field):  # noqa: ANN001
+            entity = state.get_entity(entity_id)
+            if entity is not None and entity.fields.get(field):
+                entity.set_field_status(field, "verified", "lookup")
+                return {
+                    "verified": True,
+                    "entity_id": entity_id,
+                    "field": field,
+                    "message": "ok",
+                    "suggested_fix": None,
+                }
+            return {
+                "verified": False,
+                "entity_id": entity_id,
+                "field": field,
+                "message": "no value",
+                "suggested_fix": None,
+            }
+
+        monkeypatch.setattr(composites, "lookup_compound", fake_lookup)
+        monkeypatch.setattr(composites, "verify_identifier", fake_verify)
+
+    def test_two_names_same_molecule_collapse_to_one_entity(
+        self, same_molecule_two_names
+    ):
+        state = CrateState()
+        first = resolve_compound(state, name="Indocyanine green")
+        second = resolve_compound(state, name="ICG")
+
+        # Exactly ONE MolecularEntity for the one molecule (not two).
+        assert len(_by_type(state, "MolecularEntity")) == 1
+        # Both calls return the SAME entity id (the shared molecule node).
+        assert first["entity_id"] == second["entity_id"]
+
+    def test_alternate_name_recorded_on_reused_entity(self, same_molecule_two_names):
+        state = CrateState()
+        resolve_compound(state, name="Indocyanine green")
+        resolve_compound(state, name="ICG")
+
+        mol = _by_type(state, "MolecularEntity")[0]
+        alt = mol.fields.get("alternateName") or []
+        alt = alt if isinstance(alt, list) else [alt]
+        assert "ICG" in alt
+
+
 class TestResolveCompoundLookupMiss:
     def test_lookup_miss_creates_no_entity(self, monkeypatch):
         def fake_lookup(name):  # noqa: ANN001

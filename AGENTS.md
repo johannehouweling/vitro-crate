@@ -637,9 +637,17 @@ composite never hand-rolls that wiring; (3) `verify_identifier` confirms each
 minted identifier against source. **D5:** `verify_identifier` *clears* any value
 that does not resolve, so a failed identifier never lingers as a fabricated id —
 the per-field verdicts are surfaced in `verifications` and `verified` is the AND of
-them. Looked-up identifier fields win over same-named caller `hints`, and the
-entity id is derived deterministically from the name so re-running reuses the
-entity rather than duplicating it.
+them. Looked-up identifier fields win over same-named caller `hints`. **Dedup is
+by resolved chemical IDENTITY, not by name** (Issue #179): after a successful
+lookup it computes an identity key in priority order `pubchem_cid` → `inchikey` →
+`cas` → `chebiId` and reuses any existing `MolecularEntity` whose same identity
+field matches — so two DIFFERENT names for one molecule (e.g. `Indocyanine green`
+and `ICG`, same CID/InChIKey) collapse to ONE node (the synonym is recorded as a
+`schema:alternateName`) instead of minting a second `chem_<name>` node, and two
+names resolving to the same `pubchem_cid` can no longer mint the same `@id` (which
+ro-crate-py silently overwrites — data loss). When the record carries no identity
+field, it falls back to name-keyed reuse so re-running the same name still reuses
+the entity rather than duplicating it.
 
 `resolve_publication` (Issue #179) is the citation counterpart of
 `resolve_compound`, closing the gap PR #217 deferred: a plan carries a

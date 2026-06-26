@@ -1180,6 +1180,66 @@ _COMPOUND_DATA_FIELDS: tuple[str, ...] = (
     "sameAs",
 )
 
+# Chemical-identity fields, in priority order, used to dedup a MolecularEntity by
+# the resolved MOLECULE rather than by its (display) name (Issue #179). Two
+# different names that resolve to the same compound (e.g. 'Indocyanine green' and
+# 'ICG' -> same CID / InChIKey) must collapse to ONE node — minting a second
+# ``chem_<name>`` node duplicates the molecule, and two names resolving to the
+# SAME ``pubchem_cid`` would mint the SAME ``@id`` at build time, which
+# ro-crate-py silently overwrites (data loss).
+_COMPOUND_IDENTITY_FIELDS: tuple[str, ...] = ("pubchem_cid", "inchikey", "cas", "chebiId")
+
+
+def _identity_key(record: Mapping[str, Any]) -> tuple[str, str] | None:
+    """Return a ``(field, value)`` chemical-identity key from a resolved record.
+
+    Picks the first non-empty field in :data:`_COMPOUND_IDENTITY_FIELDS` priority
+    order (``pubchem_cid`` -> ``inchikey`` -> ``cas`` -> ``chebiId``). Returns
+    ``None`` when the record carries no identity field (a name-only hit cannot be
+    deduped by identity — it falls back to name-keyed reuse).
+    """
+    for field in _COMPOUND_IDENTITY_FIELDS:
+        value = record.get(field)
+        if value not in (None, ""):
+            return field, str(value).strip()
+    return None
+
+
+def _find_entity_by_identity(
+    state: CrateState, key: tuple[str, str]
+) -> Entity | None:
+    """An existing MolecularEntity whose same identity field matches ``key``.
+
+    Scans ``state.list_entities("MolecularEntity")`` for one whose value for the
+    key's field equals the key's value, so a compound resolved under a second name
+    reuses the node minted for the first instead of duplicating the molecule
+    (Issue #179). Returns the first match, or ``None``.
+    """
+    field, value = key
+    for entity in state.list_entities("MolecularEntity"):
+        existing = entity.fields.get(field)
+        if existing not in (None, "") and str(existing).strip() == value:
+            return entity
+    return None
+
+
+def _append_alternate_name(entity: Entity, name: str) -> None:
+    """Record ``name`` as a ``schema:alternateName`` on a reused MolecularEntity.
+
+    A no-op when ``name`` is empty, already the entity's primary ``name``, or
+    already present in ``alternateName`` (deduped). Keeps the field a list so a
+    molecule resolved under several synonyms accumulates them.
+    """
+    candidate = " ".join(str(name).split())
+    if not candidate or candidate == str(entity.fields.get("name") or ""):
+        return
+    existing = entity.fields.get("alternateName") or []
+    aliases = list(existing) if isinstance(existing, list) else [existing]
+    if candidate in aliases:
+        return
+    aliases.append(candidate)
+    entity.set_fields_from_dict({"alternateName": aliases}, source="lookup")
+
 
 def _verify_compound_identifier(
     state: CrateState,
@@ -1358,18 +1418,40 @@ def resolve_compound(
         if value not in (None, ""):
             merged_hints[key] = value
 
-    # Idempotent: reuse the deterministically-keyed MolecularEntity if present,
-    # refreshing its looked-up fields, rather than minting a duplicate. The id is
-    # derived from the whitespace-normalized display name, so the same compound
-    # under different spacing maps to ONE entity.
-    entity_id = _make_entity_id("chem", display_name, merged_hints)
-    existing = state.get_entity(entity_id)
-    if existing is not None and existing.type == "MolecularEntity":
-        entity = existing
-        refreshed = {**merged_hints, "name": display_name}
+    # Dedup by chemical IDENTITY first (Issue #179): two DIFFERENT names that
+    # resolve to the SAME molecule (e.g. 'Indocyanine green' / 'ICG' -> same CID /
+    # InChIKey) must collapse to ONE MolecularEntity. Minting a second
+    # ``chem_<name>`` node duplicates the molecule, and two names resolving to the
+    # same ``pubchem_cid`` would mint the SAME ``@id`` at build time (silently
+    # overwritten by ro-crate-py). Reuse the node already minted for this molecule
+    # under another name — refresh its looked-up fields and record the new name as
+    # an ``alternateName`` — rather than its (different) name-derived id.
+    identity_key = _identity_key(data)
+    by_identity = (
+        _find_entity_by_identity(state, identity_key) if identity_key else None
+    )
+    if by_identity is not None:
+        entity = by_identity
+        # Do NOT clobber the entity's existing display ``name`` (the first name
+        # under which the molecule was minted) — keep it stable and record this
+        # call's name as an additional alias so the synonym is not lost.
+        refreshed = dict(merged_hints)
+        refreshed.pop("name", None)
         entity.set_fields_from_dict(refreshed, source="lookup")
+        _append_alternate_name(entity, display_name)
     else:
-        entity = draft_molecular_entity(state, display_name, merged_hints)
+        # Idempotent: reuse the deterministically-keyed MolecularEntity if present,
+        # refreshing its looked-up fields, rather than minting a duplicate. The id
+        # is derived from the whitespace-normalized display name, so the same
+        # compound under different spacing maps to ONE entity.
+        entity_id = _make_entity_id("chem", display_name, merged_hints)
+        existing = state.get_entity(entity_id)
+        if existing is not None and existing.type == "MolecularEntity":
+            entity = existing
+            refreshed = {**merged_hints, "name": display_name}
+            entity.set_fields_from_dict(refreshed, source="lookup")
+        else:
+            entity = draft_molecular_entity(state, display_name, merged_hints)
 
     identifiers = {
         key: data[key]
