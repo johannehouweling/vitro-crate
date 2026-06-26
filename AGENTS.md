@@ -1992,6 +1992,25 @@ but the headless build is **still written to disk**. The pipeline, guidance, and
 exporter runners are all injectable so the wiring is unit-tested with no SHACL /
 no LLM / no disk / no network (`tests/test_agents_build.py`).
 
+**Headless gap summary (#179, Lane 5; #296).** On the headless path `run_guidance`
+is never invoked, so without this the user would never see the build's posture.
+After the pipeline build + export, `run_interactive_build` emits a single,
+**non-blocking** summary line via the `output` channel — `format_gap_summary`
+renders the count of open **MUST** issues plus base/isa/tox conformance.
+**It REUSES the validation result the pipeline already computed** (`run_pipeline`
+returns `{conformance, issues, …}` from its required-severity fix loop) rather
+than calling `assess_gaps` afresh: a fresh `assess_gaps` re-runs the heaviest
+`severity="optional"` SHACL + MIT + FAIR sweep (the #115 tox-pass bottleneck),
+which on every headless build is both a real per-build UX regression and a CI
+timeout (#296). Because the pipeline validates only at REQUIRED severity, SHOULD/MAY
+gaps are not computed on this fast path — the line reports them as *not assessed*
+rather than fabricating a count (D5 — read-only reporting of real state). It is
+**pure observability**: it never prompts, never runs `run_guidance`, and never
+mutates state. Wording is deliberately distinct from `format_guidance_summary`
+(no "resolved"/"asked" verbs, since no interactive guidance ran). Tested with no
+extra SHACL (`tests/test_agents_build.py::TestHeadlessGapSummary`); the interactive
+path is unchanged (it still runs `run_guidance` + `format_guidance_summary`).
+
 **Stage C — the gap engine.** `assess_gaps(state: CrateState) -> GapReport`
 (`builder/tools/gap_analysis.py`) unifies the three assessors into ONE
 prioritized gap list the Guidance stage consumes. It is a **pure, deterministic,
