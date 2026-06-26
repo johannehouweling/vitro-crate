@@ -108,14 +108,21 @@ class TestChainCreation:
         assert cc_out, "CellCulture must have an output to feed the Exposure"
         assert cc_out & exp_in, "Exposure must consume the CellCulture output"
 
-        # Exposure output feeds the EndpointReadout input.
-        exp_out = _ref_ids(exp.fields.get("result")) | _ref_ids(exp.fields.get("output"))
+        # The material flow continues into the EndpointReadout. The Exposure has
+        # NO in-state output of its own (#285): its output is the build-time CSVW
+        # condition table, so the chain hands its consumed material (the cultured
+        # Sample) downstream — the EndpointReadout must consume it.
+        assert not (
+            _ref_ids(exp.fields.get("result")) | _ref_ids(exp.fields.get("output"))
+        ), "Exposure must rely on the build's condition table, not an in-state output"
         er_in = (
             _ref_ids(er.fields.get("object"))
             | _ref_ids(er.fields.get("input"))
             | _ref_ids(er.fields.get("samples"))
         )
-        assert exp_out & er_in, "EndpointReadout must consume the Exposure output"
+        assert exp_in & er_in, (
+            "EndpointReadout must consume the material flowing through the Exposure"
+        )
 
         # EndpointReadout output feeds the DataAnalysis object.
         er_out = _ref_ids(er.fields.get("result")) | _ref_ids(er.fields.get("output"))
@@ -270,6 +277,167 @@ class TestChainPassesValidation:
             state2, assay_id2, chain=_FULL_CHAIN, validate_after=None
         )
         assert "validation" not in result2
+
+
+def _types(node: dict) -> set[str]:
+    """The @type(s) of a built graph node as a set of strings."""
+    t = node.get("@type")
+    if isinstance(t, list):
+        return {str(x) for x in t}
+    return {str(t)} if t is not None else set()
+
+
+def _node_ref_ids(value: object) -> set[str]:
+    """Bare @ids referenced by a built node property (scalar / list / {@id})."""
+    items = value if isinstance(value, list) else [value]
+    out: set[str] = set()
+    for v in items:
+        ref = v.get("@id") if isinstance(v, dict) else v
+        if isinstance(ref, str):
+            out.add(ref)
+    return out
+
+
+class TestExposureOutputIsConditionTable:
+    """Issue #285 — the Exposure's synthesized output must BE the CSVW condition
+    table that ``about``-references the test compounds (the substances the cells
+    were exposed to), NOT a generic placeholder result File.
+
+    Before #285, ``draft_process_chain`` eagerly synthesized a *generic* result
+    File for the Exposure (it is not a sample-producer and had no explicit
+    ``result``). That populated the Exposure's ``result``, so the build's
+    ``_synth_condition_table`` fallback — the ONLY path that wires
+    ``table --about--> MolecularEntity`` — never fired. Compound reachability then
+    rode solely on the Study ``schema:mentions`` edge: the compounds were modelled
+    as "mentioned by the study" rather than "the conditions of the exposure
+    process", semantically weaker than the ISA-Tox intent.
+
+    The fix makes the Exposure's output the condition table, so the compounds
+    attach as TRUE exposure conditions while the Study ``mentions`` becomes a
+    redundant backstop. Orphan count must stay 0 (#273) and validation unchanged.
+    """
+
+    def _exposure_chain_state(self) -> tuple[CrateState, list[str]]:
+        """A backbone + chain whose Exposure carries two resolved compounds.
+
+        Returns ``(state, compound_entity_ids)``. Mirrors the real materialize
+        flow: the chain is drafted first, then the compounds are wired onto the
+        Exposure via the ``chemicals`` ref field (as ``_materialize_plan`` does).
+        """
+        from builder.tools.drafters import draft_molecular_entity
+
+        state, assay_id = _scaffold()
+        chem1 = draft_molecular_entity(state, "Methimazole", {"pubchem_cid": "1349907"})
+        chem2 = draft_molecular_entity(state, "Sodium iodide", {"pubchem_cid": "5238"})
+        draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+
+        exp = _processes_by_subtype(state)["Exposure"][0]
+        exp.set_fields_from_dict(
+            {"chemicals": [{"@id": chem1.entity_id}, {"@id": chem2.entity_id}]},
+            source="llm",
+        )
+        return state, [chem1.entity_id, chem2.entity_id]
+
+    @staticmethod
+    def _built_graph(state: CrateState) -> list[dict]:
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(
+            state,
+            output_dir=None,
+            materialize_payload=False,
+            include_all_scanned=False,
+        )
+        return crate.metadata.generate()["@graph"]
+
+    def test_exposure_output_is_condition_table_about_compounds(self) -> None:
+        state, compound_ids = self._exposure_chain_state()
+        graph = self._built_graph(state)
+        by_id = {n.get("@id"): n for n in graph}
+
+        # The Exposure's output node must be a CSVW condition table, not a plain
+        # generic File. (An Exposure builds as @type LabProcess discriminated by
+        # additionalType="Exposure".)
+        exposure = next(
+            n
+            for n in graph
+            if "LabProcess" in _types(n) and n.get("additionalType") == "Exposure"
+        )
+        out_ids = _node_ref_ids(exposure.get("output")) | _node_ref_ids(
+            exposure.get("result")
+        )
+        assert out_ids, "Exposure has no output node"
+        out_nodes = [by_id[i] for i in out_ids if i in by_id]
+        condition_tables = [n for n in out_nodes if "csvw:Table" in _types(n)]
+        assert condition_tables, (
+            "Exposure output must be a CSVW condition table (csvw:Table), not a "
+            f"generic placeholder File; got: {[n.get('@type') for n in out_nodes]}"
+        )
+
+        # The condition table's `about` must list BOTH resolved MolecularEntities
+        # — the compounds ARE the conditions of this exposure (the substances the
+        # cells were exposed to), connected THROUGH the table (ISA forbids a
+        # MolecularEntity as a process object).
+        compound_node_ids = {
+            n.get("@id") for n in graph if "MolecularEntity" in _types(n)
+        }
+        assert len(compound_node_ids) == 2, (
+            f"expected 2 MolecularEntity nodes, got {compound_node_ids}"
+        )
+        about_ids: set[str] = set()
+        for table in condition_tables:
+            about_ids |= _node_ref_ids(table.get("about"))
+        assert compound_node_ids <= about_ids, (
+            "condition table's `about` must list every compound (the exposure "
+            f"conditions); table about={about_ids}, compounds={compound_node_ids}"
+        )
+
+        # No generic `proc_exposure_result.csv` placeholder File is the Exposure's
+        # output — the condition table replaced it.
+        assert not any(
+            "csvw:Table" not in _types(n) for n in out_nodes
+        ), f"Exposure still has a generic placeholder output: {out_nodes}"
+
+    def test_compounds_are_not_orphaned(self) -> None:
+        """Wiring compounds through the condition table keeps orphan count 0 (#273)."""
+        state, _ = self._exposure_chain_state()
+        graph = self._built_graph(state)
+
+        referenced: set[str] = set()
+
+        def _collect(value: object) -> None:
+            if isinstance(value, dict):
+                ref = value.get("@id")
+                if isinstance(ref, str):
+                    referenced.add(ref)
+                else:
+                    for v in value.values():
+                        _collect(v)
+            elif isinstance(value, list):
+                for item in value:
+                    _collect(item)
+
+        for node in graph:
+            for key, value in node.items():
+                if key in ("@id", "@type"):
+                    continue
+                _collect(value)
+
+        compounds = [n for n in graph if "MolecularEntity" in _types(n)]
+        assert compounds, "no MolecularEntity in built graph — test setup is wrong"
+        orphans = [n["@id"] for n in compounds if n["@id"] not in referenced]
+        assert orphans == [], f"orphaned compounds: {orphans}"
+
+    @pytest.mark.timeout(120)
+    def test_conformance_unchanged_with_condition_table(self) -> None:
+        """The condition-table output must not regress ISA / ISA-Tox conformance."""
+        state, _ = self._exposure_chain_state()
+        report = build_and_validate(state)
+        assert "error" not in report, report
+        assert report["conformance"]["base"] is True, report
+        assert report["conformance"]["isa"] is True, report
+        assert report["conformance"]["tox"] is True, report
+        assert report["ok"] is True, report
 
 
 class TestNoPydanticShadowWarning:
