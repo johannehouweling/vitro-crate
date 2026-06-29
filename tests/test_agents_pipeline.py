@@ -378,14 +378,27 @@ class TestMaterializePlan:
         """Stub every network lookup the composites would otherwise hit."""
         import builder.tools.composites as composites_mod
         from builder.tools import lookups as tool_lookups
+        from builder.tools._resolve_cache import compound_cache
+
+        # The compound resolution cache is process-global; a prior test can pre-cache
+        # these names and short-circuit the lookup, masking this stub's per-name CID.
+        # Clear it so the stub always runs fresh (xdist-safe).
+        compound_cache.clear()
 
         # resolve_compound -> lookup_compound (imported into composites' namespace).
+        # A DISTINCT CID per compound name: the dedup-by-chemical-identity path
+        # (Issue #179) collapses two names that resolve to the SAME identity into one
+        # MolecularEntity, so two DISTINCT plan compounds must carry distinct CIDs
+        # to stay distinct nodes. CAS stays constant (`60-56-0`) so the D5 exact-value
+        # assertion is preserved; only the (node-id-bearing) CID varies per name.
+        _cids = {"Methimazole": "1349907", "Sodium iodide": "5238"}
+
         def fake_lookup_compound(name):
             return {
                 "found": True,
                 "data": {
                     "cas": "60-56-0",
-                    "pubchem_cid": "1349907",
+                    "pubchem_cid": _cids.get(name, "999999"),
                     "smiles": "C1=CN(C(=S)N1)C",
                     "source": "pubchem",
                 },
@@ -926,47 +939,10 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
     node must be referenced by at least one other node, i.e. orphan count → 0.
     """
 
-    def _stub_lookups(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Like the base stub, but return a DISTINCT CID per compound name.
-
-        The base `_stub_lookups` hands the same canned PubChem CID to every
-        compound, so distinct compounds would collapse to ONE MolecularEntity node
-        (its build @id is the verified CID IRI). The #273 reachability test needs
-        the two plan compounds to be two distinct nodes, so override the compound
-        lookup with a per-name CID while keeping every other stub (verify / AOP /
-        Crossref) from the base.
-        """
-        super()._stub_lookups(monkeypatch)
-        import builder.tools.composites as composites_mod
-        from builder.tools._resolve_cache import compound_cache
-
-        # The compound resolution cache is process-global; a prior test (or the
-        # inherited ones, which use the base single-CID stub) can pre-cache these
-        # names and short-circuit the lookup, so distinct-CID resolution would be
-        # masked. Clear it so this test's stub always runs fresh (xdist-safe).
-        compound_cache.clear()
-
-        # Distinct CID per compound (the build keys a MolecularEntity node @id to
-        # its verified CID IRI, so distinct CIDs => distinct nodes). CAS stays the
-        # base stub's `60-56-0` so the inherited D5 test's exact-value assertion is
-        # preserved; only the (node-id-bearing) CID varies per name.
-        _cids = {"Methimazole": "1349907", "Sodium iodide": "5238"}
-
-        def fake_lookup_compound(name):
-            return {
-                "found": True,
-                "data": {
-                    "cas": "60-56-0",
-                    "pubchem_cid": _cids.get(name, "999999"),
-                    "smiles": "C1=CN(C(=S)N1)C",
-                    "source": "pubchem",
-                },
-                "error": None,
-            }
-
-        monkeypatch.setattr(
-            composites_mod, "lookup_compound", fake_lookup_compound
-        )
+    # NOTE: the base ``_stub_lookups`` already hands a DISTINCT CID per compound
+    # name (and clears the process-global compound cache), so the two plan
+    # compounds resolve to two distinct MolecularEntity nodes — exactly what this
+    # #273 reachability test needs. No override required.
 
     @staticmethod
     def _referenced_ids(graph: list[dict]) -> set[str]:
