@@ -22,3 +22,7 @@ eval_reports/
 .pytest_cache/
 .mypy_cache/
 .claude/CLAUDE.md
+
+# coverage.py artifacts
+.coverage
+.coverage.*
