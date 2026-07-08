@@ -162,6 +162,12 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     import builder.agents.pipeline as pipeline_mod
     import builder.tools.composites as composites_mod
     from builder.tools import lookups as tool_lookups
+    from builder.tools._resolve_cache import compound_cache
+
+    # The compound resolution cache is process-global; a prior test can pre-cache
+    # these names and short-circuit the lookup, masking this stub's per-name CID.
+    # Clear it so the stub always runs fresh (xdist-safe).
+    compound_cache.clear()
 
     # Provider gate: configured (no real model) so the leaves run.
     monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
@@ -190,12 +196,19 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     # resolve_compound → lookup_compound (imported into composites' namespace).
+    # A DISTINCT CID per compound name: the dedup-by-chemical-identity path
+    # (Issue #179) collapses two names that resolve to the SAME identity into one
+    # MolecularEntity, so two DISTINCT plan compounds must carry distinct CIDs to
+    # stay distinct nodes. CAS stays constant (`60-56-0`) so the D5 exact-value
+    # assertion is preserved; only the (node-id-bearing) CID varies per name.
+    _cids = {"Methimazole": "1349907", "Sodium iodide": "5238"}
+
     def fake_lookup_compound(name: str) -> dict[str, Any]:
         return {
             "found": True,
             "data": {
                 "cas": "60-56-0",
-                "pubchem_cid": "1349907",
+                "pubchem_cid": _cids.get(name, "999999"),
                 "smiles": "C1=CN(C(=S)N1)C",
                 "source": "pubchem",
             },
