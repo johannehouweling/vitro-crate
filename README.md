@@ -82,6 +82,12 @@ export VITRO_OPENAI_MODEL="llama3.2"           # or OPENAI_MODEL
 # Optional: cheap drafter model for bounded extraction (model tiering).
 # Unset = single model (the drafter uses VITRO_OPENAI_MODEL).
 export VITRO_OPENAI_DRAFTER_MODEL="gpt-4o-mini"
+
+# Optional: enable reasoning ("thinking") on reasoning-capable models
+# (o-series, gpt-5.x). Values: none (default) | low | medium | high.
+# Omit for non-reasoning models like gpt-4o. When reasoning is active the
+# builder stops sending temperature=0, which gpt-5.x rejects while reasoning.
+export VITRO_OPENAI_REASONING_EFFORT="medium"
 ```
 
 #### Anthropic
@@ -164,6 +170,8 @@ base_url = "https://api.openai.com/v1"
 model = "gpt-4o"
 # Optional: cheap drafter model (model tiering). Omit for a single model.
 drafter_model = "gpt-4o-mini"
+# Optional: reasoning ("thinking") for gpt-5.x / o-series: none|low|medium|high.
+# reasoning_effort = "medium"
 
 [anthropic]
 api_key = "sk-ant-..."
@@ -196,6 +204,7 @@ Environment variables (``VITRO_*``) always win over the config file:
 | ``VITRO_OPENAI_BASE_URL`` | API base URL override | ``https://api.openai.com/v1`` |
 | ``VITRO_OPENAI_MODEL`` | Model name for OpenAI | ``gpt-4o`` |
 | ``VITRO_OPENAI_DRAFTER_MODEL`` | Cheap drafter model for OpenAI (model tiering) | — (uses ``VITRO_OPENAI_MODEL``) |
+| ``VITRO_OPENAI_REASONING_EFFORT`` | Reasoning ("thinking") effort for reasoning-capable OpenAI models (o-series, gpt-5.x): ``none``/``low``/``medium``/``high`` | — (off) |
 | ``VITRO_ANTHROPIC_API_KEY`` | API key for Anthropic | — |
 | ``VITRO_ANTHROPIC_MODEL`` | Model name for Anthropic | ``claude-sonnet-4-20250514`` |
 | ``VITRO_ANTHROPIC_DRAFTER_MODEL`` | Cheap drafter model for Anthropic (model tiering) | — (uses ``VITRO_ANTHROPIC_MODEL``) |
@@ -364,6 +373,7 @@ This works for ``requests``, ``httpx``, ``openai``, and all other HTTP clients.
 | `VITRO_OPENAI_MODEL` | No | `gpt-4o` | Model name for OpenAI-compatible providers |
 | `OPENAI_MODEL` | Fallback | `gpt-4o` | Same, unprefixed fallback |
 | `VITRO_OPENAI_DRAFTER_MODEL` | No | — (uses `VITRO_OPENAI_MODEL`) | Cheap drafter model (model tiering). Unset → single model, unchanged behaviour |
+| `VITRO_OPENAI_REASONING_EFFORT` | No | — (off) | Reasoning ("thinking") effort for reasoning-capable OpenAI models (o-series, gpt-5.x): `none`/`low`/`medium`/`high`. Omit for non-reasoning models. When active, the builder stops sending `temperature=0` (gpt-5.x rejects it while reasoning). |
 | `VITRO_ANTHROPIC_API_KEY` | For Anthropic | — | Anthropic API key |
 | `ANTHROPIC_API_KEY` | Fallback | — | Same, unprefixed fallback |
 | `VITRO_ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Model name for Anthropic |
