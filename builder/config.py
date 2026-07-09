@@ -233,6 +233,7 @@ def merge_with_env(config: dict[str, Any]) -> dict[str, Any]:
         ("openai", "base_url"): "VITRO_OPENAI_BASE_URL",
         ("openai", "model"): "VITRO_OPENAI_MODEL",
         ("openai", "drafter_model"): "VITRO_OPENAI_DRAFTER_MODEL",
+        ("openai", "reasoning_effort"): "VITRO_OPENAI_REASONING_EFFORT",
         ("openai", "model_provider"): "VITRO_OPENAI_MODEL_PROVIDER",
         ("anthropic", "api_key"): "VITRO_ANTHROPIC_API_KEY",
         ("anthropic", "model"): "VITRO_ANTHROPIC_MODEL",

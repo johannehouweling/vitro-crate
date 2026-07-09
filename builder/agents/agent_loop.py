@@ -921,14 +921,25 @@ def _build_chat_model(
             or os.environ.get("VITRO_OPENAI_MODEL")
             or os.environ.get("OPENAI_MODEL", "gpt-4o")
         )
+        # Opt-in reasoning ("thinking") for reasoning-capable models (o-series,
+        # gpt-5.x). Off by default (unset) so existing behaviour is unchanged.
+        reasoning_effort = os.environ.get("VITRO_OPENAI_REASONING_EFFORT") or None
 
         kwargs: dict[str, Any] = {
             "model": resolved_model,
-            "temperature": 0,
             "max_retries": max_retries,
             # "timeout" is the public alias of ChatOpenAI.request_timeout (#263).
             "timeout": timeout,
         }
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
+        # Reasoning models reject a non-default temperature while reasoning is
+        # ACTIVE — gpt-5.1 only permits temperature when reasoning_effort is
+        # "none". So keep the deterministic temperature=0 ONLY when reasoning is
+        # off (unset or explicit "none"); otherwise omit it and let the model use
+        # its default (1), or the API 400s ("temperature does not support 0").
+        if not reasoning_effort or reasoning_effort.strip().lower() == "none":
+            kwargs["temperature"] = 0
         if api_key:
             kwargs["api_key"] = api_key
         if resolved_base:
