@@ -84,9 +84,12 @@ export VITRO_OPENAI_MODEL="llama3.2"           # or OPENAI_MODEL
 export VITRO_OPENAI_DRAFTER_MODEL="gpt-4o-mini"
 
 # Optional: enable reasoning ("thinking") on reasoning-capable models
-# (o-series, gpt-5.x). Values: none (default) | low | medium | high.
-# Omit for non-reasoning models like gpt-4o. When reasoning is active the
-# builder stops sending temperature=0, which gpt-5.x rejects while reasoning.
+# (o-series, gpt-5.x). Values: low | medium | high. Default is OFF (leave
+# unset). To DISABLE reasoning, just omit this var — only gpt-5.1 accepts the
+# extra value "none" (to force its default reasoning off while keeping
+# temperature=0); o-series and gpt-4o reject "none", so leave it unset there.
+# When reasoning is active the builder stops sending temperature=0, which
+# reasoning models reject while thinking.
 export VITRO_OPENAI_REASONING_EFFORT="medium"
 ```
 
@@ -170,7 +173,8 @@ base_url = "https://api.openai.com/v1"
 model = "gpt-4o"
 # Optional: cheap drafter model (model tiering). Omit for a single model.
 drafter_model = "gpt-4o-mini"
-# Optional: reasoning ("thinking") for gpt-5.x / o-series: none|low|medium|high.
+# Optional: reasoning ("thinking") for reasoning models (gpt-5.x / o-series):
+# low|medium|high. Omit to disable reasoning; only gpt-5.1 accepts "none".
 # reasoning_effort = "medium"
 
 [anthropic]
@@ -204,7 +208,7 @@ Environment variables (``VITRO_*``) always win over the config file:
 | ``VITRO_OPENAI_BASE_URL`` | API base URL override | ``https://api.openai.com/v1`` |
 | ``VITRO_OPENAI_MODEL`` | Model name for OpenAI | ``gpt-4o`` |
 | ``VITRO_OPENAI_DRAFTER_MODEL`` | Cheap drafter model for OpenAI (model tiering) | — (uses ``VITRO_OPENAI_MODEL``) |
-| ``VITRO_OPENAI_REASONING_EFFORT`` | Reasoning ("thinking") effort for reasoning-capable OpenAI models (o-series, gpt-5.x): ``none``/``low``/``medium``/``high`` | — (off) |
+| ``VITRO_OPENAI_REASONING_EFFORT`` | Reasoning ("thinking") effort for reasoning-capable OpenAI models (o-series, gpt-5.x): ``low``/``medium``/``high``, plus ``none`` (gpt-5.1 only) to force reasoning off. Omit to disable reasoning. | — (off) |
 | ``VITRO_ANTHROPIC_API_KEY`` | API key for Anthropic | — |
 | ``VITRO_ANTHROPIC_MODEL`` | Model name for Anthropic | ``claude-sonnet-4-20250514`` |
 | ``VITRO_ANTHROPIC_DRAFTER_MODEL`` | Cheap drafter model for Anthropic (model tiering) | — (uses ``VITRO_ANTHROPIC_MODEL``) |
@@ -373,7 +377,7 @@ This works for ``requests``, ``httpx``, ``openai``, and all other HTTP clients.
 | `VITRO_OPENAI_MODEL` | No | `gpt-4o` | Model name for OpenAI-compatible providers |
 | `OPENAI_MODEL` | Fallback | `gpt-4o` | Same, unprefixed fallback |
 | `VITRO_OPENAI_DRAFTER_MODEL` | No | — (uses `VITRO_OPENAI_MODEL`) | Cheap drafter model (model tiering). Unset → single model, unchanged behaviour |
-| `VITRO_OPENAI_REASONING_EFFORT` | No | — (off) | Reasoning ("thinking") effort for reasoning-capable OpenAI models (o-series, gpt-5.x): `none`/`low`/`medium`/`high`. Omit for non-reasoning models. When active, the builder stops sending `temperature=0` (gpt-5.x rejects it while reasoning). |
+| `VITRO_OPENAI_REASONING_EFFORT` | No | — (off) | Reasoning ("thinking") effort for reasoning-capable OpenAI models (o-series, gpt-5.x): `low`/`medium`/`high`. `none` forces reasoning off on gpt-5.1 only (o-series/gpt-4o reject the `none` value — omit the var instead). Omit for non-reasoning models. Value is normalized (trimmed + lowercased). When active, the builder stops sending `temperature=0` (reasoning models reject it while thinking). |
 | `VITRO_ANTHROPIC_API_KEY` | For Anthropic | — | Anthropic API key |
 | `ANTHROPIC_API_KEY` | Fallback | — | Same, unprefixed fallback |
 | `VITRO_ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Model name for Anthropic |

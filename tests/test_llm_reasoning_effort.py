@@ -75,6 +75,37 @@ class TestReasoningEffort:
         assert kwargs["reasoning_effort"] == "none"
         assert kwargs["temperature"] == 0
 
+    def test_capitalized_effort_is_normalized_before_forwarding(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A capitalized value (``Medium``) is lowercased — the OpenAI API only
+        accepts the lowercase enum, so we must not forward it verbatim."""
+        monkeypatch.setenv("VITRO_OPENAI_REASONING_EFFORT", "Medium")
+        kwargs = _capture_openai_kwargs(monkeypatch)
+        assert kwargs["reasoning_effort"] == "medium"
+        assert "temperature" not in kwargs
+
+    def test_whitespace_none_normalizes_and_keeps_temperature(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Surrounding whitespace / casing (`` None ``) still reads as ``none``:
+        it forwards the clean ``none`` and keeps the deterministic temperature=0,
+        instead of forwarding an invalid `` None `` that the API would reject."""
+        monkeypatch.setenv("VITRO_OPENAI_REASONING_EFFORT", " None ")
+        kwargs = _capture_openai_kwargs(monkeypatch)
+        assert kwargs["reasoning_effort"] == "none"
+        assert kwargs["temperature"] == 0
+
+    def test_whitespace_only_effort_is_treated_as_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A blank/whitespace value is a no-op — unchanged default behaviour
+        (temperature=0, no ``reasoning_effort`` forwarded)."""
+        monkeypatch.setenv("VITRO_OPENAI_REASONING_EFFORT", "   ")
+        kwargs = _capture_openai_kwargs(monkeypatch)
+        assert kwargs["temperature"] == 0
+        assert "reasoning_effort" not in kwargs
+
 
 class TestReasoningEffortConfigMapping:
     """``merge_with_env`` surfaces the config-file knob as the env var."""
