@@ -42,6 +42,7 @@ from builder.tools.hitl import HumanInterface
 from builder.tools.lookups import (
     lookup_compound,
     lookup_doi,
+    lookup_dtxsid,
     lookup_orcid,
     warm_compound_cache,
 )
@@ -1495,11 +1496,40 @@ def resolve_compound(
         else:
             entity = draft_molecular_entity(state, display_name, merged_hints)
 
+    # Best-effort EPA DTXSID enrichment (#179). DTXSID is a first-class ISA-Tox
+    # chemical identifier that the deterministic pipeline otherwise never
+    # produces — ``lookup_dtxsid`` had NO pipeline caller (it was reachable only
+    # from the legacy ReAct loop). Query CompTox by the strongest EXACT key
+    # available (CAS -> InChIKey -> name) so the match is unambiguous, and store
+    # the DTXSID only when the lookup returns one. D5-safe: the value comes
+    # straight from CompTox (the authority), never fabricated. A miss or outage
+    # is NON-FATAL — DTXSID is enrichment, not a precondition — so a CompTox
+    # failure never sinks an already-resolved compound (mirrors the graceful
+    # handling of the primary lookup above).
+    if not entity.fields.get("dtxsid"):
+        dtxsid_query = data.get("cas") or data.get("inchikey") or display_name
+        try:
+            dtxsid_hit = lookup_dtxsid(dtxsid_query)
+        except Exception:
+            logger.warning(
+                "DTXSID lookup errored for '%s'; skipping (non-fatal)",
+                dtxsid_query,
+                exc_info=True,
+            )
+            dtxsid_hit = {}
+        if dtxsid_hit.get("found"):
+            dtxsid = (dtxsid_hit.get("data") or {}).get("dtxsid")
+            if dtxsid:
+                entity.set_fields_from_dict({"dtxsid": dtxsid}, source="lookup")
+
     identifiers = {
         key: data[key]
         for key in _COMPOUND_IDENTIFIER_FIELDS
         if data.get(key) not in (None, "")
     }
+    # Surface the looked-up DTXSID in the return (pipeline provenance/logging).
+    if entity.fields.get("dtxsid"):
+        identifiers["dtxsid"] = entity.fields["dtxsid"]
 
     verifications: list[dict[str, Any]] = []
     do_verify = verify is None or verify

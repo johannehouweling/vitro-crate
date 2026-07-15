@@ -172,6 +172,71 @@ class TestMolecularEntityIdentifiers:
         assert "cas" not in chem and "casrn" not in chem
 
 
+def _molecular_state_with_dtxsid() -> CrateState:
+    state = CrateState()
+    state.metadata.title = "Compound crate"
+    chem = Entity(
+        entity_id="chem_bpa",
+        type="MolecularEntity",
+        fields={
+            "name": "Bisphenol A",
+            "cas": "80-05-7",
+            "pubchem_cid": "6623",
+            "dtxsid": "DTXSID7020182",
+        },
+        _provenance=EntityProvenance(created_by="llm"),
+    )
+    state.add_entity(chem)
+    return state
+
+
+class TestMolecularEntityDtxsid:
+    """A MolecularEntity carrying `dtxsid` emits a DTXSID identifier PV (#179).
+
+    DTXSID (the EPA CompTox/DSSTox substance id) is a first-class ISA-Tox chemical
+    identifier. It rounds-trips through the same ``_identifier_pv`` path as CAS /
+    PubChem CID — appended AFTER them so the existing order/ids are stable — with
+    its ``propertyID`` an ``@id`` node pointing at the CompTox Dashboard.
+    """
+
+    def _dtxsid_pv(self, graph: list[dict]) -> dict | None:
+        return next(
+            (
+                n
+                for n in graph
+                if n.get("@type") == "PropertyValue" and n.get("name") == "DTXSID"
+            ),
+            None,
+        )
+
+    def test_dtxsid_property_value_emitted(self):
+        graph = _graph(_molecular_state_with_dtxsid())
+        pv = self._dtxsid_pv(graph)
+        assert pv is not None, "a DTXSID PropertyValue node must be in the graph"
+        assert pv.get("value") == "DTXSID7020182"
+        assert pv.get("propertyID") == {
+            "@id": "https://comptox.epa.gov/dashboard/chemical/details"
+        }
+
+    def test_identifier_order_cas_cid_then_dtxsid(self):
+        graph = _graph(_molecular_state_with_dtxsid())
+        chem = _by_id(graph, "https://pubchem.ncbi.nlm.nih.gov/compound/6623")
+        assert chem is not None
+        ids = _ref_ids(chem.get("identifier"))
+        pv = self._dtxsid_pv(graph)
+        assert pv is not None
+        # CAS + PubChem CID + DTXSID, DTXSID appended last.
+        assert len(ids) == 3
+        assert ids[-1] == pv.get("@id")
+
+    def test_no_raw_dtxsid_literal_on_node(self):
+        graph = _graph(_molecular_state_with_dtxsid())
+        chem = _by_id(graph, "https://pubchem.ncbi.nlm.nih.gov/compound/6623")
+        assert chem is not None
+        # dtxsid must live in the PropertyValue, not as a bare literal on the node.
+        assert "dtxsid" not in chem
+
+
 class TestPersonAffiliation:
     def test_affiliation_resolves_to_org_reference(self):
         state = CrateState()

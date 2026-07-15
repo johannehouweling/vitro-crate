@@ -344,6 +344,9 @@ _STRUCT_FIELDS = frozenset(
         "cas",
         "casrn",
         "cas_number",
+        # EPA CompTox/DSSTox substance id promoted to a DTXSID identifier
+        # PropertyValue (#179) — consumed structurally, not a stray node literal.
+        "dtxsid",
         "doi",
         "dest_path",
         "path",
@@ -448,7 +451,7 @@ def _identifier_pv(
 
 
 # Per-MolecularEntity identifier fields, in the order the gold crate lists them
-# (CAS first, then PubChem CID). Each tuple is
+# (CAS first, then PubChem CID, then the EPA DTXSID). Each tuple is
 # (field aliases, scheme name, propertyID url | None).
 _MOLECULAR_IDENTIFIERS: tuple[tuple[tuple[str, ...], str, str | None], ...] = (
     (("cas", "casrn", "cas_number"), "CAS", None),
@@ -456,6 +459,14 @@ _MOLECULAR_IDENTIFIERS: tuple[tuple[tuple[str, ...], str, str | None], ...] = (
         ("pubchem_cid",),
         "PubChem CID",
         "https://pubchem.ncbi.nlm.nih.gov/compound",
+    ),
+    # EPA CompTox/DSSTox substance id (#179). Appended AFTER CAS + PubChem CID so
+    # existing identifier order and PropertyValue ids stay byte-stable; propertyID
+    # is the CompTox chemical-details base, mirroring the PubChem-CID convention.
+    (
+        ("dtxsid",),
+        "DTXSID",
+        "https://comptox.epa.gov/dashboard/chemical/details",
     ),
 )
 

@@ -583,7 +583,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent-WITH-merge: a reused layer's EMPTY fields are filled from the supplied hints, fill-don't-clobber), the fast path to a BASE-passing crate
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
-resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier, in one idempotent call; carries the looked-up CAS + PubChem CID and never keeps an unverified id (D5)
+resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
 resolve_publication(title: str, verify=None) → {ok, doi, entity_id, title, score} | {ok: False, reason, title}  # composite: publication title → Crossref title-search → confidence gate → draft_publication_with_authors(doi=…), in one idempotent call; commits a DOI only on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5)
 draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
 draft_investigation(hints: dict) → Entity
@@ -637,7 +637,16 @@ composite never hand-rolls that wiring; (3) `verify_identifier` confirms each
 minted identifier against source. **D5:** `verify_identifier` *clears* any value
 that does not resolve, so a failed identifier never lingers as a fabricated id —
 the per-field verdicts are surfaced in `verifications` and `verified` is the AND of
-them. Looked-up identifier fields win over same-named caller `hints`. **Dedup is
+them. **DTXSID enrichment (Issue #179):** after resolution it also runs a
+best-effort CompTox `lookup_dtxsid` — querying by the strongest EXACT key
+available (`cas` → `inchikey` → name) — and stores the EPA **DTXSID** on the
+entity when found, so the build appends it as a third `DTXSID` identifier
+PropertyValue after `[CAS, PubChem CID]`. It is D5-safe (the value comes straight
+from CompTox, never fabricated) and **non-fatal** — a CompTox miss or outage never
+sinks an already-resolved compound. (Before #179 `lookup_dtxsid` had no
+deterministic-pipeline caller — it was reachable only from the legacy ReAct loop,
+so the default path silently dropped DTXSID for every compound.)
+Looked-up identifier fields win over same-named caller `hints`. **Dedup is
 by resolved chemical IDENTITY, not by name** (Issue #179): after a successful
 lookup it computes an identity key in priority order `pubchem_cid` → `inchikey` →
 `cas` → `chebiId` and reuses any existing `MolecularEntity` whose same identity
@@ -732,10 +741,11 @@ mirroring rocrate-wizard's `param_id` (`#param_<slug(name)>_<sha1("name|value")[
 and emits `propertyID` as an `{"@id": …}` node when a url is given. At build time:
 a Person carrying `orcid` gains an `ORCID` PropertyValue identifier
 (`propertyID {"@id": https://orcid.org}`); a MolecularEntity carrying
-`cas`/`casrn`/`cas_number` and/or `pubchem_cid` gains `[CAS, PubChem CID]`
-identifiers in that order (CAS has no `propertyID`; PubChem CID's is
-`{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`). These source fields are
-consumed structurally (kept off the node as raw literals). A Person's
+`cas`/`casrn`/`cas_number` and/or `pubchem_cid` and/or `dtxsid` gains
+`[CAS, PubChem CID, DTXSID]` identifiers in that order (CAS has no `propertyID`;
+PubChem CID's is `{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`; DTXSID's is
+`{"@id": https://comptox.epa.gov/dashboard/chemical/details}`). These source fields
+are consumed structurally (kept off the node as raw literals). A Person's
 `affiliation` and a Publication's `author` are resolved to `{"@id"}` references
 (via `_wire_reference` / `_resolve_many`) rather than emitted as literals, so
 `Person.affiliation` points at its Organization and `ScholarlyArticle.author`
