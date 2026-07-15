@@ -7,6 +7,28 @@ import pytest
 from builder.state import CrateState, Entity, EntityProvenance
 
 
+@pytest.fixture(autouse=True)
+def _stub_composites_dtxsid(monkeypatch):
+    """Keep ``resolve_compound``'s best-effort CompTox DTXSID lookup offline (#179).
+
+    ``resolve_compound`` runs a best-effort ``lookup_dtxsid`` (a live CompTox HTTP
+    call) after the primary PubChem/ChEBI resolution. Default it to a MISS across
+    the whole suite so no offline test accidentally reaches the network; tests
+    that exercise the DTXSID path re-patch ``composites.lookup_dtxsid`` with a hit
+    (a later ``monkeypatch.setattr`` in the test wins). Scoped to the symbol bound
+    in the ``composites`` namespace, so direct ``lookups`` / ``comptox`` (and
+    contract) tests are untouched. ``raising=False`` tolerates any import order.
+    """
+    from builder.tools import composites
+
+    monkeypatch.setattr(
+        composites,
+        "lookup_dtxsid",
+        lambda query: {"found": False, "data": {}, "error": "offline stub (conftest)"},
+        raising=False,
+    )
+
+
 @pytest.fixture
 def minimal_state() -> CrateState:
     """Return a CrateState with one Investigation entity."""

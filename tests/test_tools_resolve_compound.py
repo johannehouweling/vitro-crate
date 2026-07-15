@@ -142,6 +142,62 @@ class TestResolveCompoundHappyPath:
         assert mol.fields.get("description") == "a flavonolignan"
 
 
+class TestResolveCompoundDtxsid:
+    """resolve_compound enriches the MolecularEntity with its EPA DTXSID (#179).
+
+    DTXSID is a first-class ISA-Tox chemical identifier that the deterministic
+    pipeline previously never produced — ``lookup_dtxsid`` had NO pipeline caller
+    (it was reachable only from the legacy ReAct loop). resolve_compound now does
+    a best-effort CompTox lookup after the primary resolution and stores the
+    DTXSID on the entity, so the build's identifier-PV path emits it alongside
+    CAS + PubChem CID. D5-safe: the value comes straight from CompTox (the
+    authority), and a miss or outage is non-fatal.
+    """
+
+    def test_dtxsid_stored_on_entity(self, offline_lookup, monkeypatch):
+        seen: list[str] = []
+
+        def fake_dtxsid(query):  # noqa: ANN001
+            seen.append(query)
+            return {"found": True, "data": {"dtxsid": "DTXSID7020182"}, "error": None}
+
+        monkeypatch.setattr(composites, "lookup_dtxsid", fake_dtxsid)
+
+        state = CrateState()
+        result = resolve_compound(state, name="Silychristin A")
+
+        mol = _by_type(state, "MolecularEntity")[0]
+        assert mol.fields.get("dtxsid") == "DTXSID7020182"
+        # Queried by the strongest exact key available — the looked-up CAS.
+        assert seen and seen[0] == "33889-69-9"
+        # Surfaced in the return for pipeline provenance/logging.
+        assert result["identifiers"].get("dtxsid") == "DTXSID7020182"
+
+    def test_dtxsid_miss_leaves_no_field(self, offline_lookup, monkeypatch):
+        monkeypatch.setattr(
+            composites,
+            "lookup_dtxsid",
+            lambda q: {"found": False, "data": {}, "error": "no hit"},
+        )
+        state = CrateState()
+        result = resolve_compound(state, name="Silychristin A")
+        assert result["entity_id"]  # the compound still resolves
+        mol = _by_type(state, "MolecularEntity")[0]
+        assert "dtxsid" not in mol.fields
+
+    def test_dtxsid_lookup_error_is_non_fatal(self, offline_lookup, monkeypatch):
+        def boom(query):  # noqa: ANN001
+            raise RuntimeError("CompTox down")
+
+        monkeypatch.setattr(composites, "lookup_dtxsid", boom)
+        state = CrateState()
+        result = resolve_compound(state, name="Silychristin A")
+        # The compound still resolves despite the CompTox failure (non-fatal).
+        assert result["entity_id"]
+        mol = _by_type(state, "MolecularEntity")[0]
+        assert "dtxsid" not in mol.fields
+
+
 class TestResolveCompoundIdempotent:
     def test_second_call_no_duplicate(self, offline_lookup):
         state = CrateState()

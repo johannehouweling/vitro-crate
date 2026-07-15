@@ -279,6 +279,8 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_search_works_by_title(title: str) -> list[dict[str, Any]]:
         return []
 
+    # NB: resolve_compound's best-effort CompTox DTXSID lookup is stubbed offline
+    # suite-wide by the ``_stub_composites_dtxsid`` autouse fixture in conftest.py.
     monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
     monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
     monkeypatch.setattr(
