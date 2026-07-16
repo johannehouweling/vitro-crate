@@ -3,6 +3,8 @@ name = "vitro-crate"
 version = "0.1.0"
 description = "ISA-Tox RO-Crate Builder — LLM-assisted creation of profile-conformant RO-Crates for in vitro toxicology data"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "rocrate>=0.15.0",
