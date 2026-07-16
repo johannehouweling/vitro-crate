@@ -10,8 +10,11 @@ do two things together:
   or the API rejects the request with
   ``Unsupported value: 'temperature' does not support 0``.
 
-Unset preserves today's behaviour exactly (``temperature=0``, no
-``reasoning_effort``) so the deterministic default is untouched.
+On a reasoning model, an *unset* ``VITRO_OPENAI_REASONING_EFFORT`` still routes
+through the Responses API (reasoning is on by default) and forwards no
+``reasoning_effort``; ``reasoning_effort="none"`` opts back to the standard
+chat/completions + ``temperature=0`` path. See ``test_llm_reasoning_model`` for
+the model-name routing and the standard-model default.
 """
 
 from __future__ import annotations
@@ -47,13 +50,16 @@ def _capture_openai_kwargs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 class TestReasoningEffort:
     """The OpenAI branch honours ``VITRO_OPENAI_REASONING_EFFORT``."""
 
-    def test_unset_keeps_temperature_zero_and_no_reasoning(
+    def test_unset_routes_reasoning_model_via_responses_api(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Default (unset): unchanged — temperature=0, no reasoning_effort."""
+        """Default (unset) on a reasoning model (gpt-5.1): reasoning is on by
+        default, so it routes through the Responses API and is NOT forced to
+        temperature=0 (which the API rejects); no reasoning_effort is forwarded."""
         monkeypatch.delenv("VITRO_OPENAI_REASONING_EFFORT", raising=False)
         kwargs = _capture_openai_kwargs(monkeypatch)
-        assert kwargs["temperature"] == 0
+        assert kwargs["use_responses_api"] is True
+        assert "temperature" not in kwargs
         assert "reasoning_effort" not in kwargs
 
     def test_active_effort_sets_reasoning_and_drops_temperature(
@@ -99,11 +105,13 @@ class TestReasoningEffort:
     def test_whitespace_only_effort_is_treated_as_unset(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A blank/whitespace value is a no-op — unchanged default behaviour
-        (temperature=0, no ``reasoning_effort`` forwarded)."""
+        """A blank/whitespace value is a no-op — same as unset: no
+        ``reasoning_effort`` forwarded, and (on the reasoning model gpt-5.1) the
+        Responses API route with no forced temperature."""
         monkeypatch.setenv("VITRO_OPENAI_REASONING_EFFORT", "   ")
         kwargs = _capture_openai_kwargs(monkeypatch)
-        assert kwargs["temperature"] == 0
+        assert kwargs["use_responses_api"] is True
+        assert "temperature" not in kwargs
         assert "reasoning_effort" not in kwargs
 
 

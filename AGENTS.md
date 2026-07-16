@@ -555,6 +555,18 @@ invoked by the orchestration node (they make no LLM call of their own), this
 ships the *capability* and config knob; the drafter tier binds when a drafter
 path makes its own model call.
 
+**OpenAI reasoning models (`gpt-5.x`, `o`-series).** These reject a non-default
+`temperature` and cannot bind function tools on `/v1/chat/completions` (the API
+400s on tools + `reasoning_effort`), so `_build_chat_model` routes them through
+the **Responses API** (`use_responses_api=True`) and does not send a temperature.
+Detection is by model name (`_is_openai_reasoning_model`); a custom/Azure
+deployment name the heuristic can't recognise can force it with
+`VITRO_OPENAI_USE_RESPONSES_API`. Standard models keep chat/completions with a
+deterministic `temperature=0` (override via `VITRO_TEMPERATURE`).
+`VITRO_OPENAI_REASONING_EFFORT` forwards a `reasoning_effort` (a lever on
+reasoning-token spend); the explicit value `none` disables reasoning and opts
+back to the standard `temperature=0` path.
+
 **Decision gate (future work):** upgrading the *orchestrator* to a stronger
 model is a separate, profiling-gated decision. Instrument `profile.ndjson` for
 iterations-per-task, recursion-limit hits, and REQUIRED-issue fix success;

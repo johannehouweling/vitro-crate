@@ -839,6 +839,22 @@ def _get_request_timeout() -> float:
     return _DEFAULT_REQUEST_TIMEOUT
 
 
+_OPENAI_REASONING_PREFIXES: tuple[str, ...] = ("gpt-5", "o1", "o3", "o4")
+
+
+def _is_openai_reasoning_model(model_name: str | None) -> bool:
+    """Return True if *model_name* denotes an OpenAI reasoning model.
+
+    Reasoning models (``gpt-5.x`` and the ``o``-series) reject the ``temperature``
+    parameter and require the Responses API to bind function tools
+    (``/v1/chat/completions`` returns a 400 for tools + reasoning_effort). Custom
+    / Azure deployment names that do not match this heuristic can force
+    Responses-API routing via ``VITRO_OPENAI_USE_RESPONSES_API``.
+    """
+    m = (model_name or "").strip().lower()
+    return m.startswith(_OPENAI_REASONING_PREFIXES)
+
+
 def _build_chat_model(
     provider: str | None = None,
     model: str | None = None,
@@ -921,14 +937,30 @@ def _build_chat_model(
             or os.environ.get("VITRO_OPENAI_MODEL")
             or os.environ.get("OPENAI_MODEL", "gpt-4o")
         )
-        # Opt-in reasoning ("thinking") for reasoning-capable models (o-series,
-        # gpt-5.x). Off by default (unset) so existing behaviour is unchanged.
-        # Normalize once (strip + lowercase) so a capitalized/whitespaced value
-        # like "Medium" or " none " forwards as the clean lowercase enum the
-        # OpenAI API expects — and a blank value collapses to None (a no-op).
+        # Reasoning models (gpt-5.x, o-series) reject `temperature` and cannot
+        # bind function tools on /v1/chat/completions with reasoning_effort — the
+        # API requires the Responses API instead. Both the ReAct loop and the
+        # pipeline drafter leaves bind tools, so route reasoning models through
+        # the Responses API. Detect by name, with VITRO_OPENAI_USE_RESPONSES_API
+        # as an explicit override for custom/Azure deployment names the heuristic
+        # cannot recognise. An explicit reasoning_effort="none" turns reasoning
+        # OFF, so that call is treated as a standard (chat/completions,
+        # temperature-0) request.
+        #
+        # reasoning_effort is normalized once (strip + lowercase) so a
+        # capitalized/whitespaced value like "Medium" or " none " forwards as the
+        # clean lowercase enum the OpenAI API expects — and a blank value
+        # collapses to None (a no-op).
         reasoning_effort = (
             (os.environ.get("VITRO_OPENAI_REASONING_EFFORT") or "").strip().lower() or None
         )
+        override = os.environ.get("VITRO_OPENAI_USE_RESPONSES_API")
+        if override is not None:
+            use_responses = override.strip().lower() in ("1", "true", "yes", "on")
+        elif reasoning_effort == "none":
+            use_responses = False
+        else:
+            use_responses = _is_openai_reasoning_model(resolved_model)
 
         kwargs: dict[str, Any] = {
             "model": resolved_model,
@@ -936,15 +968,17 @@ def _build_chat_model(
             # "timeout" is the public alias of ChatOpenAI.request_timeout (#263).
             "timeout": timeout,
         }
+        if use_responses:
+            kwargs["use_responses_api"] = True
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
-        # Reasoning models reject a non-default temperature while reasoning is
-        # ACTIVE — gpt-5.1 only permits temperature when reasoning_effort is
-        # "none". So keep the deterministic temperature=0 ONLY when reasoning is
-        # off (unset or explicit "none"); otherwise omit it and let the model use
-        # its default (1), or the API 400s ("temperature does not support 0").
-        if not reasoning_effort or reasoning_effort == "none":
-            kwargs["temperature"] = 0
+        # Keep the deterministic temperature=0 default for a standard-path model
+        # (VITRO_TEMPERATURE overrides it), but never force a temperature on a
+        # Responses-API-routed reasoning model — it only accepts the provider
+        # default (the API 400s on "temperature does not support 0").
+        if not use_responses:
+            temp_override = os.environ.get("VITRO_TEMPERATURE")
+            kwargs["temperature"] = float(temp_override) if temp_override is not None else 0
         if api_key:
             kwargs["api_key"] = api_key
         if resolved_base:
