@@ -26,3 +26,6 @@ eval_reports/
 # coverage.py artifacts
 .coverage
 .coverage.*
+
+# local maturity-report design scratch (kept locally, never committed)
+maturity_report_prototype.html

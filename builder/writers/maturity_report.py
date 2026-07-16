@@ -1,13 +1,14 @@
 """RO-Crate maturity report (``ro-crate-maturity.html``), embedded in the crate (#85).
 
-Renders a self-contained HTML report (inline CSS, no external assets) covering the
-four axes from the issue:
+Renders a self-contained, light-mode evaluation dashboard (inline CSS, no external
+assets) covering the four axes from the issue:
 
-* **Profile adherence** — base / ISA / ISA-Tox conformance, with actionable
-  suggestions drawn from the REQUIRED/RECOMMENDED validation issues;
-* **FAIR** — the RDA-style indicators and the Data Stewardship Maturity (DSM) level;
-* **FAIR Maturity R1.3 (OECD MIT)** — per-module coverage of the in-vitro tox
-  MIT checklist;
+* **Profile adherence** — base / ISA / ISA-Tox conformance, reported across the
+  three SHACL severity tiers Required / Recommended / Optional (#306), with the
+  REQUIRED/RECOMMENDED issues surfaced as actionable suggestions;
+* **FAIR** — the RDA-style indicators rolled up into F/A/I/R pillars plus the Data
+  Stewardship Maturity (DSM) level;
+* **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
 * **Reproducibility readiness** — a derived checklist.
 
 ``export_crate`` embeds the rendered page as a ``CreativeWork`` ``about`` ``./``,
@@ -17,17 +18,29 @@ mirroring the entity-graph (#130) and preview (#86) artifacts.
 assessors and the profile-adherence section is rendered from the crate's existing
 ``state.validation`` — it does **not** run the SHACL validator. That keeps the
 embed in ``export_crate`` free of validation cost; validation is a separate step.
+
+Severity-tier nuance (#306): the fast in-loop path (``build_and_validate``) gates
+at REQUIRED severity and never populates ``should_issues`` / ``may_issues``, so an
+empty list at those tiers means the tier was *never evaluated*, not that it is
+clean. The report models an explicit "not assessed" state for such tiers and never
+renders an unevaluated tier as a green zero.
 """
 
 from __future__ import annotations
 
 import html
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
-from builder.state import CrateState, ValidationReport
+from builder.state import CrateState, FAIRReport, MITReport, ValidationReport
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import assess_mit_coverage
 
 REPORT_FILENAME = "ro-crate-maturity.html"
+
+# FAIR dimension letters (as emitted by fair/indicators.yaml) → display names.
+_DIM_NAMES = {"F": "Findable", "A": "Accessible", "I": "Interoperable", "R": "Reusable"}
 
 
 def _validation_has_signal(validation: ValidationReport) -> bool:
@@ -69,43 +82,428 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
     )
 
     return [
-        ("Experimental protocol documented", protocol_ok,
-         "Add a LabProtocol or describe each LabProcess."),
-        ("Process inputs/outputs wired", io_ok,
-         "Link process object/result (the derivation chain) so steps are traceable."),
-        ("Instruments / software recorded", instrument_ok,
-         "Record the detection instrument, manufacturer, or analysis software."),
-        ("Data files included", data_ok,
-         "Attach the raw/processed data files referenced by the assays."),
-        ("Attribution & identity", attribution_ok,
-         "Set a title, at least one Person (author), and an accession/identifier."),
+        (
+            "Experimental protocol documented",
+            protocol_ok,
+            "Add a LabProtocol or describe each LabProcess.",
+        ),
+        (
+            "Process inputs/outputs wired",
+            io_ok,
+            "Link process object/result (the derivation chain) so steps are traceable.",
+        ),
+        (
+            "Instruments / software recorded",
+            instrument_ok,
+            "Record the detection instrument, manufacturer, or analysis software.",
+        ),
+        (
+            "Data files included",
+            data_ok,
+            "Attach the raw/processed data files referenced by the assays.",
+        ),
+        (
+            "Attribution & identity",
+            attribution_ok,
+            "Set a title, at least one Person (author), and an accession/identifier.",
+        ),
     ]
 
 
-_STYLE = """
-:root { color-scheme: light dark; }
-body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  margin: 2rem auto; max-width: 60rem; padding: 0 1rem; line-height: 1.5; }
-h1 { margin-bottom: 0.25rem; }
-h2 { margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: 0.2rem; }
-.muted { color: #777; }
-.ok { color: #1a7f37; } .bad { color: #b3261e; } .na { color: #999; }
-.bar { background: #eee; border-radius: 0.4rem; height: 0.7rem;
-  overflow: hidden; max-width: 18rem; }
-.bar > span { display: block; height: 100%; background: #2a4b8d; }
-table { border-collapse: collapse; width: 100%; margin-top: 0.4rem; }
-th, td { text-align: left; padding: 0.35rem 0.6rem;
-  border-bottom: 1px solid #eee; vertical-align: top; }
-ul.sugg { margin: 0.3rem 0 0.6rem 1.1rem; padding: 0; }
-ul.sugg li { margin: 0.1rem 0; }
-footer { margin-top: 2rem; color: #999; font-size: 0.8rem; }
-"""
+# --- severity tiers (#306) -------------------------------------------------
+def _plural_issues(n: int) -> str:
+    return f"{n} issue" if n == 1 else f"{n} issues"
 
 
-def _mark(ok: bool | None) -> str:
+def _severity_tiers(val: ValidationReport) -> list[dict[str, str]]:
+    """Profile-adherence severity tiers rendered from existing validation (#306).
+
+    Returns one dict per tier: ``{tier, state, summary, note}`` where ``state`` is
+    ``"ok"`` | ``"no"`` | ``"na"``.
+
+    REQUIRED is the build gate, so it is assessed whenever validation has run; it
+    passes only when all three profiles pass with no REQUIRED issues. The SHOULD
+    and MAY tiers are populated only by a full validation sweep — the fast in-loop
+    path stops at REQUIRED and leaves them empty. An empty SHOULD/MAY tier is
+    therefore reported as "not assessed" (``"na"``), never as a green zero: doing
+    otherwise would be a false pass for a tier that was never evaluated.
+
+    Called only when :func:`_validation_has_signal` is True (otherwise the whole
+    section renders the "not yet validated" branch).
+    """
+    n_pass = sum((val.base_passed, val.isa_passed, val.tox_passed))
+    req_ok = n_pass == 3 and not val.required_issues
+    tiers: list[dict[str, str]] = [
+        {
+            "tier": "Required",
+            "state": "ok" if req_ok else "no",
+            "summary": f"{n_pass} / 3 profiles",
+            "note": "Blocking — every layer must pass to build.",
+        }
+    ]
+    for label, issues, note in (
+        ("Recommended", val.should_issues, "SHOULD-level quality checks."),
+        ("Optional", val.may_issues, "MAY-level informational checks."),
+    ):
+        if issues:
+            tiers.append(
+                {"tier": label, "state": "no", "summary": _plural_issues(len(issues)), "note": note}
+            )
+        else:
+            tiers.append(
+                {
+                    "tier": label,
+                    "state": "na",
+                    "summary": "not assessed",
+                    "note": "Not evaluated — the build gates at Required.",
+                }
+            )
+    return tiers
+
+
+def _fair_pillars(fair: FAIRReport) -> list[dict[str, Any]]:
+    """Roll the flat FAIR indicator list up into F/A/I/R pillars.
+
+    Each pillar: ``{letter, name, met, total, na, state}`` where ``total`` counts
+    only *assessable* indicators (``passed is not None``); indicators marked
+    out-of-scope (``passed is None``, e.g. the hosting-level Accessible checks)
+    count toward ``na`` and, when a pillar is entirely out of scope, render as
+    "n/a" rather than a misleading 0.
+    """
+    pillars: list[dict[str, Any]] = []
+    for letter, name in _DIM_NAMES.items():
+        inds = [i for i in fair.indicator_results if str(i.get("dimension") or "") == letter]
+        met = sum(1 for i in inds if i.get("passed") is True)
+        na = sum(1 for i in inds if i.get("passed") is None)
+        total = sum(1 for i in inds if i.get("passed") is not None)
+        if total == 0:
+            state = "na"
+        elif met == total:
+            state = "ok"
+        elif met == 0:
+            state = "low"
+        else:
+            state = "warn"
+        pillars.append(
+            {"letter": letter, "name": name, "met": met, "total": total, "na": na, "state": state}
+        )
+    return pillars
+
+
+# --- rendering helpers -----------------------------------------------------
+_GLYPH = {"ok": "✓", "no": "✗", "na": "–"}
+_MK_LABEL = {"ok": "met", "no": "not met", "na": "not assessed"}
+
+
+def _mk(kind: str) -> str:
+    """A status mark (glyph + accessible label) — colour is never the only cue."""
+    return f'<span class="mk {kind}" aria-label="{_MK_LABEL[kind]}">{_GLYPH[kind]}</span>'
+
+
+def _kind(ok: bool | None) -> str:
     if ok is None:
-        return "<span class='na'>n/a</span>"
-    return "<span class='ok'>&#10003;</span>" if ok else "<span class='bad'>&#10007;</span>"
+        return "na"
+    return "ok" if ok else "no"
+
+
+def _fill_class(met: int, total: int) -> str:
+    if total <= 0:
+        return "fill-warn"
+    if met >= total:
+        return "fill-good"
+    if met == 0:
+        return "fill-low"
+    return "fill-warn"
+
+
+_ASSET_DIR = Path(__file__).resolve().parent
+_CSS_PATH = _ASSET_DIR / "maturity_report.css"
+_SHELL_PATH = _ASSET_DIR / "maturity_report.html"
+
+
+@lru_cache(maxsize=1)
+def _load_css() -> str:
+    """The report stylesheet, inlined into the self-contained page.
+
+    Kept in a sibling ``maturity_report.css`` so the styling lives apart from the
+    Python that assembles the markup; it is embedded (not linked) so the exported
+    ``ro-crate-maturity.html`` renders offline with no external assets.
+    """
+    return _CSS_PATH.read_text(encoding="utf-8").strip("\n")
+
+
+@lru_cache(maxsize=1)
+def _load_shell() -> str:
+    """The document shell (``maturity_report.html``) whose ``__STYLE__`` /
+    ``__TITLE__`` / ``__BODY__`` placeholders are filled at render time."""
+    return _SHELL_PATH.read_text(encoding="utf-8")
+
+
+def _render_header(title: str, accession: str, tiers: list[dict[str, str]] | None) -> str:
+    esc = html.escape
+    chip = f'<span class="chip mono">{esc(accession)}</span>' if accession else ""
+    if tiers is None:
+        verdict = (
+            '<span class="vpill warning"><span class="glyph"></span>Not yet validated</span>'
+            '<span class="vsub">Run validation to populate profile adherence.</span>'
+        )
+    elif tiers[0]["state"] == "ok":
+        verdict = (
+            '<span class="vpill good"><span class="glyph"></span>Conformant</span>'
+            '<span class="vsub">All required profile layers pass.</span>'
+        )
+    else:
+        verdict = (
+            '<span class="vpill critical"><span class="glyph"></span>Not conformant</span>'
+            '<span class="vsub">One or more required profile layers fail.</span>'
+        )
+    return (
+        "<header>\n"
+        '  <div class="h-left">\n'
+        '    <div class="kicker">'
+        f'<span class="eyebrow">RO-Crate maturity report</span>{chip}</div>\n'
+        f"    <h1>{esc(title)}</h1>\n"
+        "  </div>\n"
+        f'  <div class="verdict">{verdict}</div>\n'
+        "</header>\n"
+    )
+
+
+def _render_kpis(
+    tiers: list[dict[str, str]] | None,
+    fair: FAIRReport,
+    mit: MITReport,
+    repro_ready: int,
+    repro_total: int,
+) -> str:
+    # Profile-adherence tile: severity mini-rows, or an "awaiting validation" row.
+    if tiers is None:
+        prof_mk = _mk("na")
+        sev_rows = (
+            '<div class="sev-row">'
+            + _mk("na")
+            + '<span class="sev-t">Awaiting validation</span></div>'
+        )
+    else:
+        prof_mk = _mk(tiers[0]["state"])
+        sev_rows = "".join(
+            f'<div class="sev-row">{_mk(t["state"])}'
+            f'<span class="sev-t">{t["tier"]}</span>'
+            f'<span class="sev-s">{t["summary"]}</span></div>'
+            for t in tiers
+        )
+    prof_tile = (
+        '<article class="kpi">'
+        f'<div class="kpi-h"><span class="eyebrow">Profile adherence</span>{prof_mk}</div>'
+        f'<div class="sev">{sev_rows}</div>'
+        "</article>"
+    )
+
+    # FAIR / DSM tile.
+    met_all = sum(1 for i in fair.indicator_results if i.get("passed") is True)
+    na_all = sum(1 for i in fair.indicator_results if i.get("passed") is None)
+    assessed = sum(1 for i in fair.indicator_results if i.get("passed") is not None)
+    fair_sub = f"{met_all} of {assessed} indicators met"
+    if na_all:
+        fair_sub += f" · {na_all} n/a"
+    rungs = "".join(
+        f'<span class="rung {"on" if lvl <= fair.dsm_level else "off"}"></span>'
+        for lvl in range(1, 6)
+    )
+    fair_tile = (
+        '<article class="kpi">'
+        '<div class="kpi-h"><span class="eyebrow">FAIR maturity</span></div>'
+        f'<div class="kpi-v"><b>{fair.dsm_level}</b><span class="den">/ 5</span> '
+        '<span class="tag-inline">DSM level</span></div>'
+        f'<div class="kpi-sub">{fair_sub}</div>'
+        f'<div class="ladder" role="img" aria-label="DSM level {fair.dsm_level} of 5">{rungs}</div>'
+        "</article>"
+    )
+
+    # OECD MIT coverage tile.
+    completed_all = sum(sc.get("completed", 0) for sc in mit.module_scores.values())
+    total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
+    pct = round(mit.overall_score * 100)
+    mit_tile = (
+        '<article class="kpi">'
+        '<div class="kpi-h"><span class="eyebrow">OECD MIT coverage</span></div>'
+        f'<div class="kpi-v"><b>{pct}</b><span class="den">%</span></div>'
+        f'<div class="kpi-sub">{completed_all} of {total_all} checklist fields</div>'
+        f'<div class="meter" role="img" aria-label="MIT coverage {pct}%">'
+        f'<i class="fill-cov" style="width:{pct}%"></i></div>'
+        "</article>"
+    )
+
+    # Reproducibility tile.
+    dots = "".join(
+        f'<span class="dot {"on" if i < repro_ready else "off"}"></span>'
+        for i in range(repro_total)
+    )
+    repro_tile = (
+        '<article class="kpi">'
+        '<div class="kpi-h"><span class="eyebrow">Reproducibility</span></div>'
+        f'<div class="kpi-v"><b>{repro_ready}</b><span class="den">/ {repro_total}</span></div>'
+        '<div class="kpi-sub">readiness checks met</div>'
+        f'<div class="dots" role="img" aria-label="{repro_ready} of {repro_total}">{dots}</div>'
+        "</article>"
+    )
+
+    return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{repro_tile}</div>\n'
+
+
+def _render_profile_section(val: ValidationReport, tiers: list[dict[str, str]] | None) -> str:
+    esc = html.escape
+    if tiers is None:
+        return (
+            "<section>\n"
+            '  <div class="sec-h"><h2>Profile adherence</h2></div>\n'
+            '  <p class="lead">Not yet validated — run validation to populate profile '
+            "adherence.</p>\n"
+            "</section>\n"
+        )
+
+    profiles = [
+        ("RO-Crate 1.2", val.base_passed),
+        ("ISA", val.isa_passed),
+        ("ISA-Tox", val.tox_passed),
+    ]
+    cards = "".join(
+        f'<div class="prof-card">{_mk(_kind(passed))}<span>{esc(name)}</span>'
+        "<em>REQUIRED</em></div>"
+        for name, passed in profiles
+    )
+    detail_rows = "".join(
+        f'<div class="sev-drow">{_mk(t["state"])}<span class="st">{t["tier"]}</span>'
+        f'<span class="sc">{t["summary"]}</span><span class="sn">{t["note"]}</span></div>'
+        for t in tiers
+    )
+    sugg_items = [
+        f'<li class="must"><strong>Must fix:</strong> {esc(msg)}</li>'
+        for msg in val.required_issues
+    ] + [f"<li>Recommended: {esc(msg)}</li>" for msg in val.should_issues[:10]]
+    if sugg_items:
+        sugg = f'<ul class="sugg">{"".join(sugg_items)}</ul>'
+    else:
+        sugg = '<p class="good-note">No outstanding REQUIRED issues.</p>'
+
+    return (
+        "<section>\n"
+        '  <div class="sec-h"><h2>Profile adherence</h2>'
+        '<span class="sec-meta">3 layers · 3 severity tiers</span></div>\n'
+        f'  <div class="prof-grid">{cards}</div>\n'
+        '  <div class="sev-detail"><span class="sev-detail-label">By severity</span>'
+        f"{detail_rows}</div>\n"
+        f"  {sugg}\n"
+        "</section>\n"
+    )
+
+
+def _render_fair_section(fair: FAIRReport) -> str:
+    esc = html.escape
+    pillars = _fair_pillars(fair)
+    pillar_html = []
+    for p in pillars:
+        if p["state"] == "na":
+            pv = '<span class="pv na">n/a</span>'
+            meter = '<div class="meter na" role="img" aria-label="not assessed">out of scope</div>'
+            note = "assessed by the hosting repository, not the crate"
+        else:
+            pct = round(p["met"] / p["total"] * 100) if p["total"] else 0
+            fill = _fill_class(p["met"], p["total"])
+            pv = f'<span class="pv">{p["met"]}<span class="den">/ {p["total"]}</span></span>'
+            meter = (
+                f'<div class="meter" role="img" aria-label="{p["met"]} of {p["total"]}">'
+                f'<i class="{fill}" style="width:{pct}%"></i></div>'
+            )
+            note = f"{p['met']} of {p['total']} indicators met"
+        pillar_html.append(
+            '<div class="pillar">'
+            f'<div class="pl-h"><span class="pl-letter">{p["letter"]}</span>'
+            f'<span class="pl-name">{esc(p["name"])}</span>{pv}</div>'
+            f"{meter}"
+            f'<div class="pl-note">{note}</div>'
+            "</div>"
+        )
+
+    # Disclosure lists for dimensions that have at least one failing indicator.
+    discs = []
+    for p in pillars:
+        inds = [
+            i
+            for i in fair.indicator_results
+            if str(i.get("dimension") or "") == p["letter"] and i.get("passed") is not None
+        ]
+        if not any(i.get("passed") is False for i in inds):
+            continue
+        items = "".join(
+            f"<li>{_mk(_kind(bool(i.get('passed'))))} "
+            f"<span>{esc(str(i.get('text') or i.get('id') or ''))}</span></li>"
+            for i in inds
+        )
+        discs.append(
+            f'<details class="disc"><summary>{esc(p["name"])} — {p["met"]} of {p["total"]} '
+            f'indicators · what’s missing</summary><ul class="ind">{items}</ul></details>'
+        )
+
+    return (
+        "<section>\n"
+        '  <div class="sec-h"><h2>FAIR</h2>'
+        f'<span class="sec-meta">Data Stewardship Maturity <b>{fair.dsm_level}/5</b></span></div>\n'
+        f'  <div class="pillars">{"".join(pillar_html)}</div>\n'
+        f"  {''.join(discs)}\n"
+        "</section>\n"
+    )
+
+
+def _render_mit_section(mit: MITReport) -> str:
+    esc = html.escape
+    completed_all = sum(sc.get("completed", 0) for sc in mit.module_scores.values())
+    total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
+    pct = round(mit.overall_score * 100)
+    if mit.module_scores:
+        rows = "".join(
+            f'<div class="mrow"><div class="mname">{esc(name)}</div>'
+            f'<div class="mbar"><div class="meter" role="img" '
+            f'aria-label="{sc.get("completed", 0)} of {sc.get("total", 0)}">'
+            f'<i class="fill-cov" style="width:'
+            f'{round(sc.get("completed", 0) / sc["total"] * 100) if sc.get("total") else 0}%">'
+            "</i></div></div>"
+            f'<div class="mfrac">{sc.get("completed", 0)}'
+            f'<span class="den">/{sc.get("total", 0)}</span></div>'
+            "</div>"
+            for name, sc in sorted(mit.module_scores.items())
+        )
+        body = f'<div class="mit">{rows}</div>'
+    else:
+        body = '<p class="lead">No MIT module scores.</p>'
+    return (
+        "<section>\n"
+        '  <div class="sec-h"><h2>OECD MIT coverage</h2>'
+        f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields · {pct}%</span></div>\n'
+        '  <p class="lead">Coverage of the OECD in-vitro toxicology reporting checklist. Low '
+        "coverage is expected for an auto-built crate — it measures how many domain fields are "
+        "filled, not whether the crate is valid.</p>\n"
+        f"  {body}\n"
+        "</section>\n"
+    )
+
+
+def _render_repro_section(checks: list[tuple[str, bool, str]]) -> str:
+    esc = html.escape
+    ready = sum(1 for _, ok, _ in checks if ok)
+    items = "".join(
+        f'<li>{_mk(_kind(ok))}<div><span class="rl">{esc(label)}</span>'
+        + ("" if ok else f'<span class="hint">{esc(hint)}</span>')
+        + "</div></li>"
+        for label, ok, hint in checks
+    )
+    return (
+        "<section>\n"
+        '  <div class="sec-h"><h2>Reproducibility readiness</h2>'
+        f'<span class="sec-meta"><b>{ready}/{len(checks)}</b> met</span></div>\n'
+        f'  <ul class="repro">{items}</ul>\n'
+        "</section>\n"
+    )
 
 
 def build_maturity_html(
@@ -120,7 +518,9 @@ def build_maturity_html(
     NOT by re-running the SHACL validator. That keeps report generation cheap so
     embedding it in ``export_crate`` adds no validation cost (#85); validation is
     a separate step (e.g. ``build_and_validate`` in the agent loop). If no
-    validation has run, the section says so.
+    validation has run, the section says so. Adherence is reported across the
+    three severity tiers Required / Recommended / Optional (#306); an unevaluated
+    SHOULD/MAY tier renders as "not assessed", never a false green zero.
 
     Args:
         state: The crate state being reported on.
@@ -129,96 +529,34 @@ def build_maturity_html(
     """
     esc = html.escape
     title = state.metadata.title or "RO-Crate"
+    accession = state.metadata.accession or ""
     fair = assess_fair_maturity(state)
     mit = assess_mit_coverage(state)
     val = validation if validation is not None else state.validation
 
-    # --- Profile adherence (from existing validation results) ---
-    if _validation_has_signal(val):
-        layers = [
-            ("RO-Crate 1.2", val.base_passed),
-            ("ISA", val.isa_passed),
-            ("ISA-Tox", val.tox_passed),
-        ]
-        rows = "".join(
-            f"<tr><td>{esc(label)}</td><td>{_mark(passed)}</td></tr>" for label, passed in layers
-        )
-        suggestions = [
-            f"<li><strong>Must fix:</strong> {esc(msg)}</li>" for msg in val.required_issues
-        ] + [f"<li>Recommended: {esc(msg)}</li>" for msg in val.should_issues[:10]]
-        sugg_html = (
-            f"<ul class='sugg'>{''.join(suggestions)}</ul>"
-            if suggestions
-            else "<p class='ok'>No outstanding REQUIRED/RECOMMENDED issues.</p>"
-        )
-        profile_section = (
-            "<table><thead><tr><th>Profile</th><th>REQUIRED passed</th></tr></thead>"
-            f"<tbody>{rows}</tbody></table>{sugg_html}"
-        )
-    else:
-        profile_section = (
-            "<p class='muted'>Not yet validated — run validation to populate "
-            "profile adherence.</p>"
-        )
-
-    # --- FAIR ---
-    dsm = fair.dsm_level
-    fair_rows = "".join(
-        f"<tr><td>{esc(str(i.get('dimension') or ''))}</td>"
-        f"<td>{esc(str(i.get('text') or i.get('id') or ''))}</td>"
-        f"<td>{_mark(i.get('passed'))}</td></tr>"
-        for i in fair.indicator_results
-    ) or "<tr><td colspan='3' class='muted'>No indicators evaluated.</td></tr>"
-    fair_section = (
-        f"<p>Data Stewardship Maturity (DSM) level: <strong>{dsm}/5</strong></p>"
-        "<table><thead><tr><th>Dimension</th><th>Indicator</th><th>Met</th></tr></thead>"
-        f"<tbody>{fair_rows}</tbody></table>"
-    )
-
-    # --- MIT (FAIR Maturity R1.3, OECD) ---
-    pct = round(mit.overall_score * 100)
-    if mit.module_scores:
-        mit_rows = "".join(
-            f"<tr><td>{esc(name)}</td><td>{sc.get('completed', 0)}/{sc.get('total', 0)}</td></tr>"
-            for name, sc in sorted(mit.module_scores.items())
-        )
-        mit_table = (
-            "<table><thead><tr><th>MIT module</th><th>Completed</th></tr></thead>"
-            f"<tbody>{mit_rows}</tbody></table>"
-        )
-    else:
-        mit_table = "<p class='muted'>No MIT module scores.</p>"
-    mit_section = (
-        f"<p>Overall MIT coverage: <strong>{pct}%</strong></p>"
-        f"<div class='bar'><span style='width:{pct}%'></span></div>{mit_table}"
-    )
-
-    # --- Reproducibility readiness ---
+    tiers = _severity_tiers(val) if _validation_has_signal(val) else None
     checks = _reproducibility_checks(state)
-    repro_rows = "".join(
-        f"<tr><td>{_mark(ok)}</td><td>{esc(label)}</td>"
-        f"<td class='muted'>{'' if ok else esc(hint)}</td></tr>"
-        for label, ok, hint in checks
-    )
     repro_ready = sum(1 for _, ok, _ in checks if ok)
-    repro_section = (
-        f"<p>{repro_ready}/{len(checks)} readiness checks met.</p>"
-        "<table><tbody>" + repro_rows + "</tbody></table>"
-    )
 
+    header = _render_header(title, accession, tiers)
+    kpis = _render_kpis(tiers, fair, mit, repro_ready, len(checks))
+    prof_section = _render_profile_section(val, tiers)
+    fair_section = _render_fair_section(fair)
+    mit_section = _render_mit_section(mit)
+    repro_section = _render_repro_section(checks)
+
+    footer = (
+        "<footer><span>Generated by vitro-crate · ro-crate-maturity.html</span>"
+        "<span>Self-contained · offline · print-friendly</span></footer>\n"
+    )
+    body = header + kpis + prof_section + fair_section + mit_section + repro_section + footer
+
+    # Fill the shell placeholders. STYLE and BODY first (neither can contain a
+    # sentinel), TITLE last so crate-controlled text can never re-trigger a
+    # replacement.
     return (
-        "<!DOCTYPE html>\n"
-        '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f"<title>{esc(title)} — RO-Crate Maturity Report</title>\n"
-        f"<style>{_STYLE}</style>\n</head>\n<body>\n"
-        f"<h1>{esc(title)}</h1>\n"
-        "<p class='muted'>RO-Crate maturity report — profile adherence, FAIR, MIT coverage, "
-        "and reproducibility readiness.</p>\n"
-        f"<h2>Profile adherence</h2>\n{profile_section}\n"
-        f"<h2>FAIR</h2>\n{fair_section}\n"
-        f"<h2>FAIR Maturity R1.3 — OECD MIT coverage</h2>\n{mit_section}\n"
-        f"<h2>Reproducibility readiness</h2>\n{repro_section}\n"
-        "<footer>Generated by vitro-crate · ro-crate-maturity.html</footer>\n"
-        "</body>\n</html>\n"
+        _load_shell()
+        .replace("__STYLE__", _load_css())
+        .replace("__BODY__", body)
+        .replace("__TITLE__", esc(title))
     )

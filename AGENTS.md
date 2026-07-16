@@ -1416,13 +1416,28 @@ turned off with `export_crate(..., embed_graph=False)`. Inline-rendering the Mer
 
 **Maturity report (`ro-crate-maturity.html`, #85).** `export_crate` also embeds a human-readable
 maturity report as a `File` + `CreativeWork` `about` `./` (same mechanism as the graph). It is
-rendered by `builder/writers/maturity_report.py` (`build_maturity_html`) and covers four axes:
-profile adherence (rendered from the crate's existing `state.validation` — REQUIRED/RECOMMENDED
-issues surfaced as suggestions; it does **not** re-run the SHACL validator, so the embed adds no
-validation cost to export — validation stays a separate step), FAIR indicators + DSM level
-(`assess_fair_maturity`), OECD MIT coverage (`assess_mit_coverage`), and a derived
-reproducibility-readiness checklist. Embedding is automatic, best-effort (a reporting failure never
-fails the export), and can be turned off with `export_crate(..., embed_report=False)`.
+rendered by `builder/writers/maturity_report.py` (`build_maturity_html`) as a light-mode evaluation
+dashboard — a KPI row over four detail sections — and covers four axes: profile adherence (rendered
+from the crate's existing `state.validation` — it does **not** re-run the SHACL validator, so the
+embed adds no validation cost to export — validation stays a separate step), FAIR indicators rolled
+up into F/A/I/R pillars + DSM level (`assess_fair_maturity`), OECD MIT coverage
+(`assess_mit_coverage`), and a derived reproducibility-readiness checklist.
+
+Profile adherence is reported across the three SHACL severity tiers **Required / Recommended /
+Optional** (#306). The report must not lie about unassessed tiers: the fast in-loop path
+(`build_and_validate`) gates at REQUIRED severity and never populates `should_issues` / `may_issues`,
+so an empty SHOULD/MAY list means the tier was *never evaluated*, not that it is clean. Such a tier
+renders as an explicit **"not assessed"** neutral state (glyph + label, never colour-only), never as
+a green zero; REQUIRED/RECOMMENDED issue text is still surfaced as `Must fix` / `Recommended`
+suggestions. Rendering this from `state.validation` alone (no new validation machinery) keeps the
+pure/cheap contract.
+
+The page is **self-contained** (inline CSS, no external assets) so it renders offline. The styling
+and document shell live in sibling assets — `maturity_report.css` and `maturity_report.html` (with
+`__STYLE__` / `__TITLE__` / `__BODY__` placeholders) — which `build_maturity_html` reads (cached) and
+**inlines** at render time; only the data-driven markup is assembled in Python. Embedding is
+automatic, best-effort (a reporting failure never fails the export), and can be turned off with
+`export_crate(..., embed_report=False)`.
 
 ## 12. Project Structure
 

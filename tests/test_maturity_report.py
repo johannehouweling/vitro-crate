@@ -75,9 +75,7 @@ class TestEmbeddedInCrate:
         state.metadata.output_path = str(out)
         build_crate(state)
         meta = json.loads((out / "ro-crate-metadata.json").read_text(encoding="utf-8"))
-        entry = next(
-            (e for e in meta["@graph"] if e.get("@id") == REPORT_FILENAME), None
-        )
+        entry = next((e for e in meta["@graph"] if e.get("@id") == REPORT_FILENAME), None)
         assert entry is not None, "maturity report not referenced in metadata"
         assert "CreativeWork" in (entry.get("@type") or [])
         assert entry.get("about") == {"@id": "./"}
@@ -88,3 +86,61 @@ class TestEmbeddedInCrate:
         res = export_crate(state, str(out), embed_report=False)
         assert res["success"], res["error"]
         assert not (out / REPORT_FILENAME).exists()
+
+
+class TestSeverityTiers:
+    """Profile adherence reported across Required / Recommended / Optional (#306).
+
+    The report must distinguish a tier that was assessed-and-clean from one that
+    was never evaluated. The fast in-loop path (``build_and_validate``) gates at
+    REQUIRED severity and never populates ``should_issues`` / ``may_issues``, so an
+    empty list at those tiers means "not assessed", NOT "0 issues". Rendering an
+    unevaluated tier as a green zero would be a false pass.
+    """
+
+    def _passed(self, **overrides: object) -> ValidationReport:
+        base = {"base_passed": True, "isa_passed": True, "tox_passed": True}
+        base.update(overrides)
+        return ValidationReport(**base)  # type: ignore[arg-type]
+
+    def test_reports_all_three_severity_tiers(self) -> None:
+        state = vhps_fixture_state("S-VHPS21")
+        page = build_maturity_html(state, validation=self._passed())
+        for tier in ("Required", "Recommended", "Optional"):
+            assert tier in page, f"missing severity tier: {tier}"
+
+    def test_unevaluated_tiers_render_not_assessed_never_green_zero(self) -> None:
+        # REQUIRED passed with no should/may issues recorded: the SHOULD/MAY tiers
+        # were never evaluated (the build gates at REQUIRED), so they must read
+        # "not assessed", never a green "0 issues".
+        state = vhps_fixture_state("S-VHPS21")
+        page = build_maturity_html(state, validation=self._passed())
+        assert "not assessed" in page.lower()
+        assert "0 issues" not in page
+
+    def test_recommended_tier_reports_should_issue_count(self) -> None:
+        state = vhps_fixture_state("S-VHPS21")
+        val = self._passed(should_issues=["[Recommended] add a reuse license"])
+        page = build_maturity_html(state, validation=val)
+        assert "1 issue" in page  # the Recommended tier is now assessed-and-failing
+        # Optional was still never evaluated.
+        assert "not assessed" in page.lower()
+
+    def test_optional_tier_reports_may_issue_count(self) -> None:
+        state = vhps_fixture_state("S-VHPS21")
+        val = self._passed(may_issues=["[Optional] a", "[Optional] b"])
+        page = build_maturity_html(state, validation=val)
+        assert "2 issue" in page
+
+    def test_required_tier_failure_reflected(self) -> None:
+        state = vhps_fixture_state("S-VHPS21")
+        val = ValidationReport(
+            base_passed=False,
+            isa_passed=True,
+            tox_passed=True,
+            required_issues=["root MUST have a name"],
+        )
+        page = build_maturity_html(state, validation=val)
+        # Required tier shows a sub-3 profile count; the failing profile is not a pass.
+        assert "Required" in page
+        assert "3 / 3 profiles" not in page
