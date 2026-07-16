@@ -139,8 +139,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--legacy-react",
         action="store_true",
         help="With --interactive, use the legacy ReAct agent loop instead of the "
-        "default deterministic pipeline + guidance build (retained pending the "
-        "system-prompt strip; see AGENTS.md §14)",
+        "default deterministic pipeline + guidance build (a supported alternative; "
+        "see AGENTS.md §14)",
     )
     parser.add_argument(
         "--provider",

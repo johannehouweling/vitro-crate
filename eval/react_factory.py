@@ -1,9 +1,9 @@
-"""The live ReAct agent factory — the *current* architecture under test.
+"""The live ReAct agent factory — one of the two architectures under test.
 
 This wraps the as-built prose-prompt ReAct StateGraph (AGENTS.md §4 / D1) behind
-the agent-agnostic :class:`~eval.agent_api.BuildAgent` contract. A future
-deterministic-pipeline factory (AGENTS.md §14) implements the same contract; the
-harness then A/B's the two by swapping factories.
+the agent-agnostic :class:`~eval.agent_api.BuildAgent` contract. The
+deterministic-pipeline factory (``pipeline_factory.py``, AGENTS.md §14) implements
+the same contract; the harness A/B's the two by swapping factories.
 
 A build:
 

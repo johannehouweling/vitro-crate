@@ -1,7 +1,7 @@
 # `eval/` — A/B evaluation harness (the ReAct → pipeline decision gate)
 
-This package is **task 6** of the deterministic-pipeline migration (AGENTS.md §14.4).
-It is the in-repo A/B that AGENTS.md §14.1 says the full cutover is **gated on**: the
+This package is the in-repo A/B evaluation harness the pipeline-default decision was
+**gated on** (AGENTS.md §14.1, D15): the
 defensible win for this system is *cost, latency, reproducibility, testability,
 predictability* — not blanket correctness — so we measure those directly instead of
 asserting them.
@@ -114,7 +114,7 @@ uv run --extra langchain python -m eval --label react-baseline
 Then **freeze the baseline** so future pipeline runs have a stable comparison point:
 
 ```bash
-git tag react-baseline      # tags the pre-migration ReAct commit (AGENTS.md §14.4)
+git tag react-baseline      # tags the ReAct baseline commit (AGENTS.md §14.5)
 git push origin react-baseline
 ```
 
@@ -127,7 +127,7 @@ uv run --extra langchain python -m eval --arch pipeline --label pipeline
 ```
 
 Then diff it against the frozen baseline with `compare_reports`. The pipeline is
-expected to beat the ReAct baseline on the §14.1 levers: **3/3 success**,
+expected to beat the ReAct baseline on the D15 levers: **higher conformance**,
 **determinism rate 1.0** (identical `@graph` hash across repeats), and **much lower
 tokens** (zero — no model) **and latency**.
 

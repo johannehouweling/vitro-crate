@@ -107,6 +107,8 @@ Merges to `main` are gated on a green CI run.
 
 This repo is designed to be worked on by both humans and AI coding agents. The `AGENTS.md` file contains the system architecture and design rationale — read it first if you are an AI agent onboarding to this codebase.
 
+**`AGENTS.md` is a design document, not a changelog or an implementation manual** (see its "Maintaining this document" note). State contracts and invariants in the present tense; put line-level algorithm detail in **docstrings** and point to them. Keep out migration narratives, dated audit snapshots, "task N — done/withdrawn", and A/B run logs — that history lives in git and PRs. Cite an issue number only when it names a durable contract.
+
 When an AI agent makes changes, it should:
 1. Read `AGENTS.md` to understand the architecture.
 2. Follow the guidelines of the tdd (test-driven development) skill for any new functionality.

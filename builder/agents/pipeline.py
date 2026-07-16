@@ -1,4 +1,4 @@
-"""The deterministic pipeline spine (Issue #179, task 4 — AGENTS.md §14.2).
+"""The deterministic pipeline spine (Issue #179 — AGENTS.md §14.5).
 
 This is the **code-driven** orchestrator that the §14 architecture promotes the
 Priority 1-4 heuristic (§4) into: a pure, deterministic sequence with **no LLM
@@ -11,8 +11,8 @@ The sequence mirrors AGENTS.md §14.2::
 
     scaffold ISA backbone ─ draft entities ─ build_and_validate ─ fix loop
 
-1. **Scaffold** the ISA backbone (``scaffold_isa_backbone``) — always. The gate
-   audit (§14.3) found this is the deterministic path to a BASE/ISA/TOX-passing
+1. **Scaffold** the ISA backbone (``scaffold_isa_backbone``) — always. §14.3
+   documents this as the deterministic path to a BASE/ISA/TOX-passing
    backbone on an empty crate, *provided the Study carries a name* — a bare
    ``draft_study`` defaults only the entity_id, not the ``name`` field, so the
    spine supplies deterministic backbone names (derived from the crate title when

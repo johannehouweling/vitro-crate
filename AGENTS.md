@@ -2,14 +2,23 @@
 
 > **Purpose:** This document describes the architecture, component design, and design rationale for the LLM-assisted RO-Crate builder backend. It serves as both a developer guide and an orientation document for AI coding agents working on this codebase.
 >
-> **Status:** Draft — design phase
+> **Maintaining this document.** AGENTS.md is a **design document** — contracts and
+> invariants, described in the present tense as the system *is*. Keep it that way:
+> - State **what must hold**, not the code's line-level algorithm — implementation
+>   detail lives in **docstrings**, which this doc points to.
+> - **No changelog or logbook.** No migration narratives, dated audit snapshots,
+>   "task N — done/withdrawn", or A/B run logs; that history belongs in git and PRs.
+>   Cite an issue number only when it names a durable contract.
+> - Keep §5 (toolbox) and §12 (structure) faithful to the code — prefer generating
+>   them from the registry / tree over hand-maintenance.
+> - Update it when the **design** changes; update README when **behavior** changes.
 
 ## Table of Contents
 
 - [1. Architecture Overview](#1-architecture-overview)
 - [2. Core Concepts](#2-core-concepts)
 - [3. CrateState — The Central Data Model](#3-cratestate--the-central-data-model)
-- [4. Pipeline Components](#4-pipeline-components)
+- [4. Agent Priority Heuristic (Work in Layers)](#4-agent-priority-heuristic-work-in-layers)
 - [5. The Agent Toolbox](#5-the-agent-toolbox)
 - [6. Validation Layers](#6-validation-layers)
 - [7. Session Persistence & Resume](#7-session-persistence--resume)
@@ -19,6 +28,7 @@
 - [11. Key Design Decisions](#11-key-design-decisions)
 - [12. Project Structure](#12-project-structure)
 - [13. Future Considerations](#13-future-considerations)
+- [14. The Deterministic Pipeline & Guidance Loop](#14-the-deterministic-pipeline--guidance-loop)
 
 ## 1. Architecture Overview
 
@@ -1449,6 +1459,18 @@ and document shell live in sibling assets — `maturity_report.css` and `maturit
 automatic, best-effort (a reporting failure never fails the export), and can be turned off with
 `export_crate(..., embed_report=False)`.
 
+### D15: Deterministic Pipeline as the Default Build Path
+The `--interactive` default is the deterministic pipeline (§14), not the ReAct loop
+(D1): code owns the step ordering and the LLM is confined to bounded leaves. The
+rationale is **efficiency, predictability, and clean termination**, not raw
+capability — a capable model reaches SHACL conformance on either path. In the in-repo
+A/B (`eval/`, gpt-5.6-luna, 5-case corpus) the pipeline reached 5/5 conformance at
+~$0.05 and self-terminated every case, while ReAct reached 4/5 at ~50× the cost with
+3 of its 4 wins force-stopped at the recursion cap. ReAct stays a supported variant
+(`--legacy-react`) for flexible conversational exploration. The success metric is
+profile conformance (base + isa + tox) plus an entity-count quota — **not** scientific
+accuracy.
+
 ## 12. Project Structure
 
 Where each component lives:
@@ -1507,67 +1529,35 @@ vitro-crate/
 
 ## 13. Future Considerations
 
-### MCP Integration
-Toolbox architecture is MCP-ready. External MCP servers can be registered as additional tools.
+Extension points the current design leaves open (not yet built): registering
+external **MCP** servers as additional tools (the toolbox is MCP-ready);
+**multi-user** provenance (the model is single-user today); a **Web API / frontend**
+over the builder library (FastAPI/Streamlit call in unchanged); runtime-loaded
+**custom profiles** (schemas are YAML); **batch processing** (state is per-session,
+so parallel runs are straightforward); and a **profiling dashboard** tailing the
+`ProfilingLogger` `profile.ndjson` for live tool/timing status.
 
-### Multi-User Workflows
-Provenance model supports single-user now. Could be extended for multiple personas.
+## 14. The Deterministic Pipeline & Guidance Loop
 
-### Web API
-Builder is a Python library. FastAPI/Streamlit frontend can call into it without changes.
-
-### Custom Profiles
-Schemas are YAML-defined. Additional profiles could be loaded at runtime.
-
-### Batch Processing
-State is isolated per session. Parallel sessions are straightforward.
-
-### Profiling Dashboard
-The `profile.ndjson` log produced by `ProfilingLogger` is the foundation for a live-status web UI. A frontend could tail this file to show real-time tool timing, node execution times, and iteration counters — without any changes to the builder's internals.
-
-## 14. Architecture Evolution: Two First-Class Variants (Issue #179)
-
-> **Status: both build paths are first-class and maintained.** The deterministic
-> pipeline (Issue #179) is the **default** interactive build; the prose-prompt ReAct
-> StateGraph of §4 / D1 is the **supported alternative** behind `--legacy-react`.
-> This is a maintained two-variant design, **not** a migration that ends in deleting
-> ReAct.
->
-> - **Default — deterministic pipeline + HITL guidance tail.** `main.py
->   --interactive` → `run_interactive_build` runs the pipeline because it is cheaper,
->   lower-latency, reproducible, and testable.
-> - **Alternative — ReAct loop (`--legacy-react`).** Kept for flexible, conversational
->   exploration. A capable model reaches conformance on it too, so it is a capability
->   peer, not a dead end; its orchestration prose in `system_prompt.py` stays — that
->   is exactly what this path relies on.
->
-> **Why the pipeline is the default (in-repo A/B, gpt-5.6-luna, 2026-07-15).** On the
-> 5-case corpus the pipeline reached **5/5** profile conformance at ~$0.05 and
-> self-terminated every case; ReAct reached **4/5** but at ~50× the cost, and 3 of its
-> 4 conformant runs were force-stopped at the recursion cap (valid at the cutoff, not
-> self-terminated). So the differentiator is **efficiency, predictability, and clean
-> termination — not raw capability**; a capable model can drive either path. Note the
-> success metric is SHACL profile conformance (base + isa + tox, REQUIRED severity)
-> plus an additive entity-count quota — **not** scientific accuracy.
+The default `main.py --interactive` build is a **deterministic pipeline + HITL
+guidance tail** over the shared toolbox (§5): code owns the step ordering and the
+LLM is confined to bounded leaves. The ReAct agent loop (§4 "Agent Graph",
+`--legacy-react`) is the supported alternative — §1 states the two-variant
+relationship and **D15** records the A/B evidence for why the pipeline is the
+default. This section documents the pipeline and its guidance tail.
 
 ### 14.1 Decision
 
-Move the *workflow orchestration* out of the LLM system prompt and into **code**.
-The whole sequence — `scan → scaffold ISA backbone → draft entities →
-build_and_validate → fix REQUIRED bottom-up → enrich → export` — was encoded as
-**prose in `builder/agents/system_prompt.py`** and re-derived by the model every run.
-The target architecture is a **deterministic pipeline with the LLM confined to bounded
-leaves**, plus a **small agent for the conversational / unstructured-input tail**.
+The workflow orchestration lives in **code**, not the LLM system prompt: the
+sequence `scan → scaffold ISA backbone → draft entities → build_and_validate →
+fix REQUIRED bottom-up → enrich → export` is control flow (§14.5), with the LLM
+confined to bounded leaves (§14.2) and a small agent for the conversational /
+unstructured-input tail. The defensible win is **cost, latency, reproducibility,
+testability, and clean termination** — not blanket correctness (a capable model
+reaches conformance on ReAct too). Making the pipeline the default was gated on the
+in-repo A/B; see **D15** for the evidence and the levers.
 
-**Scope of the claim.** The defensible win *for this system* (known step ordering +
-rigid SHACL-validated output) is **cost, latency, reproducibility, testability, and
-clean termination** — not blanket correctness: a deep-research pass, and the in-repo
-A/B on a strong model (§14 status block), both show ReAct reaches conformance too.
-Making the pipeline the **default** was **gated on that A/B**; the gate passed on
-efficiency and predictability, so the pipeline is the default interactive path while
-ReAct stays a **supported variant** behind `--legacy-react` (kept, not removed).
-
-### 14.2 Target shape
+### 14.2 Pipeline shape
 
 ```
 INPUT (dir / zip / conversation)
@@ -1586,69 +1576,35 @@ INPUT (dir / zip / conversation)
 
 - **Spine = code.** The Priority 1–4 heuristic (§4) becomes control flow, not prose.
 - **Leaves = cheap model.** Drafting/disambiguation only (binds the §4.4 drafter tier).
-- **Leaf context = bounded file BODIES, not just filenames (#231).** The single
-  `extract`/`draft` leaf is fed by `pipeline.py::_gather_context`, which now reads a
-  bounded BODY excerpt of each non-tabular rich file (`.json` / `.docx` / `.pdf` …)
-  via the existing `builder/tools/file_readers.read_file` — preferring the cheap
-  tabular `first_rows` preview the scanner already captured. Reads are **fail-closed
-  to `state.approved_scan_roots`** (same `_contain` guard as `engine.py`), never
-  raise out of the spine (reader errors are logged + skipped), and are capped per
-  file AND in total by `pipeline.py::_MAX_CONTEXT_CHARS` so the one bounded call
-  stays token-safe. Before #231 the leaf saw filenames + tiny previews only, so
-  `extract_plan` returned an empty plan and the backbone fell back to the literal
-  default names; now document titles/abstracts/SOP headings reach the leaf. The
-  empty-context path is still a strict no-op (`""` ⇒ no provider call), preserving
-  the no-provider determinism guarantee.
-  - **Metadata-first, fair per-file budget (#179, real S-VHPS26 run).** The first
-    `_gather_context` (#231) used ONE shared `_MAX_CONTEXT_CHARS` pool and a
-    `min(remaining, _MAX_CONTEXT_CHARS)` per-file cap, with files in plain scan
-    order — so the FIRST file read could consume the whole budget and the richest
-    structured metadata (a BioStudies `<acc>.json` export, an assay-metadata
-    `.xlsx`, a SOP `.docx`/README), read later, got only its filename. The fix:
-    (a) the inventory is sorted **metadata-first** by `_metadata_read_priority`
-    (`*metadata*` → structured `*.json` → README/SOP/`.docx` docs → bulk data;
-    stable within ties) so high-signal files lead both the reads and the emitted
-    digest; (b) each file gets at most a FAIR per-file slice
-    (`_per_file_cap = max(_MIN_PER_FILE_CHARS, _MAX_CONTEXT_CHARS // n)`) so an
-    early large file can no longer starve the rest. The total budget is still the
-    binding ceiling. Complementarily, the scanner now populates `first_rows` for
-    genuinely tabular office formats (`.xlsx`/`.xls`) via the proper Excel reader
-    (`scanner._excel_preview` → `file_readers.read_excel`) instead of the raw-bytes
-    sampler the NUL-byte binary guard (Issue #51) correctly rejects — so a real
-    `.xlsx` takes the cheap-preview path rather than the budget-consuming body read.
-    The binary guard for truly binary files is unchanged.
+- **Leaf context = bounded file bodies, not just filenames (#231).** The single
+  `extract`/`draft` leaf is fed by `pipeline.py::_gather_context`, which reads a
+  bounded body excerpt of each non-tabular rich file (preferring the scanner's cheap
+  `first_rows` preview), **fail-closed to `state.approved_scan_roots`** and capped
+  per file and in total so the one call stays token-safe. Files are read
+  **metadata-first** on a fair per-file budget, so rich structured metadata is never
+  starved by an early large file; the empty-context path is a strict no-op (no
+  provider call), preserving the no-provider determinism guarantee. The read-ordering
+  and budget algorithm is documented in the `_gather_context` docstring.
 - **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
   `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.
 - **Tail = small strong-model agent.** The one place open-ended judgement is irreducible.
 
-### 14.3 Gate audit outcome (two multi-agent audits, 2026-06-25)
+### 14.3 Build-path wiring contracts
 
-"Do we have the tools to build an ISA-Tox crate from code?" was answered against both the
-SHACL/MIT requirements (267 elements, 82 tools mapped) **and** a real gold crate
-(`crates_out/S-VHPS21_rocrate`, built by the external `rocrate-wizard`):
+An empty crate is already valid from a single `scaffold_isa_backbone(...)` call
+(`{base, isa, tox}` all true, zero issues); no REQUIRED element lacks a code path.
+A richer build must additionally honour two **conditional Violation traps** — the
+build-path *wiring contract* — which fire only when the relevant entities exist and
+are both code-fixable (document for callers):
 
-- **Validity:** **YES today** — empirically, one `scaffold_isa_backbone(...)` call yields
-  `{base, isa, tox}` all true with **zero issues**. No REQUIRED element lacks a code path.
-- **Full fidelity:** **Not yet** — reproducing a rich real crate needs ~17 deterministic
-  tools/extensions, *every one proven feasible by rocrate-wizard*. Tracked in the
-  toolbox-completion issue (companion to #179).
-
-**Two conditional Violation traps** (the "wiring contract" — fire only when those
-entities exist, both code-fixable; document for callers):
 1. A `PropertyValue` named `DOI`/`PubMedID` is SHACL-duck-typed and MUST carry
    `propertyID` as an **`@id` IRI node** (the OBI IRI: `DOI`→`OBI_0002110`,
-   `PubMedID`→`OBI_0001617`). **Fixed (#180):** `draft_property_value` now defaults
-   the IRI by name and `@id`-wraps it (was a silent string-literal Violation).
+   `PubMedID`→`OBI_0001617`). `draft_property_value` defaults the IRI by name and
+   `@id`-wraps it — a bare string literal is a Violation.
 2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
    (unlike CellCulture/Exposure); a process with no explicit output fires a Violation.
-   Fix: synthesize/`link` outputs (fold into `draft_process_chain`).
-
-**Highest-leverage gap:** `materialize_aop_subgraph` — closes ~36 items (1 AOP + N
-KeyEvents + M KeyEventRelationships) in one tool. Fully deterministic: port
-`rocrate-wizard` `lookups/aopwiki.py` (returns the whole subgraph pre-wired from AOP-Wiki
-JSON) + `builder.py:265-278` (`crate.add(ContextEntity(...))` per node, then wire AOP to
-Study via `mentions`/`aop`). The only LLM-supplied input is the numeric `aop_id`.
+   `draft_process_chain` synthesizes/`link`s the outputs to close it.
 
 ### 14.4 Pipeline composition
 
@@ -1682,7 +1638,7 @@ exposes a single pure function — **`draft_entity_fields(entity_type: str,
 context: str, *, model: str | None = None) -> dict`** — the smallest unit of LLM
 work in the pipeline: free-text/context in → a structured dict of one entity's
 fields out, in a **single bounded model call**. It is a **library leaf, not an
-LLM-callable tool** — the deterministic spine (task 4) imports and calls it; the
+LLM-callable tool** — the deterministic spine (§14.5) imports and calls it; the
 ReAct agent never sees it, so it needs **no four-place tool registration**. It
 does **not** mutate `CrateState` and does **not** orchestrate; the spine feeds
 its result into the deterministic `draft_*` state mutators.
@@ -1730,7 +1686,7 @@ not a validity blocker, since `datePublished` is auto-set by ro-crate-py).
 > catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`) — plus
 > the import lists in `tests/test_tools_spec.py`, or CI fails.
 
-### 14.5 The pipeline spine (task 4 — `builder/agents/pipeline.py`)
+### 14.5 The pipeline spine (`builder/agents/pipeline.py`)
 
 `run_pipeline(engine: AgentEngine, *, progress=None, save=None) -> dict` is the
 deterministic, code-driven orchestrator of §14.2 — the Priority 1-4 heuristic (§4)
