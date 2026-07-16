@@ -22,6 +22,32 @@ from builder.engine import AgentEngine
 logger = logging.getLogger(__name__)
 
 
+def _default_output_dir(input_path: str | Path, output_root: str | Path = "output") -> Path:
+    """Resolve the default on-disk crate destination when no ``--output`` is given.
+
+    Lands under ``output/<name>_crate`` and versions re-runs as ``_v2`` / ``_v3`` …
+    (the first build has no suffix), matching the existing ``output/`` layout and
+    never clobbering a previous build (#315). ``<name>`` is the input folder name
+    with a trailing ``_extracted`` stripped, so an extracted archive
+    ``S-VHPS26_extracted`` maps to ``S-VHPS26_crate``.
+
+    This keeps builds out of a curated input tree (previously the crate was written
+    to an ``<input>-ro-crate`` sibling, which polluted ``input/raw/``).
+    """
+    root = Path(output_root)
+    name = Path(input_path).name
+    suffix = "_extracted"
+    if name.endswith(suffix):
+        name = name[: -len(suffix)]
+    base = root / f"{name}_crate"
+    if not base.exists():
+        return base
+    version = 2
+    while (root / f"{name}_crate_v{version}").exists():
+        version += 1
+    return root / f"{name}_crate_v{version}"
+
+
 def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
     """Configure logging for the builder.
 
@@ -436,19 +462,17 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("Starting with empty state (conversation mode)")
         engine.initialize()
 
-    # Resolve the on-disk output destination (#233). Precedence:
+    # Resolve the on-disk output destination (#233, #315). Precedence:
     #   1. --output / -o always wins.
-    #   2. --output omitted AND --input given => a SIBLING of the input folder:
-    #      <input_parent>/<input_name>-ro-crate/ (the deterministic default so the
-    #      built crate lands next to the data it describes).
+    #   2. --output omitted AND --input given => output/<name>_crate, versioned
+    #      _v2/_v3… (see _default_output_dir). Keeps builds out of a curated input
+    #      tree (the old <input>-ro-crate sibling polluted input/raw/).
     #   3. No --input (conversation mode) => leave output_path unset so
     #      export_crate falls back to the session working_crate/ directory.
     if args.output:
         engine.state.metadata.output_path = args.output
     elif args.input:
-        input_dir = Path(args.input)
-        sibling = input_dir.parent / f"{input_dir.name}-ro-crate"
-        engine.state.metadata.output_path = str(sibling)
+        engine.state.metadata.output_path = str(_default_output_dir(args.input))
 
     entity_count = len(engine.state.list_entities())
     logger.info(

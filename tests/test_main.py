@@ -245,8 +245,38 @@ class TestInteractiveDispatch:
         assert seen == [True]
 
 
+class TestDefaultOutputDir:
+    """The no-``--output`` default lands under ``output/<name>_crate``, versioned
+    ``_v2`` / ``_v3`` … (#315), matching the existing ``output/`` layout. ``<name>``
+    is the input folder name with a trailing ``_extracted`` stripped."""
+
+    def test_lands_under_output_root_stripping_extracted(self, tmp_path):
+        from main import _default_output_dir
+
+        out = _default_output_dir("/data/S-VHPS26_extracted", output_root=tmp_path)
+        assert out == tmp_path / "S-VHPS26_crate"
+
+    def test_non_extracted_name_used_verbatim(self, tmp_path):
+        from main import _default_output_dir
+
+        out = _default_output_dir("/data/experiment", output_root=tmp_path)
+        assert out == tmp_path / "experiment_crate"
+
+    def test_versions_increment_without_clobber(self, tmp_path):
+        from main import _default_output_dir
+
+        (tmp_path / "S-VHPS26_crate").mkdir()
+        assert _default_output_dir("/x/S-VHPS26_extracted", output_root=tmp_path) == (
+            tmp_path / "S-VHPS26_crate_v2"
+        )
+        (tmp_path / "S-VHPS26_crate_v2").mkdir()
+        assert _default_output_dir("/x/S-VHPS26_extracted", output_root=tmp_path) == (
+            tmp_path / "S-VHPS26_crate_v3"
+        )
+
+
 class TestOutputPathDefaulting:
-    """``--output`` precedence and the sibling-of-input default (#233).
+    """``--output`` precedence and the versioned ``output/`` default (#233, #315).
 
     Decision (issue #233):
       * ``--output`` / ``-o`` always wins.
@@ -278,20 +308,22 @@ class TestOutputPathDefaulting:
         monkeypatch.setattr(build_mod, "run_interactive_build", _capture)
         return captured
 
-    def test_input_without_output_defaults_to_sibling(self, monkeypatch, tmp_path):
-        """--input <dir>, no --output => output_path is <dir>-ro-crate sibling."""
+    def test_input_without_output_defaults_to_versioned_output(self, monkeypatch, tmp_path):
+        """--input <dir>, no --output => output_path is output/<name>_crate (#315)."""
         from pathlib import Path
 
         self._stub_config(monkeypatch)
-        d = tmp_path / "experiment"
+        monkeypatch.chdir(tmp_path)  # so output/ is created under tmp, not the repo
+        d = tmp_path / "experiment_extracted"
         d.mkdir()
         (d / "test.txt").write_text("hello\n")
         captured = self._capture_output_path(monkeypatch)
 
         result = main(["--interactive", "--input", str(d)])
         assert result == 0
-        expected = d.parent / f"{d.name}-ro-crate"
-        assert captured == [str(expected)] or [Path(p) for p in captured] == [expected]
+        # Lands under ./output, '_extracted' stripped from the name.
+        expected = Path("output") / "experiment_crate"
+        assert [Path(p) for p in captured] == [expected]
 
     def test_explicit_output_wins_over_sibling_default(self, monkeypatch, tmp_path):
         """--output X overrides the sibling-of-input default."""
