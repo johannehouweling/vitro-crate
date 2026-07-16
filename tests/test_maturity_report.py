@@ -11,6 +11,15 @@ from builder.writers.maturity_report import REPORT_FILENAME, build_maturity_html
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
 
+class TestReportFilename:
+    """The report filename shares the crate's ``ro-crate-metadata`` stem."""
+
+    def test_report_filename_is_metadata_stemmed(self) -> None:
+        # Consistency with the crate's main file (ro-crate-metadata.json); still
+        # an .html document because build_maturity_html renders HTML.
+        assert REPORT_FILENAME == "ro-crate-metadata-maturity.html"
+
+
 class TestBuildMaturityHtml:
     """build_maturity_html renders the four report axes (pure, no validator)."""
 
@@ -51,7 +60,7 @@ class TestBuildMaturityHtml:
 
 
 class TestEmbeddedInCrate:
-    """export_crate embeds ro-crate-maturity.html as a CreativeWork about ./."""
+    """export_crate embeds ro-crate-metadata-maturity.html as a CreativeWork about ./."""
 
     def test_export_writes_maturity_report(self, tmp_path: Path) -> None:
         state = vhps_fixture_state("S-VHPS21")
@@ -86,6 +95,66 @@ class TestEmbeddedInCrate:
         res = export_crate(state, str(out), embed_report=False)
         assert res["success"], res["error"]
         assert not (out / REPORT_FILENAME).exists()
+
+
+class TestProvenanceSection:
+    """When a crate ``@graph`` is supplied, the report folds in a Provenance &
+    graph section: the derivation-chain SVG plus a graph-topology strip (#85)."""
+
+    def _chain_graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#d"}]},
+                {"@id": "#s", "@type": "Sample", "name": "Input sample"},
+                {
+                    "@id": "#p",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "object": {"@id": "#s"},
+                    "result": {"@id": "#d"},
+                },
+                {"@id": "#d", "@type": "File", "name": "result.csv"},
+            ]
+        }
+
+    def test_graph_renders_provenance_and_topology(self) -> None:
+        state = vhps_fixture_state("S-VHPS21")
+        page = build_maturity_html(state, graph=self._chain_graph())
+        assert "Provenance" in page
+        assert 'class="prov"' in page  # the inline derivation-chain SVG
+        assert "result.csv" in page
+        assert "Graph topology" in page  # the relocated topology strip
+        assert "entities" in page
+
+    def test_no_graph_omits_provenance_section(self) -> None:
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        assert "Graph topology" not in page
+        assert 'class="prov"' not in page
+
+    def test_graph_without_chain_shows_topology_note(self) -> None:
+        # Entities but no LabProcess I/O → topology strip, but no chain SVG.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset"},
+                {"@id": "#f", "@type": "File", "name": "orphan.csv"},
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "Graph topology" in page
+        assert 'class="prov"' not in page
+        assert "no derivation chain" in page.lower()
+
+    def test_export_embeds_provenance_from_crate_graph(self, tmp_path: Path) -> None:
+        # End-to-end: the embedded report is built with the crate's real @graph,
+        # so the topology strip travels with the written crate.
+        state = vhps_fixture_state("S-VHPS21")
+        out = tmp_path / "crate"
+        state.metadata.output_path = str(out)
+        build_crate(state)
+        page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
+        assert "Graph topology" in page
 
 
 class TestSeverityTiers:

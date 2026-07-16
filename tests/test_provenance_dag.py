@@ -15,6 +15,7 @@ from builder.tools._crate_mapping import populate_crate
 from builder.writers.provenance_dag import (
     render_mermaid_html,
     render_provenance_mermaid,
+    render_provenance_svg,
 )
 from profiles.context import ISA_TOX_CONTEXT
 
@@ -176,6 +177,81 @@ def test_render_mermaid_html_escapes_label_markup_safely() -> None:
     html = render_mermaid_html(render_provenance_mermaid(_full_chain_graph()))
     # json.dumps escapes the source into a quoted literal containing <br/>.
     assert "<br/>" in html
+
+
+class TestRenderProvenanceSvg:
+    """``render_provenance_svg`` draws the derivation chain as a self-contained,
+    offline inline ``<svg>`` (no external assets, no script) for embedding in the
+    maturity report."""
+
+    def test_returns_inline_svg_element(self) -> None:
+        svg = render_provenance_svg(_full_chain_graph())
+        assert svg.startswith("<svg")
+        assert svg.rstrip().endswith("</svg>")
+        assert "viewBox" in svg
+
+    def test_chain_nodes_and_edges_present(self) -> None:
+        svg = render_provenance_svg(_full_chain_graph())
+        # Every material/data label on the derivation chain is drawn.
+        for label in ("HepG2", "Cultured cells", "Condition table", "Figures"):
+            assert label in svg, f"{label} missing from provenance SVG"
+        # Process discriminators appear as node tags (uppercased).
+        assert "EXPOSURE" in svg.upper()
+        # Both edge kinds are drawn (object = input, result = output).
+        assert "e-object" in svg and "e-result" in svg
+
+    def test_no_process_chain_returns_empty(self) -> None:
+        # A graph with data but no LabProcess has no derivation chain to draw.
+        svg = render_provenance_svg(
+            {"@graph": [{"@id": "#f", "@type": "File", "name": "orphan.csv"}]}
+        )
+        assert svg == ""
+
+    def test_escapes_crate_controlled_names(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "#s", "@type": "Sample", "name": "<script>alert(1)</script>"},
+                {
+                    "@id": "#p",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "object": {"@id": "#s"},
+                    "result": {"@id": "#d"},
+                },
+                {"@id": "#d", "@type": "File", "name": "out.csv"},
+            ]
+        }
+        svg = render_provenance_svg(graph)
+        assert "<script>alert(1)</script>" not in svg
+        assert "&lt;script&gt;" in svg
+
+    def test_self_contained_no_external_assets(self) -> None:
+        svg = render_provenance_svg(_full_chain_graph())
+        assert "http://" not in svg and "https://" not in svg
+        assert "<script" not in svg.lower()
+
+    def test_branching_second_output_is_drawn(self) -> None:
+        # One process with two results (a branch) — both outputs must be drawn.
+        graph = {
+            "@graph": [
+                {"@id": "#s", "@type": "Sample", "name": "Input sample"},
+                {
+                    "@id": "#p",
+                    "@type": "LabProcess",
+                    "additionalType": "EndpointReadout",
+                    "object": {"@id": "#s"},
+                    "result": [{"@id": "#d1"}, {"@id": "#d2"}],
+                },
+                {"@id": "#d1", "@type": "File", "name": "result.csv"},
+                {"@id": "#d2", "@type": ["File", "csvw:Table"], "name": "raw.csv"},
+            ]
+        }
+        svg = render_provenance_svg(graph)
+        assert "result.csv" in svg and "raw.csv" in svg
+
+    def test_accepts_bare_graph_list(self) -> None:
+        svg = render_provenance_svg(_full_chain_graph()["@graph"])
+        assert svg.startswith("<svg")
 
 
 def _exposure_state() -> CrateState:

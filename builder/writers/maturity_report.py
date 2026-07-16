@@ -1,4 +1,4 @@
-"""RO-Crate maturity report (``ro-crate-maturity.html``), embedded in the crate (#85).
+"""RO-Crate maturity report (``ro-crate-metadata-maturity.html``), embedded in the crate (#85).
 
 Renders a self-contained, light-mode evaluation dashboard (inline CSS, no external
 assets) covering the four axes from the issue:
@@ -37,7 +37,7 @@ from builder.state import CrateState, FAIRReport, MITReport, ValidationReport
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import assess_mit_coverage
 
-REPORT_FILENAME = "ro-crate-maturity.html"
+REPORT_FILENAME = "ro-crate-metadata-maturity.html"
 
 # FAIR dimension letters (as emitted by fair/indicators.yaml) → display names.
 _DIM_NAMES = {"F": "Findable", "A": "Accessible", "I": "Interoperable", "R": "Reusable"}
@@ -227,7 +227,7 @@ def _load_css() -> str:
 
     Kept in a sibling ``maturity_report.css`` so the styling lives apart from the
     Python that assembles the markup; it is embedded (not linked) so the exported
-    ``ro-crate-maturity.html`` renders offline with no external assets.
+    ``ro-crate-metadata-maturity.html`` renders offline with no external assets.
     """
     return _CSS_PATH.read_text(encoding="utf-8").strip("\n")
 
@@ -506,10 +506,88 @@ def _render_repro_section(checks: list[tuple[str, bool, str]]) -> str:
     )
 
 
+def _render_topology_strip(counts: dict[str, int]) -> str:
+    """The graph-topology metrics strip (relocated into the Provenance section).
+
+    Renders the crate's entity composition by paper layer (packaging / ISA
+    structural / ISA-Tox domain) plus any orphan/dangling-reference flags, from
+    the deterministic :func:`build_crate_graph` counts.
+    """
+    total = counts.get("layer1", 0) + counts.get("layer2", 0) + counts.get("layer3", 0)
+    parts = [
+        '<span class="topo-label">Graph topology</span>',
+        f'<span class="c"><b>{total}</b>&nbsp;entities</span>',
+        '<span class="c"><span class="sw" style="background:var(--muted)"></span>'
+        f'{counts.get("layer1", 0)} packaging</span>',
+        '<span class="c"><span class="sw" style="background:var(--cat-process)"></span>'
+        f'{counts.get("layer2", 0)} ISA structural</span>',
+        '<span class="c"><span class="sw" style="background:var(--cat-data)"></span>'
+        f'{counts.get("layer3", 0)} ISA-Tox domain</span>',
+    ]
+    flags: list[str] = []
+    n_orphan = counts.get("orphan", 0)
+    n_dangling = counts.get("dangling", 0)
+    if n_orphan:
+        flags.append(f"{n_orphan} orphan" + ("" if n_orphan == 1 else "s"))
+    if n_dangling:
+        flags.append(f"{n_dangling} dangling ref" + ("" if n_dangling == 1 else "s"))
+    if flags:
+        parts.append(f'<span class="c warnflag">{_mk("no")}&nbsp;{" · ".join(flags)}</span>')
+    return f'<div class="comp topo">{"".join(parts)}</div>'
+
+
+def _render_provenance_section(graph: dict[str, Any] | list[dict[str, Any]]) -> str:
+    """Fold the provenance chain + graph topology into the report (#85).
+
+    Draws the LabProcess derivation chain as a self-contained inline SVG (offline,
+    no script) with a shape legend, and appends the graph-topology strip. When the
+    crate records no derivation chain, the SVG is replaced by a note but the
+    topology strip still renders. Called only when a crate ``@graph`` is supplied.
+    """
+    from builder.writers.provenance_dag import build_crate_graph, render_provenance_svg
+
+    svg = render_provenance_svg(graph)
+    counts = build_crate_graph(graph).get("counts", {})
+    if svg:
+        body = (
+            '<p class="prov-cap">The derivation chain a receiving lab follows to trace an '
+            "output back to its inputs — materials, the processes applied, and the files "
+            "each step produced.</p>\n"
+            f'  <div class="prov-scroll">{svg}</div>\n'
+            '  <div class="prov-legend">'
+            '<span class="lg"><svg width="20" height="14" aria-hidden="true">'
+            '<polygon points="4,1 14,1 18,7 14,13 4,13 1,7" fill="var(--accent-soft)" '
+            'stroke="var(--cat-process)" stroke-width="1.6"/></svg> Process</span>'
+            '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+            '<rect x="1" y="2" width="20" height="10" rx="5" fill="var(--surface-2)" '
+            'stroke="var(--cat-material)" stroke-width="1.6"/></svg> Sample / material</span>'
+            '<span class="lg"><svg width="18" height="14" aria-hidden="true">'
+            '<rect x="1" y="1" width="15" height="12" rx="2" fill="var(--surface-2)" '
+            'stroke="var(--cat-data)" stroke-width="1.6"/></svg> File / table</span>'
+            '<span class="lg"><span class="gl obj"></span> consumes (object)</span>'
+            '<span class="lg"><span class="gl"></span> produces (result)</span>'
+            "</div>"
+        )
+    else:
+        body = (
+            '<p class="lead">No derivation chain recorded — this crate has no LabProcess '
+            "input/output edges to trace.</p>"
+        )
+    return (
+        "<section>\n"
+        '  <div class="sec-h"><h2>Provenance &amp; graph</h2>'
+        '<span class="sec-meta">how the result was produced</span></div>\n'
+        f"  {body}\n"
+        f"  {_render_topology_strip(counts)}\n"
+        "</section>\n"
+    )
+
+
 def build_maturity_html(
     state: CrateState,
     *,
     validation: ValidationReport | None = None,
+    graph: dict[str, Any] | list[dict[str, Any]] | None = None,
 ) -> str:
     """Render the maturity report HTML for *state*.
 
@@ -522,10 +600,19 @@ def build_maturity_html(
     three severity tiers Required / Recommended / Optional (#306); an unevaluated
     SHOULD/MAY tier renders as "not assessed", never a false green zero.
 
+    When a crate ``graph`` (the ``@graph`` from ``crate.metadata.generate()``) is
+    supplied, the report also folds in a Provenance & graph section: the LabProcess
+    derivation chain drawn as a self-contained inline SVG, plus a graph-topology
+    strip (entity composition by paper layer, orphan/dangling flags). Omitting
+    ``graph`` skips that section — the report is still complete without it.
+
     Args:
         state: The crate state being reported on.
         validation: Validation results to render. Defaults to
             ``state.validation``.
+        graph: The crate's serialized ``@graph`` (or the full metadata document)
+            used to render the provenance chain and topology strip. When ``None``
+            the Provenance & graph section is omitted.
     """
     esc = html.escape
     title = state.metadata.title or "RO-Crate"
@@ -540,16 +627,20 @@ def build_maturity_html(
 
     header = _render_header(title, accession, tiers)
     kpis = _render_kpis(tiers, fair, mit, repro_ready, len(checks))
+    prov_section = _render_provenance_section(graph) if graph is not None else ""
     prof_section = _render_profile_section(val, tiers)
     fair_section = _render_fair_section(fair)
     mit_section = _render_mit_section(mit)
     repro_section = _render_repro_section(checks)
 
     footer = (
-        "<footer><span>Generated by vitro-crate · ro-crate-maturity.html</span>"
+        "<footer><span>Generated by vitro-crate · ro-crate-metadata-maturity.html</span>"
         "<span>Self-contained · offline · print-friendly</span></footer>\n"
     )
-    body = header + kpis + prof_section + fair_section + mit_section + repro_section + footer
+    body = (
+        header + kpis + prov_section + prof_section + fair_section
+        + mit_section + repro_section + footer
+    )
 
     # Fill the shell placeholders. STYLE and BODY first (neither can contain a
     # sentinel), TITLE last so crate-controlled text can never re-trigger a

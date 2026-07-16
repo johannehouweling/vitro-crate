@@ -1414,7 +1414,7 @@ Embedding is automatic (no separate agent tool — a free byproduct of building 
 turned off with `export_crate(..., embed_graph=False)`. Inline-rendering the Mermaid in the #86
 `ro-crate-preview.html` is the natural next step.
 
-**Maturity report (`ro-crate-maturity.html`, #85).** `export_crate` also embeds a human-readable
+**Maturity report (`ro-crate-metadata-maturity.html`, #85).** `export_crate` also embeds a human-readable
 maturity report as a `File` + `CreativeWork` `about` `./` (same mechanism as the graph). It is
 rendered by `builder/writers/maturity_report.py` (`build_maturity_html`) as a light-mode evaluation
 dashboard — a KPI row over four detail sections — and covers four axes: profile adherence (rendered
@@ -1431,6 +1431,16 @@ renders as an explicit **"not assessed"** neutral state (glyph + label, never co
 a green zero; REQUIRED/RECOMMENDED issue text is still surfaced as `Must fix` / `Recommended`
 suggestions. Rendering this from `state.validation` alone (no new validation machinery) keeps the
 pure/cheap contract.
+
+When `export_crate` embeds the report it passes the crate's serialized `@graph`
+(`build_maturity_html(state, graph=crate.metadata.generate())`), which folds in a **Provenance &
+graph** section: the LabProcess derivation chain drawn as a self-contained inline SVG
+(`render_provenance_svg` in `builder/writers/provenance_dag.py` — a finished `<svg>`, no mermaid.js,
+no external assets, so it prints offline), plus the relocated graph-topology strip (entity
+composition by paper layer + orphan/dangling flags, from `build_crate_graph` counts). The `graph`
+argument is optional — omitting it (e.g. a bare `build_maturity_html(state)`) simply skips that
+section, so the report stays useful without a serialized crate. The embedded file is named
+`ro-crate-metadata-maturity.html` (sharing the `ro-crate-metadata` stem of the crate's main file).
 
 The page is **self-contained** (inline CSS, no external assets) so it renders offline. The styling
 and document shell live in sibling assets — `maturity_report.css` and `maturity_report.html` (with

@@ -15,7 +15,7 @@ Covers the three generators that embed crate data:
 
 * ``builder/writers/provenance_dag.py`` — the Mermaid DAG, the full crate graph,
   and the self-contained ``render_mermaid_html`` page;
-* ``builder/writers/maturity_report.py`` — ``ro-crate-maturity.html``;
+* ``builder/writers/maturity_report.py`` — ``ro-crate-metadata-maturity.html``;
 * the bundled ``ro-crate-preview.html`` written by ``export_crate``.
 """
 
