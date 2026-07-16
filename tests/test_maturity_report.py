@@ -146,6 +146,34 @@ class TestProvenanceSection:
         assert 'class="prov"' not in page
         assert "no derivation chain" in page.lower()
 
+    def test_graph_gives_nonzero_mit_coverage(self, tmp_path: Path) -> None:
+        # MIT coverage is scored against the assembled @graph (crate_slot vocab
+        # describes the serialized crate, not CrateState), so a real crate reports
+        # non-zero coverage in the report — not the old 0% (#311).
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from profiles.context import ISA_TOX_CONTEXT
+
+        state = vhps_fixture_state("S-VHPS21")
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, tmp_path, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+
+        def _mit_pct(page: str) -> int:
+            import re
+
+            m = re.search(
+                r'OECD MIT coverage.*?<b>(\d+)</b><span class="den">%', page, re.S
+            )
+            assert m, "MIT KPI tile not found"
+            return int(m.group(1))
+
+        assert _mit_pct(build_maturity_html(state, graph=graph)) > 0
+        # Without the graph the report falls back (cheap) and this fixture scores 0.
+        assert _mit_pct(build_maturity_html(state)) == 0
+
     def test_export_embeds_provenance_from_crate_graph(self, tmp_path: Path) -> None:
         # End-to-end: the embedded report is built with the crate's real @graph,
         # so the topology strip travels with the written crate.

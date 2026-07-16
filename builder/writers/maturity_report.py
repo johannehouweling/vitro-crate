@@ -618,7 +618,11 @@ def build_maturity_html(
     title = state.metadata.title or "RO-Crate"
     accession = state.metadata.accession or ""
     fair = assess_fair_maturity(state)
-    mit = assess_mit_coverage(state)
+    # When the crate's assembled @graph is available (the export path passes it),
+    # score MIT against it — the crate_slot vocabulary describes the serialized
+    # crate, not CrateState (#311). Without a graph, the assessor's own fallback
+    # keeps this cheap.
+    mit = assess_mit_coverage(state, graph=graph)
     val = validation if validation is not None else state.validation
 
     tiers = _severity_tiers(val) if _validation_has_signal(val) else None
