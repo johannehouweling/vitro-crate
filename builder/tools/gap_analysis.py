@@ -112,12 +112,12 @@ _TIER_RANK: dict[Tier, int] = {"MUST": 0, "SHOULD": 1, "MAY": 2}
 # Sentinel ``fix_hint`` for a gap the guidance loop can NOT commit deterministically
 # from the gap's own fields (no settable entity field and no crate-level slot). It
 # is recorded for reporting but never consumes an ask-user / draft turn — see
-# ``builder.agents.guidance._next_actionable_gap``.
+# ``builder.agents.pipeline.guidance._next_actionable_gap``.
 REPORT_ONLY = "report-only"
 
 # Local property names a crate-level gap (``entity_id is None``) can be committed
 # to via the Root Data Entity metadata setter. MUST stay in sync with
-# ``builder.agents.guidance._CRATE_METADATA_FIELDS`` (the guidance loop's
+# ``builder.agents.pipeline.guidance._CRATE_METADATA_FIELDS`` (the guidance loop's
 # ``_apply_value`` is the single place these are actually written); kept here as a
 # lower-module constant to avoid a circular import (guidance imports gap_analysis).
 _CRATE_SETTABLE_FIELDS: frozenset[str] = frozenset(
@@ -135,7 +135,7 @@ def _local_name(iri: str | None) -> str:
 def _is_committable(entity_id: str | None, prop: str | None) -> bool:
     """Whether the guidance loop could deterministically commit such a gap.
 
-    Mirrors :func:`builder.agents.guidance._apply_value`'s success conditions
+    Mirrors :func:`builder.agents.pipeline.guidance._apply_value`'s success conditions
     *from the gap's own fields alone* so the gap engine and the guidance loop can
     never drift on what "settable" means:
 
@@ -368,9 +368,7 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
             # an instance? If not, the parameter is type-level only — there is no
             # concrete entity to ask about, so phrasing it as a specific entity is
             # exactly the bug (asking for "this chemical"'s CAS with zero chemicals).
-            has_instance = any(
-                et in present_types for et, _ in slots if et
-            )
+            has_instance = any(et in present_types for et, _ in slots if et)
             if not has_instance:
                 # No instance of any of the parameter's entity types: surface a
                 # creation-prompt, report-only gap (never a per-field ask on a
@@ -387,14 +385,12 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
             # the guidance loop surfaces them for context without burning a turn.
             elif not _is_committable(None, slot_field):
                 message = (
-                    f"MIT parameter '{param_name}' is not yet captured "
-                    f"(crate_slot {crate_slot})."
+                    f"MIT parameter '{param_name}' is not yet captured (crate_slot {crate_slot})."
                 )
                 fix_hint = REPORT_ONLY
             else:
                 message = (
-                    f"MIT parameter '{param_name}' is not yet captured "
-                    f"(crate_slot {crate_slot})."
+                    f"MIT parameter '{param_name}' is not yet captured (crate_slot {crate_slot})."
                 )
                 # MIT enrichment needs content the user provides or a drafter
                 # synthesizes; it is never a deterministic auto-fix (D5).
@@ -457,8 +453,7 @@ def _fair_gaps(state: CrateState) -> tuple[list[Gap], dict[str, Any]]:
                 entity_type=None,
                 property=indicator_id or None,
                 message=(
-                    f"FAIR indicator {indicator_id} not met: "
-                    f"{indicator.get('text', '')}".strip()
+                    f"FAIR indicator {indicator_id} not met: {indicator.get('text', '')}".strip()
                 ),
                 suggestion=f"Dimension {indicator.get('dimension', '')} "
                 f"({priority or 'unrated'})".strip(),

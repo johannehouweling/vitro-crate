@@ -725,9 +725,7 @@ def _extract_tar_safely(archive_path: Path, dest: Path) -> int:
         total = 0
         for member in members:
             if not _is_within(dest, dest / member.name):
-                raise _UnsafeArchiveError(
-                    f"member escapes destination (Zip-Slip): {member.name!r}"
-                )
+                raise _UnsafeArchiveError(f"member escapes destination (Zip-Slip): {member.name!r}")
             total += member.size
             if total > _MAX_UNCOMPRESSED_BYTES:
                 raise _UnsafeArchiveError(
@@ -993,9 +991,7 @@ def _summarize_pdf(path: Path) -> str | None:
                     except Exception:
                         pass
                 return (
-                    f"Format: PDF\n"
-                    f"Pages: {n_pages}\n"
-                    f"Total text length: ~{total_chars} characters"
+                    f"Format: PDF\nPages: {n_pages}\nTotal text length: ~{total_chars} characters"
                 )
         except Exception:
             pass  # Fall through to the manual scan below

@@ -447,7 +447,7 @@ These packages are imported directly — we do not fork or vendor them. Version 
 > architecture, not a deprecated one; the deterministic pipeline (the
 > `--interactive` default) is described in §14.
 
-The agent loop uses an **explicitly constructed StateGraph** built by `_build_agent_graph()` in `builder/agents/agent_loop.py`. This replaces the earlier `create_agent()` factory pattern (Issue #37), giving us full control over node names, routing logic, and middleware integration.
+The agent loop uses an **explicitly constructed StateGraph** built by `_build_agent_graph()` in `builder/agents/react/agent_loop.py`. This replaces the earlier `create_agent()` factory pattern (Issue #37), giving us full control over node names, routing logic, and middleware integration.
 
 ```python
 graph = StateGraph(AgentState)
@@ -536,7 +536,7 @@ orchestration node while a cheap model does the bounded drafting work, without
 any change to the graph topology.
 
 Construction is centralised in `_build_chat_model(provider, model, base_url,
-max_retries, role)` (`builder/agents/agent_loop.py`). The `role` parameter
+max_retries, role)` (`builder/agents/react/agent_loop.py`). The `role` parameter
 selects the tier when no explicit `model` is passed:
 
 - `role="orchestrator"` (default) → the primary model
@@ -1362,7 +1362,7 @@ test gated.
 `app.invoke()` replays the entire conversation — including large tool outputs — making per-turn
 input tokens grow linearly (cumulative cost quadratically) until the context window overflows
 (Issue #61). The history is therefore **bounded before each model call** inside
-`_assemble_model_messages` (`builder/agents/agent_loop.py`) via `_trim_history`, which runs two
+`_assemble_model_messages` (`builder/agents/react/agent_loop.py`) via `_trim_history`, which runs two
 layers in order:
 
 1. **Prune consumed state-backed outputs** (`_prune_state_backed_outputs`). Tool outputs whose
@@ -1526,13 +1526,16 @@ vitro-crate/
 │   │   ├── maturity_report.py    Maturity / FAIR HTML report
 │   └── agents/                  Orchestration + LLM config
 │       ├── build.py             Interactive entrypoint (run_interactive_build) — mode dispatch
-│       ├── pipeline.py          Deterministic pipeline spine (run_pipeline) — DEFAULT
-│       ├── guidance.py          HITL guidance tail (run_guidance)
-│       ├── leaves.py            Bounded LLM extraction leaves (drafter tier)
-│       ├── agent_loop.py        ReAct StateGraph (legacy, --legacy-react)
-│       ├── system_prompt.py     ReAct system prompt
-│       ├── tools_spec.py        TOOL_SPECS advertised to the ReAct LLM
-│       └── progress_spinner.py  CLI progress UI
+│       ├── llm.py               Shared model construction + usage mining, both modes (#309)
+│       ├── progress_spinner.py  CLI progress UI
+│       ├── pipeline/            Deterministic pipeline mode (--interactive DEFAULT)
+│       │   ├── pipeline.py        Pipeline spine (run_pipeline)
+│       │   ├── guidance.py        HITL guidance tail (run_guidance)
+│       │   └── leaves.py          Bounded LLM extraction leaves (drafter tier)
+│       └── react/               ReAct StateGraph mode (legacy, --legacy-react)
+│           ├── agent_loop.py      ReAct StateGraph loop
+│           ├── system_prompt.py   ReAct system prompt
+│           └── tools_spec.py      TOOL_SPECS advertised to the ReAct LLM
 ├── eval/                        A/B eval harness (--arch react|pipeline)
 ├── sessions/                    Persisted sessions
 ├── output/                      Built crates (versioned)
@@ -1632,7 +1635,7 @@ re-implementation. Its parts:
   EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
   Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
   Chain Tools).
-- **The spine** — `run_pipeline` (`builder/agents/pipeline.py`, §14.5), the
+- **The spine** — `run_pipeline` (`builder/agents/pipeline/pipeline.py`, §14.5), the
   code-driven orchestrator and the default `main.py --interactive` build (via
   `run_interactive_build`, §14.6.1); also selectable in the eval harness
   (`python -m eval --arch pipeline`).
@@ -1645,7 +1648,7 @@ The ReAct loop remains a fully-supported alternative behind `--legacy-react`; it
 
 #### The drafter-leaf (`leaves.py`)
 
-Task 2's "Leaves = cheap model" primitive (§14.2). `builder/agents/leaves.py`
+Task 2's "Leaves = cheap model" primitive (§14.2). `builder/agents/pipeline/leaves.py`
 exposes a single pure function — **`draft_entity_fields(entity_type: str,
 context: str, *, model: str | None = None) -> dict`** — the smallest unit of LLM
 work in the pipeline: free-text/context in → a structured dict of one entity's
@@ -1698,7 +1701,7 @@ not a validity blocker, since `datePublished` is auto-set by ro-crate-py).
 > catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`) — plus
 > the import lists in `tests/test_tools_spec.py`, or CI fails.
 
-### 14.5 The pipeline spine (`builder/agents/pipeline.py`)
+### 14.5 The pipeline spine (`builder/agents/pipeline/pipeline.py`)
 
 `run_pipeline(engine: AgentEngine, *, progress=None, save=None) -> dict` is the
 deterministic, code-driven orchestrator of §14.2 — the Priority 1-4 heuristic (§4)
@@ -1855,7 +1858,7 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   **The per-gap LLM exchange (#244).** When a provider is configured (gated on
   `config.get_provider()`, like the pipeline leaves), each ask-user gap runs a
   bounded **phrase → ask → interpret → commit** cycle using two new drafter-tier
-  leaves in `builder/agents/leaves.py` (internal pipeline calls, NOT four-place
+  leaves in `builder/agents/pipeline/leaves.py` (internal pipeline calls, NOT four-place
   LLM-advertised tools):
   - **Phrase** (`phrase_gap_question(gap_context) -> str`) turns the gap
     (property, entity_type, tier, MIT/FAIR rationale, suggestion) into ONE clear
@@ -1977,7 +1980,7 @@ because the LLM chose to" was itself a bug: in a live `--legacy-react` run the w
 model *never* chose `export_crate` while the user kept the session alive, so a
 base-valid 70+-entity crate was never written (`_finish_backstop`, #251, only runs
 on the quit/EOF exit path). The legacy loop now auto-exports on **every** completed
-in-loop build too: `_auto_export_after_build` in `builder/agents/agent_loop.py` fires
+in-loop build too: `_auto_export_after_build` in `builder/agents/react/agent_loop.py` fires
 after a `build_and_validate` that passes **base** conformance over a non-empty crate,
 calling `export_crate` with no explicit path (same destination resolution as above),
 stamping `_EXPORTED_FLAG` (so `_finish_backstop` stays a no-op — no double-export),

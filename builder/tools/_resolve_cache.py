@@ -122,9 +122,7 @@ class _ResolveConcurrency:
         self._sema = threading.BoundedSemaphore(self._limit)
 
 
-def run_with_timeout(
-    func: Callable[[], Any], timeout: float
-) -> tuple[bool, Any]:
+def run_with_timeout(func: Callable[[], Any], timeout: float) -> tuple[bool, Any]:
     """Run ``func()`` in a worker thread, bounding it to ``timeout`` seconds.
 
     Returns ``(True, value)`` if it completes in time, ``(False, None)`` if it

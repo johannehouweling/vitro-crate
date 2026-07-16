@@ -47,7 +47,7 @@ def _live_graph_driver(
     """Drive the existing LangGraph ReAct loop once for *prompt* (LIVE LLM call).
 
     Mirrors the non-interactive core of
-    :func:`builder.agents.agent_loop.run_interactive_agent`: build the tools, the
+    :func:`builder.agents.react.agent_loop.run_interactive_agent`: build the tools, the
     chat model, and the compiled graph (passing the engine so node timing lands in
     ``profile.ndjson``), then ``invoke`` it once with the prompt. The recursion
     limit is derived from the engine's configured iteration cap.
@@ -57,11 +57,11 @@ def _live_graph_driver(
     from langchain_core.messages import HumanMessage
     from langchain_core.runnables import RunnableConfig
 
-    from builder.agents.agent_loop import (
+    from builder.agents.llm import _build_chat_model, _recursion_limit
+    from builder.agents.react.agent_loop import (
         _build_agent_graph,
         _build_langchain_tools,
     )
-    from builder.agents.llm import _build_chat_model, _recursion_limit
     from builder.config import get_max_iterations
 
     tools = _build_langchain_tools(engine)

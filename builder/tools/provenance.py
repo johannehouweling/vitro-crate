@@ -133,10 +133,7 @@ def link(state: CrateState, from_id: str, relation: str, to_id: str) -> dict[str
     """
     if relation not in PROVENANCE_RELATIONS:
         valid = ", ".join(sorted(PROVENANCE_RELATIONS))
-        raise ValueError(
-            f"Unknown provenance relation {relation!r}. "
-            f"Valid relations are: {valid}."
-        )
+        raise ValueError(f"Unknown provenance relation {relation!r}. Valid relations are: {valid}.")
     src = state.get_entity(from_id)
     if src is None:
         raise ValueError(f"link source entity not found: {from_id!r}.")
@@ -244,8 +241,7 @@ def attach_files(
         if explicit is not None and fc.path not in explicit and fc.filename not in explicit:
             return False
         if name_q is not None and (
-            name_q not in (fc.filename or "").lower()
-            and name_q not in (fc.path or "").lower()
+            name_q not in (fc.filename or "").lower() and name_q not in (fc.path or "").lower()
         ):
             return False
         if mime_q is not None and mime_q not in (fc.mime_type or "").lower():
@@ -359,9 +355,7 @@ def check_provenance(state: CrateState) -> dict[str, Any]:
     # Rule 1: dangling process output (no build-time fallback for these types).
     for proc in processes:
         ptype = _process_type(proc)
-        if ptype in _OUTPUT_REQUIRED_TYPES and not any(
-            proc.fields.get(f) for f in _OUTPUT_FIELDS
-        ):
+        if ptype in _OUTPUT_REQUIRED_TYPES and not any(proc.fields.get(f) for f in _OUTPUT_FIELDS):
             issues.append(
                 _issue(
                     proc.entity_id,
@@ -399,8 +393,7 @@ def check_provenance(state: CrateState) -> dict[str, Any]:
         for fld in _OUTPUT_FIELDS:
             produced |= _ref_ids(proc.fields.get(fld))
     models_sample_flow = any(
-        (e := state.get_entity(pid)) is not None and e.type == "Sample"
-        for pid in produced
+        (e := state.get_entity(pid)) is not None and e.type == "Sample" for pid in produced
     )
     if models_sample_flow:
         seeds: set[str] = set()

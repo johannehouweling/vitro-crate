@@ -7,9 +7,9 @@ hybrid build loop into the end-to-end sequence a real user runs:
     └──────────── run_pipeline (AUTOMATED) ─────────┘     run_guidance (HITL)
 
 :func:`run_interactive_build` runs the **automated** deterministic pipeline
-(:func:`builder.agents.pipeline.run_pipeline`) and then — *only* when a REAL
+(:func:`builder.agents.pipeline.pipeline.run_pipeline`) and then — *only* when a REAL
 interactive :class:`~builder.tools.hitl.HumanInterface` is present — runs the
-HITL gap-resolution tail (:func:`builder.agents.guidance.run_guidance`) so the
+HITL gap-resolution tail (:func:`builder.agents.pipeline.guidance.run_guidance`) so the
 user is guided through the gaps the deterministic path could not close on its own.
 
 **Why the split is deliberate.** ``run_pipeline`` stays *guidance-free*: it is the
@@ -138,9 +138,9 @@ def run_interactive_build(
             the guidance tail runs; ``run_guidance`` mutates ``engine.state`` in
             place through the existing tools (never hand-rolled JSON-LD).
         pipeline_runner: Injected automated-build runner; defaults to the real
-            :func:`builder.agents.pipeline.run_pipeline` (kept guidance-free).
+            :func:`builder.agents.pipeline.pipeline.run_pipeline` (kept guidance-free).
         guidance_runner: Injected HITL runner; defaults to the real
-            :func:`builder.agents.guidance.run_guidance`.
+            :func:`builder.agents.pipeline.guidance.run_guidance`.
         exporter: Injected on-disk writer; defaults to the real
             :func:`builder.tools.builder.export_crate` (crate assembly via
             ro-crate-py — never hand-rolled JSON-LD).
@@ -285,7 +285,7 @@ def _run_pipeline_with_progress(
 ) -> dict[str, Any]:
     """Call *pipeline_runner*, threading *emit* in as the spine's progress sink.
 
-    The real :func:`builder.agents.pipeline.run_pipeline` accepts a keyword-only
+    The real :func:`builder.agents.pipeline.pipeline.run_pipeline` accepts a keyword-only
     ``progress`` callback (#241). To stay backward-compatible with injected test
     runners whose signature is ``(engine)`` only, we introspect the runner and pass
     ``progress`` **only** when it is accepted — otherwise the runner is called the
@@ -326,9 +326,7 @@ def _final_save(engine: AgentEngine) -> None:
     try:
         result = save_session(engine.state, always_write=True)
         if not result.get("success", True):
-            logger.warning(
-                "Final session save failed: %s", result.get("error", "unknown error")
-            )
+            logger.warning("Final session save failed: %s", result.get("error", "unknown error"))
     except Exception:  # noqa: BLE001 - persistence is best-effort; never break the build
         logger.exception("Unexpected error during final session save")
 
@@ -394,10 +392,7 @@ def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
         f"  resolved: {len(resolved)} gap(s)",
         f"  asked:    {len(asked)} gap(s)",
         f"  remaining gaps: {must} MUST / {should} SHOULD / {may} MAY",
-        (
-            f"  conformance: base={_mark('base')} "
-            f"isa={_mark('isa')} tox={_mark('tox')}"
-        ),
+        (f"  conformance: base={_mark('base')} isa={_mark('isa')} tox={_mark('tox')}"),
         f"  rounds: {rounds}",
     ]
     return "\n".join(lines)
@@ -438,10 +433,7 @@ def format_gap_summary(pipeline_result: dict[str, Any] | None) -> str:
     lines = [
         "Headless build complete (no interactive guidance):",
         f"  open gaps: {must_open} MUST (SHOULD/MAY not assessed on the fast build)",
-        (
-            f"  conformance: base={_mark('base')} "
-            f"isa={_mark('isa')} tox={_mark('tox')}"
-        ),
+        (f"  conformance: base={_mark('base')} isa={_mark('isa')} tox={_mark('tox')}"),
     ]
     return "\n".join(lines)
 
@@ -449,11 +441,11 @@ def format_gap_summary(pipeline_result: dict[str, Any] | None) -> str:
 def _default_pipeline_runner() -> PipelineRunner:
     """The real automated spine, imported lazily so this module stays light.
 
-    Importing :mod:`builder.agents.pipeline` is cheap and langchain-free (the
+    Importing :mod:`builder.agents.pipeline.pipeline` is cheap and langchain-free (the
     leaf imports are themselves lazy), but deferring it keeps a test that injects
     its own runner fully independent of the spine.
     """
-    from builder.agents.pipeline import run_pipeline
+    from builder.agents.pipeline.pipeline import run_pipeline
 
     return run_pipeline
 
@@ -465,7 +457,7 @@ def _default_guidance_runner() -> GuidanceRunner:
     build never imports guidance, and a test injecting its own runner is
     independent of the guidance module.
     """
-    from builder.agents.guidance import run_guidance
+    from builder.agents.pipeline.guidance import run_guidance
 
     return run_guidance
 

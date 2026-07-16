@@ -256,8 +256,7 @@ def lookup_cell_line_by_name(name: str) -> dict[str, Any]:
                 f"({accessions}); refine the name or use an accession"
             )
         return _failure(
-            f"No confident Cellosaurus match for cell-line name '{name}' "
-            f"(only partial matches)"
+            f"No confident Cellosaurus match for cell-line name '{name}' (only partial matches)"
         )
     except TransientLookupError as exc:
         return _failure(f"Cellosaurus unavailable (transient): {exc}", transient=True)

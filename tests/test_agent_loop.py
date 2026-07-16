@@ -88,14 +88,14 @@ class TestFormatEntitySummary:
 
     def test_empty_entities(self):
         """_format_entity_summary returns appropriate message when empty."""
-        from builder.agents.agent_loop import _format_entity_summary
+        from builder.agents.react.agent_loop import _format_entity_summary
 
         result = _format_entity_summary([])
         assert "No entities yet." in result
 
     def test_single_entity_type(self):
         """_format_entity_summary counts by entity type."""
-        from builder.agents.agent_loop import _format_entity_summary
+        from builder.agents.react.agent_loop import _format_entity_summary
 
         entities = [Entity(entity_id="e1", type="Investigation")]
         result = _format_entity_summary(entities)
@@ -104,7 +104,7 @@ class TestFormatEntitySummary:
 
     def test_multiple_types(self):
         """_format_entity_summary counts multiple types."""
-        from builder.agents.agent_loop import _format_entity_summary
+        from builder.agents.react.agent_loop import _format_entity_summary
 
         entities = [
             Entity(entity_id="e1", type="Investigation"),
@@ -129,7 +129,7 @@ class TestEnrichedInputNotAccumulated:
     def test_call_model_includes_state_brief(self):
         """call_model should prepend a system message that includes state info
         (session id, counts) — NOT the full entity summary."""
-        from builder.agents.agent_loop import _build_system_prompt_with_state
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
 
         prompt = _build_system_prompt_with_state(
             session_id="test-session",
@@ -145,7 +145,7 @@ class TestEnrichedInputNotAccumulated:
     def test_call_model_system_prompt_is_lightweight(self):
         """The state brief injected into the system prompt should be a single
         short line, NOT the full multi-line entity summary."""
-        from builder.agents.agent_loop import _build_system_prompt_with_state
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
 
         prompt = _build_system_prompt_with_state(
             session_id="sid",
@@ -166,7 +166,7 @@ class TestEnrichedInputNotAccumulated:
         # no longer builds enriched_input with entity_summary.
         import inspect
 
-        from builder.agents import agent_loop
+        from builder.agents.react import agent_loop
 
         source = inspect.getsource(agent_loop.run_interactive_agent)
         # enriched_input construction must be gone
@@ -198,7 +198,7 @@ class TestBuildChatModel:
 
     def test_no_provider_raises(self):
         """_build_chat_model raises RuntimeError when no provider is available."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old_openai = os.environ.pop("OPENAI_API_KEY", None)
         old_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -213,14 +213,14 @@ class TestBuildChatModel:
 
     def test_unknown_provider_raises(self):
         """_build_chat_model raises RuntimeError for unknown provider."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         with pytest.raises(RuntimeError, match="Unknown provider"):
             _build_chat_model(provider="invalid_provider")
 
     def test_openai_provider(self):
         """_build_chat_model with provider='openai' returns ChatOpenAI."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old = os.environ.get("OPENAI_API_KEY")
         os.environ["OPENAI_API_KEY"] = "sk-test"
@@ -236,7 +236,7 @@ class TestBuildChatModel:
 
     def test_anthropic_provider(self):
         """_build_chat_model with provider='anthropic' returns ChatAnthropic."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old = os.environ.get("ANTHROPIC_API_KEY")
         os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test"
@@ -252,7 +252,7 @@ class TestBuildChatModel:
 
     def test_default_max_retries_is_three(self):
         """_build_chat_model defaults to max_retries=3 for OpenAI."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old = os.environ.get("OPENAI_API_KEY")
         os.environ["OPENAI_API_KEY"] = "sk-test"
@@ -267,7 +267,7 @@ class TestBuildChatModel:
 
     def test_custom_max_retries_passed_through(self):
         """_build_chat_model passes custom max_retries to the model."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old = os.environ.get("OPENAI_API_KEY")
         os.environ["OPENAI_API_KEY"] = "sk-test"
@@ -282,7 +282,7 @@ class TestBuildChatModel:
 
     def test_max_retries_from_env_var(self):
         """_build_chat_model reads VITRO_MAX_RETRIES from env when arg not given."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old_key = os.environ.get("OPENAI_API_KEY")
         old_retries = os.environ.pop("VITRO_MAX_RETRIES", None)
@@ -335,7 +335,7 @@ class TestModelTiering:
 
     def test_drafter_role_uses_drafter_model_when_set(self):
         """role='drafter' picks up VITRO_OPENAI_DRAFTER_MODEL."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         saved = self._set_openai()
         os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
@@ -348,7 +348,7 @@ class TestModelTiering:
 
     def test_orchestrator_role_ignores_drafter_model(self):
         """role='orchestrator' keeps the primary model even if a drafter is set."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         saved = self._set_openai()
         os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
@@ -361,7 +361,7 @@ class TestModelTiering:
 
     def test_drafter_role_falls_back_to_primary_when_unset(self):
         """No-op by default: with no drafter model, the drafter == orchestrator."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         saved = self._set_openai()
         os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
@@ -374,7 +374,7 @@ class TestModelTiering:
 
     def test_default_role_is_orchestrator(self):
         """Calling without a role keeps today's behaviour (primary model)."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         saved = self._set_openai()
         os.environ["VITRO_OPENAI_MODEL"] = "gpt-4o"
@@ -387,7 +387,7 @@ class TestModelTiering:
 
     def test_explicit_model_arg_overrides_role(self):
         """An explicit model= wins over role-based resolution."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         saved = self._set_openai()
         os.environ["VITRO_OPENAI_DRAFTER_MODEL"] = "gpt-4o-mini"
@@ -407,7 +407,7 @@ class TestBuildLangchainTools:
         Returns:
             Tuple of (tools list, tool_map dict, engine).
         """
-        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.agents.react.agent_loop import _build_langchain_tools
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -416,14 +416,14 @@ class TestBuildLangchainTools:
 
     def test_tools_spec_count(self):
         """_build_langchain_tools creates one tool per spec entry."""
-        from builder.agents.tools_spec import TOOL_SPECS
+        from builder.agents.react.tools_spec import TOOL_SPECS
 
         tools, _, _ = self._build()
         assert len(tools) == len(TOOL_SPECS)
 
     def test_each_tool_has_name_and_description(self):
         """Each LangChain tool carries the correct name and description."""
-        from builder.agents.tools_spec import TOOL_SPECS
+        from builder.agents.react.tools_spec import TOOL_SPECS
 
         _, tool_map, _ = self._build()
         for spec in TOOL_SPECS:
@@ -535,13 +535,13 @@ class TestToolSpinnerCallback:
         """_ToolSpinnerCallback is a subclass of BaseCallbackHandler."""
         from langchain_core.callbacks import BaseCallbackHandler
 
-        from builder.agents.agent_loop import _ToolSpinnerCallback
+        from builder.agents.react.agent_loop import _ToolSpinnerCallback
 
         assert issubclass(_ToolSpinnerCallback, BaseCallbackHandler)
 
     def test_on_tool_start_sets_tool_name(self):
         """on_tool_start tells the spinner which tool is running."""
-        from builder.agents.agent_loop import _ToolSpinnerCallback
+        from builder.agents.react.agent_loop import _ToolSpinnerCallback
 
         spinner = _FakeSpinner()
         _ToolSpinnerCallback(spinner).on_tool_start({"name": "scan_files"}, "/data")  # ty: ignore[invalid-argument-type]
@@ -550,7 +550,7 @@ class TestToolSpinnerCallback:
 
     def test_on_tool_start_defaults_when_unnamed(self):
         """A tool with no name falls back to a generic label."""
-        from builder.agents.agent_loop import _ToolSpinnerCallback
+        from builder.agents.react.agent_loop import _ToolSpinnerCallback
 
         spinner = _FakeSpinner()
         _ToolSpinnerCallback(spinner).on_tool_start({}, "")  # ty: ignore[invalid-argument-type]
@@ -559,7 +559,7 @@ class TestToolSpinnerCallback:
 
     def test_on_tool_end_clears_tool(self):
         """on_tool_end clears the active tool (back to the thinking phrase)."""
-        from builder.agents.agent_loop import _ToolSpinnerCallback
+        from builder.agents.react.agent_loop import _ToolSpinnerCallback
 
         spinner = _FakeSpinner()
         cb = _ToolSpinnerCallback(spinner)  # ty: ignore[invalid-argument-type]
@@ -575,7 +575,7 @@ class TestThinkingSpinner:
     def test_render_includes_phrase_and_elapsed(self):
         from rich.console import Console
 
-        from builder.agents.agent_loop import _ThinkingSpinner
+        from builder.agents.react.agent_loop import _ThinkingSpinner
 
         sp = _ThinkingSpinner(Console(), "intoxicating")
         text = sp._render()
@@ -585,7 +585,7 @@ class TestThinkingSpinner:
     def test_render_includes_tool_when_set(self):
         from rich.console import Console
 
-        from builder.agents.agent_loop import _ThinkingSpinner
+        from builder.agents.react.agent_loop import _ThinkingSpinner
 
         sp = _ThinkingSpinner(Console(), "intoxicating")
         sp._tool = "scan_files"
@@ -632,14 +632,14 @@ class TestRecursionLimit:
 
     def test_doubles_max_iterations(self):
         """Each tool iteration is ~2 super-steps (model + tools)."""
-        from builder.agents.agent_loop import _recursion_limit
+        from builder.agents.react.agent_loop import _recursion_limit
 
         assert _recursion_limit(50) == 100
         assert _recursion_limit(25) == 50
 
     def test_floors_at_two(self):
         """A non-positive cap still allows the graph to run at least once."""
-        from builder.agents.agent_loop import _recursion_limit
+        from builder.agents.react.agent_loop import _recursion_limit
 
         assert _recursion_limit(0) == 2
         assert _recursion_limit(1) == 2
@@ -657,8 +657,8 @@ class TestCacheFriendlyPrompt:
         brief is the LAST message; history is preserved in between."""
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from builder.agents.agent_loop import _assemble_model_messages
-        from builder.agents.system_prompt import SYSTEM_PROMPT
+        from builder.agents.react.agent_loop import _assemble_model_messages
+        from builder.agents.react.system_prompt import SYSTEM_PROMPT
 
         history = [HumanMessage(content="hello")]
         msgs = _assemble_model_messages(
@@ -679,7 +679,7 @@ class TestCacheFriendlyPrompt:
     def test_system_prefix_identical_across_iterations(self):
         """The stable prefix is byte-identical even as state changes, while the
         trailing brief reflects the new state (only the cache tail varies)."""
-        from builder.agents.agent_loop import _assemble_model_messages
+        from builder.agents.react.agent_loop import _assemble_model_messages
 
         a = _assemble_model_messages(
             [], session_id="s", entity_count=1, file_count=1, iteration_count=1
@@ -735,7 +735,7 @@ class TestTrimHistory:
 
     def test_helper_importable(self):
         """The trim helper is importable from agent_loop."""
-        from builder.agents.agent_loop import _trim_history
+        from builder.agents.react.agent_loop import _trim_history
 
         assert callable(_trim_history)
 
@@ -744,7 +744,7 @@ class TestTrimHistory:
         within the budget — it does NOT grow linearly with turn count."""
         from langchain_core.messages import HumanMessage, ToolMessage
 
-        from builder.agents.agent_loop import _trim_history
+        from builder.agents.react.agent_loop import _trim_history
 
         # Build a long, growing transcript: many human/AI(tool_call)/tool triples
         # with large tool outputs (simulating verbose validation/lookup payloads).
@@ -772,7 +772,7 @@ class TestTrimHistory:
         is not replayed verbatim, while the AI/tool pairing is preserved."""
         from langchain_core.messages import HumanMessage, ToolMessage
 
-        from builder.agents.agent_loop import _trim_history
+        from builder.agents.react.agent_loop import _trim_history
 
         cid = "scan_1"
         big_listing = "\n".join(f"file_{i}.csv\t1234\ttext/csv" for i in range(500))
@@ -805,7 +805,7 @@ class TestTrimHistory:
         ToolMessage whose AI tool_call was trimmed away."""
         from langchain_core.messages import HumanMessage, ToolMessage
 
-        from builder.agents.agent_loop import _trim_history
+        from builder.agents.react.agent_loop import _trim_history
 
         history: list = []
         for i in range(10):
@@ -829,8 +829,8 @@ class TestTrimHistory:
         the #60 cache-friendly layout)."""
         from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
-        from builder.agents.agent_loop import _assemble_model_messages
-        from builder.agents.system_prompt import SYSTEM_PROMPT
+        from builder.agents.react.agent_loop import _assemble_model_messages
+        from builder.agents.react.system_prompt import SYSTEM_PROMPT
 
         history: list = []
         for i in range(40):
@@ -899,7 +899,7 @@ class TestThinkingSpinnerPause:
             return self._status
 
     def test_pause_stops_and_resume_starts_the_live_region(self) -> None:
-        from builder.agents.agent_loop import _ThinkingSpinner
+        from builder.agents.react.agent_loop import _ThinkingSpinner
 
         st = self._FakeStatus()
         sp = _ThinkingSpinner(self._FakeConsole(st), "x")
@@ -913,7 +913,7 @@ class TestThinkingSpinnerPause:
         assert "start" in st.events
 
     def test_suspend_console_animation_pauses_then_resumes_spinner(self) -> None:
-        from builder.agents.agent_loop import _ThinkingSpinner
+        from builder.agents.react.agent_loop import _ThinkingSpinner
         from builder.tools.hitl import (
             register_console_animation,
             suspend_console_animation,
@@ -950,7 +950,7 @@ class TestCompletenessNudge:
     def test_nudge_lists_present_and_missing_with_next_action(self):
         """Backbone + person + compounds but no process chain / files / export
         => the nudge names what's present, what's missing, and a next action."""
-        from builder.agents.agent_loop import _completeness_nudge
+        from builder.agents.react.agent_loop import _completeness_nudge
 
         state = self._state(
             "Investigation",
@@ -982,7 +982,7 @@ class TestCompletenessNudge:
 
     def test_nudge_is_short(self):
         """The nudge stays token-cheap — a single short line."""
-        from builder.agents.agent_loop import _completeness_nudge
+        from builder.agents.react.agent_loop import _completeness_nudge
 
         state = self._state("Investigation", "Study", "Assay", "Person")
         nudge = _completeness_nudge(state)
@@ -992,7 +992,7 @@ class TestCompletenessNudge:
     def test_complete_state_suggests_validate_and_export(self):
         """When the crate looks complete (backbone, person, compounds, process
         chain, files), the nudge suggests validate + export."""
-        from builder.agents.agent_loop import _completeness_nudge
+        from builder.agents.react.agent_loop import _completeness_nudge
 
         state = self._state(
             "Investigation",
@@ -1009,7 +1009,7 @@ class TestCompletenessNudge:
 
     def test_empty_state_nudge_does_not_crash(self):
         """An empty crate still yields a (short, non-crashing) nudge."""
-        from builder.agents.agent_loop import _completeness_nudge
+        from builder.agents.react.agent_loop import _completeness_nudge
 
         nudge = _completeness_nudge(self._state())
         assert isinstance(nudge, str)
@@ -1018,7 +1018,7 @@ class TestCompletenessNudge:
 
     def test_brief_includes_nudge_when_passed(self):
         """_build_system_prompt_with_state surfaces the nudge when given one."""
-        from builder.agents.agent_loop import _build_system_prompt_with_state
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
 
         nudge = "backbone ✓; missing: export → next: export_crate"
         brief = _build_system_prompt_with_state(
@@ -1032,7 +1032,7 @@ class TestCompletenessNudge:
 
     def test_brief_omits_nudge_line_when_none(self):
         """No nudge => the brief is unchanged (back-compat)."""
-        from builder.agents.agent_loop import _build_system_prompt_with_state
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
 
         brief = _build_system_prompt_with_state(
             session_id="sid",
@@ -1076,7 +1076,7 @@ class TestFinishBackstop:
     def test_backstop_builds_and_exports_when_entities_exist(self):
         """Non-empty crate not yet exported => build_and_validate THEN
         export_crate run, and the resolved path is surfaced."""
-        from builder.agents.agent_loop import _finish_backstop
+        from builder.agents.react.agent_loop import _finish_backstop
 
         engine = self._engine("Investigation", "Study")
         calls = self._spy(engine)
@@ -1094,7 +1094,7 @@ class TestFinishBackstop:
 
     def test_backstop_noop_when_crate_empty(self):
         """An empty crate => no build, no export (nothing to write)."""
-        from builder.agents.agent_loop import _finish_backstop
+        from builder.agents.react.agent_loop import _finish_backstop
 
         engine = self._engine()  # no entities
         calls = self._spy(engine)
@@ -1106,7 +1106,7 @@ class TestFinishBackstop:
 
     def test_backstop_is_idempotent(self):
         """Calling the backstop twice exports only once (no double-export)."""
-        from builder.agents.agent_loop import _finish_backstop
+        from builder.agents.react.agent_loop import _finish_backstop
 
         engine = self._engine("Investigation")
         calls = self._spy(engine)
@@ -1124,7 +1124,7 @@ class TestFinishBackstop:
     def test_backstop_never_raises(self):
         """A failure inside the export path is caught, not propagated out of the
         exit path."""
-        from builder.agents.agent_loop import _finish_backstop
+        from builder.agents.react.agent_loop import _finish_backstop
 
         engine = self._engine("Investigation")
 
@@ -1140,7 +1140,7 @@ class TestFinishBackstop:
     def test_backstop_honors_metadata_output_path(self):
         """export_crate is called via run_tool with no explicit path so it honors
         state.metadata.output_path; the resolved path is surfaced."""
-        from builder.agents.agent_loop import _finish_backstop
+        from builder.agents.react.agent_loop import _finish_backstop
 
         engine = self._engine("Investigation")
         engine.state.metadata.output_path = "/tmp/custom-ro-crate"
@@ -1162,7 +1162,7 @@ class TestFinishBackstop:
         """run_interactive_agent must call the backstop on its exit paths."""
         import inspect
 
-        from builder.agents import agent_loop
+        from builder.agents.react import agent_loop
 
         source = inspect.getsource(agent_loop.run_interactive_agent)
         assert "_finish_backstop" in source, (
@@ -1182,7 +1182,7 @@ class TestRequestTimeout:
 
     def test_default_request_timeout_is_set(self):
         """With no override, the model carries a finite request timeout."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old_key = os.environ.get("OPENAI_API_KEY")
         old_to = os.environ.pop("VITRO_REQUEST_TIMEOUT", None)
@@ -1202,7 +1202,7 @@ class TestRequestTimeout:
 
     def test_explicit_timeout_passed_through(self):
         """An explicit ``timeout`` argument reaches the model."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old = os.environ.get("OPENAI_API_KEY")
         os.environ["OPENAI_API_KEY"] = "sk-test"
@@ -1217,7 +1217,7 @@ class TestRequestTimeout:
 
     def test_timeout_from_env_var(self):
         """VITRO_REQUEST_TIMEOUT is honored when no argument is given."""
-        from builder.agents.agent_loop import _build_chat_model
+        from builder.agents.react.agent_loop import _build_chat_model
 
         old_key = os.environ.get("OPENAI_API_KEY")
         old_to = os.environ.get("VITRO_REQUEST_TIMEOUT")
@@ -1243,7 +1243,7 @@ class TestInvokeWithTimeout:
     the loop indefinitely and never lets an exception escape (#263)."""
 
     def test_returns_ok_and_result_on_success(self):
-        from builder.agents.agent_loop import _invoke_with_timeout
+        from builder.agents.react.agent_loop import _invoke_with_timeout
 
         sentinel = {"messages": ["done"]}
 
@@ -1263,7 +1263,7 @@ class TestInvokeWithTimeout:
         import threading
         import time
 
-        from builder.agents.agent_loop import _invoke_with_timeout
+        from builder.agents.react.agent_loop import _invoke_with_timeout
 
         release = threading.Event()
 
@@ -1286,7 +1286,7 @@ class TestInvokeWithTimeout:
 
     def test_returns_error_outcome_when_invoke_raises(self):
         """An exception inside invoke is captured, not propagated."""
-        from builder.agents.agent_loop import _invoke_with_timeout
+        from builder.agents.react.agent_loop import _invoke_with_timeout
 
         class _BoomApp:
             def invoke(self, payload, config):
@@ -1304,30 +1304,30 @@ class TestReplyIsQuestion:
     the user or auto-continues (#263)."""
 
     def test_trailing_question_mark_is_question(self):
-        from builder.agents.agent_loop import _reply_is_question
+        from builder.agents.react.agent_loop import _reply_is_question
 
         assert _reply_is_question("Which compound should I use?")
 
     def test_interrogative_opener_is_question(self):
-        from builder.agents.agent_loop import _reply_is_question
+        from builder.agents.react.agent_loop import _reply_is_question
 
         assert _reply_is_question("Could you confirm the cell line name")
 
     def test_plain_narration_is_not_question(self):
-        from builder.agents.agent_loop import _reply_is_question
+        from builder.agents.react.agent_loop import _reply_is_question
 
         assert not _reply_is_question(
             "I drafted the Investigation and added 3 compounds."
         )
 
     def test_empty_reply_is_not_question(self):
-        from builder.agents.agent_loop import _reply_is_question
+        from builder.agents.react.agent_loop import _reply_is_question
 
         assert not _reply_is_question("")
         assert not _reply_is_question(None)  # type: ignore[arg-type]
 
     def test_trailing_question_after_narration_is_question(self):
-        from builder.agents.agent_loop import _reply_is_question
+        from builder.agents.react.agent_loop import _reply_is_question
 
         assert _reply_is_question(
             "I added the process chain.\nDo you want me to export now?"
@@ -1347,7 +1347,7 @@ class TestCrateIsComplete:
         return engine
 
     def test_incomplete_when_validation_not_passed(self):
-        from builder.agents.agent_loop import _crate_is_complete
+        from builder.agents.react.agent_loop import _crate_is_complete
 
         engine = self._engine()
         engine.state.validation.base_passed = True
@@ -1356,7 +1356,7 @@ class TestCrateIsComplete:
         assert not _crate_is_complete(engine)
 
     def test_incomplete_with_required_issues(self):
-        from builder.agents.agent_loop import _crate_is_complete
+        from builder.agents.react.agent_loop import _crate_is_complete
 
         engine = self._engine()
         engine.state.validation.base_passed = True
@@ -1366,7 +1366,7 @@ class TestCrateIsComplete:
         assert not _crate_is_complete(engine)
 
     def test_complete_when_all_pass_and_no_issues(self):
-        from builder.agents.agent_loop import _crate_is_complete
+        from builder.agents.react.agent_loop import _crate_is_complete
 
         engine = self._engine()
         engine.state.validation.base_passed = True
@@ -1376,7 +1376,7 @@ class TestCrateIsComplete:
         assert _crate_is_complete(engine)
 
     def test_empty_crate_is_not_complete(self):
-        from builder.agents.agent_loop import _crate_is_complete
+        from builder.agents.react.agent_loop import _crate_is_complete
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -1396,7 +1396,7 @@ class _LoopHarness:
     """
 
     def __init__(self, monkeypatch, *, replies, stdin_lines, complete_after=None):
-        from builder.agents import agent_loop
+        from builder.agents.react import agent_loop
         from builder.engine import AgentEngine
         from builder.state import Entity
 
@@ -1534,7 +1534,7 @@ class TestAutonomousContinuation:
 
     def test_max_autonomous_turns_caps_the_loop(self, monkeypatch):
         """Endless narration is bounded by the max-autonomous-turns cap."""
-        from builder.agents.agent_loop import _MAX_AUTONOMOUS_TURNS
+        from builder.agents.react.agent_loop import _MAX_AUTONOMOUS_TURNS
 
         # Always narrate; never a question, never complete → only the cap stops it.
         harness = _LoopHarness(
@@ -1568,7 +1568,7 @@ class TestEmptyCompletionRecovery:
     once), instead of auto-continuing forever (#263)."""
 
     def test_consecutive_empty_completions_stop_autocontinue(self, monkeypatch):
-        from builder.agents.agent_loop import _MAX_EMPTY_COMPLETIONS
+        from builder.agents.react.agent_loop import _MAX_EMPTY_COMPLETIONS
 
         # Every reply is empty (the stall symptom). The loop must retry once and
         # then stop auto-continuing rather than spinning to the full cap.
@@ -1593,7 +1593,7 @@ class TestTimeoutEndsTurnGracefully:
 
         from langchain_core.messages import AIMessage
 
-        from builder.agents import agent_loop
+        from builder.agents.react import agent_loop
         from builder.engine import AgentEngine
         from builder.state import Entity
 
@@ -1680,7 +1680,7 @@ class TestExportOnCompletedBuild:
         return calls
 
     def test_successful_build_and_validate_auto_exports_once(self):
-        from builder.agents.agent_loop import (
+        from builder.agents.react.agent_loop import (
             _EXPORTED_FLAG,
             _build_langchain_tools,
             _finish_backstop,
@@ -1721,7 +1721,7 @@ class TestExportOnCompletedBuild:
 
     def test_crate_path_is_surfaced(self):
         """The absolute crate path is surfaced through the loop's output channel."""
-        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.agents.react.agent_loop import _build_langchain_tools
 
         engine = self._engine_with_entities("Investigation")
         self._install_spy(
@@ -1747,7 +1747,7 @@ class TestExportOnCompletedBuild:
 
     def test_failed_build_does_not_export(self):
         """A build_and_validate that does not pass base conformance never exports."""
-        from builder.agents.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
+        from builder.agents.react.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
 
         engine = self._engine_with_entities("Investigation")
         calls = self._install_spy(
@@ -1772,7 +1772,7 @@ class TestExportOnCompletedBuild:
 
     def test_empty_crate_does_not_export(self):
         """A successful build over an EMPTY crate (no entities) never exports."""
-        from builder.agents.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
+        from builder.agents.react.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -1796,7 +1796,7 @@ class TestExportOnCompletedBuild:
     def test_re_export_when_state_changes_between_builds(self):
         """A second build after the crate has grown re-exports (the latest crate
         always lands); a second build with NO change does not re-export."""
-        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.agents.react.agent_loop import _build_langchain_tools
 
         engine = self._engine_with_entities("Investigation")
         calls = self._install_spy(
@@ -1823,7 +1823,7 @@ class TestExportOnCompletedBuild:
     def test_failed_export_does_not_crash_or_stamp(self):
         """When the auto-export itself fails, the build result is still returned
         and the flag is not stamped (so the finish backstop can retry on exit)."""
-        from builder.agents.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
+        from builder.agents.react.agent_loop import _EXPORTED_FLAG, _build_langchain_tools
 
         engine = self._engine_with_entities("Investigation")
         self._install_spy(
@@ -1879,7 +1879,7 @@ class TestRepeatedNonProgressLoopBreaker:
         return calls
 
     def test_identical_directory_reads_trigger_intervention(self):
-        from builder.agents.agent_loop import (
+        from builder.agents.react.agent_loop import (
             _LOOP_BREAKER_THRESHOLD,
             _build_langchain_tools,
         )
@@ -1915,7 +1915,7 @@ class TestRepeatedNonProgressLoopBreaker:
         )
 
     def test_error_dict_results_trigger_intervention(self):
-        from builder.agents.agent_loop import (
+        from builder.agents.react.agent_loop import (
             _LOOP_BREAKER_THRESHOLD,
             _build_langchain_tools,
         )
@@ -1949,7 +1949,7 @@ class TestRepeatedNonProgressLoopBreaker:
 
     def test_distinct_calls_do_not_trigger(self):
         """Repeated but DISTINCT directory reads never trip the loop-breaker."""
-        from builder.agents.agent_loop import (
+        from builder.agents.react.agent_loop import (
             _LOOP_BREAKER_THRESHOLD,
             _build_langchain_tools,
         )
@@ -1977,7 +1977,7 @@ class TestRepeatedNonProgressLoopBreaker:
 
     def test_single_repeat_below_threshold_does_not_trigger(self):
         """A repeat below the threshold passes the result through unchanged."""
-        from builder.agents.agent_loop import (
+        from builder.agents.react.agent_loop import (
             _LOOP_BREAKER_THRESHOLD,
             _build_langchain_tools,
         )

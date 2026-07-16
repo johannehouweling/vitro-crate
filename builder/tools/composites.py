@@ -132,9 +132,7 @@ def scaffold_isa_backbone(
     inv = _ensure(
         "Investigation", lambda: draft_investigation(state, investigation or {}), investigation
     )
-    study_entity = _ensure(
-        "Study", lambda: draft_study(state, inv.entity_id, study or {}), study
-    )
+    study_entity = _ensure("Study", lambda: draft_study(state, inv.entity_id, study or {}), study)
     assay_entity = _ensure(
         "Assay", lambda: draft_assay(state, study_entity.entity_id, assay or {}), assay
     )
@@ -302,8 +300,7 @@ def draft_process_chain(
         raise ValueError(f"draft_process_chain assay not found: {assay_id!r}.")
     if assay.type != "Assay":
         raise ValueError(
-            f"draft_process_chain assay_id must be an Assay; {assay_id!r} is a "
-            f"{assay.type}."
+            f"draft_process_chain assay_id must be an Assay; {assay_id!r} is a {assay.type}."
         )
 
     steps_in = list(chain or [])
@@ -350,9 +347,7 @@ def draft_process_chain(
         # output to the build (the chain still flows downstream via its inputs). ---
         outputs = _explicit_ids(step, "result", "output")
         if not outputs and ptype not in _BUILD_SYNTHESIZES_OUTPUT:
-            placeholder = _synthesize_output(
-                state, proc, ptype, draft_sample, draft_file
-            )
+            placeholder = _synthesize_output(state, proc, ptype, draft_sample, draft_file)
             synthesized.append(placeholder.entity_id)
             outputs = [placeholder.entity_id]
         for tid in outputs:
@@ -797,9 +792,7 @@ def _resolve_via_search(
     return _bare_orcid(chosen) if verified is not None else None
 
 
-def _find_or_draft_organization(
-    state: CrateState, name: str, ror: str | None = None
-) -> str | None:
+def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = None) -> str | None:
     """Return the entity_id of an Organization for ``name``, drafting one if absent.
 
     The ISA shape requires ``Person.affiliation`` to reference a
@@ -860,9 +853,7 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
     # the build's `_wire_reference` then resolves it to the Organization node.
     affiliation_name = data.get("affiliation_name")
     if affiliation_name:
-        org_id = _find_or_draft_organization(
-            state, affiliation_name, data.get("affiliation_ror")
-        )
+        org_id = _find_or_draft_organization(state, affiliation_name, data.get("affiliation_ror"))
         if org_id is not None:
             fields["affiliation"] = {"@id": org_id}
     person.set_fields_from_dict(fields, source="lookup")
@@ -1098,9 +1089,7 @@ def _title_overlap(query: str, candidate: str) -> float:
     return len(q & c) / min(len(q), len(c))
 
 
-def _confident_match(
-    title: str, candidates: list[dict] | tuple[dict, ...]
-) -> dict | None:
+def _confident_match(title: str, candidates: list[dict] | tuple[dict, ...]) -> dict | None:
     """Return the single confident Crossref candidate for *title*, or None (D5).
 
     Confidence requires the top-scoring candidate to clear BOTH the Crossref
@@ -1248,9 +1237,7 @@ def _identity_key(record: Mapping[str, Any]) -> tuple[str, str] | None:
     return None
 
 
-def _find_entity_by_identity(
-    state: CrateState, key: tuple[str, str]
-) -> Entity | None:
+def _find_entity_by_identity(state: CrateState, key: tuple[str, str]) -> Entity | None:
     """An existing MolecularEntity whose same identity field matches ``key``.
 
     Scans ``state.list_entities("MolecularEntity")`` for one whose value for the
@@ -1470,9 +1457,7 @@ def resolve_compound(
     # under another name — refresh its looked-up fields and record the new name as
     # an ``alternateName`` — rather than its (different) name-derived id.
     identity_key = _identity_key(data)
-    by_identity = (
-        _find_entity_by_identity(state, identity_key) if identity_key else None
-    )
+    by_identity = _find_entity_by_identity(state, identity_key) if identity_key else None
     if by_identity is not None:
         entity = by_identity
         # Do NOT clobber the entity's existing display ``name`` (the first name
@@ -1523,9 +1508,7 @@ def resolve_compound(
                 entity.set_fields_from_dict({"dtxsid": dtxsid}, source="lookup")
 
     identifiers = {
-        key: data[key]
-        for key in _COMPOUND_IDENTIFIER_FIELDS
-        if data.get(key) not in (None, "")
+        key: data[key] for key in _COMPOUND_IDENTIFIER_FIELDS if data.get(key) not in (None, "")
     }
     # Surface the looked-up DTXSID in the return (pipeline provenance/logging).
     if entity.fields.get("dtxsid"):
@@ -1578,9 +1561,7 @@ TOOL_REGISTRY.register("scaffold_isa_backbone", scaffold_isa_backbone, takes_sta
 TOOL_REGISTRY.register("draft_process_chain", draft_process_chain, takes_state=True)
 TOOL_REGISTRY.register("resolve_compound", resolve_compound, takes_state=True)
 TOOL_REGISTRY.register("resolve_publication", resolve_publication, takes_state=True)
-TOOL_REGISTRY.register(
-    "materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True
-)
+TOOL_REGISTRY.register("materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True)
 TOOL_REGISTRY.register(
     "draft_publication_with_authors",
     draft_publication_with_authors,

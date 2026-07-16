@@ -460,8 +460,8 @@ class TestNoPydanticShadowWarning:
         pytest.importorskip("pydantic")
         from typing import Any, cast
 
-        from builder.agents.agent_loop import _build_args_schema
-        from builder.agents.tools_spec import TOOL_SPECS
+        from builder.agents.react.agent_loop import _build_args_schema
+        from builder.agents.react.tools_spec import TOOL_SPECS
 
         spec = next(s for s in TOOL_SPECS if s["name"] == "draft_process_chain")
         name = cast(str, spec["name"])

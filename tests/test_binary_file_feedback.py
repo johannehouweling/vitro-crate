@@ -54,7 +54,7 @@ class TestSummaryBinaryGuard:
 
 class TestAgentUnreadableMessage:
     def test_message_helper_is_actionable(self):
-        from builder.agents.agent_loop import _unreadable_file_message
+        from builder.agents.react.agent_loop import _unreadable_file_message
 
         msg = _unreadable_file_message("/data/raw/sample.xls")
         assert isinstance(msg, str) and msg
@@ -65,7 +65,7 @@ class TestAgentUnreadableMessage:
     def test_agent_tool_returns_message_not_none_for_binary(self, tmp_path):
         """The LLM-facing read_file_sample tool returns guidance, never bare None."""
         pytest.importorskip("langchain_core")
-        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.agents.react.agent_loop import _build_langchain_tools
         from builder.engine import AgentEngine
 
         p = _write_binary(tmp_path, "blob.prism")
@@ -77,7 +77,7 @@ class TestAgentUnreadableMessage:
     def test_message_names_the_offending_tool(self):
         # Issue #148: the recovery message is now reused across the file readers,
         # so it must name whichever tool produced the bare None.
-        from builder.agents.agent_loop import _unreadable_file_message
+        from builder.agents.react.agent_loop import _unreadable_file_message
 
         msg = _unreadable_file_message("/data/sheet.xlsx", "read_excel")
         assert "read_excel" in msg
@@ -89,7 +89,7 @@ class TestAgentUnreadableMessage:
         # LLM a bare None for missing/binary/too-large files; they must now get
         # the same actionable "skip it" guidance as read_file_sample.
         pytest.importorskip("langchain_core")
-        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.agents.react.agent_loop import _build_langchain_tools
         from builder.engine import AgentEngine
 
         p = _write_binary(tmp_path, "blob.xlsx")

@@ -1,7 +1,7 @@
 """Config -> env hydration for the LIVE ``python -m eval`` path (#179).
 
 The live ReAct factory reads provider/api_key/base_url/model from the
-environment only (``builder.agents.agent_loop``). Credentials kept solely in
+environment only (``builder.agents.react.agent_loop``). Credentials kept solely in
 ``~/.config/vitro-crate/config.toml`` must therefore be bridged into ``os.environ``
 before the live run — exactly as the normal CLI does via
 ``merge_with_env(load_config())`` — otherwise a live run raises

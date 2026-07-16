@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from builder.agents.tools_spec import TOOL_SPECS
+from builder.agents.react.tools_spec import TOOL_SPECS
 
 
 def _tool_names() -> set[str]:
@@ -110,7 +110,7 @@ def _get_tool_names_from_system_prompt() -> set[str]:
 
     Looks for backtick-quoted identifiers and dash-list items.
     """
-    from builder.agents.system_prompt import SYSTEM_PROMPT
+    from builder.agents.react.system_prompt import SYSTEM_PROMPT
 
     names: set[str] = set()
     # Find backtick-quoted identifiers like `build_crate`
@@ -126,7 +126,7 @@ def _get_system_prompt_tool_list() -> set[str]:
     form ``- tool_name: description``. It must equal the TOOL_SPECS names so the
     prompt never advertises a tool that has no schema, nor omits one that does.
     """
-    from builder.agents.system_prompt import SYSTEM_PROMPT
+    from builder.agents.react.system_prompt import SYSTEM_PROMPT
 
     # Isolate the "## Your Tools" section (up to the next "## " heading).
     m = re.search(r"## Your Tools\n(.*?)(?:\n## )", SYSTEM_PROMPT, re.S)
@@ -213,7 +213,7 @@ def _import_module() -> object:
     """Helper to import and return the tools_spec module for introspection."""
     import importlib
 
-    return importlib.import_module("builder.agents.tools_spec")
+    return importlib.import_module("builder.agents.react.tools_spec")
 
 
 # We need pytest for the fail helper

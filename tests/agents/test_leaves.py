@@ -1,6 +1,6 @@
 """Tests for the bounded drafter-leaf (Issue #179, task 2).
 
-`builder.agents.leaves.draft_entity_fields` is the cheap-model "bounded
+`builder.agents.pipeline.leaves.draft_entity_fields` is the cheap-model "bounded
 extraction" primitive the §14 deterministic pipeline calls at its leaves:
 free-text context in -> a structured dict of one entity's fields out, in a
 SINGLE LLM call on the drafter tier (`_build_chat_model(role="drafter")`),
@@ -26,7 +26,7 @@ from typing import Any
 import jsonschema
 import pytest
 
-from builder.agents import leaves
+from builder.agents.pipeline import leaves
 from builder.tools._crate_mapping import draft_hints_schema
 
 

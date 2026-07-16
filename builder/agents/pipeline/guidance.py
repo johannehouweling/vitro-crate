@@ -77,7 +77,7 @@ from typing import TYPE_CHECKING, Any, Callable
 # Re-exported at module scope so the spine, tests, and the eval harness have a
 # single stable monkeypatch target — and so a flaky/absent LLM drafter / guidance
 # leaf can be stubbed without importing langchain.
-from builder.agents.pipeline import draft_entity_fields
+from builder.agents.pipeline.pipeline import draft_entity_fields
 from builder.config import get_provider
 from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
 
@@ -100,13 +100,13 @@ phrase_gap_question: Callable[..., str] | None
 interpret_gap_reply: Callable[..., dict[str, Any]] | None
 extract_field_from_file: Callable[..., str] | None
 try:  # pragma: no cover — exercised by both branches across the test matrix
-    from builder.agents.leaves import (
+    from builder.agents.pipeline.leaves import (
         extract_field_from_file as _extract_file_leaf,
     )
-    from builder.agents.leaves import (
+    from builder.agents.pipeline.leaves import (
         interpret_gap_reply as _interpret_leaf,
     )
-    from builder.agents.leaves import (
+    from builder.agents.pipeline.leaves import (
         phrase_gap_question as _phrase_leaf,
     )
 
@@ -150,7 +150,7 @@ _DESCRIPTIVE_FIELDS: frozenset[str] = frozenset({"name", "description"})
 
 # D5: identifier-bearing field names the deterministic interpret fallback must
 # NEVER commit from the user's prose (those come from lookups). Mirrors
-# `builder.agents.leaves._IDENTIFIER_SCALAR_FIELDS`; kept local so the no-provider
+# `builder.agents.pipeline.leaves._IDENTIFIER_SCALAR_FIELDS`; kept local so the no-provider
 # / offline path stays free of the (langchain-importing) leaves module.
 _IDENTIFIER_FIELDS: frozenset[str] = frozenset(
     {
@@ -178,6 +178,7 @@ _IDENTIFIER_FIELDS: frozenset[str] = frozenset(
 def _is_identifier_field(field: str) -> bool:
     """Whether ``field`` (a local property name) is identifier-bearing (D5)."""
     return field in _IDENTIFIER_FIELDS
+
 
 # (#275) Person/agent-typed fields whose ISA value MUST be a Person (or
 # Organization) ENTITY REFERENCE, never a literal string. Answering one of these
@@ -418,9 +419,7 @@ def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
 
     field = _local_name(gap.property) or (gap.property or "")
     ref_id = _mint_id(person)
-    engine.run_tool(
-        "set_fields", entity_id=state_id, fields={field: {"@id": ref_id}}
-    )
+    engine.run_tool("set_fields", entity_id=state_id, fields={field: {"@id": ref_id}})
     return True
 
 
@@ -456,9 +455,7 @@ def _apply_citation_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     doi_match = _DOI_RE.search(text)
     try:
         if doi_match:
-            result = engine.run_tool(
-                "draft_publication_with_authors", doi=doi_match.group(0)
-            )
+            result = engine.run_tool("draft_publication_with_authors", doi=doi_match.group(0))
             return isinstance(result, dict) and bool(result.get("publication_id"))
         result = engine.run_tool("resolve_publication", title=text)
         return isinstance(result, dict) and bool(result.get("ok"))
@@ -719,11 +716,7 @@ def _ground_entityless_gap(engine: AgentEngine, gap: Gap, context: dict[str, Any
     except (KeyError, ValueError) as exc:  # pragma: no cover — unknown type is rare
         logger.debug("guidance: cannot list %s instances: %s", entity_type, exc)
         return
-    named = [
-        (entity, name)
-        for entity in instances
-        if (name := _entity_display_name(entity))
-    ]
+    named = [(entity, name) for entity in instances if (name := _entity_display_name(entity))]
     if not named:
         return
     if len(named) == 1:
@@ -832,9 +825,7 @@ def _deterministic_decision(gap: Gap, reply: str) -> dict[str, Any]:
     return {"action": "commit", "value": reply.strip()}
 
 
-def _interpret_reply(
-    engine: AgentEngine, gap: Gap, question: str, reply: str
-) -> dict[str, Any]:
+def _interpret_reply(engine: AgentEngine, gap: Gap, question: str, reply: str) -> dict[str, Any]:
     """Interpret ``reply`` into a structured decision via the LLM leaf.
 
     Calls :func:`interpret_gap_reply` (the drafter-tier leaf) and returns its
@@ -849,15 +840,11 @@ def _interpret_reply(
     try:
         return interpret_gap_reply(question, reply, _gap_context(engine, gap))
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
-        logger.warning(
-            "guidance: interpret leaf failed (%s); deterministic fallback", exc
-        )
+        logger.warning("guidance: interpret leaf failed (%s); deterministic fallback", exc)
         return _deterministic_decision(gap, reply)
 
 
-def _resolve_ask_user(
-    engine: AgentEngine, human: HumanInterface, gap: Gap
-) -> str | None:
+def _resolve_ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | None:
     """Run the LLM-mediated ask-user exchange for ``gap``; return a clean value.
 
     The §14.6 "small guidance agent" (#244, #257). When a provider is configured
@@ -924,9 +911,7 @@ def _resolve_ask_user(
         return None
 
 
-def _candidate_file_paths(
-    engine: AgentEngine, filename: str | None, reply: str
-) -> list[str]:
+def _candidate_file_paths(engine: AgentEngine, filename: str | None, reply: str) -> list[str]:
     """Likely on-disk paths the user pointed at, best-effort and bounded (#257).
 
     Combines, in priority order:
@@ -996,9 +981,7 @@ def _read_pointed_file(engine: AgentEngine, candidates: list[str]) -> str | None
             logger.warning("guidance: from_file read failed for %s: %s", candidate, exc)
             continue
         except Exception as exc:  # noqa: BLE001 — a malformed file must not break the loop
-            logger.warning(
-                "guidance: unexpected from_file read error for %s: %s", candidate, exc
-            )
+            logger.warning("guidance: unexpected from_file read error for %s: %s", candidate, exc)
             continue
         if body and body.strip():
             return body[:_MAX_FILE_EXTRACT_CHARS]
@@ -1042,9 +1025,7 @@ def _resolve_from_file(
 
     file_text = _read_pointed_file(engine, candidates)
     if file_text is None:
-        logger.info(
-            "guidance: from_file file unreadable / outside scan roots; skipping (#257)."
-        )
+        logger.info("guidance: from_file file unreadable / outside scan roots; skipping (#257).")
         return None
 
     try:
@@ -1093,9 +1074,7 @@ def _resolve_gap(
 
     # --- auto-fixable: deterministic repair, no human prompt -------------------
     if gap.auto_fixable:
-        result = engine.run_tool(
-            "fix_required_issues", profile="all", severity="required"
-        )
+        result = engine.run_tool("fix_required_issues", profile="all", severity="required")
         fixed = bool(result.get("fixed"))
         if fixed:
             resolved.append({**record, "via": "fix_required_issues"})
@@ -1222,9 +1201,7 @@ def run_guidance(
             break
 
         rounds += 1
-        progressed = _resolve_gap(
-            engine, human, gap, resolved=resolved, asked=asked
-        )
+        progressed = _resolve_gap(engine, human, gap, resolved=resolved, asked=asked)
 
         if progressed:
             # State changed: re-assess from scratch and forget the per-report

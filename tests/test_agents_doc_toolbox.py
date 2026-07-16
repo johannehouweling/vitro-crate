@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from builder.agents.tools_spec import TOOL_SPECS
+from builder.agents.react.tools_spec import TOOL_SPECS
 
 _AGENTS_MD = Path(__file__).resolve().parent.parent / "AGENTS.md"
 

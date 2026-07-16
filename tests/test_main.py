@@ -155,7 +155,7 @@ class TestInteractiveDispatch:
             lambda engine, **kw: calls.append("build") or {"pipeline": {}, "guidance": None},
         )
 
-        import builder.agents.agent_loop as agent_loop
+        import builder.agents.react.agent_loop as agent_loop
 
         monkeypatch.setattr(
             agent_loop,
@@ -180,7 +180,7 @@ class TestInteractiveDispatch:
             lambda engine, **kw: calls.append("build") or {"pipeline": {}, "guidance": None},
         )
 
-        import builder.agents.agent_loop as agent_loop
+        import builder.agents.react.agent_loop as agent_loop
 
         monkeypatch.setattr(
             agent_loop,
@@ -233,7 +233,7 @@ class TestInteractiveDispatch:
         self._stub_config(monkeypatch)
         seen: list[bool] = []
 
-        import builder.agents.agent_loop as agent_loop
+        import builder.agents.react.agent_loop as agent_loop
 
         def _capture(engine, *a, **kw):
             seen.append(is_interactive(engine.human_interface))

@@ -133,9 +133,7 @@ def remove_entity(state: CrateState, entity_id: str, cascade: bool = False) -> b
     """
     referrers = find_referrers(state, entity_id)
     if referrers and not cascade:
-        named = ", ".join(
-            sorted({f"{ent.entity_id} (via {field})" for ent, field in referrers})
-        )
+        named = ", ".join(sorted({f"{ent.entity_id} (via {field})" for ent, field in referrers}))
         raise ValueError(
             f"Cannot remove '{entity_id}': still referenced by {named}. "
             f"Repoint or remove those references first, or pass cascade=True to "
@@ -194,8 +192,7 @@ def list_scanned_files(
 
     def _match(fc: FileClassification) -> bool:
         if name_q is not None and (
-            name_q not in (fc.filename or "").lower()
-            and name_q not in (fc.path or "").lower()
+            name_q not in (fc.filename or "").lower() and name_q not in (fc.path or "").lower()
         ):
             return False
         if mime_q is not None and mime_q not in (fc.mime_type or "").lower():

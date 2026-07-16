@@ -2,8 +2,8 @@
 
 Model construction (:func:`_build_chat_model`) plus the provider-detection,
 token-usage, request-timeout and recursion-limit helpers used by BOTH the ReAct
-agent loop (:mod:`builder.agents.agent_loop`) and the deterministic pipeline's
-bounded leaves (:mod:`builder.agents.leaves`).
+agent loop (:mod:`builder.agents.react.agent_loop`) and the deterministic pipeline's
+bounded leaves (:mod:`builder.agents.pipeline.leaves`).
 
 Extracted out of ``agent_loop.py`` so the pipeline no longer imports from an
 agent-mode module just to build its drafter model -- a wrong-direction
@@ -264,7 +264,7 @@ def _extract_token_usage(message: Any) -> tuple[int | None, int | None]:
 
     Provider-agnostic and the SINGLE source of truth for usage mining across the
     ReAct model node (:func:`_wrap_model_node`) and the deterministic pipeline's
-    bounded leaves (:mod:`builder.agents.leaves`), so both arms of the eval
+    bounded leaves (:mod:`builder.agents.pipeline.leaves`), so both arms of the eval
     harness record token counts with identical semantics:
 
     1. Prefer the standardised ``usage_metadata`` (langchain-core >=0.3).

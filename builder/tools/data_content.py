@@ -165,9 +165,7 @@ def validate_table(
         # Frictionless 5 refuses absolute/unsafe paths unless the running context
         # is marked trusted; this is a local, user-approved file, so opt in.
         with system.use_context(trusted=True):
-            report = _run_validation(
-                Package, Resource, schema, path, foreign_keys
-            )
+            report = _run_validation(Package, Resource, schema, path, foreign_keys)
     except Exception as e:  # noqa: BLE001 - surface as a tool error, never crash the loop
         logger.error("validate_table failed: %s", e)
         return {"ok": False, "issues": [], "error": str(e)}
@@ -375,6 +373,4 @@ def populate_condition_table(
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("validate_table", validate_table, takes_state=False)
-TOOL_REGISTRY.register(
-    "populate_condition_table", populate_condition_table, takes_state=True
-)
+TOOL_REGISTRY.register("populate_condition_table", populate_condition_table, takes_state=True)

@@ -644,9 +644,7 @@ ENTITY_COLLECTION_NAMES: tuple[str, ...] = tuple(dict.fromkeys(ENTITY_TYPE_MAP.v
 # holds both Sample and CellLineSample) — used by EntityStore to do
 # type-qualified key lookups when the bare entity_id is not found (Issue #57).
 _SHARED_COLLECTION_NAMES: frozenset[str] = frozenset(
-    coll_name
-    for coll_name, count in COLLECTION_NAME_COUNTS.items()
-    if count > 1
+    coll_name for coll_name, count in COLLECTION_NAME_COUNTS.items() if count > 1
 )
 
 
@@ -757,13 +755,10 @@ class EntityStore:
         to match the format ``add_entity`` uses — see Issue #57.
         """
 
-        def _entities_from_list(
-            items: list[dict[str, Any]], is_shared: bool
-        ) -> dict[str, Entity]:
+        def _entities_from_list(items: list[dict[str, Any]], is_shared: bool) -> dict[str, Entity]:
             if is_shared:
                 return {
-                    f"{item['type']}:{item['entity_id']}": Entity.from_dict(item)
-                    for item in items
+                    f"{item['type']}:{item['entity_id']}": Entity.from_dict(item) for item in items
                 }
             return {item["entity_id"]: Entity.from_dict(item) for item in items}
 

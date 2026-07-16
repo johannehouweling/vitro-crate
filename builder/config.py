@@ -496,6 +496,7 @@ def _ask_model_provider(config: dict[str, Any], section: str) -> None:
     mp = input(prompt).strip().lower()
     config[section]["model_provider"] = mp or "openai"
 
+
 __all__ = [
     "load_config",
     "save_config",
