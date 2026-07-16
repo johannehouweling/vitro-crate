@@ -125,9 +125,7 @@ def read_excel(
         return None
 
     try:
-        wb = openpyxl.load_workbook(
-            file_path, read_only=True, data_only=True, keep_links=False
-        )
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True, keep_links=False)
     except Exception:
         logger.exception("Error opening Excel file: %s", path)
         return None
@@ -152,6 +150,8 @@ def read_excel(
         wb.close()
 
     return "\n".join(parts).rstrip("\n")
+
+
 # ---------------------------------------------------------------------------
 # Word (.docx)
 # ---------------------------------------------------------------------------
@@ -229,12 +229,11 @@ def read_docx(
             if table_rows:
                 parts.append(f"[Table {table_idx} ({len(table_rows)} rows)]")
                 parts.append(table_rows[0])
-                parts.append(
-                    "| " + " | ".join("---" for _ in table.rows[0].cells) + " |"
-                )
+                parts.append("| " + " | ".join("---" for _ in table.rows[0].cells) + " |")
                 parts.extend(table_rows[1:])
 
     return "\n".join(parts)
+
 
 # ---------------------------------------------------------------------------
 # Unified dispatcher
@@ -363,6 +362,7 @@ def read_file(
 
     # Everything else is read as plain text (full content up to the byte budget).
     return _read_text_file(path, max_bytes=max_bytes)
+
 
 # ---------------------------------------------------------------------------
 # Explicit ToolRegistry registration

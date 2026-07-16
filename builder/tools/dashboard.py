@@ -353,44 +353,76 @@ def _determine_phase_from_state(state: dict[str, Any]) -> str:
 
 # Emoji icons per tool for compact display
 _TOOL_ICONS: dict[str, str] = {
-    "draft_investigation": "\U0001f4cb", "draft_study": "\U0001f4cb",
-    "draft_assay": "\U0001f4cb", "draft_process": "\U0001f4cb",
-    "draft_protocol": "\U0001f4cb", "draft_sample": "\U0001f4cb",
+    "draft_investigation": "\U0001f4cb",
+    "draft_study": "\U0001f4cb",
+    "draft_assay": "\U0001f4cb",
+    "draft_process": "\U0001f4cb",
+    "draft_protocol": "\U0001f4cb",
+    "draft_sample": "\U0001f4cb",
     "draft_molecular_entity": "\U0001f4cb",
-    "draft_cell_line_sample": "\U0001f4cb", "draft_person": "\U0001f4cb",
-    "draft_organization": "\U0001f4cb", "draft_publication": "\U0001f4cb",
-    "draft_defined_term": "\U0001f4cb", "draft_property_value": "\U0001f4cb",
+    "draft_cell_line_sample": "\U0001f4cb",
+    "draft_person": "\U0001f4cb",
+    "draft_organization": "\U0001f4cb",
+    "draft_publication": "\U0001f4cb",
+    "draft_defined_term": "\U0001f4cb",
+    "draft_property_value": "\U0001f4cb",
     "draft_file": "\U0001f4cb",
     "list_entities": "\U0001f4cb",
     "list_scanned_files": "\U0001f4c2",
-    "remove_entity": "\U0001f4cb", "set_fields": "\U0001f4dd",
-    "link": "\U0001f517", "attach_files": "\U0001f4ce", "check_provenance": "\U0001f9ec",
-    "lookup_compound": "\U0001f50d", "lookup_cell_line": "\U0001f50d",
+    "remove_entity": "\U0001f4cb",
+    "set_fields": "\U0001f4dd",
+    "link": "\U0001f517",
+    "attach_files": "\U0001f4ce",
+    "check_provenance": "\U0001f9ec",
+    "lookup_compound": "\U0001f50d",
+    "lookup_cell_line": "\U0001f50d",
     "lookup_cell_line_by_name": "\U0001f50d",
-    "lookup_aop": "\U0001f50d", "lookup_bao_term": "\U0001f50d",
-    "lookup_ontology_term": "\U0001f50d", "lookup_unit": "\U0001f50d",
+    "lookup_aop": "\U0001f50d",
+    "lookup_bao_term": "\U0001f50d",
+    "lookup_ontology_term": "\U0001f50d",
+    "lookup_unit": "\U0001f50d",
     "lookup_dtxsid": "\U0001f50d",
-    "lookup_orcid": "\U0001f50d", "lookup_ror": "\U0001f50d",
+    "lookup_orcid": "\U0001f50d",
+    "lookup_ror": "\U0001f50d",
     "lookup_doi": "\U0001f50d",
-    "scan_files": "\U0001f4c2", "read_file_sample": "\U0001f4c2",
-    "read_multiple_files": "\U0001f4c2", "preview_archive": "\U0001f4c2",
-    "extract_pdf_text": "\U0001f4c4", "extract_pdf_tables": "\U0001f4c4",
-    "verify_identifier": "\u2705", "verify_all_identifiers": "\u2705",
-    "build_and_validate": "\u2714\ufe0f", "fix_required_issues": "\U0001f527",
+    "scan_files": "\U0001f4c2",
+    "read_file_sample": "\U0001f4c2",
+    "read_multiple_files": "\U0001f4c2",
+    "preview_archive": "\U0001f4c2",
+    "extract_pdf_text": "\U0001f4c4",
+    "extract_pdf_tables": "\U0001f4c4",
+    "verify_identifier": "\u2705",
+    "verify_all_identifiers": "\u2705",
+    "build_and_validate": "\u2714\ufe0f",
+    "fix_required_issues": "\U0001f527",
     "export_crate": "\U0001f3ed",
-    "build_crate": "\U0001f3ed", "validate": "\u2714\ufe0f",
-    "validate_table": "\U0001f4c8", "populate_condition_table": "\U0001f4c8",
-    "assess_mit_coverage": "\U0001f52e", "assess_fair_maturity": "\U0001f52e",
-    "save_session": "\U0001f4be", "load_session": "\U0001f4c1",
-    "list_sessions": "\U0001f4ca", "get_status": "\U0001f4ac",
-    "get_hint": "\U0001f4a1", "present_to_human": "\U0001f468\u200d\U0001f4bb",
+    "build_crate": "\U0001f3ed",
+    "validate": "\u2714\ufe0f",
+    "validate_table": "\U0001f4c8",
+    "populate_condition_table": "\U0001f4c8",
+    "assess_mit_coverage": "\U0001f52e",
+    "assess_fair_maturity": "\U0001f52e",
+    "save_session": "\U0001f4be",
+    "load_session": "\U0001f4c1",
+    "list_sessions": "\U0001f4ca",
+    "get_status": "\U0001f4ac",
+    "get_hint": "\U0001f4a1",
+    "present_to_human": "\U0001f468\u200d\U0001f4bb",
     "request_input": "\u2328\ufe0f",
 }
 
 # Category ordering for display groups
 _CATEGORY_ORDER = [
-    "Drafting", "Management", "Lookups", "Files",
-    "Verify", "Crate", "Assess", "Session", "HITL", "Other",
+    "Drafting",
+    "Management",
+    "Lookups",
+    "Files",
+    "Verify",
+    "Crate",
+    "Assess",
+    "Session",
+    "HITL",
+    "Other",
 ]
 
 
@@ -419,9 +451,7 @@ def _build_tool_lines(
         per_tool[tool]["count"] += 1
         per_tool[tool]["total"] += dur
 
-    sorted_tools = sorted(
-        per_tool.items(), key=lambda x: x[1]["total"], reverse=True
-    )
+    sorted_tools = sorted(per_tool.items(), key=lambda x: x[1]["total"], reverse=True)
 
     parts: list[str] = []
     for tool, stats in sorted_tools:
@@ -806,6 +836,7 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
     node_str = f"  [{LABEL_STYLE}]│[/{LABEL_STYLE}]  ".join(node_parts)
 
     from rich.text import Text as RichText
+
     summary_text = RichText.from_markup(
         f"[{HEADER_STYLE}]Token Usage[/{HEADER_STYLE}]: cumulative {tok_in}→{tok_out} ({tok_total})"
         f"[{LABEL_STYLE}]{last_str}[/{LABEL_STYLE}]"

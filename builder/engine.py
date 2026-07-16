@@ -338,9 +338,7 @@ class AgentEngine:
                     "files": {},
                     "count": 0,
                     "skipped": list(paths),
-                    "message": (
-                        "Refused: no path was inside an approved scan root (#167)."
-                    ),
+                    "message": ("Refused: no path was inside an approved scan root (#167)."),
                 }
             if refused:
                 kwargs["paths"] = allowed
@@ -436,9 +434,7 @@ class AgentEngine:
         approved = _directory_to_approve(path)
         if approved is None:
             # A bare/forbidden root is never approvable, even with consent.
-            logger.warning(
-                "Refusing approved-by-user but forbidden scan root: %s", path
-            )
+            logger.warning("Refusing approved-by-user but forbidden scan root: %s", path)
             self.state.log_reasoning(
                 "refuse_scan_root",
                 "scan_files",

@@ -142,9 +142,7 @@ class ProgressSpinner:
             self._status: Any | None = console.status(
                 self._render(), spinner="dots", spinner_style="green"
             )
-            self._thread: threading.Thread | None = threading.Thread(
-                target=self._tick, daemon=True
-            )
+            self._thread: threading.Thread | None = threading.Thread(target=self._tick, daemon=True)
         else:
             self._status = None
             self._thread = None

@@ -132,8 +132,7 @@ def read_existing_crate(crate_dir: str) -> CrateState:
         # If the crate keeps a separate Investigation node, don't ALSO reconstruct
         # one from the root (avoid a duplicate Investigation on rebuild).
         has_separate_inv = any(
-            _crate_type(n) == "Investigation" and n.get("@id") not in ("./", "")
-            for n in graph
+            _crate_type(n) == "Investigation" and n.get("@id") not in ("./", "") for n in graph
         )
 
         for node in graph:
@@ -186,7 +185,7 @@ def read_existing_crate(crate_dir: str) -> CrateState:
             entity_id = node_id[1:] if node_id.startswith("#") else node_id
             prefix = f"{ctype}_"
             if node_id.startswith("#") and entity_id.startswith(prefix):
-                entity_id = entity_id[len(prefix):]
+                entity_id = entity_id[len(prefix) :]
             fields = {k: v for k, v in node.items() if not k.startswith("@")}
             # Preserve a File's in-crate location: its @id is the crate-relative
             # path, which the builder re-reads from ``dest_path`` to re-place it.

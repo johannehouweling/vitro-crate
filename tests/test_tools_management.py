@@ -363,7 +363,7 @@ class TestConsolidatedMutationTool:
             assert redundant not in names, f"{redundant} should no longer be registered"
 
     def test_set_fields_is_in_tool_specs_and_redundant_ones_are_not(self):
-        from builder.agents.tools_spec import TOOL_SPECS
+        from builder.agents.react.tools_spec import TOOL_SPECS
 
         names = {s["name"] for s in TOOL_SPECS}
         assert "set_fields" in names

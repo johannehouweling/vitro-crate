@@ -107,9 +107,7 @@ def reaches_isa_tox_conformance(state: CrateState) -> dict[str, Any]:
     }
 
 
-def meets_entity_quota(
-    state: CrateState, min_entities: dict[str, int] | None
-) -> dict[str, Any]:
+def meets_entity_quota(state: CrateState, min_entities: dict[str, int] | None) -> dict[str, Any]:
     """Content-quality check: did *state* draft at least ``min_entities`` per type?
 
     This is the second, *additive* signal the A/B uses alongside

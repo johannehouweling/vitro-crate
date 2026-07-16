@@ -162,7 +162,7 @@ def _skip() -> InputResponse:
 
 class TestReturnShape:
     def test_returns_summary_dict(self):
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         human = ScriptedHuman()
@@ -177,7 +177,7 @@ class TestReturnShape:
 
     def test_terminates_on_clean_backbone_with_user_done(self):
         """No MUST gaps + user declines every SHOULD/MAY -> terminate, no crash."""
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         # The user skips/declines every ask-user prompt -> the loop should stop
@@ -195,7 +195,7 @@ class TestReturnShape:
 
 class TestAutoFixable:
     def test_auto_fixable_must_fixed_without_prompt(self):
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_endpoint_readout_missing_result(n_files=1))
         # Sanity: the missing-result MUST is auto_fixable before the loop runs.
@@ -235,8 +235,8 @@ class TestAutoFixable:
 
 class TestAskUser:
     def test_ask_user_gap_prompts_and_applies_answer(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         # A single ask-user MUST gap on a real state entity (the Study), so the
         # answer is applied via set_fields and re-assessment can see it.
@@ -274,8 +274,8 @@ class TestAskUser:
         assert any(a.get("entity_id") == "st1" for a in summary["asked"])
 
     def test_skipped_ask_user_is_not_applied(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         state = _backbone()
         engine = AgentEngine(state=state)
@@ -318,8 +318,8 @@ class TestAskUser:
 
 class TestDraftable:
     def test_draftable_gap_drafts_confirms_commits(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         state = _backbone()
         engine = AgentEngine(state=state)
@@ -367,8 +367,8 @@ class TestDraftable:
         assert any(r.get("fix_hint") == "draft" for r in summary["resolved"])
 
     def test_rejected_draft_falls_back_to_ask_user(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         state = _backbone()
         engine = AgentEngine(state=state)
@@ -424,8 +424,8 @@ class TestDraftable:
 
 class TestTermination:
     def test_max_rounds_bounds_the_loop(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
 
@@ -468,8 +468,8 @@ class TestTermination:
         (skipping each gap once) and stop — without burning all 50 rounds and
         without re-asking the same gap forever.
         """
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
 
@@ -515,8 +515,8 @@ class TestTermination:
         assert len(human.inputs) == 2, human.inputs
 
     def test_processes_must_before_should_before_may(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
 
@@ -585,8 +585,8 @@ class TestSkipUncommittableGaps:
         This is the regression for the production bug: one un-progressable gap
         used to ``break`` the WHOLE loop, abandoning every remaining gap.
         """
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
 
@@ -648,7 +648,7 @@ class TestSkipUncommittableGaps:
 
     def test_report_only_gap_is_never_actionable(self):
         """``_next_actionable_gap`` must never return a report-only gap."""
-        from builder.agents.guidance import _next_actionable_gap
+        from builder.agents.pipeline.guidance import _next_actionable_gap
 
         report_only = Gap(
             tier="SHOULD",
@@ -669,7 +669,7 @@ class TestSkipUncommittableGaps:
 
     def test_next_actionable_gap_respects_skip_set(self):
         """A gap already in the skip-set is passed over for the next actionable one."""
-        from builder.agents.guidance import _next_actionable_gap
+        from builder.agents.pipeline.guidance import _next_actionable_gap
 
         first = Gap(
             tier="SHOULD",
@@ -710,7 +710,7 @@ class TestSkipUncommittableGaps:
 class TestAskUserPrompt:
     def test_ask_user_prompt_is_human_readable(self):
         """The prompt must name WHAT field and WHY, not echo the raw gap message."""
-        from builder.agents.guidance import _ask_user
+        from builder.agents.pipeline.guidance import _ask_user
 
         engine = AgentEngine(state=_backbone())
         gap = Gap(
@@ -745,7 +745,7 @@ class TestAskUserPrompt:
 class TestReassessmentIntegration:
     def test_real_auto_fix_clears_must_on_reassess(self):
         """End-to-end over the REAL gap engine: an auto-fixable MUST clears."""
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_endpoint_readout_missing_result(n_files=1))
         human = ScriptedHuman()  # never consulted for an auto-fix
@@ -774,7 +774,7 @@ def _single_ask_gap_report(monkeypatch, gap: Gap, *, counts: dict[str, int]):
     then (whether or not it was committed) the next round sees a clean report so
     the loop terminates promptly.
     """
-    from builder.agents import guidance
+    from builder.agents.pipeline import guidance
 
     reports = iter(
         [
@@ -802,15 +802,15 @@ def _study_desc_gap(tier: Tier = "MUST") -> Gap:
 class TestLLMMediatedAskUser:
     def _enable_provider(self, monkeypatch):
         """Make ``get_provider()`` (as seen by guidance) report a provider."""
-        from builder.agents import guidance
+        from builder.agents.pipeline import guidance
 
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
 
     def test_idk_reply_is_skipped_not_stored(self, monkeypatch):
         """The headline regression: a free-text 'I don't know' reply must SKIP —
         it must NEVER be stored verbatim as the field value (#244)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         original = _get(engine, "st1").fields.get("description")
@@ -847,8 +847,8 @@ class TestLLMMediatedAskUser:
     def test_natural_language_reply_is_interpreted_to_clean_value(self, monkeypatch):
         """A NL reply carrying a value is interpreted to a clean committed value,
         not stored verbatim (#244)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         self._enable_provider(monkeypatch)
@@ -888,8 +888,8 @@ class TestLLMMediatedAskUser:
     def test_clarify_asks_at_most_one_follow_up_then_skips(self, monkeypatch):
         """A clarify decision asks ONE follow-up; if still unresolved, it skips —
         the clarify path can never loop (#244)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         original = _get(engine, "st1").fields.get("description")
@@ -927,8 +927,8 @@ class TestLLMMediatedAskUser:
 
     def test_clarify_then_commit_lands_the_clarified_value(self, monkeypatch):
         """One clarify follow-up that yields a value commits the clarified value."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         self._enable_provider(monkeypatch)
@@ -964,8 +964,8 @@ class TestLLMMediatedAskUser:
     def test_from_file_does_not_store_prose(self, monkeypatch):
         """A 'it's in a file' reply must NOT store the user's prose; it records a
         filename hint and does not commit a value (#244)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         original = _get(engine, "st1").fields.get("description")
@@ -998,8 +998,8 @@ class TestLLMMediatedAskUser:
 
     def test_phrase_leaf_question_is_shown_to_the_user(self, monkeypatch):
         """The PHRASED question (not the raw SHACL message) is what the user sees."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         self._enable_provider(monkeypatch)
@@ -1030,8 +1030,8 @@ class TestNoProviderDeterministicFallback:
     deterministic ask-and-set behavior (#244)."""
 
     def test_no_provider_commits_nonempty_reply_verbatim(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         # No provider -> deterministic path; the leaves must NEVER be called.
@@ -1058,8 +1058,8 @@ class TestNoProviderDeterministicFallback:
         )
 
     def test_no_provider_skip_does_not_commit(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         original = _get(engine, "st1").fields.get("description")
@@ -1082,8 +1082,8 @@ class TestReportOnlyNeverAskedWithLLM:
     they are never phrased, interpreted, or offered to the user (#244)."""
 
     def test_report_only_gap_never_phrased_or_asked(self, monkeypatch):
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
@@ -1143,7 +1143,7 @@ class TestQuestionNamesEntity:
     def test_gap_context_carries_resolved_entity_name_and_type(self):
         """``_gap_context`` resolves the entity from state and includes its name,
         type, and known fields so the leaf can name it (Issue #257)."""
-        from builder.agents.guidance import _gap_context
+        from builder.agents.pipeline.guidance import _gap_context
 
         engine = AgentEngine(state=_backbone_with_compound("Silychristin A"))
         gap = Gap(
@@ -1171,8 +1171,8 @@ class TestQuestionNamesEntity:
     def test_phrased_question_names_the_entity_not_this_chemical(self, monkeypatch):
         """End-to-end: a gap on the named compound yields a question that contains
         the NAME, never a bare 'this chemical'."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone_with_compound("Silychristin A"))
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
@@ -1215,7 +1215,7 @@ class TestQuestionNamesEntity:
 
     def test_deterministic_prompt_names_the_entity(self):
         """Even the no-provider deterministic prompt names the entity (Issue #257)."""
-        from builder.agents.guidance import _ask_user
+        from builder.agents.pipeline.guidance import _ask_user
 
         engine = AgentEngine(state=_backbone_with_compound("Silychristin A"))
         gap = Gap(
@@ -1276,7 +1276,7 @@ class TestMITGapGroundedInInstanceName:
     def test_gap_context_grounds_entityless_mit_gap_in_the_instance(self):
         """``_gap_context`` for an entity_id=None MIT gap resolves the single
         in-state instance and threads its NAME in (#179, Commit 2)."""
-        from builder.agents.guidance import _gap_context
+        from builder.agents.pipeline.guidance import _gap_context
 
         engine = AgentEngine(state=_backbone_with_cell_line("CHO-K1 OATP1C1"))
         ctx = _gap_context(engine, _mit_cell_line_gap())
@@ -1291,8 +1291,8 @@ class TestMITGapGroundedInInstanceName:
     def test_phrased_question_names_the_real_cell_line_never_hepg2(self, monkeypatch):
         """End-to-end: a phrased question for the MIT gap names the REAL cell line
         ("CHO-K1") and never the fabricated stock example "HepG2" (#179)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone_with_cell_line("CHO-K1 OATP1C1"))
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
@@ -1324,7 +1324,7 @@ class TestMITGapGroundedInInstanceName:
     def test_multiple_instances_surface_their_names_not_a_bare_type(self):
         """When several instances of the type exist, the gap context must surface
         their names (disambiguation) rather than a bare nameless type (#179)."""
-        from builder.agents.guidance import _gap_context
+        from builder.agents.pipeline.guidance import _gap_context
 
         state = _backbone()
         state.add_entity(_entity("cl1", "CellLineSample", name="CHO-K1 OATP1C1"))
@@ -1355,15 +1355,15 @@ class TestMITGapGroundedInInstanceName:
 
 class TestFromFileReadsAndExtracts:
     def _enable_provider(self, monkeypatch):
-        from builder.agents import guidance
+        from builder.agents.pipeline import guidance
 
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
 
     def test_from_file_reads_extracts_and_commits(self, monkeypatch, tmp_path):
         """The headline regression: a 'look in the file' reply must READ the file,
         EXTRACT the value, and COMMIT it — not log a hint and skip (Issue #257)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         # A real file under an approved scan root carrying the value.
         meta = tmp_path / "Assay-metadata.csv"
@@ -1435,8 +1435,8 @@ class TestFromFileReadsAndExtracts:
     ):
         """A file outside every approved scan root is NOT read — the loop skips
         gracefully and commits nothing (sandbox honoured, Issue #257)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         # The file exists, but NO approved scan root contains it.
         outside = tmp_path / "secret.csv"
@@ -1489,8 +1489,8 @@ class TestFromFileReadsAndExtracts:
     def test_from_file_unreadable_file_skips_gracefully(self, monkeypatch, tmp_path):
         """A from_file pointing at a missing/unreadable file under an approved root
         skips gracefully (no value extracted, nothing committed)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         state = _backbone()
         state.approved_scan_roots.add(str(tmp_path))
@@ -1544,8 +1544,8 @@ class TestFromFileReadsAndExtracts:
     ):
         """D5: an identifier-bearing field is never committed from file text — even
         a from_file reply pointing at the value must not land it (lookups only)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         meta = tmp_path / "compound.csv"
         meta.write_text("cas,103-90-2\n")
@@ -1637,8 +1637,8 @@ class TestPersonFieldMintsPersonEntity:
     def test_creator_plain_name_mints_person_and_closes_gap(self, monkeypatch):
         """A plain name answered for a Study ``creator`` gap mints a Person and
         links it BY REFERENCE; the creator gap must not re-appear on re-assess."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = _backbone_with_creator_gap()
         gap = _study_creator_gap(engine)
@@ -1688,8 +1688,8 @@ class TestPersonFieldMintsPersonEntity:
     def test_creator_name_with_orcid_verifies_and_attaches(self, monkeypatch):
         """A name + ORCID answer mints a Person with the VERIFIED ORCID (D5: the
         ORCID is only trusted once a lookup confirms the family name)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = _backbone_with_creator_gap()
         gap = _study_creator_gap(engine)
@@ -1742,8 +1742,8 @@ class TestPersonFieldMintsPersonEntity:
     def test_unverified_orcid_is_not_attached(self, monkeypatch):
         """D5: an ORCID whose family name does NOT match the answer is dropped —
         the Person is still minted (a name is descriptive), just without it."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = _backbone_with_creator_gap()
         gap = _study_creator_gap(engine)
@@ -1783,8 +1783,8 @@ class TestPersonFieldMintsPersonEntity:
     def test_creator_answer_is_never_a_literal_string(self, monkeypatch):
         """Regression for the exact bug: the answer must never land as a literal
         ``creator`` string (which leaves isa=fail)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = _backbone_with_creator_gap()
         gap = _study_creator_gap(engine)
@@ -1866,8 +1866,8 @@ class TestRootCitationGapPersistsAndIsNotReAsked:
     def test_doi_answer_routes_to_draft_publication_with_authors(self, monkeypatch):
         """A DOI answer for the root citation gap calls
         ``draft_publication_with_authors`` (the answer is persisted, not dropped)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         monkeypatch.setattr(guidance, "get_provider", lambda: None)
@@ -1895,8 +1895,8 @@ class TestRootCitationGapPersistsAndIsNotReAsked:
 
     def test_title_answer_routes_to_resolve_publication(self, monkeypatch):
         """A non-DOI (title) answer routes to ``resolve_publication``."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         monkeypatch.setattr(guidance, "get_provider", lambda: None)
@@ -1923,8 +1923,8 @@ class TestRootCitationGapPersistsAndIsNotReAsked:
         """The headline regression: the always-highest-priority root citation MUST
         gap must be asked AT MOST ONCE even when other gaps keep committing and
         re-assessment keeps re-emitting it (the per-RUN skip-set, #179)."""
-        from builder.agents import guidance
-        from builder.agents.guidance import run_guidance
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
         monkeypatch.setattr(guidance, "get_provider", lambda: None)

@@ -1,8 +1,8 @@
 """Shared LLM plumbing lives in ``builder.agents.llm`` (Issue #309).
 
 Model construction and the provider/token/timeout/recursion helpers are used by
-BOTH build modes — the ReAct loop (``builder.agents.agent_loop``) and the
-deterministic pipeline's bounded leaves (``builder.agents.leaves``). They were
+BOTH build modes — the ReAct loop (``builder.agents.react.agent_loop``) and the
+deterministic pipeline's bounded leaves (``builder.agents.pipeline.leaves``). They were
 extracted out of ``agent_loop.py`` so the pipeline no longer imports from an
 agent-mode module to build its drafter model. These tests pin the symbols to
 their new home (import parity) and smoke-test behaviour.

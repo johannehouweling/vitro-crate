@@ -20,7 +20,7 @@ from builder.tools._crate_mapping import (
 
 def _spec(name: str) -> dict[str, Any]:
     """Return the TOOL_SPECS entry for ``name`` as a plain dict (typed for ty)."""
-    from builder.agents.tools_spec import TOOL_SPECS
+    from builder.agents.react.tools_spec import TOOL_SPECS
 
     return next(cast(dict[str, Any], s) for s in TOOL_SPECS if s["name"] == name)
 
@@ -87,7 +87,7 @@ def test_draft_specs_no_longer_use_bare_object_hints():
     The whole point of sub-task 1: a weak model must see typed keys, not an
     opaque object it never fills correctly.
     """
-    from builder.agents.tools_spec import TOOL_SPECS
+    from builder.agents.react.tools_spec import TOOL_SPECS
 
     for raw in TOOL_SPECS:
         spec = cast(dict[str, Any], raw)

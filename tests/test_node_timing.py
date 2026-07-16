@@ -7,7 +7,7 @@ import json
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool as langchain_tool
 
-from builder.agents.agent_loop import (
+from builder.agents.react.agent_loop import (
     _build_agent_graph,
     _tool_names_from_state,
     _wrap_model_node,

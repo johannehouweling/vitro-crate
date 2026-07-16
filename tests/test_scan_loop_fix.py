@@ -93,7 +93,7 @@ class TestScanToolWrapperReturnsSummary:
     """#61 — the LangChain wrapper returns the summary, not the raw list."""
 
     def test_wrapper_summarizes_scan_files(self, monkeypatch):
-        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.agents.react.agent_loop import _build_langchain_tools
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -121,7 +121,7 @@ class TestScanToolWrapperReturnsSummary:
         assert len(result) < 2000
 
     def test_wrapper_passes_through_non_scan_tools(self, monkeypatch):
-        from builder.agents.agent_loop import _build_langchain_tools
+        from builder.agents.react.agent_loop import _build_langchain_tools
         from builder.engine import AgentEngine
 
         engine = AgentEngine()

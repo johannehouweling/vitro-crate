@@ -107,9 +107,9 @@ def draft_entity_fields(
     model: str | None = None,
     usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
-    """Lazy, no-op-safe shim over :func:`builder.agents.leaves.draft_entity_fields`.
+    """Lazy, no-op-safe shim over :func:`builder.agents.pipeline.leaves.draft_entity_fields`.
 
-    The real leaf lives in :mod:`builder.agents.leaves`, which imports
+    The real leaf lives in :mod:`builder.agents.pipeline.leaves`, which imports
     ``langchain_core`` at module load. The deterministic spine, however, must stay
     importable (and runnable) in the **default environment without the
     ``langchain`` extra** — that is how the eval ``--arch pipeline`` path and CI run
@@ -118,10 +118,10 @@ def draft_entity_fields(
     (an unconfigured provider short-circuits before this is ever called).
 
     Defining the leaf as a module-level attribute here also gives tests a stable
-    monkeypatch target (``builder.agents.pipeline.draft_entity_fields``). The
+    monkeypatch target (``builder.agents.pipeline.pipeline.draft_entity_fields``). The
     ``usage_sink`` is forwarded so the leaf can report its token usage (#221).
     """
-    from builder.agents.leaves import draft_entity_fields as _leaf
+    from builder.agents.pipeline.leaves import draft_entity_fields as _leaf
 
     return _leaf(entity_type, context, model=model, usage_sink=usage_sink)
 
@@ -132,7 +132,7 @@ def extract_plan(
     model: str | None = None,
     usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
-    """Lazy, no-op-safe shim over :func:`builder.agents.leaves.extract_plan`.
+    """Lazy, no-op-safe shim over :func:`builder.agents.pipeline.leaves.extract_plan`.
 
     Stage A of the §14 hybrid loop: the whole-document candidate-plan extractor.
     Mirrors the :func:`draft_entity_fields` shim — the real leaf imports
@@ -140,10 +140,10 @@ def extract_plan(
     lazily (inside this shim) and only ever after :func:`_materialize_plan` has
     confirmed an LLM provider is configured. Defining the leaf as a module-level
     attribute here also gives tests a stable monkeypatch target
-    (``builder.agents.pipeline.extract_plan``). The ``usage_sink`` is forwarded so
+    (``builder.agents.pipeline.pipeline.extract_plan``). The ``usage_sink`` is forwarded so
     the leaf can report its token usage (#221).
     """
-    from builder.agents.leaves import extract_plan as _leaf
+    from builder.agents.pipeline.leaves import extract_plan as _leaf
 
     return _leaf(context, model=model, usage_sink=usage_sink)
 
@@ -158,9 +158,7 @@ def _as_int(value: Any) -> int:
         return 0
 
 
-def _make_usage_logger(
-    engine: AgentEngine, totals: dict[str, int]
-) -> UsageSink:
+def _make_usage_logger(engine: AgentEngine, totals: dict[str, int]) -> UsageSink:
     """Build a :data:`UsageSink` that records one leaf call's token usage (#221).
 
     For each leaf call it (1) accumulates ``input``/``output`` tokens into
@@ -249,9 +247,7 @@ _DRAFTABLE_ENTITY_TYPES: frozenset[str] = frozenset(
 # Descriptive fields the spine is willing to fill from the leaf. Restricting to a
 # small, safe set keeps the enrichment bounded and predictable (the leaf may return
 # a long open-schema tail). These are non-identifier free-text fields only.
-_DESCRIPTIVE_APPLY_FIELDS: frozenset[str] = frozenset(
-    {"name", "description"}
-)
+_DESCRIPTIVE_APPLY_FIELDS: frozenset[str] = frozenset({"name", "description"})
 
 # Upper bound on deterministic fix-loop rounds. Each round runs
 # fix_required_issues (which itself validates twice), so this caps the worst-case
@@ -465,9 +461,7 @@ def _gather_context(engine: AgentEngine) -> str:
         # highest-signal files lead both the disk reads and the emitted digest —
         # the pre-fix bug let a large early bulk-data file eat the body budget and
         # the structured metadata that followed got only its filename (#179).
-        ordered = sorted(
-            state.scanned_files, key=lambda f: _metadata_read_priority(f.filename)
-        )
+        ordered = sorted(state.scanned_files, key=lambda f: _metadata_read_priority(f.filename))
 
         # Files that need a disk body read = those without a cheap tabular preview.
         # Each gets at most a FAIR per-file slice of the budget so an early large
@@ -500,9 +494,7 @@ def _gather_context(engine: AgentEngine) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _draft_entities(
-    engine: AgentEngine, usage_sink: UsageSink | None = None
-) -> dict[str, Any]:
+def _draft_entities(engine: AgentEngine, usage_sink: UsageSink | None = None) -> dict[str, Any]:
     """Step 2 — enrich entities via the bounded drafter-leaf (§14.2).
 
     Wires the cheap-model drafter-leaf (:func:`draft_entity_fields`) into the
@@ -556,9 +548,7 @@ def _draft_entities(
             continue
 
         try:
-            leaf_fields = draft_entity_fields(
-                entity.type, context, usage_sink=usage_sink
-            )
+            leaf_fields = draft_entity_fields(entity.type, context, usage_sink=usage_sink)
         except Exception as exc:  # noqa: BLE001 - a flaky leaf must not break the spine
             logger.warning(
                 "drafter-leaf failed for %s (%s); skipping enrichment: %s",
@@ -620,8 +610,7 @@ def _find_or_draft_organization(engine: AgentEngine, name: str) -> str | None:
         (
             e.entity_id
             for e in engine.state.list_entities()
-            if e.type == "Organization"
-            and str(e.fields.get("name") or "").strip() == name
+            if e.type == "Organization" and str(e.fields.get("name") or "").strip() == name
         ),
         None,
     )
@@ -652,9 +641,7 @@ def _set_ref_field(
     try:
         engine.run_tool("set_fields", entity_id=entity_id, fields={field: value})
     except Exception as exc:  # noqa: BLE001 - a wiring failure must not break the spine
-        logger.warning(
-            "linking %s=%r onto %r failed: %s", field, value, entity_id, exc
-        )
+        logger.warning("linking %s=%r onto %r failed: %s", field, value, entity_id, exc)
 
 
 # The generic placeholder names the scaffold leaves on a backbone layer when no
@@ -681,9 +668,7 @@ def _merge_backbone_layer(engine: AgentEngine, entity_type: str, hints: dict[str
     D5-safe: only descriptive ``name`` / ``description`` are merged — never an
     identifier. Returns ``True`` iff at least one field was applied.
     """
-    entity = next(
-        (e for e in engine.state.list_entities() if e.type == entity_type), None
-    )
+    entity = next((e for e in engine.state.list_entities() if e.type == entity_type), None)
     if entity is None:
         return False
 
@@ -713,9 +698,7 @@ _PROTOCOL_DEFAULT_PROCESS_TYPES: tuple[str, ...] = (
 )
 
 
-def _select_process_for_protocol(
-    steps: list[dict[str, Any]], process_hint: str
-) -> str | None:
+def _select_process_for_protocol(steps: list[dict[str, Any]], process_hint: str) -> str | None:
     """Pick the LabProcess id a plan protocol governs (D5-conservative).
 
     ``steps`` is :func:`draft_process_chain`'s per-step summary (each a dict with
@@ -830,9 +813,7 @@ def _draft_standard_chain(
 
     chain = _merge_plan_chain_names(plan)
     try:
-        chain_result = engine.run_tool(
-            "draft_process_chain", assay_id=assay_id, chain=chain
-        )
+        chain_result = engine.run_tool("draft_process_chain", assay_id=assay_id, chain=chain)
     except Exception as exc:  # noqa: BLE001 - a chain failure must not break the spine
         logger.warning("draft_process_chain failed: %s", exc)
         return 0, []
@@ -908,9 +889,7 @@ def _attach_scanned_files(engine: AgentEngine) -> int:
     for role in sorted(by_role):  # sorted ⇒ deterministic call order
         paths = by_role[role]
         try:
-            result = engine.run_tool(
-                "attach_files", to=target_id, paths=paths, role=role
-            )
+            result = engine.run_tool("attach_files", to=target_id, paths=paths, role=role)
         except Exception as exc:  # noqa: BLE001 - one bad batch must not break the spine
             logger.warning("attach_files (%s) failed for %d file(s): %s", role, len(paths), exc)
             continue
@@ -981,7 +960,7 @@ def _extract_title_from_pdf_text(text: str) -> str | None:
         if not line or _PDF_MARKER_RE.match(line):
             continue
         if line.startswith(_PDF_TEXT_PREFIX):
-            line = line[len(_PDF_TEXT_PREFIX):].strip()
+            line = line[len(_PDF_TEXT_PREFIX) :].strip()
         if not line:
             continue
         # A DOI/URL line is not a title; keep scanning.
@@ -1028,9 +1007,7 @@ def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
     return None
 
 
-def _recover_publication_query(
-    engine: AgentEngine, title: str
-) -> tuple[str, str] | None:
+def _recover_publication_query(engine: AgentEngine, title: str) -> tuple[str, str] | None:
     """Resolve a plan publication *title* to a real Crossref query (#245).
 
     Returns one of:
@@ -1076,9 +1053,7 @@ def _recover_publication_query(
     return None
 
 
-def _materialize_plan(
-    engine: AgentEngine, usage_sink: UsageSink | None = None
-) -> dict[str, Any]:
+def _materialize_plan(engine: AgentEngine, usage_sink: UsageSink | None = None) -> dict[str, Any]:
     """Stage B (§14) — materialize the extracted candidate plan via composites.
 
     Bridges the bounded whole-document extractor (:func:`extract_plan`, Stage A)
@@ -1314,9 +1289,7 @@ def _materialize_plan(
     #     glance even when (e.g. a ChEBI-only compound) it is not the condition
     #     table's first valueUrl column. Idempotent: `set_fields` overwrites the ref
     #     field with the same deterministic ids, so re-running mints no duplicates.
-    chain_by_type = {
-        str(s.get("process_type") or ""): s for s in chain_steps_summary
-    }
+    chain_by_type = {str(s.get("process_type") or ""): s for s in chain_steps_summary}
     if compound_ids:
         exposure_step = chain_by_type.get("Exposure")
         exposure_id = exposure_step.get("process_id") if exposure_step else None
@@ -1480,12 +1453,8 @@ def _materialize_plan(
             if kind == "doi":
                 # The DOI extracted from the PDF text drives the resolution; the
                 # composite re-looks it up, so an unresolvable DOI mints nothing.
-                pub_result = engine.run_tool(
-                    "draft_publication_with_authors", doi=value
-                )
-                ok = isinstance(pub_result, dict) and bool(
-                    pub_result.get("publication_id")
-                )
+                pub_result = engine.run_tool("draft_publication_with_authors", doi=value)
+                ok = isinstance(pub_result, dict) and bool(pub_result.get("publication_id"))
             else:
                 pub_result = engine.run_tool("resolve_publication", title=value)
                 ok = isinstance(pub_result, dict) and bool(pub_result.get("ok"))
@@ -1544,9 +1513,7 @@ def _run_fix_loop(
         fix_result = engine.run_tool("fix_required_issues", profile="all", severity="required")
         # Re-validate to get the authoritative conformance after this round.
         progress("Validating base→ISA→ISA-Tox…")
-        last_validation = engine.run_tool(
-            "build_and_validate", profile="all", severity="required"
-        )
+        last_validation = engine.run_tool("build_and_validate", profile="all", severity="required")
         # Persist after each fix-loop validate so the dashboard live-updates (#242).
         if save is not None:
             save()

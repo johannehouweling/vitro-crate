@@ -93,7 +93,7 @@ class TestOrderRequiredIssues:
 
 class TestStateBriefNextFix:
     def test_brief_includes_next_required_fix(self):
-        from builder.agents.agent_loop import _build_system_prompt_with_state
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
 
         brief = _build_system_prompt_with_state(
             session_id="s",
@@ -106,7 +106,7 @@ class TestStateBriefNextFix:
         assert "add identifier" in brief
 
     def test_brief_omits_next_fix_when_none(self):
-        from builder.agents.agent_loop import _build_system_prompt_with_state
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
 
         brief = _build_system_prompt_with_state(
             session_id="s",

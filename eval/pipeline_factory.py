@@ -1,6 +1,6 @@
 """The deterministic-pipeline agent factory — the §14 architecture under test.
 
-This wraps the deterministic pipeline spine (:func:`builder.agents.pipeline.run_pipeline`,
+This wraps the deterministic pipeline spine (:func:`builder.agents.pipeline.pipeline.run_pipeline`,
 AGENTS.md §14.2) behind the agent-agnostic :class:`~eval.agent_api.BuildAgent`
 contract — the *same* contract the live ReAct factory (:mod:`eval.react_factory`)
 implements. The harness then A/B's the two architectures by swapping which factory
@@ -47,7 +47,7 @@ class PipelineBuildAgent:
 
         Args:
             pipeline_runner: Injected runner (tests pass a stub). Defaults to the
-                real :func:`builder.agents.pipeline.run_pipeline`.
+                real :func:`builder.agents.pipeline.pipeline.run_pipeline`.
         """
         self._pipeline_runner = pipeline_runner
 
@@ -60,7 +60,7 @@ class PipelineBuildAgent:
         if self._pipeline_runner is not None:
             return self._pipeline_runner
 
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         return run_pipeline
 

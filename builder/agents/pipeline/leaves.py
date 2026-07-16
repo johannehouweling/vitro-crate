@@ -58,7 +58,7 @@ def _invoke_structured_with_usage(
     ``include_raw=True`` so the raw ``AIMessage`` is available, mines
     ``(input_tokens, output_tokens, model_name)`` off it via the SAME
     provider-agnostic helpers the ReAct model node uses
-    (:func:`builder.agents.agent_loop._extract_token_usage`), reports them, and
+    (:func:`builder.agents.react.agent_loop._extract_token_usage`), reports them, and
     returns the parsed object — so callers are unaffected by the capture.
     """
     if usage_sink is None:

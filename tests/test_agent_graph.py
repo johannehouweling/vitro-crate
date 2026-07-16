@@ -22,7 +22,7 @@ class TestBuildAgentGraph:
 
     def test_import_and_callable(self):
         """_build_agent_graph is importable and callable."""
-        from builder.agents.agent_loop import _build_agent_graph
+        from builder.agents.react.agent_loop import _build_agent_graph
 
         # Must be instantiated with llm and tools
         assert callable(_build_agent_graph)
@@ -33,7 +33,7 @@ class TestBuildAgentGraph:
 
         from langchain_core.tools import tool as langchain_tool
 
-        from builder.agents.agent_loop import _build_agent_graph
+        from builder.agents.react.agent_loop import _build_agent_graph
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -59,7 +59,7 @@ class TestBuildAgentGraph:
 
         from langchain_core.tools import tool as langchain_tool
 
-        from builder.agents.agent_loop import _build_agent_graph
+        from builder.agents.react.agent_loop import _build_agent_graph
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -95,7 +95,7 @@ class TestBuildAgentGraph:
         from langchain_core.messages import AIMessage, HumanMessage
         from langchain_core.tools import tool as langchain_tool
 
-        from builder.agents.agent_loop import _build_agent_graph
+        from builder.agents.react.agent_loop import _build_agent_graph
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -129,7 +129,7 @@ class TestBuildAgentGraph:
 
         from langchain_core.messages import AIMessage
 
-        from builder.agents.agent_loop import should_continue
+        from builder.agents.react.agent_loop import should_continue
 
         # Create an AI message with tool_calls
         ai_msg = AIMessage(
@@ -153,7 +153,7 @@ class TestBuildAgentGraph:
         from langchain_core.messages import AIMessage
         from langgraph.graph import END
 
-        from builder.agents.agent_loop import should_continue
+        from builder.agents.react.agent_loop import should_continue
 
         ai_msg = AIMessage(content="Here is the answer.")
         state = {"messages": [ai_msg]}
@@ -166,7 +166,7 @@ class TestBuildAgentGraph:
         from langchain_core.messages import AIMessage
         from langgraph.graph import END
 
-        from builder.agents.agent_loop import should_continue
+        from builder.agents.react.agent_loop import should_continue
 
         ai_msg = AIMessage(content="Done.", tool_calls=[])
         state = {"messages": [ai_msg]}
@@ -181,7 +181,7 @@ class TestBuildAgentGraph:
         from langchain_core.messages import AIMessage, HumanMessage
         from langchain_core.tools import tool as langchain_tool
 
-        from builder.agents.agent_loop import _build_agent_graph
+        from builder.agents.react.agent_loop import _build_agent_graph
         from builder.engine import AgentEngine
 
         engine = AgentEngine()
@@ -220,7 +220,7 @@ class TestRunInteractiveAgentPreservesBehavior:
 
     def test_run_interactive_agent_imports_and_calls_create_agent(self, monkeypatch):
         """run_interactive_agent still imports successfully and calls the new _build_agent_graph."""
-        import builder.agents.agent_loop as loop_mod
+        import builder.agents.react.agent_loop as loop_mod
 
         # The _build_agent_graph function should be defined
         assert hasattr(loop_mod, "_build_agent_graph")

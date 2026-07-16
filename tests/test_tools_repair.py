@@ -265,7 +265,7 @@ class TestRegistered:
         assert "fix_required_issues" in TOOL_REGISTRY
 
     def test_in_tool_specs(self):
-        from builder.agents.tools_spec import TOOL_SPECS
+        from builder.agents.react.tools_spec import TOOL_SPECS
 
         assert any(s["name"] == "fix_required_issues" for s in TOOL_SPECS)
 

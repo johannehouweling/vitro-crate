@@ -79,9 +79,7 @@ def _apply_root_name(crate: ROCrate, state: CrateState) -> None:
         return  # An explicit session title (or folded Investigation name) already set it.
 
     name = (
-        _first_named(state, "Investigation")
-        or _first_named(state, "Study")
-        or _DEFAULT_ROOT_NAME
+        _first_named(state, "Investigation") or _first_named(state, "Study") or _DEFAULT_ROOT_NAME
     )
     crate.root_dataset["name"] = name
 
@@ -191,9 +189,7 @@ def _add_safe_preview(crate: ROCrate) -> None:
             tpl_dir = os.path.join(
                 os.path.dirname(os.path.abspath(_preview_mod.__file__)), "..", "templates"
             )
-            with open(
-                os.path.join(tpl_dir, "preview_template.html.j2"), encoding="utf-8"
-            ) as fh:
+            with open(os.path.join(tpl_dir, "preview_template.html.j2"), encoding="utf-8") as fh:
                 template_source = fh.read()
 
             env = Environment(autoescape=select_autoescape(default=True, default_for_string=True))

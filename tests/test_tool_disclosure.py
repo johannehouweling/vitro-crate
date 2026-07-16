@@ -10,7 +10,7 @@ execute wide.
 
 from __future__ import annotations
 
-from builder.agents.agent_loop import _tools_for_state
+from builder.agents.react.agent_loop import _tools_for_state
 
 
 class _FakeTool:
@@ -91,7 +91,7 @@ class TestCallModelBindsSubset:
         from langchain_core.messages import AIMessage, HumanMessage
         from langchain_core.tools import StructuredTool
 
-        from builder.agents.agent_loop import _build_agent_graph
+        from builder.agents.react.agent_loop import _build_agent_graph
         from builder.engine import AgentEngine
 
         def _mk(name: str) -> StructuredTool:

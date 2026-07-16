@@ -20,8 +20,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _PRICES_URL = (
-    "https://raw.githubusercontent.com/BerriAI/litellm/"
-    "main/model_prices_and_context_window.json"
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 )
 _CACHE_DIR = Path.home() / ".cache" / "vitro-crate"
 _CACHE_PATH = _CACHE_DIR / "model_prices.json"
@@ -243,9 +242,7 @@ def list_providers() -> list[str]:
         return []
 
     # Patterns that are definitely not vendor prefixes
-    _IGNORED_PREFIX_RE = re.compile(
-        r"^\d+[x-]|^ft:|^openai-large-|^together-"
-    )
+    _IGNORED_PREFIX_RE = re.compile(r"^\d+[x-]|^ft:|^openai-large-|^together-")
 
     providers: set[str] = set()
     for key in _PRICES:

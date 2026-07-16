@@ -2,7 +2,7 @@
 
 This is the *whole-spine* counterpart to the unit-level
 ``tests/test_agents_pipeline.py``: it drives the full
-:func:`builder.agents.pipeline.run_pipeline` loop (scaffold → ``_materialize_plan``
+:func:`builder.agents.pipeline.pipeline.run_pipeline` loop (scaffold → ``_materialize_plan``
 → enrich → build/validate → fix) with the **bounded LLM leaves stubbed** and the
 composites' network lookups replaced by deterministic canned data, then locks in
 the three claims the §14 ReAct→deterministic-pipeline migration rests on:
@@ -159,7 +159,7 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     source of nondeterminism (the bounded leaves) is pinned for the determinism
     assertion.
     """
-    import builder.agents.pipeline as pipeline_mod
+    import builder.agents.pipeline.pipeline as pipeline_mod
     import builder.tools.composites as composites_mod
     from builder.tools import lookups as tool_lookups
     from builder.tools._resolve_cache import compound_cache
@@ -315,7 +315,7 @@ class TestPipelineE2EConformanceAndFidelity:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Conformance: the deterministic spine reaches {base, isa, tox} REQUIRED."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         _stub_leaves(monkeypatch)
         engine = _engine(_titled_state())
@@ -342,7 +342,7 @@ class TestPipelineE2EConformanceAndFidelity:
         kept here as the honest, non-drifting aggregate fidelity floor. (The spine
         over-delivers on the chain, files, AOP subgraph, and now the protocol.)
         """
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         floor = _arbitrary_tox_min_entities()
 
@@ -365,7 +365,7 @@ class TestPipelineE2EConformanceAndFidelity:
         LabProcess steps of the CellCulture → Exposure → EndpointReadout →
         DataAnalysis chain — the structure a *complete* in-vitro tox study needs.
         """
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         _stub_leaves(monkeypatch)
         engine = _engine(_titled_state())
@@ -412,7 +412,7 @@ class TestPipelineE2EConformanceAndFidelity:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The result dict's trace mirrors what the stubbed plan materialized."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         _stub_leaves(monkeypatch)
         engine = _engine(_titled_state())
@@ -481,7 +481,7 @@ class TestPipelineE2EDeterminism:
         needed here; reusing the harness hashing is sufficient and keeps the test
         and the A/B in lockstep.
         """
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
         from eval.metrics import crate_graph_hash
 
         _stub_leaves(monkeypatch)
@@ -507,7 +507,7 @@ class TestPipelineE2EDeterminism:
         successfully built crate, so it stays green regardless of whether
         run-to-run stability is yet established.
         """
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
         from eval.metrics import crate_graph_hash
 
         _stub_leaves(monkeypatch)
@@ -538,8 +538,8 @@ class TestPipelineE2ENoProviderSafety:
         alone must still build a {base, isa, tox}-conformant crate without crashing.
         The leaves are wired to raise if ever called, proving the no-op gate holds.
         """
-        import builder.agents.pipeline as pipeline_mod
-        from builder.agents.pipeline import run_pipeline
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         # No provider configured.
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
@@ -595,7 +595,7 @@ class TestExtractionContextFidelity:
         creates the Study from the plan — proving the body reached the leaf and the
         Study is named from it, not the literal ``"Study"`` default.
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         from builder.state import FileClassification
 
         # Provider configured (no real model) so the leaf runs.
@@ -652,7 +652,7 @@ class TestExtractionContextFidelity:
     ) -> None:
         """Control: with no readable body, the leaf echoes nothing, so no Study is
         materialized from a plan (the spine would fall back to the default)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         from builder.state import FileClassification
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")

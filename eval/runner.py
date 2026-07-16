@@ -129,9 +129,7 @@ class EvalReport:
         totals = [r.total_tokens for r in self.results]
         latencies = [r.latency_seconds for r in self.results]
         decided = [r for r in self.results if r.deterministic is not None]
-        det_rate = (
-            sum(1 for r in decided if r.deterministic) / len(decided) if decided else None
-        )
+        det_rate = sum(1 for r in decided if r.deterministic) / len(decided) if decided else None
         return {
             "label": self.label,
             "repeats": self.repeats,
@@ -192,9 +190,7 @@ def _run_case(
     predicate = reaches_isa_tox_conformance(state)
     quota = meets_entity_quota(state, case.min_entities)
 
-    profile_records = (
-        profile_reader(first_outcome.session_id) if first_outcome.session_id else []
-    )
+    profile_records = profile_reader(first_outcome.session_id) if first_outcome.session_id else []
     pm = mine_profile_metrics(profile_records)
 
     deterministic: bool | None = None
@@ -248,7 +244,6 @@ def run_eval(
     """
     reader = profile_reader or _default_profile_reader
     results = [
-        _run_case(agent_factory, case, repeats=repeats, profile_reader=reader)
-        for case in corpus
+        _run_case(agent_factory, case, repeats=repeats, profile_reader=reader) for case in corpus
     ]
     return EvalReport(label=label, repeats=repeats, results=results)

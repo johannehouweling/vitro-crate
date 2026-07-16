@@ -369,9 +369,7 @@ def _run_graph(args: argparse.Namespace) -> int:
         out_path = Path(args.graph_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        with tempfile.NamedTemporaryFile(
-            prefix="provenance_", suffix=".html", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(prefix="provenance_", suffix=".html", delete=False) as tmp:
             out_path = Path(tmp.name)
     title = (
         "RO-Crate provenance chain"
@@ -487,7 +485,7 @@ def main(argv: list[str] | None = None) -> int:
     # retained behind --legacy-react (pending the task-7 prompt strip), not deleted.
     if args.interactive:
         if args.legacy_react:
-            from builder.agents.agent_loop import run_interactive_agent
+            from builder.agents.react.agent_loop import run_interactive_agent
 
             run_interactive_agent(
                 engine,

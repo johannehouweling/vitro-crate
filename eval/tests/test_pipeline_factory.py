@@ -99,7 +99,7 @@ class TestPipelineTokenAccounting:
     def test_eval_record_sums_pipeline_leaf_tokens(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         from eval.runner import run_eval
 
         # Provider "configured" + a fake leaf that emits a known usage payload on

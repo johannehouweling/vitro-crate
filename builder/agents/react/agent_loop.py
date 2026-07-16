@@ -29,8 +29,8 @@ from builder.agents.llm import (
     _get_request_timeout,
     _recursion_limit,
 )
-from builder.agents.system_prompt import SYSTEM_PROMPT
-from builder.agents.tools_spec import TOOL_SPECS
+from builder.agents.react.system_prompt import SYSTEM_PROMPT
+from builder.agents.react.tools_spec import TOOL_SPECS
 from builder.engine import AgentEngine
 from builder.tools.hitl import (
     register_console_animation,

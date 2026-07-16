@@ -71,7 +71,7 @@ def _engine(state: CrateState | None = None) -> AgentEngine:
 
 class TestRunPipelineShape:
     def test_returns_result_dict_with_conformance(self) -> None:
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         result = run_pipeline(_engine())
         assert isinstance(result, dict)
@@ -84,7 +84,7 @@ class TestRunPipelineShape:
 class TestEmptyStateReachesConformance:
     def test_scaffold_only_reaches_base_isa_tox(self) -> None:
         """An empty state, run through the spine, becomes {base,isa,tox}-conformant."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         engine = _engine()
         result = run_pipeline(engine)
@@ -100,7 +100,7 @@ class TestEmptyStateReachesConformance:
     def test_scaffold_step_supplies_required_study_name(self) -> None:
         """Regression: a bare draft_study has no `name` and fails ISA; the spine
         must supply backbone names deterministically so ISA passes with no LLM."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         engine = _engine()
         run_pipeline(engine)
@@ -124,7 +124,7 @@ class TestBoundedFixLoop:
     def test_fix_loop_clears_seeded_required_issue(self) -> None:
         """An EndpointReadout missing its result + exactly one un-wired File is a
         REQUIRED tox issue the deterministic fix loop must clear (link)."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         state = self._backbone()
         state.add_entity(
@@ -147,7 +147,7 @@ class TestBoundedFixLoop:
 
     def test_fix_loop_is_bounded(self) -> None:
         """The fix loop reports a bounded round count and never spins forever."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         result = run_pipeline(_engine())
         assert isinstance(result.get("fix_rounds"), int)
@@ -182,14 +182,14 @@ class TestDraftEntitiesWiring:
 
     def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Make `get_provider()` report a configured provider (no real model)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
     def test_stub_leaf_applies_non_identifier_fields(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         calls: list[tuple[str, str]] = []
@@ -233,7 +233,7 @@ class TestDraftEntitiesWiring:
     def test_does_not_overwrite_existing_fields(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
 
@@ -255,7 +255,7 @@ class TestDraftEntitiesWiring:
     def test_no_provider_is_strict_noop(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         # No provider configured.
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
@@ -279,7 +279,7 @@ class TestDraftEntitiesWiring:
     def test_no_context_is_strict_noop(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
 
@@ -329,7 +329,7 @@ class TestGatherContextMetadataFirst:
         bodies carry unique sentinels. All paths are inside *root* (an approved
         scan root) so the fail-closed containment guard admits them.
         """
-        from builder.agents.pipeline import _MAX_CONTEXT_CHARS
+        from builder.agents.pipeline.pipeline import _MAX_CONTEXT_CHARS
 
         state = CrateState()
         state.metadata.title = "S-VHPS26 metadata-first context"
@@ -383,7 +383,7 @@ class TestGatherContextMetadataFirst:
         Pre-fix this FAILS: the first file (``aaa_big_data.xlsx``) exhausts the
         whole 8000-char budget, so the JSON sentinel never appears.
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._stub_reader(monkeypatch)
         engine = _engine(self._state_with_files(tmp_path))
@@ -398,7 +398,7 @@ class TestGatherContextMetadataFirst:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """A metadata-named file's body must appear BEFORE a bulk data file's body."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._stub_reader(monkeypatch)
         engine = _engine(self._state_with_files(tmp_path))
@@ -419,8 +419,8 @@ class TestGatherContextMetadataFirst:
     ) -> None:
         """The overall 8000-char body budget stays the ceiling — no single file
         (and not the fair per-file slices summed) blows it."""
-        import builder.agents.pipeline as pipeline_mod
-        from builder.agents.pipeline import _MAX_CONTEXT_CHARS
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import _MAX_CONTEXT_CHARS
 
         self._stub_reader(monkeypatch)
         engine = _engine(self._state_with_files(tmp_path))
@@ -486,7 +486,7 @@ class TestMaterializePlan:
         return state
 
     def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
@@ -494,7 +494,7 @@ class TestMaterializePlan:
         self, monkeypatch: pytest.MonkeyPatch, plan: dict | None = None
     ) -> list[str]:
         """Patch the pipeline's `extract_plan` shim to return a canned plan."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         seen: list[str] = []
 
@@ -594,7 +594,7 @@ class TestMaterializePlan:
         return [e for e in engine.state.list_entities() if e.type == type_name]
 
     def test_materializes_plan_entities(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         seen = self._stub_extract_plan(monkeypatch)
@@ -675,7 +675,7 @@ class TestMaterializePlan:
         mints exactly one LabProtocol and wires it onto the LabProcess it governs
         via the ``labprotocol`` ref (``executesLabProtocol`` at build time).
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         plan = {
@@ -713,7 +713,7 @@ class TestMaterializePlan:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """#224: a confident title match mints a ScholarlyArticle, not deferred."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         import builder.tools.composites as composites_mod
 
         self._enable_provider(monkeypatch)
@@ -756,7 +756,7 @@ class TestMaterializePlan:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """#224: no confident match → no entity, title stays deferred (D5)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         import builder.tools.composites as composites_mod
 
         self._enable_provider(monkeypatch)
@@ -795,7 +795,7 @@ class TestMaterializePlan:
         fabricated DOI an adversarial plan smuggles in must never land on any
         entity (the title-only publication is deferred, not materialized).
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         # A plan that adversarially tries to smuggle identifiers (should be ignored
@@ -829,7 +829,7 @@ class TestMaterializePlan:
         """With no provider the PLAN-DRIVEN sections are a strict no-op (extract_plan
         is never called), but the deterministic chain + file steps still run (#262).
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
 
@@ -859,7 +859,7 @@ class TestMaterializePlan:
         """With a provider but no usable context, extract_plan is never called and
         the plan-driven sections mint nothing; the deterministic chain still runs.
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
 
@@ -881,7 +881,7 @@ class TestMaterializePlan:
         assert result.get("processes") == 4
 
     def test_idempotent_no_duplicates(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(monkeypatch)
@@ -925,7 +925,7 @@ class TestMaterializePlan:
         deterministic materialize people-loop previously dropped it: the crate ended
         up with ZERO Organization entities and the Person carried no affiliation.
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(monkeypatch)
@@ -955,7 +955,7 @@ class TestMaterializePlan:
     ) -> None:
         """Two people with the SAME affiliation_name produce ONE Organization,
         both referencing it (no duplicate orgs)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         plan = dict(self._PLAN)
         plan["people"] = [
@@ -990,7 +990,7 @@ class TestMaterializePlan:
     ) -> None:
         """A person with no affiliation_name mints no Organization and gets no
         affiliation field — no regression, no fabrication (D5)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         plan = dict(self._PLAN)
         plan["people"] = [{"name": "Ada Lovelace"}]
@@ -1014,14 +1014,14 @@ class TestMaterializePlan:
     def test_run_pipeline_with_plan_reaches_conformance(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(monkeypatch)
         self._stub_lookups(monkeypatch)
         # Keep the field-enrichment leaf a no-op (it is separately tested) so this
         # test isolates materialization + the existing build/fix path.
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(
             pipeline_mod, "draft_entity_fields", lambda *a, **k: {}
@@ -1119,7 +1119,7 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
     def test_compounds_and_cell_line_are_wired_not_orphaned(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(monkeypatch)
@@ -1201,12 +1201,12 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Wiring the compounds/cell line must NOT regress ISA + Tox conformance."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(monkeypatch)
         self._stub_lookups(monkeypatch)
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "draft_entity_fields", lambda *a, **k: {})
 
@@ -1242,7 +1242,7 @@ class TestMaterializeCompoundsFromFilenames:
     _EXPECTED_NAMES = {"Silychristin", "Verapamil", "Diclofenac", "BSP"}
 
     def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
@@ -1280,7 +1280,7 @@ class TestMaterializeCompoundsFromFilenames:
         but the model deterministically returns the filename-derived compounds a
         correctly-steered model would. Records the prompt text the model saw so a
         test can assert the filenames actually reached the leaf."""
-        import builder.agents.leaves as leaves_mod
+        import builder.agents.pipeline.leaves as leaves_mod
 
         seen_prompts: list[str] = []
         expected = self._EXPECTED_NAMES
@@ -1347,7 +1347,7 @@ class TestMaterializeCompoundsFromFilenames:
     def test_default_path_materializes_compounds_from_filenames(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         seen_prompts = self._fake_extract_plan_chat_model(monkeypatch)
@@ -1376,7 +1376,7 @@ class TestMaterializeCompoundsFromFilenames:
     ) -> None:
         """D5: only the NAME reaches ``resolve_compound``; each MolecularEntity's
         CAS/CID is the LOOKED-UP value (never invented from the filename)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         self._fake_extract_plan_chat_model(monkeypatch)
@@ -1415,7 +1415,7 @@ class TestPublicationFromPDF:
     _PDF_NAME = "Wagenaars_etal_2025_OATP1C1.pdf"
 
     def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
@@ -1441,7 +1441,7 @@ class TestPublicationFromPDF:
 
     def _stub_extract_plan_filename(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Make the leaf return the PDF FILENAME as the publication title (#245)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         def fake_extract_plan(context, *, model=None, usage_sink=None):
             return {"publications": [{"title": self._PDF_NAME}]}
@@ -1455,7 +1455,7 @@ class TestPublicationFromPDF:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """A PDF whose text carries a DOI → resolved by that DOI, not the filename."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         import builder.tools.composites as composites_mod
         import builder.tools.scanner as scanner_mod
 
@@ -1515,7 +1515,7 @@ class TestPublicationFromPDF:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """A PDF with a real title but no DOI → resolved by the extracted title."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         import builder.tools.composites as composites_mod
         import builder.tools.scanner as scanner_mod
 
@@ -1571,7 +1571,7 @@ class TestPublicationFromPDF:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """No recoverable DOI/title → no Crossref-by-filename; graceful skip/defer."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         import builder.tools.composites as composites_mod
         import builder.tools.scanner as scanner_mod
 
@@ -1654,7 +1654,7 @@ class TestTokenAccounting:
     def test_draft_entities_records_accumulated_tokens(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
@@ -1691,7 +1691,7 @@ class TestTokenAccounting:
     def test_no_provider_records_clean_zero(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         # No provider → the leaf is never called and no model events are written.
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
@@ -1713,8 +1713,8 @@ class TestTokenAccounting:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``run_pipeline``'s result additively surfaces the accumulated usage."""
-        import builder.agents.pipeline as pipeline_mod
-        from builder.agents.pipeline import run_pipeline
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
         # Make the plan stage a no-op (empty plan) so only the drafter leaf runs.
@@ -1752,7 +1752,7 @@ class TestTokenAccounting:
 class TestDeterminism:
     def test_identical_graph_hash_across_runs(self) -> None:
         """Same input ⇒ identical built @graph hash — the headline win to assert."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
         from eval.metrics import crate_graph_hash
 
         e1 = _engine()
@@ -1767,7 +1767,7 @@ class TestDeterminism:
 
     def test_determinism_holds_with_seeded_entities(self) -> None:
         """Determinism holds even when state carries non-backbone entities."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
         from eval.metrics import crate_graph_hash
 
         def seeded() -> CrateState:
@@ -1828,7 +1828,7 @@ class TestGatherContext:
 
     def test_reads_json_and_docx_bodies_into_context(self, tmp_path: Path) -> None:
         """Body substrings from non-tabular files under an approved root appear."""
-        from builder.agents.pipeline import _gather_context
+        from builder.agents.pipeline.pipeline import _gather_context
 
         json_fc = self._write_json(tmp_path, "JSONBODYMARKER")
         docx_fc = self._write_docx(tmp_path, "DOCXBODYMARKER")
@@ -1849,7 +1849,7 @@ class TestGatherContext:
 
     def test_prefers_cheap_first_rows_when_present(self, tmp_path: Path) -> None:
         """A file carrying a tabular preview uses it; disk is not re-read for it."""
-        from builder.agents.pipeline import _gather_context
+        from builder.agents.pipeline.pipeline import _gather_context
         from builder.state import FileClassification
 
         # A file that DOES carry first_rows — the cheap preview must be used and the
@@ -1871,7 +1871,7 @@ class TestGatherContext:
 
     def test_reads_are_confined_to_approved_scan_roots(self, tmp_path: Path) -> None:
         """A body OUTSIDE every approved root is never read into the context."""
-        from builder.agents.pipeline import _gather_context
+        from builder.agents.pipeline.pipeline import _gather_context
 
         approved = tmp_path / "approved"
         approved.mkdir()
@@ -1895,8 +1895,8 @@ class TestGatherContext:
 
     def test_per_file_and_total_budget_are_bounded(self, tmp_path: Path) -> None:
         """Per-file and total context are capped by `_MAX_CONTEXT_CHARS`."""
-        import builder.agents.pipeline as pipeline_mod
-        from builder.agents.pipeline import _gather_context
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import _gather_context
         from builder.state import FileClassification
 
         cap = pipeline_mod._MAX_CONTEXT_CHARS
@@ -1929,7 +1929,7 @@ class TestGatherContext:
 
     def test_no_readable_files_is_strict_noop(self, tmp_path: Path) -> None:
         """Nothing readable ⇒ ``""`` so the no-provider determinism gate holds."""
-        from builder.agents.pipeline import _gather_context
+        from builder.agents.pipeline.pipeline import _gather_context
         from builder.state import FileClassification
 
         # A binary file with no first_rows whose body reader returns None, under an
@@ -1979,17 +1979,17 @@ class TestSplitPersonName:
     """
 
     def test_comma_form_is_inverted(self) -> None:
-        from builder.agents.pipeline import _split_person_name
+        from builder.agents.pipeline.pipeline import _split_person_name
 
         assert _split_person_name("Wagenaars, J.") == ("J.", "Wagenaars")
 
     def test_comma_form_full_given(self) -> None:
-        from builder.agents.pipeline import _split_person_name
+        from builder.agents.pipeline.pipeline import _split_person_name
 
         assert _split_person_name("Lovelace, Ada") == ("Ada", "Lovelace")
 
     def test_comma_form_multi_token_given(self) -> None:
-        from builder.agents.pipeline import _split_person_name
+        from builder.agents.pipeline.pipeline import _split_person_name
 
         assert _split_person_name("van Helsing, Abraham A.") == (
             "Abraham A.",
@@ -1997,7 +1997,7 @@ class TestSplitPersonName:
         )
 
     def test_lone_surname_is_family_candidate_not_given(self) -> None:
-        from builder.agents.pipeline import _split_person_name
+        from builder.agents.pipeline.pipeline import _split_person_name
 
         given, family = _split_person_name("Wagenaars")
         # The bug: the surname used to land in givenName. It must not.
@@ -2005,17 +2005,17 @@ class TestSplitPersonName:
         assert family == "Wagenaars"
 
     def test_plain_first_last_unchanged(self) -> None:
-        from builder.agents.pipeline import _split_person_name
+        from builder.agents.pipeline.pipeline import _split_person_name
 
         assert _split_person_name("Ada Lovelace") == ("Ada", "Lovelace")
 
     def test_three_token_name(self) -> None:
-        from builder.agents.pipeline import _split_person_name
+        from builder.agents.pipeline.pipeline import _split_person_name
 
         assert _split_person_name("Ada King Lovelace") == ("Ada King", "Lovelace")
 
     def test_empty_name(self) -> None:
-        from builder.agents.pipeline import _split_person_name
+        from builder.agents.pipeline.pipeline import _split_person_name
 
         assert _split_person_name("   ") == ("", "")
 
@@ -2091,12 +2091,12 @@ class TestMaterializeBackboneNaming:
     """
 
     def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
     def _stub_extract_plan(self, monkeypatch: pytest.MonkeyPatch, plan: dict) -> None:
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         def fake_extract_plan(context, *, model=None, usage_sink=None):
             return dict(plan)
@@ -2129,7 +2129,7 @@ class TestMaterializeBackboneNaming:
     ) -> None:
         """On an untitled crate, the plan's study.name must overwrite the generic
         "Study" placeholder the scaffold left behind."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(
@@ -2154,7 +2154,7 @@ class TestMaterializeBackboneNaming:
     ) -> None:
         """Regression: with no plan study (and no title) the Study keeps a
         non-empty default name — ISA REQUIRES a non-empty Study name."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(monkeypatch, {"compounds": []})
@@ -2171,7 +2171,7 @@ class TestMaterializeBackboneNaming:
     ) -> None:
         """Fill-don't-clobber: a Study that already carries a real (non-default)
         name must NOT be overwritten by the plan."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         self._stub_extract_plan(monkeypatch, {"study": {"name": "Plan-supplied name"}})
@@ -2220,7 +2220,7 @@ class TestPipelineStatePersistence:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """After run_pipeline, sessions/<id>/crate_state.json exists with entities."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
         from builder.tools.session import load_session
 
         sessions = self._isolate_sessions(monkeypatch, tmp_path)
@@ -2241,7 +2241,7 @@ class TestPipelineStatePersistence:
     ) -> None:
         """A save callback is invoked during the spine so a concurrent dashboard
         sees progress, not just the final state."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._isolate_sessions(monkeypatch, tmp_path)
         saves: list[str] = []
@@ -2261,7 +2261,7 @@ class TestPipelineStatePersistence:
     ) -> None:
         """Multiple saves at phase boundaries (scaffold + each validate) so the
         watched file changes incrementally during the run."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._isolate_sessions(monkeypatch, tmp_path)
         saves: list[int] = []
@@ -2281,7 +2281,7 @@ class TestPipelineProgress:
     """#241 — run_pipeline emits one concise progress line per phase."""
 
     def test_progress_callback_receives_phase_lines(self) -> None:
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         lines: list[str] = []
         engine = _engine()
@@ -2297,7 +2297,7 @@ class TestPipelineProgress:
 
     def test_progress_defaults_to_noop(self) -> None:
         """With no progress callback the spine emits nothing (clean eval/tests)."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         engine = _engine()
         # Must not raise and must not print — a missing callback is a strict no-op.
@@ -2340,7 +2340,7 @@ class TestMaterializeStandardProcessChain:
 
     def _no_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Force the no-provider path so the plan-driven section is a strict no-op."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
 
@@ -2353,7 +2353,7 @@ class TestMaterializeStandardProcessChain:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """With NO provider, the standard 4-step chain is wired under the Assay."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
 
@@ -2388,7 +2388,7 @@ class TestMaterializeStandardProcessChain:
         ``draft_process_chain`` synthesizes placeholder File outputs for the two
         data-producing steps that have no build-time fallback, so neither dangles.
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
         engine = _engine(self._titled_state())
@@ -2406,7 +2406,7 @@ class TestMaterializeStandardProcessChain:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Re-running the spine mints no duplicate processes (deterministic ids)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
         engine = _engine(self._titled_state())
@@ -2421,7 +2421,7 @@ class TestMaterializeStandardProcessChain:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The full offline ``run_pipeline`` lands a non-empty process chain."""
-        from builder.agents.pipeline import run_pipeline
+        from builder.agents.pipeline.pipeline import run_pipeline
 
         self._no_provider(monkeypatch)
         engine = _engine(self._titled_state())
@@ -2448,7 +2448,7 @@ class TestMaterializeAttachScannedFiles:
 
     def _no_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Force the no-provider path so file attachment is the only file source."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
 
@@ -2475,7 +2475,7 @@ class TestMaterializeAttachScannedFiles:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """With NO provider, each scanned file becomes a File entity in the crate."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
         engine = _engine(self._state_with_files())
@@ -2497,7 +2497,7 @@ class TestMaterializeAttachScannedFiles:
     ) -> None:
         """Every scanned File is referenced by a process (result/object) or under
         the Assay's hasPart — no silently orphaned data file."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
         from builder.tools.provenance import _ref_ids
 
         self._no_provider(monkeypatch)
@@ -2546,7 +2546,7 @@ class TestMaterializeAttachScannedFiles:
         so the crate is not File-free; what must be true is that the *attachment*
         step adds zero scanned files (``result["files"] == 0``).
         """
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
         state = CrateState()
@@ -2561,7 +2561,7 @@ class TestMaterializeAttachScannedFiles:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Re-running mints no duplicate File entities (deduped by on-disk source)."""
-        import builder.agents.pipeline as pipeline_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
         engine = _engine(self._state_with_files())

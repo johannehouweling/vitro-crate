@@ -27,7 +27,10 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "investigation_id": {"type": "string", "description": "entity_id of the parent Investigation."},
+                "investigation_id": {
+                    "type": "string",
+                    "description": "entity_id of the parent Investigation.",
+                },
                 "hints": draft_hints_schema("Study"),
             },
             "required": ["investigation_id", "hints"],
@@ -54,7 +57,10 @@ TOOL_SPECS = [
                 "investigation": draft_hints_schema("Investigation"),
                 "study": draft_hints_schema("Study"),
                 "assay": draft_hints_schema("Assay"),
-                "validate_base": {"type": "boolean", "description": "Also run build_and_validate(profile='base') and return it under 'validation'."},
+                "validate_base": {
+                    "type": "boolean",
+                    "description": "Also run build_and_validate(profile='base') and return it under 'validation'.",
+                },
             },
         },
     },
@@ -64,7 +70,10 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "assay_id": {"type": "string", "description": "entity_id of the parent Assay every process belongs to."},
+                "assay_id": {
+                    "type": "string",
+                    "description": "entity_id of the parent Assay every process belongs to.",
+                },
                 "chain": {
                     "type": "array",
                     "description": "Ordered list of process steps to create and wire.",
@@ -73,17 +82,31 @@ TOOL_SPECS = [
                         "properties": {
                             "process_type": {
                                 "type": "string",
-                                "enum": ["CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"],
+                                "enum": [
+                                    "CellCulture",
+                                    "Exposure",
+                                    "EndpointReadout",
+                                    "DataAnalysis",
+                                ],
                                 "description": "Which domain LabProcess subtype this step is.",
                             },
                             "hints": draft_hints_schema("LabProcess"),
-                            "object": {"type": ["array", "string"], "description": "Explicit input entity id(s) the process consumes (overrides the inherited upstream output)."},
-                            "result": {"type": ["array", "string"], "description": "Explicit output entity id(s) the process produces (overrides synthesis)."},
+                            "object": {
+                                "type": ["array", "string"],
+                                "description": "Explicit input entity id(s) the process consumes (overrides the inherited upstream output).",
+                            },
+                            "result": {
+                                "type": ["array", "string"],
+                                "description": "Explicit output entity id(s) the process produces (overrides synthesis).",
+                            },
                         },
                         "required": ["process_type"],
                     },
                 },
-                "validate_after": {"type": "boolean", "description": "Also run build_and_validate and return it under 'validation'."},
+                "validate_after": {
+                    "type": "boolean",
+                    "description": "Also run build_and_validate and return it under 'validation'.",
+                },
             },
             "required": ["assay_id", "chain"],
         },
@@ -94,9 +117,15 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Compound name to resolve, e.g. 'Silychristin A'."},
+                "name": {
+                    "type": "string",
+                    "description": "Compound name to resolve, e.g. 'Silychristin A'.",
+                },
                 "hints": draft_hints_schema("MolecularEntity"),
-                "verify": {"type": "boolean", "description": "Verify the minted identifiers against source (default true). Pass false only when you will verify later — never to attach an unverified id."},
+                "verify": {
+                    "type": "boolean",
+                    "description": "Verify the minted identifiers against source (default true). Pass false only when you will verify later — never to attach an unverified id.",
+                },
             },
             "required": ["name"],
         },
@@ -107,8 +136,14 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "Publication title to resolve to a DOI, e.g. 'Adverse outcome pathway-based assessment of TPO inhibition in vitro'."},
-                "verify": {"type": "boolean", "description": "Reserved for parity with resolve_compound; the DOI is implicitly verified by the Crossref resolution. Accepted and ignored."},
+                "title": {
+                    "type": "string",
+                    "description": "Publication title to resolve to a DOI, e.g. 'Adverse outcome pathway-based assessment of TPO inhibition in vitro'.",
+                },
+                "verify": {
+                    "type": "boolean",
+                    "description": "Reserved for parity with resolve_compound; the DOI is implicitly verified by the Crossref resolution. Accepted and ignored.",
+                },
             },
             "required": ["title"],
         },
@@ -119,8 +154,14 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "aop_id": {"type": "string", "description": "Numeric AOP-Wiki identifier, e.g. '610'."},
-                "study_id": {"type": "string", "description": "Optional entity_id of a Study to wire the AOP onto (via the aop/mentions reference)."},
+                "aop_id": {
+                    "type": "string",
+                    "description": "Numeric AOP-Wiki identifier, e.g. '610'.",
+                },
+                "study_id": {
+                    "type": "string",
+                    "description": "Optional entity_id of a Study to wire the AOP onto (via the aop/mentions reference).",
+                },
             },
             "required": ["aop_id"],
         },
@@ -131,7 +172,10 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "doi": {"type": "string", "description": "DOI of the publication (with or without a URL prefix)."},
+                "doi": {
+                    "type": "string",
+                    "description": "DOI of the publication (with or without a URL prefix).",
+                },
             },
             "required": ["doi"],
         },
@@ -189,11 +233,27 @@ TOOL_SPECS = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "File name, e.g. 'raw_measurements.csv'"},
-                "path": {"type": "string", "description": "Crate-relative path (dest_path), e.g. 'data/raw.csv' (optional)"},
-                "role": {"type": "string", "description": "Role label, e.g. 'raw_data' or 'figure' (optional)"},
-                "encoding_format": {"type": "string", "description": "IANA media type, e.g. 'text/csv' (optional)"},
-                "additional_types": {"type": "array", "items": {"type": "string"}, "description": "Extra @type term(s) alongside File, e.g. ['SoftwareSourceCode'] for an analysis script (optional)"},
-                "programming_language": {"type": "string", "description": "schema:programmingLanguage for a source-code file, e.g. 'Python' (optional)"},
+                "path": {
+                    "type": "string",
+                    "description": "Crate-relative path (dest_path), e.g. 'data/raw.csv' (optional)",
+                },
+                "role": {
+                    "type": "string",
+                    "description": "Role label, e.g. 'raw_data' or 'figure' (optional)",
+                },
+                "encoding_format": {
+                    "type": "string",
+                    "description": "IANA media type, e.g. 'text/csv' (optional)",
+                },
+                "additional_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Extra @type term(s) alongside File, e.g. ['SoftwareSourceCode'] for an analysis script (optional)",
+                },
+                "programming_language": {
+                    "type": "string",
+                    "description": "schema:programmingLanguage for a source-code file, e.g. 'Python' (optional)",
+                },
             },
             "required": ["name"],
         },
@@ -204,13 +264,19 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "from_id": {"type": "string", "description": "entity_id of the source (usually the LabProcess)"},
+                "from_id": {
+                    "type": "string",
+                    "description": "entity_id of the source (usually the LabProcess)",
+                },
                 "relation": {
                     "type": "string",
                     "enum": ["object", "input", "samples", "result", "output", "derives_from"],
                     "description": "Edge verb: object/input/samples = consumed; result/output = produced; derives_from = sample lineage.",
                 },
-                "to_id": {"type": "string", "description": "entity_id of the target (a Sample, File, etc.)"},
+                "to_id": {
+                    "type": "string",
+                    "description": "entity_id of the target (a Sample, File, etc.)",
+                },
             },
             "required": ["from_id", "relation", "to_id"],
         },
@@ -222,10 +288,23 @@ TOOL_SPECS = [
             "type": "object",
             "properties": {
                 "to": {"type": "string", "description": "entity_id of the target Study or Assay."},
-                "name_contains": {"type": "string", "description": "Match files whose filename or path contains this substring (case-insensitive)."},
-                "mime_contains": {"type": "string", "description": "Match files whose mime_type contains this substring, e.g. 'csv', 'image'."},
-                "paths": {"type": "array", "items": {"type": "string"}, "description": "Explicit scanned paths/filenames to attach (with or instead of the substring filters)."},
-                "role": {"type": "string", "description": "Optional role to stamp on each File, e.g. 'raw_data' or 'processed'."},
+                "name_contains": {
+                    "type": "string",
+                    "description": "Match files whose filename or path contains this substring (case-insensitive).",
+                },
+                "mime_contains": {
+                    "type": "string",
+                    "description": "Match files whose mime_type contains this substring, e.g. 'csv', 'image'.",
+                },
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Explicit scanned paths/filenames to attach (with or instead of the substring filters).",
+                },
+                "role": {
+                    "type": "string",
+                    "description": "Optional role to stamp on each File, e.g. 'raw_data' or 'processed'.",
+                },
             },
             "required": ["to"],
         },
@@ -308,7 +387,7 @@ TOOL_SPECS = [
                 "entity_id": {"type": "string", "description": "ID of the entity to update."},
                 "fields": {
                     "type": "object",
-                    "description": "Dictionary of field names to values (one or many), e.g. {\"name\": \"new name\", \"description\": \"new desc\"}.",
+                    "description": 'Dictionary of field names to values (one or many), e.g. {"name": "new name", "description": "new desc"}.',
                 },
             },
             "required": ["entity_id", "fields"],
@@ -320,11 +399,26 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "Human-readable crate title (root name)."},
-                "description": {"type": "string", "description": "Free-text crate description (root description)."},
-                "accession": {"type": "string", "description": "Accession/identifier (root identifier)."},
-                "release_date": {"type": "string", "description": "ISO-8601 release date for schema:releaseDate, e.g. '2025-11-10'."},
-                "date_modified": {"type": "string", "description": "ISO-8601 date/datetime for schema:dateModified, e.g. '2026-06-14T19:37:30Z'."},
+                "title": {
+                    "type": "string",
+                    "description": "Human-readable crate title (root name).",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Free-text crate description (root description).",
+                },
+                "accession": {
+                    "type": "string",
+                    "description": "Accession/identifier (root identifier).",
+                },
+                "release_date": {
+                    "type": "string",
+                    "description": "ISO-8601 release date for schema:releaseDate, e.g. '2025-11-10'.",
+                },
+                "date_modified": {
+                    "type": "string",
+                    "description": "ISO-8601 date/datetime for schema:dateModified, e.g. '2026-06-14T19:37:30Z'.",
+                },
             },
         },
     },
@@ -357,8 +451,14 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "name_contains": {"type": "string", "description": "Only files whose filename or path contains this substring (case-insensitive)."},
-                "mime_contains": {"type": "string", "description": "Only files whose mime_type contains this substring, e.g. 'csv', 'image'."},
+                "name_contains": {
+                    "type": "string",
+                    "description": "Only files whose filename or path contains this substring (case-insensitive).",
+                },
+                "mime_contains": {
+                    "type": "string",
+                    "description": "Only files whose mime_type contains this substring, e.g. 'csv', 'image'.",
+                },
                 "offset": {"type": "integer", "description": "Pagination start index (default 0)."},
                 "limit": {"type": "integer", "description": "Max files to return (default 200)."},
             },
@@ -416,7 +516,10 @@ TOOL_SPECS = [
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
-                "ontology": {"type": "string", "description": "OLS ontology short name, e.g. 'efo', 'obi', 'chebi', 'uberon'."},
+                "ontology": {
+                    "type": "string",
+                    "description": "OLS ontology short name, e.g. 'efo', 'obi', 'chebi', 'uberon'.",
+                },
             },
             "required": ["query", "ontology"],
         },
@@ -569,11 +672,11 @@ TOOL_SPECS = [
                 "file": {"type": "string", "description": "Path to the CSV file to validate."},
                 "table_schema": {
                     "type": "object",
-                    "description": "Frictionless table schema descriptor: {\"fields\": [{\"name\", \"type\", \"constraints\"?}, ...]}. Adapt CSVW datatype columns to this shape.",
+                    "description": 'Frictionless table schema descriptor: {"fields": [{"name", "type", "constraints"?}, ...]}. Adapt CSVW datatype columns to this shape.',
                 },
                 "foreign_keys": {
                     "type": "object",
-                    "description": "Optional map of column_name -> [allowed_id, ...]; each named column's cells must be one of the allowed in-crate ids (e.g. MolecularEntity/Sample). Example: {\"compound\": [\"chem_aspirin\"]}.",
+                    "description": 'Optional map of column_name -> [allowed_id, ...]; each named column\'s cells must be one of the allowed in-crate ids (e.g. MolecularEntity/Sample). Example: {"compound": ["chem_aspirin"]}.',
                 },
                 "entity_id": {
                     "type": "string",
@@ -589,7 +692,10 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "exposure_id": {"type": "string", "description": "entity_id of the Exposure LabProcess."},
+                "exposure_id": {
+                    "type": "string",
+                    "description": "entity_id of the Exposure LabProcess.",
+                },
                 "rows_or_csv_path": {
                     "description": "A list of row dicts (keys: cell_line/compound/concentration/unit/duration) OR a path to a plate-map CSV.",
                     "anyOf": [
@@ -597,7 +703,10 @@ TOOL_SPECS = [
                         {"type": "string"},
                     ],
                 },
-                "output_dir": {"type": "string", "description": "Crate root to write the CSV under (optional; defaults to the session output path)."},
+                "output_dir": {
+                    "type": "string",
+                    "description": "Crate root to write the CSV under (optional; defaults to the session output path).",
+                },
             },
             "required": ["exposure_id", "rows_or_csv_path"],
         },
@@ -700,7 +809,10 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "context": {"type": "string", "description": "Context or information to present to the user"},
+                "context": {
+                    "type": "string",
+                    "description": "Context or information to present to the user",
+                },
                 "options": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -726,7 +838,10 @@ TOOL_SPECS = [
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to the file to read"},
-                "lines": {"type": "integer", "description": "Number of lines to return in 'content' mode (default 20). This directly controls how much is returned — raise it (e.g. 1000) to read more of the file."},
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of lines to return in 'content' mode (default 20). This directly controls how much is returned — raise it (e.g. 1000) to read more of the file.",
+                },
                 "mode": {
                     "type": "string",
                     "enum": ["content", "summary", "overview"],
@@ -742,8 +857,15 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "paths": {"type": "array", "items": {"type": "string"}, "description": "List of file paths to read"},
-                "lines": {"type": "integer", "description": "Max lines per file in 'content' mode (default 50)"},
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of file paths to read",
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "Max lines per file in 'content' mode (default 50)",
+                },
                 "mode": {
                     "type": "string",
                     "enum": ["content", "summary", "overview"],
@@ -792,8 +914,14 @@ TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "prompt": {"type": "string", "description": "The prompt describing what input is needed"},
-                "field_type": {"type": "string", "description": "Type of input expected (e.g. text, number, identifier)"},
+                "prompt": {
+                    "type": "string",
+                    "description": "The prompt describing what input is needed",
+                },
+                "field_type": {
+                    "type": "string",
+                    "description": "Type of input expected (e.g. text, number, identifier)",
+                },
             },
             "required": ["prompt"],
         },

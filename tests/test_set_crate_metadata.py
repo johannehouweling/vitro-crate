@@ -144,6 +144,6 @@ class TestToolRegistration:
         assert spec.takes_state is True
 
     def test_tool_in_specs(self):
-        from builder.agents.tools_spec import TOOL_SPECS
+        from builder.agents.react.tools_spec import TOOL_SPECS
 
         assert any(s["name"] == "set_crate_metadata" for s in TOOL_SPECS)

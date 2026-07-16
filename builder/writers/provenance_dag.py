@@ -71,9 +71,7 @@ _ADDTYPE_KEYS: tuple[str, ...] = (
 )
 
 # The four domain LabProcess discriminators (ISA-Tox profile).
-_PROCESS_DISCRIMINATORS = frozenset(
-    {"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"}
-)
+_PROCESS_DISCRIMINATORS = frozenset({"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"})
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +94,13 @@ _DOMAIN_ADDTYPES = frozenset(
 )
 _STRUCT_ADDTYPES = frozenset(
     {
-        "Investigation", "Study", "Assay",
-        "ParameterValue", "FactorValue", "CharacteristicValue", "Component",
+        "Investigation",
+        "Study",
+        "Assay",
+        "ParameterValue",
+        "FactorValue",
+        "CharacteristicValue",
+        "Component",
     }
 )
 # Local names only — `_short` strips any CURIE prefix (csvw:Table → Table), so
@@ -105,8 +108,14 @@ _STRUCT_ADDTYPES = frozenset(
 # reduce to the same token before these checks.
 _CSVW_TABLE_TYPES = frozenset({"Table"})
 _DOMAIN_TYPES = frozenset(
-    {"MolecularEntity", "Schema", "Column",
-     "AdverseOutcomePathway", "KeyEvent", "KeyEventRelationship"}
+    {
+        "MolecularEntity",
+        "Schema",
+        "Column",
+        "AdverseOutcomePathway",
+        "KeyEvent",
+        "KeyEventRelationship",
+    }
 )
 _STRUCT_TYPES = frozenset(
     {"LabProcess", "LabProtocol", "Sample", "DefinedTerm", "PropertyValue", "Dataset"}
@@ -126,9 +135,21 @@ _EXCLUDED_IDS = frozenset(
 
 # Layer-synonym map for the --layer filter.
 _LAYER_SYNONYMS: dict[str, int] = {
-    "1": 1, "crate": 1, "rocrate": 1, "ro-crate": 1, "packaging": 1,
-    "2": 2, "isa": 2, "structural": 2, "structure": 2,
-    "3": 3, "isa-tox": 3, "isatox": 3, "tox": 3, "domain": 3, "all": 3,
+    "1": 1,
+    "crate": 1,
+    "rocrate": 1,
+    "ro-crate": 1,
+    "packaging": 1,
+    "2": 2,
+    "isa": 2,
+    "structural": 2,
+    "structure": 2,
+    "3": 3,
+    "isa-tox": 3,
+    "isatox": 3,
+    "tox": 3,
+    "domain": 3,
+    "all": 3,
 }
 
 
@@ -141,9 +162,7 @@ def normalize_layer(value: str | int | None) -> int:
         return 3
     key = str(value).strip().lower()
     if key not in _LAYER_SYNONYMS:
-        raise ValueError(
-            f"Unknown layer {value!r}. Use 1/2/3 or crate/isa/isa-tox (or 'all')."
-        )
+        raise ValueError(f"Unknown layer {value!r}. Use 1/2/3 or crate/isa/isa-tox (or 'all').")
     return _LAYER_SYNONYMS[key]
 
 
@@ -480,9 +499,7 @@ def _svg_node_shape(cls: str, x: int, y: int) -> str:
         fold = f"M{x + w - f},{y} V{y + f} H{x + w} Z"
         return f'<path class="n n-data" d="{body}"/><path class="fold" d="{fold}"/>'
     # ctx — a plain rounded rectangle for anything off the material/data axis.
-    return (
-        f'<rect class="n n-ctx" x="{x}" y="{y}" width="{w}" height="{h}" rx="8" ry="8"/>'
-    )
+    return f'<rect class="n n-ctx" x="{x}" y="{y}" width="{w}" height="{h}" rx="8" ry="8"/>'
 
 
 def render_provenance_svg(
@@ -585,8 +602,7 @@ def render_provenance_svg(
             used.add(r)
 
     pos: dict[str, tuple[int, int]] = {
-        n: (_SVG_X0 + col[n] * _SVG_COL_DX, _SVG_Y0 + row[n] * _SVG_ROW_DY)
-        for n in drawn
+        n: (_SVG_X0 + col[n] * _SVG_COL_DX, _SVG_Y0 + row[n] * _SVG_ROW_DY) for n in drawn
     }
     vb_w = max(x + _SVG_NODE_W for x, _ in pos.values()) + 18
     vb_h = max(y + _SVG_NODE_H for _, y in pos.values()) + 22
@@ -603,8 +619,7 @@ def render_provenance_svg(
             dx = (x2 - x1) // 2 if y1 == y2 else max((x2 - x1) // 2, 30)
             path = f"M{x1},{y1} C{x1 + dx},{y1} {x2 - dx},{y2} {x2},{y2}"
             edge_svg.append(
-                f'<path class="e e-{kind}" d="{path}" '
-                f'marker-end="url(#prov-ar-{kind})"/>'
+                f'<path class="e e-{kind}" d="{path}" marker-end="url(#prov-ar-{kind})"/>'
             )
 
     # Nodes: shape + type tag (above) + name (inside). Labels are escaped.
@@ -633,7 +648,7 @@ def render_provenance_svg(
         f'<svg viewBox="0 0 {vb_w} {vb_h}" width="{vb_w}" height="{vb_h}" '
         'role="img" aria-label="Provenance derivation chain" class="prov">'
         "<title>Provenance derivation chain</title>"
-        f'<defs>{marker.format(k="object")}{marker.format(k="result")}</defs>'
+        f"<defs>{marker.format(k='object')}{marker.format(k='result')}</defs>"
         f'<g class="edges">{"".join(edge_svg)}</g>'
         f'<g class="nodes">{"".join(node_svg)}</g></svg>'
     )
@@ -644,12 +659,24 @@ def render_provenance_svg(
 # INTO the holder (process inputs), so the drawn edge is ref --> holder.
 _HASPART_KEYS = ("hasPart", "has_part", "http://schema.org/hasPart")
 _MENTIONS_KEYS = (
-    "mentions", "aop", "keyEvent", "key_event", "key_events", "organism",
-    "anatomy", "chemicals", "biologicalModels", "biological_models", "cell_lines",
+    "mentions",
+    "aop",
+    "keyEvent",
+    "key_event",
+    "key_events",
+    "organism",
+    "anatomy",
+    "chemicals",
+    "biologicalModels",
+    "biological_models",
+    "cell_lines",
     "http://schema.org/mentions",
 )
 _AUTHOR_KEYS = (
-    "author", "creator", "http://schema.org/author", "http://schema.org/creator",
+    "author",
+    "creator",
+    "http://schema.org/author",
+    "http://schema.org/creator",
 )
 _PROTOCOL_KEYS = ("executesLabProtocol", "https://bioschemas.org/executesLabProtocol")
 _ABOUT_GRAPH_KEYS = _ABOUT_KEYS + ("labProcesses",)
@@ -661,7 +688,9 @@ _CONFORMSTO_KEYS = ("conformsTo", "http://purl.org/dc/terms/conformsTo")
 _CITATION_KEYS = ("citation", "funder", "publisher")
 _MEASTECH_KEYS = ("measurementTechnique", "measurementMethod", "intendedUse")
 _PARAM_KEYS = (
-    "parameter", "parameterValue", "additionalProperty",
+    "parameter",
+    "parameterValue",
+    "additionalProperty",
     "http://schema.org/additionalProperty",
 )
 
@@ -715,15 +744,15 @@ def _entity_layer(node: dict[str, Any]) -> int:
 # encodes this (what the entity *is*); the enclosing subgraph encodes the layer.
 # Each entry: (fill, stroke, mermaid-shape-open, shape-close).
 _CATEGORY_STYLE: dict[str, tuple[str, str, str, str]] = {
-    "container": ("#e0e7ff", "#4f46e5", "[[", "]]"),   # Dataset (Investigation/Study/Assay)
-    "process": ("#dbeafe", "#2563eb", "{{", "}}"),     # LabProcess
-    "protocol": ("#cffafe", "#0891b2", "[/", "\\]"),   # LabProtocol
-    "material": ("#dcfce7", "#16a34a", "([", "])"),    # Sample
-    "chemical": ("#fef3c7", "#d97706", "(", ")"),      # MolecularEntity
-    "data": ("#fef9c3", "#ca8a04", "[(", ")]"),        # File / csvw:Table
-    "annotation": ("#f3e8ff", "#9333ea", "(", ")"),    # DefinedTerm/PropertyValue/AOP/KeyEvent/CSVW
-    "agent": ("#fce7f3", "#db2777", "(", ")"),         # Person / Organization
-    "publication": ("#ffe4e6", "#e11d48", "(", ")"),   # ScholarlyArticle
+    "container": ("#e0e7ff", "#4f46e5", "[[", "]]"),  # Dataset (Investigation/Study/Assay)
+    "process": ("#dbeafe", "#2563eb", "{{", "}}"),  # LabProcess
+    "protocol": ("#cffafe", "#0891b2", "[/", "\\]"),  # LabProtocol
+    "material": ("#dcfce7", "#16a34a", "([", "])"),  # Sample
+    "chemical": ("#fef3c7", "#d97706", "(", ")"),  # MolecularEntity
+    "data": ("#fef9c3", "#ca8a04", "[(", ")]"),  # File / csvw:Table
+    "annotation": ("#f3e8ff", "#9333ea", "(", ")"),  # DefinedTerm/PropertyValue/AOP/KeyEvent/CSVW
+    "agent": ("#fce7f3", "#db2777", "(", ")"),  # Person / Organization
+    "publication": ("#ffe4e6", "#e11d48", "(", ")"),  # ScholarlyArticle
 }
 _DEFAULT_CATEGORY_STYLE = ("#e5e7eb", "#9ca3af", "(", ")")
 
@@ -895,14 +924,8 @@ def build_crate_graph(
 
     # Cumulative layer filter: drop in-crate nodes deeper than `depth`; drop
     # stubs that lose their only connection; drop edges touching dropped nodes.
-    kept = {
-        nid
-        for nid, n in model_nodes.items()
-        if n["layer"] is None or n["layer"] <= depth
-    }
-    visible_edges = [
-        e for e in draw_edges if e["src"] in kept and e["dst"] in kept
-    ]
+    kept = {nid for nid, n in model_nodes.items() if n["layer"] is None or n["layer"] <= depth}
+    visible_edges = [e for e in draw_edges if e["src"] in kept and e["dst"] in kept]
     connected_stubs = {e["src"] for e in visible_edges} | {e["dst"] for e in visible_edges}
     final_nodes = [
         n
@@ -910,9 +933,7 @@ def build_crate_graph(
         if nid in kept and (n["layer"] is not None or nid in connected_stubs)
     ]
     final_ids = {n["id"] for n in final_nodes}
-    visible_edges = [
-        e for e in visible_edges if e["src"] in final_ids and e["dst"] in final_ids
-    ]
+    visible_edges = [e for e in visible_edges if e["src"] in final_ids and e["dst"] in final_ids]
 
     hidden_count = sum(
         1 for n in model_nodes.values() if n["layer"] is not None and n["layer"] > depth
@@ -1120,13 +1141,9 @@ def render_crate_graph(
         lines.append(f"  classDef cat_{cat} fill:{fill},stroke:{stroke},color:#1f2937;")
     # Status classDefs for off-graph references + the orphan stroke overlay.
     lines.append(
-        "  classDef external fill:#f8fafc,stroke:#64748b,"
-        "color:#334155,stroke-dasharray:4 3;"
+        "  classDef external fill:#f8fafc,stroke:#64748b,color:#334155,stroke-dasharray:4 3;"
     )
-    lines.append(
-        "  classDef dangling fill:#fee2e2,stroke:#b91c1c,"
-        "color:#7f1d1d,stroke-width:2px;"
-    )
+    lines.append("  classDef dangling fill:#fee2e2,stroke:#b91c1c,color:#7f1d1d,stroke-width:2px;")
     lines.append("  classDef orphan stroke:#ea580c,stroke-width:3px,stroke-dasharray:2 2;")
     for n in nodes:
         lines.append(f"  class {mid[n['id']]} {_crate_node_class(n)};")
@@ -1169,9 +1186,7 @@ def _crate_legend_lines() -> list[str]:
     return lines
 
 
-def render_provenance_mermaid_from_file(
-    path: str | Path, **kwargs: Any
-) -> str:
+def render_provenance_mermaid_from_file(path: str | Path, **kwargs: Any) -> str:
     """Read a ``ro-crate-metadata.json`` from disk and render its DAG.
 
     Args:
@@ -1199,9 +1214,7 @@ def _main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Draw only object/result edges (omit about/derivesFrom)",
     )
-    parser.add_argument(
-        "--fenced", action="store_true", help="Wrap output in a ```mermaid block"
-    )
+    parser.add_argument("--fenced", action="store_true", help="Wrap output in a ```mermaid block")
     args = parser.parse_args(argv)
     print(
         render_provenance_mermaid_from_file(

@@ -535,8 +535,8 @@ def _render_topology_detail(nodes: list[dict[str, Any]]) -> str:
             ty = str(n.get("type") or "")
             tail = f' <span class="ty">{esc(ty)}</span>' if with_type and ty else ""
             rows.append(
-                f'<li>{_mk("no")} <code>{esc(str(n["id"]))}</code>'
-                f'<span>{n.get("label") or ""}{tail}</span></li>'
+                f"<li>{_mk('no')} <code>{esc(str(n['id']))}</code>"
+                f"<span>{n.get('label') or ''}{tail}</span></li>"
             )
         extra = len(items) - _TOPO_LIST_CAP
         if extra > 0:
@@ -567,8 +567,7 @@ def _render_topology_detail(nodes: list[dict[str, Any]]) -> str:
         bits.append(_n(len(dangling), "dangling ref"))
     summary = " · ".join(bits) + " — which entities"
     return (
-        f'<details class="disc topo-detail"><summary>{summary}</summary>'
-        f'{"".join(groups)}</details>'
+        f'<details class="disc topo-detail"><summary>{summary}</summary>{"".join(groups)}</details>'
     )
 
 
@@ -584,11 +583,11 @@ def _render_topology_strip(counts: dict[str, int]) -> str:
         '<span class="topo-label">Graph topology</span>',
         f'<span class="c"><b>{total}</b>&nbsp;entities</span>',
         '<span class="c"><span class="sw" style="background:var(--muted)"></span>'
-        f'{counts.get("layer1", 0)} packaging</span>',
+        f"{counts.get('layer1', 0)} packaging</span>",
         '<span class="c"><span class="sw" style="background:var(--cat-process)"></span>'
-        f'{counts.get("layer2", 0)} ISA structural</span>',
+        f"{counts.get('layer2', 0)} ISA structural</span>",
         '<span class="c"><span class="sw" style="background:var(--cat-data)"></span>'
-        f'{counts.get("layer3", 0)} ISA-Tox domain</span>',
+        f"{counts.get('layer3', 0)} ISA-Tox domain</span>",
     ]
     flags: list[str] = []
     n_orphan = counts.get("orphan", 0)
@@ -717,8 +716,14 @@ def build_maturity_html(
         "<span>Self-contained · offline · print-friendly</span></footer>\n"
     )
     body = (
-        header + kpis + prov_section + prof_section + fair_section
-        + mit_section + repro_section + footer
+        header
+        + kpis
+        + prov_section
+        + prof_section
+        + fair_section
+        + mit_section
+        + repro_section
+        + footer
     )
 
     # Fill the shell placeholders. STYLE and BODY first (neither can contain a

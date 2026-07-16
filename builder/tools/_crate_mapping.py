@@ -511,9 +511,9 @@ def _bare_doi(raw: str) -> str:
     value = raw.strip()
     for prefix in ("https://doi.org/", "http://doi.org/"):
         if value.startswith(prefix):
-            return value[len(prefix):]
+            return value[len(prefix) :]
     if value.lower().startswith("doi:"):
-        return value[len("doi:"):]
+        return value[len("doi:") :]
     return value
 
 
@@ -574,11 +574,7 @@ def _mint_id(entity: Entity) -> str:
         # ro-crate-1.2_19.1 failed ("Citation … must be an absolute URI"). Minting
         # the absolute `https://doi.org/<bare>` URL keeps the citation @id valid.
         raw = str(f.get("doi") or f.get("identifier") or "").strip()
-        is_doi = (
-            raw.startswith("10.")
-            or "doi.org/" in raw
-            or raw.lower().startswith("doi:")
-        )
+        is_doi = raw.startswith("10.") or "doi.org/" in raw or raw.lower().startswith("doi:")
         if is_doi:
             return raw if raw.startswith("http") else f"https://doi.org/{_bare_doi(raw)}"
     if eid.startswith(("#", "http://", "https://", "./")) or "://" in eid:
@@ -835,15 +831,9 @@ class _Characteristic:
 
 _CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
     _Characteristic(("passage",), "passage", "https://bioregistry.io/EFO:0007061"),
-    _Characteristic(
-        ("growth",), "growth", "http://www.bioassayontology.org/bao#BAO_0002648"
-    ),
-    _Characteristic(
-        ("organ",), "Organ", f"{PROFILE_ISATOX}/param/organ"
-    ),
-    _Characteristic(
-        ("tissue",), "Tissue", f"{PROFILE_ISATOX}/param/tissue"
-    ),
+    _Characteristic(("growth",), "growth", "http://www.bioassayontology.org/bao#BAO_0002648"),
+    _Characteristic(("organ",), "Organ", f"{PROFILE_ISATOX}/param/organ"),
+    _Characteristic(("tissue",), "Tissue", f"{PROFILE_ISATOX}/param/tissue"),
 )
 # NB: the field names above (passage/growth/organ/tissue) are also listed in
 # _STRUCT_FIELDS so _scalar_props strips them from the Sample node — they round-trip
@@ -927,9 +917,7 @@ def _add_leaves(
         orcid = person.fields.get("orcid")
         if orcid not in (None, ""):
             bare = str(orcid).strip().rsplit("/", 1)[-1]
-            node.append_to(
-                "identifier", _identifier_pv(crate, "ORCID", bare, "https://orcid.org")
-            )
+            node.append_to("identifier", _identifier_pv(crate, "ORCID", bare, "https://orcid.org"))
         _wire_reference(
             node, "affiliation", person.fields.get("affiliation"), idx, keep_literal=True
         )
@@ -1018,9 +1006,7 @@ def _add_leaves(
         # Resolve the on-disk source so ro-crate-py copies the file into the
         # payload at write() time (#128). Skip on the in-memory build_and_validate
         # path (materialize_payload=False) — nothing is written there.
-        source = (
-            _file_source(fe, state.metadata.input_path) if materialize_payload else None
-        )
+        source = _file_source(fe, state.metadata.input_path) if materialize_payload else None
         # Co-type a source-code (or otherwise extra-typed) File as a @type list,
         # e.g. ["File", "SoftwareSourceCode"] for an analysis script (#180, gold
         # plot.py). A plain File keeps its scalar @type. additional_types is
@@ -1102,9 +1088,7 @@ _RESERVED_CRATE_FILES = frozenset(
 )
 
 
-def _add_scanned_leaves(
-    state: CrateState, crate: ROCrate, *, materialize_payload: bool
-) -> None:
+def _add_scanned_leaves(state: CrateState, crate: ROCrate, *, materialize_payload: bool) -> None:
     """Package every scanned file not already a drafted File entity (#175).
 
     Auto-include is an honest *fallback*: files the agent has not explicitly
@@ -1229,8 +1213,7 @@ def _is_file_node(node: Any) -> bool:
         return False
     types = t if isinstance(t, list) else [t]
     return any(
-        str(x).rsplit("/", 1)[-1].rsplit("#", 1)[-1] in ("File", "MediaObject")
-        for x in types
+        str(x).rsplit("/", 1)[-1].rsplit("#", 1)[-1] in ("File", "MediaObject") for x in types
     )
 
 
@@ -1250,9 +1233,7 @@ def _result_file_nodes(process_node: Any) -> list[Any]:
     return out
 
 
-def _attach_explicit_parts(
-    node: Any, entity: Entity, idx: dict[str, Any], root: Any
-) -> None:
+def _attach_explicit_parts(node: Any, entity: Entity, idx: dict[str, Any], root: Any) -> None:
     """Move a Study/Assay entity's explicit ``hasPart`` File members under its node.
 
     ``attach_files`` (#177) records placement by appending File entity_ids to the
@@ -1347,26 +1328,56 @@ def _synth_sample(crate: ROCrate, sid: str, name: str, derives_from: Any = None)
 # header-only placeholder. The 10-column contract mirrors the gold S-VHPS21 crate
 # (Issue #180, Lane D — extends the original 5-column schema from #94).
 _CONDITION_TABLE_COLUMNS: tuple[dict[str, str], ...] = (
-    {"titles": "well_id", "datatype": "string",
-     "propertyUrl": "http://purl.org/dc/terms/identifier"},
-    {"titles": "assay", "datatype": "string",
-     "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C60819"},
-    {"titles": "cell_line", "datatype": "string",
-     "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C16403"},
-    {"titles": "compound", "datatype": "string",
-     "propertyUrl": "http://purl.obolibrary.org/obo/CHEBI_23367"},
-    {"titles": "concentration_value", "datatype": "double",
-     "propertyUrl": "http://purl.obolibrary.org/obo/PATO_0000033"},
-    {"titles": "concentration_unit", "datatype": "string",
-     "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039"},
-    {"titles": "exposure_duration", "datatype": "string",
-     "propertyUrl": "https://bioregistry.io/NCIT:C83280"},
-    {"titles": "experiment", "datatype": "string",
-     "propertyUrl": "https://bioregistry.io/EFO:0002091"},
-    {"titles": "technical_replicate", "datatype": "string",
-     "propertyUrl": "https://bioregistry.io/EFO:0002090"},
-    {"titles": "control", "datatype": "string",
-     "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C28143"},
+    {
+        "titles": "well_id",
+        "datatype": "string",
+        "propertyUrl": "http://purl.org/dc/terms/identifier",
+    },
+    {
+        "titles": "assay",
+        "datatype": "string",
+        "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C60819",
+    },
+    {
+        "titles": "cell_line",
+        "datatype": "string",
+        "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C16403",
+    },
+    {
+        "titles": "compound",
+        "datatype": "string",
+        "propertyUrl": "http://purl.obolibrary.org/obo/CHEBI_23367",
+    },
+    {
+        "titles": "concentration_value",
+        "datatype": "double",
+        "propertyUrl": "http://purl.obolibrary.org/obo/PATO_0000033",
+    },
+    {
+        "titles": "concentration_unit",
+        "datatype": "string",
+        "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039",
+    },
+    {
+        "titles": "exposure_duration",
+        "datatype": "string",
+        "propertyUrl": "https://bioregistry.io/NCIT:C83280",
+    },
+    {
+        "titles": "experiment",
+        "datatype": "string",
+        "propertyUrl": "https://bioregistry.io/EFO:0002091",
+    },
+    {
+        "titles": "technical_replicate",
+        "datatype": "string",
+        "propertyUrl": "https://bioregistry.io/EFO:0002090",
+    },
+    {
+        "titles": "control",
+        "datatype": "string",
+        "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C28143",
+    },
 )
 
 # Header line (column titles, in order) for the materialised condition-table CSV.
@@ -1379,12 +1390,21 @@ _CONDITION_TABLE_HEADER = ",".join(c["titles"] for c in _CONDITION_TABLE_COLUMNS
 # condition table is (datatype + propertyUrl); the cell-content (measurement
 # rows) is never fabricated — D5 — so the materialised CSV is header-only.
 _RAW_MEASUREMENTS_COLUMNS: tuple[dict[str, str], ...] = (
-    {"titles": "well_id", "datatype": "string",
-     "propertyUrl": "http://purl.org/dc/terms/identifier"},
-    {"titles": "measured_value", "datatype": "double",
-     "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000109"},
-    {"titles": "measured_unit", "datatype": "string",
-     "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039"},
+    {
+        "titles": "well_id",
+        "datatype": "string",
+        "propertyUrl": "http://purl.org/dc/terms/identifier",
+    },
+    {
+        "titles": "measured_value",
+        "datatype": "double",
+        "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000109",
+    },
+    {
+        "titles": "measured_unit",
+        "datatype": "string",
+        "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039",
+    },
 )
 
 _RAW_MEASUREMENTS_HEADER = ",".join(c["titles"] for c in _RAW_MEASUREMENTS_COLUMNS) + "\n"
@@ -1452,9 +1472,7 @@ def _build_csvw_schema(
             # Same rule for valueUrl: emit the resolved Sample / MolecularEntity
             # link as an {@id} reference, never a bare string @id.
             props["valueUrl"] = {"@id": value_urls[title]}
-        column = crate.add(
-            ContextEntity(crate, f"{id_prefix}_col_{title}", properties=props)
-        )
+        column = crate.add(ContextEntity(crate, f"{id_prefix}_col_{title}", properties=props))
         schema.append_to("columns", column)
     return schema
 
@@ -1629,7 +1647,14 @@ def _add_processes(
             crate, f.get("assay_id"), proto_cache
         )
         node = _build_process(
-            crate, ptype, pid, name, f, protocol, idx, output_dir,
+            crate,
+            ptype,
+            pid,
+            name,
+            f,
+            protocol,
+            idx,
+            output_dir,
             materialize_payload=materialize_payload,
         )
         _idx_add(idx, proc, node)
@@ -1709,7 +1734,11 @@ def _build_process(
         chems = _resolve_many(idx, f.get("chemicals"))
         out = result or [
             _synth_condition_table(
-                crate, output_dir, pid, cells, chems,
+                crate,
+                output_dir,
+                pid,
+                cells,
+                chems,
                 materialize_payload=materialize_payload,
             )
         ]

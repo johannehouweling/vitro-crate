@@ -5,7 +5,7 @@ Three orthogonal concerns live here, all pure and offline:
 * :func:`mine_profile_metrics` — aggregate token / iteration / tool-call counts
   from parsed ``profile.ndjson`` records (the schema written by
   :class:`builder.tools.profiler.ProfilingLogger` and the LangGraph node wrappers
-  in :mod:`builder.agents.agent_loop`).
+  in :mod:`builder.agents.react.agent_loop`).
 * :func:`crate_graph_hash` — a stable content hash of the crate a state assembles
   to, used as the determinism signal across repeated runs.
 * :func:`evaluate_success` — run ``build_and_validate`` and report the per-layer

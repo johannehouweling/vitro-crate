@@ -1,9 +1,9 @@
 """Tests for builder/agents/build.py — the interactive hybrid build path (#179).
 
 ``run_interactive_build(engine)`` completes the §14 hybrid loop: it runs the
-**automated** deterministic pipeline (:func:`builder.agents.pipeline.run_pipeline`)
+**automated** deterministic pipeline (:func:`builder.agents.pipeline.pipeline.run_pipeline`)
 and then — *only* for a REAL interactive user — runs the HITL guidance tail
-(:func:`builder.agents.guidance.run_guidance`). The non-interactive/simulated path
+(:func:`builder.agents.pipeline.guidance.run_guidance`). The non-interactive/simulated path
 (the A/B eval, headless/batch) must run the pipeline ALONE so the A/B stays a clean
 automated-vs-automated comparison.
 
