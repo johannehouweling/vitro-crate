@@ -101,6 +101,15 @@
 .mat .disc summary { cursor:pointer; font-size:.82rem; color:var(--ink-2); font-weight:560; }
 .mat .disc ul.ind { list-style:none; margin:.6rem 0 0; padding:0; display:grid; gap:.28rem; }
 .mat .disc ul.ind li { display:flex; gap:.5rem; align-items:flex-start; font-size:.82rem; color:var(--ink-2); }
+/* Actionable orphan/dangling disclosure (#310). */
+.mat .topo-detail-h { margin:.7rem 0 .1rem; font-size:.76rem; font-weight:640; color:var(--ink); }
+.mat .topo-detail-h:first-of-type { margin-top:.55rem; }
+.mat .topo-detail code,
+.mat .disc ul.ind li code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.76rem;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
+  padding:.02rem .32rem; color:var(--ink); }
+.mat .disc ul.ind li .ty { color:var(--muted); }
+.mat .disc ul.ind li.more { color:var(--muted); font-style:italic; padding-left:1.65rem; }
 
 /* MIT */
 .mat .mit { display:grid; gap:.5rem; }
