@@ -26,3 +26,4 @@ eval_reports/
 # coverage.py artifacts
 .coverage
 .coverage.*
+maturity_report_prototype.html
