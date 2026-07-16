@@ -6,6 +6,8 @@
   --good:#0ca30c; --good-ink:#0a7d0a; --warn:#fab219; --warn-ink:#8a6500;
   --low:#d03b3b; --low-ink:#b3261e; --na-a:#e6ebeb; --na-b:#f3f6f6; --na-ink:#7a8688;
   --cov:#0e7c86; --track:#e6ebeb;
+  --cat-process:#2a78d6; --cat-material:#008300; --cat-data:#c0407a;
+  --edge-object:#8a9698; --edge-result:#0e7c86;
   color-scheme: light;
   background:var(--page); color:var(--ink);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -140,6 +142,44 @@
 .mat ul.repro li { display:flex; gap:.6rem; align-items:flex-start; }
 .mat ul.repro .rl { font-weight:550; font-size:.9rem; }
 .mat ul.repro .hint { display:block; font-size:.78rem; color:var(--muted); margin-top:.1rem; }
+
+/* provenance chain (#85) */
+.mat .prov-cap { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; max-width:60ch; }
+.mat .prov-scroll { overflow-x:auto; padding-bottom:.3rem; }
+.mat svg.prov { display:block; width:100%; min-width:44rem; height:auto; }
+.mat .prov .n { stroke-width:1.7; }
+.mat .prov .n-process { fill:var(--accent-soft); stroke:var(--cat-process); }
+.mat .prov .n-material { fill:var(--surface-2); stroke:var(--cat-material); }
+.mat .prov .n-data { fill:var(--surface-2); stroke:var(--cat-data); }
+.mat .prov .n-ctx { fill:var(--surface-2); stroke:var(--muted); }
+.mat .prov .fold { fill:color-mix(in srgb,var(--cat-data) 22%,transparent); stroke:none; }
+.mat .prov .name { fill:var(--ink); font-size:11.5px; text-anchor:middle; font-weight:520; }
+.mat .prov .tag { font-size:8px; text-anchor:middle; font-weight:700; letter-spacing:.04em; }
+.mat .prov .tag-process { fill:var(--cat-process); }
+.mat .prov .tag-material { fill:var(--cat-material); }
+.mat .prov .tag-data { fill:var(--cat-data); }
+.mat .prov .tag-ctx { fill:var(--muted); }
+.mat .prov .e { fill:none; stroke-width:1.6; }
+.mat .prov .e-object { stroke:var(--edge-object); stroke-dasharray:4 3; }
+.mat .prov .e-result { stroke:var(--edge-result); }
+.mat .prov .mk-object { fill:var(--edge-object); }
+.mat .prov .mk-result { fill:var(--edge-result); }
+.mat .prov-legend { display:flex; flex-wrap:wrap; gap:.5rem 1.1rem; margin-top:.7rem;
+  font-size:.8rem; color:var(--ink-2); }
+.mat .prov-legend .lg { display:inline-flex; align-items:center; gap:.4rem; }
+.mat .prov-legend .gl { width:1.5rem; height:0; border-top:2px solid var(--edge-result); }
+.mat .prov-legend .gl.obj { border-top:2px dashed var(--edge-object); }
+
+/* graph-topology strip (relocated here from the header) */
+.mat .comp { display:flex; flex-wrap:wrap; gap:.5rem .9rem; align-items:center;
+  font-size:.82rem; color:var(--ink-2); }
+.mat .comp .c { display:inline-flex; align-items:center; gap:.35rem; }
+.mat .comp .sw { width:.62rem; height:.62rem; border-radius:2px; }
+.mat .comp .warnflag { color:var(--low-ink); }
+.mat .comp .warnflag .mk { width:1rem; height:1rem; font-size:.6rem; }
+.mat .comp.topo { margin:1rem 0 0; padding-top:.75rem; border-top:1px solid var(--hairline); }
+.mat .topo-label { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--muted); font-weight:650; margin-right:.15rem; }
 
 .mat footer { color:var(--muted); font-size:.75rem; margin-top:1.4rem; padding-top:.9rem;
   border-top:1px solid var(--hairline); display:flex; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }

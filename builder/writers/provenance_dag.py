@@ -428,6 +428,217 @@ def render_provenance_mermaid(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Inline-SVG provenance chain (#85) — a self-contained, offline diagram of the
+# derivation chain for embedding in the maturity report. Unlike
+# ``render_provenance_mermaid`` (which needs mermaid.js to render), this emits a
+# finished ``<svg>`` element: no script, no external assets, prints as-is.
+# ---------------------------------------------------------------------------
+_SVG_NODE_W = 138
+_SVG_NODE_H = 48
+_SVG_COL_DX = 160  # left-edge spacing between columns
+_SVG_ROW_DY = 96  # top-edge spacing between rows
+_SVG_X0 = 18
+_SVG_Y0 = 22
+_SVG_FOLD = 11  # folded-corner size on the "File" node shape
+# _node_class() bucket → (node CSS class, tag CSS class).
+_SVG_CLASS = {
+    "proc": ("n-process", "tag-process"),
+    "mat": ("n-material", "tag-material"),
+    "data": ("n-data", "tag-data"),
+    "ctx": ("n-ctx", "tag-ctx"),
+}
+
+
+def _svg_trunc(text: str, limit: int = 18) -> str:
+    """Single-line ellipsised label (the SVG has no text wrapping)."""
+    text = text.replace("\n", " ").replace("\r", " ").strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _svg_node_shape(cls: str, x: int, y: int) -> str:
+    """The node's outline path/polygon for style bucket *cls* at ``(x, y)``."""
+    w, h = _SVG_NODE_W, _SVG_NODE_H
+    if cls == "proc":  # hexagon (chevron ends read as "a step")
+        pts = (
+            f"{x},{y + h // 2} {x + 13},{y} {x + w - 13},{y} "
+            f"{x + w},{y + h // 2} {x + w - 13},{y + h} {x + 13},{y + h}"
+        )
+        return f'<polygon class="n n-process" points="{pts}"/>'
+    if cls == "mat":  # stadium (rounded ends) — a sample/material
+        return (
+            f'<rect class="n n-material" x="{x}" y="{y}" width="{w}" height="{h}" '
+            f'rx="{h // 2}" ry="{h // 2}"/>'
+        )
+    if cls == "data":  # document with a folded corner — a File/Table
+        f = _SVG_FOLD
+        body = (
+            f"M{x + 4},{y} H{x + w - f} L{x + w},{y + f} V{y + h - 4} "
+            f"Q{x + w},{y + h} {x + w - 4},{y + h} H{x + 4} "
+            f"Q{x},{y + h} {x},{y + h - 4} V{y + 4} Q{x},{y} {x + 4},{y} Z"
+        )
+        fold = f"M{x + w - f},{y} V{y + f} H{x + w} Z"
+        return f'<path class="n n-data" d="{body}"/><path class="fold" d="{fold}"/>'
+    # ctx — a plain rounded rectangle for anything off the material/data axis.
+    return (
+        f'<rect class="n n-ctx" x="{x}" y="{y}" width="{w}" height="{h}" rx="8" ry="8"/>'
+    )
+
+
+def render_provenance_svg(
+    metadata: dict[str, Any] | list[dict[str, Any]],
+) -> str:
+    """Render the LabProcess derivation chain as a self-contained inline ``<svg>``.
+
+    Reads the same derivation subgraph as :func:`render_provenance_mermaid` — each
+    ``LabProcess`` and the entities it consumes (``object``/``input``) and produces
+    (``result``/``output``) — and lays it out left-to-right by longest-path depth,
+    so a receiving lab can read how a result was produced. Materials render as
+    rounded "stadiums", processes as hexagons, files/tables as folded documents;
+    ``object`` edges are dashed ("consumes"), ``result`` edges solid ("produces").
+
+    Unlike the Mermaid renderer, the output is a finished SVG element (markers,
+    node shapes, edge paths, labels) with **no script and no external assets**, so
+    it embeds directly in the offline maturity report and prints as-is. All
+    crate-controlled text (entity names/tags) is HTML-escaped (#169).
+
+    Args:
+        metadata: A parsed ``ro-crate-metadata.json`` dict, the ``@graph`` list, or
+            the ``crate.metadata.generate()`` document.
+
+    Returns:
+        The ``<svg>…</svg>`` markup, or ``""`` when the crate records no
+        derivation chain (no in-crate process input/output edges to draw).
+    """
+    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
+    nodes: dict[str, dict[str, Any]] = {
+        n["@id"]: n for n in graph if isinstance(n, dict) and "@id" in n
+    }
+
+    # Directed derivation edges, both pointing "downstream": material --object-->
+    # process, process --result--> data. Only edges whose endpoints are both
+    # in-crate nodes are drawn (off-graph refs have nothing to attach to).
+    edges: list[tuple[str, str, str]] = []  # (src, dst, kind)
+    for nid, node in nodes.items():
+        if not _is_process(node):
+            continue
+        for src in _refs(node, _INPUT_KEYS):
+            if src in nodes:
+                edges.append((src, nid, "object"))
+        for dst in _refs(node, _OUTPUT_KEYS):
+            if dst in nodes:
+                edges.append((nid, dst, "result"))
+    if not edges:
+        return ""
+
+    drawn = {e[0] for e in edges} | {e[1] for e in edges}
+
+    # Predecessors/successors over the drawn subgraph.
+    preds: dict[str, list[str]] = {n: [] for n in drawn}
+    has_succ: dict[str, bool] = {n: False for n in drawn}
+    for src, dst, _ in edges:
+        preds[dst].append(src)
+        has_succ[src] = True
+
+    # Column = longest path from any source (memoised depth; back-edges → 0 so a
+    # pathological cycle can't recurse forever).
+    col: dict[str, int] = {}
+    inprog: set[str] = set()
+
+    def _depth(n: str) -> int:
+        if n in col:
+            return col[n]
+        if n in inprog:
+            return 0
+        inprog.add(n)
+        d = 0
+        for p in preds[n]:
+            d = max(d, _depth(p) + 1)
+        inprog.discard(n)
+        col[n] = d
+        return d
+
+    for n in sorted(drawn):
+        _depth(n)
+
+    # Row assignment, column by column left→right. Within a column, nodes that
+    # continue the chain (have a successor) are placed first so the "spine" stays
+    # on a straight row; a node inherits a placed predecessor's row when free,
+    # else the lowest free row — which cleanly steps branch outputs onto new rows.
+    by_col: dict[int, list[str]] = {}
+    for n in drawn:
+        by_col.setdefault(col[n], []).append(n)
+    row: dict[str, int] = {}
+    for c in sorted(by_col):
+        used: set[int] = set()
+        ordered = sorted(by_col[c], key=lambda n: (0 if has_succ[n] else 1, n))
+        for n in ordered:
+            placed_pred_rows = [row[p] for p in preds[n] if p in row]
+            desired = min(placed_pred_rows) if placed_pred_rows else None
+            if desired is not None and desired not in used:
+                r = desired
+            else:
+                r = 0
+                while r in used:
+                    r += 1
+            row[n] = r
+            used.add(r)
+
+    pos: dict[str, tuple[int, int]] = {
+        n: (_SVG_X0 + col[n] * _SVG_COL_DX, _SVG_Y0 + row[n] * _SVG_ROW_DY)
+        for n in drawn
+    }
+    vb_w = max(x + _SVG_NODE_W for x, _ in pos.values()) + 18
+    vb_h = max(y + _SVG_NODE_H for _, y in pos.values()) + 22
+
+    # Edges: draw results (solid) then objects (dashed), each deterministically.
+    mid = _SVG_NODE_H // 2
+    edge_svg: list[str] = []
+    for kind in ("result", "object"):
+        for src, dst, k in sorted(edges):
+            if k != kind:
+                continue
+            x1, y1 = pos[src][0] + _SVG_NODE_W, pos[src][1] + mid
+            x2, y2 = pos[dst][0], pos[dst][1] + mid
+            dx = (x2 - x1) // 2 if y1 == y2 else max((x2 - x1) // 2, 30)
+            path = f"M{x1},{y1} C{x1 + dx},{y1} {x2 - dx},{y2} {x2},{y2}"
+            edge_svg.append(
+                f'<path class="e e-{kind}" d="{path}" '
+                f'marker-end="url(#prov-ar-{kind})"/>'
+            )
+
+    # Nodes: shape + type tag (above) + name (inside). Labels are escaped.
+    node_svg: list[str] = []
+    for n in sorted(drawn, key=lambda n: (col[n], row[n], n)):
+        node = nodes[n]
+        cls = _node_class(node)
+        node_cls, tag_cls = _SVG_CLASS[cls]
+        x, y = pos[n]
+        cx = x + _SVG_NODE_W // 2
+        name = _escape(_svg_trunc(_name(node)))
+        tag = _escape(_svg_trunc(_tag(node), 22)).upper()
+        node_svg.append(
+            f"<g><title>{_escape(_name(node))} — {_escape(_tag(node))}</title>"
+            f"{_svg_node_shape(cls, x, y)}"
+            f'<text class="tag {tag_cls}" x="{cx}" y="{y - 6}">{tag}</text>'
+            f'<text class="name" x="{cx}" y="{y + 28}">{name}</text></g>'
+        )
+
+    marker = (
+        '<marker id="prov-ar-{k}" viewBox="0 0 10 10" refX="9" refY="5" '
+        'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" class="mk-{k}"/></marker>'
+    )
+    return (
+        f'<svg viewBox="0 0 {vb_w} {vb_h}" width="{vb_w}" height="{vb_h}" '
+        'role="img" aria-label="Provenance derivation chain" class="prov">'
+        "<title>Provenance derivation chain</title>"
+        f'<defs>{marker.format(k="object")}{marker.format(k="result")}</defs>'
+        f'<g class="edges">{"".join(edge_svg)}</g>'
+        f'<g class="nodes">{"".join(node_svg)}</g></svg>'
+    )
+
+
 # Relation key sets for the full crate graph. Each tuple is
 # (json_keys, label, reversed): reversed=True means the referenced node points
 # INTO the holder (process inputs), so the drawn edge is ref --> holder.

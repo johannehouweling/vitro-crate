@@ -264,7 +264,7 @@ def _embed_crate_graph(crate: ROCrate) -> None:
 def _embed_maturity_report(crate: ROCrate, state: CrateState) -> None:
     """Embed the maturity report into the crate and register it (#85).
 
-    Renders ``ro-crate-maturity.html`` — profile adherence (computed in-memory
+    Renders ``ro-crate-metadata-maturity.html`` — profile adherence (computed in-memory
     from the crate's current ``@graph``), FAIR + DSM, OECD MIT coverage, and
     reproducibility readiness — and adds it as a ``File`` + ``CreativeWork``
     ``about`` ``./`` (the HTML is the File's in-memory source, materialised by
@@ -275,7 +275,9 @@ def _embed_maturity_report(crate: ROCrate, state: CrateState) -> None:
     from builder.writers.maturity_report import REPORT_FILENAME, build_maturity_html
 
     # Renders from state.validation (no re-validate) so export stays cheap (#85).
-    page = build_maturity_html(state)
+    # Pass the crate's current @graph so the report can fold in the provenance
+    # chain + graph-topology strip drawn from real serialized entities.
+    page = build_maturity_html(state, graph=crate.metadata.generate())
     crate.add(
         File(
             crate,
@@ -320,7 +322,7 @@ def export_crate(
             ``sessions/<session_id>/working_crate/``.
         embed_graph: Write the entity-graph diagram into the crate (default
             True). Set False to skip the visualization artifact.
-        embed_report: Write the maturity report (ro-crate-maturity.html, #85)
+        embed_report: Write the maturity report (ro-crate-metadata-maturity.html, #85)
             into the crate (default True). Set False to skip it.
 
     Returns:
@@ -355,7 +357,7 @@ def export_crate(
             except Exception as graph_err:  # noqa: BLE001 — never fail export on the viz
                 logger.warning("Could not embed crate graph: %s", graph_err)
 
-        # Embed the maturity report (ro-crate-maturity.html, a CreativeWork about
+        # Embed the maturity report (ro-crate-metadata-maturity.html, a CreativeWork about
         # ./, #85). Best-effort: a reporting failure must not fail the export.
         if embed_report:
             try:
