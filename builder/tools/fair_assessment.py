@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from builder.state import CrateState, FAIRReport
+from builder.state import CrateState, FAIRReport, MITReport
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +130,20 @@ def _check_conforms_to_profile(state: CrateState) -> bool:
     return has_isa_types
 
 
+def _mit_has_coverage(report: MITReport) -> bool:
+    """True when a MIT report records actual (non-empty, non-zero) coverage."""
+    return report.module_scores != {} and report.overall_score > 0
+
+
 def _check_mit_coverage_indicator(state: CrateState) -> bool:
-    """Check that MIT coverage is tracked (report present)."""
-    return state.mit_assessment.module_scores != {} and state.mit_assessment.overall_score > 0
+    """Check that MIT coverage is tracked (report present).
+
+    Reads ``state.mit_assessment`` — the back-compat path. On the report/export
+    path that field is never populated, so callers pass the freshly-computed report
+    to :func:`assess_fair_maturity` instead (``mit=``), which is scored against the
+    assembled ``@graph`` (#311).
+    """
+    return _mit_has_coverage(state.mit_assessment)
 
 
 # DSM indicator checks
@@ -152,8 +163,22 @@ def _check_dataset_metadata(state: CrateState) -> bool:
 
 
 def _check_access_info(state: CrateState) -> bool:
-    """Dataset Descriptor contains access information."""
-    return bool(state.metadata.output_path or state.metadata.input_path)
+    """Dataset Descriptor contains access information.
+
+    A self-contained RO-Crate carries its access information intrinsically: the
+    data is reached through the crate, and the descriptor states how — a resolvable
+    identity, explicit reuse terms, included data files, or a known location.
+    Reading *only* the incidental build-time ``output_path`` / ``input_path`` (unset
+    on the report and fixture paths) collapsed the whole DSM ladder at L1 even for
+    complete crates (#311). Credit crate content instead; a crate with none of these
+    genuinely lacks access information and still fails.
+    """
+    md = state.metadata
+    has_location = bool(md.output_path or md.input_path)
+    has_identity = bool(md.accession or state.session_id)
+    has_license = any(e.fields.get("license") for e in state.list_entities())
+    has_data = bool(state.list_entities("File"))
+    return has_location or has_identity or has_license or has_data
 
 
 def _check_has_descriptor(state: CrateState) -> bool:
@@ -321,7 +346,7 @@ DSM_CHECKS: dict[str, Any] = {
 }
 
 
-def assess_fair_maturity(state: CrateState) -> FAIRReport:
+def assess_fair_maturity(state: CrateState, *, mit: MITReport | None = None) -> FAIRReport:
     """Assess FAIR maturity from CrateState metadata.
 
     Checks basic FAIR indicators from fair/indicators.yaml and computes
@@ -329,12 +354,21 @@ def assess_fair_maturity(state: CrateState) -> FAIRReport:
 
     Args:
         state: The current CrateState to assess.
+        mit: An already-computed MIT report to score the ``mit_coverage`` indicator
+            (RDA-R1.3-01D) against. The report/export path computes MIT against the
+            assembled ``@graph`` and passes it here, because ``state.mit_assessment``
+            is never populated on that path (#311). When ``None`` the indicator falls
+            back to ``state.mit_assessment`` (back-compat).
 
     Returns:
         A FAIRReport with indicator_results and dsm_level.
     """
     indicators_data = _load_yaml(FAIR_INDICATORS_PATH)
     dsm_data = _load_yaml(DSM_INDICATORS_PATH)
+
+    # The mit_coverage indicator is scored from the caller-supplied report when
+    # given (graph-based), else from the state's own (possibly empty) assessment.
+    mit_report = mit if mit is not None else state.mit_assessment
 
     indicator_results: list[dict[str, Any]] = []
 
@@ -357,7 +391,12 @@ def assess_fair_maturity(state: CrateState) -> FAIRReport:
                     }
                 )
             elif check_name in FAIR_CHECKS:
-                passed = FAIR_CHECKS[check_name](state)
+                # mit_coverage is scored from the (graph-based) report, not the
+                # never-populated state.mit_assessment (#311).
+                if check_name == "mit_coverage":
+                    passed = _mit_has_coverage(mit_report)
+                else:
+                    passed = FAIR_CHECKS[check_name](state)
                 indicator_results.append(
                     {
                         "id": indicator.get("id", ""),
