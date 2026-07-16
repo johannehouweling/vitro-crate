@@ -41,7 +41,7 @@ def _capture_openai_kwargs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setenv("VITRO_OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("VITRO_OPENAI_MODEL", "gpt-5.1")
 
-    from builder.agents.agent_loop import _build_chat_model
+    from builder.agents.llm import _build_chat_model
 
     _build_chat_model(provider="openai")
     return captured

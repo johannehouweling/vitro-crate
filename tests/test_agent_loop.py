@@ -18,7 +18,7 @@ class TestDetectProvider:
 
     def test_no_key_returns_none(self):
         """_detect_provider returns None when no API key is set."""
-        from builder.agents.agent_loop import _detect_provider
+        from builder.agents.llm import _detect_provider
 
         old_openai = os.environ.pop("OPENAI_API_KEY", None)
         old_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -33,7 +33,7 @@ class TestDetectProvider:
 
     def test_openai_key_detected(self):
         """_detect_provider returns 'openai' when OPENAI_API_KEY is set."""
-        from builder.agents.agent_loop import _detect_provider
+        from builder.agents.llm import _detect_provider
 
         old = os.environ.pop("OPENAI_API_KEY", None)
         os.environ["OPENAI_API_KEY"] = "sk-test123"
@@ -48,7 +48,7 @@ class TestDetectProvider:
 
     def test_anthropic_key_detected(self):
         """_detect_provider returns 'anthropic' when ANTHROPIC_API_KEY is set."""
-        from builder.agents.agent_loop import _detect_provider
+        from builder.agents.llm import _detect_provider
 
         old = os.environ.pop("ANTHROPIC_API_KEY", None)
         os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test123"
@@ -63,7 +63,7 @@ class TestDetectProvider:
 
     def test_both_keys_prefers_openai(self):
         """_detect_provider prefers OpenAI when both are set."""
-        from builder.agents.agent_loop import _detect_provider
+        from builder.agents.llm import _detect_provider
 
         old_openai = os.environ.get("OPENAI_API_KEY")
         old_anthropic = os.environ.get("ANTHROPIC_API_KEY")

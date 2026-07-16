@@ -30,7 +30,7 @@ from typing import Any, Callable
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from builder.agents.agent_loop import (
+from builder.agents.llm import (
     _build_chat_model,
     _extract_model_name,
     _extract_token_usage,
@@ -72,6 +72,7 @@ def _invoke_structured_with_usage(
         return raw_result.get("parsed")
     # Defensive: a model/runnable that ignored include_raw still yields a result.
     return raw_result
+
 
 # ---------------------------------------------------------------------------
 # D5: identifier-bearing scalar fields the leaf must NEVER let the model fill.
@@ -136,9 +137,7 @@ def _structured_output_schema(entity_type: str) -> dict[str, Any]:
     """
     schema = draft_hints_schema(entity_type)
     props = schema.get("properties", {})
-    schema["properties"] = {
-        key: spec for key, spec in props.items() if key not in _EXCLUDED_FIELDS
-    }
+    schema["properties"] = {key: spec for key, spec in props.items() if key not in _EXCLUDED_FIELDS}
     # The function name langchain derives for the structured-output tool. Must be
     # a valid identifier; ``entity_type`` is always a CamelCase type name.
     schema["title"] = f"{entity_type}Fields"
@@ -147,9 +146,7 @@ def _structured_output_schema(entity_type: str) -> dict[str, Any]:
 
 def _strip_identifiers(fields: dict[str, Any]) -> dict[str, Any]:
     """Defensively drop any identifier/reference field from model output (D5)."""
-    return {
-        key: value for key, value in fields.items() if key not in _EXCLUDED_FIELDS
-    }
+    return {key: value for key, value in fields.items() if key not in _EXCLUDED_FIELDS}
 
 
 # ---------------------------------------------------------------------------
@@ -508,9 +505,7 @@ def draft_entity_fields(
 # carries a clean value; ``clarify`` carries one follow-up question; ``from_file``
 # carries an optional filename hint (NEVER a value — D5); ``skip`` covers "I don't
 # know" / empty / unusable replies.
-_INTERPRET_ACTIONS: frozenset[str] = frozenset(
-    {"commit", "skip", "clarify", "from_file"}
-)
+_INTERPRET_ACTIONS: frozenset[str] = frozenset({"commit", "skip", "clarify", "from_file"})
 
 _PHRASE_SYSTEM_PROMPT = (
     "You are the conversational guidance assistant for an ISA-Tox RO-Crate "
@@ -601,9 +596,7 @@ def _interpret_schema() -> dict[str, Any]:
             },
             "filename": {
                 "type": "string",
-                "description": (
-                    "Only for action='from_file': an optional file name/path hint."
-                ),
+                "description": ("Only for action='from_file': an optional file name/path hint."),
             },
         },
         "required": ["action"],
@@ -702,9 +695,7 @@ def phrase_gap_question(
             )
         ),
     ]
-    result = _invoke_structured_with_usage(
-        llm, _phrase_schema(), messages, usage_sink
-    )
+    result = _invoke_structured_with_usage(llm, _phrase_schema(), messages, usage_sink)
     if isinstance(result, dict):
         question = result.get("question")
         if isinstance(question, str) and question.strip():
@@ -758,15 +749,11 @@ def interpret_gap_reply(
             )
         ),
     ]
-    result = _invoke_structured_with_usage(
-        llm, _interpret_schema(), messages, usage_sink
-    )
+    result = _invoke_structured_with_usage(llm, _interpret_schema(), messages, usage_sink)
     return _normalise_interpretation(result, gap_context)
 
 
-def _normalise_interpretation(
-    result: Any, gap_context: dict[str, Any]
-) -> dict[str, Any]:
+def _normalise_interpretation(result: Any, gap_context: dict[str, Any]) -> dict[str, Any]:
     """Coerce a raw interpret result into a safe, well-formed decision (D5).
 
     Guards (the model output is never trusted as-is):
@@ -902,9 +889,7 @@ def extract_field_from_file(
         the field is identifier-bearing — D5).
     """
     # D5: never extract an identifier from file text — those come from lookups.
-    target = _local_property_name(field) or _local_property_name(
-        gap_context.get("property")
-    )
+    target = _local_property_name(field) or _local_property_name(gap_context.get("property"))
     if target in _IDENTIFIER_SCALAR_FIELDS:
         return ""
     if not file_text or not file_text.strip():
@@ -924,9 +909,7 @@ def extract_field_from_file(
             )
         ),
     ]
-    result = _invoke_structured_with_usage(
-        llm, _extract_file_schema(), messages, usage_sink
-    )
+    result = _invoke_structured_with_usage(llm, _extract_file_schema(), messages, usage_sink)
     if isinstance(result, dict):
         value = result.get("value")
         if isinstance(value, str) and value.strip():
