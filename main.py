@@ -484,21 +484,16 @@ def main(argv: list[str] | None = None) -> int:
     # the deterministic pipeline + HITL guidance tail. The legacy ReAct loop is
     # retained behind --legacy-react (pending the task-7 prompt strip), not deleted.
     if args.interactive:
-        if args.legacy_react:
-            from builder.agents.react.agent_loop import run_interactive_agent
+        from builder.agents.build import BuildMode, run_build
 
-            run_interactive_agent(
-                engine,
-                provider=args.provider,
-                model=args.model,
-                base_url=args.api_base,
-            )
-            return 0
+        mode = BuildMode.from_cli(legacy_react=args.legacy_react)
 
-        # The default interactive build is folder-driven: with no scanned files
-        # there is genuinely nothing to build. Tell the user how to proceed
-        # instead of exiting near-silently, then return gracefully.
-        if len(engine.state.scanned_files) == 0:
+        # The default (pipeline) interactive build is folder-driven: with no
+        # scanned files there is genuinely nothing to build, so tell the user how
+        # to proceed instead of exiting near-silently. The ReAct loop is
+        # conversational and runs without pre-scanned files, so this guard is
+        # pipeline-only.
+        if mode is BuildMode.PIPELINE and len(engine.state.scanned_files) == 0:
             print(
                 "No input documents found. The interactive build is "
                 "folder-driven: pass --input <folder> to build an ISA-Tox crate "
@@ -507,12 +502,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
-        # Default: automated pipeline, then the guidance tail for the real user
-        # (run_interactive_build gates guidance on the interactive interface and
-        # surfaces a concise summary via the output channel).
-        from builder.agents.build import run_interactive_build
-
-        run_interactive_build(engine, output=print)
+        # One switch routes A/B (#309): PIPELINE -> deterministic spine + HITL
+        # guidance tail (surfaced via the output channel); REACT -> the legacy
+        # loop (provider/model/base_url apply). run_build ignores the kwargs that
+        # don't apply to the chosen mode.
+        run_build(
+            mode,
+            engine,
+            provider=args.provider,
+            model=args.model,
+            base_url=args.api_base,
+            output=print,
+        )
         return 0
 
     # Batch / info mode — print summary and exit

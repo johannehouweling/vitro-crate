@@ -1525,7 +1525,7 @@ vitro-crate/
 │   │   ├── provenance_dag.py     Mermaid entity-graph / provenance DAG (#130)
 │   │   ├── maturity_report.py    Maturity / FAIR HTML report
 │   └── agents/                  Orchestration + LLM config
-│       ├── build.py             Interactive entrypoint (run_interactive_build) — mode dispatch
+│       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
 │       ├── llm.py               Shared model construction + usage mining, both modes (#309)
 │       ├── progress_spinner.py  CLI progress UI
 │       ├── pipeline/            Deterministic pipeline mode (--interactive DEFAULT)
@@ -1939,6 +1939,13 @@ HITL and lives **outside** the spine, in the interactive entrypoint
 `run_pipeline` alone; a real user gets `run_pipeline` *then* `run_guidance`.
 
 #### 14.6.1 The interactive entrypoint (`builder/agents/build.py`)
+
+`BuildMode` (`PIPELINE` / `REACT`) is the single switch that selects a variant, and
+`run_build(mode, engine, *, provider=None, model=None, base_url=None, output=None)`
+dispatches to it — `PIPELINE` → `run_interactive_build` (below), `REACT` →
+`run_interactive_agent` (§4). `main.py` derives the mode from `--legacy-react`
+(`BuildMode.from_cli`) and the eval harness maps its `--arch` string onto the same
+enum (`BuildMode(arch)`), so A/B is chosen in **one** place (#309).
 
 `run_interactive_build(engine, *, pipeline_runner=None, guidance_runner=None,
 exporter=None, output=None) -> dict` joins the two halves into the end-to-end
