@@ -412,3 +412,9 @@ from builder.tools.scanner import extract_pdf_text
 result = extract_pdf_text("/path/to/publication.pdf")
 # Returns: "[Page 1]\n[Text] Abstract\n[Text] ...\n[Table 1 (3 rows)]\n| Compound | IC50 | Cell Line |\n| --- | --- | --- |\n| ..."
 ```
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright © 2026 Jente Houweling.
