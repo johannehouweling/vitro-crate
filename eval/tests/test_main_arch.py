@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from builder.agents.build import BuildMode
 from eval.__main__ import build_arg_parser, select_agent_factory
 
 
@@ -31,11 +32,11 @@ class TestSelectAgentFactory:
     def test_react_selects_react_factory(self) -> None:
         from eval.react_factory import ReActBuildAgent
 
-        factory = select_agent_factory("react", provider=None, model=None, base_url=None)
+        factory = select_agent_factory(BuildMode.REACT, provider=None, model=None, base_url=None)
         assert isinstance(factory(), ReActBuildAgent)
 
     def test_pipeline_selects_pipeline_factory(self) -> None:
         from eval.pipeline_factory import PipelineBuildAgent
 
-        factory = select_agent_factory("pipeline", provider=None, model=None, base_url=None)
+        factory = select_agent_factory(BuildMode.PIPELINE, provider=None, model=None, base_url=None)
         assert isinstance(factory(), PipelineBuildAgent)

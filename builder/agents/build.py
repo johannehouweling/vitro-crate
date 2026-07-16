@@ -27,6 +27,7 @@ functions) so the wiring is unit-testable with no SHACL / no LLM / no network.
 
 from __future__ import annotations
 
+import enum
 import inspect
 import logging
 from contextlib import nullcontext
@@ -45,6 +46,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "BuildMode",
+    "run_build",
     "run_interactive_build",
     "format_guidance_summary",
     "format_gap_summary",
@@ -68,6 +71,30 @@ Exporter = Callable[..., dict[str, Any]]
 # Default no-op output channel: discard. The CLI passes ``print`` (or a console
 # writer); tests pass a list's ``append`` to capture the surfaced summary.
 OutputChannel = Callable[[str], Any]
+
+
+class BuildMode(enum.Enum):
+    """Which build variant runs — the single switch the CLI and eval both flip.
+
+    Both modes drive the same engine + toolbox via ``engine.run_tool``; only the
+    orchestration differs (Issue #309). Both are first-class, permanently
+    co-maintained variants (AGENTS.md §1, D15) — this is a selector, not a step
+    toward removing either.
+
+    The values are the eval harness's ``--arch`` strings, so it can map its CLI
+    choice straight onto the enum with ``BuildMode(arch)``.
+    """
+
+    PIPELINE = "pipeline"  # deterministic, code-orchestrated (--interactive default)
+    REACT = "react"  # LLM-orchestrated ReAct loop (--legacy-react)
+
+    @classmethod
+    def from_cli(cls, *, legacy_react: bool) -> BuildMode:
+        """Map the CLI mode flags to a :class:`BuildMode`.
+
+        ``--legacy-react`` selects :attr:`REACT`; the default is :attr:`PIPELINE`.
+        """
+        return cls.REACT if legacy_react else cls.PIPELINE
 
 
 class CrateExportError(RuntimeError):
@@ -194,6 +221,49 @@ def run_interactive_build(
     finally:
         # Restore the prior tool-event hook even if the build raised (#266).
         engine.on_tool_event = prior_tool_event
+
+
+def run_build(
+    mode: BuildMode,
+    engine: AgentEngine,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    output: OutputChannel | None = None,
+) -> dict[str, Any] | None:
+    """Dispatch a build to *mode*'s entrypoint — the single A/B switch (#309).
+
+    :attr:`BuildMode.PIPELINE` runs the deterministic spine + HITL guidance tail
+    (:func:`run_interactive_build`) and returns its result dict.
+    :attr:`BuildMode.REACT` runs the legacy LLM-orchestrated loop
+    (:func:`builder.agents.react.agent_loop.run_interactive_agent`), which mutates
+    ``engine.state`` in place and has no structured return, so this returns
+    ``None``.
+
+    Per-mode kwargs that don't apply to the chosen mode are ignored — the ReAct
+    loop takes ``provider`` / ``model`` / ``base_url``, the pipeline takes
+    ``output`` — so a single call site (``main.py``, the eval) can pass all of
+    them and let the switch route.
+
+    Args:
+        mode: Which variant to run.
+        engine: An initialized :class:`~builder.engine.AgentEngine`.
+        provider: LLM provider override (ReAct only; auto-detected when ``None``).
+        model: Model-name override (ReAct only).
+        base_url: Custom OpenAI-compatible base URL (ReAct only).
+        output: Progress/summary sink for the pipeline path (e.g. ``print``).
+
+    Returns:
+        The pipeline result dict for :attr:`BuildMode.PIPELINE`; ``None`` for
+        :attr:`BuildMode.REACT`.
+    """
+    if mode is BuildMode.REACT:
+        from builder.agents.react.agent_loop import run_interactive_agent
+
+        run_interactive_agent(engine, provider=provider, model=model, base_url=base_url)
+        return None
+    return run_interactive_build(engine, output=output)
 
 
 def _spinner_emit(base_emit: OutputChannel, spinner: ProgressSpinner | None) -> OutputChannel:

@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from builder.agents.build import BuildMode
 from builder.config import load_config, merge_with_env
 from eval.agent_api import BuildAgent
 from eval.corpus import DEFAULT_CORPUS
@@ -84,21 +85,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def select_agent_factory(
-    arch: str,
+    mode: BuildMode,
     *,
     provider: str | None,
     model: str | None,
     base_url: str | None,
 ) -> Callable[[], BuildAgent]:
-    """Return the live agent factory for the chosen *arch*.
+    """Return the live agent factory for the chosen build *mode*.
 
-    ``"react"`` (the default) builds the live ReAct factory (which reads
-    provider/model/base_url); ``"pipeline"`` builds the deterministic-spine factory
-    (which ignores those — it calls no model). Keeping selection here means
-    :func:`run_main` stays architecture-agnostic and the choice is unit-testable.
+    :attr:`~builder.agents.build.BuildMode.REACT` (the harness default) builds the
+    live ReAct factory (which reads provider/model/base_url);
+    :attr:`~builder.agents.build.BuildMode.PIPELINE` builds the deterministic-spine
+    factory (which ignores those — it calls no model). The CLI's ``--arch`` string
+    maps straight onto the shared enum via ``BuildMode(arch)``, so ``main.py`` and
+    this harness flip A/B through the *same* switch (#309). Keeping selection here
+    means :func:`run_main` stays mode-agnostic and the choice is unit-testable.
 
     Args:
-        arch: ``"react"`` or ``"pipeline"``.
+        mode: The :class:`~builder.agents.build.BuildMode` to build.
         provider: LLM provider override (ReAct only).
         model: Model name override (ReAct only).
         base_url: Custom OpenAI-compatible base URL (ReAct only).
@@ -107,17 +111,17 @@ def select_agent_factory(
         A zero-arg factory producing fresh :class:`~eval.agent_api.BuildAgent`s.
 
     Raises:
-        ValueError: If *arch* is unrecognised.
+        ValueError: If *mode* is unrecognised.
     """
-    if arch == "pipeline":
+    if mode is BuildMode.PIPELINE:
         from eval.pipeline_factory import make_pipeline_agent_factory
 
         return make_pipeline_agent_factory()
-    if arch == "react":
+    if mode is BuildMode.REACT:
         from eval.react_factory import make_react_agent_factory
 
         return make_react_agent_factory(provider=provider, model=model, base_url=base_url)
-    raise ValueError(f"Unknown arch: {arch!r}")
+    raise ValueError(f"Unknown build mode: {mode!r}")
 
 
 def run_main(
@@ -159,7 +163,7 @@ def run_main(
         merge_with_env(load_config())
 
         agent_factory = select_agent_factory(
-            args.arch,
+            BuildMode(args.arch),
             provider=args.provider,
             model=args.model,
             base_url=args.api_base,
