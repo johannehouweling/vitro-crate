@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from builder.agents.agent_loop import _build_chat_model
+from builder.agents.llm import _build_chat_model
 
 
 def _openai_env(monkeypatch: pytest.MonkeyPatch, model: str) -> None:

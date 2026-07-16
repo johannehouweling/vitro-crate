@@ -59,10 +59,9 @@ def _live_graph_driver(
 
     from builder.agents.agent_loop import (
         _build_agent_graph,
-        _build_chat_model,
         _build_langchain_tools,
-        _recursion_limit,
     )
+    from builder.agents.llm import _build_chat_model, _recursion_limit
     from builder.config import get_max_iterations
 
     tools = _build_langchain_tools(engine)

@@ -7,7 +7,6 @@ and lets the LLM decide which tools to call based on user requests.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from time import monotonic, perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
@@ -23,6 +22,13 @@ try:
 except ImportError:
     from typing_extensions import Annotated as _Annotated
 
+from builder.agents.llm import (
+    _build_chat_model,
+    _extract_model_name,
+    _extract_token_usage,
+    _get_request_timeout,
+    _recursion_limit,
+)
 from builder.agents.system_prompt import SYSTEM_PROMPT
 from builder.agents.tools_spec import TOOL_SPECS
 from builder.engine import AgentEngine
@@ -220,9 +226,7 @@ def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | N
 # File-reading tools that hand back a bare ``None`` for files that are missing,
 # too large, or binary/corrupt. A bare ``None`` gives a weak model nothing to act
 # on, so it re-calls the tool forever and hits the iteration cap (#101, #148).
-_FILE_READ_TOOLS = frozenset(
-    {"read_file_sample", "read_file", "read_excel", "read_docx"}
-)
+_FILE_READ_TOOLS = frozenset({"read_file_sample", "read_file", "read_excel", "read_docx"})
 
 # Attribute stamped on the engine once the crate has been exported this session,
 # so the deterministic finish backstop (#251) is idempotent across the two exit
@@ -266,11 +270,6 @@ _LOOP_BREAKER_COUNT_FLAG = "_loop_breaker_repeat_count"
 # ---------------------------------------------------------------------------
 # Issue #263: stall recovery (Fix A) + autonomous continuation (Fix B)
 # ---------------------------------------------------------------------------
-
-# Per-request wall-clock timeout default (seconds) for the chat model when no
-# VITRO_REQUEST_TIMEOUT is set. A real --legacy-react run hung with a 349s+ model
-# invoke and no timeout, so the turn never ended and the #254 backstop never ran.
-_DEFAULT_REQUEST_TIMEOUT = 120.0
 
 # Maximum autonomous (non-prompted) re-invocations the loop will chain off a
 # single user message before checking back in with the user. Bounds the
@@ -367,10 +366,7 @@ def _crate_is_complete(engine: AgentEngine) -> bool:
             return False
         val = engine.state.validation
         return bool(
-            val.base_passed
-            and val.isa_passed
-            and val.tox_passed
-            and not val.required_issues
+            val.base_passed and val.isa_passed and val.tox_passed and not val.required_issues
         )
     except Exception:  # noqa: BLE001 — a completeness probe must never raise.
         logger.debug("completeness probe failed", exc_info=True)
@@ -587,10 +583,7 @@ def _is_non_progress_result(result: Any) -> bool:
     if isinstance(result, dict):
         return "error" in result
     if isinstance(result, str):
-        return (
-            "is a directory, not a file" in result
-            or "could not return text" in result
-        )
+        return "is a directory, not a file" in result or "could not return text" in result
     return False
 
 
@@ -711,9 +704,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # binary files; hand the LLM an actionable message so it stops
                     # re-calling them (#101, #148).
                     elif tool_name in _FILE_READ_TOOLS and result is None:
-                        result = _unreadable_file_message(
-                            kwargs.get("path", ""), tool_name
-                        )
+                        result = _unreadable_file_message(kwargs.get("path", ""), tool_name)
                     # When the agent itself successfully exports, stamp the engine
                     # so the deterministic finish backstop (#251) does not
                     # double-export on session exit. Also record the entity-count
@@ -777,240 +768,6 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
 
 # ---------------------------------------------------------------------------
-# Iteration safety net
-# ---------------------------------------------------------------------------
-
-
-def _recursion_limit(max_iterations: int) -> int:
-    """Map the documented tool-iteration cap to LangGraph's ``recursion_limit``.
-
-    Each tool iteration is roughly two super-steps (``model`` then ``tools``),
-    so the recursion limit is ``2 * max_iterations``. Floored at 2 so the graph
-    can always complete at least one model→tools→model cycle. Without this,
-    LangGraph applies its silent default of 25 super-steps and a runaway loop
-    raises an uncaught ``GraphRecursionError`` (#56).
-    """
-    return max(2, max_iterations * 2)
-
-
-# ---------------------------------------------------------------------------
-# Provider detection
-# ---------------------------------------------------------------------------
-
-
-def _detect_provider() -> str | None:
-    """Detect which LLM provider is available based on environment variables.
-
-    Checks ``VITRO_OPENAI_API_KEY`` / ``VITRO_ANTHROPIC_API_KEY`` first,
-    then falls back to the unprefixed ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY``.
-
-    Returns ``"openai"``, ``"anthropic"``, or ``None`` if neither is configured.
-    """
-    if os.environ.get("VITRO_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY"):
-        return "openai"
-    if os.environ.get("VITRO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic"
-    return None
-
-
-def _get_request_timeout() -> float:
-    """Return the per-request wall-clock timeout (seconds) for the chat model.
-
-    Issue #263: a real ``--legacy-react`` run hung when the final model invoke
-    ran 349s+ with no response and no timeout, so the turn never ended and the
-    #254 finish-backstop never exported. A finite request timeout is the first
-    line of defence (the loop's wall-clock guard in :func:`_invoke_with_timeout`
-    is the second). Precedence:
-
-        1. Environment variable ``VITRO_REQUEST_TIMEOUT`` (seconds)
-        2. Built-in default (120s)
-
-    A non-positive or unparseable value falls back to the default so the model
-    is never built without a finite timeout.
-    """
-    env_val = os.environ.get("VITRO_REQUEST_TIMEOUT")
-    if env_val is not None:
-        try:
-            parsed = float(env_val)
-            if parsed > 0:
-                return parsed
-        except (ValueError, TypeError):
-            pass
-    return _DEFAULT_REQUEST_TIMEOUT
-
-
-_OPENAI_REASONING_PREFIXES: tuple[str, ...] = ("gpt-5", "o1", "o3", "o4")
-
-
-def _is_openai_reasoning_model(model_name: str | None) -> bool:
-    """Return True if *model_name* denotes an OpenAI reasoning model.
-
-    Reasoning models (``gpt-5.x`` and the ``o``-series) reject the ``temperature``
-    parameter and require the Responses API to bind function tools
-    (``/v1/chat/completions`` returns a 400 for tools + reasoning_effort). Custom
-    / Azure deployment names that do not match this heuristic can force
-    Responses-API routing via ``VITRO_OPENAI_USE_RESPONSES_API``.
-    """
-    m = (model_name or "").strip().lower()
-    return m.startswith(_OPENAI_REASONING_PREFIXES)
-
-
-def _build_chat_model(
-    provider: str | None = None,
-    model: str | None = None,
-    base_url: str | None = None,
-    max_retries: int | None = None,
-    role: str = "orchestrator",
-    timeout: float | None = None,
-) -> Any:
-    """Build a LangChain chat model for the given or detected provider.
-
-    Supports custom endpoints (OpenAI-compatible only — Ollama, LiteLLM,
-    local proxies, etc.) via the ``OPENAI_BASE_URL`` environment variable
-    or the ``base_url`` parameter.
-
-    Model tiering (Issue #96): a single ``_build_chat_model`` centralises
-    construction so a different model can be bound per *role* without changing
-    the graph topology. The strong ``"orchestrator"`` keeps the primary model
-    (``VITRO_OPENAI_MODEL`` / ``VITRO_ANTHROPIC_MODEL``); the cheap
-    ``"drafter"`` uses ``VITRO_OPENAI_DRAFTER_MODEL`` /
-    ``VITRO_ANTHROPIC_DRAFTER_MODEL`` *when configured*. With no drafter model
-    set, the drafter resolves to the same primary model as the orchestrator —
-    a strict no-op (single model, identical to today's behaviour).
-
-    Args:
-        provider: One of ``"openai"``, ``"anthropic"``.  If ``None``, auto-detect.
-        model: Model name override (e.g. ``"gpt-4o-mini"``, ``"llama3.2"``).
-            An explicit value wins over role-based resolution. Falls back to
-            provider/role defaults.
-        base_url: Custom API base URL for OpenAI-compatible providers.
-            Falls back to ``OPENAI_BASE_URL`` env var, then provider default.
-        role: ``"orchestrator"`` (default) or ``"drafter"``. Selects the model
-            tier when ``model`` is not given explicitly.
-        timeout: Per-request wall-clock timeout in seconds wired onto the model
-            (Issue #263). Falls back to ``VITRO_REQUEST_TIMEOUT`` then a finite
-            built-in default so the model is never built without one — a silent
-            provider stall can never hang a turn forever.
-
-    Returns:
-        A LangChain ``BaseChatModel`` instance.
-
-    Raises:
-        RuntimeError: If no provider can be detected or the provider is unknown.
-    """
-    if max_retries is None:
-        env_val = os.environ.get("VITRO_MAX_RETRIES")
-        max_retries = int(env_val) if env_val is not None else 3
-
-    if timeout is None:
-        timeout = _get_request_timeout()
-
-    provider = provider or _detect_provider()
-    if provider is None:
-        raise RuntimeError(
-            "No LLM provider configured. Set VITRO_OPENAI_API_KEY "
-            "(or OPENAI_API_KEY) or VITRO_ANTHROPIC_API_KEY "
-            "(or ANTHROPIC_API_KEY) environment variable, or pass "
-            "--provider openai|anthropic."
-        )
-
-    # Model tiering: when the caller asks for the drafter role and no explicit
-    # model was given, prefer the configured drafter model. If none is set,
-    # ``model`` stays ``None`` and the provider branch resolves the primary
-    # model exactly as before (strict no-op default).
-    if model is None and role == "drafter":
-        if provider == "openai":
-            model = os.environ.get("VITRO_OPENAI_DRAFTER_MODEL") or None
-        elif provider == "anthropic":
-            model = os.environ.get("VITRO_ANTHROPIC_DRAFTER_MODEL") or None
-
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-
-        # VITRO_ prefixed env vars take priority, fall back to unprefixed
-        api_key = os.environ.get("VITRO_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        resolved_base = (
-            base_url or os.environ.get("VITRO_OPENAI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
-        )
-        resolved_model = (
-            model
-            or os.environ.get("VITRO_OPENAI_MODEL")
-            or os.environ.get("OPENAI_MODEL", "gpt-4o")
-        )
-        # Reasoning models (gpt-5.x, o-series) reject `temperature` and cannot
-        # bind function tools on /v1/chat/completions with reasoning_effort — the
-        # API requires the Responses API instead. Both the ReAct loop and the
-        # pipeline drafter leaves bind tools, so route reasoning models through
-        # the Responses API. Detect by name, with VITRO_OPENAI_USE_RESPONSES_API
-        # as an explicit override for custom/Azure deployment names the heuristic
-        # cannot recognise. An explicit reasoning_effort="none" turns reasoning
-        # OFF, so that call is treated as a standard (chat/completions,
-        # temperature-0) request.
-        #
-        # reasoning_effort is normalized once (strip + lowercase) so a
-        # capitalized/whitespaced value like "Medium" or " none " forwards as the
-        # clean lowercase enum the OpenAI API expects — and a blank value
-        # collapses to None (a no-op).
-        reasoning_effort = (
-            (os.environ.get("VITRO_OPENAI_REASONING_EFFORT") or "").strip().lower() or None
-        )
-        override = os.environ.get("VITRO_OPENAI_USE_RESPONSES_API")
-        if override is not None:
-            use_responses = override.strip().lower() in ("1", "true", "yes", "on")
-        elif reasoning_effort == "none":
-            use_responses = False
-        else:
-            use_responses = _is_openai_reasoning_model(resolved_model)
-
-        kwargs: dict[str, Any] = {
-            "model": resolved_model,
-            "max_retries": max_retries,
-            # "timeout" is the public alias of ChatOpenAI.request_timeout (#263).
-            "timeout": timeout,
-        }
-        if use_responses:
-            kwargs["use_responses_api"] = True
-        if reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
-        # Keep the deterministic temperature=0 default for a standard-path model
-        # (VITRO_TEMPERATURE overrides it), but never force a temperature on a
-        # Responses-API-routed reasoning model — it only accepts the provider
-        # default (the API 400s on "temperature does not support 0").
-        if not use_responses:
-            temp_override = os.environ.get("VITRO_TEMPERATURE")
-            kwargs["temperature"] = float(temp_override) if temp_override is not None else 0
-        if api_key:
-            kwargs["api_key"] = api_key
-        if resolved_base:
-            kwargs["base_url"] = resolved_base
-
-        return ChatOpenAI(**kwargs)
-
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        api_key = os.environ.get("VITRO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-        resolved_model = (
-            model
-            or os.environ.get("VITRO_ANTHROPIC_MODEL")
-            or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
-        )
-        kwargs: dict[str, Any] = {
-            "model": resolved_model,
-            "temperature": 0,
-            "max_retries": max_retries,
-            # "timeout" is the public alias of ChatAnthropic
-            # .default_request_timeout (#263).
-            "timeout": timeout,
-        }
-        if api_key:
-            kwargs["api_key"] = api_key
-        return ChatAnthropic(**kwargs)
-
-    raise RuntimeError(f"Unknown provider: {provider!r}. Use openai or anthropic.")
-
-
-# ---------------------------------------------------------------------------
 # Explicit StateGraph construction (replaces create_agent)
 # ---------------------------------------------------------------------------
 
@@ -1040,49 +797,6 @@ def _tool_names_from_state(state: dict[str, Any]) -> list[str]:
         return []
     tool_calls = getattr(messages[-1], "tool_calls", None) or []
     return [tc.get("name", "") for tc in tool_calls]
-
-
-def _extract_token_usage(message: Any) -> tuple[int | None, int | None]:
-    """Extract ``(input_tokens, output_tokens)`` from a LangChain ``AIMessage``.
-
-    Provider-agnostic and the SINGLE source of truth for usage mining across the
-    ReAct model node (:func:`_wrap_model_node`) and the deterministic pipeline's
-    bounded leaves (:mod:`builder.agents.leaves`), so both arms of the eval
-    harness record token counts with identical semantics:
-
-    1. Prefer the standardised ``usage_metadata`` (langchain-core >=0.3).
-    2. Fall back to provider-specific ``response_metadata["token_usage"]`` /
-       ``["usage"]`` (``prompt_tokens`` / ``completion_tokens`` aliases).
-
-    Returns ``(None, None)`` when neither source carries usage (e.g. an offline
-    fake model) so callers can record a clean zero without crashing.
-    """
-    if message is None:
-        return None, None
-
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-
-    usage = getattr(message, "usage_metadata", None)
-    if usage is not None:
-        input_tokens = usage.get("input_tokens")
-        output_tokens = usage.get("output_tokens")
-
-    if input_tokens is None or output_tokens is None:
-        meta = getattr(message, "response_metadata", None) or {}
-        tu = meta.get("token_usage") or meta.get("usage") or {}
-        if input_tokens is None:
-            input_tokens = tu.get("prompt_tokens") or tu.get("input_tokens")
-        if output_tokens is None:
-            output_tokens = tu.get("completion_tokens") or tu.get("output_tokens")
-
-    return input_tokens, output_tokens
-
-
-def _extract_model_name(message: Any) -> str | None:
-    """Extract the model name from an ``AIMessage``'s ``response_metadata``."""
-    resp_meta: dict = getattr(message, "response_metadata", None) or {}
-    return resp_meta.get("model_name") or resp_meta.get("model")
 
 
 def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> Any:
@@ -1950,7 +1664,8 @@ def run_interactive_agent(
                 if prof_records:
                     # Aggregate cumulative tokens
                     model_ends = [
-                        r for r in prof_records
+                        r
+                        for r in prof_records
                         if r.get("event") == "node_end" and r.get("node") == "model"
                     ]
                     total_in = sum(int(r.get("input_tokens", 0) or 0) for r in model_ends)
@@ -2299,9 +2014,7 @@ def run_interactive_agent(
 
             save_result = save_session(engine.state, always_write=(outcome != "ok"))
             if not save_result.get("success", True):
-                logger.warning(
-                    "Session save failed: %s", save_result.get("error", "Unknown error")
-                )
+                logger.warning("Session save failed: %s", save_result.get("error", "Unknown error"))
         except Exception:
             logger.exception("Unexpected error during session save")
 
@@ -2421,6 +2134,4 @@ def _format_entity_summary(entities: list[Any]) -> str:
 __all__ = [
     "run_interactive_agent",
     "_build_langchain_tools",
-    "_detect_provider",
-    "_build_chat_model",
 ]

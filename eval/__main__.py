@@ -145,9 +145,9 @@ def run_main(
     if agent_factory is None:
         # LIVE path only — and BOTH arches need creds. The ReAct factory reads
         # provider/api_key/base_url/model from the environment
-        # (builder.agents.agent_loop); the deterministic pipeline now does too —
+        # (builder.agents.llm); the deterministic pipeline now does too —
         # post-#211 its drafter-leaf (builder/agents/leaves.py, via
-        # builder.agents.agent_loop._build_chat_model) reads the same env vars.
+        # builder.agents.llm._build_chat_model) reads the same env vars.
         # So bridge any creds kept solely in ~/.config/vitro-crate/config.toml
         # into os.environ first — mirroring how the interactive CLI hydrates via
         # merge_with_env(). Without this, creds-in-config.toml make a live ReAct
