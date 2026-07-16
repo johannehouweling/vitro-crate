@@ -2083,12 +2083,15 @@ in memory, #242). Both are fixed without an LLM and without perturbing the built
   `tests/test_agents_pipeline.py`).
 
 **Output location (CLI, `main.py`).** The on-disk destination is resolved at
-dispatch time with this precedence (#233):
+dispatch time with this precedence (#233, #315):
 
 1. `--output` / `-o` always wins (sets `state.metadata.output_path`);
-2. `--output` omitted **and** `--input` given => a **sibling of the input folder**,
-   `<input_parent>/<input_name>-ro-crate/`, so the crate lands next to the data it
-   describes;
+2. `--output` omitted **and** `--input` given => **`output/<name>_crate`**, versioned
+   `_v2`/`_v3`… on re-run (`_default_output_dir`), where `<name>` is the input folder
+   name with a trailing `_extracted` stripped. This keeps builds under a dedicated
+   `output/` tree instead of writing an `<input>-ro-crate` sibling (which polluted a
+   curated input tree like `input/raw/`). Payload is materialized, so each version is
+   self-contained;
 3. no `--input` (conversation mode) => leave `output_path` unset so `export_crate`
    falls back to the session `working_crate/` directory.
 
