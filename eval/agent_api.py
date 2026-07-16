@@ -1,7 +1,7 @@
 """The agent-agnostic build contract the harness measures against.
 
-The whole point of the harness is to compare *architectures* — today's prose-prompt
-ReAct engine vs the planned deterministic pipeline (AGENTS.md §14). It does that
+The whole point of the harness is to compare *architectures* — the prose-prompt
+ReAct engine vs the deterministic pipeline (AGENTS.md §14). It does that
 without knowing anything about either: it is handed a zero-arg ``agent_factory``
 that returns a :class:`BuildAgent`, and it calls ``agent.build(case)`` once per
 repeat. Swapping the factory swaps the architecture under test; the corpus, the
