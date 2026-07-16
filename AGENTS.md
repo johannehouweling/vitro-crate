@@ -1451,44 +1451,58 @@ automatic, best-effort (a reporting failure never fails the export), and can be 
 
 ## 12. Project Structure
 
-Annotated with where new components would live:
+Where each component lives:
 
 ```
 vitro-crate/
-├── AGENTS.md                    This file
-├── .github/workflows/ci.yml     CI workflow (ruff, ty, pytest on push/PR)
+├── AGENTS.md                    This file — authoritative system design
+├── CONTEXT.md CONTRIBUTING.md README.md
+├── .github/workflows/ci.yml     CI (ruff, ty, pytest on push/PR)
 ├── pyproject.toml
-├── profiles/                    Existing — domain profiles
-│   ├── context.py               JSON-LD context
-│   ├── validator.py             3-pass SHACL validation
+├── profiles/                    Domain profiles + validation
+│   ├── context.py               JSON-LD context builder
+│   ├── validator.py             3-pass SHACL validation (base / isa / tox)
 │   ├── models/isa.py, tox.py    Entity classes
-│   ├── schemas/isa.yaml, tox.yaml
-│   └── shapes/isa/, tox/        SHACL shapes
-├── lookups/                     Existing — external API clients
-│   ├── cellosaurus.py, pubchem.py, aopwiki.py, bao.py
-│   └── orcid.py, ror.py, crossref.py
-├── mit/invitro_tox.yaml         Existing — Minimum Information Table
-├── fair/                        Existing — FAIR indicators
-├── arc/                         Existing — ARC template/spec
-├── input/                       Existing — example inputs
-├── builder/                     NEW — core builder system
+│   ├── shapes/tox/              Custom tox-ro-crate SHACL shapes
+│   │                            (base + isa shapes ship with rocrate_validator)
+│   ├── contexts/               Vendored RO-Crate 1.1 / 1.2 JSON-LD contexts
+│   └── docs/
+├── lookups/                     External API clients
+│   ├── cellosaurus.py, pubchem.py, comptox.py, aopwiki.py, bao.py
+│   └── orcid.py, ror.py, crossref.py, iuclid.py, _http.py
+├── mit/invitro_tox.yaml         Minimum Information Table
+├── fair/                        FAIR indicators
+├── arc/                         ARC template/spec
+├── input/                       Example inputs
+├── builder/                     Core builder system
 │   ├── state.py                 CrateState dataclass
-│   ├── engine.py                Agent orchestrator
-│   ├── tools/                   Tool implementations
-│   │   ├── scanner.py, scaffolder.py, drafters.py
-│   │   ├── management.py, lookups.py, verification.py
-│   │   ├── builder.py, validation.py, mit_assessment.py
-│   │   ├── fair_assessment.py, session.py
+│   ├── engine.py                AgentEngine — run_tool, gating, approved scan roots
+│   ├── config.py, pricing.py    Provider/model config; token pricing
+│   ├── tools/                   Tool implementations (the shared toolbox)
+│   │   ├── scanner.py, drafters.py, composites.py, management.py
+│   │   ├── lookups.py, verification.py, builder.py, validation.py
+│   │   ├── repair.py, gap_analysis.py, mit_assessment.py, fair_assessment.py
+│   │   ├── data_content.py, file_readers.py, hitl.py, session.py
+│   │   ├── registry.py, _crate_mapping.py, dashboard.py, provenance.py
 │   ├── readers/                 Input readers
-│   │   ├── metadata_files.py, existing_crate.py
-│   │   ├── directory.py
+│   │   ├── directory.py, existing_crate.py, metadata_files.py
 │   ├── writers/                 Output writers
 │   │   ├── rocrate_writer.py, arc_writer.py
 │   │   ├── provenance_dag.py     Mermaid entity-graph / provenance DAG (#130)
-│   └── agents/                  LLM config
-│       ├── system_prompt.py, tools_spec.py
-├── sessions/                    NEW — persisted sessions
-└── tests/                       NEW — test suite
+│   │   ├── maturity_report.py    Maturity / FAIR HTML report
+│   └── agents/                  Orchestration + LLM config
+│       ├── build.py             Interactive entrypoint (run_interactive_build) — mode dispatch
+│       ├── pipeline.py          Deterministic pipeline spine (run_pipeline) — DEFAULT
+│       ├── guidance.py          HITL guidance tail (run_guidance)
+│       ├── leaves.py            Bounded LLM extraction leaves (drafter tier)
+│       ├── agent_loop.py        ReAct StateGraph (legacy, --legacy-react)
+│       ├── system_prompt.py     ReAct system prompt
+│       ├── tools_spec.py        TOOL_SPECS advertised to the ReAct LLM
+│       └── progress_spinner.py  CLI progress UI
+├── eval/                        A/B eval harness (--arch react|pipeline)
+├── sessions/                    Persisted sessions
+├── output/                      Built crates (versioned)
+└── tests/                       Test suite
 ```
 
 ## 13. Future Considerations
@@ -1513,56 +1527,45 @@ The `profile.ndjson` log produced by `ProfilingLogger` is the foundation for a l
 
 ## 14. Architecture Evolution: Two First-Class Variants (Issue #179)
 
-> **Status: BOTH architectures are first-class, supported, and actively
-> explored.** The deterministic pipeline (Issue #179) and the prose-prompt ReAct
-> StateGraph of §4 / D1 are **both maintained build paths** — this is an ongoing
-> A/B exploration, **not** a one-way migration that ends in deleting ReAct.
+> **Status: both build paths are first-class and maintained.** The deterministic
+> pipeline (Issue #179) is the **default** interactive build; the prose-prompt ReAct
+> StateGraph of §4 / D1 is the **supported alternative** behind `--legacy-react`.
+> This is a maintained two-variant design, **not** a migration that ends in deleting
+> ReAct.
 >
 > - **Default — deterministic pipeline + HITL guidance tail.** `main.py
->   --interactive` → `run_interactive_build` runs the deterministic pipeline by
->   default because it is cheaper, lower-latency, reproducible, and testable, and
->   it won the in-repo A/B gate (task 6): on the 3 shared corpus cases it reached
->   **3/3** ISA-Tox conformance vs ReAct **1/3** (the weak LLM stalled at 0–1
->   iterations on the hard cases).
-> - **Supported alternative — ReAct loop (`--legacy-react`).** The ReAct
->   StateGraph remains a **fully-supported** path, **kept and explored — NOT
->   slated for deletion.** The honest, broader picture is that a deep-research pass
->   refuted the blanket "plan-and-execute always beats ReAct" claim — ReAct often
->   has a *higher final pass rate* — so its flexible, conversational exploration is
->   worth keeping as a first-class variant we continue to study alongside the
->   pipeline.
-> - **Withdrawn — the planned "system-prompt strip (task 7)" / removal track.**
->   It is **no longer planned** now that ReAct is kept as a supported variant: the
->   ReAct orchestration prose in `system_prompt.py` stays, because it is exactly
->   what the `--legacy-react` path relies on.
+>   --interactive` → `run_interactive_build` runs the pipeline because it is cheaper,
+>   lower-latency, reproducible, and testable.
+> - **Alternative — ReAct loop (`--legacy-react`).** Kept for flexible, conversational
+>   exploration. A capable model reaches conformance on it too, so it is a capability
+>   peer, not a dead end; its orchestration prose in `system_prompt.py` stays — that
+>   is exactly what this path relies on.
 >
-> This replaces the earlier "keep flat ReAct, structure in the tool layer only"
-> stance with a **two-variant** design — pick the pipeline for deterministic,
-> cheaper, reproducible builds; pick ReAct for flexible conversational
-> exploration.
+> **Why the pipeline is the default (in-repo A/B, gpt-5.6-luna, 2026-07-15).** On the
+> 5-case corpus the pipeline reached **5/5** profile conformance at ~$0.05 and
+> self-terminated every case; ReAct reached **4/5** but at ~50× the cost, and 3 of its
+> 4 conformant runs were force-stopped at the recursion cap (valid at the cutoff, not
+> self-terminated). So the differentiator is **efficiency, predictability, and clean
+> termination — not raw capability**; a capable model can drive either path. Note the
+> success metric is SHACL profile conformance (base + isa + tox, REQUIRED severity)
+> plus an additive entity-count quota — **not** scientific accuracy.
 
 ### 14.1 Decision
 
 Move the *workflow orchestration* out of the LLM system prompt and into **code**.
-Today the whole sequence — `scan → scaffold ISA backbone → draft entities →
-build_and_validate → fix REQUIRED bottom-up → enrich → export` — is encoded as
+The whole sequence — `scan → scaffold ISA backbone → draft entities →
+build_and_validate → fix REQUIRED bottom-up → enrich → export` — was encoded as
 **prose in `builder/agents/system_prompt.py`** and re-derived by the model every run.
-The agent runs on a weak model (DeepSeek-flash) that collapses on exactly that
-multi-turn orchestration but is fine at bounded extraction. The target architecture is a
-**deterministic pipeline with the LLM confined to bounded leaves**, and a **small agent
-retained only for the conversational / unstructured-input tail**.
+The target architecture is a **deterministic pipeline with the LLM confined to bounded
+leaves**, plus a **small agent for the conversational / unstructured-input tail**.
 
-**Scope of the claim (honest):** a deep-research pass refuted the broad "plan-and-execute
-beats ReAct on reliability" claim — ReAct often has a higher final pass rate. The
-defensible win *for this system* (known step ordering + rigid SHACL-validated output +
-weak executor) is **cost, latency, reproducibility, testability, predictability** — not
-blanket correctness. Making the pipeline the **default** was **gated on an in-repo A/B**
-(task 6) and that gate
-has now passed for the interactive build (3/3 vs 1/3 ISA-Tox conformance on the shared
-corpus — the pipeline ALSO won on correctness for these cases because the weak executor
-stalled), so the pipeline is the **default** interactive path while ReAct stays a
-**fully-supported, actively-explored variant** behind `--legacy-react` (kept, not
-removed).
+**Scope of the claim.** The defensible win *for this system* (known step ordering +
+rigid SHACL-validated output) is **cost, latency, reproducibility, testability, and
+clean termination** — not blanket correctness: a deep-research pass, and the in-repo
+A/B on a strong model (§14 status block), both show ReAct reaches conformance too.
+Making the pipeline the **default** was **gated on that A/B**; the gate passed on
+efficiency and predictability, so the pipeline is the default interactive path while
+ReAct stays a **supported variant** behind `--legacy-react` (kept, not removed).
 
 ### 14.2 Target shape
 
@@ -1647,36 +1650,30 @@ KeyEvents + M KeyEventRelationships) in one tool. Fully deterministic: port
 JSON) + `builder.py:265-278` (`crate.add(ContextEntity(...))` per node, then wire AOP to
 Study via `mentions`/`aop`). The only LLM-supplied input is the numeric `aop_id`.
 
-### 14.4 Pipeline build-out tasks (each its own `jh-*` branch + PR, TDD)
+### 14.4 Pipeline composition
 
-Pipeline (#179): (1) `fix_required_issues` deterministic repair loop — *the keystone*;
-(2) drafters as real LLM leaves — **done** (see [the drafter-leaf](#the-drafter-leaf-leavespy)
-below), and the leaf is now **wired into the spine's `_draft_entities` hook** (§14.5
-step 2 — was a deferral), gated to a strict no-op when no LLM provider is configured;
-(3) composite meta-tools incl. `draft_process_chain`
-— **done**: it synthesizes the EndpointReadout/DataAnalysis outputs the build has no
-fallback for (closing the §14.3 Violation trap) and wires the whole chain in one
-idempotent call (see §5 Derivation Chain Tools); (4) pipeline spine — **done and now
-the DEFAULT interactive path** (`builder/agents/pipeline.py::run_pipeline`, see §14.5):
-a deterministic, code-driven orchestrator. Post-A/B-gate (task 6) it is the **default**
-`main.py --interactive` build (via `run_interactive_build`, §14.6.1); the ReAct loop is
-a **fully-supported alternative** behind `--legacy-react`, and its `should_continue`
-graph is **kept intact** (the orchestration prose it relies on stays — see task 7). The
-spine is also selectable in the eval harness (`python -m eval --arch pipeline`); (5) the tail
-— **done**: the gap engine
-(`assess_gaps` #215, §14.6) feeds the deterministic HITL guidance loop
-(`run_guidance` #218, §14.6.1), now **wired into the interactive build path**
-(`run_interactive_build`, `builder/agents/build.py`) so a real user gets the
-guidance tail after the automated pipeline while the A/B path (simulated /
-headless) runs the guidance-free pipeline alone; (6) **A/B eval harness — decision
-gate — done & PASSED**: the harness compared the two architectures on the shared
-corpus and the pipeline won (3/3 vs 1/3 ISA-Tox conformance), making the pipeline the
-interactive default above; (7) prompt strip — **WITHDRAWN / no longer planned.** This
-task originally meant to strip the orchestration prose from `system_prompt.py` once code
-owned control flow. Now that the ReAct loop is **kept as a first-class supported variant**
-(reachable via `--legacy-react`, see the §14 status block), that prose is **retained** —
-it is exactly what the ReAct path needs — so there is no removal track. Docs are kept in
-sync to describe **both** variants.
+The deterministic pipeline is assembled from the shared toolbox (§5), not a parallel
+re-implementation. Its parts:
+
+- **`fix_required_issues`** — the deterministic REQUIRED-severity repair loop (the
+  keystone; §5, §14.6).
+- **Drafter leaves** — bounded LLM extraction (`leaves.py`, below), wired into the
+  spine's `_draft_entities` step and gated to a strict no-op when no LLM provider is
+  configured.
+- **Composite meta-tools** — e.g. `draft_process_chain`, which synthesizes the
+  EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
+  Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
+  Chain Tools).
+- **The spine** — `run_pipeline` (`builder/agents/pipeline.py`, §14.5), the
+  code-driven orchestrator and the default `main.py --interactive` build (via
+  `run_interactive_build`, §14.6.1); also selectable in the eval harness
+  (`python -m eval --arch pipeline`).
+- **The gap engine + guidance tail** — `assess_gaps` (§14.6) feeds the deterministic
+  HITL `run_guidance` loop (§14.6.1), invoked *around* the spine by
+  `run_interactive_build` for real interactive users only.
+
+The ReAct loop remains a fully-supported alternative behind `--legacy-react`; its
+`should_continue` graph and its `system_prompt.py` orchestration prose are kept intact.
 
 #### The drafter-leaf (`leaves.py`)
 
@@ -1706,53 +1703,27 @@ Contract:
   identifier — *and* defensively stripped from the result. Those fields are left
   empty for a downstream **lookup** to fill, never guessed.
 
-Toolbox completion (companion issue, parallel disjoint lanes): `materialize_aop_subgraph`;
-~~the identifier-PropertyValue family~~ **done (#180)** — landed as deterministic
-build-path wiring (shared `_crate_mapping._identifier_pv`), **not** new LLM tools, per
-§14's "prefer the deterministic build path": Person `orcid` → ORCID PropertyValue,
-MolecularEntity `cas`/`pubchem_cid` → `[CAS, PubChem CID]`, plus `Person.affiliation`
-and `Publication.author` resolved as `{@id}` references and the
-`draft_property_value` DOI/PubMed `propertyID` fix; a dedicated
-`draft_publication_with_authors` composite (synthesizing `#CitationAuthor_*` Person
-nodes from Crossref author lists) remains deferred follow-up. The
-**reference-wiring resolver extensions** lane is also **done (#180 Lane C)** —
-likewise deterministic build-path wiring (`_crate_mapping._wire_dataset_aliases`),
-**not** new LLM tools: root `funder` → Organization ref(s), root `about` → the
-DataAnalysis LabProcess (mirroring the Assay `about`→LabProcess wiring), Assay
-`measurementMethod` → BAO `DefinedTerm` ref, and the hasPart-family aliases
-`dataFiles`/`resources` re-emitted as resolved File refs while staying nested under
-the assay's `hasPart` (un-parented from the root). All five new alias keys
-(`funder`, `measurementMethod`, `studies`, `assays`, `resources`, `dataFiles`,
-`labProcesses`) joined `_REF_FIELDS` so `_scalar_props` strips them as resolver
-inputs rather than leaking the raw id onto the node (D5: an unresolvable, non-IRI
-value is dropped, never guessed). The **CSVW payload** lane is also **done (#180
-Lane D)** — deterministic build-path wiring, **not** new LLM tools: the Exposure
-condition table grows from 5 to the gold crate's full **10 typed columns**
-(`_crate_mapping._CONDITION_TABLE_COLUMNS`), and an EndpointReadout that already
-emits result file(s) additionally emits a typed `raw_measurements.csv`
-`csvw:Table` (3 columns, `_crate_mapping._synth_raw_measurements`), appended (never
-substituted) so the "MUST have a result" repair contract is untouched. Both
-schemas are built by a shared `_build_csvw_schema` and emit `propertyUrl`/`valueUrl`
-as `{@id}` references (RO-Crate 1.2 flags an IRI-as-string when it is also a
-described entity, e.g. the cell-line `NCIT_C16403` `DefinedTerm`). The header-only
-placeholders never fabricate measurement/well rows (D5). The
-**characteristics/properties fidelity** lane is also **done (#180 Lane E)** —
-deterministic build-path enhancements (no new LLM tools, plus one existing-tool
-signature extension): (1) a `CellLineSample`'s `organ` / `tissue` hints join
-`passage` / `growth` as `schema:additionalProperty` PropertyValue characteristics,
-carrying the ISA-Tox `param/{organ,tissue}` `propertyID` (gold
-`#SampleCell_MDCK1`); (2) a `LabProcess`'s `additionalProperty` field is resolved
-to its in-state PropertyValue reference(s) (gold `#report_analysis` →
-`[#pv_repro_score]`) via `_wire_references` — only PropertyValues already in state
-(or bare IRIs) are wired, never a fabricated score (D5); (3)
-`extend_draft_file_for_source_code` landed as new `draft_file` params
-`additional_types` + `programming_language`, co-typing an analysis script as
-`@type:[File, SoftwareSourceCode]` with `schema:programmingLanguage` (gold
-`plot.py`). **Deferred:** `set_crate_metadata` (`releaseDate` / `dateModified` on
-the root) — it requires new `CrateState.metadata` fields **and** a new four-place
-LLM tool, and it is a fidelity nicety, **not** a validity blocker
-(`datePublished` is auto-set by ro-crate-py); deferred to keep this a cohesive,
-build-path-only change.
+**Fidelity beyond validity — deterministic build-path wiring, not new LLM tools.**
+Reproducing the richer structure of a real gold crate is done through `_crate_mapping`
+wiring rather than LLM tools, per §14's "prefer the deterministic build path" (and
+D5 — identifiers come from lookups or the value is dropped, never fabricated):
+
+- **Identifier PropertyValues** — Person `orcid` → ORCID PV; MolecularEntity
+  `cas`/`pubchem_cid` → `[CAS, PubChem CID]`; DOI/PubMed `propertyID` as OBI `@id`
+  IRIs; `Person.affiliation` / `Publication.author` resolved as `{@id}` references.
+- **Reference wiring** — root `funder` → Organization, root `about` → the DataAnalysis
+  LabProcess, Assay `measurementMethod` → BAO `DefinedTerm`, and the hasPart-family
+  aliases re-emitted as resolved File refs nested under the assay.
+- **CSVW payload** — the full Exposure condition table plus a synthesized, header-only
+  `raw_measurements.csv` `csvw:Table` appended to an EndpointReadout that already has
+  a result (never substituting the required result; never fabricating rows).
+- **Characteristics/properties** — CellLineSample `organ`/`tissue` and LabProcess
+  `additionalProperty` as PropertyValue characteristics, and source-code co-typing
+  (`@type:[File, SoftwareSourceCode]` with `schema:programmingLanguage`).
+
+Deferred follow-ups: `materialize_aop_subgraph`, a `draft_publication_with_authors`
+composite, and root crate metadata (`releaseDate`/`dateModified` — a fidelity nicety,
+not a validity blocker, since `datePublished` is auto-set by ro-crate-py).
 
 > **Tool-registration contract:** every new LLM tool must be registered in **four**
 > lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
@@ -1804,9 +1775,8 @@ persistence". The sequence:
 `run_pipeline` is the **automated** build and stays **guidance-free** — the HITL
 guidance tail is invoked *around* it by the interactive entrypoint
 (`run_interactive_build`, §14.6.1), never inside the spine, so the A/B eval can
-drive the spine non-interactively. Post-A/B-gate (3/3 vs 1/3 ISA-Tox conformance)
-this spine is the **default** `main.py --interactive` build; ReAct is opt-in via
-`--legacy-react`.
+drive the spine non-interactively. Post-A/B-gate (§14 status block) this spine is the
+**default** `main.py --interactive` build; ReAct is opt-in via `--legacy-react`.
 
 **Determinism contract:** with **no LLM provider configured** the drafter-leaf
 step (2) is a strict no-op, so every step is deterministic and the same input
