@@ -506,6 +506,72 @@ def _render_repro_section(checks: list[tuple[str, bool, str]]) -> str:
     )
 
 
+# Cap the actionable orphan/dangling lists so a pathological crate can't blow up
+# the page; anything beyond is summarised as "+N more" (#310).
+_TOPO_LIST_CAP = 10
+
+
+def _render_topology_detail(nodes: list[dict[str, Any]]) -> str:
+    """Make the topology strip's orphan/dangling counts actionable (#310).
+
+    A count alone ("2 orphans") isn't fixable — the reader can't see *which*
+    entities are disconnected. This renders a bounded ``<details>`` naming the
+    orphaned entities (id + label + type) and the dangling reference targets, read
+    straight from the deterministic :func:`build_crate_graph` node model (each node
+    carries an ``orphan`` flag and a ``dangling`` status). Pure/cheap — no
+    re-validation, no new graph analysis. Returns ``""`` for a clean crate so
+    nothing empty is rendered.
+    """
+    esc = html.escape
+    orphans = [n for n in nodes if n.get("orphan")]
+    dangling = [n for n in nodes if n.get("status") == "dangling"]
+    if not orphans and not dangling:
+        return ""
+
+    def _rows(items: list[dict[str, Any]], *, with_type: bool) -> str:
+        # Node labels are pre-escaped by build_crate_graph; ids/types are raw.
+        rows = []
+        for n in items[:_TOPO_LIST_CAP]:
+            ty = str(n.get("type") or "")
+            tail = f' <span class="ty">{esc(ty)}</span>' if with_type and ty else ""
+            rows.append(
+                f'<li>{_mk("no")} <code>{esc(str(n["id"]))}</code>'
+                f'<span>{n.get("label") or ""}{tail}</span></li>'
+            )
+        extra = len(items) - _TOPO_LIST_CAP
+        if extra > 0:
+            rows.append(f'<li class="more">+{extra} more</li>')
+        return "".join(rows)
+
+    groups = []
+    if orphans:
+        groups.append(
+            '<p class="topo-detail-h">Orphaned entities — not reachable from the '
+            "crate root; link each via <code>hasPart</code>, <code>result</code>, "
+            f'or <code>about</code></p><ul class="ind">{_rows(orphans, with_type=True)}</ul>'
+        )
+    if dangling:
+        groups.append(
+            '<p class="topo-detail-h">Dangling references — a referenced '
+            "<code>@id</code> with no matching entity; add the entity or drop the "
+            f'reference</p><ul class="ind">{_rows(dangling, with_type=False)}</ul>'
+        )
+
+    def _n(count: int, one: str) -> str:
+        return f"{count} {one}" + ("" if count == 1 else "s")
+
+    bits = []
+    if orphans:
+        bits.append(_n(len(orphans), "orphan"))
+    if dangling:
+        bits.append(_n(len(dangling), "dangling ref"))
+    summary = " · ".join(bits) + " — which entities"
+    return (
+        f'<details class="disc topo-detail"><summary>{summary}</summary>'
+        f'{"".join(groups)}</details>'
+    )
+
+
 def _render_topology_strip(counts: dict[str, int]) -> str:
     """The graph-topology metrics strip (relocated into the Provenance section).
 
@@ -547,7 +613,12 @@ def _render_provenance_section(graph: dict[str, Any] | list[dict[str, Any]]) -> 
     from builder.writers.provenance_dag import build_crate_graph, render_provenance_svg
 
     svg = render_provenance_svg(graph)
-    counts = build_crate_graph(graph).get("counts", {})
+    # all_edges=True so every dangling stub (incl. those referenced only via
+    # secondary relations) is present in the node list — the counts are identical
+    # either way, but this lets the actionable disclosure name each one (#310).
+    model = build_crate_graph(graph, all_edges=True)
+    counts = model.get("counts", {})
+    nodes = model.get("nodes", [])
     if svg:
         body = (
             '<p class="prov-cap">The derivation chain a receiving lab follows to trace an '
@@ -579,6 +650,7 @@ def _render_provenance_section(graph: dict[str, Any] | list[dict[str, Any]]) -> 
         '<span class="sec-meta">how the result was produced</span></div>\n'
         f"  {body}\n"
         f"  {_render_topology_strip(counts)}\n"
+        f"  {_render_topology_detail(nodes)}\n"
         "</section>\n"
     )
 

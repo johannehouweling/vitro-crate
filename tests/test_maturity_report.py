@@ -185,6 +185,95 @@ class TestProvenanceSection:
         assert "Graph topology" in page
 
 
+class TestActionableTopology:
+    """The topology strip's orphan/dangling counts are made *actionable* (#310):
+    a bounded ``<details>`` lists which entities are orphaned and which references
+    dangle, so a reader can fix them — not just a bare count. Read straight off the
+    existing ``build_crate_graph`` node model (pure/cheap, no re-validation)."""
+
+    def _messy_graph(self) -> dict:
+        # One orphan (#orphan, unreachable from root) and one dangling ref
+        # (#ghost, referenced by #p2 but has no entity). The chain #in→#p→#out is
+        # reachable and clean.
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "hasPart": [{"@id": "#p"}, {"@id": "#out"}, {"@id": "#p2"}],
+                },
+                {"@id": "#in", "@type": "Sample", "name": "Input sample"},
+                {
+                    "@id": "#p",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "object": {"@id": "#in"},
+                    "result": {"@id": "#out"},
+                },
+                {"@id": "#out", "@type": "File", "name": "result.csv"},
+                {
+                    "@id": "#p2",
+                    "@type": "LabProcess",
+                    "additionalType": "DataAnalysis",
+                    "object": {"@id": "#out"},
+                    "result": {"@id": "#ghost"},
+                },
+                {"@id": "#orphan", "@type": "File", "name": "loose.csv"},
+            ]
+        }
+
+    def test_lists_orphan_entities(self) -> None:
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._messy_graph())
+        # The count still renders in the strip…
+        assert "1 orphan" in page
+        # …and now the disclosure names the orphan (id + label + type).
+        assert 'class="disc topo-detail"' in page
+        assert "#orphan" in page
+        assert "loose.csv" in page
+
+    def test_lists_dangling_reference_targets(self) -> None:
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._messy_graph())
+        assert "1 dangling ref" in page
+        assert "#ghost" in page
+
+    def test_no_disclosure_when_topology_clean(self) -> None:
+        # A clean crate (no orphans, no dangling refs) renders the strip but no
+        # actionable disclosure — nothing empty to open.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#d"}]},
+                {"@id": "#d", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "Graph topology" in page
+        assert 'class="disc topo-detail"' not in page
+
+    def test_orphan_list_is_bounded_with_more_marker(self) -> None:
+        # 12 orphaned files → only the first 10 listed, then "+2 more" (nothing
+        # silently dropped).
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#kept"}]},
+                {"@id": "#kept", "@type": "File", "name": "kept.csv"},
+            ]
+        }
+        for i in range(12):
+            graph["@graph"].append(
+                {"@id": f"#loose{i}", "@type": "File", "name": f"loose{i}.csv"}
+            )
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "12 orphans" in page
+        assert "+2 more" in page
+        # First 10 are listed; the 11th/12th are folded into the "+N more".
+        assert "#loose0" in page
+        assert "#loose9" in page
+        assert "#loose11" not in page
+
+
 class TestSeverityTiers:
     """Profile adherence reported across Required / Recommended / Optional (#306).
 
