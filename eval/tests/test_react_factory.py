@@ -13,7 +13,8 @@ from builder.engine import AgentEngine
 from builder.state import CrateState
 from builder.tools.hitl import SimulatedHumanInterface
 from eval.agent_api import BuildAgent, BuildOutcome
-from eval.corpus import DEFAULT_CORPUS, EvalCase
+from eval.corpus import DEFAULT_CORPUS
+from eval.hitl import TrustedCorpusHumanInterface
 from eval.react_factory import ReActBuildAgent, make_react_agent_factory
 
 
@@ -23,10 +24,14 @@ class TestReActAgentWiring:
         agent = factory()
         assert isinstance(agent, BuildAgent)
 
-    def test_engine_uses_a_headless_human_interface(self) -> None:
+    def test_engine_uses_the_trusted_corpus_human_interface(self) -> None:
+        # The eval approves scan-root escalations against the trusted corpus so the
+        # ReAct arm is not hobbled vs the pipeline arm (#329). It is still a headless
+        # SimulatedHumanInterface subclass — nothing blocks on a real stdin.
         agent = ReActBuildAgent()
         engine = agent._make_engine()
         assert isinstance(engine, AgentEngine)
+        assert isinstance(engine.human_interface, TrustedCorpusHumanInterface)
         assert isinstance(engine.human_interface, SimulatedHumanInterface)
 
     def test_build_returns_outcome_with_state_and_session_id(self) -> None:

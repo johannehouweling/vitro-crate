@@ -1340,7 +1340,7 @@ The `scan_files` tool is restricted to directories the user has explicitly appro
 - The auto-approve-of-first-scan was removed: the agent's own `scan_files` call can never add a root. Roots enter the allowlist only from a user-provided input path or a real approval.
 - A hard denylist (`scanner._is_forbidden_root`) refuses `/`, the user's home directory itself, `/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, and `/Volumes` even if explicitly present in `approved_roots`; it is also enforced in `engine._directory_to_approve` so a forbidden directory can never *become* an approved root. Legitimate subdirectories are unaffected.
 - `SimulatedHumanInterface.present(..., purpose="scan_root")` returns a `rejected` action, so the non-interactive default can never approve a new scan root (benign checkpoints still auto-approve).
-- Follow-up: sandboxing the eval harness so it cannot scan outside its fixtures is tracked separately.
+- The A/B eval is the one bounded exception, and it lives entirely under `eval/`: `eval.hitl.TrustedCorpusHumanInterface` (a `SimulatedHumanInterface` subclass, `is_interactive = True`) **approves** scan-root escalations, but only against the vetted in-repo corpus fixtures. Without it the ReAct arm — which explores — is refused reading a fixture the pipeline arm never has to ask for, so the A/B would measure this security handicap rather than the architectures. It is eval-only and unreachable from any production wiring; the shipped default stays fail-closed.
 
 **Extended to read + write tools (#167).** The approved-roots boundary previously guarded only `scan_files`, so prompt injection could still escape it via the read tools (arbitrary local file read, e.g. `read_file('/etc/passwd')` or a secrets `.env`) and the export writer (a `..` traversal `dest_path`, or a symlinked source escaping the input tree). The fix adds one shared containment primitive, `scanner._contain(candidate, approved_roots) -> Path | None` (resolve realpath, reject when not inside any approved root, apply the `_is_forbidden_root` denylist, fail closed on empty/None roots), applied at three choke points: the read-tool dispatch in `engine.run_tool` (gates `read_file`/`read_excel`/`read_docx`/`read_file_sample`/`read_multiple_files`/`extract_pdf_text`/`preview_archive`/`unzip_file`), `_crate_mapping._file_dest` (contains `dest_path` under the crate output dir, else `data/<slug>`), and `_crate_mapping._file_source` (refuses sources whose realpath escapes `input_path`). The scanner read functions themselves stay unguarded so `scan_files` can still sample files internally; the gate lives at the orchestration layer.
 
@@ -1758,10 +1758,11 @@ call, trading strict graph-hash determinism for richer drafted content.
 
 **Measurable via the same harness.** `eval/pipeline_factory.py`
 (`make_pipeline_agent_factory` → `PipelineBuildAgent`) implements the same
-`BuildAgent` contract as the ReAct factory: it builds a headless engine
-(`SimulatedHumanInterface`), `initialize(input_path=case.input_path)` (which
-approves the input dir under the fail-closed guard), runs `run_pipeline`, and
-returns the final `CrateState`/`session_id` exactly like `ReActBuildAgent`.
+`BuildAgent` contract as the ReAct factory: it builds a headless engine (behind
+the shared `eval.hitl.TrustedCorpusHumanInterface`, so both arms handle scan roots
+identically — see D9), `initialize(input_path=case.input_path)` (which approves the
+input dir under the fail-closed guard), runs `run_pipeline`, and returns the final
+`CrateState`/`session_id` exactly like `ReActBuildAgent`.
 `eval/__main__.py` adds `--arch react|pipeline` (DEFAULT `react`) selecting the
 factory, so `python -m eval --arch pipeline --label pipeline` runs the same
 corpus/metrics/report against the spine — diffable vs the frozen `react-baseline`.

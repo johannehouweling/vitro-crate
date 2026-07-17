@@ -9,8 +9,10 @@ and report are unchanged.
 
 A build:
 
-1. creates a headless :class:`~builder.engine.AgentEngine`
-   (:class:`~builder.tools.hitl.SimulatedHumanInterface`, so HITL auto-denies);
+1. creates a headless :class:`~builder.engine.AgentEngine` behind the eval's
+   :class:`~eval.hitl.TrustedCorpusHumanInterface` (shared with the ReAct arm so
+   scan-root handling is symmetric across the A/B — #329); the pipeline never
+   escalates a scan root, so this only matters for wiring parity;
 2. ``initialize(input_path)`` — scans the case's input dir if any (which approves
    that dir under the #198 fail-closed guard), and assigns a ``session_id`` +
    opens the run's ``profile.ndjson``;
@@ -28,9 +30,9 @@ import logging
 from typing import Callable
 
 from builder.engine import AgentEngine
-from builder.tools.hitl import SimulatedHumanInterface
 from eval.agent_api import BuildOutcome
 from eval.corpus import EvalCase
+from eval.hitl import TrustedCorpusHumanInterface
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +54,14 @@ class PipelineBuildAgent:
         self._pipeline_runner = pipeline_runner
 
     def _make_engine(self) -> AgentEngine:
-        """Create a fresh headless engine with a simulated human interface."""
-        return AgentEngine(human_interface=SimulatedHumanInterface())
+        """Create a fresh headless engine with the trusted-corpus interface.
+
+        Both arms share the eval's :class:`~eval.hitl.TrustedCorpusHumanInterface`
+        so scan-root handling is symmetric across the A/B (#329). The pipeline never
+        escalates a scan root, but sharing the interface keeps the two arms wired
+        identically.
+        """
+        return AgentEngine(human_interface=TrustedCorpusHumanInterface())
 
     def _runner(self) -> PipelineRunner:
         """Return the configured runner, defaulting to the real spine."""

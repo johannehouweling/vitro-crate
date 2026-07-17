@@ -37,7 +37,10 @@ only the factory:
 | Offline tests | an in-memory mock returning canned `CrateState`s | tests only |
 
 `ReActBuildAgent` wraps the existing LangGraph ReAct loop: it creates a headless
-`AgentEngine` (`SimulatedHumanInterface`, so HITL auto-approves), `initialize()`s the
+`AgentEngine` behind `eval.hitl.TrustedCorpusHumanInterface` (a headless
+`SimulatedHumanInterface` subclass that also **approves scan-root escalations** against
+the trusted in-repo corpus fixtures, so the exploring ReAct arm is not refused a fixture
+the pipeline arm never has to ask for — a fairness fix, #329), `initialize()`s the
 case's input directory (which also assigns the `session_id` and opens this run's
 `profile.ndjson`), drives the graph once with the case's prompt, and returns the final
 `CrateState`. The model-driving step is injected so the wiring is unit-tested offline.

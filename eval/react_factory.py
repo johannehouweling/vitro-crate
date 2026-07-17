@@ -7,8 +7,11 @@ the same contract; the harness A/B's the two by swapping factories.
 
 A build:
 
-1. creates a headless :class:`~builder.engine.AgentEngine`
-   (:class:`~builder.tools.hitl.SimulatedHumanInterface`, so HITL auto-approves);
+1. creates a headless :class:`~builder.engine.AgentEngine` behind the eval's
+   :class:`~eval.hitl.TrustedCorpusHumanInterface` (a headless
+   :class:`~builder.tools.hitl.SimulatedHumanInterface` subclass that additionally
+   APPROVES scan-root escalations against the trusted corpus fixtures — #329 — so
+   the ReAct arm is not hobbled vs the pipeline arm);
 2. ``initialize(input_path)`` — scans the case's input dir if any, and (always)
    assigns a ``session_id`` + opens the run's ``profile.ndjson``;
 3. drives the ReAct graph once with the case's prompt as a ``HumanMessage``;
@@ -26,9 +29,9 @@ import logging
 from typing import Callable
 
 from builder.engine import AgentEngine
-from builder.tools.hitl import SimulatedHumanInterface
 from eval.agent_api import BuildOutcome
 from eval.corpus import EvalCase
+from eval.hitl import TrustedCorpusHumanInterface
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +109,14 @@ class ReActBuildAgent:
         self._graph_driver = graph_driver
 
     def _make_engine(self) -> AgentEngine:
-        """Create a fresh headless engine with a simulated human interface."""
-        return AgentEngine(human_interface=SimulatedHumanInterface())
+        """Create a fresh headless engine with the trusted-corpus interface.
+
+        The interface APPROVES scan-root escalations against the vetted corpus
+        fixtures (#329) so the ReAct arm is not hobbled vs the pipeline arm; it is
+        still headless (a :class:`SimulatedHumanInterface` subclass) so nothing
+        blocks on a real stdin.
+        """
+        return AgentEngine(human_interface=TrustedCorpusHumanInterface())
 
     def _driver(self) -> GraphDriver:
         """Return the configured driver, defaulting to the live LLM driver."""
