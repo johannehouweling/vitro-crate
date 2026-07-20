@@ -22,7 +22,7 @@ The only thing the harness knows about an architecture is the
 
 ```python
 class BuildAgent(Protocol):
-    def build(self, case: EvalCase) -> BuildOutcome: ...   # state + session_id + error
+    def build(self, case: EvalCase) -> BuildOutcome: ...   # state + session_id + error + stop_reason
 ```
 
 `run_eval(agent_factory, corpus, *, repeats=2)` takes a **zero-arg `agent_factory`**
@@ -89,12 +89,24 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
   (`node_end`/`model` events);
 - **latency** — wall-clock seconds for the build;
 - **iteration count** and **tool-call count** — also mined from `profile.ndjson`;
+- **stop-reason** (#331) — `completed` (the agent self-terminated), `cap_hit` (the
+  ReAct loop hit its recursion cap — a valid-at-the-cutoff run, **not** a clean win),
+  or `error`. The pipeline always `completed`;
+- **model + cost** (#331) — `model_name` mined from `profile.ndjson`, and `cost_usd`
+  from `eval.metrics.MODEL_PRICES` (or the `--price-input`/`--price-output` override
+  for an unlisted model). An unpriced model records `cost_usd = None` — never a
+  guessed `0`;
+- **transient retries** (#331) — how many transient network/API failures were re-run
+  before the result counted (a connection drop / timeout / rate-limit is not an
+  architecture failure);
 - **determinism** — a stable SHA-256 hash of the assembled crate `@graph` (volatile
   `datePublished`/`dateModified` stripped, nodes sorted by `@id`) compared across
   repeats; identical ⇒ deterministic. With `repeats == 1`, determinism is `None`.
 
 The aggregate `EvalReport.summary()` reports **success rate**, **mean/median tokens**,
-**mean/median latency**, and the **determinism rate**.
+**mean/median latency**, the **determinism rate**, the **stop-reason breakdown**
+(`num_completed` / `num_cap_hit` / `num_error`), and **`total_cost_usd`** (summed over
+priced cases, `None` when no case was priced).
 
 ## Report format
 
@@ -136,7 +148,11 @@ tokens** (zero — no model) **and latency**.
 
 `--arch react|pipeline` (DEFAULT `react`) selects the factory; ReAct stays the default
 so the existing baseline workflow is unchanged. Other options: `--repeats N` (builds per
-case), `--out PATH`, `--provider`, `--model`, `--api-base`. See `python -m eval --help`.
+case; **default 3** so variance is over more than one or two samples), `--out PATH`,
+`--provider`, `--model`, `--api-base`. For a fair, defensible A/B (#331):
+`--price-input`/`--price-output` (USD per 1M tokens — price a model not in the built-in
+table, e.g. for the paper re-run) and `--max-transient-retries N` (re-run transient
+network/API failures before they count; default 2). See `python -m eval --help`.
 
 ### Offline tests (CI)
 

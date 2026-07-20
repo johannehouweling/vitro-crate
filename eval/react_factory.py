@@ -39,6 +39,20 @@ logger = logging.getLogger(__name__)
 GraphDriver = Callable[[AgentEngine, str], None]
 
 
+def _is_recursion_cap_error(exc: BaseException) -> bool:
+    """True if *exc* is LangGraph's recursion-cap error (a ``cap_hit``, #331).
+
+    ``GraphRecursionError`` is imported lazily so this module stays cheap to import
+    for the offline tests — matching its existing deferral of every langchain /
+    langgraph / ``agent_loop`` import into the live driver.
+    """
+    try:
+        from langgraph.errors import GraphRecursionError
+    except ImportError:  # pragma: no cover - langgraph is a core dependency
+        return False
+    return isinstance(exc, GraphRecursionError)
+
+
 def _live_graph_driver(
     engine: AgentEngine,
     prompt: str,
@@ -142,7 +156,9 @@ class ReActBuildAgent:
 
         Returns:
             A :class:`BuildOutcome` with the final state, the run's ``session_id``,
-            and an ``error`` string if the driver raised.
+            an ``error`` string if the driver raised, and a ``stop_reason``:
+            ``"completed"`` (the loop self-terminated), ``"cap_hit"`` (it hit the
+            recursion cap — trap 2, #331), or ``"error"``.
         """
         engine = self._make_engine()
         # initialize() scans the input dir (if any) and always assigns a
@@ -150,11 +166,23 @@ class ReActBuildAgent:
         engine.initialize(input_path=case.input_path)
 
         error: str | None = None
+        stop_reason = "completed"
         try:
             self._driver()(engine, case.prompt)
         except Exception as exc:  # noqa: BLE001 — a failed build is a measured result
-            logger.warning("ReAct build failed for case %s: %s", case.case_id, exc)
-            error = str(exc)
+            if _is_recursion_cap_error(exc):
+                # The loop exhausted its recursion budget without self-terminating:
+                # a valid-at-the-cutoff run, not a clean stop. Record it as cap_hit
+                # and keep the partial crate (error stays unset) so the conformance
+                # predicate still measures what it produced at the cap (trap 2, #331).
+                logger.warning(
+                    "ReAct build hit the recursion cap for case %s: %s", case.case_id, exc
+                )
+                stop_reason = "cap_hit"
+            else:
+                logger.warning("ReAct build failed for case %s: %s", case.case_id, exc)
+                error = str(exc)
+                stop_reason = "error"
         finally:
             engine.close_profiler()
 
@@ -162,6 +190,7 @@ class ReActBuildAgent:
             state=engine.state,
             session_id=engine.state.session_id,
             error=error,
+            stop_reason=stop_reason,
         )
 
 

@@ -80,7 +80,10 @@ class PipelineBuildAgent:
 
         Returns:
             A :class:`BuildOutcome` with the final state, the run's ``session_id``,
-            and an ``error`` string if the spine raised.
+            an ``error`` string if the spine raised, and a ``stop_reason``. The
+            deterministic spine always self-terminates, so this is ``"completed"``
+            on success and ``"error"`` when it raises — it never ``"cap_hit"``
+            (there is no recursion loop to cap).
         """
         engine = self._make_engine()
         # initialize() scans the input dir (if any) — which approves it under the
@@ -89,11 +92,13 @@ class PipelineBuildAgent:
         engine.initialize(input_path=case.input_path)
 
         error: str | None = None
+        stop_reason = "completed"
         try:
             self._runner()(engine)
         except Exception as exc:  # noqa: BLE001 — a failed build is a measured result
             logger.warning("Pipeline build failed for case %s: %s", case.case_id, exc)
             error = str(exc)
+            stop_reason = "error"
         finally:
             engine.close_profiler()
 
@@ -101,6 +106,7 @@ class PipelineBuildAgent:
             state=engine.state,
             session_id=engine.state.session_id,
             error=error,
+            stop_reason=stop_reason,
         )
 
 

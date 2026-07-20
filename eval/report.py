@@ -78,6 +78,11 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
                 "iterations": result.iterations,
                 "tool_calls": result.tool_calls,
                 "deterministic": result.deterministic,
+                # Efficiency / termination signals (#331): a cap_hit "win" is not a
+                # clean win, and $ is the headline efficiency differentiator.
+                "stop_reason": result.stop_reason,
+                "model_name": result.model_name,
+                "cost_usd": result.cost_usd,
                 # Additive content-quality signal — ``None`` for cases that do not
                 # declare a min_entities quota.
                 "meets_quota": result.meets_quota,

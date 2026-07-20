@@ -29,6 +29,9 @@ def _case(case_id: str, *, success: bool, tokens: int, det: bool | None) -> Case
         crate_hashes=["abc", "abc"] if det else ["abc", "xyz"],
         deterministic=det,
         repeats=2,
+        stop_reason="cap_hit" if not success else "completed",
+        model_name="gpt-4o",
+        cost_usd=0.5,
     )
 
 
@@ -94,3 +97,12 @@ class TestCompareReports:
         # A per-case table keyed by case_id, success for both labels.
         assert "cases" in diff
         assert set(diff["cases"]) == {"c1", "c2"}
+
+    def test_per_case_carries_efficiency_and_termination_signals(self) -> None:
+        # The A/B diff surfaces stop_reason / model / $ so a cap_hit "win" and the
+        # cost gap are visible per case (#331).
+        diff = compare_reports(_report("react-baseline"), _report("pipeline"))
+        c2 = diff["cases"]["c2"]["react-baseline"]
+        assert c2["stop_reason"] == "cap_hit"
+        assert c2["model_name"] == "gpt-4o"
+        assert c2["cost_usd"] == 0.5

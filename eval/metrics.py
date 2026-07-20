@@ -40,17 +40,82 @@ class ProfileMetrics:
         output_tokens: Sum of ``output_tokens`` across model ``node_end`` events.
         tool_calls: Number of ``tool_call`` events.
         iterations: The highest ``iteration`` counter observed (0 if none).
+        model_name: The model that produced the run (the last non-empty
+            ``model_name`` seen on a model ``node_end`` event), or ``None``. Used to
+            price the run (:func:`compute_cost`).
     """
 
     input_tokens: int = 0
     output_tokens: int = 0
     tool_calls: int = 0
     iterations: int = 0
+    model_name: str | None = None
 
     @property
     def total_tokens(self) -> int:
         """Combined input + output token count."""
         return self.input_tokens + self.output_tokens
+
+
+# USD per 1,000,000 tokens as ``(input, output)``. These are list prices at the
+# time of writing and are **not authoritative** — extend the table or pass a
+# ``price_override`` to :func:`compute_cost` for the run's actual model. A model
+# absent here yields ``cost_usd = None`` (the harness never guesses a price). The
+# gpt-5.6-luna model used for the paper re-run is deliberately NOT listed here (it
+# is priced at run time via the ``--price-input`` / ``--price-output`` override) so
+# no work-issued model's pricing lives in this public repo.
+MODEL_PRICES: dict[str, tuple[float, float]] = {
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "o3": (2.00, 8.00),
+    "o4-mini": (1.10, 4.40),
+    "deepseek-chat": (0.27, 1.10),
+}
+
+
+def compute_cost(
+    input_tokens: int,
+    output_tokens: int,
+    model_name: str | None,
+    *,
+    price_override: tuple[float, float] | None = None,
+    prices: dict[str, tuple[float, float]] | None = None,
+) -> float | None:
+    """Return the USD cost of a run, or ``None`` when the model is unpriced.
+
+    Args:
+        input_tokens: Total prompt tokens for the run.
+        output_tokens: Total completion tokens for the run.
+        model_name: The run's model (e.g. mined via :func:`mine_profile_metrics`).
+        price_override: ``(input_per_mtok, output_per_mtok)`` in USD. When given it
+            prices *any* model and takes precedence over the table — the path the
+            live gpt-5.6-luna re-run uses.
+        prices: Price table to consult (defaults to :data:`MODEL_PRICES`).
+
+    Returns:
+        The cost in USD, or ``None`` when neither an override nor a table entry
+        prices *model_name* (never a guessed ``0.0``).
+
+    A dated/variant model name (e.g. ``"gpt-4o-2024-08-06"``) matches its base by
+    **longest** prefix, so ``"gpt-4o-mini-*"`` is never mispriced as ``"gpt-4o"``.
+    """
+    if price_override is not None:
+        in_price, out_price = price_override
+    else:
+        table = MODEL_PRICES if prices is None else prices
+        key = (model_name or "").strip().lower()
+        pair = table.get(key)
+        if pair is None and key:
+            for name in sorted(table, key=len, reverse=True):
+                if key.startswith(name):
+                    pair = table[name]
+                    break
+        if pair is None:
+            return None
+        in_price, out_price = pair
+    return input_tokens / 1_000_000 * in_price + output_tokens / 1_000_000 * out_price
 
 
 def _as_int(value: Any) -> int:
@@ -82,6 +147,7 @@ def mine_profile_metrics(records: list[dict[str, Any]]) -> ProfileMetrics:
     output_tokens = 0
     tool_calls = 0
     max_iteration = 0
+    model_name: str | None = None
 
     for rec in records:
         event = rec.get("event")
@@ -93,12 +159,18 @@ def mine_profile_metrics(records: list[dict[str, Any]]) -> ProfileMetrics:
         elif event == "node_end" and rec.get("node") == "model":
             input_tokens += _as_int(rec.get("input_tokens"))
             output_tokens += _as_int(rec.get("output_tokens"))
+            # Keep the last non-empty model name seen — a run is single-model, and
+            # this is robust to early events that omit it.
+            name = rec.get("model_name")
+            if name:
+                model_name = str(name)
 
     return ProfileMetrics(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         tool_calls=tool_calls,
         iterations=max_iteration,
+        model_name=model_name,
     )
 
 
