@@ -31,11 +31,19 @@ class BuildOutcome:
         session_id: The build's session id, used to find its ``profile.ndjson``.
             ``None`` when the agent does not profile (e.g. a mock).
         error: A short error string if the build raised / failed, else ``None``.
+        stop_reason: How the build terminated — ``"completed"`` (the agent
+            self-terminated), ``"cap_hit"`` (the ReAct loop hit its recursion cap;
+            a valid-at-the-cutoff run, **not** a clean stop — trap 2, #331), or
+            ``"error"`` (the build raised). ``None`` when the producer does not
+            classify termination (e.g. a mock). A ``"cap_hit"`` preserves the
+            partial crate and leaves ``error`` unset, so the conformance predicate
+            still measures what the run produced at the cap.
     """
 
     state: CrateState
     session_id: str | None = None
     error: str | None = None
+    stop_reason: str | None = None
 
 
 @runtime_checkable

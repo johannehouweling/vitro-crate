@@ -26,7 +26,7 @@ from typing import Any, Callable
 from builder.state import CrateState
 from eval.agent_api import AgentFactory, BuildOutcome
 from eval.corpus import EvalCase, meets_entity_quota, reaches_isa_tox_conformance
-from eval.metrics import crate_graph_hash, mine_profile_metrics
+from eval.metrics import compute_cost, crate_graph_hash, mine_profile_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,10 @@ class CaseResult:
     error: str | None = None
     meets_quota: bool | None = None
     entity_counts: dict[str, int] = field(default_factory=dict)
+    stop_reason: str | None = None
+    model_name: str | None = None
+    cost_usd: float | None = None
+    transient_retries: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -106,6 +110,10 @@ class CaseResult:
             "error": self.error,
             "meets_quota": self.meets_quota,
             "entity_counts": self.entity_counts,
+            "stop_reason": self.stop_reason,
+            "model_name": self.model_name,
+            "cost_usd": self.cost_usd,
+            "transient_retries": self.transient_retries,
         }
 
 
@@ -130,6 +138,16 @@ class EvalReport:
         latencies = [r.latency_seconds for r in self.results]
         decided = [r for r in self.results if r.deterministic is not None]
         det_rate = sum(1 for r in decided if r.deterministic) / len(decided) if decided else None
+        # Stop-reason breakdown (trap 2): a self-terminated run is a clean win; a
+        # cap_hit is only valid-at-the-cutoff. Counting them keeps a ReAct "win" at
+        # the recursion cap from reading as an unqualified success.
+        num_cap_hit = sum(1 for r in self.results if r.stop_reason == "cap_hit")
+        num_completed = sum(1 for r in self.results if r.stop_reason == "completed")
+        num_error = sum(1 for r in self.results if r.stop_reason == "error")
+        # Total $ over cases with a KNOWN price; ``None`` when no case was priced,
+        # so an unpriced run reads as "cost unknown", not a misleading $0 (trap 5).
+        known_costs = [r.cost_usd for r in self.results if r.cost_usd is not None]
+        total_cost_usd = sum(known_costs) if known_costs else None
         return {
             "label": self.label,
             "repeats": self.repeats,
@@ -141,6 +159,10 @@ class EvalReport:
             "mean_latency_seconds": statistics.mean(latencies) if latencies else 0.0,
             "median_latency_seconds": statistics.median(latencies) if latencies else 0.0,
             "determinism_rate": det_rate if det_rate is not None else 0.0,
+            "num_completed": num_completed,
+            "num_cap_hit": num_cap_hit,
+            "num_error": num_error,
+            "total_cost_usd": total_cost_usd,
         }
 
 
@@ -155,9 +177,86 @@ def _safe_build(agent: Any, case: EvalCase) -> tuple[BuildOutcome, float]:
         outcome = agent.build(case)
     except Exception as exc:  # noqa: BLE001 — a build crash is a measured failure
         logger.warning("Build raised for case %s: %s", case.case_id, exc)
-        outcome = BuildOutcome(state=CrateState(), session_id=None, error=str(exc))
+        outcome = BuildOutcome(
+            state=CrateState(), session_id=None, error=str(exc), stop_reason="error"
+        )
     latency = time.perf_counter() - start
     return outcome, latency
+
+
+# Substrings (case-insensitive) that mark a build error as a **transient**
+# network/API failure rather than an architecture failure (trap 1). Named reason
+# phrases only — no bare numeric HTTP codes, which false-positive on unrelated text
+# (e.g. "500 entities"). A run whose error matches is re-run before it counts.
+_TRANSIENT_ERROR_MARKERS: tuple[str, ...] = (
+    "connection error",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "econnreset",
+    "timed out",
+    "timeout",
+    "temporarily unavailable",
+    "service unavailable",
+    "internal server error",
+    "server error",
+    "bad gateway",
+    "gateway timeout",
+    "rate limit",
+    "too many requests",
+    "overloaded",
+    "try again",
+)
+
+
+def _is_transient_error(error: str | None) -> bool:
+    """Return True if *error* looks like a transient network/API failure (trap 1).
+
+    A transient error (connection drop, timeout, rate limit, 5xx, overload) is a
+    property of the network, not of the architecture under test, so the harness
+    re-runs it rather than scoring it as a build failure. Matching is on named
+    reason phrases (see :data:`_TRANSIENT_ERROR_MARKERS`); anything else — a
+    validation failure, a ``KeyError``, a non-conformant crate — is a genuine,
+    measured result and is never retried.
+    """
+    if not error:
+        return False
+    text = error.lower()
+    return any(marker in text for marker in _TRANSIENT_ERROR_MARKERS)
+
+
+def _build_with_transient_retries(
+    agent_factory: AgentFactory,
+    case: EvalCase,
+    *,
+    max_transient_retries: int,
+) -> tuple[BuildOutcome, float, int]:
+    """Build one repeat, re-running on a transient error (trap 1).
+
+    Returns the accepted ``(outcome, latency, transient_retries)``. A fresh agent
+    is built for each attempt. Only a :func:`_is_transient_error` failure is
+    retried, and at most *max_transient_retries* times; a genuine failure (or a
+    success) is returned immediately.
+    """
+    transient_retries = 0
+    while True:
+        agent = agent_factory()
+        outcome, latency = _safe_build(agent, case)
+        if (
+            outcome.error
+            and _is_transient_error(outcome.error)
+            and transient_retries < max_transient_retries
+        ):
+            transient_retries += 1
+            logger.warning(
+                "Transient failure on case %s (retry %d/%d): %s",
+                case.case_id,
+                transient_retries,
+                max_transient_retries,
+                outcome.error,
+            )
+            continue
+        return outcome, latency, transient_retries
 
 
 def _run_case(
@@ -166,18 +265,24 @@ def _run_case(
     *,
     repeats: int,
     profile_reader: ProfileReader,
+    price_override: tuple[float, float] | None = None,
+    max_transient_retries: int = 2,
 ) -> CaseResult:
     """Run a single case ``repeats`` times and aggregate its metrics."""
     hashes: list[str] = []
     first_outcome: BuildOutcome | None = None
     first_latency = 0.0
     error: str | None = None
+    transient_retries = 0
 
     for i in range(max(1, repeats)):
         # A fresh agent per repeat — the determinism check must not be polluted by
-        # carried-over engine/session state.
-        agent = agent_factory()
-        outcome, latency = _safe_build(agent, case)
+        # carried-over engine/session state. Each repeat re-runs transient failures
+        # (trap 1) so a network blip is not scored as an architecture failure.
+        outcome, latency, retries = _build_with_transient_retries(
+            agent_factory, case, max_transient_retries=max_transient_retries
+        )
+        transient_retries += retries
         if i == 0:
             first_outcome, first_latency = outcome, latency
         if outcome.error and error is None:
@@ -192,6 +297,9 @@ def _run_case(
 
     profile_records = profile_reader(first_outcome.session_id) if first_outcome.session_id else []
     pm = mine_profile_metrics(profile_records)
+    cost_usd = compute_cost(
+        pm.input_tokens, pm.output_tokens, pm.model_name, price_override=price_override
+    )
 
     deterministic: bool | None = None
     if len(hashes) > 1:
@@ -214,6 +322,10 @@ def _run_case(
         error=error,
         meets_quota=quota["meets_quota"],
         entity_counts=quota["entity_counts"],
+        stop_reason=first_outcome.stop_reason,
+        model_name=pm.model_name,
+        cost_usd=cost_usd,
+        transient_retries=transient_retries,
     )
 
 
@@ -224,6 +336,8 @@ def run_eval(
     repeats: int = 2,
     label: str = "eval",
     profile_reader: ProfileReader | None = None,
+    price_override: tuple[float, float] | None = None,
+    max_transient_retries: int = 2,
 ) -> EvalReport:
     """Run *agent_factory* over *corpus* and return an :class:`EvalReport`.
 
@@ -238,12 +352,25 @@ def run_eval(
         profile_reader: Override for reading a session's profile records (the
             tests inject a canned reader); defaults to reading
             ``sessions/<id>/profile.ndjson`` from disk.
+        price_override: ``(input_per_mtok, output_per_mtok)`` USD prices applied to
+            every case's model (trap 5). When ``None``, cost is priced from
+            :data:`eval.metrics.MODEL_PRICES` and left ``None`` for unpriced models.
+        max_transient_retries: How many times to re-run a case on a *transient*
+            network/API failure before it counts (trap 1). ``0`` disables retries.
 
     Returns:
         An :class:`EvalReport` with one :class:`CaseResult` per case.
     """
     reader = profile_reader or _default_profile_reader
     results = [
-        _run_case(agent_factory, case, repeats=repeats, profile_reader=reader) for case in corpus
+        _run_case(
+            agent_factory,
+            case,
+            repeats=repeats,
+            profile_reader=reader,
+            price_override=price_override,
+            max_transient_retries=max_transient_retries,
+        )
+        for case in corpus
     ]
     return EvalReport(label=label, repeats=repeats, results=results)
