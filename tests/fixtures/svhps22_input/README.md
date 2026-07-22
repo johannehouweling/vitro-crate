@@ -14,6 +14,7 @@ processed data so an agent must draft several distinct domain entities.
 - Cell line: FRTL-5 TPO-overexpressing rat thyroid follicular cells
 - Compound: Methimazole (reference TPO inhibitor)
 - Protocol: Amplex Red fluorometric TPO activity readout
+- AOP: AOP:42 (thyroperoxidase inhibition leading to adverse neurodevelopmental outcomes)
 
 ## Files
 

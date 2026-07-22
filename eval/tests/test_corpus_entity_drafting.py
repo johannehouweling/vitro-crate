@@ -131,3 +131,55 @@ class TestEntityDraftingCaseBuildState:
 
         quota = meets_entity_quota(state, case.min_entities)
         assert quota["meets_quota"] is True, quota["missing"]
+
+
+class TestEntityDraftingCaseLinksAOP:
+    """The svhps22 case exercises AOP-Wiki linking (Issue #180) end to end.
+
+    TPO inhibition is a well-characterised Adverse Outcome Pathway (AOP-Wiki 42),
+    so a *good* svhps22 build must draft the pathway as a typed
+    ``AdverseOutcomePathway`` entity AND reference it from the Study
+    (``schema:mentions``). Before this, no corpus case exercised AOP linking, so
+    neither A/B arm was ever scored on getting it — the feature could silently
+    regress. The quota demands the AOP so the harness now measures it.
+    """
+
+    CASE_ID = "structured-svhps22"
+    AOP_IRI = "https://aopwiki.org/aops/42"
+
+    def _case(self) -> EvalCase:
+        return next(c for c in DEFAULT_CORPUS if c.case_id == self.CASE_ID)
+
+    def test_quota_demands_an_adverse_outcome_pathway(self) -> None:
+        case = self._case()
+        assert case.min_entities is not None
+        assert case.min_entities.get("AdverseOutcomePathway", 0) >= 1, (
+            "the svhps22 quota must demand an AdverseOutcomePathway so the A/B "
+            "measures AOP linking, not just backbone + compound + cell line"
+        )
+
+    def test_build_state_materializes_a_typed_aop(self) -> None:
+        case = self._case()
+        assert case.build_state is not None
+        state = case.build_state()
+        aops = state.list_entities(entity_type="AdverseOutcomePathway")
+        assert len(aops) >= 1, (
+            "the good svhps22 stand-in must draft an AdverseOutcomePathway entity"
+        )
+
+    def test_study_mentions_the_aop(self) -> None:
+        case = self._case()
+        assert case.build_state is not None
+        state = case.build_state()
+        studies = state.list_entities(entity_type="Study")
+        assert studies, "expected a Study to hang the AOP mention off"
+        ref_ids: set[str] = set()
+        for study in studies:
+            value = study.fields.get("aop")
+            if not value:
+                continue
+            for ref in value if isinstance(value, list) else [value]:
+                ref_ids.add(ref.get("@id") if isinstance(ref, dict) else ref)
+        assert self.AOP_IRI in ref_ids, (
+            f"the Study should mention the AOP via schema:mentions; got {ref_ids}"
+        )
