@@ -1476,9 +1476,10 @@ The `--interactive` default is the deterministic pipeline (§14), not the ReAct 
 (D1): code owns the step ordering and the LLM is confined to bounded leaves. The
 rationale is **efficiency, predictability, and clean termination**, not raw
 capability — a capable model reaches SHACL conformance on either path. In the in-repo
-A/B (`eval/`, gpt-5.6-luna, 5-case corpus) the pipeline reached 5/5 conformance at
-~$0.05 and self-terminated every case, while ReAct reached 4/5 at ~50× the cost with
-3 of its 4 wins force-stopped at the recursion cap. ReAct stays a supported variant
+A/B (`eval/`, gpt-5.6-luna, 5-case corpus, repeats=3) both arms reach 5/5
+conformance, but the pipeline self-terminates every case at ~$0.05 while ReAct costs
+~39× as much (~$2.07, ~69× the tokens, ~6.7× the wall-clock) with 3 of its 5 wins
+force-stopped at the recursion cap. ReAct stays a supported variant
 (`--legacy-react`) for flexible conversational exploration. The success metric is
 profile conformance (base + isa + tox) plus an entity-count quota — **not** scientific
 accuracy.

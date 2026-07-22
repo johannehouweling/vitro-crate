@@ -118,7 +118,7 @@ Both are maintained — pick the one that fits how you want to work:
 
 | Variant | Flag | What it does | When to pick it |
 | --- | --- | --- | --- |
-| **Deterministic pipeline + HITL guidance** (default) | `--interactive` | Code drives the known step ordering (scaffold the ISA backbone, draft and materialize entities, validate, auto-fix REQUIRED issues), then walks you through any remaining gaps it can't close on its own. | You want a **deterministic, cheaper, reproducible** build. It is the default and won the in-repo A/B gate (full ISA-Tox conformance on the shared corpus where the ReAct loop stalled). |
+| **Deterministic pipeline + HITL guidance** (default) | `--interactive` | Code drives the known step ordering (scaffold the ISA backbone, draft and materialize entities, validate, auto-fix REQUIRED issues), then walks you through any remaining gaps it can't close on its own. | You want a **deterministic, cheaper, reproducible** build. It is the default: on the shared-corpus A/B both arms reach full ISA-Tox conformance, but the pipeline gets there ~39× cheaper and ~6.7× faster, self-terminating every case where the ReAct loop repeatedly runs to its recursion cap. |
 | **Conversational ReAct agent** | `--interactive --legacy-react` | An LLM agent decides the order of tool calls turn by turn. | You want **flexible, conversational exploration** and to let the model drive. |
 
 Both variants are first-class and actively maintained — this is an ongoing

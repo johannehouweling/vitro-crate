@@ -141,10 +141,11 @@ uv run --extra langchain python -m eval --arch pipeline --label pipeline
 # -> writes eval_reports/pipeline.ndjson
 ```
 
-Then diff it against the frozen baseline with `compare_reports`. The pipeline is
-expected to beat the ReAct baseline on the D15 levers: **higher conformance**,
-**determinism rate 1.0** (identical `@graph` hash across repeats), and **much lower
-tokens** (zero — no model) **and latency**.
+Then diff it against the frozen baseline with `compare_reports`. On the shared corpus
+both arms reach full ISA-Tox conformance; the pipeline is expected to win the D15
+levers — **clean self-termination** (no recursion-cap stalls), **determinism rate
+1.0** (identical `@graph` hash across repeats), and **much lower cost, tokens, and
+latency** (its bounded drafter leaf makes far fewer model calls).
 
 `--arch react|pipeline` (DEFAULT `react`) selects the factory; ReAct stays the default
 so the existing baseline workflow is unchanged. Other options: `--repeats N` (builds per
