@@ -182,8 +182,9 @@ def _drafting_state() -> CrateState:
 
     Unlike the backbone-only stand-ins above, this drafts the full domain set the
     ``structured-svhps22`` case is designed to elicit: the ISA backbone, a
-    compound, a cell line, contributors, a lab protocol, the Exposure process, and
-    the two attached data files. It is REQUIRED-clean across base/ISA/ISA-Tox *and*
+    compound, a cell line, contributors, a lab protocol, the Exposure process, the
+    two attached data files, and the Adverse Outcome Pathway it investigates
+    (AOP-Wiki 42, Issue #180). It is REQUIRED-clean across base/ISA/ISA-Tox *and*
     satisfies that case's ``min_entities`` quota, so the content-quality signal is
     exercisable offline with a mock agent.
     """
@@ -222,6 +223,9 @@ def _drafting_state() -> CrateState:
             identifier="S-VHPS22",
             investigation_id="inv",
             datePublished="2025-11-10",
+            # The Adverse Outcome Pathway this TPO screen investigates
+            # (schema:mentions), referencing the AdverseOutcomePathway entity below.
+            aop=[{"@id": "https://aopwiki.org/aops/42"}],
         )
     )
     state.add_entity(
@@ -272,6 +276,23 @@ def _drafting_state() -> CrateState:
     )
     state.add_entity(
         _ent("proc", "File", name="ic50_results.csv", path="processed_data/ic50_results.csv")
+    )
+
+    # The Adverse Outcome Pathway this TPO screen investigates (AOP-Wiki 42),
+    # keyed by its resolvable IRI exactly as materialize_aop_subgraph would
+    # (Issue #180). AOP linking is a tox SHOULD, so it does not gate REQUIRED
+    # conformance; the case's min_entities quota is what makes the A/B measure it.
+    state.add_entity(
+        _ent(
+            "https://aopwiki.org/aops/42",
+            "AdverseOutcomePathway",
+            name=(
+                "Inhibition of thyroid peroxidase and subsequent adverse "
+                "neurodevelopmental outcomes in mammals"
+            ),
+            identifier="42",
+            url="https://aopwiki.org/aops/42",
+        )
     )
     return state
 
@@ -467,8 +488,9 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
             "CSVs) and draft the full ISA-Tox domain set. Success is the strict "
             "{base, isa, tox} conformance gate; the additive min_entities quota "
             "measures whether the build actually drafted the domain content "
-            "(compound, cell line, the two files) — so the A/B can compare draft "
-            "QUALITY, not just that the agent acted (Issue #179)."
+            "(compound, cell line, the two files, and the AOP-Wiki pathway the "
+            "TPO screen investigates) — so the A/B can compare draft QUALITY, not "
+            "just that the agent acted (Issues #179, #180)."
         ),
         kind="structured",
         prompt=(
@@ -484,7 +506,15 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
         build_state=_drafting_state,
         # Content-quality quota: a real draft must carry the compound, the cell
         # line, and both attached data files — not merely a conformant backbone.
-        min_entities={"MolecularEntity": 1, "CellLineSample": 1, "File": 2},
+        min_entities={
+            "MolecularEntity": 1,
+            "CellLineSample": 1,
+            "File": 2,
+            # AOP-Wiki linking (Issue #180): TPO inhibition is AOP 42, so a good
+            # build must draft the pathway — this makes the A/B score AOP, not
+            # just backbone + compound + cell line.
+            "AdverseOutcomePathway": 1,
+        },
     ),
     EvalCase(
         case_id="unstructured-conversation",
