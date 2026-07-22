@@ -1535,7 +1535,7 @@ vitro-crate/
 │       └── react/               ReAct StateGraph mode (legacy, --legacy-react)
 │           ├── agent_loop.py      ReAct StateGraph loop
 │           ├── system_prompt.py   ReAct system prompt
-│           └── tools_spec.py      TOOL_SPECS advertised to the ReAct LLM
+│           └── tools_spec.py      TOOL_SPECS advertised to the ReAct LLM + the registry-parity contract (#327)
 ├── eval/                        A/B eval harness (--arch react|pipeline)
 ├── sessions/                    Persisted sessions
 ├── output/                      Built crates (versioned)
@@ -1698,8 +1698,15 @@ not a validity blocker, since `datePublished` is auto-set by ro-crate-py).
 
 > **Tool-registration contract:** every new LLM tool must be registered in **four**
 > lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
-> catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`) — plus
-> the import lists in `tests/test_tools_spec.py`, or CI fails.
+> catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`). The
+> `TOOL_REGISTRY` ⇄ `TOOL_SPECS` half is enforced automatically (#327): the parity
+> contract in `tools_spec.py` — `expected_tool_spec_names()`, the shared registry plus
+> a small, *documented* set of engine-routed tools (`_LLM_TOOLS_OUTSIDE_REGISTRY`) —
+> is checked at runtime by `assert_tool_spec_parity()` when the ReAct arm builds its
+> tools, and in CI by `tests/test_tools_spec.py`. A registered tool with no schema, or
+> a schema advertising a tool the engine cannot run, fails fast in either direction, so
+> the A/B always compares the *same* toolbox. A genuinely engine-routed tool (present
+> to the LLM but not in the registry) is declared once, in `_LLM_TOOLS_OUTSIDE_REGISTRY`.
 
 ### 14.5 The pipeline spine (`builder/agents/pipeline/pipeline.py`)
 
