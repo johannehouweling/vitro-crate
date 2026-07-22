@@ -25,84 +25,45 @@ _INTERNAL_TOOL_NAMES: set[str] | None = None
 def _get_registry_tool_names() -> set[str]:
     """Return tool names registered in the shared TOOL_REGISTRY.
 
-    Imports all tool modules (triggering registration calls) and returns
-    the full set of registered tool names intended for LLM use.
+    Delegates to the single-source parity contract (Issue #327) so the test and
+    the runtime assert measure the same fully-populated registry.
     """
-    import builder.tools.builder
-    import builder.tools.composites
-    import builder.tools.data_content
-    import builder.tools.drafters
-    import builder.tools.fair_assessment
-    import builder.tools.management
-    import builder.tools.mit_assessment
-    import builder.tools.provenance
-    import builder.tools.repair
-    import builder.tools.scanner
-    import builder.tools.session
-    import builder.tools.validation
-    import builder.tools.verification
-    from builder.tools.registry import TOOL_REGISTRY
+    from builder.agents.react.tools_spec import _registered_tool_names
 
-    return set(TOOL_REGISTRY.list())
+    return _registered_tool_names()
 
 
 def _get_engine_routable_llm_tools() -> set[str]:
     """Return tool names that the engine routes specially (not via registry)
     and that are intended to be callable by the LLM.
 
-    The engine has special routing for HITL tools and scanner tools.
-    Scanner tools like scan_files, read_file_sample, read_multiple_files,
-    unzip_file, and preview_archive are engine-routed and should be in
-    TOOL_SPECS (some already are). HITL tools present_to_human and
-    request_input must also be in TOOL_SPECS for the LLM to call them.
+    The engine has special routing for HITL tools and scanner tools. This set is
+    declared once, in the parity contract (Issue #327), so the test cannot drift
+    from what the runtime assert enforces.
     """
-    return {
-        "present_to_human",
-        "request_input",
-        "scan_files",
-        "read_file_sample",
-        "read_multiple_files",
-        "unzip_file",
-        "preview_archive",
-    }
+    from builder.agents.react.tools_spec import _LLM_TOOLS_OUTSIDE_REGISTRY
+
+    return set(_LLM_TOOLS_OUTSIDE_REGISTRY)
 
 
 def _get_all_registry_tool_names() -> set[str]:
-    """Return the COMPLETE set of registered tool names.
+    """Return the COMPLETE set of registered tool names (single source, #327)."""
+    from builder.agents.react.tools_spec import _registered_tool_names
 
-    Imports every tool module that registers tools (including file_readers and
-    provenance) so the registry is fully populated. Unlike
-    ``_get_registry_tool_names`` this is exhaustive — used for the bidirectional
-    source-of-truth assertion.
-    """
-    import builder.tools.builder  # noqa: F401
-    import builder.tools.composites  # noqa: F401
-    import builder.tools.data_content  # noqa: F401
-    import builder.tools.drafters  # noqa: F401
-    import builder.tools.fair_assessment  # noqa: F401
-    import builder.tools.file_readers  # noqa: F401
-    import builder.tools.lookups  # noqa: F401
-    import builder.tools.management  # noqa: F401
-    import builder.tools.mit_assessment  # noqa: F401
-    import builder.tools.provenance  # noqa: F401
-    import builder.tools.repair  # noqa: F401
-    import builder.tools.scanner  # noqa: F401
-    import builder.tools.session  # noqa: F401
-    import builder.tools.validation  # noqa: F401
-    import builder.tools.verification  # noqa: F401
-    from builder.tools.registry import TOOL_REGISTRY
-
-    return set(TOOL_REGISTRY.list())
+    return _registered_tool_names()
 
 
 def _expected_llm_tool_universe() -> set[str]:
     """The authoritative set of LLM-callable tools.
 
     A tool is LLM-callable iff it is either registered in the shared registry or
-    routed specially by the engine (HITL + scanner tools). This is the single
-    source of truth ``TOOL_SPECS`` and the system prompt must both match.
+    routed specially by the engine (HITL + scanner tools). Delegates to the parity
+    contract (Issue #327) so ``TOOL_SPECS``, the system prompt, and the runtime
+    assert all measure against one definition.
     """
-    return _get_all_registry_tool_names() | _get_engine_routable_llm_tools()
+    from builder.agents.react.tools_spec import expected_tool_spec_names
+
+    return expected_tool_spec_names()
 
 
 def _get_tool_names_from_system_prompt() -> set[str]:
@@ -324,6 +285,50 @@ def test_system_prompt_tool_list_matches_tool_specs_exactly():
     assert not extra_in_prompt, (
         f"Prompt list names not in TOOL_SPECS: {sorted(extra_in_prompt)}"
     )
+
+
+def test_expected_tool_spec_names_is_the_single_source_of_truth():
+    """``expected_tool_spec_names()`` == TOOL_SPECS names (Issue #327).
+
+    The parity contract lives in one place — the module the specs live in — so the
+    runtime assert and every test measure against the same authoritative set.
+    """
+    from builder.agents.react.tools_spec import expected_tool_spec_names
+
+    assert expected_tool_spec_names() == _tool_names()
+
+
+def test_assert_tool_spec_parity_passes_on_the_current_tree():
+    """The runtime parity guard does not raise for the shipped tool set (#327)."""
+    from builder.agents.react.tools_spec import assert_tool_spec_parity
+
+    assert_tool_spec_parity()  # must not raise
+
+
+def test_assert_tool_spec_parity_flags_a_callable_tool_with_no_spec(monkeypatch):
+    """A tool the engine can run but TOOL_SPECS omits is caught (#327)."""
+    import builder.agents.react.tools_spec as ts
+
+    monkeypatch.setattr(
+        ts,
+        "_LLM_TOOLS_OUTSIDE_REGISTRY",
+        ts._LLM_TOOLS_OUTSIDE_REGISTRY | {"phantom_registry_tool"},
+    )
+    with pytest.raises(ts.ToolSpecParityError, match="phantom_registry_tool"):
+        ts.assert_tool_spec_parity()
+
+
+def test_assert_tool_spec_parity_flags_a_spec_with_no_callable_tool(monkeypatch):
+    """A spec advertising a tool the engine cannot run is caught (#327)."""
+    import builder.agents.react.tools_spec as ts
+
+    monkeypatch.setattr(
+        ts,
+        "TOOL_SPECS",
+        [*ts.TOOL_SPECS, {"name": "phantom_spec_tool", "description": "", "parameters": {}}],
+    )
+    with pytest.raises(ts.ToolSpecParityError, match="phantom_spec_tool"):
+        ts.assert_tool_spec_parity()
 
 
 __all__: list[str] = []

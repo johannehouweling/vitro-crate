@@ -928,4 +928,113 @@ TOOL_SPECS = [
     },
 ]
 
-__all__ = ["TOOL_SPECS"]
+# ---------------------------------------------------------------------------
+# Provable tool-set parity with the shared registry (Issue #327)
+# ---------------------------------------------------------------------------
+#
+# TOOL_SPECS advertises the ReAct tool set to the LLM. For the A/B comparison to
+# be over the *same* toolbox (AGENTS.md §5, §12), it must stay in exact lockstep
+# with the tools the shared engine can actually run. The authoritative set is:
+#
+#     builder.tools.registry.TOOL_REGISTRY.list()   # registered tools
+#       | _LLM_TOOLS_OUTSIDE_REGISTRY               # engine-routed extras
+#       - _REGISTRY_TOOLS_HIDDEN_FROM_LLM           # deliberately hidden
+#
+# Both divergences are small, intentional, and enumerated here — the one place
+# they are declared — so ``expected_tool_spec_names()`` (used by the runtime
+# assert and the parity tests) can never disagree with reality.
+
+# LLM-callable tools the engine routes itself, so they are NOT in TOOL_REGISTRY:
+#   - scanner / file-sample readers gated by AgentEngine before they touch disk
+#     (Issue #167): scan_files, read_file_sample, read_multiple_files, unzip_file,
+#     preview_archive;
+#   - human-in-the-loop tools dispatched via the human interface: present_to_human,
+#     request_input.
+_LLM_TOOLS_OUTSIDE_REGISTRY: frozenset[str] = frozenset(
+    {
+        "scan_files",
+        "read_file_sample",
+        "read_multiple_files",
+        "unzip_file",
+        "preview_archive",
+        "present_to_human",
+        "request_input",
+    }
+)
+
+# Registered tools deliberately withheld from the LLM. None today; a name added
+# here (with a reason) is excluded from the advertised set without tripping parity.
+_REGISTRY_TOOLS_HIDDEN_FROM_LLM: frozenset[str] = frozenset()
+
+# Every module whose import registers tools into TOOL_REGISTRY. Enumerated so the
+# registry is fully populated before it is read (registration is an import side
+# effect), keeping this the single place that knows the tool-module set.
+_TOOL_REGISTRY_MODULES: tuple[str, ...] = (
+    "builder.tools.builder",
+    "builder.tools.composites",
+    "builder.tools.data_content",
+    "builder.tools.drafters",
+    "builder.tools.fair_assessment",
+    "builder.tools.file_readers",
+    "builder.tools.lookups",
+    "builder.tools.management",
+    "builder.tools.mit_assessment",
+    "builder.tools.provenance",
+    "builder.tools.repair",
+    "builder.tools.scanner",
+    "builder.tools.session",
+    "builder.tools.validation",
+    "builder.tools.verification",
+)
+
+
+class ToolSpecParityError(RuntimeError):
+    """TOOL_SPECS has drifted from the tools the shared engine can run (#327)."""
+
+
+def _registered_tool_names() -> set[str]:
+    """Return every tool name in the shared registry (registry fully populated)."""
+    import importlib
+
+    for module in _TOOL_REGISTRY_MODULES:
+        importlib.import_module(module)
+    from builder.tools.registry import TOOL_REGISTRY
+
+    return set(TOOL_REGISTRY.list())
+
+
+def expected_tool_spec_names() -> set[str]:
+    """The authoritative set of names TOOL_SPECS must advertise (Issue #327).
+
+    ``registry ∪ engine-routed extras − deliberately-hidden`` — the single source
+    of truth the runtime assert and the parity tests both measure against.
+    """
+    return (
+        _registered_tool_names() | _LLM_TOOLS_OUTSIDE_REGISTRY
+    ) - _REGISTRY_TOOLS_HIDDEN_FROM_LLM
+
+
+def assert_tool_spec_parity() -> None:
+    """Raise :class:`ToolSpecParityError` if TOOL_SPECS has drifted (Issue #327).
+
+    Called when the ReAct arm builds its LangChain tools, so a mismatch fails fast
+    at build time rather than silently advertising the wrong toolbox to the LLM.
+    """
+    spec_names = {spec["name"] for spec in TOOL_SPECS}
+    expected = expected_tool_spec_names()
+    missing = expected - spec_names
+    extra = spec_names - expected
+    if missing or extra:
+        raise ToolSpecParityError(
+            "TOOL_SPECS is out of sync with the shared tool registry (#327): "
+            f"callable tools with no schema: {sorted(missing)}; "
+            f"schemas advertising uncallable tools: {sorted(extra)}."
+        )
+
+
+__all__ = [
+    "TOOL_SPECS",
+    "ToolSpecParityError",
+    "assert_tool_spec_parity",
+    "expected_tool_spec_names",
+]

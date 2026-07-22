@@ -30,7 +30,7 @@ from builder.agents.llm import (
     _recursion_limit,
 )
 from builder.agents.react.system_prompt import SYSTEM_PROMPT
-from builder.agents.react.tools_spec import TOOL_SPECS
+from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
 from builder.tools.hitl import (
     register_console_animation,
@@ -651,6 +651,11 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
         from langchain_core.tools import BaseTool, StructuredTool
     except ImportError:
         raise ImportError("langchain extra is required: pip install vitro-crate[langchain]")
+
+    # Fail fast if the advertised specs have drifted from the tools the shared
+    # engine can actually run (#327): the A/B must compare the *same* toolbox, and
+    # a silently-missing schema means the LLM can never call an available tool.
+    assert_tool_spec_parity()
 
     langchain_tools: list[BaseTool] = []
 
