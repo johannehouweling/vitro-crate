@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import statistics
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -32,6 +33,23 @@ logger = logging.getLogger(__name__)
 
 # A profile_reader maps a session_id to its parsed profile.ndjson records.
 ProfileReader = Callable[[str], list[dict[str, Any]]]
+
+
+def _spread(values: Sequence[float]) -> dict[str, float]:
+    """Return ``{mean, min, max, stdev}`` for *values* (trap 4, #335).
+
+    ``stdev`` is the sample standard deviation, and ``0.0`` for fewer than two
+    samples (a single draw has no spread). An empty sequence yields all-zeros so
+    the report always carries the block, never a missing key.
+    """
+    if not values:
+        return {"mean": 0.0, "min": 0.0, "max": 0.0, "stdev": 0.0}
+    return {
+        "mean": statistics.mean(values),
+        "min": min(values),
+        "max": max(values),
+        "stdev": statistics.stdev(values) if len(values) > 1 else 0.0,
+    }
 
 
 def _default_profile_reader(session_id: str) -> list[dict[str, Any]]:
@@ -56,6 +74,11 @@ class CaseResult:
     profile (representative of one build); latency is the first repeat's wall
     clock. ``crate_hashes`` holds one hash per repeat, and ``deterministic`` is
     ``True``/``False`` when there is more than one repeat to compare, else ``None``.
+
+    For the stochastic ReAct arm one draw is noisy, so ``total_tokens_per_repeat``
+    / ``latency_per_repeat`` / ``stop_reasons`` additionally record **every**
+    repeat (trap 4, #335); :meth:`to_dict` derives a mean ± spread block from them.
+    The headline fields above stay repeat #1's so existing consumers are unchanged.
 
     ``meets_quota`` / ``entity_counts`` are the additive content-quality signal:
     for cases that declare ``min_entities`` they say whether the build drafted the
@@ -84,6 +107,9 @@ class CaseResult:
     model_name: str | None = None
     cost_usd: float | None = None
     transient_retries: int = 0
+    total_tokens_per_repeat: list[int] = field(default_factory=list)
+    latency_per_repeat: list[float] = field(default_factory=list)
+    stop_reasons: list[str | None] = field(default_factory=list)
 
     @property
     def total_tokens(self) -> int:
@@ -114,6 +140,13 @@ class CaseResult:
             "model_name": self.model_name,
             "cost_usd": self.cost_usd,
             "transient_retries": self.transient_retries,
+            "total_tokens_per_repeat": self.total_tokens_per_repeat,
+            "latency_per_repeat": [round(x, 4) for x in self.latency_per_repeat],
+            "stop_reasons": self.stop_reasons,
+            "variance": {
+                "total_tokens": _spread(self.total_tokens_per_repeat),
+                "latency_seconds": _spread(self.latency_per_repeat),
+            },
         }
 
 
@@ -148,6 +181,16 @@ class EvalReport:
         # so an unpriced run reads as "cost unknown", not a misleading $0 (trap 5).
         known_costs = [r.cost_usd for r in self.results if r.cost_usd is not None]
         total_cost_usd = sum(known_costs) if known_costs else None
+        # Per-repeat spread (trap 4, #335): the mean coefficient of variation of
+        # total tokens across cases — one arm-level "how stochastic" number. ~0 for
+        # a deterministic arm, high for a stochastic one. A case with a zero mean (no
+        # model call) contributes CV 0 rather than dividing by zero.
+        cvs: list[float] = []
+        for r in self.results:
+            spread = _spread(r.total_tokens_per_repeat)
+            mean_tok = spread["mean"]
+            cvs.append(spread["stdev"] / mean_tok if mean_tok else 0.0)
+        mean_total_tokens_cv = statistics.mean(cvs) if cvs else 0.0
         return {
             "label": self.label,
             "repeats": self.repeats,
@@ -163,6 +206,7 @@ class EvalReport:
             "num_cap_hit": num_cap_hit,
             "num_error": num_error,
             "total_cost_usd": total_cost_usd,
+            "mean_total_tokens_cv": mean_total_tokens_cv,
         }
 
 
@@ -270,12 +314,11 @@ def _run_case(
 ) -> CaseResult:
     """Run a single case ``repeats`` times and aggregate its metrics."""
     hashes: list[str] = []
-    first_outcome: BuildOutcome | None = None
-    first_latency = 0.0
+    repeat_runs: list[tuple[BuildOutcome, float]] = []
     error: str | None = None
     transient_retries = 0
 
-    for i in range(max(1, repeats)):
+    for _ in range(max(1, repeats)):
         # A fresh agent per repeat — the determinism check must not be polluted by
         # carried-over engine/session state. Each repeat re-runs transient failures
         # (trap 1) so a network blip is not scored as an architecture failure.
@@ -283,20 +326,25 @@ def _run_case(
             agent_factory, case, max_transient_retries=max_transient_retries
         )
         transient_retries += retries
-        if i == 0:
-            first_outcome, first_latency = outcome, latency
+        repeat_runs.append((outcome, latency))
         if outcome.error and error is None:
             error = outcome.error
         hashes.append(crate_graph_hash(outcome.state))
 
-    assert first_outcome is not None  # repeats >= 1 guarantees this
+    first_outcome, first_latency = repeat_runs[0]  # repeats >= 1 guarantees one run
     state = first_outcome.state
 
     predicate = reaches_isa_tox_conformance(state)
     quota = meets_entity_quota(state, case.min_entities)
 
-    profile_records = profile_reader(first_outcome.session_id) if first_outcome.session_id else []
-    pm = mine_profile_metrics(profile_records)
+    # Mine every repeat's profile so the report carries the spread, not just one
+    # noisy draw (trap 4, #335). The representative headline fields below stay
+    # repeat #1's (cost, dashboards read those) — the per-repeat arrays are additive.
+    per_repeat_metrics = [
+        mine_profile_metrics(profile_reader(o.session_id) if o.session_id else [])
+        for o, _ in repeat_runs
+    ]
+    pm = per_repeat_metrics[0]
     cost_usd = compute_cost(
         pm.input_tokens, pm.output_tokens, pm.model_name, price_override=price_override
     )
@@ -326,6 +374,9 @@ def _run_case(
         model_name=pm.model_name,
         cost_usd=cost_usd,
         transient_retries=transient_retries,
+        total_tokens_per_repeat=[m.total_tokens for m in per_repeat_metrics],
+        latency_per_repeat=[lat for _, lat in repeat_runs],
+        stop_reasons=[o.stop_reason for o, _ in repeat_runs],
     )
 
 
