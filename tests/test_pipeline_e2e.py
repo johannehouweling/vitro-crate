@@ -382,7 +382,11 @@ class TestPipelineE2EConformanceAndFidelity:
         chems = state.list_entities("MolecularEntity")
         assert {c.fields.get("name") for c in chems} == {"Methimazole", "Sodium iodide"}
         # D5: the CAS is the LOOKED-UP value, never fabricated by the plan/leaf.
-        assert all(c.fields.get("cas") == "60-56-0" for c in chems if c.fields.get("cas"))
+        # No vacuous `if c.fields.get("cas")` guard — every resolved compound MUST
+        # carry the looked-up CAS, so a regression that stops populating it fails here
+        # instead of passing over an empty set.
+        assert chems
+        assert all(c.fields.get("cas") == "60-56-0" for c in chems)
 
         # A CellLine Sample.
         cells = state.list_entities("CellLineSample")
