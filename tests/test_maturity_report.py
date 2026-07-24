@@ -24,13 +24,23 @@ class TestBuildMaturityHtml:
     """build_maturity_html renders the four report axes (pure, no validator)."""
 
     def test_sections_present(self) -> None:
+        """Renders the four report axes AND the COMPUTED FAIR/MIT scores.
+
+        Asserting the static labels alone (``"DSM"`` / ``"%"``) passed even if the
+        report rendered a label with no value behind it; here a real DSM level (0-5)
+        and a MIT coverage percentage NUMBER must be present, so a regression that
+        stops rendering the computed score fails.
+        """
+        import re
+
         state = vhps_fixture_state("S-VHPS21")
         page = build_maturity_html(state)
         assert "<html" in page.lower()
         for heading in ("Profile adherence", "FAIR", "OECD MIT", "Reproducibility readiness"):
             assert heading in page, f"missing section: {heading}"
-        assert "DSM" in page  # FAIR maturity level
-        assert "%" in page  # MIT coverage
+        # Computed scores, not just the static labels:
+        assert re.search(r"DSM level [0-5] of 5", page), "no computed DSM level rendered"
+        assert re.search(r"\d+(?:\.\d+)?\s*%", page), "no computed MIT percentage rendered"
 
     def test_conformance_suggestions_rendered(self) -> None:
         state = vhps_fixture_state("S-VHPS21")

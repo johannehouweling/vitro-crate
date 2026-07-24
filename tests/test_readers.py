@@ -266,9 +266,15 @@ class TestReadExistingCrate:
         crate_dir = tmp_path / "crate"
         build_crate(state, str(crate_dir))
 
-        # Now read it back
+        # Now read it back — reconstruction must be CORRECT, not just non-empty.
         restored = read_existing_crate(str(crate_dir))
-        assert len(restored.list_entities()) >= 1
+
+        invs = restored.list_entities("Investigation")
+        assert len(invs) == 1
+        assert invs[0].type == "Investigation"
+        # The single Investigation folds onto the RO-Crate root ./, so on read-back its
+        # name is the round-tripped crate title, and the title itself round-trips.
+        assert invs[0].fields.get("name") == "Test"
         assert restored.metadata.title == "Test"
 
     def test_returns_empty_state_for_nonexistent_directory(self):

@@ -348,21 +348,28 @@ class TestBuildCrate:
             # to; the exact minor version is pinned explicitly in Step 2.
             assert any("w3id.org/ro/crate" in cid for cid in conforms_ids)
 
-    def test_build_crate_returns_crate_path_for_validate(self, monkeypatch):
-        """build_crate returns a crate_path that can be passed back to validate.
+    def test_build_crate_path_round_trips_into_validate(self):
+        """build_crate's returned crate_path is a REAL on-disk crate dir that feeds
+        straight back into validate() — the build->validate round-trip the name claims.
 
-        build_crate should document this. When output_path is given, the
-        returned crate_path matches it exactly.
+        (That ``crate_path == output_path`` is already covered by the echo assertions
+        earlier in this file; this exercises the actual round-trip instead of re-asserting
+        the input argument.)
         """
+        from builder.state import ValidationReport
+        from builder.tools.validation import validate
+
         state = CrateState()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = str(Path(tmpdir) / "my_crate")
             result = build_crate(state, output_path)
-
             assert result["success"] is True
-            # The returned crate_path must equal the output_path we passed,
-            # so it can be fed straight into validate().
-            assert result["crate_path"] == output_path
+
+            # The returned path pointed at a real crate dir, so validate ran SHACL over
+            # it (not the missing-crate guard) and produced a report.
+            report = validate(state, result["crate_path"])
+            assert isinstance(report, ValidationReport)
+            assert (Path(result["crate_path"]) / "ro-crate-metadata.json").is_file()
 
     def test_build_crate_generates_default_crate_path_to_sessions(self, monkeypatch):
         """build_crate uses a session-derived default when output_path is not given.

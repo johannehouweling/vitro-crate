@@ -24,12 +24,19 @@ class TestBuildModeFromCli:
         assert BuildMode.from_cli(legacy_react=False) is BuildMode.PIPELINE
 
     def test_values_match_eval_arch_strings(self) -> None:
-        # The eval's ``--arch`` choices are exactly these values, so the harness
-        # can map its CLI string straight to the shared enum: BuildMode(arch).
-        assert BuildMode.PIPELINE.value == "pipeline"
-        assert BuildMode.REACT.value == "react"
-        assert BuildMode("react") is BuildMode.REACT
-        assert BuildMode("pipeline") is BuildMode.PIPELINE
+        """The eval's ``--arch`` choices and the BuildMode enum values MUST stay in
+        lockstep so ``BuildMode(args.arch)`` always resolves. Assert against the REAL
+        parser choices — not inline literals — so a change to either side that breaks
+        the mapping (a renamed/added arch, a dropped enum value) fails here.
+        """
+        from eval.__main__ import build_arg_parser
+
+        parser = build_arg_parser()
+        arch = next(a for a in parser._actions if "--arch" in a.option_strings)
+        assert set(arch.choices) == {m.value for m in BuildMode}
+        # Every CLI choice round-trips through the shared enum.
+        for choice in arch.choices:
+            assert BuildMode(choice).value == choice
 
 
 class TestRunBuildDispatch:
