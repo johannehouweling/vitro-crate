@@ -226,6 +226,7 @@ def run_interactive_build(
             )
         if interactive:
             _render_final_status(engine)
+            _render_goodbye(engine)
         return result
     finally:
         # Restore the prior tool-event hook even if the build raised (#266).
@@ -323,6 +324,26 @@ def _render_final_status(engine: AgentEngine) -> None:
     from builder.agents import ui
 
     ui.get_console().print(ui.render_status_bar(ui.snapshot_from_engine(engine)))
+
+
+def _render_goodbye(engine: AgentEngine) -> None:
+    """Print the shared goodbye panel after an interactive build (#344).
+
+    The same exit panel the ReAct arm shows — session id, per-type entity
+    breakdown, and the ``--resume`` hint — rendered through the shared
+    ``builder.agents.ui`` renderer so both arms sign off identically.
+    Interactive-only.
+    """
+    from builder.agents import ui
+
+    state = engine.state
+    counts: dict[str, int] = {}
+    for entity in state.list_entities():
+        typ = getattr(entity, "type", "Unknown")
+        counts[typ] = counts.get(typ, 0) + 1
+    ui.get_console().print(
+        ui.render_goodbye(state.session_id, counts, resumable=Path("sessions").is_dir())
+    )
 
 
 def _run_build_body(

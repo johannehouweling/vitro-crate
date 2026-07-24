@@ -907,3 +907,22 @@ class TestSharedChrome:
         )
 
         assert "Resumed Session" in rec.export_text()
+
+    def test_interactive_build_renders_goodbye(self, monkeypatch) -> None:
+        from builder.agents import build, ui
+
+        rec = _rec_console()
+        monkeypatch.setattr(ui, "get_console", lambda: rec)
+        engine = _engine(_InteractiveHuman())
+
+        build.run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng, **kw: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            exporter=_stub_export,
+        )
+
+        out = rec.export_text()
+        # The shared goodbye panel: title + session id (the --resume hint's anchor).
+        assert "Goodbye" in out
+        assert engine.state.session_id in out
