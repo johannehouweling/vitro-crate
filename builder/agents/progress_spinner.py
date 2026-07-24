@@ -1,11 +1,16 @@
-"""A live progress spinner for the deterministic interactive build (#266).
+"""The shared live progress spinner for the interactive builds (#266, #344).
 
 The DEFAULT ``--interactive`` (pipeline) build prints static phase lines (#253),
 so the ~tens-of-seconds deterministic spine looked frozen. :class:`ProgressSpinner`
-gives it a live Rich spinner like the legacy ReAct loop's ``_ThinkingSpinner``
-(``builder/agents/agent_loop.py``): an animated dots spinner with a rotating funny
+gives it a live Rich spinner: an animated dots spinner with a rotating funny
 toxicology-themed phrase, the currently-running tool/phase, and elapsed seconds,
 all updating in place.
+
+**Both build arms share this one spinner (#344).** The deterministic pipeline drives
+it from ``engine.on_tool_event`` plus its per-phase strings; the legacy ReAct loop
+drives it from LangChain tool-event callbacks (``_ToolSpinnerCallback`` in
+``builder/agents/react/agent_loop.py``). This module is the single source of both the
+spinner class and :data:`TOX_SPINNER_PHRASES` — neither arm keeps a private copy.
 
 It is a reusable context manager driven by a daemon tick thread, rendering::
 
@@ -18,10 +23,6 @@ unregisters on exit, so a console HITL prompt — which wraps its ``input()`` in
 ``suspend_console_animation`` (#239) — calls :meth:`pause` (tear down the Live region,
 stop ticking) for the duration of the prompt and :meth:`resume` afterwards. The tick
 thread skips while paused.
-
-This module deliberately defines its OWN fresh :data:`TOX_SPINNER_PHRASES` list (same
-vibe as the legacy one) rather than importing from ``agent_loop.py``, which is owned by
-another lane.
 """
 
 from __future__ import annotations
@@ -42,8 +43,8 @@ logger = logging.getLogger(__name__)
 __all__ = ["ProgressSpinner", "TOX_SPINNER_PHRASES"]
 
 
-# A FRESH toxicology-themed phrase list (defined here, NOT imported from
-# agent_loop.py). Same playful lab/FAIR vibe as the legacy loop's list.
+# The single toxicology-themed phrase list, shared by both build arms (#344).
+# ``ProgressSpinner`` picks one at random when no explicit phrase is given.
 TOX_SPINNER_PHRASES: list[str] = [
     "intoxicating",
     "ro-crating",
@@ -87,8 +88,7 @@ class ProgressSpinner:
     tool/phase. On enter it registers with the hitl animation registry so a HITL
     prompt can :meth:`pause`/:meth:`resume` it via ``suspend_console_animation``.
 
-    Colour convention mirrors the legacy ``_ThinkingSpinner``: green = working,
-    dim = elapsed/meta, cyan = the current op.
+    Colour convention: green = working, dim = elapsed/meta, cyan = the current op.
 
     **Non-TTY safety (CI / piped).** A live animation only makes sense on a real
     terminal. When the console is NOT a terminal (``console.is_terminal`` is

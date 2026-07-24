@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from time import monotonic, perf_counter
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -30,13 +30,10 @@ from builder.agents.llm import (
     _get_request_timeout,
     _recursion_limit,
 )
+from builder.agents.progress_spinner import ProgressSpinner
 from builder.agents.react.system_prompt import SYSTEM_PROMPT
 from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
-from builder.tools.hitl import (
-    register_console_animation,
-    unregister_console_animation,
-)
 
 if TYPE_CHECKING:
     from typing import cast
@@ -65,95 +62,21 @@ class AgentState(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# Thinking spinner — ticks elapsed seconds and shows the active tool
+# Tool-activity callback — bridges LangChain tool events to the shared spinner
 # ---------------------------------------------------------------------------
 
 
-class _ThinkingSpinner:
-    """A Rich status spinner that ticks elapsed seconds while the agent works
-    and surfaces the active tool — Claude Code style.
+class _ToolSpinnerCallback(BaseCallbackHandler):
+    """Forward LangChain tool-start/end events to the shared progress spinner.
 
-    Colour convention: green = the agent working (matches the ● reply marker),
-    dim = elapsed/meta, cyan = the active tool.
-    Used as a context manager around an ``app.invoke`` call; a daemon thread
-    refreshes the elapsed time roughly twice a second.
+    The spinner is :class:`builder.agents.progress_spinner.ProgressSpinner`, the
+    SAME live spinner the deterministic pipeline drives (#344) — here it is fed the
+    per-tool signal the ReAct loop gets from LangChain callbacks (the pipeline
+    feeds the same spinner from ``engine.on_tool_event``). Clearing on tool-end
+    returns the line to the rotating thinking phrase.
     """
 
-    def __init__(self, console: Any, phrase: str) -> None:
-        self._console = console
-        self._phrase = phrase
-        self._tool: str | None = None
-        self._start = monotonic()
-        self._stop = threading.Event()
-        # Set while a HITL prompt owns the terminal: the tick thread must not
-        # repaint the Rich Live region over the prompt (else stdin is unusable).
-        self._paused = threading.Event()
-        self._status = console.status(self._render(), spinner="dots", spinner_style="green")
-        self._thread = threading.Thread(target=self._tick, daemon=True)
-
-    def _render(self) -> str:
-        elapsed = int(monotonic() - self._start)
-        line = f"[green]{self._phrase}…[/green] [dim]({elapsed}s)[/dim]"
-        if self._tool:
-            line += f"  [dim]·[/dim] [cyan]{self._tool}[/cyan]"
-        return line
-
-    def _tick(self) -> None:
-        while not self._stop.wait(0.5):
-            if self._paused.is_set():
-                continue
-            try:
-                self._status.update(self._render())
-            except Exception:
-                break
-
-    def set_tool(self, name: str | None) -> None:
-        """Show (or clear, with ``None``) the tool currently running."""
-        self._tool = name
-        if self._paused.is_set():
-            return
-        try:
-            self._status.update(self._render())
-        except Exception:
-            pass
-
-    def pause(self) -> None:
-        """Tear down the Live region and stop ticking so a HITL prompt is clean.
-
-        Called (via :func:`builder.tools.hitl.suspend_console_animation`) when a
-        tool needs ``input()`` mid-``invoke``. Best-effort and idempotent.
-        """
-        self._paused.set()
-        try:
-            self._status.stop()
-        except Exception:
-            logger.debug("spinner pause: status.stop failed", exc_info=True)
-
-    def resume(self) -> None:
-        """Restart the Live region after a HITL prompt completes."""
-        try:
-            self._status.start()
-        except Exception:
-            logger.debug("spinner resume: status.start failed", exc_info=True)
-        self._paused.clear()
-
-    def __enter__(self) -> "_ThinkingSpinner":
-        self._status.__enter__()
-        self._thread.start()
-        register_console_animation(self)
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        unregister_console_animation(self)
-        self._stop.set()
-        self._thread.join(timeout=1.0)
-        self._status.__exit__(*exc)
-
-
-class _ToolSpinnerCallback(BaseCallbackHandler):
-    """LangChain callback that surfaces the active tool on a _ThinkingSpinner."""
-
-    def __init__(self, spinner: _ThinkingSpinner) -> None:
+    def __init__(self, spinner: ProgressSpinner) -> None:
         self.spinner = spinner
         super().__init__()
 
@@ -163,10 +86,10 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
         input_str: str,
         **kwargs: Any,
     ) -> None:
-        self.spinner.set_tool(serialized.get("name", "tool"))
+        self.spinner.set_current(serialized.get("name", "tool"))
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
-        self.spinner.set_tool(None)
+        self.spinner.set_current(None)
 
 
 # ---------------------------------------------------------------------------
@@ -1606,7 +1529,7 @@ def run_interactive_agent(
         root_logger = logging.getLogger()
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
-        spinner = _ThinkingSpinner(console, "intoxicating")
+        spinner = ProgressSpinner(console, "intoxicating")
         greeting_config = {
             **thread_config,
             "callbacks": [_ToolSpinnerCallback(spinner)],
@@ -1676,49 +1599,6 @@ def run_interactive_agent(
         """
         _finish_backstop(engine, emit=console.print)
 
-    import random
-
-    TOX_SPINNER_PHRASES = [
-        "intoxicating",
-        "ro-creating",
-        "culturing",
-        "FAIR-washing",
-        "re-FAIR-ifying",
-        "blaming the student",
-        "appeasing the cells",
-        "fighting reviewer 2",
-        "haggling the IC50",
-        "bribing the curve",
-        "vortexing",
-        "rehydrating",
-        "titrating",
-        "resuspending",
-        "denaturing self-doubt",
-        "autoclaving",
-        "thawing the -80",
-        "centrifuging",
-        "pipetting",
-        "decoding",
-        "finding a working pipette",
-        "side-eyeing",
-        "labelling 'compound X'",
-        "miscounting colonies",
-        "warming up, emotionally",
-        "manifesting p<0.05",
-        "praying to FAIR gods",
-        "hallucinating responsibly",
-        "FAIR-ifying",
-        "exposing",
-        "meta-dating",
-        "re-using",
-        "finding",
-        "interoperating",
-        "re-using, eventually",
-        "double-gloving",
-        "brewing coffee",
-        "replacing, reducing, refusing",
-    ]
-
     def _run_turn(message_content: str) -> tuple[str, str]:
         """Run ONE model invocation and return ``(reply, outcome)`` (#263).
 
@@ -1734,7 +1614,7 @@ def run_interactive_agent(
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
 
-        spinner = _ThinkingSpinner(console, random.choice(TOX_SPINNER_PHRASES))
+        spinner = ProgressSpinner(console)
         main_config = {
             **thread_config,
             "callbacks": [_ToolSpinnerCallback(spinner)],
