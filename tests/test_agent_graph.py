@@ -218,10 +218,39 @@ class TestBuildAgentGraph:
 class TestRunInteractiveAgentPreservesBehavior:
     """Tests that run_interactive_agent still works via the new graph."""
 
-    def test_run_interactive_agent_imports_and_calls_create_agent(self, monkeypatch):
-        """run_interactive_agent still imports successfully and calls the new _build_agent_graph."""
+    def test_run_interactive_agent_builds_the_agent_graph(self, monkeypatch):
+        """run_interactive_agent actually DRIVES the interactive path: it builds the
+        LangChain tools + chat model and calls ``_build_agent_graph(llm, tools, engine)``.
+
+        The old test only asserted ``_build_agent_graph`` *exists* — it never ran the
+        driver, so it couldn't catch the driver wiring breaking. Here we spy the graph
+        build (raising to stop right after it, before the stdin loop), fake the chat
+        model so no provider/network is needed, and assert the driver reached the build
+        with the model, tools, and engine wired.
+        """
+        from builder.engine import AgentEngine
+
         import builder.agents.react.agent_loop as loop_mod
 
-        # The _build_agent_graph function should be defined
-        assert hasattr(loop_mod, "_build_agent_graph")
-        assert callable(loop_mod._build_agent_graph)
+        calls: dict[str, object] = {}
+
+        class _GraphBuilt(Exception):
+            pass
+
+        def _spy_build_graph(llm, tools, engine=None):
+            calls.update(llm=llm, tools=tools, engine=engine)
+            raise _GraphBuilt  # stop the driver right after the graph is built
+
+        monkeypatch.setattr(loop_mod, "_build_chat_model", lambda **kw: object())
+        monkeypatch.setattr(loop_mod, "_build_agent_graph", _spy_build_graph)
+
+        engine = AgentEngine()
+        engine.initialize()
+
+        with pytest.raises(_GraphBuilt):
+            loop_mod.run_interactive_agent(engine)
+
+        # The driver executed up through _build_agent_graph(llm, tools, engine=...).
+        assert calls["engine"] is engine
+        assert calls["llm"] is not None
+        assert calls["tools"] is not None
