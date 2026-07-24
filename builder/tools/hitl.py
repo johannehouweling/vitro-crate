@@ -13,7 +13,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -188,6 +188,17 @@ class SimulatedHumanInterface:
         return {"value": None, "skipped": True}
 
 
+def _default_console_prompt(field_type: str) -> str:
+    """Plain-terminal input reader — the default when no UI box is injected.
+
+    Kept here (not in :mod:`builder.agents.ui`) so ``hitl`` stays independent of
+    the UI layer: importing ``builder.agents.ui`` from a ``builder.tools`` module
+    would form an ``agents → tools → agents`` import cycle. The CLI injects the
+    shared rounded ``❯`` box via ``ConsoleHumanInterface(prompt_func=...)`` instead.
+    """
+    return input(f"({field_type}) > ")
+
+
 class ConsoleHumanInterface:
     """A REAL interactive HITL interface that prompts on the terminal (stdin).
 
@@ -195,7 +206,13 @@ class ConsoleHumanInterface:
     (`main.py --interactive` → `run_interactive_build`, AGENTS.md §14.6.1). Unlike
     :class:`SimulatedHumanInterface` it is ``is_interactive = True``, so the
     guidance tail actually runs and routes its ask-user prompts / draft
-    confirmations to the user via ``input()``.
+    confirmations to the user.
+
+    The free-text prompt is read through an injectable ``prompt_func`` (a
+    ``field_type -> text`` reader). It defaults to a plain ``input()`` so this
+    module never imports the UI layer (avoiding an ``agents → tools → agents``
+    cycle); the CLI injects :func:`builder.agents.ui.boxed_input` so the pipeline's
+    HITL prompt renders through the SAME rounded box the ReAct arm uses (#344).
 
     A scan-root escalation still routes through the user — they are the only
     legitimate approver for widening filesystem access (#197); a non-affirmative
@@ -205,6 +222,17 @@ class ConsoleHumanInterface:
     """
 
     is_interactive: bool = True
+
+    def __init__(self, prompt_func: Callable[[str], str] | None = None) -> None:
+        """Build the interface, optionally injecting the free-text prompt reader.
+
+        Args:
+            prompt_func: A ``field_type -> entered-text`` reader used by
+                :meth:`request_input`. Defaults to :func:`_default_console_prompt`
+                (a plain ``input()``). The CLI passes a reader bound to the shared
+                rounded box (:func:`builder.agents.ui.boxed_input`).
+        """
+        self._read: Callable[[str], str] = prompt_func or _default_console_prompt
 
     def present(
         self,
@@ -233,11 +261,16 @@ class ConsoleHumanInterface:
         return {"action": action, "comments": None, "edits": None}
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
-        """Prompt the user for a value; an empty answer (or EOF) is a skip."""
+        """Prompt the user for a value; an empty answer (or EOF) is a skip.
+
+        Reads via the injected ``prompt_func`` (the shared rounded box in the CLI,
+        a plain ``input()`` otherwise), suspending any active terminal spinner so
+        stdin is not fighting a Rich Live repaint.
+        """
         with suspend_console_animation():
             print(prompt)
             try:
-                value = input(f"({field_type}) > ").strip()
+                value = self._read(field_type).strip()
             except EOFError:
                 value = ""
         if not value:
