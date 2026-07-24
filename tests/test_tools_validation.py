@@ -13,12 +13,36 @@ from builder.tools.validation import validate
 class TestValidate:
     """Tests for validate — wraps three-pass SHACL validation."""
 
-    def test_returns_validation_report(self):
-        """validate returns a ValidationReport dataclass."""
-        state = CrateState()
-        result = validate(state, "/tmp/nonexistent")
+    def test_validate_runs_real_shacl_over_a_crate_on_disk(self, tmp_path):
+        """validate() feeds a real ro-crate-metadata.json through the three-pass SHACL
+        validator and returns a report reflecting the ACTUAL result — not just the
+        missing-crate guard clause.
+
+        (Replaces two weak tests that pointed at ``/tmp/nonexistent`` and only asserted
+        the return type / that the issue fields were lists: no crate ever crossed the
+        validator boundary, so the SHACL + issue-bucketing transforms never ran.)
+
+        An incomplete crate — valid JSON-LD but an empty ``@graph`` (no root data
+        entity) — must FAIL the Base pass and surface bucketed ``[Required]`` issues,
+        which only happens if ``validate_crate`` + the prefix-bucketing in
+        ``validation.py`` actually executed over the on-disk crate.
+        """
+        crate_dir = tmp_path / "crate"
+        crate_dir.mkdir()
+        (crate_dir / "ro-crate-metadata.json").write_text(
+            '{"@context": "https://w3id.org/ro/crate/1.1/context", "@graph": []}'
+        )
+
+        result = validate(CrateState(), str(crate_dir))
 
         assert isinstance(result, ValidationReport)
+        assert result.base_passed is False
+        assert result.required_issues, (
+            "real SHACL over an incomplete crate must surface REQUIRED issues"
+        )
+        assert all(isinstance(x, str) for x in result.required_issues)
+        assert isinstance(result.should_issues, list)
+        assert isinstance(result.may_issues, list)
 
     def test_all_false_when_crate_missing(self):
         """validate returns all-passed=False when crate path doesn't exist."""
@@ -28,15 +52,6 @@ class TestValidate:
         assert result.base_passed is False
         assert result.isa_passed is False
         assert result.tox_passed is False
-
-    def test_returns_issues_list(self):
-        """validate returns issue lists (possibly empty)."""
-        state = CrateState()
-        result = validate(state, "/tmp/missing")
-
-        assert isinstance(result.required_issues, list)
-        assert isinstance(result.should_issues, list)
-        assert isinstance(result.may_issues, list)
 
     def test_handles_import_error_gracefully(self, monkeypatch):
         """If validator import fails, returns report with 'Validation not available'."""
