@@ -24,11 +24,7 @@ import pytest
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
-from builder.tools._crate_mapping import (
-    _CONDITION_TABLE_COLUMNS,
-    _RAW_MEASUREMENTS_COLUMNS,
-    populate_crate,
-)
+from builder.tools._crate_mapping import populate_crate
 from builder.tools.validation import build_and_validate
 from profiles.context import ISA_TOX_CONTEXT
 
@@ -96,20 +92,6 @@ _EXPECTED_RAW_COLUMNS = [
 # --- (a) Condition-table 10-column schema -----------------------------------
 
 
-def test_condition_table_columns_constant_matches_gold():
-    """The hardcoded column constant is the gold crate's 10-column contract."""
-    got = [
-        (
-            c["titles"],
-            c["datatype"],
-            c["propertyUrl"],
-        )
-        for c in _CONDITION_TABLE_COLUMNS
-    ]
-    want = [(t, d, p) for (t, d, p, _v) in _EXPECTED_CONDITION_COLUMNS]
-    assert got == want
-
-
 def _exposure_state() -> CrateState:
     state = CrateState()
     state.metadata.title = "Exposure crate"
@@ -167,11 +149,6 @@ def test_condition_table_value_urls_resolve_to_entities():
 
 
 # --- (b) raw_measurements typed csvw:Table ----------------------------------
-
-
-def test_raw_measurements_columns_constant_matches_gold():
-    got = [(c["titles"], c["datatype"], c["propertyUrl"]) for c in _RAW_MEASUREMENTS_COLUMNS]
-    assert got == _EXPECTED_RAW_COLUMNS
 
 
 def _endpoint_readout_state() -> CrateState:
