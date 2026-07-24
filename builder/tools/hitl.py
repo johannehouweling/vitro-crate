@@ -199,6 +199,15 @@ def _default_console_prompt(field_type: str) -> str:
     return input(f"({field_type}) > ")
 
 
+def _default_console_show(text: str) -> None:
+    """Plain-terminal question display — the default when no styled renderer is
+    injected. The CLI injects a renderer that styles the question as a green-●
+    reply (:func:`builder.agents.ui.render_reply`); the injection keeps ``hitl``
+    free of a ``builder.agents.ui`` import (no ``agents → tools → agents`` cycle).
+    """
+    print(text)
+
+
 class ConsoleHumanInterface:
     """A REAL interactive HITL interface that prompts on the terminal (stdin).
 
@@ -209,10 +218,14 @@ class ConsoleHumanInterface:
     confirmations to the user.
 
     The free-text prompt is read through an injectable ``prompt_func`` (a
-    ``field_type -> text`` reader). It defaults to a plain ``input()`` so this
-    module never imports the UI layer (avoiding an ``agents → tools → agents``
-    cycle); the CLI injects :func:`builder.agents.ui.boxed_input` so the pipeline's
-    HITL prompt renders through the SAME rounded box the ReAct arm uses (#344).
+    ``field_type -> text`` reader) and the question is displayed through an
+    injectable ``show_func`` (a ``text -> None`` renderer). Both default to plain
+    terminal I/O so this module never imports the UI layer (avoiding an
+    ``agents → tools → agents`` cycle); the CLI injects
+    :func:`builder.agents.ui.boxed_input` for the box and
+    :func:`builder.agents.ui.render_reply` for the question, so the pipeline's HITL
+    prompt renders through the SAME rounded box and green-● styling the ReAct arm
+    uses (#344).
 
     A scan-root escalation still routes through the user — they are the only
     legitimate approver for widening filesystem access (#197); a non-affirmative
@@ -223,16 +236,25 @@ class ConsoleHumanInterface:
 
     is_interactive: bool = True
 
-    def __init__(self, prompt_func: Callable[[str], str] | None = None) -> None:
-        """Build the interface, optionally injecting the free-text prompt reader.
+    def __init__(
+        self,
+        prompt_func: Callable[[str], str] | None = None,
+        show_func: Callable[[str], None] | None = None,
+    ) -> None:
+        """Build the interface, optionally injecting the prompt reader + display.
 
         Args:
             prompt_func: A ``field_type -> entered-text`` reader used by
                 :meth:`request_input`. Defaults to :func:`_default_console_prompt`
                 (a plain ``input()``). The CLI passes a reader bound to the shared
                 rounded box (:func:`builder.agents.ui.boxed_input`).
+            show_func: A ``text -> None`` renderer that displays the question.
+                Defaults to :func:`_default_console_show` (a plain ``print``). The
+                CLI passes a renderer that styles it as a green-● reply
+                (:func:`builder.agents.ui.render_reply`).
         """
         self._read: Callable[[str], str] = prompt_func or _default_console_prompt
+        self._show: Callable[[str], None] = show_func or _default_console_show
 
     def present(
         self,
@@ -263,12 +285,13 @@ class ConsoleHumanInterface:
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Prompt the user for a value; an empty answer (or EOF) is a skip.
 
-        Reads via the injected ``prompt_func`` (the shared rounded box in the CLI,
-        a plain ``input()`` otherwise), suspending any active terminal spinner so
-        stdin is not fighting a Rich Live repaint.
+        Displays the question via the injected ``show_func`` (a green-● reply in
+        the CLI, a plain ``print`` otherwise) and reads via the injected
+        ``prompt_func`` (the shared rounded box in the CLI), suspending any active
+        terminal spinner so stdin is not fighting a Rich Live repaint.
         """
         with suspend_console_animation():
-            print(prompt)
+            self._show(prompt)
             try:
                 value = self._read(field_type).strip()
             except EOFError:
