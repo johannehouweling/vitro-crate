@@ -90,3 +90,29 @@ def test_populated_table_validates_with_inferred_schema(tmp_path):
     schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
     report = validate_table(result["path"], schema)
     assert report["ok"] is True, report
+
+
+def test_populated_table_rejects_non_numeric_concentration(tmp_path):
+    """The inferred CSVW schema TYPES ``concentration_value`` as a number, so a row
+    whose value is valid-as-string but not-a-number must FAIL content validation with
+    an error routed to that column.
+
+    The happy-path test above would still pass even if the column were typed as a
+    plain string — this negative case is what makes the number-typing meaningful.
+    """
+    state = _exposure_state()
+    rows = [
+        {"well_id": "A1", "cell_line": "HepG2", "compound": "Aspirin",
+         "concentration_value": "abc",  # not a number — must be rejected by the type
+         "concentration_unit": "uM", "exposure_duration": "24h"},
+    ]
+    result = populate_condition_table(state, "proc_exp", rows, output_dir=str(tmp_path))
+    schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
+    report = validate_table(result["path"], schema)
+
+    assert report["ok"] is False, report
+    assert any(
+        "concentration_value" in str(issue.get("property", ""))
+        or "concentration_value" in str(issue.get("message", ""))
+        for issue in report["issues"]
+    ), report["issues"]

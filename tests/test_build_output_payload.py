@@ -9,6 +9,7 @@ Two bugs:
 
 from __future__ import annotations
 
+import json
 import warnings
 from pathlib import Path
 
@@ -148,4 +149,14 @@ class TestPayloadCopied:
         result = build_crate(state)
 
         assert result["success"], result["error"]
-        assert (out / "ro-crate-metadata.json").is_file()
+        metadata_path = out / "ro-crate-metadata.json"
+        assert metadata_path.is_file()
+
+        # The unresolvable File degrades to a METADATA-ONLY reference (the docstring's
+        # claim, previously unverified): its node is present in the @graph, but no
+        # bytes were copied to disk.
+        graph = json.loads(metadata_path.read_text(encoding="utf-8"))["@graph"]
+        assert any(n.get("@id") == "data/ghost.csv" for n in graph), [
+            n.get("@id") for n in graph
+        ]
+        assert not (out / "data" / "ghost.csv").exists()
