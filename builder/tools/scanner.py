@@ -32,6 +32,11 @@ _ZIP_EXTENSIONS = frozenset({".zip", ".tar", ".gz", ".tgz", ".tar.gz"})
 # Zip-bomb guard: refuse to extract more than this much *uncompressed* data in
 # total from a single archive.
 _MAX_UNCOMPRESSED_BYTES = 2 * 1024**3  # 2 GiB
+# Byte ceiling for reading a single file's content (read_file_sample /
+# extract_pdf_text). Unified with builder.tools.file_readers._MAX_BYTES (#148) so a
+# mid-size file is never silently dropped by one reader but accepted by the other;
+# the parity is guarded by tests/test_file_readers.py.
+_MAX_FILE_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 class _UnsafeArchiveError(Exception):
@@ -1252,7 +1257,7 @@ def read_file_sample(
     # Skip very large files
     try:
         size = precomputed_size if precomputed_size is not None else file_path.stat().st_size
-        if size > 100 * 1024 * 1024:
+        if size > _MAX_FILE_BYTES:
             logger.info("Skipping file sample (>100MB): %s", path)
             return None
     except OSError:
@@ -1314,7 +1319,7 @@ def extract_pdf_text(path: str) -> str | None:
     # Skip very large files
     try:
         size = file_path.stat().st_size
-        if size > 100 * 1024 * 1024:
+        if size > _MAX_FILE_BYTES:
             logger.info("Skipping large PDF (>100MB): %s", path)
             return None
     except OSError:

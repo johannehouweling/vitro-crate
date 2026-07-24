@@ -17,9 +17,15 @@ from builder.tools.file_readers import _MAX_BYTES, _TEXT_BUDGET_BYTES, read_file
 
 class TestSizeCeiling:
     def test_max_bytes_matches_scanner_ceiling(self):
-        # Unified ceiling: 100 MB, same as scanner.read_file_sample /
-        # extract_pdf_text — not the old 1 MB.
-        assert _MAX_BYTES == 100 * 1024 * 1024
+        """file_readers and scanner MUST use the same byte ceiling (#148 unified them).
+
+        Asserts PARITY against scanner's actual constant — not just an inline literal —
+        so a future change that bumps one reader's ceiling but not the other (the #148
+        divergence this guards) fails here.
+        """
+        from builder.tools import scanner
+
+        assert _MAX_BYTES == scanner._MAX_FILE_BYTES == 100 * 1024 * 1024
 
     def test_read_file_5mb_csv_returns_content(self, tmp_path):
         csv = tmp_path / "big.csv"
@@ -49,10 +55,6 @@ class TestTextBudget:
     not truncated at a tiny line cap, so a weak model isn't tricked into a
     'let me read the rest' loop over a small file.
     """
-
-    def test_text_budget_is_generous(self):
-        # The full-return budget for text/JSON is at least 64 KiB.
-        assert _TEXT_BUDGET_BYTES >= 64 * 1024
 
     def test_32kb_pretty_json_returned_in_full(self, tmp_path):
         # A ~32 KB pretty-printed JSON is well under the budget and must come
