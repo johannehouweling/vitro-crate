@@ -130,6 +130,19 @@ class TestConsoleHumanInterface:
         resp = ConsoleHumanInterface(prompt_func=_raise).request_input("Name?")
         assert resp == {"value": None, "skipped": True}
 
+    def test_request_input_displays_question_via_show_func(self):
+        """An injected show_func renders the question so the CLI can style it as a
+        green-● reply like the ReAct arm, instead of a bare print (#344)."""
+        shown: list[str] = []
+
+        resp = ConsoleHumanInterface(
+            prompt_func=lambda _ft: "10.1234/x",
+            show_func=shown.append,
+        ).request_input("What is the DOI?", "identifier")
+
+        assert resp == {"value": "10.1234/x", "skipped": False}
+        assert shown == ["What is the DOI?"]
+
 
 class TestIsInteractive:
     """The interactive signal distinguishes a real user from a headless run."""
