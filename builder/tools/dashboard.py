@@ -224,6 +224,34 @@ def _load_cratestate(session_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
+def format_mit_coverage(
+    overall_score: float | None, *, assessed: bool
+) -> tuple[str, str]:
+    """Format an MIT coverage score for display — the single source of truth
+    shared by the profiler dashboard panel and the interactive UI
+    (:mod:`builder.agents.ui`) so both build arms render coverage identically
+    (issue #355).
+
+    ``overall_score`` is a fraction in ``[0.0, 1.0]`` (see
+    :class:`builder.state.MITReport`). Returns ``(text, rich_color)``: the text
+    is a whole-percent string (e.g. ``"85%"``) and the colour tracks the score
+    on the fraction scale — green ``>= 0.8``, yellow ``>= 0.5``, else red. When
+    the crate was never assessed (``assessed`` false, e.g. the default empty
+    report), returns ``("—", "dim")`` so an unscored crate is not shown as a
+    misleading red 0%.
+    """
+    if not assessed or overall_score is None:
+        return "—", LABEL_STYLE
+    pct = round(overall_score * 100)
+    if overall_score >= 0.8:
+        color = OK_STYLE
+    elif overall_score >= 0.5:
+        color = WARN_STYLE
+    else:
+        color = ERR_STYLE
+    return f"{pct}%", color
+
+
 def _build_cratestate_panel(
     state: dict[str, Any] | None,
     status: str = STATUS_IDLE,
@@ -298,10 +326,12 @@ def _build_cratestate_panel(
     if required_count > 0:
         val_str += f"  [{ERR_STYLE}]{required_count} REQUIRED[/{ERR_STYLE}]"
 
-    # MIT score
+    # MIT score — shared formatter keeps this identical to the interactive UI.
     mit = state.get("mit_assessment", {})
-    mit_score = mit.get("overall_score", 0)
-    mit_color = OK_STYLE if mit_score >= 80 else WARN_STYLE if mit_score >= 50 else ERR_STYLE
+    mit_text, mit_color = format_mit_coverage(
+        mit.get("overall_score"),
+        assessed=bool(mit.get("module_scores")),
+    )
 
     # Iteration
     iteration = state.get("iteration_count", 0)
@@ -316,7 +346,7 @@ def _build_cratestate_panel(
         ("  │  Validation: ", HEADER_STYLE),
         (val_str, val_color),
         ("  │  MIT: ", HEADER_STYLE),
-        (f"{mit_score}%", mit_color),
+        (mit_text, mit_color),
         ("  │  Iteration: ", HEADER_STYLE),
         (f"{iteration}{' ⚠ STUCK' if stuck else ''}", ERR_STYLE if stuck else "white"),
     )
