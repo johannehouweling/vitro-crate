@@ -45,6 +45,7 @@ dev = [
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
     "pytest-split>=0.11.0",
+    "mutmut>=3.6.0",
 ]
 
 [tool.ruff]
@@ -61,3 +62,17 @@ python_files = ["test_*.py"]
 # never triggers inside pytest-xdist worker subprocesses. `thread` works in both
 # serial and parallel runs, so set it globally for correct timeouts under xdist.
 timeout_method = "thread"
+
+[tool.mutmut]
+# Mutation testing is the objective "would this test actually catch a regression"
+# signal — line coverage does not measure it (a fully-covered suite can kill a
+# fraction of injected bugs). Seeded on a small, fast-tested module so the nightly
+# job (.github/workflows/mutation.yml) is tractable; expand `source_paths` to the
+# crate-build producer modules (builder/agents/pipeline/pipeline.py,
+# builder/tools/_crate_mapping.py, builder/tools/validation.py) with a curated fast
+# test subset as the CI budget allows. See CONTRIBUTING.md "Mutation testing".
+source_paths = ["builder/tools/profiler.py"]
+pytest_add_cli_args_test_selection = ["tests/test_profiler.py"]
+# mutmut runs each mutant in a copied `mutants/` sandbox; bring the rest of the
+# importable project + the test tree along so imports and collection resolve there.
+also_copy = ["builder", "profiles", "eval", "lookups", "tests", "conftest.py"]

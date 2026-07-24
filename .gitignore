@@ -33,3 +33,7 @@ docs/ab-and-harmonization-handoff.md
 
 # local A/B output comparison (throwaway analysis artifact, never committed)
 ab_comparison/
+
+# mutation testing sandbox (mutmut)
+mutants/
+.mutmut-cache/

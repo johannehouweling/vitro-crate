@@ -38,7 +38,24 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          prompt: |
+            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+
+            When the diff includes test files, additionally flag these test-quality
+            defects (report only high-confidence, correctness-relevant ones — ignore style):
+            - assert-back-fixture: an assertion echoes a value the test set in its own
+              setup/fixture, with no transformation in between.
+            - bypasses-producer: the test's name/docstring claims build or extraction
+              coverage but it hand-builds the expected state (or scripts the drafters)
+              and never drives the real entry point (e.g. run_pipeline / the transform
+              under test).
+            - over-mock / stub-assert: a behaviour test that only asserts a mock's
+              configured return value, or asserts against a stub.
+            - name-claims-more-than-body: the assertion is materially weaker than the
+              test name/docstring promises.
+            The honest pattern to compare against: drive the real entry point over
+            real/recorded input, gate any leaf stub on content-only tokens, and assert
+            on what was produced (see tests/test_pipeline_real_input.py).
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
