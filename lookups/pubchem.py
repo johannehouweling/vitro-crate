@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import functools
 import re
-import time
 from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
@@ -64,7 +63,6 @@ def lookup_pubchem(name: str) -> dict:
         # CAS numbers appear in the synonyms list. This is best-effort
         # enrichment: a transient/absent synonyms response must not lose the
         # compound we already resolved.
-        time.sleep(0.2)  # stay under rate limit
         cas = ""
         try:
             syn_data = http_get_json(f"{_BASE}/{quote(name)}/synonyms/JSON")

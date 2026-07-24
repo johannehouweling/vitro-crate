@@ -7,7 +7,6 @@ Searches for an organization by name and returns enriched metadata.
 from __future__ import annotations
 
 import functools
-import time
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
@@ -29,7 +28,6 @@ def search_ror(name: str) -> dict:
     if not name:
         return {}
     try:
-        time.sleep(0.1)
         data = http_get_json(_BASE, params={"query": name})
         if data is NOT_FOUND:
             return {}

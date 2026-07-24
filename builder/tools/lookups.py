@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import time
 from typing import Any
 
 from builder.tools._resolve_cache import compound_cache, normalize_compound_name
@@ -186,7 +185,6 @@ def lookup_cell_line(accession: str) -> dict[str, Any]:
                   alternateName, taxonomicRange, disease, etc.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_cellosaurus(accession)
         if result and result.get("name"):
@@ -278,7 +276,6 @@ def lookup_aop(aop_id: str) -> dict[str, Any]:
             data: Dict with "aop", "events", "relationships" keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_aop_wiki(str(aop_id))
         if result and result.get("aop"):
@@ -304,7 +301,6 @@ def lookup_bao_term(query: str) -> dict[str, Any]:
             data: Dict with @id, @type, name, termCode keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_bao_term_ols(query)
         if result and result.get("@id"):
@@ -336,7 +332,6 @@ def lookup_ontology_term(query: str, ontology: str) -> dict[str, Any]:
                   score keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_ontology_term_ols(query, ontology)
         if result and result.get("@id"):
@@ -363,7 +358,6 @@ def lookup_unit(unit_string: str) -> dict[str, Any]:
                   available) score keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_unit_ols(unit_string)
         if result and result.get("@id"):
@@ -391,7 +385,6 @@ def lookup_dtxsid(query: str) -> dict[str, Any]:
                   inchikey keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_dtxsid_comptox(query)
         if result and result.get("dtxsid"):
@@ -419,7 +412,6 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
                   familyName, affiliation_name, affiliation_ror keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_orcid_api(orcid_id)
         if result and "name" in result:
@@ -448,7 +440,6 @@ def lookup_ror(name: str) -> dict[str, Any]:
             data: Dict with @id, @type, name, url, identifier keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = search_ror(name)
         if result and result.get("@id"):
@@ -475,7 +466,6 @@ def lookup_doi(doi: str) -> dict[str, Any]:
                   datePublished, url, identifier keys.
             error: Error message or None on success.
     """
-    time.sleep(0.05)
     try:
         result = lookup_doi_crossref(doi)
         if result and result.get("name"):
