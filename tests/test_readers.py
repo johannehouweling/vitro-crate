@@ -226,13 +226,21 @@ class TestReadDirectory:
 
 
 class TestReadMetadataFiles:
-    """Tests for read_metadata_files (stub)."""
+    """`read_metadata_files` is an UNIMPLEMENTED stub — it parses no JSON/YAML yet.
 
-    def test_returns_state_unchanged(self):
-        """read_metadata_files returns the state unchanged (stub)."""
+    These tests only pin the current no-op contract; they are NOT metadata-reader
+    coverage (no metadata file crosses the boundary). When the reader is implemented,
+    replace this with a real test that writes a .json/.yaml metadata file into a
+    scanned dir and asserts the entities it extracts (cf. the real-input pattern in
+    tests/test_pipeline_real_input.py).
+    """
+
+    def test_stub_is_a_noop_and_mutates_nothing(self):
+        """The stub returns the SAME state object and adds no entities (no reader runs)."""
         state = CrateState()
         result = read_metadata_files(state)
         assert result is state
+        assert result.list_entities() == []  # nothing parsed, nothing added
 
 
 class TestReadExistingCrate:

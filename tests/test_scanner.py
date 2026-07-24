@@ -503,25 +503,27 @@ class TestReadFileSampleMode:
         assert "Format: PDF" in result or "PDF" in result
 
     def test_summary_docx(self, tmp_path):
-        """mode='summary' on DOCX returns format info when valid."""
-        import zipfile
+        """mode='summary' on a real .docx reports Word format + its real content.
+
+        Built with python-docx (as ``test_summary_xlsx`` uses openpyxl) so the
+        assertions are UNCONDITIONAL. The old version hand-crafted a minimal zip and
+        hid its assert behind ``if result is not None`` — it passed vacuously whenever
+        ``_summarize_docx`` returned None (the zip failing to parse), i.e. it never
+        actually verified the docx summary path.
+        """
+        import pytest
+
+        docx = pytest.importorskip("docx")  # python-docx
         f = tmp_path / "report.docx"
-        with zipfile.ZipFile(f, "w") as z:
-            # A more complete minimal docx with proper ContentTypes
-            z.writestr("[Content_Types].xml",
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-                '<Override PartName="/word/document.xml" '
-                'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
-                '</Types>')
-            z.writestr("word/document.xml",
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-                '<w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>')
+        document = docx.Document()
+        document.add_paragraph("Hello")
+        document.save(str(f))
+
         result = read_file_sample(str(f), mode="summary")
-        if result is not None:
-            has_format = "Format: Word" in result or "docx" in result.lower()
-            assert has_format or "paragraph" in result.lower()
+        assert result is not None
+        assert "Format: Word" in result
+        assert "Paragraphs: 1" in result  # the one paragraph was counted
+        assert "Hello" in result  # its body text reached the summary
 
     def test_summary_plain_text(self, tmp_path):
         """mode='summary' on plain text returns line count and sample."""
