@@ -438,9 +438,20 @@ def main(argv: list[str] | None = None) -> int:
     # legacy scan of an un-approved folder returns no files. Non-interactive
     # (batch) runs keep the headless simulated default.
     if args.interactive:
+        from builder.agents import ui
         from builder.tools.hitl import ConsoleHumanInterface
 
-        engine = AgentEngine(human_interface=ConsoleHumanInterface())
+        # Inject the shared rounded ❯ box + green-● question styling (#344) so the
+        # pipeline's guidance prompts render like the ReAct arm's: the question is
+        # shown via ui.render_reply, the answer read via ui.boxed_input. Injection
+        # (not an import inside hitl.py) keeps builder.tools free of a
+        # builder.agents.ui dependency — no agents→tools→agents cycle.
+        engine = AgentEngine(
+            human_interface=ConsoleHumanInterface(
+                prompt_func=lambda _field_type: ui.boxed_input(ui.get_console()),
+                show_func=lambda text: ui.get_console().print(ui.render_reply(text)),
+            )
+        )
     else:
         engine = AgentEngine()
 

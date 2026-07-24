@@ -519,12 +519,12 @@ class TestBuildLangchainTools:
 
 
 class _FakeSpinner:
-    """Records set_tool calls for callback tests."""
+    """Records set_current calls for callback tests (the shared ProgressSpinner API)."""
 
     def __init__(self):
         self.tools: list = []
 
-    def set_tool(self, name) -> None:
+    def set_current(self, name) -> None:
         self.tools.append(name)
 
 
@@ -567,29 +567,6 @@ class TestToolSpinnerCallback:
         cb.on_tool_end("result")
 
         assert spinner.tools == ["lookup_compound", None]
-
-
-class TestThinkingSpinner:
-    """The spinner renders the phrase, elapsed seconds, and active tool."""
-
-    def test_render_includes_phrase_and_elapsed(self):
-        from rich.console import Console
-
-        from builder.agents.react.agent_loop import _ThinkingSpinner
-
-        sp = _ThinkingSpinner(Console(), "intoxicating")
-        text = sp._render()
-        assert "intoxicating" in text
-        assert "s)" in text  # elapsed seconds, e.g. "(0s)"
-
-    def test_render_includes_tool_when_set(self):
-        from rich.console import Console
-
-        from builder.agents.react.agent_loop import _ThinkingSpinner
-
-        sp = _ThinkingSpinner(Console(), "intoxicating")
-        sp._tool = "scan_files"
-        assert "scan_files" in sp._render()
 
 
 class TestMainInteractiveFlag:
@@ -860,77 +837,6 @@ class TestTrimHistory:
         inner = msgs[1:-1]
         assert len(inner) < len(history)
         assert TestTrimHistory._no_orphans(inner)
-
-
-class TestThinkingSpinnerPause:
-    """The thinking spinner must yield the terminal to a HITL prompt.
-
-    A scan-root approval (or any ask-user) calls ``input()`` mid-``invoke`` while
-    the spinner's Rich Live region is repainting; without a pause the prompt is
-    clobbered and stdin is unusable. The spinner registers itself as the active
-    console animation so ``suspend_console_animation`` can pause/resume it.
-    """
-
-    class _FakeStatus:
-        def __init__(self) -> None:
-            self.events: list[str] = []
-
-        def start(self) -> None:
-            self.events.append("start")
-
-        def stop(self) -> None:
-            self.events.append("stop")
-
-        def update(self, *_a, **_k) -> None:
-            pass
-
-        def __enter__(self):
-            self.start()
-            return self
-
-        def __exit__(self, *_a) -> None:
-            self.stop()
-
-    class _FakeConsole:
-        def __init__(self, status) -> None:
-            self._status = status
-
-        def status(self, *_a, **_k):
-            return self._status
-
-    def test_pause_stops_and_resume_starts_the_live_region(self) -> None:
-        from builder.agents.react.agent_loop import _ThinkingSpinner
-
-        st = self._FakeStatus()
-        sp = _ThinkingSpinner(self._FakeConsole(st), "x")
-
-        sp.pause()
-        assert sp._paused.is_set() is True
-        assert "stop" in st.events
-
-        sp.resume()
-        assert sp._paused.is_set() is False
-        assert "start" in st.events
-
-    def test_suspend_console_animation_pauses_then_resumes_spinner(self) -> None:
-        from builder.agents.react.agent_loop import _ThinkingSpinner
-        from builder.tools.hitl import (
-            register_console_animation,
-            suspend_console_animation,
-            unregister_console_animation,
-        )
-
-        st = self._FakeStatus()
-        sp = _ThinkingSpinner(self._FakeConsole(st), "x")
-        register_console_animation(sp)
-        try:
-            with suspend_console_animation():
-                paused_in_body = sp._paused.is_set()
-        finally:
-            unregister_console_animation(sp)
-
-        assert paused_in_body is True  # paused for the duration of the prompt
-        assert sp._paused.is_set() is False  # resumed after
 
 
 class TestCompletenessNudge:
@@ -1468,7 +1374,7 @@ class _LoopHarness:
             harness.stdin_reads.append(line)
             return line
 
-        self.monkeypatch.setattr(agent_loop, "_boxed_input", fake_boxed_input)
+        self.monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
 
         # Count backstop invocations; do not touch disk.
         def fake_backstop(engine, *, emit=None):
@@ -1623,7 +1529,7 @@ class TestTimeoutEndsTurnGracefully:
                 raise EOFError
             return stdin.pop(0)
 
-        monkeypatch.setattr(agent_loop, "_boxed_input", fake_boxed_input)
+        monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
 
         def fake_backstop(engine, *, emit=None):
             backstop_calls["n"] += 1

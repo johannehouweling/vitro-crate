@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from time import monotonic, perf_counter
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -22,6 +22,7 @@ try:
 except ImportError:
     from typing_extensions import Annotated as _Annotated
 
+from builder.agents import ui
 from builder.agents.llm import (
     _build_chat_model,
     _extract_model_name,
@@ -29,13 +30,10 @@ from builder.agents.llm import (
     _get_request_timeout,
     _recursion_limit,
 )
+from builder.agents.progress_spinner import ProgressSpinner
 from builder.agents.react.system_prompt import SYSTEM_PROMPT
 from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
-from builder.tools.hitl import (
-    register_console_animation,
-    unregister_console_animation,
-)
 
 if TYPE_CHECKING:
     from typing import cast
@@ -64,95 +62,21 @@ class AgentState(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# Thinking spinner — ticks elapsed seconds and shows the active tool
+# Tool-activity callback — bridges LangChain tool events to the shared spinner
 # ---------------------------------------------------------------------------
 
 
-class _ThinkingSpinner:
-    """A Rich status spinner that ticks elapsed seconds while the agent works
-    and surfaces the active tool — Claude Code style.
+class _ToolSpinnerCallback(BaseCallbackHandler):
+    """Forward LangChain tool-start/end events to the shared progress spinner.
 
-    Colour convention: green = the agent working (matches the ● reply marker),
-    dim = elapsed/meta, cyan = the active tool.
-    Used as a context manager around an ``app.invoke`` call; a daemon thread
-    refreshes the elapsed time roughly twice a second.
+    The spinner is :class:`builder.agents.progress_spinner.ProgressSpinner`, the
+    SAME live spinner the deterministic pipeline drives (#344) — here it is fed the
+    per-tool signal the ReAct loop gets from LangChain callbacks (the pipeline
+    feeds the same spinner from ``engine.on_tool_event``). Clearing on tool-end
+    returns the line to the rotating thinking phrase.
     """
 
-    def __init__(self, console: Any, phrase: str) -> None:
-        self._console = console
-        self._phrase = phrase
-        self._tool: str | None = None
-        self._start = monotonic()
-        self._stop = threading.Event()
-        # Set while a HITL prompt owns the terminal: the tick thread must not
-        # repaint the Rich Live region over the prompt (else stdin is unusable).
-        self._paused = threading.Event()
-        self._status = console.status(self._render(), spinner="dots", spinner_style="green")
-        self._thread = threading.Thread(target=self._tick, daemon=True)
-
-    def _render(self) -> str:
-        elapsed = int(monotonic() - self._start)
-        line = f"[green]{self._phrase}…[/green] [dim]({elapsed}s)[/dim]"
-        if self._tool:
-            line += f"  [dim]·[/dim] [cyan]{self._tool}[/cyan]"
-        return line
-
-    def _tick(self) -> None:
-        while not self._stop.wait(0.5):
-            if self._paused.is_set():
-                continue
-            try:
-                self._status.update(self._render())
-            except Exception:
-                break
-
-    def set_tool(self, name: str | None) -> None:
-        """Show (or clear, with ``None``) the tool currently running."""
-        self._tool = name
-        if self._paused.is_set():
-            return
-        try:
-            self._status.update(self._render())
-        except Exception:
-            pass
-
-    def pause(self) -> None:
-        """Tear down the Live region and stop ticking so a HITL prompt is clean.
-
-        Called (via :func:`builder.tools.hitl.suspend_console_animation`) when a
-        tool needs ``input()`` mid-``invoke``. Best-effort and idempotent.
-        """
-        self._paused.set()
-        try:
-            self._status.stop()
-        except Exception:
-            logger.debug("spinner pause: status.stop failed", exc_info=True)
-
-    def resume(self) -> None:
-        """Restart the Live region after a HITL prompt completes."""
-        try:
-            self._status.start()
-        except Exception:
-            logger.debug("spinner resume: status.start failed", exc_info=True)
-        self._paused.clear()
-
-    def __enter__(self) -> "_ThinkingSpinner":
-        self._status.__enter__()
-        self._thread.start()
-        register_console_animation(self)
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        unregister_console_animation(self)
-        self._stop.set()
-        self._thread.join(timeout=1.0)
-        self._status.__exit__(*exc)
-
-
-class _ToolSpinnerCallback(BaseCallbackHandler):
-    """LangChain callback that surfaces the active tool on a _ThinkingSpinner."""
-
-    def __init__(self, spinner: _ThinkingSpinner) -> None:
+    def __init__(self, spinner: ProgressSpinner) -> None:
         self.spinner = spinner
         super().__init__()
 
@@ -162,10 +86,10 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
         input_str: str,
         **kwargs: Any,
     ) -> None:
-        self.spinner.set_tool(serialized.get("name", "tool"))
+        self.spinner.set_current(serialized.get("name", "tool"))
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
-        self.spinner.set_tool(None)
+        self.spinner.set_current(None)
 
 
 # ---------------------------------------------------------------------------
@@ -1428,102 +1352,6 @@ def _finish_backstop(
 # ---------------------------------------------------------------------------
 
 
-def _boxed_input(console: Any, label: str = "❯") -> str:
-    """Read one line of input inside a rounded box (Claude Code style).
-
-    Renders an ephemeral rounded box via prompt_toolkit; once submitted the
-    box is erased and the line is echoed into the transcript so it persists.
-    Falls back to ``console.input`` when stdin is not a TTY or prompt_toolkit
-    is unavailable. Raises ``KeyboardInterrupt`` (Ctrl+C) and ``EOFError``
-    (Ctrl+D on an empty line), matching ``input()``.
-    """
-    import sys
-
-    def _fallback() -> str:
-        return console.input(f"[bold cyan]{label} [/bold cyan]").strip()
-
-    if not sys.stdin.isatty():
-        return _fallback()
-    try:
-        from prompt_toolkit import Application
-        from prompt_toolkit.application.current import get_app
-        from prompt_toolkit.buffer import Buffer
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
-        from prompt_toolkit.layout.controls import (
-            BufferControl,
-            FormattedTextControl,
-        )
-        from prompt_toolkit.styles import Style
-    except Exception:
-        return _fallback()
-
-    buf = Buffer(multiline=False)
-    outcome: dict[str, Any] = {"exc": None}
-    kb = KeyBindings()
-
-    @kb.add("enter")
-    def _(event: Any) -> None:
-        event.app.exit(result=buf.text)
-
-    @kb.add("c-c")
-    def _(event: Any) -> None:
-        outcome["exc"] = KeyboardInterrupt
-        event.app.exit(result="")
-
-    @kb.add("c-d")
-    def _(event: Any) -> None:
-        if not buf.text:
-            outcome["exc"] = EOFError
-            event.app.exit(result="")
-
-    def _hline(left: str, right: str):
-        def _get() -> list[tuple[str, str]]:
-            w = get_app().output.get_size().columns
-            return [("class:box", left + "─" * max(0, w - 2) + right)]
-
-        return _get
-
-    buf_window = Window(BufferControl(buffer=buf))
-    middle = VSplit(
-        [
-            Window(
-                FormattedTextControl([("class:box", "│ "), ("class:prompt", f"{label} ")]),
-                width=4,
-            ),
-            buf_window,
-            Window(FormattedTextControl([("class:box", " │")]), width=2),
-        ],
-        height=1,
-    )
-    root = HSplit(
-        [
-            Window(FormattedTextControl(_hline("╭", "╮")), height=1),
-            middle,
-            Window(FormattedTextControl(_hline("╰", "╯")), height=1),
-        ]
-    )
-    style = Style.from_dict({"box": "fg:#5f5f5f", "prompt": "bold ansicyan"})
-    app: Any = Application(
-        layout=Layout(root, focused_element=buf_window),
-        key_bindings=kb,
-        style=style,
-        full_screen=False,
-    )
-    try:
-        text = app.run()
-    except Exception:
-        return _fallback()
-
-    if outcome["exc"] is not None:
-        raise outcome["exc"]
-    text = (text or "").strip()
-    if text:
-        # The box was ephemeral — echo the submitted line into the transcript.
-        console.print(f"[bold cyan]{label}[/bold cyan] {text}")
-    return text
-
-
 def run_interactive_agent(
     engine: AgentEngine,
     provider: str | None = None,
@@ -1565,12 +1393,9 @@ def run_interactive_agent(
     # Passing the engine enables node-level timing → profile.ndjson.
     app = _build_agent_graph(llm, tools, engine=engine)
 
-    from rich.console import Console
-    from rich.markdown import Markdown
-    from rich.padding import Padding
     from rich.panel import Panel
 
-    console = Console()
+    console = ui.get_console()
 
     # In-loop auto-export surfacing (#287 Fix A): a completed in-loop build writes
     # the crate to disk and reports its absolute path via this sink. The export
@@ -1599,7 +1424,11 @@ def run_interactive_agent(
     )
 
     def _extract_reply(state: dict) -> str:
-        """Pull the last AIMessage content from the agent state."""
+        """Pull the last AIMessage content from the agent state, as plain text.
+
+        Flattens structured message content through the shared formatter so
+        content-block lists never leak their repr to the terminal (#341).
+        """
         msgs = state.get("messages", [])
         # Walk backwards to find an AI message (not tool results)
         for msg in reversed(msgs):
@@ -1607,103 +1436,17 @@ def run_interactive_agent(
                 # Skip messages from "tool" role
                 role = getattr(msg, "type", "") or ""
                 if role == "ai" or (isinstance(msg, AIMessage)):
-                    return str(msg.content)
+                    return ui.flatten_message_content(msg.content)
                 # Also accept the very last message if it has content
                 if msg is msgs[-1]:
-                    return str(msg.content)
+                    return ui.flatten_message_content(msg.content)
         return ""
 
     def _print_reply(content: str) -> None:
-        """Print an agent reply: a slim marker plus left-indented markdown.
-
-        Lighter than a full-width bordered panel so short answers don't get
-        a big box; markdown is indented two spaces under a green marker.
-        """
+        """Print an agent reply through the shared renderer (empty → skip)."""
         if not content:
             return
-        from rich.table import Table
-
-        try:
-            body: Any = Markdown(content)
-        except Exception:
-            body = content
-
-        # Claude-Code style: the ● marker sits on the SAME line as the first
-        # line of the reply, and continuation lines align under it. A 2-wide
-        # gutter column holds the marker; the body column wraps beside it.
-        grid = Table.grid(padding=(0, 0))
-        grid.add_column(width=2, no_wrap=True)
-        grid.add_column(overflow="fold")
-        grid.add_row("[green]●[/green]", body)
-
-        console.print()  # breathing room above the reply
-        console.print()
-        console.print(grid)
-        console.print()  # ...and below
-
-    def _render_header() -> None:
-        """Print a compact one-line status header before each user prompt.
-
-        Re-rendered each turn (a recurring header rule rather than a pinned
-        bar, which would conflict with ``console.input``/``console.status``).
-        Shows session id, entity/file counts, validation state, and token
-        usage with estimated cost.
-        """
-        ec = len(engine.state.list_entities())
-        fc = len(engine.state.scanned_files)
-        val = engine.state.validation
-
-        def _dot(ok: bool) -> str:
-            return "[green]●[/green]" if ok else "[grey50]○[/grey50]"
-
-        sep = "[grey42]·[/grey42]"
-        # Token usage with estimated cost (read from profile.ndjson)
-        token_str = ""
-        try:
-            from builder.tools.dashboard import read_profile
-            from builder.tools.profiler import SESSION_DIR
-
-            profile_path = SESSION_DIR / engine.state.session_id / "profile.ndjson"
-            if profile_path.exists():
-                prof_records = read_profile(profile_path)
-                if prof_records:
-                    # Aggregate cumulative tokens
-                    model_ends = [
-                        r
-                        for r in prof_records
-                        if r.get("event") == "node_end" and r.get("node") == "model"
-                    ]
-                    total_in = sum(int(r.get("input_tokens", 0) or 0) for r in model_ends)
-                    total_out = sum(int(r.get("output_tokens", 0) or 0) for r in model_ends)
-                    last_model = (model_ends[-1].get("model_name") or "") if model_ends else ""
-                    if total_in + total_out > 0:
-                        from builder.config import get_model_provider
-                        from builder.pricing import compute_cost, format_cost
-
-                        mp = get_model_provider()
-                        cost_info = compute_cost(total_in, total_out, last_model, provider=mp)
-                        total_cost = cost_info.get("total_cost")
-                        cost_str = f"@{format_cost(total_cost)}" if total_cost is not None else ""
-                        token_str = (
-                            f"  {sep}  [dim]tok {total_in}→{total_out} ({total_in + total_out})"
-                            f"{cost_str}[/dim]"
-                        )
-        except Exception:
-            pass
-
-        status = (
-            f"[dim]{engine.state.session_id}[/dim]  {sep}  "
-            f"[dim]{ec} entities[/dim]  {sep}  "
-            f"[dim]{fc} files[/dim]  {sep}  "
-            f"{_dot(val.base_passed)} [dim]base[/dim]  "
-            f"{_dot(val.isa_passed)} [dim]ISA[/dim]  "
-            f"{_dot(val.tox_passed)} [dim]Tox[/dim]"
-            f"{token_str}"
-        )
-        # A dim, indented status line with breathing room above — lighter
-        # than a full-width rule, closer to the Claude Code aesthetic.
-        console.print()
-        console.print(Padding(status, (0, 0, 0, 1)))
+        console.print(ui.render_reply(content))
 
     # ── Resume summary vs fresh greeting ────────────────────────────────
     entity_count = len(engine.state.list_entities())
@@ -1711,53 +1454,14 @@ def run_interactive_agent(
     is_resume = entity_count > 0 or file_count > 0
 
     if is_resume:
-        # Build a rich summary panel
-        from rich.table import Table
-
-        summary = Table.grid(padding=(0, 2))
-        summary.add_column(style="bold", width=16)
-        summary.add_column(style="white")
-
-        summary.add_row("Session:", f"[cyan]{engine.state.session_id}[/cyan]")
-        summary.add_row("Entities:", f"[green]{entity_count}[/green]")
-        summary.add_row("Files:", f"[green]{file_count}[/green]")
-
-        mit = getattr(engine.state, "mit_assessment", None)
-        if mit and getattr(mit, "overall_score", None) is not None:
-            summary.add_row("MIT score:", f"[yellow]{mit.overall_score:.0%}[/yellow]")
-
         val = engine.state.validation
-        val_status = []
-        if val.base_passed:
-            val_status.append("[green]base[/green]")
-        else:
-            val_status.append("[red]base[/red]")
-        if val.isa_passed:
-            val_status.append("[green]ISA[/green]")
-        else:
-            val_status.append("[red]ISA[/red]")
-        if val.tox_passed:
-            val_status.append("[green]ISA-Tox[/green]")
-        else:
-            val_status.append("[red]ISA-Tox[/red]")
-        summary.add_row("Validation:", "  ".join(val_status))
-
-        if val.required_issues:
-            summary.add_row("Issues:", f"[red]{len(val.required_issues)} REQUIRED[/red]")
-
-        # Per-type entity breakdown
+        # Per-type entity breakdown (also feeds the greeting prompt + fallback).
         counts: dict[str, int] = {}
         for e in engine.state.list_entities():
             typ = getattr(e, "type", "Unknown")
             counts[typ] = counts.get(typ, 0) + 1
-        if counts:
-            parts = ", ".join(f"[cyan]{k}[/cyan]={v}" for k, v in sorted(counts.items()))
-            summary.add_row("Breakdown:", parts)
 
-        console.print(
-            Panel(summary, title="[yellow]Resumed Session[/yellow]", border_style="yellow")
-        )
-        console.print()
+        ui.print_resume_summary(engine)
 
         # Tell the LLM about the current state so it can give a contextual greeting
         greeting_prompt = (
@@ -1816,7 +1520,7 @@ def run_interactive_agent(
         root_logger = logging.getLogger()
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
-        spinner = _ThinkingSpinner(console, "intoxicating")
+        spinner = ProgressSpinner(console, "intoxicating")
         greeting_config = {
             **thread_config,
             "callbacks": [_ToolSpinnerCallback(spinner)],
@@ -1858,40 +1562,6 @@ def run_interactive_agent(
 
     # ── Goodbye helper ──────────────────────────────────────────────────
 
-    def _print_goodbye(state: Any) -> None:
-        """Print a goodbye message with resume instructions."""
-        session_id = getattr(state, "session_id", None) or engine.state.session_id
-        console.print()
-
-        from rich.table import Table
-
-        t = Table.grid(padding=(0, 1))
-        t.add_column(style="yellow bold", width=14)
-        t.add_column(style="white")
-        t.add_row("Session:", f"[cyan]{session_id}[/cyan]")
-
-        entities = state.list_entities() if hasattr(state, "list_entities") else []
-        if entities:
-            counts: dict[str, int] = {}
-            for e in entities:
-                typ = getattr(e, "type", "Unknown")
-                counts[typ] = counts.get(typ, 0) + 1
-            parts = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
-            t.add_row("Entities:", parts)
-        else:
-            t.add_row("Entities:", "0")
-
-        from pathlib import Path
-
-        if Path("sessions").is_dir():
-            t.add_row(
-                "Resume:",
-                f"python -m main [cyan]--resume {session_id}[/cyan] [dim]--interactive[/dim]",
-            )
-
-        console.print(Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow"))
-        console.print()
-
     def _finalize_on_exit() -> None:
         """Deterministically build + export the crate before the goodbye (#251).
 
@@ -1902,49 +1572,6 @@ def run_interactive_agent(
         always print).
         """
         _finish_backstop(engine, emit=console.print)
-
-    import random
-
-    TOX_SPINNER_PHRASES = [
-        "intoxicating",
-        "ro-creating",
-        "culturing",
-        "FAIR-washing",
-        "re-FAIR-ifying",
-        "blaming the student",
-        "appeasing the cells",
-        "fighting reviewer 2",
-        "haggling the IC50",
-        "bribing the curve",
-        "vortexing",
-        "rehydrating",
-        "titrating",
-        "resuspending",
-        "denaturing self-doubt",
-        "autoclaving",
-        "thawing the -80",
-        "centrifuging",
-        "pipetting",
-        "decoding",
-        "finding a working pipette",
-        "side-eyeing",
-        "labelling 'compound X'",
-        "miscounting colonies",
-        "warming up, emotionally",
-        "manifesting p<0.05",
-        "praying to FAIR gods",
-        "hallucinating responsibly",
-        "FAIR-ifying",
-        "exposing",
-        "meta-dating",
-        "re-using",
-        "finding",
-        "interoperating",
-        "re-using, eventually",
-        "double-gloving",
-        "brewing coffee",
-        "replacing, reducing, refusing",
-    ]
 
     def _run_turn(message_content: str) -> tuple[str, str]:
         """Run ONE model invocation and return ``(reply, outcome)`` (#263).
@@ -1961,7 +1588,7 @@ def run_interactive_agent(
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
 
-        spinner = _ThinkingSpinner(console, random.choice(TOX_SPINNER_PHRASES))
+        spinner = ProgressSpinner(console)
         main_config = {
             **thread_config,
             "callbacks": [_ToolSpinnerCallback(spinner)],
@@ -2030,11 +1657,11 @@ def run_interactive_agent(
         try:
             # Compact status header above each prompt (counts live here now,
             # so the prompt line stays clean).
-            _render_header()
+            ui.print_status_bar(engine)
             console.print()
             # Rounded input box (Claude Code style); falls back to a plain
             # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
-            user_input = _boxed_input(console)
+            user_input = ui.boxed_input(console)
         except KeyboardInterrupt:
             # Ctrl+C: clear the line and re-prompt
             console.print()
@@ -2043,12 +1670,12 @@ def run_interactive_agent(
             # Ctrl+D: exit
             console.print()
             _finalize_on_exit()
-            _print_goodbye(engine.state)
+            ui.print_goodbye(engine)
             break
 
         if user_input.lower() in ("quit", "exit", "q"):
             _finalize_on_exit()
-            _print_goodbye(engine.state)
+            ui.print_goodbye(engine)
             break
 
         if not user_input:

@@ -106,6 +106,43 @@ class TestConsoleHumanInterface:
         resp = ConsoleHumanInterface().request_input("Name?")
         assert resp == {"value": None, "skipped": True}
 
+    def test_request_input_uses_injected_prompt_func(self):
+        """An injected prompt_func replaces the bare input() so the CLI can render
+        the shared rounded box (#344); the field_type is threaded to the reader."""
+        seen: list[str] = []
+
+        def fake_box(field_type: str) -> str:
+            seen.append(field_type)
+            return "Acme Corp"
+
+        resp = ConsoleHumanInterface(prompt_func=fake_box).request_input("Name?", "text")
+        assert resp == {"value": "Acme Corp", "skipped": False}
+        assert seen == ["text"]
+
+    def test_injected_prompt_func_empty_is_skip(self):
+        resp = ConsoleHumanInterface(prompt_func=lambda _ft: "").request_input("Name?")
+        assert resp == {"value": None, "skipped": True}
+
+    def test_injected_prompt_func_eof_is_skip(self):
+        def _raise(_ft: str) -> str:
+            raise EOFError
+
+        resp = ConsoleHumanInterface(prompt_func=_raise).request_input("Name?")
+        assert resp == {"value": None, "skipped": True}
+
+    def test_request_input_displays_question_via_show_func(self):
+        """An injected show_func renders the question so the CLI can style it as a
+        green-● reply like the ReAct arm, instead of a bare print (#344)."""
+        shown: list[str] = []
+
+        resp = ConsoleHumanInterface(
+            prompt_func=lambda _ft: "10.1234/x",
+            show_func=shown.append,
+        ).request_input("What is the DOI?", "identifier")
+
+        assert resp == {"value": "10.1234/x", "skipped": False}
+        assert shown == ["What is the DOI?"]
+
 
 class TestIsInteractive:
     """The interactive signal distinguishes a real user from a headless run."""
