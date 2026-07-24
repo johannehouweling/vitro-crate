@@ -125,6 +125,7 @@ class UiSnapshot:
     required_issue_count: int
     entity_counts: dict[str, int] = field(default_factory=dict)
     mit_score: float | None = None
+    mit_assessed: bool = False
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float | None = None
@@ -172,6 +173,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
     val = state.validation
     mit = getattr(state, "mit_assessment", None)
     mit_score = getattr(mit, "overall_score", None) if mit is not None else None
+    mit_assessed = bool(getattr(mit, "module_scores", None))
 
     tokens_in, tokens_out, last_model = _read_token_totals(state.session_id)
     cost_usd: float | None = None
@@ -197,6 +199,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
         required_issue_count=len(val.required_issues),
         entity_counts=counts,
         mit_score=mit_score,
+        mit_assessed=mit_assessed,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         cost_usd=cost_usd,
@@ -273,8 +276,11 @@ def render_resume_summary(snap: UiSnapshot) -> RenderableType:
     summary.add_row("Entities:", f"[green]{snap.entity_count}[/green]")
     summary.add_row("Files:", f"[green]{snap.file_count}[/green]")
 
-    if snap.mit_score is not None:
-        summary.add_row("MIT score:", f"[yellow]{snap.mit_score:.0%}[/yellow]")
+    if snap.mit_assessed:
+        from builder.tools.dashboard import format_mit_coverage
+
+        mit_text, mit_color = format_mit_coverage(snap.mit_score, assessed=True)
+        summary.add_row("MIT score:", f"[{mit_color}]{mit_text}[/{mit_color}]")
 
     val_status = [
         "[green]base[/green]" if snap.base_passed else "[red]base[/red]",

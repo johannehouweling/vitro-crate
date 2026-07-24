@@ -50,6 +50,7 @@ _BASE_SNAPSHOT = ui.UiSnapshot(
     required_issue_count=1,
     entity_counts={"Investigation": 1, "Study": 2},
     mit_score=0.75,
+    mit_assessed=True,
     tokens_in=0,
     tokens_out=0,
     cost_usd=None,
@@ -255,6 +256,14 @@ def test_render_resume_summary_shows_session_and_breakdown() -> None:
     assert "sess-1" in text
     assert "Investigation" in text
     assert "MIT score" in text
+    # Coverage renders as a whole percent (0.75 -> "75%"), not a raw fraction.
+    assert "75%" in text
+
+
+def test_render_resume_summary_hides_mit_when_unassessed() -> None:
+    """An unassessed crate omits the MIT row rather than showing a misleading 0%."""
+    text = _render(ui.render_resume_summary(_snapshot(mit_assessed=False, mit_score=0.0)))
+    assert "MIT score" not in text
 
 
 # ---------------------------------------------------------------------------

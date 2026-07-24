@@ -618,3 +618,98 @@ class TestLiveRefresh:
         assert len(records2) == 2
         assert mtime2 != mtime
 
+
+class TestFormatMitCoverage:
+    """format_mit_coverage() — the shared MIT-tile formatter (issue #355).
+
+    One source of truth for the dashboard panel and the interactive UI so both
+    build arms render MIT coverage identically. ``overall_score`` is a 0.0-1.0
+    fraction; the formatter returns ``(text, rich_color)``.
+    """
+
+    def test_fraction_rendered_as_whole_percent(self) -> None:
+        from builder.tools.dashboard import format_mit_coverage
+
+        assert format_mit_coverage(0.85, assessed=True) == ("85%", "green")
+
+    def test_full_coverage_is_100_not_1(self) -> None:
+        from builder.tools.dashboard import format_mit_coverage
+
+        assert format_mit_coverage(1.0, assessed=True) == ("100%", "green")
+
+    def test_middling_score_is_yellow(self) -> None:
+        from builder.tools.dashboard import format_mit_coverage
+
+        assert format_mit_coverage(0.6, assessed=True) == ("60%", "yellow")
+
+    def test_low_score_is_red(self) -> None:
+        from builder.tools.dashboard import format_mit_coverage
+
+        assert format_mit_coverage(0.3, assessed=True) == ("30%", "red")
+
+    def test_unassessed_is_neutral_placeholder_not_zero_percent(self) -> None:
+        """A never-assessed report must not read as a red 0% — it is unknown."""
+        from builder.tools.dashboard import format_mit_coverage
+
+        text, color = format_mit_coverage(0.0, assessed=False)
+        assert text == "—"
+        assert color == "dim"
+        assert "%" not in text
+
+    def test_none_score_is_neutral(self) -> None:
+        from builder.tools.dashboard import format_mit_coverage
+
+        assert format_mit_coverage(None, assessed=False) == ("—", "dim")
+
+
+class TestCrateStatePanelMit:
+    """_build_cratestate_panel() renders MIT via the shared formatter (issue #355)."""
+
+    @staticmethod
+    def _render(state: dict) -> str:
+        from rich.console import Console
+
+        from builder.tools.dashboard import _build_cratestate_panel
+
+        console = Console(width=200)
+        with console.capture() as capture:
+            console.print(_build_cratestate_panel(state))
+        return capture.get()
+
+    def test_covered_crate_shows_whole_percent(self) -> None:
+        state = {
+            "entities": {},
+            "validation": {},
+            "mit_assessment": {
+                "module_scores": {"m1": {"completed": 17, "total": 20}},
+                "overall_score": 0.85,
+            },
+        }
+        out = self._render(state)
+        assert "85%" in out
+        assert "0.85%" not in out
+
+    def test_full_coverage_not_one_percent(self) -> None:
+        state = {
+            "entities": {},
+            "validation": {},
+            "mit_assessment": {
+                "module_scores": {"m1": {"completed": 20, "total": 20}},
+                "overall_score": 1.0,
+            },
+        }
+        out = self._render(state)
+        assert "100%" in out
+        assert "1.0%" not in out
+
+    def test_unassessed_not_shown_as_zero_percent(self) -> None:
+        state = {
+            "entities": {},
+            "validation": {},
+            "mit_assessment": {"module_scores": {}, "overall_score": 0.0},
+        }
+        out = self._render(state)
+        assert "MIT" in out
+        assert "0.0%" not in out
+        assert "0%" not in out
+
