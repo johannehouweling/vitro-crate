@@ -372,9 +372,12 @@ class TestBuildCrate:
         state = CrateState()
         state.session_id = "test_default_path_001"
 
-        # Call without output_path — the function should supply a default
+        # Call without output_path — the function should supply a default.
+        # Assert the default session root convention (relative "sessions/"), so
+        # clear the test harness's VITRO_SESSION_DIR isolation override.
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.chdir(tmpdir)
+            monkeypatch.delenv("VITRO_SESSION_DIR", raising=False)
             result = build_crate(state)
 
             assert result["success"] is True
