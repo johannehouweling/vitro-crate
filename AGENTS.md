@@ -1484,6 +1484,30 @@ force-stopped at the recursion cap. ReAct stays a supported variant
 profile conformance (base + isa + tox) plus an entity-count quota — **not** scientific
 accuracy.
 
+### D16: ISA-Tox Specialization via `additionalType`, Not `@type` Arrays
+
+Every ISA-Tox specialization is expressed as `@type: <bare base token>` +
+`additionalType: <discriminator string>` — **not** a JSON-LD `@type` array:
+
+- A cell-line sample is `@type: "Sample"` (`bioschemas:Sample`) + `additionalType:
+  "CellLine"` + a `sampleType` DefinedTerm (`profiles/shapes/tox/1_cell_line_sample.ttl`,
+  isa_tox.md §Biological model).
+- LabProcess steps are `@type: "LabProcess"` + `additionalType:
+  "CellCulture"|"Exposure"|"EndpointReadout"|"DataAnalysis"`; ISA backbone nodes are
+  `@type: "Dataset"` + `additionalType: "Investigation"|"Study"|"Assay"`.
+
+The specialized `tox:` class is **inferred by the validator**, not asserted in the crate:
+each tox shape carries a SHACL `TripleRule` that adds `rdf:type tox:CellLineSample` (etc.)
+when the discriminator matches (`FindCellLineSamples`). A generic RO-Crate consumer sees
+the base type; the ISA-Tox validator sees the specialization — this is why `@type` stays
+the bare token.
+
+Consequences the builder respects: `_crate_mapping` emits the bare base `@type` plus the
+discriminator (never a `@type` array), and a single conceptual entity is ONE node — a
+`CellLineSample` already IS a Sample, so modelling it as a *separate* `Sample` +
+`CellLineSample` (two entities sharing a bare `entity_id`) is discouraged by RO-Crate 1.2
+(§Contextual entities) and warns at `CrateState.add_entity` (#366).
+
 ## 12. Project Structure
 
 Where each component lives:
