@@ -1552,7 +1552,7 @@ vitro-crate/
 │   └── agents/                  Orchestration + LLM config
 │       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
 │       ├── llm.py               Shared model construction + usage mining, both modes (#309)
-│       ├── progress_spinner.py  CLI progress UI
+│       ├── progress_spinner.py  Shared live progress spinner (both arms)
 │       ├── pipeline/            Deterministic pipeline mode (--interactive DEFAULT)
 │       │   ├── pipeline.py        Pipeline spine (run_pipeline)
 │       │   ├── guidance.py        HITL guidance tail (run_guidance)
@@ -2030,8 +2030,8 @@ the *latest* crate always lands and an unchanged repeat build is a no-op.
 
 **Progress + persistence (#241 / #242).** Before these the default `--interactive`
 (pipeline) path *felt dead*: the deterministic spine ran for ~tens of seconds with
-**no output** (it looked frozen — the legacy ReAct loop has a `_ThinkingSpinner`,
-the pipeline had nothing, #241) and **never persisted CrateState** (so a concurrent
+**no output** (it looked frozen — the legacy ReAct loop had a live spinner, the
+pipeline had nothing, #241) and **never persisted CrateState** (so a concurrent
 `--dashboard`, which loads + watches `sessions/<id>/crate_state.json`, showed "No
 CrateState data available" and never live-updated even though a full crate was built
 in memory, #242). Both are fixed without an LLM and without perturbing the built
