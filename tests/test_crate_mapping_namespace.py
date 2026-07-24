@@ -121,9 +121,10 @@ class TestMintedIdNamespace:
         *resolution* (the mapper's ``_resolve_many`` fallback is order-based, not
         context-aware). RO-Crate 1.2 in fact discourages the situation this guards: two
         conceptually-different entities SHOULD NOT share an identifier (§Contextual-
-        entities), and a single entity that is genuinely both a Sample and a
-        CellLineSample should be ONE node with a ``@type`` array — a case this test does
-        not cover (see the follow-up design question in #343 discussion).
+        entities). A genuine cell-line sample is ONE ``CellLineSample`` entity, which
+        already emits as a single Sample node (``@type: Sample`` + ``additionalType:
+        CellLine``); the separate-Sample-plus-CellLineSample input this guards against
+        is itself the mis-modeling (design follow-up: #366).
         """
         state = CrateState()
         state.metadata.title = "Reference Test"
