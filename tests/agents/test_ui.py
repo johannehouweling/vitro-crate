@@ -1,21 +1,36 @@
 """Unit tests for the shared interactive-UI layer (``builder/agents/ui.py``).
 
-These exercise the arm-neutral render functions offline — no TTY, no live
-engine — by rendering each Rich renderable into a recording console and
-asserting on the exported plain text. ``flatten_message_content`` is the
-#341 leak-fix helper and is tested directly as a pure string function.
+Two seams, tested at their real public entry points:
+
+* the ``render_*`` functions are pure formatters — their real input is a
+  :class:`~builder.agents.ui.UiSnapshot`, so the tests build snapshot literals
+  (no mock stands in for anything) and assert on the exported plain text;
+* ``snapshot_from_engine`` is the one impure adapter — it is driven over a
+  **real** ``AgentEngine``/``CrateState`` populated with real ``Entity`` /
+  ``FileClassification`` / ``ValidationReport`` objects, so a regression in how
+  state exposes entities or validation reddens the test.
+
+``flatten_message_content`` (the #341 leak fix) is tested directly as a pure
+string function and again through ``render_reply`` (its real call site).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import io
 from types import SimpleNamespace
-from typing import Any
 
 from rich.console import Console, RenderableType
 
 from builder.agents import ui
-from builder.state import ValidationReport
+from builder.engine import AgentEngine
+from builder.state import (
+    CrateState,
+    Entity,
+    EntityProvenance,
+    FileClassification,
+    ValidationReport,
+)
 
 
 def _render(renderable: RenderableType, width: int = 100) -> str:
@@ -25,32 +40,67 @@ def _render(renderable: RenderableType, width: int = 100) -> str:
     return console.export_text()
 
 
-def _fake_engine(
-    *,
-    session_id: str = "sess-1",
-    files: int = 3,
-    entities: list[Any] | None = None,
-    validation: ValidationReport | None = None,
-    mit_score: float | None = 0.75,
-) -> SimpleNamespace:
-    if entities is None:
-        entities = [
-            SimpleNamespace(type="Investigation"),
-            SimpleNamespace(type="Study"),
-            SimpleNamespace(type="Study"),
-        ]
-    if validation is None:
-        validation = ValidationReport(
-            base_passed=True, isa_passed=False, tox_passed=False, required_issues=["x"]
+_BASE_SNAPSHOT = ui.UiSnapshot(
+    session_id="sess-1",
+    entity_count=3,
+    file_count=3,
+    base_passed=True,
+    isa_passed=False,
+    tox_passed=False,
+    required_issue_count=1,
+    entity_counts={"Investigation": 1, "Study": 2},
+    mit_score=0.75,
+    tokens_in=0,
+    tokens_out=0,
+    cost_usd=None,
+)
+
+
+def _snapshot(**overrides: object) -> ui.UiSnapshot:
+    """A ``UiSnapshot`` literal — the renderers' real, direct public input."""
+    return dataclasses.replace(_BASE_SNAPSHOT, **overrides)
+
+
+def _real_engine(populated: bool = True) -> AgentEngine:
+    """A real ``AgentEngine`` over a real ``CrateState`` (the adapter's real input).
+
+    ``populated=False`` returns a fresh, un-built session (the meaningful empty
+    edge). ``human_interface`` is left ``None`` so the engine wires its real
+    ``SimulatedHumanInterface`` default rather than a hand-written double.
+    """
+    state = CrateState(session_id="sess-1")
+    if populated:
+        state.add_entity(
+            Entity(
+                entity_id="inv_001",
+                type="Investigation",
+                fields={"title": "I"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
         )
-    state = SimpleNamespace(
-        session_id=session_id,
-        scanned_files=list(range(files)),
-        validation=validation,
-        mit_assessment=SimpleNamespace(overall_score=mit_score),
-        list_entities=lambda entity_type=None: list(entities),
-    )
-    return SimpleNamespace(state=state)
+        for i in (1, 2):
+            state.add_entity(
+                Entity(
+                    entity_id=f"stu_00{i}",
+                    type="Study",
+                    fields={"title": f"S{i}"},
+                    _provenance=EntityProvenance(created_by="llm"),
+                )
+            )
+        state.scanned_files = [
+            FileClassification(
+                path=f"/d/f{i}.csv", filename=f"f{i}.csv", size=10, mime_type="text/csv"
+            )
+            for i in range(3)
+        ]
+        state.validation = ValidationReport(
+            base_passed=True,
+            isa_passed=False,
+            tox_passed=False,
+            required_issues=["missing publisher"],
+        )
+        state.mit_assessment.overall_score = 0.75
+    return AgentEngine(state=state)
 
 
 # ---------------------------------------------------------------------------
@@ -104,12 +154,12 @@ def test_flatten_list_of_plain_strings() -> None:
 
 
 # ---------------------------------------------------------------------------
-# UiSnapshot / snapshot_from_engine
+# snapshot_from_engine — driven over a real engine/state
 # ---------------------------------------------------------------------------
 
 
-def test_snapshot_from_engine_reads_state() -> None:
-    snap = ui.snapshot_from_engine(_fake_engine())
+def test_snapshot_from_engine_reads_real_state() -> None:
+    snap = ui.snapshot_from_engine(_real_engine())
     assert snap.session_id == "sess-1"
     assert snap.entity_count == 3
     assert snap.file_count == 3
@@ -119,17 +169,21 @@ def test_snapshot_from_engine_reads_state() -> None:
     assert snap.required_issue_count == 1
     assert snap.entity_counts == {"Investigation": 1, "Study": 2}
     assert snap.mit_score == 0.75
-    # No profile.ndjson for this fake session → token totals default to zero.
+    # No profile.ndjson for this session → token totals default to zero.
     assert snap.tokens_in == 0
     assert snap.tokens_out == 0
     assert snap.cost_usd is None
 
 
-def test_snapshot_handles_missing_mit_assessment() -> None:
-    engine = _fake_engine()
-    del engine.state.mit_assessment
-    snap = ui.snapshot_from_engine(engine)
-    assert snap.mit_score is None
+def test_snapshot_from_fresh_engine_is_empty() -> None:
+    snap = ui.snapshot_from_engine(_real_engine(populated=False))
+    assert snap.entity_count == 0
+    assert snap.file_count == 0
+    assert snap.entity_counts == {}
+    assert snap.base_passed is False
+    assert snap.required_issue_count == 0
+    # A fresh MITReport scores 0.0 (assessed-but-empty), not None.
+    assert snap.mit_score == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +192,7 @@ def test_snapshot_handles_missing_mit_assessment() -> None:
 
 
 def test_render_status_bar_shows_counts_and_validation() -> None:
-    snap = ui.snapshot_from_engine(_fake_engine())
-    text = _render(ui.render_status_bar(snap))
+    text = _render(ui.render_status_bar(_snapshot()))
     assert "sess-1" in text
     assert "3 entities" in text
     assert "3 files" in text
@@ -149,26 +202,22 @@ def test_render_status_bar_shows_counts_and_validation() -> None:
 
 
 def test_render_status_bar_shows_tokens_when_present() -> None:
-    snap = ui.UiSnapshot(
-        session_id="s",
-        entity_count=0,
-        file_count=0,
-        base_passed=False,
-        isa_passed=False,
-        tox_passed=False,
-        required_issue_count=0,
-        entity_counts={},
-        mit_score=None,
-        tokens_in=100,
-        tokens_out=50,
-        cost_usd=0.0012,
+    text = _render(
+        ui.render_status_bar(_snapshot(tokens_in=100, tokens_out=50, cost_usd=0.0012))
     )
-    text = _render(ui.render_status_bar(snap))
-    assert "100" in text and "50" in text
+    # tok 100→50 (150)@$…
+    assert "100" in text
+    assert "50" in text
+    assert "150" in text
+
+
+def test_render_status_bar_hides_tokens_when_zero() -> None:
+    text = _render(ui.render_status_bar(_snapshot(tokens_in=0, tokens_out=0)))
+    assert "tok" not in text
 
 
 # ---------------------------------------------------------------------------
-# render_reply
+# render_reply — flattens structured content at its real call site (#341)
 # ---------------------------------------------------------------------------
 
 
@@ -179,17 +228,33 @@ def test_render_reply_shows_text_and_marker() -> None:
     assert "●" in text
 
 
+def test_render_reply_flattens_structured_content_no_leak() -> None:
+    content = [
+        {
+            "type": "text",
+            "text": "The next step is the ISA backbone.",
+            "annotations": [],
+            "id": "msg_abc",
+            "phase": "final_answer",
+        }
+    ]
+    text = _render(ui.render_reply(content))
+    assert "ISA backbone" in text
+    assert "annotations" not in text
+    assert "msg_abc" not in text
+
+
 # ---------------------------------------------------------------------------
 # render_resume_summary
 # ---------------------------------------------------------------------------
 
 
-def test_render_resume_summary_shows_session_and_counts() -> None:
-    snap = ui.snapshot_from_engine(_fake_engine())
-    text = _render(ui.render_resume_summary(snap))
+def test_render_resume_summary_shows_session_and_breakdown() -> None:
+    text = _render(ui.render_resume_summary(_snapshot()))
     assert "Resumed Session" in text
     assert "sess-1" in text
     assert "Investigation" in text
+    assert "MIT score" in text
 
 
 # ---------------------------------------------------------------------------
@@ -198,12 +263,15 @@ def test_render_resume_summary_shows_session_and_counts() -> None:
 
 
 def test_render_goodbye_shows_session_and_entities() -> None:
-    text = _render(
-        ui.render_goodbye("sess-9", {"Study": 2}, resumable=True)
-    )
+    text = _render(ui.render_goodbye("sess-9", {"Study": 2}, resumable=True))
     assert "Goodbye" in text
     assert "sess-9" in text
     assert "Study=2" in text
+
+
+def test_render_goodbye_zero_entities_when_empty() -> None:
+    text = _render(ui.render_goodbye("sess-9", {}, resumable=False))
+    assert "0" in text
 
 
 # ---------------------------------------------------------------------------
