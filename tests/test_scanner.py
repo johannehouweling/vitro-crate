@@ -499,8 +499,13 @@ class TestReadFileSampleMode:
         )
         result = read_file_sample(str(f), mode="summary")
         assert result is not None
-        # pdfplumber may parse it and report 0-2 pages, but we should see the format
-        assert "Format: PDF" in result or "PDF" in result
+        # No disjunction (the old `"Format: PDF" in result or "PDF" in result`
+        # collapsed to just "PDF" appearing anywhere). Assert the transform's real
+        # output: the format label AND the page-count line — `_summarize_pdf` emits
+        # both via pdfplumber or the /Type/Page fallback, and the fixture declares
+        # two pages.
+        assert "Format: PDF" in result
+        assert "Pages" in result
 
     def test_summary_docx(self, tmp_path):
         """mode='summary' on a real .docx reports Word format + its real content.
@@ -950,21 +955,38 @@ class TestReducedStats:
         assert fc.first_rows is not None
         assert fc.first_rows[0] == "col1,col2"
 
-    def test_read_file_sample_accepts_precomputed_info(self, tmp_path):
-        """read_file_sample accepts precomputed size and already_text flag to skip syscalls."""
-        csv_file = tmp_path / "data.csv"
-        csv_file.write_text("a,b\n1,2\n")
-        stat_result = csv_file.stat()
+    def test_precomputed_size_is_trusted_for_the_100mb_skip(self, tmp_path):
+        """A caller-supplied ``precomputed_size`` DRIVES the >100MB skip — the file is
+        not re-stat'd. Passing a huge size for a tiny file must make the sampler bail.
 
-        sample = read_file_sample(
-            str(csv_file),
-            lines=5,
-            precomputed_size=stat_result.st_size,
-            already_text=True,
+        (The old test passed ``precomputed_size=actual_size`` + ``already_text=True``,
+        i.e. values that changed nothing observable — it could not detect the kwargs
+        being ignored. These two tests exercise each kwarg with a DIVERGENT value.)
+        """
+        csv_file = tmp_path / "tiny.csv"
+        csv_file.write_text("a,b\n1,2\n")  # a handful of bytes on disk
+
+        # Baseline: with no override the tiny file samples fine.
+        assert read_file_sample(str(csv_file), lines=5) is not None
+        # A 200MB precomputed_size trips the >100MB guard — proving the arg is trusted
+        # over stat().
+        skipped = read_file_sample(
+            str(csv_file), lines=5, precomputed_size=200 * 1024 * 1024
         )
+        assert skipped is None
 
-        assert sample is not None
-        assert "a,b" in sample
+    def test_already_text_bypasses_the_binary_nul_guard(self, tmp_path):
+        """``already_text=True`` trusts the caller that the bytes are text, skipping the
+        NUL-byte binary guard that would otherwise reject the file."""
+        f = tmp_path / "data.csv"
+        f.write_bytes(b"a,b\n1,\x00\n")  # a NUL byte in the first chunk
+
+        # Default: the content-based binary guard rejects the NUL-containing file.
+        assert read_file_sample(str(f), lines=5) is None
+        # already_text=True: the guard is skipped and the content is returned.
+        got = read_file_sample(str(f), lines=5, already_text=True)
+        assert got is not None
+        assert "a,b" in got
 
 
 class TestScientificMimeRegistry:
