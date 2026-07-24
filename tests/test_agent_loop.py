@@ -1468,7 +1468,7 @@ class _LoopHarness:
             harness.stdin_reads.append(line)
             return line
 
-        self.monkeypatch.setattr(agent_loop, "_boxed_input", fake_boxed_input)
+        self.monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
 
         # Count backstop invocations; do not touch disk.
         def fake_backstop(engine, *, emit=None):
@@ -1623,7 +1623,7 @@ class TestTimeoutEndsTurnGracefully:
                 raise EOFError
             return stdin.pop(0)
 
-        monkeypatch.setattr(agent_loop, "_boxed_input", fake_boxed_input)
+        monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
 
         def fake_backstop(engine, *, emit=None):
             backstop_calls["n"] += 1
