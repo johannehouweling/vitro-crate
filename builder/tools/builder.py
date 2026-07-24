@@ -17,6 +17,7 @@ from typing import Any
 from rocrate.model import File
 from rocrate.rocrate import ROCrate
 
+import builder.config as _config
 from builder.state import CrateState
 from builder.tools._crate_mapping import populate_crate
 from profiles.context import ISA_TOX_CONTEXT
@@ -107,7 +108,7 @@ def _default_crate_path(state: CrateState) -> str:
     the session persistence layout described in AGENTS.md.
     """
     session_id = state.session_id or "unknown"
-    return str(Path("sessions") / session_id / "working_crate")
+    return str(_config.session_root() / session_id / "working_crate")
 
 
 def assemble_crate(

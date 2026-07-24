@@ -31,6 +31,17 @@ from pathlib import Path
 from typing import Any
 
 
+def session_root() -> Path:
+    """Return the root directory for per-run session artifacts.
+
+    Defaults to ``Path("sessions")`` (relative to the current working
+    directory). Set the ``VITRO_SESSION_DIR`` environment variable to relocate
+    session working data — the test suite points it at a throwaway tmp dir so
+    runs never litter the repo's ``sessions/`` folder.
+    """
+    return Path(os.environ.get("VITRO_SESSION_DIR", "sessions"))
+
+
 def _config_dir() -> Path:
     """Return the platform-appropriate config directory for vitro-crate.
 

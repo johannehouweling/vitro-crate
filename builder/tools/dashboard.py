@@ -26,7 +26,7 @@ import builder.config as _config
 
 logger = logging.getLogger(__name__)
 
-SESSION_DIR = Path("sessions")
+SESSION_DIR = _config.session_root()
 
 # ---------------------------------------------------------------------------
 # Agent status (▶ / ⏸ / ⏹) — issue #193

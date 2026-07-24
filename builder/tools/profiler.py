@@ -24,14 +24,13 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 import builder.config as _config
 
 logger = logging.getLogger(__name__)
 
-SESSION_DIR = Path("sessions")
+SESSION_DIR = _config.session_root()
 
 
 class ProfilingLogger:

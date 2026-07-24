@@ -50,6 +50,9 @@ class TestOutputLocation:
     def test_falls_back_to_session_default(self, tmp_path, monkeypatch) -> None:
         """With neither arg nor state.metadata.output_path, use the session default."""
         monkeypatch.chdir(tmp_path)
+        # Assert the *default* session root convention (relative "sessions/"),
+        # so clear the test harness's VITRO_SESSION_DIR isolation override.
+        monkeypatch.delenv("VITRO_SESSION_DIR", raising=False)
         state = CrateState()
         state.session_id = "sess-fallback"
         # no output_path set

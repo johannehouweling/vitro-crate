@@ -11,14 +11,13 @@ import json
 import logging
 import os
 import tempfile
-from pathlib import Path
 
 import builder.config as _config
 from builder.state import CrateState
 
 logger = logging.getLogger(__name__)
 
-SESSION_DIR = Path("sessions")
+SESSION_DIR = _config.session_root()
 
 # ---------------------------------------------------------------------------
 # Change-detection: cached content hash of the last saved state so we can
