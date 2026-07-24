@@ -208,8 +208,14 @@ def run_interactive_build(
 
     spinner_ctx = spinner if spinner is not None else nullcontext()
     try:
+        # Shared UI chrome (#344), interactive-only so the headless / eval path
+        # stays byte-identical: the resume summary before the spinner starts, the
+        # one-line status bar after it tears down (so neither is clobbered). Both
+        # render through the SAME builder.agents.ui renderers as the ReAct arm.
+        if interactive:
+            _render_session_banner(engine)
         with spinner_ctx:
-            return _run_build_body(
+            result = _run_build_body(
                 engine,
                 human=human,
                 interactive=interactive,
@@ -218,6 +224,9 @@ def run_interactive_build(
                 guidance_runner=guidance_runner,
                 exporter=exporter,
             )
+        if interactive:
+            _render_final_status(engine)
+        return result
     finally:
         # Restore the prior tool-event hook even if the build raised (#266).
         engine.on_tool_event = prior_tool_event
@@ -284,6 +293,36 @@ def _spinner_emit(base_emit: OutputChannel, spinner: ProgressSpinner | None) -> 
         return base_emit(msg)
 
     return emit
+
+
+def _render_session_banner(engine: AgentEngine) -> None:
+    """On resume, show the shared "Resumed Session" summary before the build (#344).
+
+    Interactive-only, and only when the session already carries entities/files (a
+    resumed build) — a fresh build has nothing to summarise and proceeds straight
+    to the progress lines, mirroring the ReAct arm's session-open. Rendered
+    through the shared ``builder.agents.ui`` so both arms are identical.
+    """
+    from builder.agents import ui
+
+    snap = ui.snapshot_from_engine(engine)
+    if snap.entity_count or snap.file_count:
+        ui.get_console().print(ui.render_resume_summary(snap))
+
+
+def _render_final_status(engine: AgentEngine) -> None:
+    """Print the shared one-line status bar after the build (#344).
+
+    The compact ``session · N entities · N files · ●base ●ISA ●Tox · tokens``
+    posture line the ReAct arm shows, rendered here through the SAME
+    ``builder.agents.ui`` renderer. ``engine.state.validation`` is already
+    authoritative at this point — the pipeline's final ``build_and_validate``
+    runs via ``engine.run_tool``, which folds conformance back into state (#153) —
+    so the dots read real values with no extra sync.
+    """
+    from builder.agents import ui
+
+    ui.get_console().print(ui.render_status_bar(ui.snapshot_from_engine(engine)))
 
 
 def _run_build_body(

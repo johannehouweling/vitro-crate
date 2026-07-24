@@ -1552,6 +1552,7 @@ vitro-crate/
 │   └── agents/                  Orchestration + LLM config
 │       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
 │       ├── llm.py               Shared model construction + usage mining, both modes (#309)
+│       ├── ui.py                Shared interactive UI: status bar, reply, banners, boxed prompt — both modes (#344)
 │       ├── progress_spinner.py  CLI progress UI
 │       ├── pipeline/            Deterministic pipeline mode (--interactive DEFAULT)
 │       │   ├── pipeline.py        Pipeline spine (run_pipeline)

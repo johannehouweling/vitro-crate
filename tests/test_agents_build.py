@@ -821,3 +821,89 @@ class TestProgressSpinner:
         # Sanity: the real pipeline produced a non-trivial crate (not the empty
         # default), so the equality above is a real signal, not two empty hashes.
         assert h1 != crate_graph_hash(CrateState())
+
+
+def _stub_export(state: CrateState) -> dict[str, Any]:
+    """An exporter double that reports success without touching disk."""
+    return {"success": True, "crate_path": "/tmp/vitro-crate-test/ro-crate-metadata.json"}
+
+
+def _rec_console() -> Any:
+    """A recording Rich console that captures printed chrome as plain text."""
+    import io
+
+    from rich.console import Console
+
+    return Console(file=io.StringIO(), record=True, color_system=None, width=100)
+
+
+class TestSharedChrome:
+    """The interactive pipeline renders the shared UI chrome; headless does not (#344).
+
+    Both arms render through ``builder.agents.ui``; here we drive the real
+    ``run_interactive_build`` (pipeline/guidance/exporter stubbed — no SHACL, LLM,
+    or disk) and capture what lands on the shared console.
+    """
+
+    def test_interactive_build_renders_final_status_bar(self, monkeypatch) -> None:
+        from builder.agents import build, ui
+
+        rec = _rec_console()
+        monkeypatch.setattr(ui, "get_console", lambda: rec)
+        engine = _engine(_InteractiveHuman())
+
+        build.run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng, **kw: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            exporter=_stub_export,
+        )
+
+        out = rec.export_text()
+        # The shared one-line status bar: session id, counts, validation labels.
+        assert engine.state.session_id in out
+        assert "entities" in out
+        assert "base" in out and "ISA" in out and "Tox" in out
+
+    def test_headless_build_renders_no_chrome(self, monkeypatch) -> None:
+        from builder.agents import build, ui
+
+        rec = _rec_console()
+        monkeypatch.setattr(ui, "get_console", lambda: rec)
+        engine = _engine(SimulatedHumanInterface())
+
+        build.run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng, **kw: dict(_PIPELINE_RESULT),
+            exporter=_stub_export,
+        )
+
+        # Headless / eval path prints no banner or status bar — the A/B path is
+        # left byte-identical (the chrome is strictly interactive-only).
+        assert rec.export_text() == ""
+
+    def test_interactive_resume_renders_banner(self, monkeypatch) -> None:
+        from builder.agents import build, ui
+        from builder.state import Entity, EntityProvenance
+
+        rec = _rec_console()
+        monkeypatch.setattr(ui, "get_console", lambda: rec)
+        engine = _engine(_InteractiveHuman())
+        # A pre-existing entity marks this as a resume → the summary panel shows.
+        engine.state.add_entity(
+            Entity(
+                entity_id="inv_001",
+                type="Investigation",
+                fields={"title": "I"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+
+        build.run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng, **kw: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            exporter=_stub_export,
+        )
+
+        assert "Resumed Session" in rec.export_text()
