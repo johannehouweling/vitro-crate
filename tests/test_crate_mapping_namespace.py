@@ -110,15 +110,20 @@ class TestMintedIdNamespace:
             root = next(e for e in graph if e.get("@id") == "./")
             assert root.get("additionalType") == "Investigation"
 
-    def test_colliding_ids_get_distinct_type_qualified_nodes(self):
-        """Two entities sharing a bare entity_id (``cell_01``) but of DIFFERENT types are
-        emitted as two distinct, type-qualified @id nodes (``#Sample_cell_01`` vs
-        ``#CellLineSample_cell_01``) — they never collapse into one node.
+    def test_colliding_bare_ids_still_emit_unique_ids(self):
+        """DEFENSIVE regression guard for the type-qualified @id scheme (Issue #57):
+        two CrateState entities that happen to share a bare ``entity_id`` (``cell_01``)
+        across different types still emit as @id-UNIQUE nodes (``#Sample_cell_01`` vs
+        ``#CellLineSample_cell_01``), satisfying RO-Crate 1.2's "the @graph MUST NOT
+        list multiple entities with the same @id" (§Core-Metadata).
 
-        NB: this does NOT test reference *resolution*. The mapper's ``_resolve_many``
-        typed-fragment fallback is order-based, not context-aware, so there is no
-        "correct node for a given reference" to assert (#343); what IS guaranteed — and
-        what this pins — is that colliding ids stay distinct and type-qualified.
+        This is NOT a modelling recommendation, and it does not test reference
+        *resolution* (the mapper's ``_resolve_many`` fallback is order-based, not
+        context-aware). RO-Crate 1.2 in fact discourages the situation this guards: two
+        conceptually-different entities SHOULD NOT share an identifier (§Contextual-
+        entities), and a single entity that is genuinely both a Sample and a
+        CellLineSample should be ONE node with a ``@type`` array — a case this test does
+        not cover (see the follow-up design question in #343 discussion).
         """
         state = CrateState()
         state.metadata.title = "Reference Test"
