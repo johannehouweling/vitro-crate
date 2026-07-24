@@ -110,8 +110,16 @@ class TestMintedIdNamespace:
             root = next(e for e in graph if e.get("@id") == "./")
             assert root.get("additionalType") == "Investigation"
 
-    def test_reference_resolution_across_collision(self):
-        """References to colliding entities resolve to the correct type-qualified node."""
+    def test_colliding_ids_get_distinct_type_qualified_nodes(self):
+        """Two entities sharing a bare entity_id (``cell_01``) but of DIFFERENT types are
+        emitted as two distinct, type-qualified @id nodes (``#Sample_cell_01`` vs
+        ``#CellLineSample_cell_01``) — they never collapse into one node.
+
+        NB: this does NOT test reference *resolution*. The mapper's ``_resolve_many``
+        typed-fragment fallback is order-based, not context-aware, so there is no
+        "correct node for a given reference" to assert (#343); what IS guaranteed — and
+        what this pins — is that colliding ids stay distinct and type-qualified.
+        """
         state = CrateState()
         state.metadata.title = "Reference Test"
 

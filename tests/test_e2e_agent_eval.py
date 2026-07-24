@@ -308,12 +308,18 @@ class TestScoreFloors:
     """A FAIR/MIT score floor on the built crate — guards against silent drops."""
 
     def test_mit_coverage_floor(self, scripted_run):
+        """MIT coverage SCORING over the known scripted crate clears a conservative
+        non-zero floor.
+
+        This guards ``assess_mit_coverage`` (its module scores + overall) over the
+        deterministic scripted state — NOT agent extraction; this file is a
+        scripted-downstream harness (see the module docstring), and the real producer
+        coverage lives in ``tests/test_pipeline_real_input.py`` (#342). A scoring
+        regression that collapses coverage to 0, or stops crediting the General
+        Information module for the backbone fields it fills, fails here.
+        """
         report = scripted_run.engine.run_tool("assess_mit_coverage")
         assert report.module_scores, "MIT report has no module scores"
-        # The scripted crate fills the ISA backbone + key domain fields. Assert a
-        # conservative non-zero floor so a regression that stops drafting key
-        # entities (dropping coverage to 0) fails here. The General Information
-        # module specifically must have completions from the drafted entities.
         assert report.overall_score > 0.0, report.overall_score
         general = report.module_scores.get("General Information", {})
         assert general.get("completed", 0) >= 2, report.module_scores
