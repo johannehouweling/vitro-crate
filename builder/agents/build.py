@@ -41,7 +41,7 @@ from builder.tools.session import save_session
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
     from builder.state import CrateState
-    from builder.tools.hitl import HumanInterface
+    from builder.tools.hitl import HumanInterface, InputResponse
 
 logger = logging.getLogger(__name__)
 
@@ -209,11 +209,16 @@ def run_interactive_build(
     spinner_ctx = spinner if spinner is not None else nullcontext()
     try:
         # Shared UI chrome (#344), interactive-only so the headless / eval path
-        # stays byte-identical: the resume summary before the spinner starts, the
-        # one-line status bar after it tears down (so neither is clobbered). Both
-        # render through the SAME builder.agents.ui renderers as the ReAct arm.
+        # stays byte-identical: the resume summary before the spinner starts, then
+        # the status bar + goodbye after it tears down (so neither is clobbered).
+        # These are the SAME builder.agents.ui.print_* helpers the ReAct arm calls
+        # — one implementation, no per-arm copy. The per-prompt status bar the
+        # ReAct loop shows before every input is added to the guidance tail by
+        # wrapping the human (see _run_build_body / _StatusBarHuman).
+        from builder.agents import ui
+
         if interactive:
-            _render_session_banner(engine)
+            ui.print_resume_summary(engine)
         with spinner_ctx:
             result = _run_build_body(
                 engine,
@@ -225,8 +230,8 @@ def run_interactive_build(
                 exporter=exporter,
             )
         if interactive:
-            _render_final_status(engine)
-            _render_goodbye(engine)
+            ui.print_status_bar(engine)
+            ui.print_goodbye(engine)
         return result
     finally:
         # Restore the prior tool-event hook even if the build raised (#266).
@@ -296,54 +301,32 @@ def _spinner_emit(base_emit: OutputChannel, spinner: ProgressSpinner | None) -> 
     return emit
 
 
-def _render_session_banner(engine: AgentEngine) -> None:
-    """On resume, show the shared "Resumed Session" summary before the build (#344).
+class _StatusBarHuman:
+    """A ``HumanInterface`` proxy that prints the shared status bar before each
+    free-text prompt — the per-turn status line the ReAct loop shows before every
+    input (#344). It calls the SAME ``ui.print_status_bar`` the ReAct loop calls
+    (no per-arm copy); every other attribute delegates to the wrapped interface.
 
-    Interactive-only, and only when the session already carries entities/files (a
-    resumed build) — a fresh build has nothing to summarise and proceeds straight
-    to the progress lines, mirroring the ReAct arm's session-open. Rendered
-    through the shared ``builder.agents.ui`` so both arms are identical.
+    Wrapped around the real interface for the interactive guidance tail only, so a
+    fresh status bar (entities climbing, validation dots flipping green) heads each
+    gap question as the user answers.
     """
-    from builder.agents import ui
 
-    snap = ui.snapshot_from_engine(engine)
-    if snap.entity_count or snap.file_count:
-        ui.get_console().print(ui.render_resume_summary(snap))
+    def __init__(self, inner: HumanInterface, engine: AgentEngine) -> None:
+        self._inner = inner
+        self._engine = engine
 
+    def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
+        from builder.agents import ui
 
-def _render_final_status(engine: AgentEngine) -> None:
-    """Print the shared one-line status bar after the build (#344).
+        ui.print_status_bar(self._engine)
+        return self._inner.request_input(prompt, field_type)
 
-    The compact ``session · N entities · N files · ●base ●ISA ●Tox · tokens``
-    posture line the ReAct arm shows, rendered here through the SAME
-    ``builder.agents.ui`` renderer. ``engine.state.validation`` is already
-    authoritative at this point — the pipeline's final ``build_and_validate``
-    runs via ``engine.run_tool``, which folds conformance back into state (#153) —
-    so the dots read real values with no extra sync.
-    """
-    from builder.agents import ui
-
-    ui.get_console().print(ui.render_status_bar(ui.snapshot_from_engine(engine)))
-
-
-def _render_goodbye(engine: AgentEngine) -> None:
-    """Print the shared goodbye panel after an interactive build (#344).
-
-    The same exit panel the ReAct arm shows — session id, per-type entity
-    breakdown, and the ``--resume`` hint — rendered through the shared
-    ``builder.agents.ui`` renderer so both arms sign off identically.
-    Interactive-only.
-    """
-    from builder.agents import ui
-
-    state = engine.state
-    counts: dict[str, int] = {}
-    for entity in state.list_entities():
-        typ = getattr(entity, "type", "Unknown")
-        counts[typ] = counts.get(typ, 0) + 1
-    ui.get_console().print(
-        ui.render_goodbye(state.session_id, counts, resumable=Path("sessions").is_dir())
-    )
+    def __getattr__(self, name: str) -> Any:
+        # Everything not overridden above (present, is_interactive, is_done, …)
+        # delegates to the wrapped interface. __getattr__ only fires for attributes
+        # missing on the proxy, so _inner/_engine/request_input are unaffected.
+        return getattr(self._inner, name)
 
 
 def _run_build_body(
@@ -392,7 +375,11 @@ def _run_build_body(
 
     guidance_runner = guidance_runner or _default_guidance_runner()
     emit("Resolving gaps…")
-    guidance_result = guidance_runner(engine, human)
+    # Wrap the human so a fresh status bar heads each guidance question — the same
+    # per-prompt status line the ReAct loop shows, via the shared ui helper (#344).
+    # human is non-None on this interactive path (is_interactive(None) is False).
+    prompt_human = _StatusBarHuman(human, engine) if human is not None else human
+    guidance_result = guidance_runner(engine, prompt_human)
 
     emit(format_guidance_summary(guidance_result))
 

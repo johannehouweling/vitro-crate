@@ -1448,14 +1448,6 @@ def run_interactive_agent(
             return
         console.print(ui.render_reply(content))
 
-    def _render_header() -> None:
-        """Print the shared one-line status header before each user prompt.
-
-        Re-rendered each turn (a recurring header rule rather than a pinned
-        bar, which would conflict with ``console.input``/``console.status``).
-        """
-        console.print(ui.render_status_bar(ui.snapshot_from_engine(engine)))
-
     # ── Resume summary vs fresh greeting ────────────────────────────────
     entity_count = len(engine.state.list_entities())
     file_count = len(engine.state.scanned_files)
@@ -1469,8 +1461,7 @@ def run_interactive_agent(
             typ = getattr(e, "type", "Unknown")
             counts[typ] = counts.get(typ, 0) + 1
 
-        console.print(ui.render_resume_summary(ui.snapshot_from_engine(engine)))
-        console.print()
+        ui.print_resume_summary(engine)
 
         # Tell the LLM about the current state so it can give a contextual greeting
         greeting_prompt = (
@@ -1571,23 +1562,6 @@ def run_interactive_agent(
 
     # ── Goodbye helper ──────────────────────────────────────────────────
 
-    def _print_goodbye(state: Any) -> None:
-        """Print the shared goodbye panel with resume instructions."""
-        from pathlib import Path
-
-        session_id = getattr(state, "session_id", None) or engine.state.session_id
-        entities = state.list_entities() if hasattr(state, "list_entities") else []
-        counts: dict[str, int] = {}
-        for e in entities:
-            typ = getattr(e, "type", "Unknown")
-            counts[typ] = counts.get(typ, 0) + 1
-
-        console.print()
-        console.print(
-            ui.render_goodbye(session_id, counts, resumable=Path("sessions").is_dir())
-        )
-        console.print()
-
     def _finalize_on_exit() -> None:
         """Deterministically build + export the crate before the goodbye (#251).
 
@@ -1683,7 +1657,7 @@ def run_interactive_agent(
         try:
             # Compact status header above each prompt (counts live here now,
             # so the prompt line stays clean).
-            _render_header()
+            ui.print_status_bar(engine)
             console.print()
             # Rounded input box (Claude Code style); falls back to a plain
             # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
@@ -1696,12 +1670,12 @@ def run_interactive_agent(
             # Ctrl+D: exit
             console.print()
             _finalize_on_exit()
-            _print_goodbye(engine.state)
+            ui.print_goodbye(engine)
             break
 
         if user_input.lower() in ("quit", "exit", "q"):
             _finalize_on_exit()
-            _print_goodbye(engine.state)
+            ui.print_goodbye(engine)
             break
 
         if not user_input:

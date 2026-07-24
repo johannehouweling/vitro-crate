@@ -98,7 +98,13 @@ class TestInteractiveGating:
         assert pipeline_calls[0] is engine
         assert len(guidance_calls) == 1
         assert guidance_calls[0][0] is engine
-        assert guidance_calls[0][1] is engine.human_interface
+        # Guidance receives the status-bar wrapper around the real interface (#344),
+        # so each gap question is headed by the shared status line.
+        from builder.agents.build import _StatusBarHuman
+
+        passed_human = guidance_calls[0][1]
+        assert isinstance(passed_human, _StatusBarHuman)
+        assert passed_human._inner is engine.human_interface
         assert result["guidance"] == _GUIDANCE_RESULT
 
     def test_simulated_human_skips_guidance(self) -> None:
@@ -926,3 +932,57 @@ class TestSharedChrome:
         # The shared goodbye panel: title + session id (the --resume hint's anchor).
         assert "Goodbye" in out
         assert engine.state.session_id in out
+
+    def test_status_bar_human_renders_before_prompt_and_delegates(self, monkeypatch) -> None:
+        from builder.agents import build, ui
+
+        rec = _rec_console()
+        monkeypatch.setattr(ui, "get_console", lambda: rec)
+        engine = _engine(_InteractiveHuman())
+
+        inner_calls: list[Any] = []
+
+        class _Inner:
+            is_interactive = True
+
+            def request_input(self, prompt, field_type="text"):
+                inner_calls.append((prompt, field_type))
+                return {"value": "x", "skipped": False}
+
+            def present(self, context, options=None, purpose=None):
+                return {"action": "approved", "comments": None, "edits": None}
+
+        wrapped = build._StatusBarHuman(_Inner(), engine)
+        resp = wrapped.request_input("Describe the study", "text")
+
+        # Delegates the read to the inner interface…
+        assert resp == {"value": "x", "skipped": False}
+        assert inner_calls == [("Describe the study", "text")]
+        # …after rendering a status bar (same shared line as the ReAct loop).
+        out = rec.export_text()
+        assert engine.state.session_id in out
+        assert "entities" in out
+        # Everything else passes through to the wrapped interface.
+        assert wrapped.is_interactive is True
+        assert wrapped.present("x")["action"] == "approved"
+
+    def test_interactive_build_wraps_guidance_human(self, monkeypatch) -> None:
+        from builder.agents import build, ui
+
+        monkeypatch.setattr(ui, "get_console", _rec_console)
+        engine = _engine(_InteractiveHuman())
+        seen: dict[str, Any] = {}
+
+        def fake_guidance(eng, human, **kw):
+            seen["human"] = human
+            return dict(_GUIDANCE_RESULT)
+
+        build.run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng, **kw: dict(_PIPELINE_RESULT),
+            guidance_runner=fake_guidance,
+            exporter=_stub_export,
+        )
+        # The guidance tail is handed the status-bar wrapper, so every gap question
+        # is headed by the shared status line.
+        assert isinstance(seen["human"], build._StatusBarHuman)

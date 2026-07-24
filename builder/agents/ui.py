@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console, Group, RenderableType
@@ -323,6 +324,57 @@ def render_goodbye(
         )
 
     return Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow")
+
+
+# ---------------------------------------------------------------------------
+# Print-for-engine helpers — the ONE place "snapshot → render → print to the
+# shared console" lives, so both build arms call the same code instead of each
+# inlining its own copy (#344). The pure render_* above stay unit-testable; these
+# thin impure wrappers are what the ReAct loop and the pipeline both invoke.
+# ---------------------------------------------------------------------------
+
+
+def print_status_bar(engine: AgentEngine) -> None:
+    """Print the one-line status bar for *engine*'s current state (both arms).
+
+    The per-prompt status line the ReAct loop shows before every input and the
+    pipeline shows before every guidance question. ``engine.state.validation`` is
+    authoritative by the time either arm calls this (the pipeline's final
+    ``build_and_validate`` runs via ``engine.run_tool``, whose #153 write-back
+    folds conformance into state), so the base/ISA/Tox dots read real values.
+    """
+    get_console().print(render_status_bar(snapshot_from_engine(engine)))
+
+
+def print_resume_summary(engine: AgentEngine) -> None:
+    """Print the resume summary panel when the session carries prior work (both arms).
+
+    A no-op on a fresh session (no entities, no scanned files) — there is nothing
+    to summarise — so callers need no guard of their own.
+    """
+    snap = snapshot_from_engine(engine)
+    if snap.entity_count or snap.file_count:
+        console = get_console()
+        console.print(render_resume_summary(snap))
+        console.print()
+
+
+def print_goodbye(engine: AgentEngine, *, resumable: bool | None = None) -> None:
+    """Print the goodbye panel for *engine*'s session, with breathing room (both arms).
+
+    Args:
+        engine: The engine whose ``state`` (session id + entity breakdown) is shown.
+        resumable: Whether to include the ``--resume`` hint. Defaults to *None* →
+            shown when a ``sessions/`` directory exists (the check both arms used);
+            pass an explicit bool to override.
+    """
+    if resumable is None:
+        resumable = Path("sessions").is_dir()
+    snap = snapshot_from_engine(engine)
+    console = get_console()
+    console.print()
+    console.print(render_goodbye(snap.session_id, snap.entity_counts, resumable=resumable))
+    console.print()
 
 
 # ---------------------------------------------------------------------------

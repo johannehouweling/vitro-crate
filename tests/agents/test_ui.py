@@ -275,6 +275,48 @@ def test_render_goodbye_zero_entities_when_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
+# print_* helpers — the shared "snapshot → render → print" both arms call
+# ---------------------------------------------------------------------------
+
+
+def _rec() -> Console:
+    """A recording console captured in place of the shared one."""
+    return Console(width=100, file=io.StringIO(), record=True, color_system=None)
+
+
+def test_print_status_bar_prints_for_engine(monkeypatch) -> None:
+    rec = _rec()
+    monkeypatch.setattr(ui, "get_console", lambda: rec)
+    ui.print_status_bar(_real_engine())
+    out = rec.export_text()
+    assert "sess-1" in out
+    assert "entities" in out
+
+
+def test_print_resume_summary_prints_when_populated(monkeypatch) -> None:
+    rec = _rec()
+    monkeypatch.setattr(ui, "get_console", lambda: rec)
+    ui.print_resume_summary(_real_engine())
+    assert "Resumed Session" in rec.export_text()
+
+
+def test_print_resume_summary_is_noop_on_fresh_session(monkeypatch) -> None:
+    rec = _rec()
+    monkeypatch.setattr(ui, "get_console", lambda: rec)
+    ui.print_resume_summary(_real_engine(populated=False))
+    assert rec.export_text() == ""
+
+
+def test_print_goodbye_prints_for_engine(monkeypatch) -> None:
+    rec = _rec()
+    monkeypatch.setattr(ui, "get_console", lambda: rec)
+    ui.print_goodbye(_real_engine(), resumable=False)
+    out = rec.export_text()
+    assert "Goodbye" in out
+    assert "sess-1" in out
+
+
+# ---------------------------------------------------------------------------
 # get_console
 # ---------------------------------------------------------------------------
 
