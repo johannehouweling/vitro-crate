@@ -1,34 +1,28 @@
-"""End-to-end agent-output-quality evaluation harness (Issue #59).
+"""Deterministic build -> validate -> on-disk round-trip harness over a golden crate (Issue #59).
 
-The build/validate layer is well covered, but nothing exercises the *agent
-orchestration* path — whether a realistic file-scan input, driven through a
-sequence of tool calls, yields a complete and correct crate. This test fills
-that gap with a **deterministic, offline, no-LLM** evaluation harness.
+This does NOT exercise the agent/producer path — it hand-scripts the exact
+``engine.run_tool(...)`` sequence for the S-VHPS21 golden fixture (#97) to assemble a
+known-good ``CrateState``, then exercises the **deterministic downstream** that consumes
+it. The scripted state is legitimate *input* to that downstream (the writer, mapper and
+validator take a ``CrateState``); it is NOT a stand-in for extraction:
 
-Instead of invoking a live LLM, we hand-script the exact sequence of
-``engine.run_tool(...)`` calls that an agent *would* make for the S-VHPS21
-study (the fully-specified golden fixture from #97), reusing the same realistic
-values an agent would have inferred from the input folder:
+    scan_files          -> inventory the input directory (via the real guard)
+    draft_* (scripted)  -> assemble the golden ISA backbone + contributors + domain
+                           entities from the #97 spec (no LLM, no inference)
+    build_and_validate  -> in-memory 3-pass SHACL gate
+    build_crate         -> materialise the on-disk RO-Crate
+    validate            -> re-validate the crate read back from disk
+    assess_mit_coverage / assess_fair_maturity -> score floors
 
-    scan_files            -> inventory the input directory (via the real guard)
-    draft_investigation   \
-    draft_study            |  ISA backbone + contributors + domain entities,
-    draft_assay            >  wired by entity_id references
-    draft_person           |  (Investigation -> Study -> Assay -> LabProcess)
-    draft_organization     |
-    draft_cell_line_sample |
-    draft_molecular_entity |
-    draft_process         /
-    build_and_validate    -> in-memory 3-pass SHACL gate (no disk)
-    build_crate           -> materialise the on-disk RO-Crate
-    validate              -> re-validate the crate read back from disk
-    assess_mit_coverage   -> MIT score floor
-    assess_fair_maturity  -> FAIR/DSM score floor
+The assertions are on that downstream: crate completeness & wiring on the built
+``ro-crate-metadata.json`` (required entity types, ``hasPart``/``about`` containment,
+``conformsTo`` placement) plus FAIR/MIT floors — so a regression in the
+build/mapping/validation path fails the suite.
 
-It then asserts crate completeness & wiring on the built ``ro-crate-metadata.json``
-(required entity types, ``hasPart``/``about`` containment, ``conformsTo`` profile
-declaration) and a FAIR/MIT score floor — so an output-quality regression (agent
-stops drafting a key entity, wiring breaks, scores drop) fails the suite.
+The genuine producer coverage — does the real pipeline extract these entities from real
+scanned input? — lives in ``tests/test_pipeline_real_input.py`` (#342). This harness
+deliberately fixes the input so the downstream stays deterministic and offline; it does
+not, and must not be read as, a check that the agent drafts the right entities.
 """
 
 from __future__ import annotations
@@ -188,13 +182,6 @@ class TestScriptedAgentSequenceConformance:
         assert result["ok"] is True, result["issues"]
         assert result["conformance"] == {"base": True, "isa": True, "tox": True}
         assert result["issues"] == []
-
-    def test_required_entity_types_present_in_state(self, scripted_run):
-        state = scripted_run.engine.state
-        assert len(state.list_entities("Investigation")) == 1
-        assert len(state.list_entities("Study")) == 1
-        assert len(state.list_entities("Assay")) == 1
-        assert len(state.list_entities("LabProcess")) >= 1
 
 
 class TestBuiltCrateCompletenessAndWiring:
