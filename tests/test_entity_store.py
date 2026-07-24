@@ -18,6 +18,37 @@ def _entity(entity_id: str, entity_type: EntityType, **fields: Any) -> Entity:
     )
 
 
+class TestCrossTypeIdCollisionWarning:
+    """add_entity warns when a bare entity_id is shared across entity types (#366).
+
+    RO-Crate 1.2 discourages two conceptually-different entities sharing an identifier;
+    the collision usually signals mis-modelling (e.g. one cell-line sample expressed as a
+    separate Sample + CellLineSample rather than a single CellLineSample).
+    """
+
+    def test_warns_on_cross_type_id_collision(self, caplog):
+        import logging
+
+        state = CrateState()
+        state.add_entity(_entity("cell_01", "Sample", name="Plain sample"))
+        with caplog.at_level(logging.WARNING, logger="builder.state"):
+            state.add_entity(_entity("cell_01", "CellLineSample", name="HepG2"))
+
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "shared across types" in msgs, msgs
+        assert "#366" in msgs, msgs
+
+    def test_no_cross_type_warning_for_same_type_reuse(self, caplog):
+        import logging
+
+        state = CrateState()
+        state.add_entity(_entity("s1", "Sample", name="A"))
+        with caplog.at_level(logging.WARNING, logger="builder.state"):
+            # Same id, same type (an update/re-add) must NOT trigger the warning.
+            state.add_entity(_entity("s1", "Sample", name="A updated"))
+        assert "shared across types" not in " ".join(r.getMessage() for r in caplog.records)
+
+
 class TestEntityStore:
     """Focused CRUD tests for EntityStore."""
 

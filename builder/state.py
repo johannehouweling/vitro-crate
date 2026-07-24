@@ -809,7 +809,28 @@ class CrateState:
     # ------------------------------------------------------------------
 
     def add_entity(self, entity: Entity) -> None:
-        """Add an entity to the correct collection based on its type."""
+        """Add an entity to the correct collection based on its type.
+
+        Warns (#366) when a bare ``entity_id`` is shared across DIFFERENT entity types.
+        RO-Crate 1.2 discourages two conceptually-different entities sharing an
+        identifier (§Contextual entities); the mapper still de-collides via
+        type-qualified @ids (#57) so the crate stays @id-unique, but the collision
+        usually signals mis-modelling — e.g. one cell-line sample expressed as a
+        separate ``Sample`` + ``CellLineSample`` rather than a single ``CellLineSample``
+        (which already IS a ``bioschemas:Sample`` discriminated by ``additionalType
+        "CellLine"``; see AGENTS.md D16).
+        """
+        existing = self.entities.get_entity(entity.entity_id)
+        if existing is not None and existing.type != entity.type:
+            logger.warning(
+                "entity_id %r is shared across types (%s + %s). RO-Crate 1.2 discourages "
+                "two conceptually-different entities sharing an identifier; if these are "
+                "the same thing, model it as ONE entity (a CellLineSample already is a "
+                "Sample). See #366.",
+                entity.entity_id,
+                existing.type,
+                entity.type,
+            )
         self.entities.add_entity(entity)
 
     def get_entity(self, entity_id: str) -> Entity | None:
