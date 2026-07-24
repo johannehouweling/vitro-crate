@@ -1,0 +1,1286 @@
+{
+  "accno" : "S-VHPS26",
+  "attributes" : [
+    {
+      "name" : "Template",
+      "value" : "VHP4Safety"
+    },
+    {
+      "name" : "Title",
+      "value" : "Inhibition of OATP1C1-mediated cellular uptake of thyroxine"
+    },
+    {
+      "name" : "DOI",
+      "value" : "10.6019/S-VHPS26"
+    },
+    {
+      "name" : "ReleaseDate",
+      "value" : "2026-03-18"
+    },
+    {
+      "name" : "AttachTo",
+      "value" : "VHP4Safety"
+    }
+  ],
+  "section" : {
+    "type" : "Study",
+    "attributes" : [
+      {
+        "name" : "Title",
+        "value" : "Inhibition of OATP1C1-mediated cellular uptake of thyroxine"
+      },
+      {
+        "name" : "ReleaseDate",
+        "value" : "2026-03-18"
+      },
+      {
+        "name" : "Description",
+        "value" : "A cell based in vitro assay to screen chemicals for their capacity to inhibit thyroxine (T4) uptake by human organic anion transporter polypeptide 1C1 (OATP1C1) using an overexpressing cell model."
+      },
+      {
+        "name" : "Organism",
+        "value" : "Cricetulus griseus (Chinese hamster)",
+        "valqual" : [
+          {
+            "name" : "Ontology",
+            "value" : "NCBITaxon"
+          },
+          {
+            "name" : "TermId",
+            "value" : "NCBITaxon_10029"
+          }
+        ]
+      },
+      {
+        "name" : "Organism",
+        "value" : "Homo sapiens",
+        "valqual" : [
+          {
+            "name" : "Ontology",
+            "value" : "NCBITaxon"
+          },
+          {
+            "name" : "TermId",
+            "value" : "NCBITaxon_9606"
+          }
+        ]
+      },
+      {
+        "name" : "Organ",
+        "value" : "Ovary",
+        "valqual" : [
+          {
+            "name" : "Ontology",
+            "value" : "UBERON"
+          },
+          {
+            "name" : "TermId",
+            "value" : "UBERON_0000062"
+          }
+        ]
+      },
+      {
+        "name" : "Tissue",
+        "value" : "Epithelial ovary cell",
+        "valqual" : [
+          {
+            "name" : "Ontology",
+            "value" : "UBERON"
+          },
+          {
+            "name" : "TermId",
+            "value" : "UBERON_0000479"
+          }
+        ]
+      },
+      {
+        "name" : "Case study",
+        "value" : "Thyroid",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://platform.vhp4safety.nl/casestudies/thyroid"
+          }
+        ]
+      },
+      {
+        "name" : "Regulatory Question",
+        "value" : "reg_q_3b",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://platform.vhp4safety.nl/casestudies/thyroid/Q2"
+          }
+        ]
+      },
+      {
+        "name" : "Process Flow Step",
+        "value" : "Toxicodynamics",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://glossary.vhp4safety.nl/#VHP0000156"
+          }
+        ]
+      },
+      {
+        "name" : "License",
+        "value" : "CC-BY",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://creativecommons.org/licenses/by/4.0/legalcode"
+          }
+        ]
+      },
+      {
+        "name" : "Bioassay",
+        "value" : "CHO-K1 OATP1C1 TH uptake",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://doi.org/10.1007/s00204-024-03787-2"
+          },
+          {
+            "name" : "Ontology",
+            "value" : "BAO"
+          },
+          {
+            "name" : "TermId",
+            "value" : "BAO_0010196"
+          }
+        ]
+      },
+      {
+        "name" : "Bioassay",
+        "value" : "CHO-K1 OATP1C1 cell viability",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://platform.vhp4safety.nl/methods/celltiter_glo_20_assay_for_detection_of_cellular_atp_content"
+          },
+          {
+            "name" : "Ontology",
+            "value" : "BAO"
+          },
+          {
+            "name" : "TermId",
+            "value" : "BAO_0010001"
+          }
+        ]
+      },
+      {
+        "name" : "AOP",
+        "value" : "Decreased thyroid hormone levels in the brain regulated via transport, metabolism and TR activation leading to decreased cognition and motor function",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://aopwiki.org/aops/610"
+          }
+        ]
+      }
+    ],
+    "links" : [
+      {
+        "url" : "https://platform.vhp4safety.nl/casestudies/thyroid",
+        "attributes" : [
+          {
+            "name" : "Description",
+            "value" : "VHP4Safety Case Studies"
+          }
+        ]
+      }
+    ],
+    "subsections" : [
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Fabian Wagenaars"
+          },
+          {
+            "name" : "E-mail",
+            "value" : "F.M.A.Wagenaars@uu.nl"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0000-0003-4766-7358"
+          },
+          {
+            "name" : "Role",
+            "value" : "Corresponding author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o1",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "accno" : "o1",
+        "type" : "organisation",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Universiteit Utrecht"
+          },
+          {
+            "name" : "Country",
+            "value" : "Netherlands"
+          }
+        ]
+      },
+      {
+        "type" : "Funding",
+        "attributes" : [
+          {
+            "name" : "Agency",
+            "value" : "EU Horizon 2020"
+          },
+          {
+            "name" : "Grant_id",
+            "value" : "825161"
+          }
+        ]
+      },
+      {
+        "type" : "Biological model information",
+        "attributes" : [
+          {
+            "name" : "Cell line",
+            "value" : "CHO-K1"
+          },
+          {
+            "name" : "RRID",
+            "value" : "CVCL_0214",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://www.cellosaurus.org/CVCL_0214"
+              }
+            ]
+          },
+          {
+            "name" : "Cell type",
+            "value" : "Immortal female gonad-derived cell",
+            "valqual" : [
+              {
+                "name" : "Ontology",
+                "value" : "CLO"
+              },
+              {
+                "name" : "TermId",
+                "value" : "CLO_0000243"
+              }
+            ]
+          },
+          {
+            "name" : "Supplier",
+            "value" : "ECACC"
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Cell line preparation",
+              "attributes" : [
+                {
+                  "name" : "Preparation type",
+                  "value" : "Stable transfection",
+                  "valqual" : [
+                    {
+                      "name" : "Ontology",
+                      "value" : "BAO"
+                    },
+                    {
+                      "name" : "TermId",
+                      "value" : "BAO_0000246"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Cell name",
+                  "value" : "CHO-K1 OATP1C1"
+                },
+                {
+                  "name" : "Description",
+                  "value" : "Stable transfection of Chinese hamster ovary (CHO-K1) cells with a pCRII-TOPO vector containing a 3.1 kb fragment encoding for human OATP1C1."
+                },
+                {
+                  "name" : "Reference",
+                  "value" : "https://doi.org/10.1210/me.2001-0309",
+                  "valqual" : [
+                    {
+                      "name" : "URL",
+                      "value" : "https://doi.org/10.1210/me.2001-0309"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Silychristin A"
+          },
+          {
+            "name" : "CAS",
+            "value" : "33889-69-9"
+          },
+          {
+            "name" : "CID",
+            "value" : "441764",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/441764"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q1881",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q1881"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Lesinurad"
+          },
+          {
+            "name" : "CAS",
+            "value" : "878672-00-5"
+          },
+          {
+            "name" : "CID",
+            "value" : "53465279",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/53465279"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q1880",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q1880"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Indocyanine green"
+          },
+          {
+            "name" : "CAS",
+            "value" : "3599-32-4"
+          },
+          {
+            "name" : "CID",
+            "value" : "19190",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/19190"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q5156",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q5156"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Verapamil Hydrochloride"
+          },
+          {
+            "name" : "CAS",
+            "value" : "152-11-4"
+          },
+          {
+            "name" : "CID",
+            "value" : "62969",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/62969"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q5157",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q5157"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Diclofenac sodium"
+          },
+          {
+            "name" : "CAS",
+            "value" : "15307-79-6"
+          },
+          {
+            "name" : "CID",
+            "value" : "5018304",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/5018304"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q5160",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q5160"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Probenecid"
+          },
+          {
+            "name" : "CAS",
+            "value" : "57-66-9"
+          },
+          {
+            "name" : "CID",
+            "value" : "4911",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/4911"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q5161",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q5161"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Sulfobromophthalein sodium"
+          },
+          {
+            "name" : "CAS",
+            "value" : "71-67-0"
+          },
+          {
+            "name" : "CID",
+            "value" : "138397684",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/138397684"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4750",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4750"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Bisphenol-S"
+          },
+          {
+            "name" : "CAS",
+            "value" : "80-09-1"
+          },
+          {
+            "name" : "CID",
+            "value" : "6626",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/6626"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q81",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q81"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Bisphenol-Z"
+          },
+          {
+            "name" : "CAS",
+            "value" : "843-55-0"
+          },
+          {
+            "name" : "CID",
+            "value" : "232446",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/232446"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q96",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q96"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Bisphenol AF"
+          },
+          {
+            "name" : "CAS",
+            "value" : "1478-61-1"
+          },
+          {
+            "name" : "CID",
+            "value" : "73864",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/73864"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q89",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q89"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Bisphenol-F"
+          },
+          {
+            "name" : "CAS",
+            "value" : "620-92-8"
+          },
+          {
+            "name" : "CID",
+            "value" : "12111",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/12111"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q90",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q90"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Sulforhodamine 101"
+          },
+          {
+            "name" : "CAS",
+            "value" : "60311-02-6"
+          },
+          {
+            "name" : "CID",
+            "value" : "122180",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/122180"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Pentachlorophenol"
+          },
+          {
+            "name" : "CAS",
+            "value" : "87-86-5"
+          },
+          {
+            "name" : "CID",
+            "value" : "992",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/992"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4788",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4788"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Tetrabromobisphenol-A"
+          },
+          {
+            "name" : "CAS",
+            "value" : "79-94-7"
+          },
+          {
+            "name" : "CID",
+            "value" : "6618",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/6618"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q82",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q82"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Bisphenol-A"
+          },
+          {
+            "name" : "CAS",
+            "value" : "80-05-7"
+          },
+          {
+            "name" : "CID",
+            "value" : "6623",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/6623"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q80",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q80"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Perfluorooctanesulfonic acid"
+          },
+          {
+            "name" : "CAS",
+            "value" : "1763-23-1"
+          },
+          {
+            "name" : "CID",
+            "value" : "74483",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/74483"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q2373",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q2373"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Perfluorooctanoic acid"
+          },
+          {
+            "name" : "CAS",
+            "value" : "335-67-1"
+          },
+          {
+            "name" : "CID",
+            "value" : "9554",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/9554"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q2368",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q2368"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Quercetin"
+          },
+          {
+            "name" : "CAS",
+            "value" : "117-39-5"
+          },
+          {
+            "name" : "CID",
+            "value" : "5280343",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/5280343"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q5162",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q5162"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Rifampicin"
+          },
+          {
+            "name" : "CAS",
+            "value" : "13292-46-1"
+          },
+          {
+            "name" : "CID",
+            "value" : "135398735",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/135398735"
+              }
+            ]
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q37",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q37"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Triclosan"
+          },
+          {
+            "name" : "CAS",
+            "value" : "3380-34-5"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4790",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4790"
+              }
+            ]
+          },
+          {
+            "name" : "CID",
+            "value" : "5564",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/5564"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "DMSO"
+          },
+          {
+            "name" : "CID",
+            "value" : "679",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/679"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "67-68-5"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q5143",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q5143"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Exposure information",
+        "attributes" : [
+          {
+            "name" : "Exposure type",
+            "value" : "single"
+          },
+          {
+            "name" : "Exposure duration",
+            "value" : "30",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "minutes"
+              }
+            ]
+          },
+          {
+            "name" : "Exposure-measurement interval",
+            "value" : "0",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "minutes"
+              }
+            ]
+          },
+          {
+            "name" : "Exposure concentration",
+            "value" : "0.003–100",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "µM"
+              }
+            ]
+          },
+          {
+            "name" : "Bioassay",
+            "value" : "CHO-K1 OATP1C1 TH uptake"
+          },
+          {
+            "name" : "Bioassay",
+            "value" : "CHO-K1 OATP1C1 cell viability"
+          }
+        ]
+      },
+      {
+        "type" : "Endpoint readout information",
+        "attributes" : [
+          {
+            "name" : "Bioassay",
+            "value" : "CHO-K1 OATP1C1 TH uptake",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://doi.org/10.1007/s00204-024-03787-2"
+              }
+            ]
+          },
+          {
+            "name" : "AOP event",
+            "value" : "Inhibition, organic anion-transporting polypeptide 1C1 (OATP1C1)",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://aopwiki.org/events/2376"
+              }
+            ]
+          },
+          {
+            "name" : "Description",
+            "value" : "A cell based in vitro assay to screen chemicals for their capacity to inhibit thyroxine (T4) uptake by human organic anion transporter polypeptide 1C1 (OATP1C1) using an overexpressing cell model."
+          },
+          {
+            "name" : "Replicates",
+            "value" : "3-4"
+          },
+          {
+            "name" : "Technical replicates",
+            "value" : "3"
+          },
+          {
+            "name" : "Measured entity",
+            "value" : "Radioactivity",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "counts per minute"
+              }
+            ]
+          },
+          {
+            "name" : "Endpoint readout",
+            "value" : "T4 uptake",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "percentage of total T3 uptake"
+              }
+            ]
+          },
+          {
+            "name" : "Positive control",
+            "value" : "Indocyanine green",
+            "valqual" : [
+              {
+                "name" : "Concentration",
+                "value" : "100",
+                "valqual" : [
+                  {
+                    "name" : "Unit",
+                    "value" : "µM"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "Wizard2 gamma counter"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "Perkin Elmer"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type" : "Substrate",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "Thyroxine (T4)"
+                },
+                {
+                  "name" : "CAS",
+                  "value" : "51-48-9"
+                },
+                {
+                  "name" : "Concentration",
+                  "value" : "10",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "nM"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Radiolabel",
+                  "value" : "125I"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type" : "Endpoint readout information",
+        "attributes" : [
+          {
+            "name" : "Bioassay",
+            "value" : "CHO-K1 OATP1C1 cell viability"
+          },
+          {
+            "name" : "Description",
+            "value" : "Parallel cytotoxicity control: intracellular ATP quantified with the CellTiter-Glo luminescent assay to verify that reduced T4 uptake is not caused by cytotoxicity. An uptake BMC20 is reported as OATP1C1-specific only if it lies below the viability BMC10."
+          },
+          {
+            "name" : "Replicates",
+            "value" : "2"
+          },
+          {
+            "name" : "Technical replicates",
+            "value" : "3"
+          },
+          {
+            "name" : "Measured entity",
+            "value" : "Luminescence",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "RLU"
+              }
+            ]
+          },
+          {
+            "name" : "Endpoint readout",
+            "value" : "Cell viability (ATP)",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "BMC10"
+              }
+            ]
+          },
+          {
+            "name" : "Positive control",
+            "value" : "DMSO",
+            "valqual" : [
+              {
+                "name" : "Concentration",
+                "value" : "10",
+                "valqual" : [
+                  {
+                    "name" : "Unit",
+                    "value" : "mM"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "Cytation 5"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "BioTek"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "accno" : "publ-0-s26-removable",
+        "type" : "Publication",
+        "attributes" : [
+          {
+            "name" : "Authors",
+            "value" : "Wagenaars F, Cenijn P, Chen Z, Meima M, Scholze M, Hamers T."
+          },
+          {
+            "name" : "Title",
+            "value" : "Two novel in vitro assays to screen chemicals for their capacity to inhibit thyroid hormone transmembrane transporter proteins OATP1C1 and OAT4."
+          },
+          {
+            "name" : "Year",
+            "value" : "2024"
+          },
+          {
+            "name" : "Volume",
+            "value" : "98"
+          },
+          {
+            "name" : "Type",
+            "value" : "journal article"
+          },
+          {
+            "name" : "Issn",
+            "value" : "0340-5761; 1432-0738"
+          },
+          {
+            "name" : "DOI",
+            "value" : "10.1007/s00204-024-03787-2"
+          }
+        ]
+      }
+    ]
+  },
+  "type" : "submission"
+}

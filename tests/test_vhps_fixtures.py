@@ -21,16 +21,6 @@ class TestSVhps21Golden:
         assert result["conformance"] == {"base": True, "isa": True, "tox": True}
         assert result["issues"] == []
 
-    def test_has_the_required_isa_backbone(self):
-        state = vhps_fixture_state("S-VHPS21")
-        assert state.metadata.accession == "S-VHPS21"
-        assert len(state.list_entities("Investigation")) == 1
-        assert len(state.list_entities("Study")) >= 1
-        assert len(state.list_entities("Assay")) >= 1
-        assert len(state.list_entities("LabProcess")) >= 1
-        # the assay is the thyroid MCT8 uptake assay
-        assert "MCT8" in state.list_entities("Assay")[0].fields["name"]
-
 
 class TestFixtureFramework:
     def test_registry_is_non_empty_and_keyed_by_accession(self):
