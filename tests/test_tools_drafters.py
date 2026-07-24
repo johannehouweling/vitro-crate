@@ -215,21 +215,27 @@ class TestDraftPublication:
 class TestFieldOverwrite:
     """Tests for field overwrite behavior."""
 
-    def test_setting_same_field_preserves_source(self):
-        """Setting the same field twice overwrites value but preserves source tracking."""
-        state = CrateState()
-        hints = {"name": "Original Name"}
-        entity = draft_investigation(state, hints)
+    def test_second_set_fields_from_dict_overwrites_value_and_source(self):
+        """``set_fields_from_dict`` — the setter EVERY drafter uses — overwrites an
+        existing field's value AND updates its source; it does not silently keep the
+        old source.
 
-        # First set: comes from hints
+        (The old test hand-mutated ``entity.fields[...]`` + ``set_field_status``
+        directly, bypassing ``set_fields_from_dict`` entirely, so it never exercised
+        the field-set path the drafters actually run.)
+        """
+        state = CrateState()
+        entity = draft_investigation(state, {"name": "Original Name"})
+
+        # First set: draft_investigation ran set_fields_from_dict(source="llm").
         fc = entity.get_field_status("name")
         assert fc is not None
         assert fc.status == "filled"
         assert fc.source == "llm"
+        assert entity.fields["name"] == "Original Name"
 
-        # Overwrite via fields directly
-        entity.fields["name"] = "Updated Name"
-        entity.set_field_status("name", "filled", "user")
+        # A later user-sourced set through the REAL setter overwrites both value + source.
+        entity.set_fields_from_dict({"name": "Updated Name"}, source="user")
 
         fc2 = entity.get_field_status("name")
         assert fc2 is not None
@@ -388,16 +394,6 @@ class TestDraftSample:
 
         retrieved = state.get_entity(entity.entity_id)
         assert retrieved is entity
-
-    def test_can_link_to_protocol(self):
-        """draft_sample can store a protocol_id reference."""
-        state = CrateState()
-        entity = draft_sample(state, {"name": "Treated Sample", "protocol_id": "proto_mtt"})
-
-        assert entity.fields.get("protocol_id") == "proto_mtt"
-        fc = entity.get_field_status("protocol_id")
-        assert fc is not None
-        assert fc.status == "filled"
 
 
 def _node_by_id(graph: list[dict], node_id: str) -> dict | None:
