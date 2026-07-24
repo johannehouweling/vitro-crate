@@ -7,7 +7,6 @@ Returns enriched citation metadata for a given DOI.
 from __future__ import annotations
 
 import functools
-import time
 from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
@@ -39,7 +38,6 @@ def lookup_doi(doi: str) -> dict:
 
     doi_url = f"https://doi.org/{doi}"
     try:
-        time.sleep(0.1)
         # A DOI's "/" is structural (e.g. "10.1016/j.tox..."), so keep slashes
         # but percent-encode spaces, "#", "?", "&", etc. so a malformed value
         # can't inject extra query params into the Crossref request (Issue #170).
@@ -121,7 +119,6 @@ def search_works_by_title(title: str, rows: int = 5) -> tuple[dict, ...]:
     if not query:
         return ()
     try:
-        time.sleep(0.1)
         data = http_get_json(
             _BASE,
             params={

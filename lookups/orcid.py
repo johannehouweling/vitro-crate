@@ -8,7 +8,6 @@ No authentication required (uses the public ORCID API).
 from __future__ import annotations
 
 import functools
-import time
 from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
@@ -34,7 +33,6 @@ def lookup_orcid(orcid_id: str) -> dict:
     """
     orcid_url = f"https://orcid.org/{orcid_id}"
     try:
-        time.sleep(0.1)
         # Percent-encode the caller-supplied iD for the request path so a "/" or
         # ".." cannot escape the /record path or inject query params (Issue #170).
         data = http_get_json(f"{_BASE}/{quote(orcid_id, safe='')}/record", headers=_HEADERS)
@@ -109,7 +107,6 @@ def _search_orcid_by_name(
     query = " AND ".join(terms)
 
     try:
-        time.sleep(0.1)
         data = http_get_json(
             f"{_BASE}/expanded-search/",
             params={"q": query, "rows": "10"},

@@ -812,3 +812,67 @@ class TestLookupCompoundChebiFallback:
         result = lookup_compound("TotallyMadeUpXYZ")
         assert result["found"] is False
         assert isinstance(result["error"], str)
+
+
+class TestNoRedundantSleeps:
+    """Issue #359: the central per-host limiter (``lookups/_http.py``
+    ``_HostRateLimiter``) is the ONLY throttle. The residual
+    ``time.sleep(0.05/0.1/0.2)`` calls in the facade and the raw clients are
+    removed so spacing is applied once, centrally, not three times over.
+    """
+
+    def test_facade_lookup_does_not_sleep(self, monkeypatch):
+        """A facade lookup must not ``time.sleep`` around its raw client."""
+        import time
+
+        from builder.tools import lookups as facade
+
+        calls: list[float] = []
+        monkeypatch.setattr(time, "sleep", lambda s: calls.append(s))
+        monkeypatch.setattr(
+            facade,
+            "search_ror",
+            lambda name: {"@id": "https://ror.org/02jz4aj89", "name": name},
+        )
+        facade.lookup_ror.cache_clear()
+        facade.lookup_ror("Maastricht University")
+        assert calls == []
+
+    def test_raw_client_does_not_sleep(self, monkeypatch):
+        """A raw client must not ``time.sleep`` around its HTTP call — the limiter
+        inside ``http_get_json`` handles per-host spacing."""
+        import time
+
+        from lookups import ror
+
+        calls: list[float] = []
+        monkeypatch.setattr(time, "sleep", lambda s: calls.append(s))
+        monkeypatch.setattr(
+            ror,
+            "http_get_json",
+            lambda url, params=None: {
+                "items": [{"id": "https://ror.org/02jz4aj89", "name": "X", "links": []}]
+            },
+        )
+        ror.search_ror.cache_clear()
+        ror.search_ror("some org")
+        assert calls == []
+
+    def test_no_direct_time_sleep_outside_the_limiter(self):
+        """No lookup module nor the facade calls ``time.sleep`` directly; it lives
+        only in the central ``_HostRateLimiter`` (``lookups/_http.py``)."""
+        import pathlib
+
+        import builder.tools.lookups as facade
+        import lookups
+
+        files = [
+            p
+            for p in pathlib.Path(lookups.__file__).parent.glob("*.py")
+            if p.name != "_http.py"
+        ]
+        files.append(pathlib.Path(facade.__file__))
+        offenders = sorted(p.name for p in files if "time.sleep" in p.read_text())
+        assert offenders == [], (
+            f"time.sleep must live only in _HostRateLimiter, found in: {offenders}"
+        )

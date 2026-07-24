@@ -12,7 +12,6 @@ those resolvable IRIs rather than discarding them: the values come back as
 from __future__ import annotations
 
 import functools
-import time
 from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
@@ -46,7 +45,6 @@ def lookup_cellosaurus(accession: str) -> dict:
         Returns {} on failure so callers can spread safely.
     """
     try:
-        time.sleep(0.1)
         # Percent-encode the caller-supplied accession so a value containing a
         # "/" or ".." cannot break out of the cell-line path or inject query
         # params (Issue #170). ``safe=""`` encodes every reserved char.
@@ -193,7 +191,6 @@ def search_cellosaurus(name: str, rows: int = 10) -> tuple[dict, ...]:
     if not query:
         return ()
     try:
-        time.sleep(0.1)
         # Match the name against the cell line's identifier and synonyms. The
         # Solr field ``idsy`` covers both; quote the value so a name containing a
         # space or reserved char cannot break the query syntax.
