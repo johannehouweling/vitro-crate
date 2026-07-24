@@ -1,0 +1,51 @@
+name: Mutation testing
+
+# Mutation testing is the objective "would this test actually catch a regression"
+# signal — line coverage does not measure it. It is slow, so it is kept OFF the PR
+# merge path: it runs weekly + on demand and is INFORMATIONAL (never blocks a
+# merge). Scope (which modules are mutated, which tests run) lives in
+# [tool.mutmut] in pyproject.toml. Promote to a required gate once a baseline
+# mutation score is established (see #346).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  mutmut:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
+
+      - name: Install dependencies
+        run: uv sync --dev --extra langchain
+
+      - name: Run mutation testing
+        # Surviving mutants are a signal to act on, not a merge blocker (yet), so
+        # this step never fails the job.
+        run: uv run mutmut run || true
+
+      - name: Mutation results to job summary
+        if: always()
+        run: |
+          {
+            echo '## Mutation testing results'
+            echo '```'
+            uv run mutmut results || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -34,10 +34,43 @@ This project uses **test-driven development (TDD)**. Write the test before the i
 
 **TDD workflow:**
 1. Write a failing test that describes the expected behavior
-2. Confirm it fails (`uv run pytest`)
+2. Confirm it fails — **for the right reason** (because the behavior is missing, not
+   because a fixture value you haven't set yet is absent)
 3. Write the minimal implementation to pass
 4. Confirm it passes
 5. Refactor if needed
+
+### Writing tests that actually test
+
+A test must be able to fail *because the code under test is broken*. If deleting the
+function under test leaves the test green, it isn't testing that function. The
+recurring anti-pattern in this repo (see #343) is the **tautological test**: it
+hand-builds the expected `CrateState` (or hard-codes values from the golden spec) and
+asserts them back, bypassing the producer entirely. Guard against it:
+
+- **Drive the real entry point over real/recorded input** — for build-path coverage,
+  scan a real fixture and run `run_pipeline` (see `tests/test_pipeline_real_input.py`),
+  don't assert back a hand-built state. Prefer real recorded fixtures over hand-built
+  intermediate state.
+- **Avoid mocks; test observable state at the public entry point.** When you must
+  stand in for a non-deterministic seam (LLM/network), gate the stub on **content-only
+  tokens** from the real input so a scan/extraction regression still reddens the test.
+- **Oracle from the spec, not observed behavior.** Don't read expected values off the
+  current implementation — a test written against buggy code just ratifies the bug.
+
+Three mechanisms enforce this:
+
+- **Read-only tests** — a `PreToolUse` hook (`.claude/hooks/guard-test-edits.py`, wired
+  in `.claude/settings.json`) blocks agent edits to `tests/` so a test is never silently
+  weakened to make code pass. Authoring/updating tests is a deliberate act: set
+  `CLAUDE_ALLOW_TEST_EDITS=1`.
+- **Mutation testing** — the objective "would this catch a regression" signal (coverage
+  does not measure it). Run locally with `uv run mutmut run` then `uv run mutmut results`;
+  CI runs it weekly + on demand (`.github/workflows/mutation.yml`, informational). Scope
+  is in `[tool.mutmut]` in `pyproject.toml` — seeded on one fast module; expand
+  `source_paths` to the producer modules as the budget allows (#346).
+- **Review lens** — the `Claude Code Review` workflow flags assert-back, bypasses-producer,
+  over-mock, and name-claims-more-than-body smells on every PR.
 
 ## CI
 
