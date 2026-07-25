@@ -776,6 +776,129 @@ class TestTrimHistory:
         )
         assert self._no_orphans(trimmed)
 
+    # ---- #376: pruning must not destroy a reader result the model has not read ----
+
+    @staticmethod
+    def _fixture_body() -> str:
+        """A real reader result over a committed fixture (no synthetic blob).
+
+        Using the real `read_file_sample` over real bytes means a regression in
+        the reader, the fixture, or the assembler all redden these tests.
+        """
+        from builder.tools.scanner import read_file_sample
+
+        body = read_file_sample("tests/fixtures/svhps22_input/README.md", lines=50)
+        assert isinstance(body, str) and body.strip(), "fixture must be readable"
+        return body
+
+    def test_fresh_reader_output_survives_assembly(self):
+        """A reader result the model has NOT answered yet must reach the model.
+
+        `read_file_sample` persists nothing to CrateState, and the graph edge is
+        tools -> model, so pruning it on the very next hop destroys the body
+        before any model has seen it — then tells the model it is stored and not
+        to re-run. Both claims are false (#376).
+        """
+        from langchain_core.messages import HumanMessage, ToolMessage
+
+        from builder.agents.react.agent_loop import (
+            _PRUNE_CONTENT_THRESHOLD,
+            _assemble_model_messages,
+        )
+
+        body = self._fixture_body()
+        # Honesty control: prove this fixture actually exercises the prune branch.
+        assert len(body) > _PRUNE_CONTENT_THRESHOLD, (
+            "fixture is below the prune threshold, so this test would pass vacuously"
+        )
+        cid = "read_1"
+        history = [
+            HumanMessage(content="build the crate"),
+            self._ai_tool_call("reading", cid, name="read_file_sample"),
+            ToolMessage(content=body, tool_call_id=cid, name="read_file_sample"),
+        ]
+
+        assembled = _assemble_model_messages(
+            history, session_id="s", entity_count=0, file_count=3, iteration_count=1
+        )
+
+        # A distinctive line taken from the body at RUNTIME, never hardcoded.
+        marker = max(body.splitlines(), key=len).strip()
+        assert marker, "fixture must have a non-empty longest line"
+        blob = "\n".join(str(m.content) for m in assembled)
+        assert marker in blob, (
+            "the model must actually see the file text it just asked for; "
+            f"missing marker {marker[:60]!r}"
+        )
+
+    def test_consumed_reader_output_is_pruned(self):
+        """Anti-regression for #61: once answered, the body is still stubbed.
+
+        Without this, #376 could be 'fixed' by disabling pruning outright.
+        """
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+        from builder.agents.react.agent_loop import _trim_history
+
+        body = self._fixture_body()
+        cid = "read_1"
+        history = [
+            HumanMessage(content="build the crate"),
+            self._ai_tool_call("reading", cid, name="read_file_sample"),
+            ToolMessage(content=body, tool_call_id=cid, name="read_file_sample"),
+            AIMessage(content="The protocol is a resazurin viability readout."),
+        ]
+
+        trimmed = _trim_history(history, max_tokens=100_000)
+
+        reader = [
+            m for m in trimmed if isinstance(m, ToolMessage) and m.tool_call_id == cid
+        ]
+        assert reader, "the ToolMessage must be retained so pairing is preserved"
+        assert len(str(reader[0].content)) < len(body)
+        assert self._no_orphans(trimmed)
+
+    def test_reader_prune_stub_is_truthful(self):
+        """The stub must not claim a reader body is recoverable from CrateState.
+
+        Nothing in CrateState stores a file body, and re-reading is the only
+        recovery path — so 'stored in the session state' and 'Do not re-run' are
+        both false for the readers, while they remain TRUE for `scan_files`.
+        """
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+        from builder.agents.react.agent_loop import _trim_history
+
+        body = self._fixture_body()
+        big_listing = "\n".join(f"file_{i}.csv\t1234\ttext/csv" for i in range(500))
+        read_cid, scan_cid = "read_1", "scan_1"
+        history = [
+            HumanMessage(content="build the crate"),
+            self._ai_tool_call("scanning", scan_cid, name="scan_files"),
+            ToolMessage(content=big_listing, tool_call_id=scan_cid, name="scan_files"),
+            self._ai_tool_call("reading", read_cid, name="read_file_sample"),
+            ToolMessage(content=body, tool_call_id=read_cid, name="read_file_sample"),
+            AIMessage(content="done reading"),
+        ]
+
+        trimmed = _trim_history(history, max_tokens=100_000)
+        by_id = {
+            m.tool_call_id: str(m.content)
+            for m in trimmed
+            if isinstance(m, ToolMessage)
+        }
+
+        reader_stub = by_id[read_cid]
+        assert "CrateState" not in reader_stub
+        assert "Do not re-run" not in reader_stub
+        assert "read_file" in reader_stub, "the stub must point at a real recovery path"
+
+        # Honesty control: the scan stub is truthful and must keep its wording,
+        # so this asserts by tool CLASS rather than blanket-matching any string.
+        scan_stub = by_id[scan_cid]
+        assert "CrateState" in scan_stub
+        assert "list_scanned_files" in scan_stub
+
     def test_no_orphan_tool_message_when_history_ends_mid_pair(self):
         """A history ending mid tool-call pair (AI tool_call with no ToolMessage
         yet) must NOT produce an orphaned ToolMessage at the head, nor strand a

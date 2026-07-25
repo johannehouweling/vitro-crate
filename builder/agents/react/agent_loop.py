@@ -931,56 +931,94 @@ def _build_system_prompt_with_state(
     return brief
 
 
-# Tool names whose verbose output already lives in CrateState, so replaying it
-# verbatim in the transcript is pure waste once the model has consumed it. The
-# scan inventory is the canonical example — the full listing is stored in
-# CrateState.scanned_files, queryable via list_scanned_files (Issue #61, #172).
-_STATE_BACKED_TOOLS = frozenset({"scan_files", "read_file_sample", "read_multiple_files"})
+# Tool names whose verbose output really IS recoverable from CrateState, so
+# replaying it verbatim in the transcript is pure waste once the model has
+# consumed it: the full scan listing lives in CrateState.scanned_files and is
+# queryable via list_scanned_files (Issue #61, #172).
+_STATE_BACKED_TOOLS = frozenset({"scan_files"})
+
+# Reader tools whose output is ALSO worth pruning once consumed, but which store
+# nothing (`read_file_sample` / `read_multiple_files` return a plain string/dict
+# and persist nothing — CrateState has no body store). Their stub must therefore
+# never claim the text is retrievable from state, and must not tell the model not
+# to re-run: re-reading is the only recovery path (#376).
+_REPLAYABLE_READER_TOOLS = frozenset({"read_file_sample", "read_multiple_files"})
+
+_PRUNABLE_TOOLS = _STATE_BACKED_TOOLS | _REPLAYABLE_READER_TOOLS
 
 # Above this length (chars), a consumed state-backed tool output is pruned to a
 # stub. Kept modest so small/already-summarized outputs pass through untouched.
 _PRUNE_CONTENT_THRESHOLD = 500
 
 
-def _prune_state_backed_outputs(messages: list) -> list:
-    """Replace verbose, already-consumed state-backed tool outputs with a stub.
+def _prune_stub(name: str) -> str:
+    """The replacement text for a pruned tool output, truthful per tool class.
 
-    A ``ToolMessage`` whose ``name`` is in ``_STATE_BACKED_TOOLS`` (scan/read
-    listings) carries data that is already persisted in ``CrateState``; once the
-    model has seen it there is no value in replaying the raw blob every turn. We
-    keep the message (so the AI tool_call → ToolMessage pairing is never broken)
-    but shrink its content to a short stub. Pairing-preservation is why we
-    *rewrite* rather than *drop* — dropping a ToolMessage would orphan its
-    preceding AI tool_call.
+    ``scan_files``' inventory really is in ``CrateState`` and really is queryable
+    (``list_scanned_files``), so its stub says so — AGENTS.md §5 documents that
+    contract. A reader's body is stored **nowhere**, so its stub must not claim
+    otherwise and must not forbid re-running: re-reading is the only way back to
+    the text, and ``read_file`` returns it in full up to its 64 KiB budget (#376).
+    """
+    if name in _STATE_BACKED_TOOLS:
+        return (
+            f"[{name} output pruned from history to save tokens — the full "
+            f"result is stored in the session state (CrateState). Call "
+            f"list_scanned_files to retrieve the full file inventory "
+            f"(paginated/filterable). Do not re-run {name}.]"
+        )
+    return (
+        f"[{name} output pruned from history to save tokens. It is NOT stored in "
+        f"the session state — if you still need this file's text, read it again "
+        f"with read_file(path).]"
+    )
+
+
+def _prune_state_backed_outputs(messages: list) -> list:
+    """Replace verbose tool outputs the model has **already consumed** with a stub.
+
+    Once the model has answered a tool result there is no value in replaying the
+    raw blob on every later turn. We keep the message (so the AI tool_call →
+    ToolMessage pairing is never broken) but shrink its content to a short stub.
+    Pairing-preservation is why we *rewrite* rather than *drop* — dropping a
+    ToolMessage would orphan its preceding AI tool_call.
+
+    **"Consumed" is load-bearing and is enforced here** (#376). The graph edge is
+    ``tools → model``, so the node that runs immediately after a tool result is
+    ``call_model`` — which assembles the history through this function. Pruning on
+    name and length alone therefore destroyed a reader's body *before any model
+    had seen it*, and replaced it with a stub telling the model the text was in
+    ``CrateState`` (it never is, for a reader) and not to re-run. A message is
+    consumed only when a later ``AIMessage`` (the model responded) or
+    ``HumanMessage`` (a new turn began, which necessarily follows a final
+    ``AIMessage``) exists. Only the newest tool-result block is replayed verbatim;
+    everything older is still stubbed, so #61's savings are preserved.
 
     The list is returned with the same length and ordering; non-matching
     messages are passed through unchanged. Small outputs (below
     ``_PRUNE_CONTENT_THRESHOLD``) are left intact — they cost little and may
     already be summaries (e.g. ``summarize_scan_result``).
     """
-    from langchain_core.messages import ToolMessage
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    # The last point at which the model demonstrably moved past a tool result.
+    # Anything at or after it has not been consumed yet and must survive intact.
+    boundary = max(
+        (i for i, m in enumerate(messages) if isinstance(m, (AIMessage, HumanMessage))),
+        default=-1,
+    )
 
     pruned: list = []
-    for msg in messages:
+    for i, msg in enumerate(messages):
         if (
-            isinstance(msg, ToolMessage)
-            and getattr(msg, "name", None) in _STATE_BACKED_TOOLS
+            i < boundary
+            and isinstance(msg, ToolMessage)
+            and getattr(msg, "name", None) in _PRUNABLE_TOOLS
             and len(str(msg.content)) > _PRUNE_CONTENT_THRESHOLD
         ):
-            scan_hint = (
-                " Call list_scanned_files to retrieve the full file inventory "
-                "(paginated/filterable)."
-                if msg.name == "scan_files"
-                else ""
-            )
-            stub = (
-                f"[{msg.name} output pruned from history to save tokens — the full "
-                f"result is stored in the session state (CrateState).{scan_hint} "
-                f"Do not re-run {msg.name}.]"
-            )
             pruned.append(
                 ToolMessage(
-                    content=stub,
+                    content=_prune_stub(str(msg.name)),
                     tool_call_id=msg.tool_call_id,
                     name=msg.name,
                 )
