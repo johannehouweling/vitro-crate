@@ -7,6 +7,7 @@ ROCrate objects — just the state representation with completion tracking.
 from __future__ import annotations
 
 from builder.state import CrateState, Entity, EntityProvenance
+from profiles.ontology_iris import iri
 
 VALID_PROCESS_TYPES = frozenset(
     {
@@ -24,8 +25,8 @@ VALID_PROCESS_TYPES = frozenset(
 # reference object so the value is machine-resolvable rather than a string literal
 # that silently fails the tox pass.
 _IDENTIFIER_PROPERTY_IDS: dict[str, str] = {
-    "DOI": "http://purl.obolibrary.org/obo/OBI_0002110",  # digital object identifier
-    "PubMedID": "http://purl.obolibrary.org/obo/OBI_0001617",  # PubMed identifier
+    "DOI": iri("OBI:0002110"),  # digital object identifier
+    "PubMedID": iri("OBI:0001617"),  # PubMed identifier
 }
 
 

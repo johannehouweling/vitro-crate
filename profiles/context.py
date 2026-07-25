@@ -5,6 +5,8 @@ Extracted from generate_crate.py for reuse in crate_builder.py and any other
 module that creates an ROCrate with the ISA-Tox profile.
 """
 
+from profiles.ontology_iris import PREFIXES, iri
+
 ISA_TOX_CONTEXT: list[dict] = [
     {
         # Use http://schema.org/ (HTTP) to align with the RO-Crate 1.1 context and
@@ -106,8 +108,8 @@ ISA_TOX_CONTEXT: list[dict] = [
         "unitText": "http://schema.org/unitText",
         "propertyID": "http://schema.org/propertyID",
         # External ontology terms
-        "DetectionInstrument": "http://www.bioassayontology.org/bao#BAO_0000697",
-        "catalog number": "http://purl.obolibrary.org/obo/NCIT_C99286",
+        "DetectionInstrument": iri("BAO:0000697"),
+        "catalog number": iri("NCIT:C99286"),
         # --- Terms from lookup result payloads (added to context so every property key
         #     is mapped to a known IRI, as required by compacted JSON-LD) ---
         # Publication / bibliographic terms (from Crossref)
@@ -178,6 +180,6 @@ ISA_TOX_CONTEXT: list[dict] = [
         "datatype": "http://www.w3.org/ns/csvw#datatype",
         "propertyUrl": "http://www.w3.org/ns/csvw#propertyUrl",
         "valueUrl": "http://www.w3.org/ns/csvw#valueUrl",
-        "UO": "http://purl.obolibrary.org/obo/UO_",
+        "UO": PREFIXES["UO"],
     }
 ]

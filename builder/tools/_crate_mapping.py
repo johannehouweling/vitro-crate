@@ -37,6 +37,7 @@ from profiles.models.tox import (
     LabProcessEndpointReadout,
     LabProcessExposure,
 )
+from profiles.ontology_iris import iri
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ ROCRATE_SPEC = "https://w3id.org/ro/crate/1.2"
 # prof:isProfileOf) and that resolves — the w3id ISA permalink is not yet live.
 PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
-CELL_LINE_TERM_ID = "http://purl.obolibrary.org/obo/NCIT_C16403"
+CELL_LINE_TERM_ID = iri("NCIT:C16403")
 
 # Fields that hold references to other entities (resolved via the index), not literals.
 _REF_FIELDS = frozenset(
@@ -830,8 +831,8 @@ class _Characteristic:
 
 
 _CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
-    _Characteristic(("passage",), "passage", "https://bioregistry.io/EFO:0007061"),
-    _Characteristic(("growth",), "growth", "http://www.bioassayontology.org/bao#BAO_0002648"),
+    _Characteristic(("passage",), "passage", iri("EFO:0007061")),
+    _Characteristic(("growth",), "growth", iri("BAO:0002648")),
     _Characteristic(("organ",), "Organ", f"{PROFILE_ISATOX}/param/organ"),
     _Characteristic(("tissue",), "Tissue", f"{PROFILE_ISATOX}/param/tissue"),
 )
@@ -1336,47 +1337,47 @@ _CONDITION_TABLE_COLUMNS: tuple[dict[str, str], ...] = (
     {
         "titles": "assay",
         "datatype": "string",
-        "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C60819",
+        "propertyUrl": iri("NCIT:C60819"),
     },
     {
         "titles": "cell_line",
         "datatype": "string",
-        "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C16403",
+        "propertyUrl": iri("NCIT:C16403"),
     },
     {
         "titles": "compound",
         "datatype": "string",
-        "propertyUrl": "http://purl.obolibrary.org/obo/CHEBI_23367",
+        "propertyUrl": iri("CHEBI:23367"),
     },
     {
         "titles": "concentration_value",
         "datatype": "double",
-        "propertyUrl": "http://purl.obolibrary.org/obo/PATO_0000033",
+        "propertyUrl": iri("PATO:0000033"),
     },
     {
         "titles": "concentration_unit",
         "datatype": "string",
-        "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039",
+        "propertyUrl": iri("IAO:0000039"),
     },
     {
         "titles": "exposure_duration",
         "datatype": "string",
-        "propertyUrl": "https://bioregistry.io/NCIT:C83280",
+        "propertyUrl": iri("NCIT:C83280"),
     },
     {
         "titles": "experiment",
         "datatype": "string",
-        "propertyUrl": "https://bioregistry.io/EFO:0002091",
+        "propertyUrl": iri("EFO:0002091"),
     },
     {
         "titles": "technical_replicate",
         "datatype": "string",
-        "propertyUrl": "https://bioregistry.io/EFO:0002090",
+        "propertyUrl": iri("EFO:0002090"),
     },
     {
         "titles": "control",
         "datatype": "string",
-        "propertyUrl": "http://purl.obolibrary.org/obo/NCIT_C28143",
+        "propertyUrl": iri("NCIT:C28143"),
     },
 )
 
@@ -1398,12 +1399,12 @@ _RAW_MEASUREMENTS_COLUMNS: tuple[dict[str, str], ...] = (
     {
         "titles": "measured_value",
         "datatype": "double",
-        "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000109",
+        "propertyUrl": iri("IAO:0000109"),
     },
     {
         "titles": "measured_unit",
         "datatype": "string",
-        "propertyUrl": "http://purl.obolibrary.org/obo/IAO_0000039",
+        "propertyUrl": iri("IAO:0000039"),
     },
 )
 

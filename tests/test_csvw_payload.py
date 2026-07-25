@@ -76,9 +76,9 @@ _EXPECTED_CONDITION_COLUMNS = [
     ("compound", "string", "http://purl.obolibrary.org/obo/CHEBI_23367", "compound"),
     ("concentration_value", "double", "http://purl.obolibrary.org/obo/PATO_0000033", None),
     ("concentration_unit", "string", "http://purl.obolibrary.org/obo/IAO_0000039", None),
-    ("exposure_duration", "string", "https://bioregistry.io/NCIT:C83280", None),
-    ("experiment", "string", "https://bioregistry.io/EFO:0002091", None),
-    ("technical_replicate", "string", "https://bioregistry.io/EFO:0002090", None),
+    ("exposure_duration", "string", "http://purl.obolibrary.org/obo/NCIT_C83280", None),
+    ("experiment", "string", "http://www.ebi.ac.uk/efo/EFO_0002091", None),
+    ("technical_replicate", "string", "http://www.ebi.ac.uk/efo/EFO_0002090", None),
     ("control", "string", "http://purl.obolibrary.org/obo/NCIT_C28143", None),
 ]
 

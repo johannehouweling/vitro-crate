@@ -260,9 +260,9 @@ for this step:
 
 | name | Required | propertyID |
 |------|----------|------------|
-|Exposure Duration|SHOULD|`https://bioregistry.io/NCIT:C83280`|
+|Exposure Duration|SHOULD|`http://purl.obolibrary.org/obo/NCIT_C83280`|
 |Cell Seeding Density|SHOULD|`http://purl.obolibrary.org/obo/MSIO_0000062`|
-|Microplate|SHOULD|`https://bioregistry.io/NCIT:C43377`|
+|Microplate|SHOULD|`http://purl.obolibrary.org/obo/NCIT_C43377`|
 
 ### LabProcess - Endpoint Readout
 
@@ -286,10 +286,10 @@ for this step:
 
 | name | Required | propertyID |
 |------|----------|------------|
-|Detection Instrument|SHOULD|`http://purl.obolibrary.org/obo/BAO_0000697`|
-|Instrument Manufacturer|SHOULD|`http://purl.obolibrary.org/obo/BAO_0002628`|
-|Measured Entity|SHOULD|`http://purl.obolibrary.org/obo/BAO_0002001`|
-|Technical replicate|SHOULD|`https://bioregistry.io/EFO:0002090`|
+|Detection Instrument|SHOULD|`http://www.bioassayontology.org/bao#BAO_0000697`|
+|Instrument Manufacturer|SHOULD|`http://www.bioassayontology.org/bao#BAO_0002628`|
+|Measured Entity|SHOULD|`http://www.bioassayontology.org/bao#BAO_0002001`|
+|Technical replicate|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0002090`|
 |Endpoint|SHOULD|`http://www.bioassayontology.org/bao#BAO_0000179`|
 |Assay Kit|MAY|`http://www.bioassayontology.org/bao#BAO_0000248`|
 |Substrate|MAY|`http://www.bioassayontology.org/bao#BAO_0003063`|
