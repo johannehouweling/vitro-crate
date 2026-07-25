@@ -1,82 +1,136 @@
-# Crate-intrinsic FAIR indicator cross-walk.
+# GENERATED FILE — do not edit by hand.
 #
-# A curated subset of the RDA FAIR Data Maturity Model indicators that can be assessed
-# *intrinsically* from a single RO-Crate (its ro-crate-metadata.json @graph + files on
-# disk), with no repository/registry/protocol context. Accessibility (A) is almost
-# entirely protocol/hosting-level and therefore reported as out-of-scope, not failed.
+# Regenerate with:  uv run python scripts/gen_fair_indicators.py
 #
-# Sources (all CC-BY; cited in the generated report):
-#   RDA   FAIR Data Maturity Model — Bahim et al. 2020, doi:10.5334/dsj-2020-041;
-#         specification & guidelines v0.90, doi:10.15497/rda00050
-#   DSM   FAIRplus Data Stewardship Maturity Model — https://fairplus.github.io/Data-Maturity/
-#   NSDRA Nanosafety data reusability — Ammar et al. 2024, doi:10.1038/s41597-024-03324-x.
-#         A parallel community-reporting instrument (281 indicators across nano
-#         physicochemical / in-vitro / in-vivo groups). Its in-vitro group OVERLAPS our
-#         MIT in-vitro core (~dose, duration, controls, replicates, passage, analysis) but
-#         is NOT identical (NSDRA adds nano + in-vivo; MIT adds cell-line identity,
-#         endpoint, instrument). R1.3 therefore delegates to MIT (Elberskirch) coverage as
-#         the community-standard check, citing NSDRA as the parallel nanosafety lineage.
+# The FAIR indicator definitions (dimension / priority / text) are derived from the
+# vendored RDA FAIR Data Maturity Model spreadsheet (fair/rda_fdmm.xlsx,
+# doi:10.15497/rda00050, CC-BY-4.0). The local scope/check mapping (which indicators
+# are assessed intrinsically from one RO-Crate, and with which check) lives in
+# scripts/gen_fair_indicators.py. Accessibility indicators are protocol/repository
+# level and reported out-of-scope, not failed. R1.3-01D delegates to OECD MIT
+# in-vitro coverage. The FAIRplus DSM ladder stays curated in fair/dsm_indicators.yaml.
 
 sources:
   rda:
-    name: "RDA FAIR Data Maturity Model"
-    citation: "Bahim et al. 2020, Data Science Journal 19(1):41"
-    doi: "10.15497/rda00050"
+    name: RDA FAIR Data Maturity Model
+    citation: Bahim et al. 2020, Data Science Journal 19(1):41
+    doi: 10.15497/rda00050
+    distribution: FAIR_evaluation_levels_v0.02.xlsx (sheet 'FAIR Indicators_v0.05'), Zenodo record 3909563
+      — vendored as fair/rda_fdmm.xlsx
+    license: CC-BY-4.0
+    retrieved: '2026-07-25'
   dsm:
-    name: "FAIRplus Data Stewardship Maturity Model"
-    url: "https://fairplus.github.io/Data-Maturity/"
+    name: FAIRplus Data Stewardship Maturity Model
+    url: https://fairplus.github.io/Data-Maturity/
+    note: No machine-readable upstream distribution; curated in fair/dsm_indicators.yaml and scored by
+      builder/tools/fair_assessment.py.
   nsdra:
-    name: "Nanosafety data reusability (NSDRA)"
-    citation: "Ammar, Evelo & Willighagen 2024, Scientific Data 11:503"
-    doi: "10.1038/s41597-024-03324-x"
-
-# The DSM content+representation maturity level is computed faithfully from the actual
-# FAIRplus DSM indicators in profiles/fair/dsm_indicators.yaml (see core/dsm.py).
-
+    name: Nanosafety data reusability (NSDRA)
+    citation: Ammar, Evelo & Willighagen 2024, Scientific Data 11:503
+    doi: 10.1038/s41597-024-03324-x
 indicators:
-  # --- Findable ---
-  - { id: RDA-F1-02M, dimension: F, priority: essential, check: root_global_id,
-      text: "Metadata is identified by a globally unique identifier" }
-  - { id: RDA-F1-02D, dimension: F, priority: essential, check: every_entity_has_id,
-      text: "Data is identified by a globally unique identifier" }
-  - { id: RDA-F1-01M, dimension: F, priority: essential, check: pid_form,
-      text: "Metadata is identified by a persistent identifier" }
-  - { id: RDA-F2-01M, dimension: F, priority: essential, check: rich_metadata,
-      text: "Rich metadata is provided to allow discovery" }
-  - { id: RDA-F3-01M, dimension: F, priority: essential, check: metadata_refs_data,
-      text: "Metadata includes the identifier for the data" }
-  # --- Accessible (intrinsically out-of-scope: protocol / repository level) ---
-  - { id: RDA-A1-02M, dimension: A, priority: essential, scope: out_of_scope,
-      text: "Metadata can be accessed manually (protocol/hosting-level)" }
-  - { id: RDA-A1-04D, dimension: A, priority: essential, scope: out_of_scope,
-      text: "Data is accessible through a standardised protocol (hosting-level)" }
-  - { id: RDA-A2-01M, dimension: A, priority: essential, scope: out_of_scope,
-      text: "Metadata remains available after data is gone (repository guarantee)" }
-  # --- Interoperable ---
-  - { id: RDA-I1-01M, dimension: I, priority: important, check: jsonld_context,
-      text: "Metadata uses a knowledge representation in a standardised format" }
-  - { id: RDA-I1-02M, dimension: I, priority: important, check: jsonld_context,
-      text: "Metadata uses a machine-understandable knowledge representation" }
-  - { id: RDA-I2-01M, dimension: I, priority: important, check: fair_vocabularies,
-      text: "Metadata uses FAIR-compliant vocabularies" }
-  - { id: RDA-I3-01M, dimension: I, priority: important, check: qualified_refs,
-      text: "Metadata includes references to other metadata" }
-  - { id: RDA-I3-03M, dimension: I, priority: important, check: qualified_refs,
-      text: "Metadata includes qualified references to other metadata" }
-  # --- Reusable ---
-  - { id: RDA-R1-01M, dimension: R, priority: essential, check: reuse_attributes,
-      text: "A plurality of accurate, relevant attributes is provided for reuse" }
-  - { id: RDA-R1.1-01M, dimension: R, priority: essential, check: license_present,
-      text: "Metadata includes information about the reuse licence" }
-  - { id: RDA-R1.1-02M, dimension: R, priority: important, check: license_standard,
-      text: "Metadata refers to a standard reuse licence" }
-  - { id: RDA-R1.1-03M, dimension: R, priority: important, check: license_machine,
-      text: "Metadata refers to a machine-understandable reuse licence" }
-  - { id: RDA-R1.2-01M, dimension: R, priority: important, check: provenance,
-      text: "Metadata includes provenance per community standards" }
-  - { id: RDA-R1.3-01M, dimension: R, priority: essential, check: conforms_to_profile,
-      text: "Metadata complies with a community standard (RO-Crate/ISA profile)" }
-  - { id: RDA-R1.3-02M, dimension: R, priority: essential, check: conforms_to_profile,
-      text: "Metadata is expressed per a machine-understandable community standard" }
-  - { id: RDA-R1.3-01D, dimension: R, priority: essential, check: mit_coverage,
-      text: "Data complies with a community reporting standard (MIT in-vitro coverage; cf. NSDRA nanosafety)" }
+- id: RDA-F1-02M
+  dimension: F
+  priority: essential
+  check: root_global_id
+  text: Metadata is identified by a globally unique identifier
+- id: RDA-F1-02D
+  dimension: F
+  priority: essential
+  check: every_entity_has_id
+  text: Data is identified by a globally unique identifier
+- id: RDA-F1-01M
+  dimension: F
+  priority: essential
+  check: pid_form
+  text: Metadata is identified by a persistent identifier
+- id: RDA-F2-01M
+  dimension: F
+  priority: essential
+  check: rich_metadata
+  text: Rich metadata is provided to allow discovery
+- id: RDA-F3-01M
+  dimension: F
+  priority: essential
+  check: metadata_refs_data
+  text: Metadata includes the identifier for the data
+- id: RDA-A1-02M
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  text: Metadata can be accessed manually (i.e. with human intervention)
+- id: RDA-A1-04D
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  text: Data is accessible through standardised protocol
+- id: RDA-A2-01M
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  text: Metadata is guaranteed to remain available after data is no longer available
+- id: RDA-I1-01M
+  dimension: I
+  priority: important
+  check: jsonld_context
+  text: Metadata uses knowledge representation expressed in standardised format
+- id: RDA-I1-02M
+  dimension: I
+  priority: important
+  check: jsonld_context
+  text: Metadata uses machine-understandable knowledge representation
+- id: RDA-I2-01M
+  dimension: I
+  priority: important
+  check: fair_vocabularies
+  text: Metadata uses FAIR-compliant vocabularies
+- id: RDA-I3-01M
+  dimension: I
+  priority: important
+  check: qualified_refs
+  text: Metadata includes references to other metadata
+- id: RDA-I3-03M
+  dimension: I
+  priority: important
+  check: qualified_refs
+  text: Metadata includes qualified references to other metadata
+- id: RDA-R1-01M
+  dimension: R
+  priority: essential
+  check: reuse_attributes
+  text: Plurality of accurate and relevant attributes are provided to allow reuse
+- id: RDA-R1.1-01M
+  dimension: R
+  priority: essential
+  check: license_present
+  text: Metadata includes information about the licence under which the data can be reused
+- id: RDA-R1.1-02M
+  dimension: R
+  priority: important
+  check: license_standard
+  text: Metadata refers to a standard reuse licence
+- id: RDA-R1.1-03M
+  dimension: R
+  priority: important
+  check: license_machine
+  text: Metadata refers to a machine-understandable reuse licence
+- id: RDA-R1.2-01M
+  dimension: R
+  priority: important
+  check: provenance
+  text: Metadata includes provenance information according to community-specific standards
+- id: RDA-R1.3-01M
+  dimension: R
+  priority: essential
+  check: conforms_to_profile
+  text: Metadata complies with a community standard
+- id: RDA-R1.3-02M
+  dimension: R
+  priority: essential
+  check: conforms_to_profile
+  text: Metadata is expressed in compliance with a machine-understandable community standard
+- id: RDA-R1.3-01D
+  dimension: R
+  priority: essential
+  check: mit_coverage
+  text: Data complies with a community standard
