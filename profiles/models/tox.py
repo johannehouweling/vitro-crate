@@ -8,6 +8,7 @@ from profiles.models.isa import (
     Sample,
     param_id,
 )
+from profiles.ontology_iris import iri
 
 
 def _pv(crate, name, value, property_id=None, unit=None):
@@ -64,21 +65,21 @@ class LabProcessExposure(LabProcess):
                     crate,
                     "Exposure Duration",
                     duration,
-                    "https://bioregistry.io/NCIT:C83280",
+                    iri("NCIT:C83280"),
                     u.get("Exposure Duration"),
                 ),
                 _pv(
                     crate,
                     "Cell Seeding Density",
                     cell_seeding_density,
-                    "http://purl.obolibrary.org/obo/MSIO_0000062",
+                    iri("MSIO:0000062"),
                     u.get("Cell Seeding Density"),
                 ),
                 _pv(
                     crate,
                     "Microplate",
                     microplate,
-                    "https://bioregistry.io/NCIT:C43377",
+                    iri("NCIT:C43377"),
                     u.get("Microplate"),
                 ),
             ],
@@ -123,35 +124,35 @@ class LabProcessEndpointReadout(LabProcess):
                 crate,
                 "Detection Instrument",
                 detection_instrument,
-                "http://purl.obolibrary.org/obo/BAO_0000697",
+                iri("BAO:0000697"),
                 u.get("Detection Instrument"),
             ),
             _pv(
                 crate,
                 "Instrument Manufacturer",
                 instrument_manufacturer,
-                "http://purl.obolibrary.org/obo/BAO_0002628",
+                iri("BAO:0002628"),
                 u.get("Instrument Manufacturer"),
             ),
             _pv(
                 crate,
                 "Measured Entity",
                 measured_entity,
-                "http://purl.obolibrary.org/obo/BAO_0002001",
+                iri("BAO:0002001"),
                 u.get("Measured Entity"),
             ),
             _pv(
                 crate,
                 "Technical replicate",
                 technical_replicate,
-                "https://bioregistry.io/EFO:0002090",
+                iri("EFO:0002090"),
                 u.get("Technical replicate"),
             ),
             _pv(
                 crate,
                 "Endpoint",
                 endpoint,
-                "http://www.bioassayontology.org/bao#BAO_0000179",
+                iri("BAO:0000179"),
                 u.get("Endpoint"),
             ),
         ]
@@ -161,7 +162,7 @@ class LabProcessEndpointReadout(LabProcess):
                     crate,
                     "Assay Kit",
                     assay_kit,
-                    "http://www.bioassayontology.org/bao#BAO_0000248",
+                    iri("BAO:0000248"),
                     u.get("Assay Kit"),
                 )
             )
@@ -171,7 +172,7 @@ class LabProcessEndpointReadout(LabProcess):
                     crate,
                     "Substrate",
                     substrate,
-                    "http://www.bioassayontology.org/bao#BAO_0003063",
+                    iri("BAO:0003063"),
                     u.get("Substrate"),
                 )
             )
@@ -213,7 +214,7 @@ class LabProcessCellCulture(LabProcess):
                     crate,
                     "Culture Medium",
                     culture_medium,
-                    "http://www.bioassayontology.org/bao#BAO_0000114",
+                    iri("BAO:0000114"),
                 ),
             ],
             "input": cell_line,
