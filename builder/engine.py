@@ -6,8 +6,6 @@ It coordinates tool calls, validation, HITL checkpoints, and session persistence
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -115,25 +113,12 @@ _VALIDATION_CACHE_MAX = 64
 def _validation_input_hash(state: CrateState) -> str:
     """Hash the inputs ``build_and_validate`` consumes: entities + crate metadata.
 
-    Deliberately EXCLUDES ``state.validation`` / assessments / checkpoint. Those
-    are *outputs* the #153 write-back mutates after every validation, so
-    including them (as ``session._state_content_hash`` does) would change the
-    hash on every call and defeat the debounce. ``assemble_crate`` reads only
-    entities + metadata, so this is a safe superset of the validation inputs: a
-    change to anything the validator could observe busts the cache, while a
-    change to a pure output (a verdict, a score) does not.
+    Thin delegation to :meth:`builder.state.CrateState.validation_fingerprint`,
+    which is where the definition lives so both build arms can reach it without
+    importing the engine (#380). Kept as a module-level name because the debounce
+    key below and ``tests/test_validation_debounce.py`` both import it.
     """
-    content = {
-        "entities": state.entities.to_dict()
-        if hasattr(state.entities, "to_dict")
-        else str(state.entities),
-        "metadata": state.metadata.to_dict()
-        if hasattr(state.metadata, "to_dict")
-        else str(state.metadata),
-    }
-    return hashlib.sha256(
-        json.dumps(content, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    return state.validation_fingerprint()
 
 
 # File-reading tools that take a model-supplied path and must be sandboxed to

@@ -2053,10 +2053,20 @@ on the quit/EOF exit path). The legacy loop now auto-exports on **every** comple
 in-loop build too: `_auto_export_after_build` in `builder/agents/react/agent_loop.py` fires
 after a `build_and_validate` that passes **base** conformance over a non-empty crate,
 calling `export_crate` with no explicit path (same destination resolution as above),
-stamping `_EXPORTED_FLAG` (so `_finish_backstop` stays a no-op — no double-export),
-and surfacing the absolute crate path. It is idempotent via an entity-count
-fingerprint: it re-exports only when the crate changed since the last auto-export, so
-the *latest* crate always lands and an unchanged repeat build is a no-op.
+stamping `_EXPORTED_FLAG` and surfacing the absolute crate path. It is idempotent via
+`CrateState.export_fingerprint()` — a **content** hash over entities + crate metadata +
+the scanned-file inventory — so it re-exports exactly when the crate changed and an
+unchanged repeat build is a no-op. The fingerprint must be content, not an entity
+count (#380): a count is invariant under every field-level tool the arm is told to
+use for the rest of the session (`set_fields`, `set_crate_metadata`,
+`fix_required_issues`, `link`), so counting kept all of that work off disk. The
+scanned-file term is required because `export_crate` packages scanned files
+(`include_all_scanned=True`) that the validation path never sees, which is why
+`export_fingerprint()` is strictly wider than `validation_fingerprint()` — the latter
+stays narrow so the #155 debounce still hits. `_finish_backstop` gates on the same
+fingerprint rather than on "something exported this session": it is the last chance to
+catch a crate that changed after its auto-export, and it stamps the fingerprint too so
+the two exit paths (quit and EOF) cannot double-export.
 
 **Progress + persistence (#241 / #242).** Before these the default `--interactive`
 (pipeline) path *felt dead*: the deterministic spine ran for ~tens of seconds with
