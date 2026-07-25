@@ -4,6 +4,15 @@
 # RO-Crate profile (bundled in roc-validator as `isa-ro-crate`), which is itself
 # an extension of RO-Crate 1.1. Validating against the `tox-ro-crate` token
 # transitively runs the isa-ro-crate and ro-crate checks as well.
+#
+# Lineage vs. base pass (#361): the `isTransitiveProfileOf .../crate/1.1` below is
+# intentional — it mirrors the upstream `isa-ro-crate` profile, which declares
+# itself a profile of RO-Crate 1.1. This is NOT inconsistent with the validator
+# running its base pass against `ro-crate-1.2` (profiles/validator.py): RO-Crate
+# 1.2 is backward-compatible, so crates that declare `conformsTo` 1.2 (this repo,
+# #91) validate against the 1.2 base while the domain profiles keep their 1.1
+# lineage. Bump this to 1.2 only if/when the upstream isa-ro-crate profile does
+# (a guard test asserts the two stay in sync).
 
 @prefix dct: <http://purl.org/dc/terms/> .
 @prefix prof: <http://www.w3.org/ns/dx/prof/> .

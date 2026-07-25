@@ -422,6 +422,10 @@ class ValidationResult:
 # three passes in validate_crate(); the only difference is the document is fed as
 # a dict via services.validate_metadata_as_dict instead of read from disk.
 _PROFILE_PASSES: dict[str, tuple[str, dict]] = {
+    # Base pass targets ro-crate-1.2 (crates emit `conformsTo` 1.2, #91). The isa/tox
+    # domain profiles are 1.1-lineage (they extend the upstream isa-ro-crate 1.1
+    # profile); RO-Crate 1.2 is backward-compatible, so this is by design, not drift.
+    # See profiles/shapes/tox/profile.ttl and tests/test_profile_lineage.py (#361).
     "base": ("ro-crate-1.2", {}),
     "isa": ("isa-ro-crate", {"disable_inherited_profiles_issue_reporting": True}),
     "tox": (
