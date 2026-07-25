@@ -1365,11 +1365,22 @@ input tokens grow linearly (cumulative cost quadratically) until the context win
 `_assemble_model_messages` (`builder/agents/react/agent_loop.py`) via `_trim_history`, which runs two
 layers in order:
 
-1. **Prune consumed state-backed outputs** (`_prune_state_backed_outputs`). Tool outputs whose
-   data already lives in `CrateState` — the scan/read listings from `_STATE_BACKED_TOOLS`
-   (`scan_files`, `read_file_sample`, `read_multiple_files`) — are replaced by a short stub once
-   they exceed `_PRUNE_CONTENT_THRESHOLD` chars. The `ToolMessage` is **rewritten, not dropped**,
-   so the `AIMessage(tool_call)` → `ToolMessage` pairing is never broken.
+1. **Prune consumed verbose tool outputs** (`_prune_state_backed_outputs`). A `ToolMessage` over
+   `_PRUNE_CONTENT_THRESHOLD` chars is replaced by a short stub — but **only once the model has
+   consumed it**, i.e. a later `AIMessage` (the model responded) or `HumanMessage` (a new turn
+   began) exists. The predicate is load-bearing, not an optimization: the graph edge is
+   `tools → model`, so the node running immediately after a tool result is `call_model`, and
+   pruning on name and length alone destroyed the result *before any model saw it* (#376). Only
+   the newest tool-result block is replayed verbatim; everything older is stubbed, which is where
+   #61's savings come from. The `ToolMessage` is **rewritten, not dropped**, so the
+   `AIMessage(tool_call)` → `ToolMessage` pairing is never broken.
+
+   The stub is **truthful per tool class**, because the two classes differ in what is recoverable:
+   `_STATE_BACKED_TOOLS` (`scan_files`) genuinely persists to `CrateState.scanned_files` and its
+   stub points at `list_scanned_files`; `_REPLAYABLE_READER_TOOLS` (`read_file_sample`,
+   `read_multiple_files`) persist **nothing** — `CrateState` has no body store — so their stub
+   never claims the text is in state and never tells the model not to re-run. It points at
+   `read_file`, which returns the body in full up to its 64 KiB budget.
 2. **Token-budget trim** via `langchain_core.messages.trim_messages` with `strategy="last"` and
    `start_on="human"`. Keeping the most recent turns within the budget bounds per-turn input;
    `start_on="human"` guarantees the retained window never *begins* with a dangling `ToolMessage`
