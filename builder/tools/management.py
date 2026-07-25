@@ -6,6 +6,7 @@ field-level completion tracking.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from builder.state import (
@@ -15,6 +16,9 @@ from builder.state import (
     FileClassification,
 )
 from builder.tools._crate_mapping import _REF_FIELDS
+from builder.tools.field_kinds import is_reference_field, is_resolvable_reference
+
+logger = logging.getLogger(__name__)
 
 
 def set_fields(
@@ -47,6 +51,21 @@ def set_fields(
         raise ValueError(f"Entity not found: {entity_id}")
 
     for field, value in fields.items():
+        # (#375) A reference-only property whose value is not a resolvable
+        # reference is silently DROPPED at build time (`_scalar_props` strips
+        # every `_REF_FIELDS` key, and `_wire_reference` emits nothing for a
+        # non-resolvable literal), so the caller believes it stored something the
+        # crate will never carry. Warn rather than raise: this is a hot shared
+        # tool the ReAct LLM calls directly, and refusing here would be a
+        # behaviour change to every existing caller.
+        if is_reference_field(field) and not is_resolvable_reference(state, value):
+            logger.warning(
+                "set_fields: %r on %s is a reference-only property but %r does not "
+                "resolve to an entity — the build will drop it",
+                field,
+                entity_id,
+                value,
+            )
         entity.fields[field] = value
         entity.set_field_status(field, "filled", source)
 

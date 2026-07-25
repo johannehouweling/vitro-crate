@@ -38,7 +38,8 @@ The loop (:func:`run_guidance`) per round:
      value applied through the existing ``set_fields`` / ``set_crate_metadata``
      tools (never hand-rolled JSON-LD). ``skip``/``from_file`` commit nothing;
      ``clarify`` asks at most one bounded follow-up. With no provider this is the
-     deterministic ask-and-set.
+     deterministic ask-and-set — still routed through
+     :func:`_deterministic_decision`, so the D5 identifier skip applies offline too.
 
 4. Re-assess after each committed change; **never loop forever** — bounded by
    ``max_rounds`` and a per-report skip-set. A gap the loop cannot progress this
@@ -61,8 +62,15 @@ Determinism & safety contract:
   — a free-text reply is never stored verbatim.
 * **HITL is never removed.** ask-user and draft-confirm both route through the
   injected :class:`HumanInterface`; the loop cannot silently fabricate content.
-* **D5 at the leaf.** Identifier-bearing fields are never committed from the user's
-  prose (those come from lookups); the interpreter refuses such a commit.
+* **D5 at the chokepoint.** Identifier-bearing fields are never committed from the
+  user's prose (those come from lookups). The refusal lives in :func:`_apply_value`,
+  which *every* commit funnels through — the interpreter refuses one too, but it is
+  not on the no-provider path, so guarding only there left the guarantee unmet
+  (#375).
+* **A ``True`` commit is one the crate will carry.** :func:`_apply_value` writes a
+  typed gap to its own instance rather than the Root Data Entity, and refuses a
+  reference-only field a value that would not resolve — the build silently drops
+  such a literal, so reporting success would be a lie (#375).
 
 This is a clean library entrypoint — the CLI / spine wiring is a later PR.
 """
@@ -79,6 +87,16 @@ from typing import TYPE_CHECKING, Any, Callable
 # leaf can be stubbed without importing langchain.
 from builder.agents.pipeline.pipeline import draft_entity_fields
 from builder.config import get_provider
+from builder.tools.field_kinds import (
+    CITATION_FIELDS,
+    IDENTIFIER_FIELDS,
+    PERSON_FIELDS,
+    is_citation_field,
+    is_identifier_field,
+    is_person_field,
+    is_reference_field,
+    is_resolvable_reference,
+)
 from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
 
 # (#275) The ORCID lookup, re-exported at module scope as the single stable
@@ -148,36 +166,13 @@ _MAX_CLARIFY_FOLLOW_UPS = 1
 # descriptive fields (identifiers come from lookups, D5).
 _DESCRIPTIVE_FIELDS: frozenset[str] = frozenset({"name", "description"})
 
-# D5: identifier-bearing field names the deterministic interpret fallback must
-# NEVER commit from the user's prose (those come from lookups). Mirrors
-# `builder.agents.pipeline.leaves._IDENTIFIER_SCALAR_FIELDS`; kept local so the no-provider
-# / offline path stays free of the (langchain-importing) leaves module.
-_IDENTIFIER_FIELDS: frozenset[str] = frozenset(
-    {
-        "identifier",
-        "accession",
-        "inchikey",
-        "smiles",
-        "molecular_formula",
-        "pubchem_cid",
-        "cas",
-        "casrn",
-        "cas_number",
-        "orcid",
-        "ror",
-        "doi",
-        "term_code",
-        "in_defined_term_set",
-        "property_id",
-        "unit_code",
-        "url",
-    }
-)
-
-
-def _is_identifier_field(field: str) -> bool:
-    """Whether ``field`` (a local property name) is identifier-bearing (D5)."""
-    return field in _IDENTIFIER_FIELDS
+# D5: identifier-bearing field names that must NEVER be committed from the user's
+# prose (those come from lookups). The definition now lives in the shared
+# :mod:`builder.tools.field_kinds` — one vocabulary for both build arms, replacing
+# the byte-identical copy that also existed in ``leaves`` (#375). These aliases
+# are kept so existing callers and monkeypatching tests are unaffected.
+_IDENTIFIER_FIELDS = IDENTIFIER_FIELDS
+_is_identifier_field = is_identifier_field
 
 
 # (#275) Person/agent-typed fields whose ISA value MUST be a Person (or
@@ -186,14 +181,11 @@ def _is_identifier_field(field: str) -> bool:
 # "creator MUST be of type Person" SHACL shape unsatisfied, so the gap re-emits
 # every round and ``isa=fail`` — the #275 re-ask loop. These are instead routed
 # to ``draft_person`` and linked as a reference (see :func:`_apply_person_value`).
-_PERSON_FIELDS: frozenset[str] = frozenset(
-    {"creator", "author", "publisher", "editor", "contributor"}
-)
-
-
-def _is_person_field(field: str) -> bool:
-    """Whether ``field`` (a local property name) is a person/agent-typed field."""
-    return field in _PERSON_FIELDS
+# Defined once in the shared :mod:`builder.tools.field_kinds` (#375) so the gap
+# engine can ask the same question without importing guidance (which would be a
+# cycle: guidance imports gap_analysis).
+_PERSON_FIELDS = PERSON_FIELDS
+_is_person_field = is_person_field
 
 
 # (Commit 1, #179) Citation-typed fields whose ISA/BASE value MUST be a
@@ -203,12 +195,8 @@ def _is_person_field(field: str) -> bool:
 # and which is not a crate-metadata slot — so committing the prose as a string did
 # nothing and the always-highest-priority gap was re-asked every round. These are
 # instead routed to the publication composites (see :func:`_apply_citation_value`).
-_CITATION_FIELDS: frozenset[str] = frozenset({"citation"})
-
-
-def _is_citation_field(field: str) -> bool:
-    """Whether ``field`` (a local property name) is a citation-typed field."""
-    return field in _CITATION_FIELDS
+_CITATION_FIELDS = CITATION_FIELDS
+_is_citation_field = is_citation_field
 
 
 def _gap_is_root(engine: AgentEngine, gap: Gap) -> bool:
@@ -464,7 +452,68 @@ def _apply_citation_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
         return False
 
 
-def _apply_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
+def _instances_for_commit(engine: AgentEngine, entity_type: str | None) -> list[Any]:
+    """In-state instances of ``entity_type`` — the commit-target selection rule.
+
+    Mirrors :func:`builder.tools.gap_analysis._instances_of`, so what the gap
+    engine advertises as actionable and what :func:`_apply_value` can actually
+    write are decided the same way.
+
+    Counts ALL instances, not only named ones: a name is needed to *phrase* the
+    question well (see :func:`_named_instances`), but the sole instance of a type
+    is an unambiguous place to *write* whether or not it has one — and an unnamed
+    sibling still makes the target ambiguous, so it must be counted.
+    """
+    if not entity_type:
+        return []
+    try:
+        return list(engine.state.list_entities(entity_type))
+    except (KeyError, ValueError) as exc:  # pragma: no cover — unknown type is rare
+        logger.debug("guidance: cannot list %s instances: %s", entity_type, exc)
+        return []
+
+
+def _named_instances(engine: AgentEngine, entity_type: str | None) -> list[tuple[Any, str]]:
+    """The NAMED in-state instances of ``entity_type`` as ``(entity, name)`` pairs.
+
+    Used to decide what a question is *about* (:func:`_ground_entityless_gap`
+    threads the real instance name into the phrase leaf). The commit target is
+    chosen by :func:`_instances_for_commit` over the same type, so the prompt and
+    the write can never point at different entities — that mismatch was the #375
+    defect.
+    """
+    return [
+        (entity, name)
+        for entity in _instances_for_commit(engine, entity_type)
+        if (name := _entity_display_name(entity))
+    ]
+
+
+def _notify(human: HumanInterface | None, message: str) -> None:
+    """Tell the user something without asking them anything.
+
+    ``HumanInterface`` has only blocking members (``present`` / ``request_input``),
+    so this uses the same **optional-attribute** pattern as ``is_interactive`` and
+    ``is_done``: a frontend that offers ``notify`` shows the message immediately;
+    one that does not simply gets the log line. Never blocks and never consumes a
+    scripted answer.
+    """
+    notify = getattr(human, "notify", None)
+    if callable(notify):
+        try:
+            notify(message)
+            return
+        except Exception:  # noqa: BLE001 — a frontend hiccup must not break the loop
+            pass
+    logger.info("guidance: %s", message)
+
+
+def _apply_value(
+    engine: AgentEngine,
+    gap: Gap,
+    value: str,
+    human: HumanInterface | None = None,
+) -> bool:
     """Commit ``value`` for ``gap`` via the existing set tools. Returns success.
 
     Uses ``set_fields`` for an entity-scoped gap and ``set_crate_metadata`` for a
@@ -497,14 +546,67 @@ def _apply_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     if _is_citation_field(field) and _gap_is_root(engine, gap):
         return _apply_citation_value(engine, gap, value)
 
+    # (#375, D5) An identifier is never taken from prose, on ANY path. This is the
+    # single chokepoint every commit funnels through, and it has two feeders that
+    # are otherwise unguarded: the no-provider ask-user path and the draft-confirm
+    # dialog's ``edits["value"]``. Guarding here closes both at once.
+    if is_identifier_field(field):
+        _notify(
+            human,
+            f"'{field}' is an identifier, so it is looked up rather than typed in — "
+            "your answer was not stored.",
+        )
+        return False
+
+    # (#375) A reference-only property must name an entity. The build strips every
+    # `_REF_FIELDS` key out of an entity's scalar properties and `_wire_reference`
+    # emits nothing for a non-resolvable literal, so storing prose here and
+    # returning True is a lie: the value never reaches the crate.
+    if is_reference_field(field) and not is_resolvable_reference(engine.state, value):
+        _notify(
+            human,
+            f"'{field}' has to name something already in the crate, so your answer "
+            "was not stored.",
+        )
+        return False
+
     state_id = _resolve_entity_id(engine, gap)
     if state_id is not None:
         engine.run_tool("set_fields", entity_id=state_id, fields={field: value})
         return True
 
-    # Crate-level gap (no entity): route to the Root Data Entity metadata setter
-    # when the field maps to a known root slot; otherwise we cannot commit it
-    # deterministically (it was still surfaced to the user as "asked").
+    # (#375) A TYPED gap (MIT gaps carry `entity_id=None` + an `entity_type`) is
+    # about a specific instance — the question was phrased about it by
+    # `_ground_entityless_gap`. Resolve the same instance with the same rule so the
+    # answer lands where the question promised, instead of falling through to the
+    # Root Data Entity setter below and clobbering a Base MUST.
+    if gap.entity_type not in (None, "Investigation"):
+        instances = _instances_for_commit(engine, gap.entity_type)
+        if len(instances) == 1:
+            engine.run_tool(
+                "set_fields", entity_id=instances[0].entity_id, fields={field: value}
+            )
+            return True
+        # Zero or several instances: there is no unambiguous target, so commit
+        # nothing rather than guess (D5).
+        logger.debug(
+            "guidance: %d %s instance(s); no unambiguous commit target",
+            len(instances),
+            gap.entity_type,
+        )
+        if len(instances) > 1:
+            _notify(
+                human,
+                f"there are several {gap.entity_type} entries, so it is not clear which "
+                "one you meant — your answer was not stored.",
+            )
+        return False
+
+    # Crate-level gap: route to the Root Data Entity metadata setter when the field
+    # maps to a known root slot. Only a genuinely root-level gap reaches here — the
+    # root `./` node folds the Investigation, so `entity_type` is None or
+    # "Investigation"; otherwise we cannot commit it deterministically (it was
+    # still surfaced to the user as "asked").
     crate_arg = _CRATE_METADATA_FIELDS.get(field)
     if gap.entity_id is None and crate_arg is not None:
         engine.run_tool("set_crate_metadata", **{crate_arg: value})
@@ -708,15 +810,7 @@ def _ground_entityless_gap(engine: AgentEngine, gap: Gap, context: dict[str, Any
     Mutates ``context`` in place; a no-op when there is no type or no named
     instance (the prompt-side D5 guard then forbids inventing a name).
     """
-    entity_type = gap.entity_type
-    if not entity_type:
-        return
-    try:
-        instances = engine.state.list_entities(entity_type)
-    except (KeyError, ValueError) as exc:  # pragma: no cover — unknown type is rare
-        logger.debug("guidance: cannot list %s instances: %s", entity_type, exc)
-        return
-    named = [(entity, name) for entity in instances if (name := _entity_display_name(entity))]
+    named = _named_instances(engine, gap.entity_type)
     if not named:
         return
     if len(named) == 1:
@@ -810,12 +904,17 @@ def _phrase_question(engine: AgentEngine, gap: Gap) -> str:
 def _deterministic_decision(gap: Gap, reply: str) -> dict[str, Any]:
     """The deterministic interpret fallback: a non-empty reply is a commit (#244).
 
-    Used when the interpret leaf is unavailable or fails (and as the documented
-    no-provider behavior): treat a non-empty reply as a commit and an empty one as
-    a skip — *except* for an identifier-bearing field, where the user's prose must
+    Used when the interpret leaf is unavailable or fails, **and** on the
+    no-provider path: treat a non-empty reply as a commit and an empty one as a
+    skip — *except* for an identifier-bearing field, where the user's prose must
     NOT become an identifier value (D5), so it is skipped (identifiers come from
     lookups). This preserves today's ask-and-set behavior without ever storing a
     musing as an identifier.
+
+    Its docstring used to claim to be "the documented no-provider behavior" while
+    both of its call sites sat *downstream* of ``_resolve_ask_user``'s no-provider
+    early return, so offline runs never reached it and the D5 skip was dead code
+    (#375). ``_resolve_ask_user`` now routes the offline reply through here.
     """
     if not reply or not reply.strip():
         return {"action": "skip"}
@@ -868,8 +967,15 @@ def _resolve_ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> s
     (today's ask-and-set behavior), keeping offline runs deterministic.
     """
     # No provider -> deterministic ask-and-set (offline determinism, #244).
+    # The reply goes through `_deterministic_decision` rather than straight back:
+    # that is where the D5 identifier skip lives, and routing around it (#375) made
+    # the documented guard unreachable on this path — prose became an identifier.
     if get_provider() is None:
-        return _ask_user(engine, human, gap)
+        reply = _ask_user(engine, human, gap)
+        if reply is None:
+            return None
+        value = _deterministic_decision(gap, reply).get("value")
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
     question = _phrase_question(engine, gap)
     response = human.request_input(question)
@@ -1068,6 +1174,11 @@ def _resolve_gap(
         "tier": gap.tier,
         "source": gap.source,
         "entity_id": gap.entity_id,
+        # A typed gap (MIT) carries no entity_id, so entity_type is the only thing
+        # identifying WHICH entity it was about — and after #375 it is also what
+        # decides where the answer is written. Recorded so a caller can tell two
+        # same-property gaps apart (e.g. Assay:description vs LabProtocol:description).
+        "entity_type": gap.entity_type,
         "property": gap.property,
         "fix_hint": gap.fix_hint,
     }
@@ -1095,7 +1206,7 @@ def _resolve_gap(
                 # An edited confirmation may carry the user's own value.
                 edits = decision.get("edits") or {}
                 value = str(edits.get("value")) if edits.get("value") else candidate
-                if _apply_value(engine, gap, value):
+                if _apply_value(engine, gap, value, human):
                     resolved.append({**record, "via": "draft-confirmed"})
                     return True
                 return False
@@ -1106,7 +1217,7 @@ def _resolve_gap(
     value = _resolve_ask_user(engine, human, gap)
     if value is None:
         return False
-    if _apply_value(engine, gap, value):
+    if _apply_value(engine, gap, value, human):
         resolved.append({**record, "via": "ask-user"})
         return True
     return False
@@ -1201,6 +1312,8 @@ def run_guidance(
             break
 
         rounds += 1
+        identity = _gap_identity(gap)
+        resolved_before = len(resolved)
         progressed = _resolve_gap(engine, human, gap, resolved=resolved, asked=asked)
 
         if progressed:
@@ -1210,6 +1323,14 @@ def run_guidance(
             # re-emits is not re-drawn.
             report = assess_gaps(engine.state)
             skipped = set()
+            # (#375) "The setter returned True" is not "the gap cleared". If the
+            # same identity is still in the fresh report, the commit did not close
+            # it — so do NOT count it resolved (`format_guidance_summary` prints
+            # that list verbatim) and never draw it again, or it is re-asked every
+            # round until `max_rounds` runs out and starves every gap behind it.
+            if any(_gap_identity(g) == identity for g in report.gaps):
+                del resolved[resolved_before:]
+                tried_identities.add(identity)
         else:
             # This one gap is not resolvable right now (e.g. skipped or its answer
             # could not be applied). Skip it BOTH by report index (so the next

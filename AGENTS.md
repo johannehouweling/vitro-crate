@@ -1542,6 +1542,7 @@ vitro-crate/
 │   │   ├── lookups.py, verification.py, builder.py, validation.py
 │   │   ├── repair.py, gap_analysis.py, mit_assessment.py, fair_assessment.py
 │   │   ├── data_content.py, file_readers.py, hitl.py, session.py
+│   │   ├── field_kinds.py        Shared field-kind vocabulary (both arms)
 │   │   ├── registry.py, _crate_mapping.py, dashboard.py, provenance.py
 │   ├── readers/                 Input readers
 │   │   ├── directory.py, existing_crate.py, metadata_files.py
@@ -1911,8 +1912,36 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
     `from_file` records the filename hint and commits nothing (file extraction is
     a separate bounded reader, not this loop — never store the prose). **D5:**
     identifier-bearing fields are never committed from the user's prose — those
-    come from lookups, so an identifier `commit` is refused (the interpret leaf
-    coerces it to `skip`).
+    come from lookups, so an identifier `commit` is refused at `_apply_value`,
+    the single chokepoint every commit funnels through (#375). Guarding the
+    chokepoint rather than the interpret leaf is what closes the loop's two
+    otherwise-unguarded feeders: the no-provider ask-user path and the
+    draft-confirm dialog's `edits["value"]`.
+    - **A commit must be one the crate will actually carry** (#375). `_apply_value`
+      returns `True` only when the value truly lands, because the loop treats
+      `True` as progress and `format_guidance_summary` reports it to the user:
+      - a **typed** gap (MIT gaps carry `entity_id is None` + an `entity_type`)
+        commits to the single in-state instance of that type — the same instance
+        `_ground_entityless_gap` phrased the question about, so the prompt and the
+        write can never name different entities. Zero or several instances commit
+        nothing. Only a genuinely root-level gap (`entity_type` `None` or
+        `Investigation`, since `./` folds the Investigation) may reach
+        `set_crate_metadata`; without this a question about an Assay overwrote the
+        root's `description`, a Base MUST;
+      - a **reference-only** field (`_REF_FIELDS`) accepts only a value that
+        resolves as a reference. The build strips those keys from an entity's
+        scalar properties and `_wire_reference` emits nothing for a
+        non-resolvable literal, so storing prose there and reporting success is a
+        lie. The shared `builder/tools/field_kinds.py` answers "is this field a
+        reference / an identifier, and would this value resolve?" for both arms —
+        `set_fields` logs a warning on the same condition, so the ReAct LLM cannot
+        make the mistake silently either.
+    - **"Progress" means the gap cleared** (#375). After a commit the loop
+      re-assesses and, if the gap's identity is still present, records it in
+      `tried_identities` and drops it from `resolved` rather than counting it. A
+      commit that does not clear its gap would otherwise be re-drawn every round —
+      one un-clearable gap consuming the whole `max_rounds` budget while the rest
+      of the report is never reached.
     - **Person/agent fields are committed as ENTITY references, not strings
       (#275).** A `creator` / `author` / `publisher` / `editor` / `contributor`
       gap requires an ISA Person reference, so `_apply_value` routes its value to
@@ -2140,13 +2169,28 @@ suggestion, fix_hint, auto_fixable}`: `suggestion` is the expected propertyID
 IRI / ontology term / parameter description from the profile or MIT YAML;
 `fix_hint` is a deterministic tool name (`"fix_required_issues"`), `"draft"`,
 `"ask-user"`, or **`"report-only"`** (#230). A `report-only` gap is one the
-guidance loop can *not* commit deterministically from the gap's own fields — it
-has no settable entity field (`entity_id is None`) and its property maps to no
-Root Data Entity metadata slot (`_CRATE_SETTABLE_FIELDS` — which mirrors
-guidance's `_apply_value`). **Every FAIR gap is `report-only`** (its property is
-an indicator id like `RDA-F1-02M`, not a field), as are **crate-level MIT gaps
-whose field is not a crate slot**; they stay in the report for context but the
-guidance loop never spends an ask-user/draft turn on them. `GapReport` adds
+guidance loop can *not* commit — it stays in the report for context, but the loop
+never spends a human turn on it. `_is_committable` decides this and **must mirror
+`guidance._apply_value`'s success conditions** (#375); a test walks every
+actionable gap and asserts `_apply_value`'s preconditions hold, so the two cannot
+drift. A gap is committable when it names a field the loop can write: a
+person/citation field (their own composite routes), an entity-scoped gap whose
+`entity_id` resolves to a state entity (or the root `./` with a
+`_CRATE_SETTABLE_FIELDS` field), a **typed** gap (`entity_id is None` +
+`entity_type`) whose field is a crate slot **and** whose type has exactly one
+instance, or a crate-level gap whose field is a crate slot. Never committable: a
+gap naming **no field** (a node shape), and an **identifier-bearing field** — D5
+refuses to take an identifier from prose, so asking could only discard the answer
+(resolving it is a *lookup*, #338/#372). A **reference-only** field stays
+committable on purpose: prose is refused, but naming an entity already in the
+crate is exactly the useful answer when a repair rule declined on ambiguous
+candidates. **Every FAIR gap is `report-only`** (its property is an indicator id
+like `RDA-F1-02M`, not a field), as are **crate-level MIT gaps whose field is not
+a crate slot**. Actionability is gated on the **field**, never on the mere
+presence of an `entity_id` — MIT gaps deliberately keep `entity_id is None`, and
+populating it would flip ~167 report-only pseudo-field slots
+(`MolecularEntity:char`, `LabProcessExposure:param`, …) into ask-user turns that
+would write literal `"char"` / `"param"` keys. `GapReport` adds
 `{gaps, conformance, mit_overall, fair_summary, counts}`, with `gaps` sorted
 **all MUST, then SHOULD, then MAY**, then **committable before `report-only`**
 within a tier, stable secondary by `(source, entity_id, property)` — so the loop

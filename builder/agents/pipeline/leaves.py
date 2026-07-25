@@ -36,6 +36,7 @@ from builder.agents.llm import (
     _extract_token_usage,
 )
 from builder.tools._crate_mapping import _REF_FIELDS, draft_hints_schema
+from builder.tools.field_kinds import IDENTIFIER_FIELDS
 
 # A usage sink is notified of one leaf call's token usage:
 # ``(input_tokens, output_tokens, model_name)``. Any element may be ``None`` when
@@ -84,31 +85,12 @@ def _invoke_structured_with_usage(
 # extracted as free text. Both sets are pruned from the structured-output schema
 # *and* stripped from the result.
 # ---------------------------------------------------------------------------
-_IDENTIFIER_SCALAR_FIELDS: frozenset[str] = frozenset(
-    {
-        # generic identifier slot (CAS / accession / DOI, per entity type)
-        "identifier",
-        "accession",
-        # MolecularEntity structure/registry identifiers
-        "inchikey",
-        "smiles",
-        "molecular_formula",
-        "pubchem_cid",
-        "cas",
-        "casrn",
-        "cas_number",
-        # Person / Organization / Publication external ids
-        "orcid",
-        "ror",
-        "doi",
-        # DefinedTerm / PropertyValue ontology identifiers + dereferenceable IRIs
-        "term_code",
-        "in_defined_term_set",
-        "property_id",
-        "unit_code",
-        "url",
-    }
-)
+# D5: identifier-bearing fields the model is never even asked for, and which are
+# stripped from its output defensively. The set now has ONE definition, in the
+# shared :mod:`builder.tools.field_kinds` (#375) — it previously existed here and
+# byte-identically in ``guidance``, free to drift apart. Aliased rather than
+# renamed so the many references below (and any external caller) are unaffected.
+_IDENTIFIER_SCALAR_FIELDS: frozenset[str] = IDENTIFIER_FIELDS
 
 # Fields removed from the schema the model sees AND stripped from its output (D5).
 _EXCLUDED_FIELDS: frozenset[str] = _IDENTIFIER_SCALAR_FIELDS | _REF_FIELDS
