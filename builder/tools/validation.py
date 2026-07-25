@@ -160,6 +160,41 @@ def _synthesize_fix(issue: RoutableIssue) -> str:
     return f"Fix `{entity}`: {issue.message}"
 
 
+def _assemble_and_validate(
+    state: CrateState, *, severity: str, profile: str
+) -> tuple[dict[str, Any], list[Any]]:
+    """Assemble the crate in memory and validate it, returning BOTH.
+
+    Split out so a caller that needs the assembled document itself — the gap
+    engine, whose MIT matcher scores against the assembled graph — can reuse this
+    one assembly instead of building the crate a second time (#377).
+
+    Deliberately NOT surfaced by widening ``build_and_validate``'s return:
+    that is a registered ReAct tool whose result is serialized into the model's
+    context, and a whole ``@graph`` there would be pure token cost.
+
+    ``include_all_scanned=False``: the auto-included scanned-file leaves (#175)
+    are plain File nodes that do not change the validation verdict, so they are
+    skipped on this hot path. ``export_crate`` uses the default (True) so the
+    written crate packages the whole dataset.
+    """
+    # Imported lazily (not at module top) so validate()'s ImportError handling
+    # stays intact. profiles.validator installs the roc-validator bootstrap shim
+    # + bundled-ISA-ontology patch on import; importing validate_crate_dict here
+    # runs that shim before any rocrate_validator import is triggered.
+    from builder.tools.builder import assemble_crate
+    from profiles.validator import validate_crate_dict
+
+    crate = assemble_crate(
+        state,
+        output_dir=None,
+        materialize_payload=False,
+        include_all_scanned=False,
+    )
+    metadata_doc = crate.metadata.generate()
+    return metadata_doc, validate_crate_dict(metadata_doc, severity=severity, profile=profile)
+
+
 def build_and_validate(
     state: CrateState,
     severity: str | None = "required",
@@ -194,27 +229,14 @@ def build_and_validate(
     severity = "required" if severity is None else severity
     profile = "all" if profile is None else profile
 
-    # Imported lazily (not at module top) so validate()'s ImportError handling
-    # stays intact. profiles.validator installs the roc-validator bootstrap shim
-    # + bundled-ISA-ontology patch on import; importing validate_crate_dict here
-    # runs that shim before any rocrate_validator import is triggered. assemble_crate
-    # pulls in ro-crate-py only (no rocrate_validator), so its order is immaterial.
-    from builder.tools.builder import assemble_crate
-    from profiles.validator import validate_crate_dict
-
     try:
         # include_all_scanned=False: the auto-included scanned-file leaves (#175)
         # are plain File nodes that don't change the validation verdict, so we skip
         # them on this hot in-loop path to keep build_and_validate fast. export_crate
         # uses the default (True) so the written crate packages the whole dataset.
-        crate = assemble_crate(
-            state,
-            output_dir=None,
-            materialize_payload=False,
-            include_all_scanned=False,
+        metadata_doc, results = _assemble_and_validate(
+            state, severity=severity, profile=profile
         )
-        metadata_doc = crate.metadata.generate()
-        results = validate_crate_dict(metadata_doc, severity=severity, profile=profile)
     except Exception as e:  # noqa: BLE001 — surface as a tool error, never crash the loop
         logger.error("build_and_validate failed: %s", e)
         return {"ok": False, "conformance": {}, "issues": [], "error": str(e)}

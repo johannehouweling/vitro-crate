@@ -91,6 +91,42 @@ _SLOT_TYPE_MATCH: dict[str, tuple[frozenset[str], str | None]] = {
 # crate_slot field -> the actual property key on the assembled node.
 _SLOT_FIELD_ALIAS: dict[str, str] = {"param": "parameter"}
 
+# Values the BUILD synthesizes when the user supplied nothing. Crediting one
+# would be a false pass — and, since the gap engine shares this matcher (#377),
+# would silently stop the loop asking the user for the real value. Same class as
+# the deliberate refusal to alias `conditionsOfAccess` to the default `license`.
+def _placeholder_values() -> frozenset[str]:
+    """The synthesized values, read from the constants the BUILD actually uses.
+
+    Imported rather than duplicated as string literals: a hard-coded copy would
+    drift the moment a default is reworded, and silently start crediting it
+    again. Lazy + cached because ``builder.tools.builder`` pulls in ro-crate-py.
+    """
+    global _PLACEHOLDER_CACHE
+    if _PLACEHOLDER_CACHE is None:
+        from builder.tools.builder import (
+            _DEFAULT_ROOT_NAME,
+            _PLACEHOLDER_ROOT_DESCRIPTION,
+            _PLACEHOLDER_ROOT_NAME,
+        )
+
+        _PLACEHOLDER_CACHE = frozenset(
+            v.strip().lower()
+            for v in (
+                _PLACEHOLDER_ROOT_NAME,
+                _DEFAULT_ROOT_NAME,
+                _PLACEHOLDER_ROOT_DESCRIPTION,
+                # _crate_mapping's default root license; there is no constant for
+                # it, and the module already refuses to credit `conditionsOfAccess`
+                # from it for the same reason.
+                "ALL RIGHTS RESERVED BY THE AUTHORS",
+            )
+        )
+    return _PLACEHOLDER_CACHE
+
+
+_PLACEHOLDER_CACHE: frozenset[str] | None = None
+
 
 def _local(token: str) -> str:
     """Local name of a type/IRI token (last path/hash/CURIE segment)."""
@@ -110,11 +146,16 @@ def _additional_type_of(node: dict[str, Any]) -> str | None:
 
 
 def _nonempty(value: Any) -> bool:
-    """A property counts as filled when it carries a non-empty value (a bare
-    ``{"@id": …}`` reference or a list of them counts)."""
+    """A property counts as filled when it carries a real, non-placeholder value.
+
+    A bare ``{"@id": …}`` reference or a list of them counts. A value the BUILD
+    synthesized in the user's absence does not — see :data:`_PLACEHOLDER_VALUES`.
+    """
     if value is None:
         return False
-    if isinstance(value, (str, list, dict)):
+    if isinstance(value, str):
+        return bool(value) and value.strip().lower() not in _placeholder_values()
+    if isinstance(value, (list, dict)):
         return len(value) > 0
     return True
 
@@ -279,20 +320,72 @@ def assess_mit_coverage(
     if mit_data is None:
         return MITReport(module_scores={}, overall_score=0.0)
 
+    return _score_modules(mit_data, slot_matcher(state, graph=graph))
+
+
+def graph_nodes(graph: Any) -> list[dict[str, Any]]:
+    """The addressable nodes of an assembled crate document.
+
+    Accepts either the whole ``{"@context":…, "@graph":[…]}`` document or a bare
+    node list, so callers can pass whichever they are holding.
+    """
+    nodes = graph.get("@graph", []) if isinstance(graph, dict) else (graph or [])
+    return [n for n in nodes if isinstance(n, dict) and "@id" in n]
+
+
+def slot_matcher(
+    state: CrateState, *, graph: Any | None = None
+) -> Callable[[str, str], bool]:
+    """The single ``(crate_slot EntityType, field) -> filled?`` predicate.
+
+    **This is the one matcher for the ``crate_slot`` vocabulary** (#377). That
+    vocabulary describes the *assembled* crate — schema.org properties on nodes
+    discriminated by ``@type`` + ``additionalType`` — not the intermediate
+    ``CrateState``, so the graph branch is the accurate one. It resolves three
+    things a ``CrateState`` field scan structurally cannot:
+
+    * a slot type that is not an ``EntityType`` at all (``LabProcessExposure``
+      and its three siblings are ``LabProcess`` + an ``additionalType``);
+    * the ``char`` slot, realized only as an ``additionalProperty``
+      ``CharacteristicValue`` at assembly;
+    * a field the assembly *promotes* — a ``MolecularEntity``'s ``cas`` becomes
+      the node's ``identifier`` PropertyValue, and a ``CellLineSample``'s
+      ``accession`` becomes its ``identifier``.
+
+    Exposed publicly so the gap engine consumes it instead of keeping a second,
+    un-migrated copy — the two disagreeing is what made the pipeline ask for
+    identifiers the crate already carried.
+
+    With ``graph=None`` it degrades to the legacy ``CrateState`` field match, for
+    callers that hold no assembled document (e.g. an in-loop score floor).
+    """
     if graph is not None:
-        nodes = graph.get("@graph", []) if isinstance(graph, dict) else graph
-        nodes = [n for n in nodes if isinstance(n, dict) and "@id" in n]
+        nodes = graph_nodes(graph)
         index = {n["@id"]: n for n in nodes}
 
-        def slot_filled(entity_type: str, field: str) -> bool:
+        def _graph_match(entity_type: str, field: str) -> bool:
             return _graph_slot_filled(entity_type, field, nodes, index)
-    else:
-        filled_fields = _count_filled_fields(state)
 
-        def slot_filled(entity_type: str, field: str) -> bool:
-            return (entity_type, field) in filled_fields
+        return _graph_match
 
-    return _score_modules(mit_data, slot_filled)
+    filled_fields = _count_filled_fields(state)
+
+    def _state_match(entity_type: str, field: str) -> bool:
+        return (entity_type, field) in filled_fields
+
+    return _state_match
+
+
+def slot_type_present(entity_type: str, nodes: list[dict[str, Any]]) -> bool:
+    """Whether any assembled node matches ``entity_type``'s slot-type rule.
+
+    The graph-aware counterpart of "is there an instance of this type?" — the
+    check that decides whether an MIT parameter gets a per-field question or the
+    #257 creation prompt. A ``CrateState`` type scan answers ``False`` for every
+    ``LabProcess*`` subtype (they are not ``EntityType`` members), so a fully
+    parameterised Exposure still produced "No LabProcessExposure recorded yet".
+    """
+    return any(_node_matches_slot_type(n, entity_type) for n in nodes)
 
 
 # ---------------------------------------------------------------------------
@@ -300,4 +393,21 @@ def assess_mit_coverage(
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
-TOOL_REGISTRY.register("assess_mit_coverage", assess_mit_coverage, takes_state=True)
+
+def _assess_mit_coverage_tool(state: CrateState, *, assemble: bool = True) -> MITReport:
+    """The registered tool: score against the ASSEMBLED crate by default (#377).
+
+    The bare function was registered directly, so every ``run_tool`` call passed
+    ``graph=None`` and both arms saw the legacy ``CrateState`` score — far below
+    what the maturity report reports for the same crate, because most of the MIT
+    vocabulary only resolves after assembly.
+
+    ``assemble=False`` keeps the cheap no-graph branch reachable for an in-loop
+    score floor; it is an explicit opt-out rather than an implicit behaviour
+    change, since a full crate assembly per call is not free.
+    """
+    graph = {"@graph": _assemble_graph(state)} if assemble else None
+    return assess_mit_coverage(state, graph=graph)
+
+
+TOOL_REGISTRY.register("assess_mit_coverage", _assess_mit_coverage_tool, takes_state=True)

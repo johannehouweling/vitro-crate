@@ -13,6 +13,8 @@ CI's suite-wide ``--timeout=30`` is overridden per-module.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
@@ -666,3 +668,109 @@ class TestActionableGapsAreActuallyAppliable:
             _local_name(g.property) == "description" and g.entity_type == "Assay"
             for g in actionable
         ), "the Assay description gap must remain actionable"
+
+
+class TestMitGapsUseTheGraphMatcher:
+    """#377 part 2: one matcher for the `crate_slot` vocabulary.
+
+    `mit_assessment` matches slots against the assembled `@graph` — its module
+    docstring says that is the accurate path, because the domain data is only
+    synthesized at assembly. The gap engine carried a second, un-migrated copy
+    keyed on `CrateState` field names, so it asked for identifiers the crate
+    already had and reported a coverage score the maturity report contradicted.
+    """
+
+    @staticmethod
+    def _post_lookup_state() -> CrateState:
+        """The state the lookups actually leave behind — no network needed.
+
+        `resolve_compound` writes `cas`/`pubchem_cid` (never `identifier`) and
+        `resolve_cell_line` writes `accession`; the assembly promotes both to the
+        node's `identifier`. Setting them directly with the same completion
+        status is exactly what the composites do.
+        """
+        state = _backbone()
+        chem = _entity(
+            "chem1", "MolecularEntity", name="Sodium perchlorate", cas="7601-89-0"
+        )
+        chem.set_field_status("cas", "verified", "lookup")
+        state.add_entity(chem)
+        cell = _entity("cl1", "CellLineSample", name="FRTL-5", accession="CVCL_0027")
+        cell.set_field_status("accession", "verified", "lookup")
+        state.add_entity(cell)
+        state.add_entity(
+            _entity("ex1", "LabProcess", process_type="Exposure", name="Exposure", assay_id="as1")
+        )
+        return state
+
+    def test_mit_gaps_agree_with_the_graph_scorer_param_for_param(self):
+        """THE contract: one matcher for one `crate_slot` vocabulary.
+
+        For every MIT parameter, "the gap engine emits a gap" must mean exactly
+        "the scorer counts the slot unfilled". Any divergence is the two matchers
+        disagreeing — the defect. This subsumes the individual slot cases and
+        cannot pass vacuously: it is an equality between two independently
+        computed sets, so a gap engine that emitted nothing would fail just as
+        loudly as one that emitted everything.
+        """
+        from builder.tools.mit_assessment import (
+            _assemble_graph,
+            _load_mit_yaml,
+            _parse_crate_slots,
+            slot_matcher,
+        )
+
+        state = self._post_lookup_state()
+        matcher = slot_matcher(state, graph={"@graph": _assemble_graph(state)})
+
+        scorer_unfilled: set[str] = set()
+        for module in (_load_mit_yaml() or {}).get("modules", []):
+            # The YAML nests most parameters under `sections`; walk both, exactly
+            # as the gap engine and the scorer do.
+            params = [
+                *(p for sec in module.get("sections", []) for p in sec.get("parameters", [])),
+                *module.get("parameters", []),
+            ]
+            for param in params:
+                crate_slot = param.get("crate_slot", "")
+                slots = _parse_crate_slots(crate_slot)
+                if not slots:
+                    continue
+                if not any(matcher(et, f) for et, f in slots):
+                    scorer_unfilled.add(crate_slot)
+
+        # Every MIT gap message ends with "(crate_slot <value>)" in both of its
+        # forms, so the slot string identifies the parameter without needing a
+        # new field on `Gap`.
+        emitted = {
+            m.group(1)
+            for g in assess_gaps(state).gaps
+            if g.source == "mit"
+            and (m := re.search(r"\(crate_slot ([^)]+)\)", g.message))
+        }
+        assert emitted == scorer_unfilled
+
+    def test_exposure_labprocess_stops_the_creation_prompt(self):
+        """`LabProcessExposure` is not an `EntityType`, so the state matcher
+        could never see the Exposure that is right there in state."""
+        state = self._post_lookup_state()
+        messages = [g.message for g in assess_gaps(state).gaps]
+        assert not [m for m in messages if "No LabProcessExposure recorded yet" in m]
+
+    def test_creation_prompt_reappears_without_the_exposure(self):
+        """Honesty control for the creation-prompt guard."""
+        state = self._post_lookup_state()
+        state.remove_entity("ex1")
+        messages = [g.message for g in assess_gaps(state).gaps]
+        assert [m for m in messages if "No LabProcessExposure recorded yet" in m]
+
+    def test_mit_overall_matches_the_graph_scorer(self):
+        """The gap engine's headline number must agree with the scorer the
+        maturity report uses, on the same document."""
+        from builder.tools.mit_assessment import _assemble_graph, assess_mit_coverage
+
+        state = self._post_lookup_state()
+        report = assess_gaps(state)
+        scorer = assess_mit_coverage(state, graph={"@graph": _assemble_graph(state)})
+
+        assert report.mit_overall == pytest.approx(scorer.overall_score, abs=1e-6)
