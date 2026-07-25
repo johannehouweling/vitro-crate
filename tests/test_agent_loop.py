@@ -1205,6 +1205,48 @@ class TestFinishBackstop:
 # ---------------------------------------------------------------------------
 
 
+    def test_backstop_exports_when_content_changed_since_last_export(self):
+        """#380: the exit backstop was gated on a one-shot boolean, so once
+        anything had exported this session `quit` neither re-exported NOR
+        re-validated — it is the last chance to catch a stale crate."""
+        from builder.agents.react.agent_loop import (
+            _AUTO_EXPORT_FINGERPRINT_FLAG,
+            _EXPORTED_FLAG,
+            _finish_backstop,
+        )
+        from builder.tools.management import set_fields
+
+        engine = self._engine("Investigation", "Study")
+        calls = self._spy(engine)
+        # Simulate an earlier successful auto-export of the crate as it was.
+        setattr(engine, _EXPORTED_FLAG, True)
+        setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, engine.state.export_fingerprint())
+
+        set_fields(engine.state, "e0", {"description": "fixed after the export"})
+        _finish_backstop(engine, emit=lambda _m: None)
+
+        assert "build_and_validate" in calls, "the backstop must re-validate"
+        assert "export_crate" in calls, "the backstop must re-export the newer crate"
+        assert calls.index("build_and_validate") < calls.index("export_crate")
+
+    def test_backstop_is_a_noop_when_nothing_changed(self):
+        """Honesty control: the backstop must still not double-export."""
+        from builder.agents.react.agent_loop import (
+            _AUTO_EXPORT_FINGERPRINT_FLAG,
+            _EXPORTED_FLAG,
+            _finish_backstop,
+        )
+
+        engine = self._engine("Investigation")
+        calls = self._spy(engine)
+        setattr(engine, _EXPORTED_FLAG, True)
+        setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, engine.state.export_fingerprint())
+
+        _finish_backstop(engine, emit=lambda _m: None)
+
+        assert "export_crate" not in calls, f"unchanged crate must not re-export, got {calls}"
+
+
 class TestRequestTimeout:
     """Fix A: _build_chat_model wires a request timeout onto the chat model so a
     silent provider stall can never hang the turn forever (#263)."""
@@ -1848,6 +1890,83 @@ class TestExportOnCompletedBuild:
         engine.state.add_entity(Entity(entity_id="new", type="Study"))
         tools["build_and_validate"].invoke({})
         assert calls.count("export_crate") == 2, f"grown crate → re-export, got {calls}"
+
+    # ---- #380: the export gate must notice content changes, not just counts ----
+
+    def _built_engine_and_calls(self):
+        """An engine that has already auto-exported once, plus its call log."""
+        from builder.agents.react.agent_loop import _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation", "Study")
+        calls = self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={
+                "success": True,
+                "crate_path": "/tmp/out-ro-crate",
+                "error": None,
+            },
+        )
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+        tools["build_and_validate"].invoke({})
+        assert calls.count("export_crate") == 1
+        return engine, calls, tools
+
+    def test_field_only_change_re_exports(self):
+        """`set_fields` is what the system prompt tells the model to spend the
+        rest of the session on, and it never changes the entity count — so under
+        the old count fingerprint none of it ever reached disk."""
+        from builder.tools.management import set_fields
+
+        engine, calls, tools = self._built_engine_and_calls()
+
+        set_fields(engine.state, "e0", {"description": "added after the export"})
+        tools["build_and_validate"].invoke({})
+
+        assert calls.count("export_crate") == 2, (
+            f"a field-only fix must reach disk, got {calls}"
+        )
+
+    def test_crate_metadata_change_re_exports(self):
+        """Exercises the `state.metadata` half of the hash."""
+        from builder.tools.management import set_crate_metadata
+
+        engine, calls, tools = self._built_engine_and_calls()
+
+        set_crate_metadata(engine.state, accession="S-VHPS26")
+        tools["build_and_validate"].invoke({})
+
+        assert calls.count("export_crate") == 2, (
+            f"a crate-metadata change must reach disk, got {calls}"
+        )
+
+    def test_count_preserving_swap_re_exports(self):
+        """Honesty control against a fix that special-cases `fields` rather than
+        hashing content: remove one entity and add another, netting to zero."""
+        engine, calls, tools = self._built_engine_and_calls()
+
+        engine.state.remove_entity("e1")
+        engine.state.add_entity(Entity(entity_id="e9", type="Study"))
+        assert len(engine.state.list_entities()) == 2, "the count must be unchanged"
+
+        tools["build_and_validate"].invoke({})
+
+        assert calls.count("export_crate") == 2, (
+            f"a count-preserving swap must reach disk, got {calls}"
+        )
+
+    def test_no_change_still_exports_once(self):
+        """The control that proves the tests above are not passing trivially.
+
+        A fix that simply deletes the gate passes all three and fails this one.
+        """
+        _engine, calls, tools = self._built_engine_and_calls()
+
+        tools["build_and_validate"].invoke({})
+
+        assert calls.count("export_crate") == 1, (
+            f"no change -> no re-export, got {calls}"
+        )
 
     def test_failed_export_does_not_crash_or_stamp(self):
         """When the auto-export itself fails, the build result is still returned

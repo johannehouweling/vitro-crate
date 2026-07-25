@@ -158,12 +158,16 @@ _FILE_READ_TOOLS = frozenset({"read_file_sample", "read_file", "read_excel", "re
 # from the agent itself or from the backstop.
 _EXPORTED_FLAG = "_crate_exported_this_session"
 
-# Attribute holding the entity-count fingerprint of the last in-loop auto-export
-# (#287 Fix A). A completed build auto-exports the crate to disk so the user
-# always gets a crate (the new deterministic pipeline already exports on every
+# Attribute holding the CONTENT fingerprint of the last in-loop auto-export
+# (#287 Fix A; #380). A completed build auto-exports the crate to disk so the
+# user always gets a crate (the deterministic pipeline already exports on every
 # completed build, #233); this fingerprint makes the auto-export idempotent —
 # it re-exports only when the crate has changed since the last auto-export
 # (so the *latest* crate always lands), never twice for the same build.
+# It is `CrateState.export_fingerprint()`, NOT an entity count: a count is
+# invariant under every field-level tool this arm is told to use for the rest of
+# the session (`set_fields`, `set_crate_metadata`, `fix_required_issues`,
+# `link`), so counting silently kept all of that work off disk.
 _AUTO_EXPORT_FINGERPRINT_FLAG = "_crate_auto_export_fingerprint"
 
 # Attribute holding the optional single-arg console sink the loop installs so an
@@ -419,9 +423,10 @@ def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
       * the build passed BASE conformance (``build_result["conformance"]["base"]``
         — the same gate the pipeline uses; ISA/Tox may still have gaps but a
         base-valid crate is worth landing), AND
-      * the crate has changed since the last auto-export (entity-count
-        fingerprint) — so the *latest* crate always lands and an unchanged repeat
-        build never re-exports (idempotency).
+      * the crate has changed since the last auto-export (a CONTENT
+        fingerprint over entities + metadata + the scanned-file inventory) — so
+        the *latest* crate always lands and an unchanged repeat build never
+        re-exports (idempotency).
 
     On a successful export the ``_EXPORTED_FLAG`` is stamped (so ``_finish_backstop``
     stays a no-op and never double-exports) and the resolved ABSOLUTE crate path is
@@ -447,7 +452,7 @@ def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
         # Idempotency: re-export only when the crate changed since the last
         # auto-export, so the latest crate always lands and a repeat build of an
         # unchanged crate is a no-op (no double-export for the same build).
-        fingerprint = len(engine.state.list_entities())
+        fingerprint = engine.state.export_fingerprint()
         last = getattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, None)
         if last == fingerprint and getattr(engine, _EXPORTED_FLAG, False):
             return
@@ -649,7 +654,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                             setattr(
                                 engine,
                                 _AUTO_EXPORT_FINGERPRINT_FLAG,
-                                len(engine.state.list_entities()),
+                                engine.state.export_fingerprint(),
                             )
                         except Exception:  # noqa: BLE001 — fingerprint is best-effort.
                             logger.debug("fingerprint stamp failed", exc_info=True)
@@ -1341,8 +1346,14 @@ def _finish_backstop(
         if not engine.state.list_entities():
             # Nothing to write — a clean no-op (e.g. user quit immediately).
             return None
-        if getattr(engine, _EXPORTED_FLAG, False):
-            # Already exported this session (agent did it, or a prior backstop).
+        # (#380) Gate on the CONTENT fingerprint, not on "something exported this
+        # session". This is the last chance to catch a crate that changed after
+        # its auto-export; gating on the boolean meant that once anything had
+        # landed, `quit` neither re-exported NOR re-validated, and every
+        # field-level fix made after that point was silently lost.
+        fingerprint = engine.state.export_fingerprint()
+        if getattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, None) == fingerprint:
+            # The crate on disk is already this exact content — a strict no-op.
             return None
 
         say("Finalizing: building and exporting the crate before exit…")
@@ -1359,8 +1370,16 @@ def _finish_backstop(
         result = engine.run_tool("export_crate")
 
         if isinstance(result, dict) and result.get("success"):
-            # Stamp BEFORE surfacing so any later call is a strict no-op.
+            # Stamp BEFORE surfacing so any later call is a strict no-op. The
+            # fingerprint must be stamped too (#380): the two exit paths (quit
+            # and EOF) both reach here, and without it the second would see a
+            # "change" and double-export — the #251 idempotency `_EXPORTED_FLAG`
+            # was introduced to protect. Reusing the pre-build value is safe:
+            # `_writeback_validation` touches only `state.validation`, which
+            # `validation_fingerprint()` deliberately excludes, and `export_crate`
+            # does not mutate state.
             setattr(engine, _EXPORTED_FLAG, True)
+            setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, fingerprint)
             crate_path = result.get("crate_path")
             try:
                 from pathlib import Path

@@ -126,3 +126,88 @@ class TestDebounce:
         assert engine._validation_cache == {}
         r2 = engine.run_tool("build_and_validate", severity="bogus")
         assert "error" in r2
+
+
+class TestExportFingerprint:
+    """#380: the ReAct auto-export gate needs a CONTENT fingerprint.
+
+    It used to compare `len(state.list_entities())`, which is invariant under
+    every field-level mutation the arm exposes (`set_fields`,
+    `set_crate_metadata`, `fix_required_issues`, `link`) — so once the crate had
+    been exported once, none of that work ever reached disk.
+    """
+
+    def _state_with_investigation(self) -> CrateState:
+        state = CrateState()
+        draft_investigation(state, {"name": "Inv"})
+        return state
+
+    def test_export_fingerprint_changes_on_field_only_mutation(self):
+        """The exact case the entity count missed."""
+        from builder.tools.management import set_fields
+
+        state = self._state_with_investigation()
+        entity_id = state.list_entities("Investigation")[0].entity_id
+        before = state.export_fingerprint()
+
+        set_fields(state, entity_id, {"description": "added after the export"})
+
+        assert state.export_fingerprint() != before
+        assert len(state.list_entities()) == 1, (
+            "the entity count is unchanged — which is precisely why it was the "
+            "wrong fingerprint"
+        )
+
+    def test_export_fingerprint_changes_on_new_scanned_file(self):
+        """Honesty control for the two-helper split.
+
+        `export_crate` packages scanned files (`include_all_scanned=True`) that
+        `build_and_validate` never sees (`include_all_scanned=False`), so a new
+        scan changes the exported payload without changing the validation hash.
+        If `export_fingerprint` were merely an alias, this fails.
+        """
+        from builder.state import FileClassification
+
+        state = self._state_with_investigation()
+        export_before = state.export_fingerprint()
+        validation_before = state.validation_fingerprint()
+
+        state.scanned_files.append(
+            FileClassification(
+                path="/data/raw/plate1.csv",
+                filename="plate1.csv",
+                size=1234,
+                mime_type="text/csv",
+            )
+        )
+
+        assert state.export_fingerprint() != export_before
+        assert state.validation_fingerprint() == validation_before, (
+            "a scanned file is not a validation input — including it would "
+            "defeat the #155 debounce"
+        )
+
+    def test_export_fingerprint_stable_across_validation_writeback(self):
+        """Guards the double-export regression.
+
+        The backstop runs `build_and_validate` before exporting, and the #153
+        write-back mutates `state.validation`. If that fed the fingerprint, the
+        two exit paths (quit and EOF) would each see a "change" and export twice.
+        """
+        state = self._state_with_investigation()
+        before = state.export_fingerprint()
+
+        state.validation.base_passed = True
+        state.validation.required_issues = ["something the validator found"]
+
+        assert state.export_fingerprint() == before
+
+    def test_validation_input_hash_delegates_to_the_state_method(self):
+        """`_validation_input_hash` stays importable and equivalent.
+
+        `tests/test_validation_debounce.py` and the engine's debounce key both
+        use the module-level name, so the promotion must be a delegation, not a
+        move.
+        """
+        state = self._state_with_investigation()
+        assert _validation_input_hash(state) == state.validation_fingerprint()

@@ -8,6 +8,7 @@ results, assessment scores, and agent reasoning are tracked in this state.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections import Counter
@@ -844,6 +845,57 @@ class CrateState:
     def list_entities(self, entity_type: str | None = None) -> list[Entity]:
         """Return all entities, optionally filtered by type."""
         return self.entities.list_entities(entity_type=entity_type)
+
+    # ------------------------------------------------------------------
+    # Content fingerprints (change detection for caching / export gating)
+    # ------------------------------------------------------------------
+
+    def validation_fingerprint(self) -> str:
+        """Hash of what ``build_and_validate`` consumes: entities + metadata.
+
+        Deliberately EXCLUDES ``validation`` / assessments / checkpoint. Those
+        are *outputs* the #153 write-back mutates after every validation, so
+        including them would change the hash on every call and defeat the #155
+        debounce. ``assemble_crate`` reads only entities + metadata, so this is a
+        safe superset of the validation inputs: a change to anything the
+        validator could observe busts the cache, while a change to a pure output
+        (a verdict, a score) does not.
+        """
+        content = {
+            "entities": self.entities.to_dict()
+            if hasattr(self.entities, "to_dict")
+            else str(self.entities),
+            "metadata": self.metadata.to_dict()
+            if hasattr(self.metadata, "to_dict")
+            else str(self.metadata),
+        }
+        return hashlib.sha256(
+            json.dumps(content, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+
+    def export_fingerprint(self) -> str:
+        """Hash of what ``export_crate`` writes: the validation inputs + payload.
+
+        Strictly wider than :meth:`validation_fingerprint` because the exporter
+        packages every scanned file that has not been drafted as a ``File``
+        entity (``assemble_crate(..., include_all_scanned=True)``), which the
+        validation path never sees (it passes ``include_all_scanned=False``). A
+        second ``scan_files`` therefore changes the exported payload without
+        changing the validation hash, so the scan inventory is folded in here and
+        deliberately kept out of the narrower hash (#380).
+
+        Used to gate re-export: an entity COUNT is invariant under every
+        field-level mutation the toolbox exposes (``set_fields``,
+        ``set_crate_metadata``, ``fix_required_issues``, ``link``), so counting
+        entities silently dropped all of that work from the crate on disk.
+        """
+        content = {
+            "validation": self.validation_fingerprint(),
+            "scanned": sorted(fc.path for fc in self.scanned_files),
+        }
+        return hashlib.sha256(
+            json.dumps(content, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
 
     # ------------------------------------------------------------------
     # Completion & reasoning helpers
