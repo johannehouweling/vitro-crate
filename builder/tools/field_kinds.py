@@ -102,9 +102,45 @@ IDENTIFIER_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def normalise_field_name(field: str | None) -> str:
+    """Reduce a property name to a spelling-insensitive comparison key.
+
+    A field reaches these predicates from three places that spell it
+    differently: ``CrateState`` fields and the draft-hint schemas are snake_case
+    (``inchikey``, ``molecular_formula``); a SHACL gap carries a schema.org
+    property IRI whose local name is camelCase
+    (``http://schema.org/inChIKey``); and MIT ``crate_slot`` values are plain
+    field names. Without normalising, the D5 guard matched ``identifier`` and
+    ``smiles`` but silently missed ``inChIKey`` and ``molecularFormula``, and the
+    user's prose was committed onto the exported node (#377).
+
+    The key is the IRI's local part, lowercased, with separators removed —
+    **not** snake_case. A camelCase→snake_case conversion cannot reconcile these
+    vocabularies: ``inChIKey`` would become ``in_ch_ikey``, never the
+    ``inchikey`` the field set is written in, because the acronym boundaries are
+    not recoverable. Dropping separators on both sides sidesteps that entirely
+    and is why :data:`_IDENTIFIER_KEYS` is normalised the same way.
+    """
+    if not field:
+        return ""
+    local = str(field).rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+    return "".join(ch for ch in local if ch.isalnum()).lower()
+
+
+# The identifier vocabulary in comparison-key form, so membership is spelling-
+# insensitive in both directions (`inchikey` and `inChIKey` both hit).
+_IDENTIFIER_KEYS: frozenset[str] = frozenset(
+    normalise_field_name(f) for f in IDENTIFIER_FIELDS
+)
+
+
 def is_identifier_field(field: str) -> bool:
-    """Whether ``field`` (a local property name) is identifier-bearing (D5)."""
-    return field in IDENTIFIER_FIELDS
+    """Whether ``field`` is identifier-bearing (D5), however it is spelled.
+
+    Accepts a snake_case field name, a camelCase property, or a full property
+    IRI — see :func:`normalise_field_name`.
+    """
+    return normalise_field_name(field) in _IDENTIFIER_KEYS
 
 
 def is_reference_field(field: str) -> bool:

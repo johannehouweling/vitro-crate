@@ -36,7 +36,7 @@ from builder.agents.llm import (
     _extract_token_usage,
 )
 from builder.tools._crate_mapping import _REF_FIELDS, draft_hints_schema
-from builder.tools.field_kinds import IDENTIFIER_FIELDS
+from builder.tools.field_kinds import IDENTIFIER_FIELDS, is_identifier_field
 
 # A usage sink is notified of one leaf call's token usage:
 # ``(input_tokens, output_tokens, model_name)``. Any element may be ``None`` when
@@ -756,8 +756,10 @@ def _normalise_interpretation(result: Any, gap_context: dict[str, Any]) -> dict[
         if not isinstance(value, str) or not value.strip():
             return {"action": "skip"}
         field = _local_property_name(gap_context.get("property"))
-        if field in _IDENTIFIER_SCALAR_FIELDS:
-            # D5: never let the user's prose become an identifier value.
+        # D5: never let the user's prose become an identifier value. Asked via
+        # the shared predicate, which normalises spelling — plain membership
+        # matched `inchikey` but missed a SHACL gap's `inChIKey` (#377).
+        if is_identifier_field(field):
             return {"action": "skip"}
         return {"action": "commit", "value": value.strip()}
 
@@ -872,7 +874,7 @@ def extract_field_from_file(
     """
     # D5: never extract an identifier from file text — those come from lookups.
     target = _local_property_name(field) or _local_property_name(gap_context.get("property"))
-    if target in _IDENTIFIER_SCALAR_FIELDS:
+    if is_identifier_field(target):
         return ""
     if not file_text or not file_text.strip():
         return ""
