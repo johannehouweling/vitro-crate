@@ -18,6 +18,7 @@ import pytest
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools.gap_analysis import (
     _CRATE_SETTABLE_FIELDS,
+    REPORT_ONLY,
     Gap,
     GapReport,
     _local_name,
@@ -366,11 +367,15 @@ class TestMitGapsForAbsentEntityType:
 
     def test_present_molecular_entity_keeps_committable_field(self):
         """With a MolecularEntity in state, its crate-settable MIT slots become
-        committable again — the report-only downgrade is *only* for absent types."""
+        committable again — the report-only downgrade is *only* for absent types.
+
+        The probe is the compound's ``name`` slot, so the entity is added WITHOUT
+        one. It used to be added named, which left ``identifier`` as the only
+        crate-settable slot still open — and since #375 an identifier field is
+        report-only on D5 grounds, so that probe would now test nothing.
+        """
         state = _backbone()
-        state.add_entity(
-            _entity("chem1", "MolecularEntity", name="Acetaminophen")
-        )
+        state.add_entity(_entity("chem1", "MolecularEntity", cas="103-90-2"))
         report = assess_gaps(state)
         molecular_committable = [
             g
@@ -430,7 +435,16 @@ class TestAutoFixable:
         assert all(g.auto_fixable is False for g in result_gaps)
 
     def test_non_repairable_must_is_not_auto_fixable(self):
-        """The empty-crate identifier MUST has no repair rule -> ask-user."""
+        """The empty-crate identifier MUST has no repair rule.
+
+        It is also not *askable*: since #375 an identifier-bearing field is
+        ``report-only``, because D5 refuses to commit an identifier from the
+        user's prose — so asking could only ever discard the answer. Resolving it
+        properly means a lookup, which is #338 / #372's lane, not a prompt. This
+        assertion changed from ``ask-user`` for that reason.
+        """
+        from builder.tools.gap_analysis import REPORT_ONLY
+
         report = assess_gaps(CrateState())
         ident = [
             g
@@ -439,7 +453,7 @@ class TestAutoFixable:
         ]
         assert ident
         assert all(g.auto_fixable is False for g in ident)
-        assert all(g.fix_hint == "ask-user" for g in ident)
+        assert all(g.fix_hint == REPORT_ONLY for g in ident)
 
     def test_deterministically_repairable_input_must_is_auto_fixable(self):
         """A missing DataAnalysis object with ONE free Sample is auto-fixable."""
@@ -537,3 +551,118 @@ class TestStableSecondaryOrder:
             assert _keys(report_only) == sorted(_keys(report_only)), (
                 f"{tier} report-only gaps must have a stable secondary order"
             )
+
+
+# ---------------------------------------------------------------------------
+# #375 — `_is_committable` must genuinely mirror `guidance._apply_value`.
+#
+# Its docstring (and AGENTS.md) promise that it "mirrors _apply_value's success
+# conditions", but it was never applied to SHACL gaps at all, and it answered
+# True for shapes _apply_value can only refuse. The loop then spent a human turn
+# on each — asking a question whose answer it would silently discard.
+# ---------------------------------------------------------------------------
+
+
+class TestActionableGapsAreActuallyAppliable:
+    """Every gap advertised as actionable must be one `_apply_value` can commit."""
+
+    @staticmethod
+    def _state() -> CrateState:
+        """Backbone shaped as the pipeline leaves it (Assay: name + study_id)."""
+        state = CrateState()
+        state.metadata.title = "FRTL-5 perchlorate thyroid study"
+        state.metadata.description = "Root description"
+        state.add_entity(
+            _entity("inv1", "Investigation", name="Inv", description="d", identifier="INV-1")
+        )
+        state.add_entity(
+            _entity("st1", "Study", name="St", description="d", investigation_id="inv1")
+        )
+        state.add_entity(_entity("as1", "Assay", name="FRTL-5 assay", study_id="st1"))
+        return state
+
+    @staticmethod
+    def _actionable(report) -> list[Gap]:
+        return [g for g in report.gaps if g.fix_hint != REPORT_ONLY and not g.auto_fixable]
+
+    def test_shacl_gap_with_no_property_is_report_only(self):
+        """A node-shape gap names no field, so there is nothing to set."""
+        report = assess_gaps(self._state())
+        propless = [
+            g for g in report.gaps if g.source == "shacl" and not (g.property or "").strip()
+        ]
+        assert propless, "expected at least one real node-shape SHACL gap"
+        for gap in propless:
+            assert gap.fix_hint == REPORT_ONLY, (
+                f"a gap with no property cannot be committed, yet it is advertised "
+                f"as {gap.fix_hint!r}: {gap.message[:90]}"
+            )
+
+    def test_reference_only_gap_stays_actionable(self):
+        """A reference-only gap is deliberately NOT silenced.
+
+        Prose cannot be committed to `about` / `measurementMethod` / `object` —
+        `_apply_value` refuses it and the loop asks once (#375). But naming an
+        entity that already exists in the crate CAN be committed, and that is the
+        useful question when a repair rule declined on two ambiguous candidates.
+        Marking these report-only would remove a real interaction, so this test
+        pins the choice against a future over-correction.
+        """
+        from builder.tools.field_kinds import is_reference_field
+
+        report = assess_gaps(self._state())
+        ref_gaps = [
+            g
+            for g in report.gaps
+            if g.source == "shacl" and is_reference_field(_local_name(g.property))
+        ]
+        assert ref_gaps, "expected real reference-only SHACL gaps on this backbone"
+        assert any(g.fix_hint == "ask-user" for g in ref_gaps)
+
+    def test_every_actionable_gap_is_appliable(self):
+        """The invariant that was missing: what the loop offers, it can commit.
+
+        This is the guard that stops the gap engine and the guidance loop drifting
+        apart again — the drift four separate audit lenses found by hand.
+        """
+        from builder.agents.pipeline.guidance import (
+            _CRATE_METADATA_FIELDS,
+            _is_citation_field,
+            _is_person_field,
+        )
+        from builder.tools.field_kinds import is_identifier_field, is_reference_field
+        from builder.tools.repair import _resolve_state_entity
+
+        state = self._state()
+        for gap in self._actionable(assess_gaps(state)):
+            field = _local_name(gap.property)
+            assert field, f"actionable gap with no field: {gap.message[:90]}"
+            if _is_person_field(field) or _is_citation_field(field):
+                continue  # composite routes of their own
+            assert not is_identifier_field(field), (
+                f"identifier field {field!r} is advertised actionable, but D5 means "
+                f"the answer can only ever be discarded"
+            )
+            # NB reference-only fields ARE actionable: the user can name an
+            # existing entity even though prose is refused. See
+            # `test_reference_only_gap_stays_actionable`.
+            if is_reference_field(field):
+                continue
+            has_target = (
+                _resolve_state_entity(state, gap.entity_id) is not None
+                or (gap.entity_type not in (None, "Investigation"))
+                or field in _CRATE_METADATA_FIELDS
+            )
+            assert has_target, (
+                f"no commit target for actionable gap {gap.source}/{gap.entity_id}/{field}"
+            )
+
+    def test_actionable_gaps_do_not_collapse_to_zero(self):
+        """Honesty control: a guard that marked everything report-only would pass
+        the three tests above. The Assay's own `description` gap stays actionable."""
+        actionable = self._actionable(assess_gaps(self._state()))
+        assert actionable, "the loop must still have real work to offer the user"
+        assert any(
+            _local_name(g.property) == "description" and g.entity_type == "Assay"
+            for g in actionable
+        ), "the Assay description gap must remain actionable"

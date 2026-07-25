@@ -32,7 +32,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from builder.state import CrateState
+from builder.state import CrateState, Entity
+from builder.tools.field_kinds import (
+    CITATION_FIELDS,
+    PERSON_FIELDS,
+    is_identifier_field,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,24 +137,97 @@ def _local_name(iri: str | None) -> str:
     return iri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
 
 
-def _is_committable(entity_id: str | None, prop: str | None) -> bool:
+def _is_committable(
+    state: CrateState,
+    entity_id: str | None,
+    prop: str | None,
+    entity_type: str | None = None,
+) -> bool:
     """Whether the guidance loop could deterministically commit such a gap.
 
-    Mirrors :func:`builder.agents.pipeline.guidance._apply_value`'s success conditions
-    *from the gap's own fields alone* so the gap engine and the guidance loop can
-    never drift on what "settable" means:
+    Mirrors :func:`builder.agents.pipeline.guidance._apply_value`'s success
+    conditions so the gap engine and the guidance loop can never drift on what
+    "settable" means. A gap this returns ``False`` for stays in the report (honest
+    counting) but is marked ``report-only``, so the loop never spends a human turn
+    on a question whose answer it would then discard.
 
-    * an entity-scoped gap (``entity_id`` set) is committable — the loop resolves
-      the entity at runtime and writes the property via ``set_fields``;
-    * a crate-level gap (``entity_id is None``) is committable only when its
-      property's local name maps to a Root Data Entity metadata slot.
+    Committable when the gap names a field the loop can actually write:
 
-    Anything else (e.g. a FAIR indicator id, or a crate-level field with no slot)
-    has no deterministic target and is recorded ``report-only``.
+    * the field is a **person/agent** or **citation** field — those have composite
+      routes of their own (``draft_person`` / the publication composites);
+    * an **entity-scoped** gap whose ``entity_id`` really resolves to a state
+      entity (``repair._resolve_state_entity``), or the root ``"./"`` with a field
+      that maps to a Root Data Entity metadata slot;
+    * a **typed** gap (no ``entity_id``, an ``entity_type``) whose field is a crate
+      slot **and** whose type has exactly one instance in state — the target
+      ``_apply_value`` now resolves;
+    * a **crate-level** gap whose field maps to a Root Data Entity slot.
+
+    Never committable, whatever the target:
+
+    * a gap that names **no field** (a node shape) — there is nothing to set;
+    * an **identifier-bearing** field (D5 — the value comes from a lookup, so the
+      user's answer is refused whatever they type).
+
+    A **reference-only** field stays committable on purpose. Prose cannot be
+    committed to one, but naming an entity that already exists in the crate can —
+    and that is precisely the useful question when a repair rule declined because
+    two candidates were ambiguous ("which File is this analysis' input?"). #375
+    makes the *prose* case honest (``_apply_value`` refuses it and the loop asks
+    once) rather than removing the interaction.
     """
+    field = _local_name(prop)
+    if not field:
+        return False
+
+    if is_identifier_field(field):
+        return False
+
     if entity_id is not None:
-        return True
-    return _local_name(prop) in _CRATE_SETTABLE_FIELDS
+        # Composite routes (`_apply_person_value` / `_apply_citation_value`) commit
+        # these without needing the focus node to resolve to a state entity. Scoped
+        # to an entity-bearing gap on purpose: a crate-level MIT gap keeps the
+        # field gate below, so this cannot flip the ~167 report-only MIT gaps.
+        if field in PERSON_FIELDS or field in CITATION_FIELDS:
+            return True
+        from builder.tools.repair import _resolve_state_entity
+
+        if _resolve_state_entity(state, entity_id) is not None:
+            return True
+        # The root "./" folds the Investigation and has no separate state entity.
+        return entity_id == "./" and field in _CRATE_SETTABLE_FIELDS
+
+    # Typed gap (MIT): committable when the FIELD is settable *and* its type has
+    # exactly one named instance to write to. Gating on the field as well as the
+    # instance count is load-bearing: dropping the field test would flip the ~150
+    # pseudo-field MIT slots (``MolecularEntity:char``, ``LabProcessExposure:param``,
+    # …) from report-only to ask-user, and ``set_fields`` would then write literal
+    # ``"char"`` / ``"param"`` keys — a strictly worse regression.
+    if entity_type not in (None, "Investigation"):
+        return (
+            field in _CRATE_SETTABLE_FIELDS
+            and len(_instances_of(state, entity_type)) == 1
+        )
+
+    return field in _CRATE_SETTABLE_FIELDS
+
+
+def _instances_of(state: CrateState, entity_type: str | None) -> list[Entity]:
+    """In-state instances of ``entity_type``.
+
+    The read-only counterpart of ``guidance._instances_for_commit`` — the same
+    rule decides whether a typed gap has an unambiguous commit target. Note it
+    counts ALL instances, not only named ones: a name is needed to *phrase* the
+    question well, but the sole instance of a type is an unambiguous place to
+    *write* whether or not it has one, and an unnamed sibling still makes the
+    target ambiguous.
+    """
+    if not entity_type:
+        return []
+    try:
+        return list(state.list_entities(entity_type))
+    except (KeyError, ValueError):  # pragma: no cover — unknown type is rare
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +303,20 @@ def _shacl_gaps(state: CrateState, build_and_validate) -> tuple[list[Gap], dict[
         resolved = _resolve_state_entity(state, issue.get("entity_id"))
         if resolved is not None:
             entity_type = resolved.type
-        fix_hint = "fix_required_issues" if auto else "ask-user"
+        # (#375) A non-auto-fixable SHACL issue was previously advertised
+        # "ask-user" unconditionally, so the loop spent a human turn on gaps
+        # `_apply_value` can only refuse — a node shape naming no field, an
+        # unresolvable focus node, an identifier, a reference-only property. They
+        # stay in the report (honest counting) but no longer consume a turn.
+        fix_hint = (
+            "fix_required_issues"
+            if auto
+            else (
+                "ask-user"
+                if _is_committable(state, issue.get("entity_id"), prop, entity_type)
+                else REPORT_ONLY
+            )
+        )
         gaps.append(
             Gap(
                 tier=tier,
@@ -383,7 +474,7 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
             # committable when their field maps to a Root Data Entity slot; the
             # rest have no deterministic settable target and are report-only, so
             # the guidance loop surfaces them for context without burning a turn.
-            elif not _is_committable(None, slot_field):
+            elif not _is_committable(state, None, slot_field, slot_entity_type):
                 message = (
                     f"MIT parameter '{param_name}' is not yet captured (crate_slot {crate_slot})."
                 )

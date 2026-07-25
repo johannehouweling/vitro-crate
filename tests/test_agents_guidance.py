@@ -1997,3 +1997,273 @@ class TestRootCitationGapPersistsAndIsNotReAsked:
             f"the root citation gap must be asked at most once, got "
             f"{len(citation_prompts)} prompts: {citation_prompts}"
         )
+
+
+# ---------------------------------------------------------------------------
+# #375 — guidance commits must be HONEST.
+#
+# Four defects, one lane: an entity-scoped answer landed on the Root Data
+# Entity, a reference-only field stored prose the builder then dropped, the
+# offline path bypassed the D5 identifier guard, and "the setter returned True"
+# was mistaken for "the gap cleared" (so the same question came back every
+# round until the budget ran out).
+#
+# FIXTURE REALISM (CONTRIBUTING.md, #343): every gap below comes from the REAL
+# gap engine over a REAL state. Never a hand-made ``Gap(entity_id="st1", ...)``
+# — ``_mit_gaps`` never emits a non-None ``entity_id`` (gap_analysis.py), and
+# that unrealistic double is precisely what hid these defects.
+# ---------------------------------------------------------------------------
+
+_ROOT_DESCRIPTION = "SENTINEL ROOT DESCRIPTION - about the study, not the assay"
+_ROOT_ACCESSION = "10.5281/zenodo.123456"
+
+
+def _honest_backbone(*, named_investigation: bool = True, protocols: int = 0) -> CrateState:
+    """A backbone shaped the way the pipeline actually leaves one.
+
+    ``_backbone_hints`` gives the Assay a ``name`` and nothing else, and the
+    plan's description is merged onto the Study layer only — so
+    ``Assay:description`` is an unfilled MIT slot on *every* pipeline run and is
+    the highest-priority actionable gap in the report. The root carries sentinel
+    metadata so a mis-routed commit is detectable.
+    """
+    state = CrateState()
+    state.metadata.title = "FRTL-5 perchlorate thyroid study"
+    state.metadata.description = _ROOT_DESCRIPTION
+    state.metadata.accession = _ROOT_ACCESSION
+    inv_fields = {"description": "d", "identifier": "INV-1"}
+    if named_investigation:
+        inv_fields["name"] = "Inv"
+    state.add_entity(_entity("inv1", "Investigation", **inv_fields))
+    state.add_entity(
+        _entity("st1", "Study", name="St", description="d", investigation_id="inv1")
+    )
+    # Assay: name + study_id only, exactly as the pipeline leaves it.
+    state.add_entity(_entity("as1", "Assay", name="FRTL-5 assay", study_id="st1"))
+    for i in range(protocols):
+        state.add_entity(_entity(f"lp{i}", "LabProtocol", name=f"Protocol {chr(65 + i)}"))
+    return state
+
+
+def _pick_gap(state: CrateState, predicate) -> Gap:
+    """The single live gap from the REAL gap engine matching ``predicate``.
+
+    Asserting the gap exists is itself part of each test: if the pipeline stops
+    leaving this slot open, or the engine stops emitting the gap, the test must
+    fail loudly rather than silently passing on an empty selection.
+    """
+    matches = [g for g in assess_gaps(state).gaps if predicate(g)]
+    assert matches, "expected a live gap matching the predicate over this state"
+    return matches[0]
+
+
+def _mit_gap(state: CrateState, entity_type: str, prop: str) -> Gap:
+    return _pick_gap(
+        state,
+        lambda g: g.source == "mit" and g.entity_type == entity_type and g.property == prop,
+    )
+
+
+class TestTypedGapCommitsToItsOwnEntity:
+    """#375(a): a typed MIT gap writes to its instance, not the Root Data Entity."""
+
+    def test_mit_assay_description_gap_writes_to_the_assay_not_the_root(self):
+        """The gap that starts every interactive run must land on the Assay.
+
+        Today ``_apply_value`` cannot resolve an entity (MIT gaps carry
+        ``entity_id=None``), never consults ``gap.entity_type``, and falls
+        through to ``set_crate_metadata`` — overwriting the root's
+        ``description``, a Base RO-Crate MUST, while the Assay stays empty.
+        """
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = AgentEngine(state=_honest_backbone())
+        gap = _mit_gap(engine.state, "Assay", "description")
+        answer = "A resazurin viability readout at 24 h and 48 h."
+
+        assert _apply_value(engine, gap, answer) is True
+
+        # Two independent facts, neither hand-built, both wrong today.
+        assert engine.state.metadata.description == _ROOT_DESCRIPTION, (
+            "the root's description is a Base MUST and must not be clobbered by "
+            "an answer about the Assay"
+        )
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and assay.fields.get("description") == answer
+
+    def test_root_investigation_name_gap_still_reaches_set_crate_metadata(self):
+        """Honesty control: the new guard must discriminate, not blanket-refuse.
+
+        ``./`` folds the Investigation, so ``Investigation:name`` is the one MIT
+        slot that legitimately belongs on the root. Its param is
+        ``Investigation:name;Study:name;Assay:name`` and a param is a gap only
+        when *none* of its slots is filled, so the state must leave all three
+        unnamed for this gap to be live at all.
+        """
+        from builder.agents.pipeline.guidance import _apply_value
+
+        state = CrateState()
+        state.metadata.description = _ROOT_DESCRIPTION
+        state.add_entity(_entity("inv1", "Investigation", description="d", identifier="INV-1"))
+        state.add_entity(_entity("st1", "Study", description="d", investigation_id="inv1"))
+        state.add_entity(_entity("as1", "Assay", study_id="st1"))
+        engine = AgentEngine(state=state)
+        gap = _mit_gap(engine.state, "Investigation", "name")
+
+        assert _apply_value(engine, gap, "FRTL-5 perchlorate investigation") is True
+        assert engine.state.metadata.title == "FRTL-5 perchlorate investigation"
+
+    def test_typed_gap_with_two_instances_commits_nothing(self):
+        """Ambiguous target -> commit nothing (D5), rather than guessing one."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = AgentEngine(state=_honest_backbone(protocols=2))
+        gap = _mit_gap(engine.state, "LabProtocol", "description")
+
+        assert _apply_value(engine, gap, "Seed 20k cells/well, dose at 24 h.") is False
+        assert engine.state.metadata.description == _ROOT_DESCRIPTION
+        for eid in ("lp0", "lp1"):
+            protocol = engine.state.get_entity(eid)
+            assert protocol is not None and "description" not in protocol.fields
+
+
+class TestReferenceFieldNeverCommittedAsLiteral:
+    """#375(b): a ``_REF_FIELDS`` gap answered with prose is refused, not faked."""
+
+    @staticmethod
+    def _measurement_method_gap(state: CrateState) -> Gap:
+        return _pick_gap(
+            state,
+            lambda g: g.source == "shacl"
+            and str(g.property or "").endswith("measurementMethod"),
+        )
+
+    def test_measurement_method_prose_is_refused(self):
+        """The builder drops a non-resolvable literal on a reference property
+        (``_scalar_props`` / ``_wire_reference``), so reporting success is a lie."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = AgentEngine(state=_honest_backbone())
+        gap = self._measurement_method_gap(engine.state)
+
+        assert _apply_value(engine, gap, "resazurin viability assay") is False
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and "measurementMethod" not in assay.fields
+
+    def test_resolvable_reference_still_commits(self):
+        """Honesty control: the guard refuses PROSE, not references."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        state = _honest_backbone()
+        state.add_entity(
+            _entity("term1", "DefinedTerm", name="viability assay", url="http://x.org/BAO_1")
+        )
+        engine = AgentEngine(state=state)
+        gap = self._measurement_method_gap(engine.state)
+
+        assert _apply_value(engine, gap, "term1") is True
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and assay.fields.get("measurementMethod") == "term1"
+
+
+class TestIdentifierNeverCommittedFromProse:
+    """#375(c): D5 holds on EVERY commit path, including offline."""
+
+    @staticmethod
+    def _cell_line_state() -> CrateState:
+        state = _honest_backbone()
+        state.add_entity(_entity("cl1", "CellLineSample", name="FRTL-5"))
+        return state
+
+    def test_offline_identifier_gap_commits_nothing(self, monkeypatch):
+        """No provider -> ``_resolve_ask_user`` returned the prose verbatim,
+        bypassing ``_deterministic_decision``'s D5 skip entirely."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import _resolve_gap
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=self._cell_line_state())
+        gap = _mit_gap(engine.state, "CellLineSample", "identifier")
+
+        human = ScriptedHuman(input_answers=[_value("CVCL_9999")])
+        resolved: list[dict] = []
+        assert _resolve_gap(engine, human, gap, resolved=resolved, asked=[]) is False
+
+        assert engine.state.metadata.accession == _ROOT_ACCESSION, (
+            "the dataset DOI must survive an answer about a cell line"
+        )
+        cell = engine.state.get_entity("cl1")
+        assert cell is not None and "identifier" not in cell.fields
+        assert resolved == []
+
+    def test_draft_confirm_edit_cannot_commit_an_identifier(self):
+        """The draft-confirm dialog feeds ``edits["value"]`` straight into
+        ``_apply_value``; it is unguarded even WITH a provider configured."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = AgentEngine(state=self._cell_line_state())
+        gap = _mit_gap(engine.state, "CellLineSample", "identifier")
+
+        assert _apply_value(engine, gap, "CVCL_9999") is False
+        assert engine.state.metadata.accession == _ROOT_ACCESSION
+        cell = engine.state.get_entity("cl1")
+        assert cell is not None and "identifier" not in cell.fields
+
+
+class TestNonClearingGapIsNotReAsked:
+    """#375(d): "the setter returned True" is not "the gap cleared"."""
+
+    def test_no_question_is_asked_twice_in_one_run(self, monkeypatch):
+        """A gap whose answer cannot clear it must be suppressed by identity
+        after ONE ask.
+
+        Today the highest-priority gap (MIT ``Assay:description``) "progresses"
+        every round without clearing, so it is re-drawn until ``max_rounds``
+        runs out and the 18 actionable gaps behind it are never reached. The
+        assertion is over *repeats*, not over one hard-coded prompt, so it
+        cannot pass vacuously by the loop never reaching a particular gap.
+        """
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=_honest_backbone())
+
+        human = ScriptedHuman(input_answers=[_value("resazurin viability assay")] * 8)
+        run_guidance(engine, human, max_rounds=5)
+
+        prompts = [p for p, _ft in human.inputs]
+        repeated = {p for p in prompts if prompts.count(p) > 1}
+        assert not repeated, f"these questions were asked more than once: {repeated}"
+        assert len(prompts) > 1, "the loop must move on to other gaps, not stall"
+
+    def test_resolved_count_only_includes_gaps_that_actually_cleared(self, monkeypatch):
+        """``format_guidance_summary`` prints ``resolved: N`` straight from this
+        list, so a commit that did not clear its gap must not be counted."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=_honest_backbone())
+
+        human = ScriptedHuman(input_answers=[_value("resazurin viability assay")] * 8)
+        result = run_guidance(engine, human, max_rounds=5)
+
+        # NB the oracle is per-gap, not a count: committing an answer MINTS
+        # entities (a Person for a creator gap), and each new entity brings its
+        # own unfilled slots, so the total gap count can legitimately RISE while
+        # real progress is made. What must hold is that every gap reported
+        # resolved is genuinely gone.
+        still_open = {
+            (g.source, g.entity_id, g.entity_type, g.property)
+            for g in assess_gaps(engine.state).gaps
+        }
+        lying = [
+            r
+            for r in result["resolved"]
+            if (r["source"], r["entity_id"], r["entity_type"], r["property"]) in still_open
+        ]
+        assert not lying, (
+            f"{len(lying)} gap(s) were reported resolved but are still open: "
+            f"{[(r['source'], r['entity_type'], r['property']) for r in lying]}"
+        )
