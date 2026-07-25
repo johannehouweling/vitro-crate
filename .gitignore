@@ -31,6 +31,9 @@ eval_reports/
 maturity_report_prototype.html
 docs/ab-and-harmonization-handoff.md
 
+# local Results-generation plan (working document, kept locally)
+docs/results-evaluation-plan.md
+
 # local A/B output comparison (throwaway analysis artifact, never committed)
 ab_comparison/
 
