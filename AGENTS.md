@@ -2169,7 +2169,20 @@ imports and calls it. It calls (does not re-implement) the three assessors:
   sweep yields REQUIRED + RECOMMENDED + OPTIONAL SHACL issues, each already
   routed to `{entity_id, property, message, fix, severity, profile}`.
 - `assess_mit_coverage`'s underlying YAML logic — every unfilled MIT parameter is
-  a domain-enrichment gap.
+  a domain-enrichment gap. Both go through **one** matcher,
+  `mit_assessment.slot_matcher` (#377): the `crate_slot` vocabulary describes the
+  **assembled crate**, not `CrateState`, so a state-field scan cannot see a
+  `LabProcess*` subtype (they are `LabProcess` + an `additionalType`, absent from
+  the `EntityType` literal), the `char` characteristic traversal, or a field the
+  build *promotes* — a MolecularEntity's `cas` becomes the node's `identifier`,
+  a CellLineSample's `accession` likewise. A second, un-migrated copy in the gap
+  engine is what made the loop ask for identifiers the crate already carried. The
+  document assembled for the SHACL sweep is threaded into the MIT pass, so a
+  `GapReport` costs **one** assembly, not two. A value the build *synthesized* in
+  the user's absence (the placeholder root name/description, the default
+  `license`) never counts as filled — crediting it would stop the loop asking for
+  the real one; the values are imported from the build's own constants rather
+  than duplicated.
 - `assess_fair_maturity` — every *failing* indicator is a gap.
 
 **Tiering** mirrors the §6 validation layers (MUST = blocking, SHOULD =

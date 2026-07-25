@@ -168,3 +168,89 @@ class TestAssessMITCoverage:
             assert isinstance(scores["completed"], int)
             assert isinstance(scores["total"], int)
             assert scores["completed"] <= scores["total"]
+
+
+class TestPlaceholderValuesAreNotCredited:
+    """#377: a build-time placeholder must not count as a filled MIT slot.
+
+    The assembly synthesizes `name = "Untitled Investigation"` on the root when
+    no title is set (`_crate_mapping.py`), so a graph-based match would credit
+    `Investigation:name` on a crate that has no title at all — and, once the gap
+    engine shares this matcher, would silently stop asking the user for it.
+
+    This is the same class the module already guards against for
+    `conditionsOfAccess` vs the always-present default `license`.
+    """
+
+    @staticmethod
+    def _untitled_state():
+        from builder.state import CrateState, Entity, EntityProvenance
+
+        def ent(eid, t, **f):
+            e = Entity(
+                entity_id=eid, type=t, fields=dict(f),
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+            for k in f:
+                e.set_field_status(k, "filled", "llm")
+            return e
+
+        state = CrateState()
+        state.add_entity(ent("inv1", "Investigation", description="d", identifier="INV-1"))
+        state.add_entity(ent("st1", "Study", description="d", investigation_id="inv1"))
+        state.add_entity(ent("as1", "Assay", study_id="st1"))
+        return state
+
+    def test_placeholder_root_name_is_not_a_filled_slot(self):
+        from builder.tools.mit_assessment import _assemble_graph, slot_matcher
+
+        state = self._untitled_state()
+        matcher = slot_matcher(state, graph={"@graph": _assemble_graph(state)})
+        assert matcher("Investigation", "name") is False
+
+    def test_a_real_title_is_still_credited(self):
+        """Honesty control: the guard rejects the placeholder, not every name."""
+        from builder.tools.mit_assessment import _assemble_graph, slot_matcher
+
+        state = self._untitled_state()
+        state.metadata.title = "FRTL-5 perchlorate thyroid study"
+        matcher = slot_matcher(state, graph={"@graph": _assemble_graph(state)})
+        assert matcher("Investigation", "name") is True
+
+
+    def test_placeholder_set_is_derived_from_the_builders_own_constants(self):
+        """Drift guard: the values come from the build, not a copied literal.
+
+        Two different entry points synthesize two different root names
+        (`_PLACEHOLDER_ROOT_NAME` via `_assemble_graph`, `_DEFAULT_ROOT_NAME` via
+        `assemble_crate`), which is exactly how a hard-coded copy would go stale
+        and start crediting a placeholder again.
+        """
+        from builder.tools.builder import (
+            _DEFAULT_ROOT_NAME,
+            _PLACEHOLDER_ROOT_DESCRIPTION,
+            _PLACEHOLDER_ROOT_NAME,
+        )
+        from builder.tools.mit_assessment import _placeholder_values
+
+        values = _placeholder_values()
+        for const in (
+            _PLACEHOLDER_ROOT_NAME,
+            _DEFAULT_ROOT_NAME,
+            _PLACEHOLDER_ROOT_DESCRIPTION,
+        ):
+            assert const.strip().lower() in values, const
+
+    def test_the_assess_gaps_path_also_rejects_its_placeholder(self):
+        """The two build paths use DIFFERENT defaults, so cover both.
+
+        `assess_gaps` scores against `assemble_crate`'s document, whose root name
+        falls back to `_DEFAULT_ROOT_NAME` — a different string from the one
+        `_assemble_graph` produces.
+        """
+        from builder.tools.mit_assessment import slot_matcher
+        from builder.tools.validation import _assemble_and_validate
+
+        state = self._untitled_state()
+        doc, _results = _assemble_and_validate(state, severity="required", profile="base")
+        assert slot_matcher(state, graph=doc)("Investigation", "name") is False

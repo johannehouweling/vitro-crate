@@ -38,6 +38,11 @@ from builder.tools.field_kinds import (
     PERSON_FIELDS,
     is_identifier_field,
 )
+from builder.tools.mit_assessment import (
+    graph_nodes,
+    slot_matcher,
+    slot_type_present,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +281,7 @@ def _shacl_auto_fixable(state: CrateState, issue: dict[str, Any]) -> bool:
     return False
 
 
-def _shacl_gaps(state: CrateState, build_and_validate) -> tuple[list[Gap], dict[str, bool]]:
+def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str, Any] | None]:
     """Build SHACL gaps (all severities) and the conformance dict.
 
     Runs ``build_and_validate`` at ``recommended`` severity so REQUIRED *and*
@@ -284,11 +289,32 @@ def _shacl_gaps(state: CrateState, build_and_validate) -> tuple[list[Gap], dict[
     swept so the guidance agent sees the full picture.
     """
     # "optional" gates in REQUIRED + RECOMMENDED + OPTIONAL (the widest sweep).
-    result = build_and_validate(state, severity="optional", profile="all")
-    conformance = dict(result.get("conformance", {}))
-    if "error" in result:
-        logger.warning("gap engine: SHACL validation error: %s", result["error"])
-        return [], conformance
+    # The assembled document is captured alongside the verdict so the MIT matcher
+    # can score against the SAME assembly rather than building the crate twice.
+    from builder.tools.validation import _assemble_and_validate, _synthesize_fix
+
+    try:
+        metadata_doc, results = _assemble_and_validate(
+            state, severity="optional", profile="all"
+        )
+    except Exception as exc:  # noqa: BLE001 — mirror build_and_validate's contract
+        logger.warning("gap engine: SHACL validation error: %s", exc)
+        return [], {}, None
+    conformance: dict[str, bool] = {r.profile: r.passed_required for r in results}
+    result: dict[str, Any] = {
+        "issues": [
+            {
+                "entity_id": issue.entity_id,
+                "property": issue.property,
+                "message": issue.message,
+                "fix": _synthesize_fix(issue),
+                "severity": issue.severity,
+                "profile": issue.profile,
+            }
+            for r in results
+            for issue in r.issues
+        ],
+    }
 
     gaps: list[Gap] = []
     for issue in result.get("issues", []):
@@ -330,7 +356,7 @@ def _shacl_gaps(state: CrateState, build_and_validate) -> tuple[list[Gap], dict[
                 auto_fixable=auto,
             )
         )
-    return gaps, conformance
+    return gaps, conformance, metadata_doc
 
 
 # ---------------------------------------------------------------------------
@@ -350,19 +376,6 @@ def _load_mit_yaml() -> dict[str, Any] | None:
         return None
 
 
-def _filled_fields(state: CrateState) -> set[tuple[str, str]]:
-    """The ``(entity_type, field)`` pairs that are filled/verified in state.
-
-    Mirrors ``mit_assessment._count_filled_fields`` so a parameter is considered
-    "filled" by exactly the same rule the MIT assessor uses.
-    """
-    filled: set[tuple[str, str]] = set()
-    for entity in state.list_entities():
-        for field_name in entity.fields:
-            fc = entity.get_field_status(field_name)
-            if fc is not None and fc.status in ("filled", "verified"):
-                filled.add((entity.type, field_name))
-    return filled
 
 
 def _parse_crate_slots(slot_str: str) -> list[tuple[str, str]]:
@@ -399,7 +412,7 @@ def _present_entity_types(state: CrateState) -> set[str]:
     return {entity.type for entity in state.list_entities()}
 
 
-def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
+def _mit_gaps(state: CrateState, *, graph: Any | None = None) -> tuple[list[Gap], float]:
     """Unfilled MIT parameters as gaps; also return the overall MIT score.
 
     A parameter is a gap when *none* of its ``crate_slot`` targets is filled.
@@ -415,7 +428,13 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
     if mit_data is None:
         return [], 0.0
 
-    filled = _filled_fields(state)
+    # (#377) ONE matcher for the crate_slot vocabulary, shared with the scorer.
+    # With a graph it resolves what a CrateState field scan structurally cannot:
+    # LabProcess* subtypes (not EntityType members), the `char` characteristic
+    # traversal, and fields the assembly PROMOTES (a compound's `cas` becomes the
+    # node's `identifier`). Without one it degrades to the legacy field match.
+    matcher = slot_matcher(state, graph=graph)
+    nodes = graph_nodes(graph) if graph is not None else None
     present_types = _present_entity_types(state)
     modules = mit_data.get("modules", [])
     gaps: list[Gap] = []
@@ -443,7 +462,7 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
                 continue
             slots = _parse_crate_slots(crate_slot)
             total_required += 1
-            is_filled = any(slot in filled for slot in slots)
+            is_filled = any(matcher(et, f) for et, f in slots)
             if is_filled:
                 total_completed += 1
                 continue
@@ -459,7 +478,11 @@ def _mit_gaps(state: CrateState) -> tuple[list[Gap], float]:
             # an instance? If not, the parameter is type-level only — there is no
             # concrete entity to ask about, so phrasing it as a specific entity is
             # exactly the bug (asking for "this chemical"'s CAS with zero chemicals).
-            has_instance = any(et in present_types for et, _ in slots if et)
+            has_instance = any(
+                slot_type_present(et, nodes) if nodes is not None else et in present_types
+                for et, _ in slots
+                if et
+            )
             if not has_instance:
                 # No instance of any of the parameter's entity types: surface a
                 # creation-prompt, report-only gap (never a per-field ask on a
@@ -600,10 +623,10 @@ def assess_gaps(state: CrateState) -> GapReport:
         A :class:`GapReport` whose ``gaps`` are sorted MUST -> SHOULD -> MAY with
         a stable secondary order by ``(source, entity_id, property)``.
     """
-    from builder.tools.validation import build_and_validate
-
-    shacl_gaps, conformance = _shacl_gaps(state, build_and_validate)
-    mit_gaps, mit_overall = _mit_gaps(state)
+    shacl_gaps, conformance, metadata_doc = _shacl_gaps(state)
+    # ONE assembly per call: the MIT matcher scores against the very document the
+    # SHACL pass just validated, rather than re-assembling the crate (#377).
+    mit_gaps, mit_overall = _mit_gaps(state, graph=metadata_doc)
     fair_gaps, fair_summary = _fair_gaps(state)
 
     gaps = sorted([*shacl_gaps, *mit_gaps, *fair_gaps], key=_sort_key)
