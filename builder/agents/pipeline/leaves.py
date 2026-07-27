@@ -131,6 +131,44 @@ def _strip_identifiers(fields: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if key not in _EXCLUDED_FIELDS}
 
 
+def _process_parameters_schema() -> dict[str, Any]:
+    """The ``parameters`` sub-object of a ``process_chain[]`` item (#379).
+
+    Properties are **derived** from the shared LabProcess hint vocabulary rather
+    than written out here, so the deterministic pipeline and the ReAct arm offer
+    the same experimental parameters and cannot drift. Without this slot the
+    extraction leaf has nowhere to put the SOP's exposure duration or detection
+    instrument, and every crate publishes ``"unknown"`` placeholders instead.
+
+    Unlike its open siblings this sub-object is **closed**. Plan array items are
+    ``additionalProperties: True`` for descriptive long-tail fields, which is
+    exactly wrong here: an unrecognised key would be overlaid onto LabProcess
+    state, and an ``entity_id`` key would hijack the process ``@id`` through
+    ``drafters._make_entity_id``. The overlay in ``_merge_plan_chain_names``
+    whitelists independently — this is defence in depth, not the only guard.
+    """
+    from builder.tools._crate_mapping import (
+        LABPROCESS_PARAMETER_FIELDS,
+        draft_hints_schema,
+    )
+
+    props = draft_hints_schema("LabProcess").get("properties", {})
+    parameters = {
+        key: spec
+        for key, spec in props.items()
+        if key in LABPROCESS_PARAMETER_FIELDS and key not in _EXCLUDED_FIELDS
+    }
+    return {
+        "type": "object",
+        "description": (
+            "Experimental parameters this step states, e.g. exposure duration or "
+            "detection instrument. Only what the documents say — omit the rest."
+        ),
+        "properties": parameters,
+        "additionalProperties": False,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Stage A: the bounded candidate-plan extractor (Issue #179).
 #
@@ -280,6 +318,7 @@ def _plan_schema() -> dict[str, Any]:
                     "name": {**str_field, "description": "Step name."},
                     "object_hint": {**str_field, "description": "Free-text hint of the input."},
                     "result_hint": {**str_field, "description": "Free-text hint of the output."},
+                    "parameters": _process_parameters_schema(),
                 },
                 required=["process_type"],
             ),

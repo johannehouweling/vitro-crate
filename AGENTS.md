@@ -1840,7 +1840,14 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
 
 - **Extract** (`extract_plan`, leaf #213, §14.4) — the bounded whole-document
   extractor pulls a *candidate plan* (names/titles only, no identifiers — D5)
-  from the input context in a single model call.
+  from the input context in a single model call. The plan also carries each
+  process step's **descriptive experimental parameters** (exposure duration,
+  detection instrument, endpoint …), drawn from the shared LabProcess hint
+  vocabulary (`_crate_mapping.LABPROCESS_PARAMETER_FIELDS`) so both arms offer the
+  same keys; without that channel the crate publishes ontology-typed
+  ParameterValues asserting `"unknown"` that nobody stated (#379). Identifiers
+  remain excluded, and the parameter sub-object is closed so an unrecognised key
+  cannot reach LabProcess state.
 - **Materialize** (`_materialize_plan` via the idempotent composites #217, §14.5)
   — deterministically turns each plan section into linked ISA-Tox entities through
   `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /

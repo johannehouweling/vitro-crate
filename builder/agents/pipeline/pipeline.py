@@ -817,7 +817,8 @@ _STANDARD_CHAIN: tuple[dict[str, str], ...] = (
 def _merge_plan_chain_names(
     plan: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
-    """Build the chain spec: the standard 4 steps, overlaid with plan step names.
+    """Build the chain spec: the standard 4 steps, overlaid with plan step names
+    and the experimental parameters the plan states (#379).
 
     Always returns the full canonical chain (so the no-provider crate is never
     hollow), but when *plan* carries a ``process_chain`` each plan step's ``name``
@@ -825,20 +826,57 @@ def _merge_plan_chain_names(
     names drive the process ``@id``s. Plan process_types outside the standard four
     are ignored here — ``draft_process_chain`` only wires the valid subtypes and a
     bogus type would raise; the standard chain is the deterministic backbone.
+
+    Each step's ``parameters`` are overlaid alongside ``name`` and flow on through
+    ``draft_process_chain`` -> ``draft_process`` -> ``_build_process``, replacing
+    the ``"unknown"`` / ``"NA"`` / ``"Standard medium"`` placeholders that the
+    crate otherwise publishes as ontology-typed ParameterValues nobody asserted.
+
+    Three guards, each load-bearing:
+
+    * **Whitelisted** to ``LABPROCESS_PARAMETER_FIELDS``, never splatted. Plan
+      items are ``additionalProperties: True``, so a splat would turn
+      ``object_hint`` into a LabProcess state field and an ``entity_id`` key would
+      hijack the process ``@id`` through ``drafters._make_entity_id``.
+    * **Non-empty stripped strings only.** ``_build_process`` does
+      ``f.get("duration", "unknown")`` — a default that applies only when the key
+      is ABSENT, so an empty overlaid value would ship an *empty* ParameterValue.
+    * A plan with no parameters yields exactly the previous name-only hints, so
+      the #262 "no-provider crate is byte-identical" guarantee is untouched.
     """
+    from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
+
     plan_names: dict[str, str] = {}
+    plan_parameters: dict[str, dict[str, str]] = {}
     for step in (plan or {}).get("process_chain") or []:
         if not isinstance(step, dict):
             continue
         ptype = str(step.get("process_type") or "").strip()
+        if not ptype:
+            continue
         name = str(step.get("name") or "").strip()
-        if ptype and name:
+        if name:
             plan_names[ptype] = name
+
+        raw = step.get("parameters")
+        if not isinstance(raw, dict):
+            continue
+        kept = {
+            key: value.strip()
+            for key, value in raw.items()
+            if key in LABPROCESS_PARAMETER_FIELDS
+            and isinstance(value, str)
+            and value.strip()
+        }
+        if kept:
+            plan_parameters[ptype] = kept
 
     chain: list[dict[str, Any]] = []
     for std in _STANDARD_CHAIN:
         ptype = std["process_type"]
-        chain.append({"process_type": ptype, "hints": {"name": plan_names.get(ptype, std["name"])}})
+        hints: dict[str, Any] = {"name": plan_names.get(ptype, std["name"])}
+        hints.update(plan_parameters.get(ptype, {}))
+        chain.append({"process_type": ptype, "hints": hints})
     return chain
 
 

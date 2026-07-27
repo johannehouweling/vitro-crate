@@ -122,8 +122,21 @@ _PLAN: dict[str, Any] = {
     ],
     "process_chain": [
         {"process_type": "CellCulture", "name": "FRTL-5 cell culture"},
-        {"process_type": "Exposure", "name": "Methimazole exposure"},
-        {"process_type": "EndpointReadout", "name": "Amplex Red TPO readout"},
+        {
+            "process_type": "Exposure",
+            "name": "Methimazole exposure",
+            "parameters": {"duration": "30 minutes", "microplate": "96-well"},
+        },
+        {
+            "process_type": "EndpointReadout",
+            "name": "Amplex Red TPO readout",
+            "parameters": {
+                "detection_instrument": "Wizard2 gamma counter",
+                "instrument_manufacturer": "Perkin Elmer",
+                "endpoint": "TPO activity",
+                "technical_replicate": "3",
+            },
+        },
         {"process_type": "DataAnalysis", "name": "Dose-response IC50 analysis"},
     ],
     "aops": [{"aop_id": "610"}],
@@ -688,3 +701,95 @@ class TestExtractionContextFidelity:
         result = pipeline_mod._materialize_plan(engine)
         # No body marker reached the leaf, so it echoed no study name.
         assert result["study"] == 0
+
+
+class TestProcessParametersReachTheGraph:
+    """Plan parameters must survive all the way to the exported ParameterValues (#379).
+
+    Asserted on the BUILT ``@graph``, never on ``CrateState`` — the placeholders
+    are minted during assembly by ``_crate_mapping._build_process`` and
+    ``profiles/models/tox.py``, so a state-level assertion would not prove the
+    value travelled schema -> merge -> draft_process -> _build_process -> model.
+    """
+
+    @staticmethod
+    def _parameter_values(state) -> dict[str, str]:
+        """Every ``PropertyValue`` in the assembled crate, by display name."""
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+        graph = crate.metadata.generate().get("@graph", [])
+        out: dict[str, str] = {}
+        for node in graph:
+            if not isinstance(node, dict) or "PropertyValue" not in str(node.get("@type")):
+                continue
+            name, value = node.get("name"), node.get("value")
+            if isinstance(name, str) and isinstance(value, str):
+                out[name] = value
+        return out
+
+    def test_exposure_parameter_value_carries_the_plan_duration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        _stub_leaves(monkeypatch)
+        engine = _engine(_titled_state())
+        run_pipeline(engine)
+
+        assert self._parameter_values(engine.state)["Exposure Duration"] == "30 minutes"
+
+    def test_exposure_duration_is_unknown_without_a_plan_parameter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HONESTY CONTROL — the value travelled, it was not coincidentally present.
+
+        Identical run with the ``parameters`` key stripped from the plan: the
+        placeholder returns. If this stayed "30 minutes" the test above would be
+        asserting something the fixture supplied by another route.
+        """
+        import copy
+
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        _stub_leaves(monkeypatch)
+        stripped = copy.deepcopy(_PLAN)
+        for step in stripped["process_chain"]:
+            step.pop("parameters", None)
+        monkeypatch.setattr(
+            pipeline_mod, "extract_plan", lambda *a, **k: copy.deepcopy(stripped)
+        )
+
+        engine = _engine(_titled_state())
+        run_pipeline(engine)
+
+        assert self._parameter_values(engine.state)["Exposure Duration"] == "unknown"
+
+    def test_endpoint_readout_parameters_carry_plan_values(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Including `technical_replicate`, which only works if the shared
+        `ENTITY_DRAFT_SCHEMA` addition landed — it was read but never advertised."""
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        _stub_leaves(monkeypatch)
+        engine = _engine(_titled_state())
+        run_pipeline(engine)
+
+        values = self._parameter_values(engine.state)
+        assert values["Detection Instrument"] == "Wizard2 gamma counter"
+        assert values["Instrument Manufacturer"] == "Perkin Elmer"
+        assert values["Endpoint"] == "TPO activity"
+        assert values["Technical replicate"] == "3"
+
+    def test_crate_still_conforms_with_parameters_supplied(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Guards a regression that DROPS a ParameterValue instead of filling it."""
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        _stub_leaves(monkeypatch)
+        result = run_pipeline(_engine(_titled_state()))
+
+        assert result["conformance"] == {"base": True, "isa": True, "tox": True}
