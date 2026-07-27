@@ -1,0 +1,1044 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_S027"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2 SimpleCell O-GalNAc"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 SimpleCell"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 SC"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2SC"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5P0"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HEPG2-Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2-Cas9"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5Z9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE hepg2-CopGFP"
+          },
+          {
+            "type": "synonym",
+            "value": "hepg2-CopGFP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5RR"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE hepg2-FLUC"
+          },
+          {
+            "type": "synonym",
+            "value": "hepg2-FLUC"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C5RN"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CD81"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/CD81+"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E3FN"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-FVII"
+          },
+          {
+            "type": "synonym",
+            "value": "FVII-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H214"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-GS"
+          },
+          {
+            "type": "synonym",
+            "value": "GS-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C9B9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NTCP1"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-hNTCP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C9BA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NTCP1 HBV"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-HBV"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5PT"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HEPG2-C3A-Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2-C3A-Cas9"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5ZS"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HEPG2-C3A-CopGFP"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2-C3A-CopGFP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5QW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HepG2/C3A-Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/C3A-Cas9"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5SA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HepG2/C3A-FLUC"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/C3A-FLUC"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A2HD"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep G2-C34"
+          },
+          {
+            "type": "synonym",
+            "value": "C34"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 C34"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_IX10"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2 CYP3A4G/7R clone 87"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 C87"
+          },
+          {
+            "type": "synonym",
+            "value": "C87"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_8560"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-GS-CYP3A4"
+          },
+          {
+            "type": "synonym",
+            "value": "GS-3A4-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C9BB"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NTCP1 HBV Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "Cas9 HepG2-HBV"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A5AW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2.105"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2.TA2-7.105"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A5AX"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2.117"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2.TA2-7.117"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_L855"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2/2.2.15"
+          },
+          {
+            "type": "synonym",
+            "value": "HEP-G2/2.2.15"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep-G2/2215"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/2215"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-2.2.15"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 2.2.15"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2.2.15"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2(2.2.15)"
+          },
+          {
+            "type": "synonym",
+            "value": "2.2.15"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_0027"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2"
+          },
+          {
+            "type": "synonym",
+            "value": "HEP-G2"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2"
+          },
+          {
+            "type": "synonym",
+            "value": "HEP G2"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_JY38"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-rNTCP-eGFP"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 FLAG-Ntcp-EGFP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_5I98"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-Red-FLuc"
+          },
+          {
+            "type": "synonym",
+            "value": "Bioware Brite HepG2-Red-FLuc"
+          },
+          {
+            "type": "synonym",
+            "value": "IVISbrite HepG2 Red F-luc"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_AS98"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2/SF"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2/SF"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/SF"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-SF"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep-G2/Serum Free"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5CA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE APOE Knockout HEPG2 Cell Line"
+          },
+          {
+            "type": "synonym",
+            "value": "APOE Knockout HEPG2 Cell Line"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5EZ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE CCR6 Knockout HEPG2 Cell Line"
+          },
+          {
+            "type": "synonym",
+            "value": "CCR6 Knockout HEPG2 Cell Line"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5BP"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE FOXN3 Knockout HEPG2 Cell Line"
+          },
+          {
+            "type": "synonym",
+            "value": "FOXN3 Knockout HEPG2 Cell Line"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_1T10"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "H7D7BD5"
+          },
+          {
+            "type": "synonym",
+            "value": "H7D7-BD5"
+          },
+          {
+            "type": "synonym",
+            "value": "BD5"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-BD5"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A5CQ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2 VA-13"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 VA-13"
+          },
+          {
+            "type": "synonym",
+            "value": "VA-13"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A2HG"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep G2-E47"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2-Cl2E1-47"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-CYP2E1 E47"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 E47"
+          },
+          {
+            "type": "synonym",
+            "value": "E47"
+          },
+          {
+            "type": "synonym",
+            "value": "E-47"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_D5I8"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-DP"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-DP clone No.4"
+          },
+          {
+            "type": "synonym",
+            "value": "DP-4"
+          },
+          {
+            "type": "synonym",
+            "value": "DNMT1/PKR double knockdowned HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_M177"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepAD38"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep AD38"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 AD38"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-AD38"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2 AD 38"
+          },
+          {
+            "type": "synonym",
+            "value": "AD-38"
+          },
+          {
+            "type": "synonym",
+            "value": "AD38"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A5CT"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2 VL-17A"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 VL-17A"
+          },
+          {
+            "type": "synonym",
+            "value": "VL-17A"
+          },
+          {
+            "type": "synonym",
+            "value": "VL17A"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_1098"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2/C3A"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/C3A"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2/C3A"
+          },
+          {
+            "type": "synonym",
+            "value": "C3A"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_KS12"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CellSensor ARE-bla Hep G2"
+          },
+          {
+            "type": "synonym",
+            "value": "ARE-bla Hep G2"
+          },
+          {
+            "type": "synonym",
+            "value": "ARE-bla HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C3GA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2-THRA MUT p.I116N;A225T;M388I"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 RCCC-THRA mutant 6"
+          },
+          {
+            "type": "synonym",
+            "value": "rc6-TRalpha1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C3GE"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2-THRB MUT p.K155E;K411E"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 RCCC-THRB mutant 15"
+          },
+          {
+            "type": "synonym",
+            "value": "rc15-TRbeta1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_DE23"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepAD79"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep AD79"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-AD79"
+          },
+          {
+            "type": "synonym",
+            "value": "AD-79"
+          },
+          {
+            "type": "synonym",
+            "value": "AD79"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A2HF"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep G2-E43"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2-Cl2E1-43"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-CYP2E1 E43"
+          },
+          {
+            "type": "synonym",
+            "value": "E43"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_M187"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/Adm"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/ADM"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep-G2/ADM"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2/ADM"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C3GB"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2-THRA MUT p.K74E;A264V"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 HCC-THRA mutant I"
+          },
+          {
+            "type": "synonym",
+            "value": "TRalpha1-I"
+          },
+          {
+            "type": "synonym",
+            "value": "hcI-TRalpha1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C3GD"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2-THRB MUT p.K113N;T329P"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 HCC-THRB mutant N"
+          },
+          {
+            "type": "synonym",
+            "value": "TRbeta1-N"
+          },
+          {
+            "type": "synonym",
+            "value": "hcN-TRbeta1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_3701"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep-G2/2.2.1"
+          },
+          {
+            "type": "synonym",
+            "value": "HEP-G2/2.2.1"
+          },
+          {
+            "type": "synonym",
+            "value": "HEP G2/2.2.1"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/2.2.1"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep 2.2.1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5YH"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE SLC37A4 (NC_000011.10:g.119025190C>A) Point Mutation in HEPG2 Cell Line"
+          },
+          {
+            "type": "synonym",
+            "value": "SLC37A4 (NC_000011.10:g.119025190C>A) Point Mutation in HEPG2 Cell Line"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A2HB"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Hep G2-MV2E1-9"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 clone MV2E1-9"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2-MVh2E1-9"
+          },
+          {
+            "type": "synonym",
+            "value": "G2-MV2E1-9"
+          },
+          {
+            "type": "synonym",
+            "value": "MV2E1-9"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -23,6 +23,13 @@ _SEARCH_BASE = "https://api.cellosaurus.org/search/cell-line"
 # resolvable IRI: CLO/BTO are OBO ontologies; Wikidata is a global hub).
 _SAMEAS_DBS = {"CLO", "BTO", "Wikidata", "Cell_Model_Passport", "DepMap"}
 
+# Name search: the Solr name fields queried separately, ``id`` first so a
+# primary-identifier hit wins the dedup over the same entry found by synonym.
+# See :func:`search_cellosaurus` for why the combined ``idsy`` field and a single
+# boolean query both fail, and why the row count per field has to be this wide.
+_SEARCH_FIELDS = ("id", "sy")
+_SEARCH_ROWS_PER_FIELD = 50
+
 
 def _term(d: dict) -> dict | None:
     """A Cellosaurus xref/list entry -> a schema:DefinedTerm (only if it has an IRI)."""
@@ -157,8 +164,50 @@ def _candidate(cell_line: dict) -> dict | None:
     return {"accession": accession, "name": name, "synonyms": synonyms}
 
 
+def _search_field(field: str, query: str, rows: int) -> list[dict]:
+    """One Solr request against a single name field → parsed candidates.
+
+    Args:
+        field: Solr name field, ``"id"`` (primary identifier) or ``"sy"``
+            (synonyms).
+        query: Already-stripped cell-line name.
+        rows: Maximum hits to request from this field.
+
+    Returns:
+        Parsed ``{accession, name, synonyms}`` candidates in the server's
+        ranking order; ``[]`` on a definitive not-found or an unparseable body.
+
+    Raises:
+        TransientLookupError: on a transient API failure, so the caller can
+            refuse to gate on a half-fetched candidate list.
+    """
+    try:
+        # Quote the value so a name containing a space or reserved char cannot
+        # break the query syntax.
+        data = http_get_json(
+            _SEARCH_BASE,
+            params={
+                "q": f'{field}:"{query}"',
+                "fields": "id,ac,sy",
+                "format": "json",
+                "rows": str(max(1, int(rows))),
+            },
+        )
+        if data is NOT_FOUND:
+            return []
+
+        cell_lines = (data or {}).get("Cellosaurus", {}).get("cell-line-list", [])
+        if isinstance(cell_lines, dict):
+            cell_lines = [cell_lines]
+        return [c for c in (_candidate(cl) for cl in cell_lines) if c]
+    except TransientLookupError:
+        raise
+    except Exception:
+        return []
+
+
 @functools.lru_cache(maxsize=256)
-def search_cellosaurus(name: str, rows: int = 10) -> tuple[dict, ...]:
+def search_cellosaurus(name: str, rows: int = _SEARCH_ROWS_PER_FIELD) -> tuple[dict, ...]:
     """Search Cellosaurus for cell lines whose name/synonym matches ``name``.
 
     A name → accession search using the Cellosaurus ``/search/cell-line``
@@ -167,51 +216,64 @@ def search_cellosaurus(name: str, rows: int = 10) -> tuple[dict, ...]:
     returns the candidate cell lines so a caller can apply a confidence gate
     before committing to an accession (D5 — never fabricate a ``CVCL_*`` id).
 
-    The Solr query matches the name against the cell line's identifier and
-    synonyms, so results include prefix/token matches (e.g. ``"HepG2 hALR"`` for
-    ``"HepG2"``); the caller is responsible for exact-match disambiguation.
+    The Solr fields match on tokens, so results include prefix/token matches
+    (e.g. ``"HepG2 hALR"`` for ``"HepG2"``); the caller is responsible for
+    exact-match disambiguation.
+
+    **One request per name field, unioned (#385).** Cellosaurus is dominated by
+    engineered derivatives whose *primary identifier* contains the parent's name
+    as a token, and relevance ranking puts them above the parent: on the combined
+    ``idsy`` field, ``CHO-K1`` (CVCL_0214) ranks 488 of 1116 and ``HepG2``
+    (CVCL_0027) 53 of 88, so neither parent entered a 10-row candidate list at
+    all. Querying ``id`` and ``sy`` separately puts the parent at or near the top
+    of its field. Folding the two requests back into one does **not** work, and
+    the alternatives were measured rather than assumed: at 50 rows,
+    ``id:"X" OR sy:"X"`` leaves both parents outside the window, and boosting the
+    identifier clause (``id:"X"^10 OR sy:"X"``) rescues CHO-K1 but still not
+    HepG2. The endpoint's Solr syntax offers no exact-match operator, and ``sort``
+    cannot express exactness either.
 
     Args:
         name: Cell-line name to search for (e.g. ``"HepG2"``, ``"A549"``).
-        rows: Maximum number of candidate cell lines to return.
+        rows: Maximum hits to request **per name field**, so the union may return
+            up to ``2 * rows`` candidates. The default of
+            ``_SEARCH_ROWS_PER_FIELD`` is load-bearing, not cosmetic: ``HepG2``
+            is only a *synonym* of CVCL_0027 (whose identifier is ``Hep-G2``) and
+            ranks 21st of 45 on ``sy:"HepG2"``, so the union still misses it at
+            10 rows per field.
 
     Returns:
         A tuple of candidate dicts, each ``{accession, name, synonyms}`` where
         ``accession`` is the bare Cellosaurus accession (e.g. ``"CVCL_0027"``),
         ``name`` is the primary identifier, and ``synonyms`` is a list of
-        alternate names. Empty when the name is blank or Cellosaurus returns
-        nothing. Raises :class:`TransientLookupError` on a transient API failure
-        (timeout / connection / 429 / 5xx).
+        alternate names. Deduped by accession — an entry matched by both fields
+        appears once, keeping the ``id`` hit — because a duplicate would read to
+        the caller's gate as two exact matches and turn a resolvable name into an
+        ambiguous one. Empty when the name is blank or Cellosaurus returns
+        nothing.
+
+    Raises:
+        TransientLookupError: if *either* request fails transiently (timeout /
+            connection / 429 / 5xx). A partial union is never returned: dropping
+            one field's hits could silently turn an ambiguous name into a
+            confident single match, which is a D5 violation.
 
     Note:
         Returns a ``tuple`` (not a ``list``) so the ``lru_cache`` return value is
-        immutable and cannot be mutated by a caller across cached calls.
+        immutable and cannot be mutated by a caller across cached calls. Only
+        this function is cached — caching ``_search_field`` as well would leave
+        state behind ``search_cellosaurus.cache_clear()``.
     """
     query = name.strip()
     if not query:
         return ()
-    try:
-        # Match the name against the cell line's identifier and synonyms. The
-        # Solr field ``idsy`` covers both; quote the value so a name containing a
-        # space or reserved char cannot break the query syntax.
-        data = http_get_json(
-            _SEARCH_BASE,
-            params={
-                "q": f'idsy:"{query}"',
-                "fields": "id,ac,sy",
-                "format": "json",
-                "rows": str(max(1, int(rows))),
-            },
-        )
-        if data is NOT_FOUND:
-            return ()
-
-        cell_lines = (data or {}).get("Cellosaurus", {}).get("cell-line-list", [])
-        if isinstance(cell_lines, dict):
-            cell_lines = [cell_lines]
-        candidates = [c for c in (_candidate(cl) for cl in cell_lines) if c]
-        return tuple(candidates)
-    except TransientLookupError:
-        raise
-    except Exception:
-        return ()
+    candidates: list[dict] = []
+    seen: set[str] = set()
+    for field in _SEARCH_FIELDS:
+        for candidate in _search_field(field, query, rows):
+            accession = candidate["accession"]
+            if accession in seen:
+                continue
+            seen.add(accession)
+            candidates.append(candidate)
+    return tuple(candidates)

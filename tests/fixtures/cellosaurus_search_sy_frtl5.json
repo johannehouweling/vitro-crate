@@ -1,0 +1,32 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_0265"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL 5"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL5"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL-5 Cl 2"
+          }
+        ]
+      }
+    ]
+  }
+}

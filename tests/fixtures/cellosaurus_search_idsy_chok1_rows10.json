@@ -1,0 +1,254 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_YJ77"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "LINTERNA CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "LINTERNA-CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "tGFP-CHO K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XI04"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-ESM"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO-K1-MSB"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P3"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_BTLA"
+          },
+          {
+            "type": "synonym",
+            "value": "Human BTLA CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD272 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_BTLA CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6Q3"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CSF1R"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CSF1R CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD115 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CSF1R CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6Q4"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CTLA4"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CTLA4 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD152 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CTLA4 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QB"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_F3"
+          },
+          {
+            "type": "synonym",
+            "value": "Human F3 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD142 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_F3 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QU"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_IL4R"
+          },
+          {
+            "type": "synonym",
+            "value": "Human IL4R CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD124 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_IL4R CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QV"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_IL5RA"
+          },
+          {
+            "type": "synonym",
+            "value": "Human IL5RA CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD125 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_IL5RA CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_INSR"
+          },
+          {
+            "type": "synonym",
+            "value": "Human INSR CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD220 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_INSR CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QX"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_LAG3"
+          },
+          {
+            "type": "synonym",
+            "value": "Human LAG3 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD223 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_LAG3 CHO-K1"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,406 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_0265"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL 5"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL5"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL-5 Cl 2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_UG77"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 AG1"
+          },
+          {
+            "type": "synonym",
+            "value": "AG1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_UG78"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 AG2"
+          },
+          {
+            "type": "synonym",
+            "value": "AG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_VG49"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 Miami"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A6IJ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5/T"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A6IK"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5/TA"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A6IL"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5/TP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5TV"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 H-RAS(V12) clone V13"
+          },
+          {
+            "type": "synonym",
+            "value": "V13"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5TW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 H-RAS(V12) clone V26"
+          },
+          {
+            "type": "synonym",
+            "value": "V26"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5TX"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 H-RAS(V12) clone V27"
+          },
+          {
+            "type": "synonym",
+            "value": "V27"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5TY"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 H-RAS(V12) clone V29"
+          },
+          {
+            "type": "synonym",
+            "value": "V29"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL5-Ras-V29"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL5-Ras clone V29"
+          },
+          {
+            "type": "synonym",
+            "value": "FRTL5-Ras"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5TZ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 H-RAS(V12) clone V30"
+          },
+          {
+            "type": "synonym",
+            "value": "V30"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U0"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 H-RAS(V12) clone V31"
+          },
+          {
+            "type": "synonym",
+            "value": "V31"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U1"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 H-RAS(V12) clone V32"
+          },
+          {
+            "type": "synonym",
+            "value": "V32"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U2"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ha-RAS clone H31"
+          },
+          {
+            "type": "synonym",
+            "value": "H31"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U3"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ha-RAS clone H35"
+          },
+          {
+            "type": "synonym",
+            "value": "H35"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U4"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ha-RAS clone H45"
+          },
+          {
+            "type": "synonym",
+            "value": "H45"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U5"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ha-RAS clone H6"
+          },
+          {
+            "type": "synonym",
+            "value": "H6"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U6"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ki-RAS clone K1"
+          },
+          {
+            "type": "synonym",
+            "value": "K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U7"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ki-RAS clone K2"
+          },
+          {
+            "type": "synonym",
+            "value": "K2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U8"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ki-RAS clone K28"
+          },
+          {
+            "type": "synonym",
+            "value": "K28"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5U9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "FRTL-5 v-Ki-RAS clone K37"
+          },
+          {
+            "type": "synonym",
+            "value": "K37"
+          }
+        ]
+      }
+    ]
+  }
+}

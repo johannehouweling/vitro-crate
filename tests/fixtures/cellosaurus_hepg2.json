@@ -3,9 +3,12 @@
     "cell-line-list": [
       {
         "name-list": [
-          {"type": "identifier", "value": "HepG2"},
+          {"type": "identifier", "value": "Hep-G2"},
+          {"type": "synonym", "value": "HEP-G2"},
           {"type": "synonym", "value": "Hep G2"},
-          {"type": "synonym", "value": "Hep-G2"}
+          {"type": "synonym", "value": "HEP G2"},
+          {"type": "synonym", "value": "HepG2"},
+          {"type": "synonym", "value": "HEPG2"}
         ],
         "species-list": [
           {"label": "Homo sapiens", "iri": "http://purl.obolibrary.org/obo/NCBITaxon_9606"}

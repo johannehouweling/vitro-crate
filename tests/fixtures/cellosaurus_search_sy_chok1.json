@@ -1,0 +1,1146 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_YJ77"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "LINTERNA CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "LINTERNA-CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "tGFP-CHO K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NJ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_PDCD1(PD1)"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus PDCD1 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus PD1 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_PD1 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P3"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_BTLA"
+          },
+          {
+            "type": "synonym",
+            "value": "Human BTLA CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD272 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_BTLA CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6Q3"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CSF1R"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CSF1R CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD115 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CSF1R CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6Q4"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CTLA4"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CTLA4 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD152 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CTLA4 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QB"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_F3"
+          },
+          {
+            "type": "synonym",
+            "value": "Human F3 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD142 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_F3 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QU"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_IL4R"
+          },
+          {
+            "type": "synonym",
+            "value": "Human IL4R CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD124 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_IL4R CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QV"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_IL5RA"
+          },
+          {
+            "type": "synonym",
+            "value": "Human IL5RA CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD125 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_IL5RA CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_INSR"
+          },
+          {
+            "type": "synonym",
+            "value": "Human INSR CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD220 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_INSR CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6QX"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_LAG3"
+          },
+          {
+            "type": "synonym",
+            "value": "Human LAG3 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD223 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_LAG3 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6RS"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_SIGLEC9"
+          },
+          {
+            "type": "synonym",
+            "value": "Human SIGLEC9 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD329 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_SIGLEC9 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6MW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_ADAM9"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus ADAM9 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_ADAM9 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6MX"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CCR8"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CCR8 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CCR8 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6MY"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CD24"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CD24 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CD24 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6MZ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CD276"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CD276 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CD276 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6N1"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CD47"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CD47 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CD47 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6N2"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CD93"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CD93 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CD93 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6N3"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CDH3"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CDH3 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CDH3 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6N4"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CDH6"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CDH6 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CDH6 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6N5"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CLDN6"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CLDN6 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CLDN6 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6N7"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_CXCR4"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus CXCR4 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_CXCR4 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6N8"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_EGFR"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus EGFR CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_EGFR CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NB"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_FOLR1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus FOLR1 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_FOLR1 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NC"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_GPA33"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus GPA33 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_GPA33 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NE"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_MET"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus MET CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_MET CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NF"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_MICB"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus MICB CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_MICB CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NH"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_NECTIN4"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus NECTIN4 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_NECTIN4 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NK"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_PRLR"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus PRLR CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_PRLR CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NM"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_ROR1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus ROR1 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_ROR1 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NP"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_SLC34A2"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus SLC34A2 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_SLC34A2 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NQ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_SLC39A6"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus SLC39A6 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_SLC39A6 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NR"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_STEAP1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus STEAP1 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_STEAP1 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NS"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_TIGIT"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus TIGIT CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_TIGIT CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6NW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 Cynomolgus_TPBG"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus TPBG CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "Cynomolgus_TPBG CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P0"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_ADAM9"
+          },
+          {
+            "type": "synonym",
+            "value": "Human ADAM9 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_ADAM9 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P2"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_AMHR2"
+          },
+          {
+            "type": "synonym",
+            "value": "Human AMHR2 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_AMHR2 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P4"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CA9"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CA9 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CA9 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P5"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CCR4"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CCR4 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CCR4 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P6"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CCR8"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CCR8 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CCR8 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P7"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD19"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD19 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD19 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P8"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD20"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD20 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD20 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6P9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD200"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD200 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD200 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD200R1"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD200R1 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD200R1 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PB"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD22"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD22 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD22 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PC"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD226"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD226 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD226 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PD"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD24"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD24 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD24 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PH"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD28"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD28 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD28 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PI"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD33"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD33 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD33 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PJ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD38"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD38 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD38 CHO-K1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E6PK"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "Genomeditech CHO-K1 H_CD4"
+          },
+          {
+            "type": "synonym",
+            "value": "Human CD4 CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "H_CD4 CHO-K1"
+          }
+        ]
+      }
+    ]
+  }
+}
