@@ -286,24 +286,34 @@ class TestHeadlessGapSummary:
 
         Re-running ``assess_gaps`` on the headless path re-ran the heaviest
         ``severity="optional"`` SHACL sweep, blowing the CI per-test budget. The
-        summary must derive purely from the already-computed pipeline result. We
-        assert ``build_and_validate`` (which a fresh ``assess_gaps`` would call) is
-        never invoked from the build after the pipeline returns.
+        summary must derive purely from the already-computed pipeline result.
+
+        BOTH validation entry points are spied, not just the one the gap engine
+        happens to route through today. #391 rewired ``_shacl_gaps`` from
+        ``build_and_validate`` to ``_assemble_and_validate``, which left a
+        single-target version of this guard asserting something unconditionally
+        true — the regression could have come back green.
         """
         import builder.tools.validation as validation_mod
         from builder.agents.build import run_interactive_build
 
-        validate_calls: list[Any] = []
-        real_bav = validation_mod.build_and_validate
+        validate_calls: list[str] = []
 
-        def spy_bav(*a: Any, **k: Any) -> dict[str, Any]:
-            validate_calls.append((a, k))
-            return real_bav(*a, **k)
+        def _spy(name: str):
+            real = getattr(validation_mod, name)
 
-        # Spy on the canonical entry point a fresh assess_gaps would call. The
-        # injected pipeline runner does NOT call build_and_validate, so any call
-        # observed here would come from the headless summary path.
-        monkeypatch.setattr(validation_mod, "build_and_validate", spy_bav)
+            def spy(*a: Any, **k: Any) -> Any:
+                validate_calls.append(name)
+                return real(*a, **k)
+
+            return spy
+
+        # The injected pipeline runner calls neither entry point, so anything
+        # observed here came from the headless summary path. ``_shacl_gaps``
+        # imports ``_assemble_and_validate`` at call time, so patching the module
+        # attribute is enough to intercept a fresh ``assess_gaps``.
+        for _target in ("build_and_validate", "_assemble_and_validate"):
+            monkeypatch.setattr(validation_mod, _target, _spy(_target))
 
         engine = _engine(SimulatedHumanInterface())
         run_interactive_build(

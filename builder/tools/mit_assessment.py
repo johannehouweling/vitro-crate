@@ -209,19 +209,26 @@ def _graph_slot_filled(
 
 
 def _assemble_graph(state: CrateState) -> list[dict[str, Any]]:
-    """Serialize *state* into an RO-Crate ``@graph`` in memory (no disk write)."""
-    import tempfile
+    """Serialize *state* into an RO-Crate ``@graph`` in memory (no disk write).
 
-    from rocrate.rocrate import ROCrate
+    Goes through :func:`builder.tools.builder.assemble_crate` — the one assembly
+    path — with the same arguments :func:`builder.tools.validation._assemble_and_validate`
+    uses. Reaching past it to ``populate_crate`` is not equivalent, and both
+    differences changed the score (#377): it skipped ``_apply_root_name`` (#272),
+    leaving the root at the literal placeholder name that :func:`_placeholder_values`
+    then refuses, and it took ``include_all_scanned``'s default of True, crediting
+    ``File:encodingFormat`` off scanned files the gap engine's document omits. One
+    matcher over two differently-assembled documents is still two answers.
+    """
+    from builder.tools.builder import assemble_crate
 
-    from builder.tools._crate_mapping import populate_crate
-    from profiles.context import ISA_TOX_CONTEXT
-
-    crate = ROCrate()
-    crate.metadata.extra_contexts = ISA_TOX_CONTEXT
-    with tempfile.TemporaryDirectory() as tmp:
-        populate_crate(state, crate, Path(tmp), materialize_payload=False)
-        graph = crate.metadata.generate().get("@graph", [])
+    crate = assemble_crate(
+        state,
+        output_dir=None,
+        materialize_payload=False,
+        include_all_scanned=False,
+    )
+    graph = crate.metadata.generate().get("@graph", [])
     return [n for n in graph if isinstance(n, dict) and "@id" in n]
 
 

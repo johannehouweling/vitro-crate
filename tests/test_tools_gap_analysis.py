@@ -17,7 +17,13 @@ import re
 
 import pytest
 
-from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.state import (
+    CrateState,
+    Entity,
+    EntityProvenance,
+    EntityType,
+    FileClassification,
+)
 from builder.tools.gap_analysis import (
     _CRATE_SETTABLE_FIELDS,
     REPORT_ONLY,
@@ -700,6 +706,16 @@ class TestMitGapsUseTheGraphMatcher:
         state.add_entity(cell)
         state.add_entity(
             _entity("ex1", "LabProcess", process_type="Exposure", name="Exposure", assay_id="as1")
+        )
+        # A scanned-but-un-drafted file, which is what `scan_files` leaves behind
+        # on every real run. Without one the parity assertions below pass for the
+        # wrong reason: `include_all_scanned` (#175) auto-includes such a file as a
+        # root `File` leaf, so the gap engine's assembly and the scorer's only
+        # agree on `File:encodingFormat` when both pass the same flag.
+        state.scanned_files.append(
+            FileClassification(
+                path="/data/raw.csv", filename="raw.csv", size=10, mime_type="text/csv"
+            )
         )
         return state
 
