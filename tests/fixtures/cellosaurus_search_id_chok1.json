@@ -1,0 +1,814 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_0214"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO K1"
+          },
+          {
+            "type": "synonym",
+            "value": "CHOK1"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO cell clone K1"
+          },
+          {
+            "type": "synonym",
+            "value": "GM15452"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_U864"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 (SC)"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F0E5"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 4B21"
+          },
+          {
+            "type": "synonym",
+            "value": "4B21"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F0E4"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 A563"
+          },
+          {
+            "type": "synonym",
+            "value": "A563"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_5I91"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 AequoScreen"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO-K1 parental aequorin cell line"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_B7A4"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 DeltaGMD"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_B7A5"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 DeltaGMDDeltaGFT"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F0E6"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 DR31"
+          },
+          {
+            "type": "synonym",
+            "value": "DR31 (CHO-K1)"
+          },
+          {
+            "type": "synonym",
+            "value": "DR31"
+          },
+          {
+            "type": "synonym",
+            "value": "Dr-31"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F2AT"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 hm1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F2AY"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 hm2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F2AZ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 hm3"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F4BI"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 hm4"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F4BJ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 hm5"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_B0GU"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 hMCHR1"
+          },
+          {
+            "type": "synonym",
+            "value": "MCHR1-CHO"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XZ46"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 OS8"
+          },
+          {
+            "type": "synonym",
+            "value": "CHOK1-OS8"
+          },
+          {
+            "type": "synonym",
+            "value": "CHOK1 OS8"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F4BK"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 rm1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_LH73"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 tsTM13"
+          },
+          {
+            "type": "synonym",
+            "value": "tsTM13"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_J507"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 tsTM18"
+          },
+          {
+            "type": "synonym",
+            "value": "tsTM18"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_LH72"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 tsTM3"
+          },
+          {
+            "type": "synonym",
+            "value": "tsTM3"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_J617"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 tsTM4"
+          },
+          {
+            "type": "synonym",
+            "value": "tsTM4"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_ZE99"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 UA10"
+          },
+          {
+            "type": "synonym",
+            "value": "UA10"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C1KU"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 Y1"
+          },
+          {
+            "type": "synonym",
+            "value": "Y1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C1KV"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1 Y1C"
+          },
+          {
+            "type": "synonym",
+            "value": "Y1C"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_Y502"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-BH4"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO K1-BH4"
+          },
+          {
+            "type": "synonym",
+            "value": "K1-BH4"
+          },
+          {
+            "type": "synonym",
+            "value": "K1BH4"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E9XE"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-C5"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XI04"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-ESM"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO-K1-MSB"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_1F96"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-Gln(-)"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C8WX"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-Luc"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E9XD"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-S4"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_9U94"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-SFM"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A9NT"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-UCSC"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO.K1.UCSC"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_UW12"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1-XIAP"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO-K1-XIAP-5"
+          },
+          {
+            "type": "synonym",
+            "value": "CHO-K1-XIAP clone 5"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_DF02"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1.Cl6"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_DF03"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1.Cl7"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5IY"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/ACE2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H387"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/ADRA1A"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H388"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/ADRA1B"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H389"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/ADRA1D"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H396"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/AM1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H404"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/BB1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H405"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/BB2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H406"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/BB3"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5IE"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/BDCA2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_KA49"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/BTLA"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H408"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/CASR"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H410"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/CB2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H412"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/CCKB"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5IN"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/CD112"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E5IP"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/CD155"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_KA24"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "CHO-K1/CD160"
+          }
+        ]
+      }
+    ]
+  }
+}

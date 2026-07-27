@@ -1,0 +1,178 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C5RN"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CD81"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/CD81+"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E3FN"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-FVII"
+          },
+          {
+            "type": "synonym",
+            "value": "FVII-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H214"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-GS"
+          },
+          {
+            "type": "synonym",
+            "value": "GS-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C9B9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NTCP1"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-hNTCP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5P0"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HEPG2-Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2-Cas9"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5Z9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE hepg2-CopGFP"
+          },
+          {
+            "type": "synonym",
+            "value": "hepg2-CopGFP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5RR"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE hepg2-FLUC"
+          },
+          {
+            "type": "synonym",
+            "value": "hepg2-FLUC"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C9BA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NTCP1 HBV"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-HBV"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_W371"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2 hALR"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XI50"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CAR"
+          }
+        ]
+      }
+    ]
+  }
+}

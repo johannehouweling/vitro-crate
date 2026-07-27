@@ -1,0 +1,822 @@
+{
+  "Cellosaurus": {
+    "cell-line-list": [
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_W371"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2 hALR"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XI50"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CAR"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C5RN"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CD81"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/CD81+"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A2HH"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CYP2E1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E8Z3"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CYP3A22"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A9JD"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CYP3A29"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E8Z2"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CYP3A46"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_9874"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-DM2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_D5I8"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-DP"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-DP clone No.4"
+          },
+          {
+            "type": "synonym",
+            "value": "DP-4"
+          },
+          {
+            "type": "synonym",
+            "value": "DNMT1/PKR double knockdowned HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A8BS"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-Dual"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_E3FN"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-FVII"
+          },
+          {
+            "type": "synonym",
+            "value": "FVII-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_H214"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-GS"
+          },
+          {
+            "type": "synonym",
+            "value": "GS-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_JY40"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-hNTCP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_D3XE"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-HSP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_JG47"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-Luc"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2-Luc"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_5I95"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-luc2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A8IF"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-N10"
+          },
+          {
+            "type": "synonym",
+            "value": "HepN10"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A7DQ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NIAS"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C9B9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NTCP1"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-hNTCP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A8FT"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-R"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XB55"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-RHBV"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_9873"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-SM1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_9872"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-WT10"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_B0UH"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2.A64"
+          },
+          {
+            "type": "synonym",
+            "value": "A64"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_D3XF"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/8F_HS"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_M187"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/Adm"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/ADM"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep-G2/ADM"
+          },
+          {
+            "type": "synonym",
+            "value": "Hep G2/ADM"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C5RP"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/CD81++"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_M186"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/mdr1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F1AH"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/STAT1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F1AI"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/STAT3"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_B0UI"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/TC155"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5P0"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HEPG2-Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2-Cas9"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5Z9"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE hepg2-CopGFP"
+          },
+          {
+            "type": "synonym",
+            "value": "hepg2-CopGFP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5RR"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE hepg2-FLUC"
+          },
+          {
+            "type": "synonym",
+            "value": "hepg2-FLUC"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_D5JJ"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2 82FR-31NR"
+          },
+          {
+            "type": "synonym",
+            "value": "82FR-31NR"
+          },
+          {
+            "type": "synonym",
+            "value": "82 days Fractionated Radiation-31 days Non-Radiation"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_V331"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2 Tet-On"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A8FS"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-8960-R"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XI69"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-CYP2B6-hCAR"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_8560"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-GS-CYP3A4"
+          },
+          {
+            "type": "synonym",
+            "value": "GS-3A4-HepG2"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_XD61"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-Luc2-tdT"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_A8BT"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-Lucia AhR"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_C9BA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-NTCP1 HBV"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2-HBV"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_5I98"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-Red-FLuc"
+          },
+          {
+            "type": "synonym",
+            "value": "Bioware Brite HepG2-Red-FLuc"
+          },
+          {
+            "type": "synonym",
+            "value": "IVISbrite HepG2 Red F-luc"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_JY38"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2-rNTCP-eGFP"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2 FLAG-Ntcp-EGFP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_1N69"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2/C3A-2.5B1"
+          },
+          {
+            "type": "synonym",
+            "value": "C3A clone 2.5B1"
+          },
+          {
+            "type": "synonym",
+            "value": "Clone 2.5 B1"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5PT"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HEPG2-C3A-Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2-C3A-Cas9"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5ZS"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HEPG2-C3A-CopGFP"
+          },
+          {
+            "type": "synonym",
+            "value": "HEPG2-C3A-CopGFP"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5QW"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HepG2/C3A-Cas9"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/C3A-Cas9"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_F5SA"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "EDITGENE HepG2/C3A-FLUC"
+          },
+          {
+            "type": "synonym",
+            "value": "HepG2/C3A-FLUC"
+          }
+        ]
+      },
+      {
+        "accession-list": [
+          {
+            "type": "primary",
+            "value": "CVCL_KU36"
+          }
+        ],
+        "name-list": [
+          {
+            "type": "identifier",
+            "value": "HepG2 Tet-Off Advanced"
+          }
+        ]
+      }
+    ]
+  }
+}

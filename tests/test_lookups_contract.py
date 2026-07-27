@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import responses
 from requests.exceptions import ConnectionError, Timeout
+from responses import matchers
 
 from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop
@@ -166,10 +168,12 @@ class TestCellosaurusContract:
 
         result = lookup_cellosaurus("CVCL_0027")
 
-        assert result["name"] == "HepG2"
+        # Cellosaurus's primary identifier for CVCL_0027 is "Hep-G2"; the far
+        # more common "HepG2" is only a synonym (#385).
+        assert result["name"] == "Hep-G2"
         assert "CVCL_0027" in result["url"]
         assert result["identifier"] == result["url"]
-        assert "Hep G2" in result["alternateName"]
+        assert "HepG2" in result["alternateName"]
         # Species
         assert result["taxonomicRange"]["@type"] == "DefinedTerm"
         assert "NCBITaxon" in result["taxonomicRange"]["@id"]
@@ -232,57 +236,70 @@ class TestCellosaurusContract:
 
 
 # ===========================================================================
-# Cellosaurus name search (search_cellosaurus, #179 Lane 6)
+# Cellosaurus name search (search_cellosaurus)
 # ===========================================================================
 
 
 class TestCellosaurusSearchContract:
-    """Contract tests for lookups.cellosaurus.search_cellosaurus (name → accession)."""
+    """Contract tests for lookups.cellosaurus.search_cellosaurus (name → accession).
+
+    The client issues one request per Solr name field and unions the results
+    (#385), so a test that wants different bodies per field has to route on the
+    ``q`` parameter; the failure-path tests below deliberately register one
+    catch-all response that serves both requests.
+    """
 
     _SEARCH_URL = "https://api.cellosaurus.org/search/cell-line"
+
+    @classmethod
+    def _route(cls, query: str, fixture: str) -> None:
+        """Serve ``fixture`` for exactly one Solr ``q`` value."""
+        responses.add(
+            responses.GET,
+            cls._SEARCH_URL,
+            match=[matchers.query_param_matcher({"q": query}, strict_match=False)],
+            json=_load(fixture),
+            status=200,
+        )
 
     @responses.activate
     def test_search_returns_ranked_candidates(self):
         """A name search parses each match into {accession, name, synonyms}."""
-        responses.add(
-            responses.GET,
-            self._SEARCH_URL,
-            json=_load("cellosaurus_search_hepg2.json"),
-            status=200,
-        )
+        self._route('id:"HepG2"', "cellosaurus_search_id_hepg2.json")
+        self._route('sy:"HepG2"', "cellosaurus_search_sy_hepg2.json")
 
         candidates = search_cellosaurus("HepG2")
 
         # A tuple (immutable cached value), one entry per matching cell line.
         assert isinstance(candidates, tuple)
-        assert len(candidates) == 3
-        top = candidates[0]
-        assert top["accession"] == "CVCL_0027"
-        assert top["name"] == "HepG2"
-        assert "Hep G2" in top["synonyms"]
-        # The other (non-exact) hits are still surfaced for the caller's gate.
-        assert {c["accession"] for c in candidates} == {
-            "CVCL_0027",
-            "CVCL_W371",
-            "CVCL_5765",
-        }
+        # 50 identifier hits + 45 synonym hits, minus 17 entries both fields
+        # return — a duplicate would read to the caller's gate as a second
+        # exact match and turn a resolvable name ambiguous.
+        assert len(candidates) == 78
+        # ``id`` is queried first, so the union opens on its top-ranked hit.
+        assert candidates[0]["accession"] == "CVCL_W371"
+        assert candidates[0]["name"] == "HepG2 hALR"
+        # The parent reaches the list only through the synonym field, and its
+        # primary identifier is "Hep-G2" — "HepG2" is a synonym.
+        parent = next(c for c in candidates if c["accession"] == "CVCL_0027")
+        assert parent["name"] == "Hep-G2"
+        assert "HepG2" in parent["synonyms"]
 
     @responses.activate
-    def test_search_sends_name_query_and_json_format(self):
-        """The request carries the name as a Solr query and asks for JSON."""
-        responses.add(
-            responses.GET,
-            self._SEARCH_URL,
-            json=_load("cellosaurus_search_hepg2.json"),
-            status=200,
-        )
+    def test_search_sends_one_query_per_name_field(self):
+        """Each request carries a single-field Solr query and asks for JSON."""
+        self._route('id:"HepG2"', "cellosaurus_search_id_hepg2.json")
+        self._route('sy:"HepG2"', "cellosaurus_search_sy_hepg2.json")
 
         search_cellosaurus("HepG2")
 
-        sent = responses.calls[0].request
-        assert sent.url is not None
-        assert "HepG2" in sent.url
-        assert "format=json" in sent.url
+        sent = [call.request.url or "" for call in responses.calls]
+        assert len(sent) == 2
+        assert {parse_qs(urlsplit(url).query)["q"][0] for url in sent} == {
+            'id:"HepG2"',
+            'sy:"HepG2"',
+        }
+        assert all("format=json" in url for url in sent)
 
     @responses.activate
     def test_search_blank_name_no_http_returns_empty(self):
@@ -292,7 +309,7 @@ class TestCellosaurusSearchContract:
 
     @responses.activate
     def test_search_no_matches_returns_empty(self):
-        """An empty cell-line-list yields an empty candidate tuple."""
+        """An empty cell-line-list on both fields yields an empty tuple."""
         responses.add(
             responses.GET,
             self._SEARCH_URL,
@@ -301,10 +318,11 @@ class TestCellosaurusSearchContract:
         )
 
         assert search_cellosaurus("NoSuchCellLineXYZ") == ()
+        assert len(responses.calls) == 2
 
     @responses.activate
     def test_search_not_found_returns_empty(self):
-        """A 404 returns an empty candidate tuple (definitive not-found)."""
+        """A 404 on both fields returns an empty tuple (definitive not-found)."""
         responses.add(
             responses.GET,
             self._SEARCH_URL,
@@ -312,6 +330,7 @@ class TestCellosaurusSearchContract:
         )
 
         assert search_cellosaurus("HepG2") == ()
+        assert len(responses.calls) == 2
 
     @responses.activate
     def test_search_timeout_raises_transient(self):
