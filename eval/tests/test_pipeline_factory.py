@@ -2,11 +2,14 @@
 
 The pipeline factory implements the same :class:`~eval.agent_api.BuildAgent`
 contract as the ReAct factory, so the harness A/B's the two by swapping factories.
-Unlike ReAct, the pipeline is fully deterministic and calls no model, so these
-tests run it for real (the validator is offline against the bundled context).
+Unlike ReAct, the pipeline is deterministic and calls no model when no provider is
+configured, so these tests run it for real (the validator is offline against the
+bundled context).
 """
 
 from __future__ import annotations
+
+from typing import cast
 
 import pytest
 
@@ -114,7 +117,7 @@ class TestPipelineTokenAccounting:
 
         calls = {"n": 0}
 
-        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
             calls["n"] += 1
             if usage_sink is not None:
                 usage_sink(100, 25, "gpt-4o-mini")
@@ -170,3 +173,67 @@ class TestPipelineTokenAccounting:
         assert res.input_tokens == 0
         assert res.output_tokens == 0
         assert res.total_tokens == 0
+
+
+class TestPipelineAgentModelOverrides:
+    """The A/B's model selection must reach this arm too (#399).
+
+    `--model X` was threaded into the ReAct factory and dropped here, while the
+    pipeline's bounded leaves still resolved a model from the ENVIRONMENT. So a
+    run asked to compare two architectures on one model silently compared two
+    models, and part of any token or cost delta was a model delta.
+    """
+
+    def test_overrides_reach_the_spine(self) -> None:
+        from builder.agents.llm import ModelOverrides
+
+        seen: dict = {}
+
+        def _runner(engine, **kwargs):
+            seen.update(kwargs)
+            return {}
+
+        pinned = ModelOverrides(provider="openai", model="gpt-5.6-luna")
+        agent = PipelineBuildAgent(pipeline_runner=_runner, overrides=pinned)
+        agent.build(DEFAULT_CORPUS[0])
+
+        assert seen.get("overrides") == pinned
+
+    def test_factory_forwards_what_the_cli_selected(self) -> None:
+        """`select_agent_factory` must hand the CLI's choice to this arm."""
+        from builder.agents.build import BuildMode
+        from builder.agents.llm import ModelOverrides
+        from eval.__main__ import select_agent_factory
+
+        factory = select_agent_factory(
+            BuildMode.PIPELINE, provider="openai", model="gpt-5.6-luna", base_url=None
+        )
+        agent = cast(PipelineBuildAgent, factory())
+
+        assert agent._overrides == ModelOverrides(
+            provider="openai", model="gpt-5.6-luna", base_url=None
+        )
+
+    def test_a_narrow_injected_runner_is_still_callable(self) -> None:
+        """HONESTY CONTROL — threading must not break a stub that predates it.
+
+        A runner whose signature is `(engine)` only must still be called the
+        legacy way rather than raising an unexpected-keyword TypeError, which the
+        build would swallow into a silent `stop_reason="error"`.
+        """
+        from builder.agents.llm import ModelOverrides
+
+        calls: list = []
+
+        def _narrow_runner(engine):
+            calls.append(engine)
+            return {}
+
+        agent = PipelineBuildAgent(
+            pipeline_runner=_narrow_runner, overrides=ModelOverrides(model="x")
+        )
+        outcome = agent.build(DEFAULT_CORPUS[0])
+
+        assert len(calls) == 1
+        assert outcome.error is None
+        assert outcome.stop_reason == "completed"

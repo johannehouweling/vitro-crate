@@ -142,7 +142,7 @@ def _install_offline_seams(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
     def fake_extract_plan(
-        context: str, *, model: str | None = None, usage_sink: Any = None
+        context: str, *, overrides: Any = None, usage_sink: Any = None
     ) -> dict[str, Any]:
         """Context-driven plan: propose entities ONLY when their real token is present.
 

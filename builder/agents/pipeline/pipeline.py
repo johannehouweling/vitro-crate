@@ -46,6 +46,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, Callable
 
+from builder.agents.llm import ModelOverrides
 from builder.config import get_provider
 
 # Deterministic given/family split lives in the pure drafter module so the
@@ -104,7 +105,7 @@ def draft_entity_fields(
     entity_type: str,
     context: str,
     *,
-    model: str | None = None,
+    overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Lazy, no-op-safe shim over :func:`builder.agents.pipeline.leaves.draft_entity_fields`.
@@ -123,13 +124,13 @@ def draft_entity_fields(
     """
     from builder.agents.pipeline.leaves import draft_entity_fields as _leaf
 
-    return _leaf(entity_type, context, model=model, usage_sink=usage_sink)
+    return _leaf(entity_type, context, overrides=overrides, usage_sink=usage_sink)
 
 
 def extract_plan(
     context: str,
     *,
-    model: str | None = None,
+    overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Lazy, no-op-safe shim over :func:`builder.agents.pipeline.leaves.extract_plan`.
@@ -145,7 +146,7 @@ def extract_plan(
     """
     from builder.agents.pipeline.leaves import extract_plan as _leaf
 
-    return _leaf(context, model=model, usage_sink=usage_sink)
+    return _leaf(context, overrides=overrides, usage_sink=usage_sink)
 
 
 def _as_int(value: Any) -> int:
@@ -544,7 +545,11 @@ def _gather_context(engine: AgentEngine) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _draft_entities(engine: AgentEngine, usage_sink: UsageSink | None = None) -> dict[str, Any]:
+def _draft_entities(
+    engine: AgentEngine,
+    usage_sink: UsageSink | None = None,
+    overrides: ModelOverrides | None = None,
+) -> dict[str, Any]:
     """Step 2 — enrich entities via the bounded drafter-leaf (§14.2).
 
     Wires the cheap-model drafter-leaf (:func:`draft_entity_fields`) into the
@@ -598,7 +603,9 @@ def _draft_entities(engine: AgentEngine, usage_sink: UsageSink | None = None) ->
             continue
 
         try:
-            leaf_fields = draft_entity_fields(entity.type, context, usage_sink=usage_sink)
+            leaf_fields = draft_entity_fields(
+                entity.type, context, usage_sink=usage_sink, overrides=overrides
+            )
         except Exception as exc:  # noqa: BLE001 - a flaky leaf must not break the spine
             logger.warning(
                 "drafter-leaf failed for %s (%s); skipping enrichment: %s",
@@ -1141,7 +1148,11 @@ def _recover_publication_query(engine: AgentEngine, title: str) -> tuple[str, st
     return None
 
 
-def _materialize_plan(engine: AgentEngine, usage_sink: UsageSink | None = None) -> dict[str, Any]:
+def _materialize_plan(
+    engine: AgentEngine,
+    usage_sink: UsageSink | None = None,
+    overrides: ModelOverrides | None = None,
+) -> dict[str, Any]:
     """Stage B (§14) — materialize the extracted candidate plan via composites.
 
     Bridges the bounded whole-document extractor (:func:`extract_plan`, Stage A)
@@ -1272,7 +1283,9 @@ def _materialize_plan(engine: AgentEngine, usage_sink: UsageSink | None = None) 
         context = _gather_context(engine)
         if context:
             try:
-                extracted = extract_plan(context, usage_sink=usage_sink)
+                extracted = extract_plan(
+                    context, usage_sink=usage_sink, overrides=overrides
+                )
             except Exception as exc:  # noqa: BLE001 - a flaky extractor must not break the spine
                 logger.warning("extract_plan failed; skipping plan materialization: %s", exc)
                 extracted = None
@@ -1624,6 +1637,7 @@ def run_pipeline(
     *,
     progress: ProgressSink | None = None,
     save: SaveFn | None = None,
+    overrides: ModelOverrides | None = None,
 ) -> dict[str, Any]:
     """Run the deterministic pipeline spine on *engine* and return its outcome.
 
@@ -1692,13 +1706,13 @@ def run_pipeline(
     _persist()
 
     emit("Extracting plan…")
-    materialized = _materialize_plan(engine, usage_sink)
+    materialized = _materialize_plan(engine, usage_sink, overrides)
     materialized_count = sum(v for v in materialized.values() if isinstance(v, int))
     if materialized_count:
         emit(f"Materializing {materialized_count} entities…")
     _persist()
 
-    drafted = _draft_entities(engine, usage_sink)
+    drafted = _draft_entities(engine, usage_sink, overrides)
 
     validation, fix_rounds = _run_fix_loop(engine, progress=emit, save=_persist)
 

@@ -194,7 +194,7 @@ class TestDraftEntitiesWiring:
         self._enable_provider(monkeypatch)
         calls: list[tuple[str, str]] = []
 
-        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
             calls.append((entity_type, context))
             # A descriptive field plus an identifier the leaf would normally strip
             # — assert the wiring NEVER applies the identifier even if present.
@@ -237,7 +237,7 @@ class TestDraftEntitiesWiring:
 
         self._enable_provider(monkeypatch)
 
-        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
             return {"name": "LEAF NAME", "description": "leaf desc"}
 
         monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
@@ -498,7 +498,7 @@ class TestMaterializePlan:
 
         seen: list[str] = []
 
-        def fake_extract_plan(context, *, model=None, usage_sink=None):
+        def fake_extract_plan(context, *, overrides=None, usage_sink=None):
             seen.append(context)
             return dict(self._PLAN if plan is None else plan)
 
@@ -1443,7 +1443,7 @@ class TestPublicationFromPDF:
         """Make the leaf return the PDF FILENAME as the publication title (#245)."""
         import builder.agents.pipeline.pipeline as pipeline_mod
 
-        def fake_extract_plan(context, *, model=None, usage_sink=None):
+        def fake_extract_plan(context, *, overrides=None, usage_sink=None):
             return {"publications": [{"title": self._PDF_NAME}]}
 
         monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)
@@ -1658,7 +1658,7 @@ class TestTokenAccounting:
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
-        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
             # Each leaf call reports a known usage payload through the sink.
             if usage_sink is not None:
                 usage_sink(100, 20, "gpt-4o-mini")
@@ -1720,7 +1720,7 @@ class TestTokenAccounting:
         # Make the plan stage a no-op (empty plan) so only the drafter leaf runs.
         monkeypatch.setattr(pipeline_mod, "extract_plan", lambda *a, **k: {})
 
-        def fake_leaf(entity_type, context, *, model=None, usage_sink=None):
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
             if usage_sink is not None:
                 usage_sink(50, 10, "gpt-4o-mini")
             return {"description": f"drafted {entity_type}"}
@@ -2098,7 +2098,7 @@ class TestMaterializeBackboneNaming:
     def _stub_extract_plan(self, monkeypatch: pytest.MonkeyPatch, plan: dict) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
-        def fake_extract_plan(context, *, model=None, usage_sink=None):
+        def fake_extract_plan(context, *, overrides=None, usage_sink=None):
             return dict(plan)
 
         monkeypatch.setattr(pipeline_mod, "extract_plan", fake_extract_plan)

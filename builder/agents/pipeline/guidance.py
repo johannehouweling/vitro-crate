@@ -94,6 +94,7 @@ from typing import TYPE_CHECKING, Any, Callable
 # reused verbatim rather than reimplemented (#384): the logger emits the same
 # ``node_end``/``node="model"`` profile event the ReAct model node emits, which is
 # the only surface the status bar, the ``--dashboard`` table and the eval read.
+from builder.agents.llm import ModelOverrides
 from builder.agents.pipeline.pipeline import (
     UsageSink,
     _make_usage_logger,
@@ -655,7 +656,13 @@ def _draft_context(engine: AgentEngine, gap: Gap) -> str:
     return "\n".join(parts).strip()
 
 
-def _drafted_value(engine: AgentEngine, gap: Gap, *, usage_sink: UsageSink | None) -> str | None:
+def _drafted_value(
+    engine: AgentEngine,
+    gap: Gap,
+    *,
+    usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
+) -> str | None:
     """Draft a candidate value for ``gap`` via the bounded drafter leaf, or None.
 
     Calls :func:`draft_entity_fields` for the gap's ``entity_type`` and returns the
@@ -669,7 +676,10 @@ def _drafted_value(engine: AgentEngine, gap: Gap, *, usage_sink: UsageSink | Non
     field = _local_name(gap.property) or (gap.property or "")
     try:
         fields = draft_entity_fields(
-            entity_type, _draft_context(engine, gap), usage_sink=usage_sink
+            entity_type,
+            _draft_context(engine, gap),
+            usage_sink=usage_sink,
+            overrides=overrides,
         )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
         logger.warning("guidance: drafter leaf failed for %s: %s", entity_type, exc)
@@ -898,7 +908,13 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
     return context
 
 
-def _phrase_question(engine: AgentEngine, gap: Gap, *, usage_sink: UsageSink | None) -> str:
+def _phrase_question(
+    engine: AgentEngine,
+    gap: Gap,
+    *,
+    usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
+) -> str:
     """Phrase ``gap`` as one human question via the LLM leaf, with a safe fallback.
 
     Calls :func:`phrase_gap_question` (the drafter-tier leaf); on any failure or an
@@ -907,7 +923,9 @@ def _phrase_question(engine: AgentEngine, gap: Gap, *, usage_sink: UsageSink | N
     """
     if phrase_gap_question is not None:
         try:
-            question = phrase_gap_question(_gap_context(engine, gap), usage_sink=usage_sink)
+            question = phrase_gap_question(
+                _gap_context(engine, gap), usage_sink=usage_sink, overrides=overrides
+            )
         except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
             logger.warning("guidance: phrase leaf failed: %s", exc)
             question = ""
@@ -946,6 +964,7 @@ def _interpret_reply(
     reply: str,
     *,
     usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
 ) -> dict[str, Any]:
     """Interpret ``reply`` into a structured decision via the LLM leaf.
 
@@ -960,7 +979,11 @@ def _interpret_reply(
         return _deterministic_decision(gap, reply)
     try:
         return interpret_gap_reply(
-            question, reply, _gap_context(engine, gap), usage_sink=usage_sink
+            question,
+            reply,
+            _gap_context(engine, gap),
+            usage_sink=usage_sink,
+            overrides=overrides,
         )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
         logger.warning("guidance: interpret leaf failed (%s); deterministic fallback", exc)
@@ -973,6 +996,7 @@ def _resolve_ask_user(
     gap: Gap,
     *,
     usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
 ) -> str | None:
     """Run the LLM-mediated ask-user exchange for ``gap``; return a clean value.
 
@@ -1007,7 +1031,7 @@ def _resolve_ask_user(
         value = _deterministic_decision(gap, reply).get("value")
         return value.strip() if isinstance(value, str) and value.strip() else None
 
-    question = _phrase_question(engine, gap, usage_sink=usage_sink)
+    question = _phrase_question(engine, gap, usage_sink=usage_sink, overrides=overrides)
     response = human.request_input(question)
     reply = _reply_text(response)
     if reply is None:
@@ -1016,7 +1040,9 @@ def _resolve_ask_user(
 
     follow_ups = 0
     while True:
-        decision = _interpret_reply(engine, gap, question, reply, usage_sink=usage_sink)
+        decision = _interpret_reply(
+            engine, gap, question, reply, usage_sink=usage_sink, overrides=overrides
+        )
         action = decision.get("action")
 
         if action == "commit":
@@ -1042,7 +1068,12 @@ def _resolve_ask_user(
             # prose is never stored; only a value the extraction leaf pulls from
             # the file's text, gated to approved scan roots.
             return _resolve_from_file(
-                engine, gap, reply, decision.get("filename"), usage_sink=usage_sink
+                engine,
+                gap,
+                reply,
+                decision.get("filename"),
+                usage_sink=usage_sink,
+                overrides=overrides,
             )
 
         # skip, an exhausted clarify budget, or any unrecognised action -> skip.
@@ -1133,6 +1164,7 @@ def _resolve_from_file(
     filename: str | None,
     *,
     usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
 ) -> str | None:
     """Read the file the user pointed at and extract the gap's value (#257, fix C).
 
@@ -1173,7 +1205,11 @@ def _resolve_from_file(
 
     try:
         value = extract_field_from_file(
-            field, file_text, _gap_context(engine, gap), usage_sink=usage_sink
+            field,
+            file_text,
+            _gap_context(engine, gap),
+            usage_sink=usage_sink,
+            overrides=overrides,
         )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
         logger.warning("guidance: from_file extraction leaf failed: %s", exc)
@@ -1197,6 +1233,7 @@ def _resolve_gap(
     resolved: list[dict[str, Any]],
     asked: list[dict[str, Any]],
     usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
 ) -> bool:
     """Resolve a single ``gap``; return ``True`` iff it committed a change.
 
@@ -1287,6 +1324,7 @@ def run_guidance(
     *,
     max_rounds: int = _DEFAULT_MAX_ROUNDS,
     usage_sink: UsageSink | None = None,
+    overrides: ModelOverrides | None = None,
 ) -> dict[str, Any]:
     """Run the deterministic HITL gap-resolution loop over the gap engine.
 

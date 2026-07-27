@@ -34,6 +34,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from builder.agents.llm import ModelOverrides
 from builder.agents.progress_spinner import ProgressSpinner
 from builder.tools.hitl import is_interactive
 from builder.tools.session import save_session
@@ -114,6 +115,7 @@ def run_interactive_build(
     guidance_runner: GuidanceRunner | None = None,
     exporter: Exporter | None = None,
     output: OutputChannel | None = None,
+    overrides: ModelOverrides | None = None,
 ) -> dict[str, Any]:
     """Run the automated pipeline, the HITL guidance tail, then export to disk.
 
@@ -174,6 +176,10 @@ def run_interactive_build(
         output: Sink for the staged progress lines, the human-readable guidance
             summary, and the final crate path (e.g. ``print`` or a console
             writer). Defaults to a no-op.
+        overrides: Caller-pinned provider/model/base URL for the bounded leaves
+            (#399). ``None`` or an empty set means "resolve from the environment",
+            the pre-existing behaviour. Threaded to an injected runner only when
+            that runner accepts it, so narrower test doubles keep working.
 
     Returns:
         ``{"pipeline": <run_pipeline result>, "guidance": <run_guidance result or
@@ -228,6 +234,7 @@ def run_interactive_build(
                 pipeline_runner=pipeline_runner,
                 guidance_runner=guidance_runner,
                 exporter=exporter,
+                overrides=overrides,
             )
         if interactive:
             ui.print_status_bar(engine)
@@ -256,17 +263,19 @@ def run_build(
     ``engine.state`` in place and has no structured return, so this returns
     ``None``.
 
-    Per-mode kwargs that don't apply to the chosen mode are ignored — the ReAct
-    loop takes ``provider`` / ``model`` / ``base_url``, the pipeline takes
-    ``output`` — so a single call site (``main.py``, the eval) can pass all of
-    them and let the switch route.
+    ``provider`` / ``model`` / ``base_url`` reach **both** modes — the ReAct loop
+    as explicit arguments, the pipeline as a :class:`~builder.agents.llm.ModelOverrides`
+    threaded to its bounded leaves. They used to be documented and implemented as
+    ReAct-only while the pipeline resolved its model from the environment, so a
+    ``--model X`` A/B ran the two arms on two different models (#399). ``output``
+    remains pipeline-only; the ReAct loop has no progress sink.
 
     Args:
         mode: Which variant to run.
         engine: An initialized :class:`~builder.engine.AgentEngine`.
-        provider: LLM provider override (ReAct only; auto-detected when ``None``).
-        model: Model-name override (ReAct only).
-        base_url: Custom OpenAI-compatible base URL (ReAct only).
+        provider: LLM provider override (auto-detected when ``None``).
+        model: Model-name override.
+        base_url: Custom OpenAI-compatible base URL.
         output: Progress/summary sink for the pipeline path (e.g. ``print``).
 
     Returns:
@@ -278,7 +287,14 @@ def run_build(
 
         run_interactive_agent(engine, provider=provider, model=model, base_url=base_url)
         return None
-    return run_interactive_build(engine, output=output)
+
+    from builder.agents.llm import ModelOverrides
+
+    return run_interactive_build(
+        engine,
+        output=output,
+        overrides=ModelOverrides(provider=provider, model=model, base_url=base_url),
+    )
 
 
 def _spinner_emit(base_emit: OutputChannel, spinner: ProgressSpinner | None) -> OutputChannel:
@@ -338,6 +354,7 @@ def _run_build_body(
     pipeline_runner: PipelineRunner | None,
     guidance_runner: GuidanceRunner | None,
     exporter: Exporter | None,
+    overrides: ModelOverrides | None = None,
 ) -> dict[str, Any]:
     """Run the pipeline → (guidance) → export → save sequence (#266 spinner body).
 
@@ -352,7 +369,7 @@ def _run_build_body(
         emit(f"Scanning ✓ ({scanned} files)")
 
     pipeline_runner = pipeline_runner or _default_pipeline_runner()
-    pipeline_result = _run_pipeline_with_progress(pipeline_runner, engine, emit)
+    pipeline_result = _run_pipeline_with_progress(pipeline_runner, engine, emit, overrides)
 
     if not interactive:
         # Headless / simulated: run the automated pipeline ALONE so the A/B stays
@@ -379,7 +396,10 @@ def _run_build_body(
     # per-prompt status line the ReAct loop shows, via the shared ui helper (#344).
     # human is non-None on this interactive path (is_interactive(None) is False).
     prompt_human = _StatusBarHuman(human, engine) if human is not None else human
-    guidance_result = guidance_runner(engine, prompt_human)
+    guidance_kwargs: dict[str, Any] = {}
+    if overrides is not None and _accepts_kwarg(guidance_runner, "overrides"):
+        guidance_kwargs["overrides"] = overrides
+    guidance_result = guidance_runner(engine, prompt_human, **guidance_kwargs)
 
     emit(format_guidance_summary(guidance_result))
 
@@ -399,19 +419,24 @@ def _run_pipeline_with_progress(
     pipeline_runner: PipelineRunner,
     engine: AgentEngine,
     emit: OutputChannel,
+    overrides: ModelOverrides | None = None,
 ) -> dict[str, Any]:
     """Call *pipeline_runner*, threading *emit* in as the spine's progress sink.
 
-    The real :func:`builder.agents.pipeline.pipeline.run_pipeline` accepts a keyword-only
-    ``progress`` callback (#241). To stay backward-compatible with injected test
-    runners whose signature is ``(engine)`` only, we introspect the runner and pass
-    ``progress`` **only** when it is accepted — otherwise the runner is called the
-    legacy way. This keeps the spine's per-phase lines flowing to the user through
-    the real path while never breaking a narrower injected double.
+    The real :func:`builder.agents.pipeline.pipeline.run_pipeline` accepts keyword-only
+    ``progress`` (#241) and ``overrides`` (#399) arguments. To stay
+    backward-compatible with injected test runners whose signature is ``(engine)``
+    only, each is introspected and passed **only** when accepted — otherwise the
+    runner is called the legacy way. This keeps the spine's per-phase lines and the
+    caller's model selection flowing through the real path while never breaking a
+    narrower injected double.
     """
+    kwargs: dict[str, Any] = {}
     if _accepts_kwarg(pipeline_runner, "progress"):
-        return pipeline_runner(engine, progress=emit)
-    return pipeline_runner(engine)
+        kwargs["progress"] = emit
+    if overrides is not None and _accepts_kwarg(pipeline_runner, "overrides"):
+        kwargs["overrides"] = overrides
+    return pipeline_runner(engine, **kwargs)
 
 
 def _accepts_kwarg(func: Callable[..., Any], name: str) -> bool:

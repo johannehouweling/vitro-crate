@@ -349,7 +349,7 @@ class TestDraftable:
         # Stub the drafter leaf — NO real LLM.
         called: dict[str, object] = {}
 
-        def _fake_draft(entity_type, context, *, model=None, usage_sink=None):
+        def _fake_draft(entity_type, context, *, overrides=None, usage_sink=None):
             called["entity_type"] = entity_type
             return {"description": "A drafted value."}
 
@@ -395,7 +395,7 @@ class TestDraftable:
         )
         monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
 
-        def _fake_draft(entity_type, context, *, model=None, usage_sink=None):
+        def _fake_draft(entity_type, context, *, overrides=None, usage_sink=None):
             return {"description": "A drafted value the user rejects."}
 
         monkeypatch.setattr(guidance, "draft_entity_fields", _fake_draft)
@@ -2325,11 +2325,11 @@ class TestGuidanceTokenAccounting:
         engine = _profiled_engine(monkeypatch, tmp_path)
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
 
-        def _phrase(gap_context, *, model=None, usage_sink):
+        def _phrase(gap_context, *, overrides=None, usage_sink):
             usage_sink(*reported)
             return _PHRASED
 
-        def _interpret(question, reply, gap_context, *, model=None, usage_sink):
+        def _interpret(question, reply, gap_context, *, overrides=None, usage_sink):
             usage_sink(*reported)
             return {"action": "commit", "value": reply.strip()}
 
@@ -2404,7 +2404,7 @@ class TestGuidanceTokenAccounting:
         engine = _profiled_engine(monkeypatch, tmp_path)
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
 
-        def _phrase(gap_context, *, usage_sink):
+        def _phrase(gap_context, *, usage_sink, overrides=None):
             usage_sink(7, 3, "gpt-4o-mini")
             return _PHRASED
 

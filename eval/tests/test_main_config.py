@@ -70,7 +70,9 @@ class TestLiveConfigHydration:
         def fake_make_react_agent_factory(**_: Any) -> Callable[[], _MockAgent]:
             return _mock_factory
 
-        def fake_make_pipeline_agent_factory() -> Callable[[], _MockAgent]:
+        def fake_make_pipeline_agent_factory(**_kw: object) -> Callable[[], _MockAgent]:
+            # **_kw absorbs the model overrides the pipeline arm now receives (#399);
+            # this test is about credential hydration, not model selection.
             return _mock_factory
 
         import eval.pipeline_factory as pipeline_factory
