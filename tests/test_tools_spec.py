@@ -331,4 +331,179 @@ def test_assert_tool_spec_parity_flags_a_spec_with_no_callable_tool(monkeypatch)
         ts.assert_tool_spec_parity()
 
 
+# ---------------------------------------------------------------------------
+# Advertised-text lints (Issue #383)
+#
+# Two properties of the *shipped* model-facing text, both of which the
+# tool-existence lint above cannot see:
+#   1. no worked example hands the model a resolvable identifier it can lift
+#      onto the wrong entity;
+#   2. advice to "look it up first (tool)" names a tool the caller can actually
+#      call from the arguments it holds.
+# ---------------------------------------------------------------------------
+
+# Identifier shapes that resolve at a real authority, so a model that lifts one
+# out of an example ships a real-but-wrong id (a D5 violation on disk).
+_RESOLVABLE_IDENTIFIER_PATTERNS: dict[str, re.Pattern[str]] = {
+    "Cellosaurus accession": re.compile(r"CVCL[_:]\d+"),
+    "CAS RN": re.compile(r"\b\d{2,7}-\d{2}-\d\b"),
+    "ORCID iD": re.compile(r"0000-000\d-\d{4}-\d{3}[\dX]"),
+    "DOI": re.compile(r"10\.\d{4,9}/[^\s'\"]+"),
+    "ontology term CURIE": re.compile(r"\b(?:BAO|GO|CHEBI|EFO|OBI|UBERON|NCIT)[:_]\d+"),
+}
+
+# Literals reserved by their registries as non-resolvable documentation
+# examples, so they cannot be lifted onto a real entity.
+_NON_RESOLVABLE_PLACEHOLDERS = frozenset({"10.1234/example"})
+
+
+def _iter_descriptions(node: object, path: str) -> list[tuple[str, str]]:
+    """Return every ``description`` string in *node*, with a dotted path.
+
+    Walks the whole spec, so it reaches the nested ``hints`` parameter schemas
+    that ``draft_hints_schema`` renders from ``_crate_mapping.ENTITY_DRAFT_SCHEMA``
+    — the model sees those in the same function-call payload as the description.
+    """
+    found: list[tuple[str, str]] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "description" and isinstance(value, str):
+                found.append((f"{path}.{key}", value))
+            else:
+                found.extend(_iter_descriptions(value, f"{path}.{key}"))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found.extend(_iter_descriptions(value, f"{path}[{index}]"))
+    return found
+
+
+def _resolvable_identifier_literals(spec: dict) -> list[tuple[str, str, str]]:
+    """Return ``(path, kind, literal)`` for each resolvable id advertised by *spec*."""
+    hits: list[tuple[str, str, str]] = []
+    for path, text in _iter_descriptions(spec, str(spec.get("name", "?"))):
+        for kind, pattern in _RESOLVABLE_IDENTIFIER_PATTERNS.items():
+            for literal in pattern.findall(text):
+                if literal in _NON_RESOLVABLE_PLACEHOLDERS:
+                    continue
+                hits.append((path, kind, literal))
+    return hits
+
+
+# The repo's advisory idiom for "call this tool first": a "look … up" sentence,
+# and/or a bare tool name in parentheses.
+_LOOKUP_ADVICE_CUE = re.compile(r"\blook(?:s|ed|ing)?\s[^.]*?\bup\b", re.I)
+_PARENTHESISED_TOOL = re.compile(r"\(([a-z_]+)\)")
+
+
+def _advised_tools(description: str, tool_names: set[str]) -> set[str]:
+    """Return the tools *description* advises the caller to call."""
+    advised: set[str] = set()
+    for sentence in re.split(r"(?<=[.;])\s+", description):
+        if _LOOKUP_ADVICE_CUE.search(sentence):
+            advised |= {n for n in tool_names if re.search(rf"\b{re.escape(n)}\b", sentence)}
+        advised |= {m for m in _PARENTHESISED_TOOL.findall(sentence) if m in tool_names}
+    return advised
+
+
+def _misdirected_advice(spec: dict, specs: list) -> list[tuple[str, str, list[str]]]:
+    """Return ``(caller, advised, unsatisfiable_args)`` for misdirected advice.
+
+    A caller's *own* top-level arguments are the only ones it can pass on. Its
+    ``hints`` are excluded deliberately: hints carry the values the advised
+    lookup is supposed to *return*, so a lookup that requires one of them as
+    input is circular from where the caller stands.
+    """
+    required = {
+        str(s["name"]): set(s.get("parameters", {}).get("required", []) or []) for s in specs
+    }
+    caller = str(spec["name"])
+    own_args = set(spec.get("parameters", {}).get("properties", {}) or {}) - {"hints"}
+    findings: list[tuple[str, str, list[str]]] = []
+    for advised in sorted(_advised_tools(str(spec.get("description", "")), set(required)) - {caller}):
+        unmet = required.get(advised, set()) - own_args
+        if unmet:
+            findings.append((caller, advised, sorted(unmet)))
+    return findings
+
+
+def test_no_advertised_description_contains_a_resolvable_identifier_literal():
+    """No model-facing description hands the model a liftable real identifier.
+
+    `CVCL_0027` (HepG2) used to appear twice in one ``draft_cell_line_sample``
+    payload — in the worked example and again in the shared hint schema. A model
+    that dead-ends on a lookup reaches for the nearest concrete accession, so a
+    CHO-K1 sample could ship with HepG2's accession, verified (Issue #383).
+    """
+    offenders = [hit for spec in TOOL_SPECS for hit in _resolvable_identifier_literals(spec)]
+    assert not offenders, (
+        "Advertised text contains resolvable identifier literal(s) a model can "
+        f"lift onto the wrong entity: {offenders}. Use a shape-only placeholder."
+    )
+
+
+def test_the_identifier_literal_lint_flags_a_planted_literal():
+    """The detector fires on a planted literal, including a nested one.
+
+    Proves the green state above is 'the shipped specs are clean', not 'the
+    patterns match nothing'.
+    """
+    planted = {
+        "name": "draft_planted",
+        "description": "Example: draft_planted(doi='10.1016/j.tox.2021.152898').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hints": {
+                    "type": "object",
+                    "properties": {
+                        "accession": {
+                            "type": "string",
+                            "description": "Cellosaurus accession, e.g. 'CVCL_0027'.",
+                        }
+                    },
+                }
+            },
+        },
+    }
+
+    hits = _resolvable_identifier_literals(planted)
+
+    assert ("draft_planted.description", "DOI", "10.1016/j.tox.2021.152898") in hits
+    nested = "draft_planted.parameters.properties.hints.properties.accession.description"
+    assert (nested, "Cellosaurus accession", "CVCL_0027") in hits
+
+
+def test_no_description_advises_a_tool_it_cannot_call_from_its_own_arguments():
+    """Advice to look something up must name a tool the caller can call.
+
+    ``draft_cell_line_sample`` used to say "Look it up first (lookup_cell_line)"
+    while ``lookup_cell_line`` requires the accession the caller is trying to
+    obtain; the tool that goes name -> accession (``lookup_cell_line_by_name``)
+    was never named. The existing existence lint passes on that, because the
+    misdirecting tool does exist (Issue #383).
+    """
+    offenders = [f for spec in TOOL_SPECS for f in _misdirected_advice(spec, TOOL_SPECS)]
+    assert not offenders, (
+        "Description(s) advise a tool whose required argument(s) the caller "
+        f"cannot supply: {offenders}. Name the tool that takes what the caller has."
+    )
+
+
+def test_the_lookup_advice_lint_flags_a_planted_misdirection():
+    """The detector fires on advice naming a lookup keyed by the wanted value."""
+    planted = {
+        "name": "draft_planted",
+        "description": "Create a thing from a name. Look it up first (lookup_cell_line).",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "hints": {"type": "object"}},
+            "required": ["name", "hints"],
+        },
+    }
+
+    findings = _misdirected_advice(planted, [*TOOL_SPECS, planted])
+
+    assert findings == [("draft_planted", "lookup_cell_line", ["accession"])]
+
+
 __all__: list[str] = []

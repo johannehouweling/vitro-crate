@@ -185,7 +185,10 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
     "CellLineSample": EntityDraftSchema(
         scalar_fields={
             "name": "Cell-line name (passed as the `name` argument).",
-            "accession": "Cellosaurus accession, e.g. 'CVCL_0027'.",
+            "accession": (
+                "Cellosaurus accession (CVCL_*) as returned by a lookup for THIS "
+                "cell line — never guessed, never reused from another line."
+            ),
             "description": _DESC,
         },
     ),
@@ -264,7 +267,10 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
     "DefinedTerm": EntityDraftSchema(
         scalar_fields={
             "name": "Term label (passed as the `name` argument).",
-            "term_code": "Ontology code, e.g. 'BAO:0002993' or 'GO:0006915'.",
+            "term_code": (
+                "Ontology term CURIE ('PREFIX:LOCALID', e.g. 'BAO:NNNNNNN', "
+                "'GO:NNNNNNN') exactly as returned by the term lookup."
+            ),
             "in_defined_term_set": "IRI of the term set / ontology the term belongs to.",
             "url": "Dereferenceable IRI for the term (used as the entity @id).",
             "description": _DESC,
