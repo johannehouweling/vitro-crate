@@ -1176,3 +1176,77 @@ def _flatten_keys(schema: Any) -> set[str]:
 
     _walk(schema)
     return keys
+
+
+class TestPlanSchemaProcessParameters:
+    """The candidate plan must carry process parameters, not just step names (#379).
+
+    Without a parameter slot the extraction leaf has nowhere to put the SOP's
+    "30 minutes" or "gamma counter", so every default-arm crate publishes 11
+    ontology-typed PropertyValues asserting `"unknown"`, `"NA"` and
+    `"Standard medium"` — fabricated experimental conditions with real BAO
+    `propertyID`s attached, and the tox SHACL pass calls it conformant.
+    """
+
+    @staticmethod
+    def _parameter_properties() -> dict:
+        from builder.agents.pipeline.leaves import _plan_schema
+
+        chain = _plan_schema()["properties"]["process_chain"]
+        return chain["items"]["properties"]["parameters"]["properties"]
+
+    def test_process_chain_item_advertises_the_shared_parameter_vocabulary(self):
+        """The plan's parameter keys ARE the shared LabProcess vocabulary.
+
+        Non-tautological: the expectation is imported from `_crate_mapping`, not
+        written out as a literal list, so the two arms cannot drift.
+        """
+        from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
+
+        assert set(self._parameter_properties()) == set(LABPROCESS_PARAMETER_FIELDS)
+
+    def test_a_field_added_to_the_shared_schema_reaches_the_plan_schema(self, monkeypatch):
+        """HONESTY CONTROL — proves derivation, not a coincidentally-equal list.
+
+        A hard-coded list that happens to match today would pass the test above
+        and fail this one.
+        """
+        import dataclasses
+
+        import builder.tools._crate_mapping as cm
+
+        schema = cm.ENTITY_DRAFT_SCHEMA["LabProcess"]
+        extended = dict(schema.scalar_fields)
+        extended["sentinel_parameter"] = "Sentinel added by the honesty control."
+        # EntityDraftSchema is a frozen dataclass — replace the entry, not a field.
+        monkeypatch.setitem(
+            cm.ENTITY_DRAFT_SCHEMA,
+            "LabProcess",
+            dataclasses.replace(schema, scalar_fields=extended),
+        )
+        monkeypatch.setattr(
+            cm,
+            "LABPROCESS_PARAMETER_FIELDS",
+            cm.LABPROCESS_PARAMETER_FIELDS | {"sentinel_parameter"},
+        )
+
+        assert "sentinel_parameter" in self._parameter_properties()
+
+    def test_units_is_not_offered_to_the_plan_model(self):
+        """`units` wants a display-name-keyed dict; the schema would advertise a string."""
+        assert "units" not in self._parameter_properties()
+
+    def test_parameters_object_is_closed(self):
+        """Unlike its open siblings, this sub-object rejects unknown keys.
+
+        The plan's array items are deliberately `additionalProperties: True` for
+        descriptive long-tail fields. That is exactly wrong here: an unknown key
+        would be overlaid onto LabProcess state, and an `entity_id` key would
+        hijack the process `@id`.
+        """
+        from builder.agents.pipeline.leaves import _plan_schema
+
+        params = _plan_schema()["properties"]["process_chain"]["items"]["properties"][
+            "parameters"
+        ]
+        assert params.get("additionalProperties") is False

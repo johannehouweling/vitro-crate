@@ -203,6 +203,7 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "detection_instrument": "EndpointReadout: detection instrument.",
             "instrument_manufacturer": "EndpointReadout: instrument manufacturer.",
             "measured_entity": "EndpointReadout: what is measured.",
+            "technical_replicate": "EndpointReadout: number of technical replicates.",
             "endpoint": "EndpointReadout: the measured endpoint.",
             "data_processing": "DataAnalysis: data-processing description.",
             "software": "DataAnalysis: software used.",
@@ -286,6 +287,27 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
         },
     ),
 }
+
+
+# The LabProcess scalars that are experimental PARAMETERS — the single source of
+# truth for "what may be overlaid onto a process step's hints" (#379). Derived, not
+# hand-written, so the deterministic pipeline's plan schema and the ReAct arm's
+# hints schema cannot drift apart.
+#
+# Three deliberate exclusions:
+#   * `name` drives the process `@id` via `drafters._make_entity_id` and is merged
+#     separately — overlaying it would let a plan hijack the entity id;
+#   * `description` is never read by `_build_process`, so it would be a dead field;
+#   * `units` is advertised as a string but the code wants a dict keyed by
+#     ParameterValue DISPLAY NAME (`profiles/models/tox.py` does `units.get("Exposure
+#     Duration")`). A model that follows the advertised type passes a bare string and
+#     the build raises `'str' object has no attribute 'get'`, which surfaces as an
+#     error with zero routable issues. Excluded until that type is corrected.
+LABPROCESS_PARAMETER_FIELDS: frozenset[str] = (
+    frozenset(ENTITY_DRAFT_SCHEMA["LabProcess"].scalar_fields)
+    - _REF_FIELDS
+    - {"name", "description", "units"}
+)
 
 
 def draft_hints_schema(entity_type: str) -> dict[str, Any]:

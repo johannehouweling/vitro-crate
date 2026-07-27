@@ -2693,3 +2693,102 @@ class TestGatherContextPreviewedFilesGetABudget:
 
         assert "assay_metadata.csv" not in context
         assert self._SENTINEL.format(0) in context  # the bulk file still speaks
+
+
+class TestPlanChainParameterOverlay:
+    """Plan-stated experimental parameters must reach the process hints (#379).
+
+    `_merge_plan_chain_names` read only `step["name"]`, so a model that volunteered
+    `{"duration": "30 minutes"}` had it silently discarded — and every default-arm
+    crate shipped 11 ontology-typed PropertyValues asserting `"unknown"`, `"NA"`
+    and `"Standard medium"` that nobody stated.
+    """
+
+    @staticmethod
+    def _hints_for(chain: list[dict], ptype: str) -> dict:
+        return next(s["hints"] for s in chain if s["process_type"] == ptype)
+
+    def test_plan_parameters_are_overlaid_onto_the_step_hints(self):
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        chain = pipeline_mod._merge_plan_chain_names(
+            {
+                "process_chain": [
+                    {
+                        "process_type": "Exposure",
+                        "name": "Dose",
+                        "parameters": {"duration": "30 minutes", "microplate": "96-well"},
+                    }
+                ]
+            }
+        )
+
+        assert self._hints_for(chain, "Exposure") == {
+            "name": "Dose",
+            "duration": "30 minutes",
+            "microplate": "96-well",
+        }
+
+    def test_non_whitelisted_step_keys_are_not_overlaid(self):
+        """HONESTY CONTROL — a whitelist, not a splat.
+
+        This is the test that fails if someone "fixes" the red above by merging
+        the step dict wholesale. Plan items are `additionalProperties: True`, so
+        `object_hint` would become a LabProcess state field and an `entity_id`
+        would hijack the process `@id` via `drafters._make_entity_id`.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        chain = pipeline_mod._merge_plan_chain_names(
+            {
+                "process_chain": [
+                    {
+                        "process_type": "Exposure",
+                        "name": "Dose",
+                        "object_hint": "cells",
+                        "entity_id": "proc_hijack",
+                        "parameters": {
+                            "duration": "30 minutes",
+                            "entity_id": "proc_hijack",
+                            "units": "min",
+                            "cas": "51-48-9",
+                            "object_hint": "cells",
+                        },
+                    }
+                ]
+            }
+        )
+
+        hints = self._hints_for(chain, "Exposure")
+        assert hints == {"name": "Dose", "duration": "30 minutes"}
+        for smuggled in ("entity_id", "units", "cas", "object_hint"):
+            assert smuggled not in hints
+
+    def test_empty_parameter_values_do_not_overlay(self):
+        """A present-but-blank value must not replace the placeholder with "".
+
+        `_build_process` does `f.get("duration", "unknown")` — a default that only
+        applies when the key is ABSENT. An empty overlaid value would ship an
+        empty ParameterValue, which is worse than the placeholder.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        chain = pipeline_mod._merge_plan_chain_names(
+            {
+                "process_chain": [
+                    {"process_type": "Exposure", "name": "Dose", "parameters": {"duration": "  "}}
+                ]
+            }
+        )
+
+        assert "duration" not in self._hints_for(chain, "Exposure")
+
+    def test_no_plan_still_yields_the_canonical_name_only_chain(self):
+        """#262 regression guard — the no-provider crate stays byte-identical."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        chain = pipeline_mod._merge_plan_chain_names(None)
+
+        assert len(chain) == len(pipeline_mod._STANDARD_CHAIN)
+        for step in chain:
+            assert set(step["hints"]) == {"name"}

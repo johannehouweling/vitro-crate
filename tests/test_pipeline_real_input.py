@@ -96,6 +96,11 @@ _TOKEN_CELL_LINE_RRID = "cvcl_0214"
 _TOKEN_CHEMICAL_2 = "lesinurad"
 _TOKEN_CHEMICAL_5 = "diclofenac"
 _TOKEN_PERSON = "wagenaars"
+# Experimental parameters stated in the SOP .docx body prose — "After exposure to
+# 10 nM of 125I-T4 for 30 minutes …  quantified by measuring the radioactivity of
+# the cell lysate in a gamma counter." Neither occurs in any filename (#379).
+_TOKEN_SOP_DURATION = "30 minutes"
+_TOKEN_SOP_INSTRUMENT = "gamma counter"
 
 # The five test chemicals the workbook's Chemical Information sheet names, in sheet
 # order. Chemicals 2-5 sit past 2,600 compacted chars, so the leaf saw none of them
@@ -167,6 +172,21 @@ def _install_offline_seams(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 for token, label in _TEST_CHEMICALS
                 if token in low
             ]
+        # Process parameters, each gated on its own token from the SOP .docx BODY —
+        # "30 minutes" at char 1730, "gamma counter" at 1887, both inside the 2,000
+        # char slice that tier gets. Neither string occurs in any filename in the
+        # fixture, so they can only come from the real Word-document read (#379).
+        chain_params: dict[str, dict[str, str]] = {}
+        if _TOKEN_SOP_DURATION in low:
+            chain_params["Exposure"] = {"duration": "30 minutes"}
+        if _TOKEN_SOP_INSTRUMENT in low:
+            chain_params["EndpointReadout"] = {"detection_instrument": "gamma counter"}
+        if chain_params:
+            plan["process_chain"] = [
+                {"process_type": ptype, "parameters": params}
+                for ptype, params in chain_params.items()
+            ]
+
         if _TOKEN_SOP_BODY in low:
             # The SOP body (read from the .docx) drives a LabProtocol governing the
             # exposure — proposed only because the procedure text reached the leaf.
@@ -444,3 +464,85 @@ class TestRealInputPipeline:
 
         chems = engine.state.list_entities("MolecularEntity")
         assert not any(c.fields.get("name") == "Thyroxine" for c in chems)
+
+
+class TestRealSopParametersReachTheCrate:
+    """The SOP's stated conditions must replace the fabricated placeholders (#379).
+
+    Every default-arm crate published 11 ontology-typed PropertyValues asserting
+    conditions nobody stated — `Exposure Duration = "unknown"`, `Detection
+    Instrument = "unknown"`, `Technical replicate = "1"` — each carrying a real
+    BAO `propertyID`, with the tox SHACL pass reporting conformant. The real SOP
+    states the duration and the instrument in its body; before this the plan had
+    nowhere to put them.
+    """
+
+    @staticmethod
+    def _parameter_values(state) -> dict[str, str]:
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+        graph = crate.metadata.generate().get("@graph", [])
+        out: dict[str, str] = {}
+        for node in graph:
+            if not isinstance(node, dict) or "PropertyValue" not in str(node.get("@type")):
+                continue
+            name, value = node.get("name"), node.get("value")
+            if isinstance(name, str) and isinstance(value, str):
+                out[name] = value
+        return out
+
+    def test_sop_body_tokens_reach_the_extraction_leaf(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Guard the input side first, so a budget regression fails legibly.
+
+        Without this, a `_gather_context` change that drops the SOP slice would
+        redden the crate assertions below opaquely.
+        """
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        capture = _install_offline_seams(monkeypatch)
+        run_pipeline(_scanning_engine(FIXTURE_DIR))
+
+        context = capture["context"].lower()
+        assert _TOKEN_SOP_DURATION in context
+        assert _TOKEN_SOP_INSTRUMENT in context
+
+    def test_process_parameters_from_the_real_sop_reach_the_crate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        _install_offline_seams(monkeypatch)
+        engine = _scanning_engine(FIXTURE_DIR)
+        run_pipeline(engine)
+
+        values = self._parameter_values(engine.state)
+        assert values["Exposure Duration"] == "30 minutes"
+        assert values["Detection Instrument"] == "gamma counter"
+
+    def test_no_process_parameter_without_the_real_sop_body(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """HONESTY CONTROL — the values came from the scanned BODY, not the stub.
+
+        Mirrors `test_no_compound_without_the_real_document`: a folder holding an
+        empty file with the SOP's own FILENAME. The name is present, the body is
+        not, and the placeholders must return.
+        """
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        (tmp_path / _SOP.name).write_text("", encoding="utf-8")
+
+        _install_offline_seams(monkeypatch)
+        engine = _scanning_engine(tmp_path)
+        run_pipeline(engine)
+
+        values = self._parameter_values(engine.state)
+        # Asserted as the exact placeholder, not "absent or unknown": the standard
+        # chain is drafted unconditionally (the #262 never-hollow guarantee), so
+        # these ParameterValues always exist and a slack `in (None, ...)` would
+        # pass even if the chain vanished.
+        assert values["Exposure Duration"] == "unknown"
+        assert values["Detection Instrument"] == "unknown"

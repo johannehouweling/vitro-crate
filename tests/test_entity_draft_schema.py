@@ -107,3 +107,60 @@ def test_draft_study_hints_advertise_ref_keys():
     props = spec["parameters"]["properties"]["hints"]["properties"]
     assert "name" in props
     assert "aop" in props  # a reference key from the Study schema
+
+
+# ---------------------------------------------------------------------------
+# LabProcess experimental parameters (#379)
+# ---------------------------------------------------------------------------
+
+
+def test_technical_replicate_is_advertised():
+    """`_build_process` reads it, so the vocabulary must offer it.
+
+    `_build_process` does `f.get("technical_replicate", "1")`, but the key was
+    absent from the advertised scalars — so `Technical replicate = "1"` was
+    unfillable through the advertised vocabulary on BOTH arms.
+    """
+    assert "technical_replicate" in ENTITY_DRAFT_SCHEMA["LabProcess"].scalar_fields
+
+
+def test_labprocess_parameter_fields_are_all_advertised():
+    """The parameter constant must be DERIVED from the shared vocabulary.
+
+    Non-tautological: both sides are read from the module, so this can only fail
+    if someone hand-writes the constant instead of deriving it — which is exactly
+    how the two arms would drift apart again.
+    """
+    from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
+
+    advertised = set(ENTITY_DRAFT_SCHEMA["LabProcess"].scalar_fields)
+    assert LABPROCESS_PARAMETER_FIELDS <= advertised
+    assert LABPROCESS_PARAMETER_FIELDS, "the parameter vocabulary must not be empty"
+
+
+def test_units_is_not_a_parameter_field():
+    """`units` is advertised as a string but the code requires a dict.
+
+    `profiles/models/tox.py` does `u = units or {}` then `u.get("Exposure
+    Duration")` — a display-name-keyed map. `draft_hints_schema` flattens every
+    scalar to `{"type": "string"}`, so a model following the advertised type
+    passes a bare string and the build dies with `'str' object has no attribute
+    'get'`, which `build_and_validate` reports as an error with ZERO routable
+    issues. Excluded here until the type is fixed; see #379 Out of scope.
+    """
+    from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
+
+    assert "units" not in LABPROCESS_PARAMETER_FIELDS
+
+
+def test_name_and_description_are_not_parameter_fields():
+    """HONESTY CONTROL — the constant is a filter, not the whole scalar set.
+
+    `name` drives the process `@id` via `_make_entity_id` and is merged
+    separately; `description` is never emitted by `_build_process`, so overlaying
+    it would create a dead state field.
+    """
+    from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
+
+    assert "name" not in LABPROCESS_PARAMETER_FIELDS
+    assert "description" not in LABPROCESS_PARAMETER_FIELDS
