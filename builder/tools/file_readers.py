@@ -8,8 +8,10 @@ gets flooded with large files.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,7 @@ def read_excel(
     *,
     max_rows: int = _MAX_ROWS,
     max_bytes: int = _MAX_BYTES,
+    compact: bool = False,
 ) -> str | None:
     """Read an Excel ``.xlsx`` file and return its content as pipe-delimited text.
 
@@ -102,6 +105,9 @@ def read_excel(
         max_rows: Maximum number of data rows to return per sheet (default 500).
         max_bytes: Maximum file size in bytes (default 1 MB).  Larger files
             are skipped.
+        compact: Run the result through :func:`compact_grid_text` (#378), which
+            strips the repeated header row, the Comments column and empty cells.
+            Defaults to **False** so existing callers see byte-identical output.
 
     Returns:
         Pipe-delimited text with sheet headers, or *None*.
@@ -149,7 +155,8 @@ def read_excel(
     finally:
         wb.close()
 
-    return "\n".join(parts).rstrip("\n")
+    text = "\n".join(parts).rstrip("\n")
+    return compact_grid_text(text) if compact else text
 
 
 # ---------------------------------------------------------------------------
@@ -306,11 +313,151 @@ def _read_text_file(
     return content + marker
 
 
+def compact_grid_text(text: str) -> str:
+    """Densify ``[Sheet: …]`` + pipe-row output, keeping every signal cell (#378).
+
+    A depositor-filled metadata workbook is mostly boilerplate: a ``Parameter |
+    Standard or ontology reference | Value | Comments`` header repeated per
+    sheet, a Comments column of authoring instructions, and empty cells. On the
+    real S-VHPS26 workbook that noise pushes the cell line, RRID, author and
+    chemicals 2-5 past any affordable context slice.
+
+    Three rules, in order: drop the repeated header row; drop the trailing
+    Comments column **only when that sheet's own header names it** ``Comments``;
+    drop empty cells, then drop rows left with fewer than two non-empty cells.
+
+    **Rows are never dropped on the emptiness of one named column.** That rule
+    looks right and destroys the General information sheet, because this
+    depositor filled column 2 rather than the ``Value`` column — so ``Dr. Fabian
+    Wagenaars``, the ORCID, the DOI and the assay name all sit on rows whose
+    ``Value`` cell is blank. Text carrying no pipe rows is returned unchanged.
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    drop_last_column = False
+    seen_header = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[Sheet:"):
+            # A new sheet re-arms header detection; the Comments column is a
+            # per-sheet property, not a workbook-wide one.
+            seen_header = False
+            drop_last_column = False
+            out.append(line)
+            continue
+        if not stripped.startswith("|"):
+            out.append(line)
+            continue
+
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if not seen_header:
+            seen_header = True
+            drop_last_column = bool(cells) and cells[-1].lower() == "comments"
+            if drop_last_column or (cells and cells[0].lower() == "parameter"):
+                continue
+
+        if drop_last_column and len(cells) > 1:
+            cells = cells[:-1]
+        kept = [c for c in cells if c]
+        if len(kept) < 2:
+            continue
+        out.append("| " + " | ".join(kept) + " |")
+
+    return "\n".join(out).strip()
+
+
+def _flatten_attributes(attrs: Any, out: list[str], indent: str = "") -> None:
+    """Emit ``name=value [Qual=Val; …]`` lines for a BioStudies attribute list."""
+    for attr in attrs or []:
+        if not isinstance(attr, dict):
+            continue
+        name = str(attr.get("name") or "").strip()
+        value = str(attr.get("value") or "").strip()
+        if not name and not value:
+            continue
+        line = f"{indent}{name}={value}" if name else f"{indent}{value}"
+        quals: list[str] = []
+        for qual in attr.get("valqual") or []:
+            if not isinstance(qual, dict):
+                continue
+            qname = str(qual.get("name") or "").strip()
+            qvalue = str(qual.get("value") or "").strip()
+            if qname or qvalue:
+                quals.append(f"{qname}={qvalue}" if qname else qvalue)
+        if quals:
+            line += " [" + "; ".join(quals) + "]"
+        out.append(line)
+
+
+def _flatten_section(node: Any, out: list[str]) -> None:
+    """Walk a BioStudies section tree, emitting attributes, links and children."""
+    if isinstance(node, list):
+        for item in node:
+            _flatten_section(item, out)
+        return
+    if not isinstance(node, dict):
+        return
+
+    stype = str(node.get("type") or "").strip()
+    accno = str(node.get("accno") or "").strip()
+    if stype or accno:
+        out.append(f"[{stype or 'section'}{' ' + accno if accno else ''}]")
+
+    _flatten_attributes(node.get("attributes"), out)
+
+    for link in node.get("links") or []:
+        if not isinstance(link, dict):
+            continue
+        url = str(link.get("url") or "").strip()
+        if url:
+            out.append(f"link={url}")
+        _flatten_attributes(link.get("attributes"), out, indent="  ")
+
+    if node.get("section") is not None:
+        _flatten_section(node["section"], out)
+    for sub in node.get("subsections") or []:
+        _flatten_section(sub, out)
+
+
+def compact_attribute_json(text: str) -> str:
+    """Flatten a BioStudies ``{name, value, valqual[]}`` tree to dense lines (#378).
+
+    A pretty-printed submission descriptor spends most of its bytes on JSON
+    punctuation and indentation, so a bounded slice of the raw file stops inside
+    the first section — on the real S-VHPS26 descriptor the licence, the AOP URL
+    and every author sit past 2,900 characters and never reach the leaf.
+
+    ``valqual`` entries are preserved as a bracketed suffix. Dropping them is the
+    tempting simplification and it loses exactly the qualified values worth
+    having — the AOP wiki URL and the BAO ontology ids.
+
+    Input that is not JSON, or is JSON without a BioStudies attribute tree, is
+    returned **unchanged** so the caller can apply this blindly.
+    """
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        return text
+    if not isinstance(parsed, dict) or not (
+        "attributes" in parsed or "section" in parsed
+    ):
+        return text
+
+    out: list[str] = []
+    accno = str(parsed.get("accno") or "").strip()
+    if accno:
+        out.append(f"accno={accno}")
+    _flatten_section(parsed, out)
+    return "\n".join(out).strip()
+
+
 def read_file(
     path: str,
     *,
     max_lines: int = 100,
     max_bytes: int = _MAX_BYTES,
+    compact: bool = False,
 ) -> str | None:
     """Read a file, dispatching to the right reader based on its extension.
 
@@ -337,6 +484,11 @@ def read_file(
             and JSON are governed by the byte budget, not a line cap.
         max_bytes: Hard safety cap in bytes (default 100 MB); files larger than
             this are skipped (returns *None*).
+        compact: Apply the shared boilerplate compactors (#378) —
+            :func:`compact_grid_text` for ``.xlsx`` grids and
+            :func:`compact_attribute_json` for BioStudies ``.json`` descriptors.
+            Defaults to **False** so no existing caller's output changes; the
+            deterministic pipeline opts in for its bounded context slice.
 
     Returns:
         File content as a string, a directory-guidance message, or *None*.
@@ -350,7 +502,7 @@ def read_file(
     suffix = file_path.suffix.lower()
 
     if suffix == ".xlsx":
-        return read_excel(path, max_rows=max_lines, max_bytes=max_bytes)
+        return read_excel(path, max_rows=max_lines, max_bytes=max_bytes, compact=compact)
 
     if suffix == ".docx":
         return read_docx(path, max_bytes=max_bytes)
@@ -361,7 +513,10 @@ def read_file(
         return extract_pdf_text(path)
 
     # Everything else is read as plain text (full content up to the byte budget).
-    return _read_text_file(path, max_bytes=max_bytes)
+    text = _read_text_file(path, max_bytes=max_bytes)
+    if compact and text and suffix == ".json":
+        return compact_attribute_json(text)
+    return text
 
 
 # ---------------------------------------------------------------------------

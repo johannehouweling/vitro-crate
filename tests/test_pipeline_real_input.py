@@ -79,11 +79,34 @@ _PROCESSED_DATA = _RAW_DATA.with_suffix(".pzfx")
 # (scanner delivering filenames only) empties the plan. "oatp1c1"/"cho-k1"/"th"/"sop"
 # all occur in filenames and are deliberately NOT used as gates.
 _TOKEN_SUBSTRATE = "thyroxine"
-# A method token that lives in the SOP .docx BODY (the Sandell-Kolthoff readout),
-# reachable only if the scanner read the Word document body (via python-docx) — it is
-# in no filename and no tabular preview. Gates the protocol and proves the SOP body
-# reached the leaf.
+# A method token (the Sandell-Kolthoff readout) carried in document CONTENT and no
+# filename. It lives in `Assay_OATP1C1/README.txt` at offset 1796 — NOT in the SOP
+# .docx, which this was documented as proving for a long time. Verified across every
+# entry in that zip: "Sandell" appears nowhere in the Word document.
 _TOKEN_SOP_BODY = "sandell"
+# A token that really IS reachable only through the .docx body read (python-docx):
+# the gene symbol for the transporter, written out in the SOP's Definition section
+# and in no other file, filename or preview (the rest of the deposit says OATP1C1,
+# the protein). Without this the pipeline had NO test proving the Word-document
+# read works, because the token documented as covering it does not occur there.
+_TOKEN_DOCX_BODY = "slco1c1"
+# Signal the priority-0 metadata workbook holds past its first three preview rows —
+# each was absent from the leaf's context before the #378 weighted budget.
+_TOKEN_CELL_LINE_RRID = "cvcl_0214"
+_TOKEN_CHEMICAL_2 = "lesinurad"
+_TOKEN_CHEMICAL_5 = "diclofenac"
+_TOKEN_PERSON = "wagenaars"
+
+# The five test chemicals the workbook's Chemical Information sheet names, in sheet
+# order. Chemicals 2-5 sit past 2,600 compacted chars, so the leaf saw none of them
+# before #378 — the crate carried the substrate alone.
+_TEST_CHEMICALS: tuple[tuple[str, str], ...] = (
+    ("silychristin", "Silychristin"),
+    (_TOKEN_CHEMICAL_2, "Lesinurad"),
+    ("indocyanine", "Indocyanine green"),
+    ("verapamil", "Verapamil"),
+    (_TOKEN_CHEMICAL_5, "Diclofenac"),
+)
 
 
 def _scanning_engine(input_dir: Path) -> AgentEngine:
@@ -135,6 +158,15 @@ def _install_offline_seams(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             }
             plan["compounds"] = [{"name": "Thyroxine", "role": "substrate"}]
             plan["cell_lines"] = [{"name": "CHO-K1 OATP1C1-overexpressing cells"}]
+            # Each test chemical is proposed ONLY when its own name reached the
+            # leaf. All five sit in the metadata workbook past the three preview
+            # rows it used to emit, so before #378 this list stayed at one entry
+            # and the crate shipped one MolecularEntity instead of six.
+            plan["compounds"] += [
+                {"name": label, "role": "test chemical"}
+                for token, label in _TEST_CHEMICALS
+                if token in low
+            ]
         if _TOKEN_SOP_BODY in low:
             # The SOP body (read from the .docx) drives a LabProtocol governing the
             # exposure — proposed only because the procedure text reached the leaf.
@@ -166,10 +198,28 @@ def _install_offline_seams(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     # resolve_compound → lookup_compound: canned but REAL identifiers for thyroxine
     # (T4: PubChem CID 5819, CAS 51-48-9). resolve_compound's own minting / D5 handling
     # runs for real over this.
+    # Name-keyed real identifiers. Before #378 only one compound ever reached the
+    # plan, so a single canned answer was harmless; now all five do, and a
+    # name-blind stub would stamp every one of them with thyroxine's CAS. An
+    # unknown name returns found=False rather than falling through to the network —
+    # a live PubChem/ChEBI call from this module is a release blocker.
+    _CANNED_COMPOUNDS = {
+        "thyroxine": ("51-48-9", "5819"),
+        "silychristin": ("33889-69-9", "441764"),
+        "lesinurad": ("878672-00-5", "44543017"),
+        "indocyanine": ("3599-32-4", "5282412"),
+        "verapamil": ("52-53-9", "2520"),
+        "diclofenac": ("15307-86-5", "3033"),
+    }
+
     def fake_lookup_compound(name: str) -> dict[str, Any]:
+        key = next((k for k in _CANNED_COMPOUNDS if k in (name or "").lower()), None)
+        if key is None:
+            return {"found": False, "data": None, "error": "no offline candidate"}
+        cas, cid = _CANNED_COMPOUNDS[key]
         return {
             "found": True,
-            "data": {"cas": "51-48-9", "pubchem_cid": "5819", "source": "pubchem"},
+            "data": {"cas": cas, "pubchem_cid": cid, "source": "pubchem"},
             "error": None,
         }
 
@@ -246,8 +296,69 @@ class TestRealInputPipeline:
 
         context = capture["context"].lower()
         assert _TOKEN_SUBSTRATE in context, capture["context"][:600]
-        # Reachable only via the SOP .docx body read (python-docx), never a filename.
+        # Document CONTENT, never a filename (README.txt body).
         assert _TOKEN_SOP_BODY in context, capture["context"][:600]
+        # The Word-document body read specifically (python-docx).
+        assert _TOKEN_DOCX_BODY in context, capture["context"][:600]
+
+        # #378 — the priority-0 workbook's signal, all of it past the three preview
+        # rows the leaf used to receive. Red before the weighted budget, and red
+        # under the naive "count previewed files in n_to_read" fix too.
+        assert _TOKEN_CELL_LINE_RRID in context, "cell-line RRID starved"
+        assert _TOKEN_CHEMICAL_2 in context, "test chemical 2 starved"
+        assert _TOKEN_CHEMICAL_5 in context, "test chemical 5 starved"
+        assert _TOKEN_PERSON in context, "corresponding person starved"
+
+    def test_every_test_chemical_becomes_a_molecular_entity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The payoff: all five test chemicals + the substrate reach the crate (#378).
+
+        `_materialize_plan` mints compounds only from `plan["compounds"]`, and the
+        plan can only name what reached the leaf. Before the weighted budget the
+        crate carried ONE `MolecularEntity`; the workbook naming the other five was
+        emitting 298 characters.
+
+        This also exercises the name-keyed offline compound seam — with the old
+        name-blind stub all six would carry thyroxine's CAS.
+        """
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        _install_offline_seams(monkeypatch)
+        engine = _scanning_engine(FIXTURE_DIR)
+        run_pipeline(engine)
+
+        compounds = engine.state.list_entities("MolecularEntity")
+        names = {(e.fields.get("name") or "").lower() for e in compounds}
+        for _token, label in _TEST_CHEMICALS:
+            assert any(label.lower() in n for n in names), f"{label} never minted: {names}"
+
+        cas_values = {e.fields.get("cas") for e in compounds if e.fields.get("cas")}
+        assert len(cas_values) > 1, f"every compound got the same CAS: {cas_values}"
+
+    def test_bulk_data_does_not_consume_the_metadata_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """STARVATION CONTROL — metadata-first must hold in CHARS (#378).
+
+        Without this the fix could turn the tokens above green while regressing
+        #179's guarantee, by simply handing every file a bigger slice. The
+        priority-0 workbook must out-weigh the priority-3 GraphPad export.
+        """
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        capture = _install_offline_seams(monkeypatch)
+        run_pipeline(_scanning_engine(FIXTURE_DIR))
+
+        def _emitted_for(stem: str) -> int:
+            for block in capture["context"].split("\n- "):
+                if block.lstrip("- ").lower().startswith(stem.lower()):
+                    return len(block)
+            return 0
+
+        metadata = _emitted_for("Assay-metadata-CHO-K1_OATP1C1")
+        bulk = _emitted_for("220825_RA_CHO-K1_hOATP1C1_P1_Timecourse.pzfx")
+        assert metadata > bulk, f"metadata {metadata} chars vs bulk {bulk} chars"
 
     def test_pipeline_builds_conformant_crate_from_real_input(
         self, monkeypatch: pytest.MonkeyPatch
