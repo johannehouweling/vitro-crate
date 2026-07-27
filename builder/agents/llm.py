@@ -16,9 +16,11 @@ cheap.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any
 
 __all__ = [
+    "ModelOverrides",
     "_build_chat_model",
     "_detect_provider",
     "_extract_model_name",
@@ -27,6 +29,39 @@ __all__ = [
     "_is_openai_reasoning_model",
     "_recursion_limit",
 ]
+
+
+@dataclass(frozen=True)
+class ModelOverrides:
+    """Caller-supplied model selection, threaded to BOTH build modes (#399).
+
+    The CLI's ``--provider`` / ``--model`` / ``--api-base`` used to reach the
+    ReAct loop as explicit arguments while the deterministic pipeline resolved its
+    model from the ENVIRONMENT instead. The flags were accepted on both paths and
+    applied on only one, so an A/B asked to compare two architectures on one model
+    silently compared two models — and part of any measured token or cost delta
+    was a model delta rather than an architecture delta.
+
+    Carried as one value rather than three loose arguments because it crosses
+    several layers (CLI -> build -> spine -> leaf, and the eval factory in
+    parallel), and a bare triple invites one of the three being dropped at a hop.
+
+    Every field is optional: an empty instance means "resolve from the
+    environment", which is exactly the pre-existing behaviour, so threading this
+    through changes nothing until a caller supplies a value.
+    """
+
+    provider: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+
+    def is_empty(self) -> bool:
+        """True when nothing is pinned and the environment decides."""
+        return self.provider is None and self.model is None and self.base_url is None
+
+    def as_kwargs(self) -> dict[str, Any]:
+        """The subset of :func:`_build_chat_model` arguments this pins."""
+        return {"provider": self.provider, "model": self.model, "base_url": self.base_url}
 
 
 def _recursion_limit(max_iterations: int) -> int:

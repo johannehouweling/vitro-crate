@@ -31,6 +31,7 @@ from typing import Any, Callable
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from builder.agents.llm import (
+    ModelOverrides,
     _build_chat_model,
     _extract_model_name,
     _extract_token_usage,
@@ -382,7 +383,7 @@ def _strip_plan_identifiers(value: Any) -> Any:
 def extract_plan(
     context: str,
     *,
-    model: str | None = None,
+    overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Propose a candidate plan of ISA-Tox entities from research docs.
@@ -412,8 +413,9 @@ def extract_plan(
 
     Args:
         context: The scanned research documents (or an excerpt) to plan from.
-        model: Optional explicit model name override; when ``None`` the drafter
-            tier resolves the configured drafter (or primary) model.
+        overrides: Caller-pinned provider/model/base URL (#399); ``None`` or an
+            empty set resolves the drafter tier from the environment, which is
+            the pre-existing behaviour.
         usage_sink: Optional callback notified of this call's token usage as
             ``(input_tokens, output_tokens, model_name)``. When given, the call
             binds structured output with ``include_raw=True`` so usage can be
@@ -425,7 +427,7 @@ def extract_plan(
         uninformative context yields an empty-but-valid plan rather than
         fabricated entities.
     """
-    llm = _build_chat_model(model=model, role="drafter")
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
     schema = _plan_schema()
 
     messages = [
@@ -452,7 +454,7 @@ def draft_entity_fields(
     entity_type: str,
     context: str,
     *,
-    model: str | None = None,
+    overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Extract one entity's descriptive fields from free-text ``context``.
@@ -472,8 +474,9 @@ def draft_entity_fields(
             ``"Study"``) keying :data:`ENTITY_DRAFT_SCHEMA`.
         context: Free-text/context to extract from — a file excerpt, a brief,
             or a conversation snippet.
-        model: Optional explicit model name override; when ``None`` the drafter
-            tier resolves the configured drafter (or primary) model.
+        overrides: Caller-pinned provider/model/base URL (#399); ``None`` or an
+            empty set resolves the drafter tier from the environment, which is
+            the pre-existing behaviour.
         usage_sink: Optional callback notified of this call's token usage as
             ``(input_tokens, output_tokens, model_name)``. When given, the call
             binds structured output with ``include_raw=True`` so usage can be
@@ -484,7 +487,7 @@ def draft_entity_fields(
         A dict of the entity's descriptive fields, validating against
         ``draft_hints_schema(entity_type)`` and free of fabricated identifiers.
     """
-    llm = _build_chat_model(model=model, role="drafter")
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
     schema = _structured_output_schema(entity_type)
 
     messages = [
@@ -684,7 +687,7 @@ def _gap_context_block(gap_context: dict[str, Any]) -> str:
 def phrase_gap_question(
     gap_context: dict[str, Any],
     *,
-    model: str | None = None,
+    overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
 ) -> str:
     """Rephrase a metadata gap into ONE clear human question (#244).
@@ -698,14 +701,15 @@ def phrase_gap_question(
     Args:
         gap_context: The guidance loop's per-gap context dict (``property``,
             ``entity_type``, ``tier``, ``message``, ``suggestion``, ...).
-        model: Optional explicit model override; ``None`` resolves the drafter tier.
+        overrides: Caller-pinned provider/model/base URL (#399); ``None`` or an
+            empty set resolves the drafter tier from the environment.
         usage_sink: Optional token-usage callback (see :func:`draft_entity_fields`).
 
     Returns:
         The phrased question string, or ``""`` when the model returns nothing
         usable (the caller then falls back to its deterministic prompt).
     """
-    llm = _build_chat_model(model=model, role="drafter")
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
     messages = [
         SystemMessage(content=_PHRASE_SYSTEM_PROMPT),
         HumanMessage(
@@ -729,7 +733,7 @@ def interpret_gap_reply(
     reply: str,
     gap_context: dict[str, Any],
     *,
-    model: str | None = None,
+    overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Interpret a free-text reply into a STRUCTURED decision (#244).
@@ -749,7 +753,8 @@ def interpret_gap_reply(
         question: The phrased question the user was answering (context for the leaf).
         reply: The user's raw free-text reply.
         gap_context: The per-gap context dict (notably ``property`` for the D5 guard).
-        model: Optional explicit model override; ``None`` resolves the drafter tier.
+        overrides: Caller-pinned provider/model/base URL (#399); ``None`` or an
+            empty set resolves the drafter tier from the environment.
         usage_sink: Optional token-usage callback (see :func:`draft_entity_fields`).
 
     Returns:
@@ -757,7 +762,7 @@ def interpret_gap_reply(
         :data:`_INTERPRET_ACTIONS`; ``commit`` carries a non-empty ``value`` and
         ``clarify`` carries a non-empty ``question`` (else both coerce to ``skip``).
     """
-    llm = _build_chat_model(model=model, role="drafter")
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
     messages = [
         SystemMessage(content=_INTERPRET_SYSTEM_PROMPT),
         HumanMessage(
@@ -881,7 +886,7 @@ def extract_field_from_file(
     file_text: str,
     gap_context: dict[str, Any],
     *,
-    model: str | None = None,
+    overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
 ) -> str:
     """Extract the value of ``field`` from ``file_text`` for a gap (#257, fix C).
@@ -904,7 +909,8 @@ def extract_field_from_file(
         file_text: The file's (bounded) text content to extract from.
         gap_context: The per-gap context dict (entity_type, property, ...), used
             for grounding and the D5 identifier guard.
-        model: Optional explicit model override; ``None`` resolves the drafter tier.
+        overrides: Caller-pinned provider/model/base URL (#399); ``None`` or an
+            empty set resolves the drafter tier from the environment.
         usage_sink: Optional token-usage callback (see :func:`draft_entity_fields`).
 
     Returns:
@@ -918,7 +924,7 @@ def extract_field_from_file(
     if not file_text or not file_text.strip():
         return ""
 
-    llm = _build_chat_model(model=model, role="drafter")
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
     messages = [
         SystemMessage(content=_EXTRACT_FILE_SYSTEM_PROMPT),
         HumanMessage(

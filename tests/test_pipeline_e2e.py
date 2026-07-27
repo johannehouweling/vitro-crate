@@ -187,7 +187,7 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Stage A leaf — the whole-document candidate-plan extractor.
     def fake_extract_plan(
-        context: str, *, model: str | None = None, usage_sink: Any = None
+        context: str, *, overrides: Any = None, usage_sink: Any = None
     ) -> dict[str, Any]:
         return dict(_PLAN)
 
@@ -621,7 +621,7 @@ class TestExtractionContextFidelity:
         study_name = "Methimazole TPO inhibition dose-response study"
 
         def fake_extract_plan(
-            context: str, *, model: str | None = None, usage_sink: Any = None
+            context: str, *, overrides: Any = None, usage_sink: Any = None
         ) -> dict[str, Any]:
             # Echo a study name ONLY when the document BODY made it into context.
             if self._BODY_MARKER in context:
@@ -675,7 +675,7 @@ class TestExtractionContextFidelity:
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
         def fake_extract_plan(
-            context: str, *, model: str | None = None, usage_sink: Any = None
+            context: str, *, overrides: Any = None, usage_sink: Any = None
         ) -> dict[str, Any]:
             if self._BODY_MARKER in context:  # pragma: no cover - must not fire
                 return {"study": {"name": "should-not-happen"}}

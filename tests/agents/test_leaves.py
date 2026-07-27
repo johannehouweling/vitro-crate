@@ -26,6 +26,7 @@ from typing import Any
 import jsonschema
 import pytest
 
+from builder.agents.llm import ModelOverrides
 from builder.agents.pipeline import leaves
 from builder.tools._crate_mapping import draft_hints_schema
 
@@ -133,7 +134,7 @@ class TestDrafterTier:
         rec["model"] = FakeChatModel({"name": "Acetaminophen"})
 
         leaves.draft_entity_fields(
-            "MolecularEntity", "context", model="gpt-4o-mini"
+            "MolecularEntity", "context", overrides=ModelOverrides(model="gpt-4o-mini")
         )
 
         assert rec["calls"][0].get("model") == "gpt-4o-mini"
@@ -356,7 +357,7 @@ class TestExtractPlanDrafterTier:
         rec = _patch_build_chat_model
         rec["model"] = FakeChatModel({})
 
-        leaves.extract_plan("context", model="gpt-4o-mini")
+        leaves.extract_plan("context", overrides=ModelOverrides(model="gpt-4o-mini"))
 
         assert rec["calls"][0].get("model") == "gpt-4o-mini"
 
@@ -1250,3 +1251,64 @@ class TestPlanSchemaProcessParameters:
             "parameters"
         ]
         assert params.get("additionalProperties") is False
+
+
+class TestLeafModelOverrides:
+    """A caller-pinned model must reach `_build_chat_model` (#399).
+
+    The leaves resolved provider/model/base URL from the ENVIRONMENT while the
+    ReAct loop took them as arguments, so `--model X` moved one arm and not the
+    other and a "same-model" A/B compared two models.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch) -> dict:
+        import builder.agents.pipeline.leaves as leaves_mod
+
+        seen: dict = {}
+
+        def _fake_build_chat_model(**kwargs):
+            seen.update(kwargs)
+            raise RuntimeError("stop after model construction")
+
+        monkeypatch.setattr(leaves_mod, "_build_chat_model", _fake_build_chat_model)
+        return seen
+
+    def test_overrides_reach_the_model_builder(self, monkeypatch):
+        from builder.agents.llm import ModelOverrides
+        from builder.agents.pipeline.leaves import extract_plan
+
+        seen = self._capture(monkeypatch)
+        # The fake aborts right after construction — we are asserting on what the
+        # leaf ASKED for, not on a completed model call.
+        with pytest.raises(RuntimeError, match="stop after model construction"):
+            extract_plan(
+                "some context",
+                overrides=ModelOverrides(
+                    provider="openai",
+                    model="gpt-5.6-luna",
+                    base_url="https://example.invalid/v1",
+                ),
+            )
+
+        assert seen["provider"] == "openai"
+        assert seen["model"] == "gpt-5.6-luna"
+        assert seen["base_url"] == "https://example.invalid/v1"
+        assert seen["role"] == "drafter", "the leaf must stay on the cheap tier"
+
+    def test_without_overrides_the_environment_still_decides(self, monkeypatch):
+        """HONESTY CONTROL — threading must not pin anything by default.
+
+        If this passed `model=""` or a hard default instead of `None`, the drafter
+        tier (`VITRO_OPENAI_DRAFTER_MODEL`) would stop resolving and every existing
+        deployment's model choice would silently change.
+        """
+        from builder.agents.pipeline.leaves import extract_plan
+
+        seen = self._capture(monkeypatch)
+        with pytest.raises(RuntimeError, match="stop after model construction"):
+            extract_plan("some context")
+
+        assert seen["provider"] is None
+        assert seen["model"] is None
+        assert seen["base_url"] is None

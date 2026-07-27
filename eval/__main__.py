@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from builder.agents.build import BuildMode
+from builder.agents.llm import ModelOverrides
 from builder.config import load_config, merge_with_env
 from eval.agent_api import BuildAgent
 from eval.corpus import DEFAULT_CORPUS
@@ -132,19 +133,20 @@ def select_agent_factory(
 ) -> Callable[[], BuildAgent]:
     """Return the live agent factory for the chosen build *mode*.
 
-    :attr:`~builder.agents.build.BuildMode.REACT` (the harness default) builds the
-    live ReAct factory (which reads provider/model/base_url);
-    :attr:`~builder.agents.build.BuildMode.PIPELINE` builds the deterministic-spine
-    factory (which ignores those — it calls no model). The CLI's ``--arch`` string
+    Both modes receive provider/model/base_url. The pipeline arm DOES call a model
+    — its bounded leaves run on the drafter tier — and used to resolve it from the
+    environment while ReAct took the CLI values, so ``--model X`` moved one arm and
+    not the other and a "same-model" A/B silently compared two models (#399). The
+    CLI's ``--arch`` string
     maps straight onto the shared enum via ``BuildMode(arch)``, so ``main.py`` and
     this harness flip A/B through the *same* switch (#309). Keeping selection here
     means :func:`run_main` stays mode-agnostic and the choice is unit-testable.
 
     Args:
         mode: The :class:`~builder.agents.build.BuildMode` to build.
-        provider: LLM provider override (ReAct only).
-        model: Model name override (ReAct only).
-        base_url: Custom OpenAI-compatible base URL (ReAct only).
+        provider: LLM provider override, applied to BOTH arms.
+        model: Model name override, applied to BOTH arms.
+        base_url: Custom OpenAI-compatible base URL, applied to BOTH arms.
 
     Returns:
         A zero-arg factory producing fresh :class:`~eval.agent_api.BuildAgent`s.
@@ -155,7 +157,9 @@ def select_agent_factory(
     if mode is BuildMode.PIPELINE:
         from eval.pipeline_factory import make_pipeline_agent_factory
 
-        return make_pipeline_agent_factory()
+        return make_pipeline_agent_factory(
+            overrides=ModelOverrides(provider=provider, model=model, base_url=base_url)
+        )
     if mode is BuildMode.REACT:
         from eval.react_factory import make_react_agent_factory
 
