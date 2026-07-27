@@ -1630,14 +1630,20 @@ INPUT (dir / zip / conversation)
 - **Spine = code.** The Priority 1–4 heuristic (§4) becomes control flow, not prose.
 - **Leaves = cheap model.** Drafting/disambiguation only (binds the §4.4 drafter tier).
 - **Leaf context = bounded file bodies, not just filenames (#231).** The single
-  `extract`/`draft` leaf is fed by `pipeline.py::_gather_context`, which reads a
-  bounded body excerpt of each non-tabular rich file (preferring the scanner's cheap
-  `first_rows` preview), **fail-closed to `state.approved_scan_roots`** and capped
-  per file and in total so the one call stays token-safe. Files are read
-  **metadata-first** on a fair per-file budget, so rich structured metadata is never
-  starved by an early large file; the empty-context path is a strict no-op (no
-  provider call), preserving the no-provider determinism guarantee. The read-ordering
-  and budget algorithm is documented in the `_gather_context` docstring.
+  `extract`/`draft` leaf is fed by `pipeline.py::_gather_context`, which gives every
+  scanned file **one** content slice under **one** cap — a body excerpt when the file
+  is readable, its `first_rows` preview in full otherwise — **fail-closed to
+  `state.approved_scan_roots`**. Every emitted slice is charged against the total, so
+  the ceiling is honest and the one call stays token-safe. The empty-context path is a
+  strict no-op (no provider call), preserving the no-provider determinism guarantee.
+- **Priority decides chars, not just order (#378).** Files are read **metadata-first**,
+  and each tier draws a *weighted* share (`_TIER_SHARES`) rather than an equal one;
+  an absent or under-spending tier flows its headroom down. Equal shares are not
+  enough — with them the highest-priority file in a real deposit emitted 298 chars
+  while a bulk-data export emitted 2,049. High-priority bodies are read with the
+  shared compactors (`file_readers.compact_grid_text` / `compact_attribute_json`),
+  which is what makes the whole metadata workbook fit. The algorithm is documented in
+  the `_gather_context` docstring.
 - **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
   `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.

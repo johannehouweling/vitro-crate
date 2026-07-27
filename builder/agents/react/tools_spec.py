@@ -888,11 +888,18 @@ TOOL_SPECS = [
     },
     {
         "name": "read_excel",
-        "description": "Read an Excel .xlsx file and return its content as pipe-delimited text.",
+        "description": "Read an Excel .xlsx file and return its content as pipe-delimited text. Set compact=true on a depositor-filled metadata workbook to strip the repeated header row, the authoring-instructions Comments column and empty cells — same values, roughly 40% fewer characters, so more of the sheet fits in one read.",
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to the .xlsx file to read"},
+                "compact": {
+                    "type": "boolean",
+                    "description": (
+                        "Strip grid boilerplate (repeated header row, Comments column, "
+                        "empty cells). No value is lost. Defaults to false."
+                    ),
+                },
             },
             "required": ["path"],
         },

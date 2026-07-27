@@ -2572,3 +2572,124 @@ class TestMaterializeAttachScannedFiles:
         n2 = len(self._by_type(engine, "File"))
         # The 3 scanned files plus any synthesized chain placeholders, stable.
         assert n1 == n2
+
+
+class TestGatherContextPreviewedFilesGetABudget:
+    """A previewed file must get a real budget slice, not a hard 3 rows (#378).
+
+    `TestGatherContextMetadataFirst` sets ``first_rows=None`` on every file with
+    the comment "forces the body-read path", so the entire class is structurally
+    blind to the preview branch. These tests drive that branch specifically.
+
+    Every file here points at a path that does NOT exist, so `_read_body_excerpt`
+    fails closed and the emitted slice comes from ``first_rows`` — the fallback
+    the fix must keep, and must stop treating as a 3-row ceiling.
+    """
+
+    _SENTINEL = "ROW{:03d}-marker"
+
+    def _state(
+        self, tmp_path: Path, spec: list[tuple[str, int]], row_pad: int = 0
+    ) -> CrateState:
+        """Build a state whose files carry *n* sentinel preview rows each.
+
+        ``row_pad`` widens each row, so a test can breach the total budget with
+        only the first three rows — the bytes today's code emits outside the
+        arithmetic.
+        """
+        state = CrateState()
+        state.approved_scan_roots = {str(tmp_path)}
+        for filename, n_rows in spec:
+            state.scanned_files.append(
+                FileClassification(
+                    path=str(tmp_path / filename),  # deliberately never created
+                    filename=filename,
+                    size=1,
+                    mime_type="text/csv",
+                    first_rows=[
+                        self._SENTINEL.format(i) + "x" * row_pad for i in range(n_rows)
+                    ],
+                )
+            )
+        return state
+
+    @staticmethod
+    def _slice_for(context: str, filename: str) -> str:
+        """The CONTENT `_gather_context` emitted for one file.
+
+        The ``- <filename>`` header is stripped deliberately: leaving it in makes
+        the length comparison below pass on filename length alone, which is a
+        tautology rather than a budget assertion.
+        """
+        for block in context.split("\n- "):
+            block = block.lstrip("- ")
+            if block.startswith(filename):
+                return block[len(filename) :].lstrip(":").strip()
+        return ""
+
+    def test_previewed_metadata_file_is_not_capped_at_three_rows(self, tmp_path):
+        """The scanner already paid to read the preview; emit more than 3 rows.
+
+        Non-tautological: the sentinel comes from `FileClassification.first_rows`
+        handed to the real `_gather_context`, not from a hand-built string.
+        """
+        engine = _engine(self._state(tmp_path, [("assay_metadata.csv", 40)]))
+
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        context = pipeline_mod._gather_context(engine)
+
+        assert self._SENTINEL.format(0) in context
+        assert self._SENTINEL.format(30) in context, "preview still truncated to 3 rows"
+
+    def test_previewed_content_is_charged_against_the_total_budget(self, tmp_path):
+        """Preview bytes must count against the ceiling, not bypass it.
+
+        Today only the body path decrements `body_budget`, so previews are spent
+        outside the arithmetic and the documented total is silently exceeded.
+        """
+        # Only 8 rows, but each is 5,000 chars wide: today's `first_rows[:3]`
+        # slice alone emits ~30,000 chars per file, none of it charged.
+        engine = _engine(
+            self._state(
+                tmp_path,
+                [("assay_metadata.csv", 8), ("bulk_data.csv", 8)],
+                row_pad=5000,
+            )
+        )
+
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import _MAX_CONTEXT_CHARS
+
+        context = pipeline_mod._gather_context(engine)
+
+        assert len(context) <= _MAX_CONTEXT_CHARS + 2000
+
+    def test_priority_zero_outranks_priority_three_in_chars_not_just_order(self, tmp_path):
+        """Metadata-first must mean CHARS, not merely position.
+
+        This is the assertion today's code inverts: the priority-0 workbook gets
+        298 chars while a priority-3 bulk file gets 2,049.
+        """
+        engine = _engine(
+            self._state(tmp_path, [("assay_metadata.csv", 4000), ("bulk_data.csv", 4000)])
+        )
+
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        context = pipeline_mod._gather_context(engine)
+
+        meta = self._slice_for(context, "assay_metadata.csv")
+        bulk = self._slice_for(context, "bulk_data.csv")
+        assert len(meta) > len(bulk), f"metadata {len(meta)} chars, bulk {len(bulk)} chars"
+
+    def test_absent_metadata_file_yields_no_metadata_content(self, tmp_path):
+        """HONESTY CONTROL — the assertions above come from the file, not scaffolding."""
+        engine = _engine(self._state(tmp_path, [("bulk_data.csv", 40)]))
+
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        context = pipeline_mod._gather_context(engine)
+
+        assert "assay_metadata.csv" not in context
+        assert self._SENTINEL.format(0) in context  # the bulk file still speaks

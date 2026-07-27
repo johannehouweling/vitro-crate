@@ -10,6 +10,7 @@ bounded; the byte ceiling is unified to 100 MB.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from builder.tools import file_readers
 from builder.tools.file_readers import _MAX_BYTES, _TEXT_BUDGET_BYTES, read_file
@@ -148,3 +149,130 @@ class TestDirectoryHandling:
         assert result is not None
         assert "is a directory" in result
         assert "list_scanned_files" in result
+
+
+# ---------------------------------------------------------------------------
+# Shared text compactors (#378)
+# ---------------------------------------------------------------------------
+
+_METADATA_XLSX = (
+    "tests/fixtures/svhps26_real_input/Assay_OATP1C1/"
+    "Assay-metadata-CHO-K1_OATP1C1-v1.1.xlsx"
+)
+_DESCRIPTOR_JSON = "tests/fixtures/svhps26_real_input/S-VHPS26.json"
+
+
+class TestCompactGridText:
+    """`compact_grid_text` densifies `[Sheet: …]` + pipe-row output (#378).
+
+    The extraction leaf gets one bounded slice per file. On the real S-VHPS26
+    workbook the signal (cell line, RRID, author, chemicals 2-5) sits past any
+    affordable cap, so the fix is to remove boilerplate rather than to raise the
+    cap further.
+    """
+
+    def test_drops_comments_column_and_empty_cells(self):
+        """Compaction must shrink the workbook while keeping every signal token.
+
+        Non-tautological: the input is the committed real deposit read through
+        the real `read_excel`, and the assertion is loss-of-noise plus
+        survival-of-signal — not a byte count the implementation could satisfy
+        by truncating.
+        """
+        from builder.tools.file_readers import compact_grid_text, read_excel
+
+        raw = read_excel(_METADATA_XLSX, max_rows=100)
+        assert raw is not None
+        compacted = compact_grid_text(raw)
+
+        assert len(compacted) < len(raw)
+        # The per-sheet instruction column is pure boilerplate.
+        assert "Enter the name of your assay" not in compacted
+        for token in ("Dr. Fabian Wagenaars", "CVCL_0214", "diclofenac", "ECACC"):
+            assert token.lower() in compacted.lower(), f"compaction lost {token!r}"
+
+    def test_never_drops_a_non_empty_cell(self):
+        """HONESTY CONTROL for the trap in #378's honest notes.
+
+        The depositor filled the FIRST sheet in column 2 (`Standard or ontology
+        reference`), not column 3 (`Value`) — so a rule that drops rows whose
+        Value cell is empty looks right and silently destroys the author, the
+        ORCID, the DOI, the assay name and the description. Every non-empty cell
+        outside the Comments column must survive.
+        """
+        from builder.tools.file_readers import compact_grid_text, read_excel
+
+        raw = read_excel(_METADATA_XLSX, max_rows=100)
+        assert raw is not None
+        compacted = compact_grid_text(raw)
+
+        dropped: list[str] = []
+        for line in raw.split("\n"):
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            # Scoped to rows that actually CARRY data — two or more non-empty
+            # cells outside Comments. A label-only row (`| Accession |  |  | … |`,
+            # a field the depositor left blank) is legitimately compacted away,
+            # and the repeated header row is dropped by design. Neither weakens
+            # what this control exists to catch: `| Corresponding person | Dr.
+            # Fabian Wagenaars |  | … |` has a blank *Value* cell and two
+            # non-empty ones, so the trap rule still reddens this assertion.
+            if cells and cells[0] == "Parameter":
+                continue
+            payload = [c for c in cells[:-1] if c]
+            if len(payload) < 2:
+                continue
+            for cell in payload:
+                if cell not in compacted:
+                    dropped.append(cell)
+        assert not dropped, f"compaction dropped non-empty cells: {dropped[:5]}"
+
+    def test_is_a_noop_on_text_that_is_not_a_grid(self):
+        """HONESTY CONTROL: the compactor must not mangle arbitrary prose."""
+        from builder.tools.file_readers import compact_grid_text
+
+        prose = "A cell based in vitro assay.\nNo pipes here at all.\n"
+        assert compact_grid_text(prose) == prose.strip()
+
+
+class TestCompactAttributeJson:
+    """`compact_attribute_json` flattens BioStudies `{name,value,valqual}` trees."""
+
+    def test_keeps_valqual_payloads(self):
+        """A naive flattener drops `valqual` and loses the AOP URL and BAO ids.
+
+        Non-tautological: asserts specific domain tokens survive compaction of
+        the committed real descriptor, so a flattener that keeps only
+        `name=value` fails.
+        """
+        from builder.tools.file_readers import compact_attribute_json
+
+        raw = Path(_DESCRIPTOR_JSON).read_text(encoding="utf-8")
+        compacted = compact_attribute_json(raw)
+
+        assert len(compacted) < len(raw)
+        for token in ("https://aopwiki.org/aops/610", "BAO_0010001"):
+            assert token in compacted, f"compaction lost {token!r}"
+
+    def test_moves_the_late_signal_within_an_affordable_slice(self):
+        """The point of compaction: signal must land inside a 2,000-char slice.
+
+        In the raw pretty-printed descriptor the licence, AOP URL and first
+        author all sit past 2,900 chars, so today's slice carries none of them.
+        """
+        from builder.tools.file_readers import compact_attribute_json
+
+        raw = Path(_DESCRIPTOR_JSON).read_text(encoding="utf-8")
+        compacted = compact_attribute_json(raw)
+
+        head = compacted[:2000]
+        for token in ("aopwiki", "Wagenaars"):
+            assert token.lower() in head.lower(), f"{token!r} still past a 2000-char slice"
+
+    def test_returns_input_unchanged_when_not_an_attribute_tree(self):
+        """HONESTY CONTROL: non-BioStudies JSON must survive untouched."""
+        from builder.tools.file_readers import compact_attribute_json
+
+        plain = json.dumps({"hello": "world"})
+        assert compact_attribute_json(plain) == plain

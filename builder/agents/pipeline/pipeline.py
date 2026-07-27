@@ -262,27 +262,40 @@ _DEFAULT_STUDY_NAME = "Study"
 _DEFAULT_ASSAY_NAME = "Assay"
 
 # Token-safety budget for the free-text context fed to the single bounded
-# extraction/drafter leaf (#231). `_gather_context` now reads non-tabular rich
-# file BODIES (`.json` / `.docx` / `.pdf` …) — not just filenames — so it must
-# cap how much disk content reaches the leaf so the one bounded call stays
-# affordable. The cap is applied BOTH per-file (each body excerpt is truncated to
-# a FAIR per-file slice, see `_per_file_cap`) AND to the total accumulated body
-# content (the running sum of body excerpts never exceeds `_MAX_CONTEXT_CHARS`),
-# so a folder of many large files cannot blow the budget and no single early file
-# can starve the rest. ~8k chars is roughly a couple thousand tokens — enough for
-# a study title / abstract / SOP heading to survive, small enough to stay cheap.
-_MAX_CONTEXT_CHARS = 8000
+# extraction/drafter leaf (#231). `_gather_context` reads file BODIES — not just
+# filenames — so it caps how much disk content reaches the leaf and the one
+# bounded call stays affordable. EVERY emitted slice is charged against this
+# total, previews included (#378); before that only body reads decremented it, so
+# preview bytes were spent outside the arithmetic and the documented ceiling was
+# silently exceeded.
+#
+# Raised 8000 -> 14000 with #378. That is roughly +1,300 tokens on one bounded
+# cheap-model call, and it is a real if small regression in the "one bounded
+# affordable call" property this block exists to protect. It buys the whole
+# metadata workbook: compaction pays most of it back (-41% on the grid, -73% on
+# the BioStudies descriptor), but chemicals 2-5 of the real S-VHPS26 deposit sit
+# past 2,600 compacted chars and cannot be reached at 8000 under any weighting.
+_MAX_CONTEXT_CHARS = 14000
 
-# Fair per-file floor for the body excerpt (Issue #179 / real S-VHPS26 run). The
-# pre-fix bug: one shared 8000-char pool + a `min(remaining, _MAX_CONTEXT_CHARS)`
-# per-file cap let the FIRST scanned file consume the WHOLE budget, so the richest
-# structured metadata (a BioStudies `<acc>.json`, an assay-metadata `.xlsx`, a SOP
-# `.docx`) — read later — got only its filename. We now read across files fairly:
-# each file gets at most `max(_MIN_PER_FILE_CHARS, _MAX_CONTEXT_CHARS // n)` chars
-# (`n` = files to read), so an early large file cannot zero the budget while still
-# leaving generous headroom when there are few files. A small floor guarantees
-# even a long inventory yields a usable slice per file.
-_MIN_PER_FILE_CHARS = 1500
+# Per-file share by `_metadata_read_priority` tier (#378). Metadata-first was
+# previously an ORDERING only: every file got an equal `_MAX_CONTEXT_CHARS // n`
+# slice, so on the real S-VHPS26 deposit the priority-0 workbook that holds the
+# cell line, RRID, author and all five chemicals emitted 298 chars while a
+# priority-3 GraphPad file emitted 2,049. Equal shares provably cannot carry that
+# workbook, so the budget is now weighted, not merely sorted.
+#
+# A tier claims its share only if it HAS files; an absent or under-spending tier
+# flows its headroom down to the next (see `_gather_context`). That flow-down is
+# what keeps a bulk-data-only deposit safe — with no metadata/doc files, the
+# first priority-3 file inherits 10,500 chars rather than being held to 500.
+_TIER_SHARES: dict[int, int] = {0: 6000, 1: 2000, 2: 2000, 3: 500}
+
+# Tiers whose body is worth a full `read_file` with compaction rather than the
+# scanner's 20-rows-per-sheet preview (#378). The preview cap loses chemicals 3-5
+# of the real workbook even with an unlimited char budget, because it truncates by
+# ROW before any of this budgeting runs. `_EXCEL_PREVIEW_ROWS` deliberately stays
+# at 20 — the binding constraint is chars, and raising it slows every scan.
+_COMPACTED_READ_TIERS = frozenset({0, 1})
 
 
 def _backbone_hints(engine: AgentEngine) -> dict[str, dict[str, str]]:
@@ -347,21 +360,13 @@ def _metadata_read_priority(filename: str) -> int:
     return 3
 
 
-def _per_file_cap(n_files_to_read: int) -> int:
-    """Fair per-file body-excerpt cap given *n_files_to_read* files (Issue #179).
-
-    Each file gets at most an equal share of the total budget, with a floor so a
-    long inventory still yields a usable slice per file. This is the per-file
-    half of the fix — combined with the metadata-first ordering it guarantees the
-    high-signal metadata files get a fair slice instead of one early file eating
-    the whole 8000-char pool.
-    """
-    if n_files_to_read <= 0:
-        return _MAX_CONTEXT_CHARS
-    return max(_MIN_PER_FILE_CHARS, _MAX_CONTEXT_CHARS // n_files_to_read)
-
-
-def _read_body_excerpt(path: str, approved_roots: set[str], remaining: int) -> str | None:
+def _read_body_excerpt(
+    path: str,
+    approved_roots: set[str],
+    remaining: int,
+    *,
+    compact: bool = False,
+) -> str | None:
     """Read a bounded BODY excerpt of *path*, fail-closed to *approved_roots* (#231).
 
     Mirrors the engine's fail-closed containment guard (``engine.py`` /
@@ -378,6 +383,10 @@ def _read_body_excerpt(path: str, approved_roots: set[str], remaining: int) -> s
     The returned excerpt is truncated to ``min(remaining, _MAX_CONTEXT_CHARS)`` so
     both the per-file cap and the caller's total budget are honoured. Returns
     ``None`` when nothing readable was produced (so the caller emits no body line).
+
+    ``compact`` opts into the shared boilerplate compactors (#378) — see
+    :func:`builder.tools.file_readers.compact_grid_text`. The spine passes True
+    for high-priority tiers, where the same signal then fits in far fewer chars.
     """
     if remaining <= 0:
         return None
@@ -393,7 +402,7 @@ def _read_body_excerpt(path: str, approved_roots: set[str], remaining: int) -> s
         return None
 
     try:
-        body = read_file(path)
+        body = read_file(path, compact=compact)
     except (OSError, ValueError, ImportError) as exc:
         logger.warning("Body read failed for %s; skipping: %s", path, exc)
         return None
@@ -411,6 +420,35 @@ def _read_body_excerpt(path: str, approved_roots: set[str], remaining: int) -> s
     return excerpt
 
 
+def _file_slice(f: Any, approved_roots: set[str], allowance: int, tier: int) -> str:
+    """The single content slice emitted for one scanned file (#378).
+
+    One path, one cap. A body read is preferred because it clears the scanner's
+    20-rows-per-sheet preview limit; the ``first_rows`` preview is the fallback
+    for a file that is unreadable or outside an approved root, and it is emitted
+    in FULL up to *allowance*.
+
+    Previously these were mutually exclusive — a previewed file could never be
+    body-read and was pinned to three rows regardless of budget, which is what
+    starved the highest-priority file in the inventory.
+    """
+    if allowance <= 0:
+        return ""
+
+    excerpt = _read_body_excerpt(
+        f.path, approved_roots, allowance, compact=tier in _COMPACTED_READ_TIERS
+    )
+    if excerpt:
+        return excerpt
+
+    if f.first_rows:
+        preview = " | ".join(str(r) for r in f.first_rows).strip()
+        if len(preview) > allowance:
+            preview = preview[:allowance].rstrip() + " […]"
+        return preview
+    return ""
+
+
 def _gather_context(engine: AgentEngine) -> str:
     """Assemble a free-text context string for the drafter/extraction leaf (#231).
 
@@ -425,15 +463,29 @@ def _gather_context(engine: AgentEngine) -> str:
     previews and ``extract_plan`` returned an empty plan, so the backbone fell back
     to the literal default names (#231).
 
-    **Metadata-first, fair per-file budget (Issue #179 / real S-VHPS26 run).** The
-    files whose bodies must be read are sorted by :func:`_metadata_read_priority`
-    so the structured METADATA files (``*metadata*``, BioStudies ``*.json``,
-    README/SOP/``.docx`` docs) are read BEFORE bulk data files, with the original
-    scan order preserved within each tier. Each file gets at most a FAIR slice
-    (:func:`_per_file_cap`) of the total :data:`_MAX_CONTEXT_CHARS` budget, so a
-    single large early file can no longer eat the whole pool and starve the rest
-    (the pre-fix bug). The running total is still capped at
-    :data:`_MAX_CONTEXT_CHARS`.
+    **Metadata-first, priority-weighted budget (#179, corrected by #378).** Files
+    are sorted by :func:`_metadata_read_priority` — ``*metadata*``, BioStudies
+    ``*.json``, README/SOP docs, then bulk data — with scan order preserved within
+    a tier. Each file then gets **one** content slice under **one** cap, sized by
+    its tier's :data:`_TIER_SHARES` entry.
+
+    Ordering alone was not enough, and that was the #378 bug: every file drew an
+    equal slice, so the priority-0 workbook holding the cell line, RRID, author
+    and five chemicals emitted 298 chars while a priority-3 GraphPad file emitted
+    2,049. Priority now decides **chars**, not merely position.
+
+    A tier that has no files, or whose files do not spend their share, flows the
+    headroom down to the next tier — so a deposit of nothing but bulk CSVs still
+    gives its first file a generous slice rather than the bare 500-char tier
+    share. Priority-0/1 bodies are read with compaction
+    (:data:`_COMPACTED_READ_TIERS`), which is what lets the whole workbook fit.
+
+    The slice source is a single path: :func:`_read_body_excerpt` when the file is
+    readable inside an approved root, otherwise the file's ``first_rows`` preview
+    in FULL. The preview is a fallback, never a 3-row ceiling — the scanner has
+    already paid to read it, and truncating it to three rows discarded 96% of
+    what was in memory. **Every** emitted slice is charged against
+    :data:`_MAX_CONTEXT_CHARS`, previews included, so the ceiling is honest.
 
     Body reads are **fail-closed to ``state.approved_scan_roots``** and never raise
     out of the spine (see :func:`_read_body_excerpt`). Output is bounded both per
@@ -458,36 +510,34 @@ def _gather_context(engine: AgentEngine) -> str:
         approved_roots = state.approved_scan_roots
 
         # Order the WHOLE inventory metadata-first (stable within ties) so the
-        # highest-signal files lead both the disk reads and the emitted digest —
-        # the pre-fix bug let a large early bulk-data file eat the body budget and
-        # the structured metadata that followed got only its filename (#179).
-        ordered = sorted(state.scanned_files, key=lambda f: _metadata_read_priority(f.filename))
+        # highest-signal files lead both the disk reads and the emitted digest.
+        by_tier: dict[int, list[Any]] = {}
+        for f in state.scanned_files:
+            by_tier.setdefault(_metadata_read_priority(f.filename), []).append(f)
 
-        # Files that need a disk body read = those without a cheap tabular preview.
-        # Each gets at most a FAIR per-file slice of the budget so an early large
-        # file cannot starve the later metadata.
-        n_to_read = sum(1 for f in ordered if not f.first_rows)
-        per_file_cap = _per_file_cap(n_to_read)
-
-        body_budget = _MAX_CONTEXT_CHARS  # total body content across all files
+        budget = _MAX_CONTEXT_CHARS  # total emitted content across all files
+        carry = 0  # headroom flowing down from absent / under-spending tiers
         file_lines: list[str] = []
-        for f in ordered:
-            line = f"- {f.filename}"
-            if f.first_rows:
-                # Prefer the cheap preview the scanner already captured — no disk read.
-                preview = " | ".join(str(r) for r in f.first_rows[:3])
-                if preview.strip():
-                    line += f": {preview}"
-            elif body_budget > 0:
-                # No tabular preview: read a bounded body excerpt (fail-closed to
-                # approved roots; never raises) under the fair per-file cap AND the
-                # running total budget, so the leaf sees the document body.
-                remaining = min(per_file_cap, body_budget)
-                excerpt = _read_body_excerpt(f.path, approved_roots, remaining)
-                if excerpt:
-                    body_budget -= len(excerpt)
-                    line += f":\n{excerpt}"
-            file_lines.append(line)
+
+        for tier in sorted(_TIER_SHARES):
+            files = by_tier.get(tier)
+            if not files:
+                # Nobody claimed this tier's share; hand it to the tiers below.
+                carry += _TIER_SHARES[tier]
+                continue
+            for f in files:
+                allowance = min(_TIER_SHARES[tier] + carry, budget)
+                slice_text = _file_slice(f, approved_roots, allowance, tier)
+                # Unused headroom flows down rather than being forfeited.
+                carry = max(0, allowance - len(slice_text))
+                budget -= len(slice_text)
+
+                line = f"- {f.filename}"
+                if slice_text:
+                    sep = "\n" if "\n" in slice_text else " "
+                    line += f":{sep}{slice_text}"
+                file_lines.append(line)
+
         if file_lines:
             parts.append("Scanned files:\n" + "\n".join(file_lines))
 
