@@ -487,6 +487,10 @@ def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
     conformance, so the user sees the build's state after guidance at a glance.
     A ``None`` result (guidance never ran, e.g. a non-interactive build) yields a
     short, non-crashing message.
+
+    The tail's own token spend (#384) is appended when it is non-zero, so the
+    figure the status bar has been climbing through is also stated once at the
+    end. An offline / no-provider tail spends nothing and gets no line.
     """
     if not guidance_result:
         return "No interactive guidance ran (headless build)."
@@ -512,6 +516,14 @@ def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
         (f"  conformance: base={_mark('base')} isa={_mark('isa')} tox={_mark('tox')}"),
         f"  rounds: {rounds}",
     ]
+
+    usage = guidance_result.get("usage") or {}
+    tokens_in = int(usage.get("input_tokens") or 0)
+    tokens_out = int(usage.get("output_tokens") or 0)
+    if tokens_in or tokens_out:
+        total = int(usage.get("total_tokens") or (tokens_in + tokens_out))
+        lines.append(f"  tokens: {tokens_in}→{tokens_out} ({total})")
+
     return "\n".join(lines)
 
 

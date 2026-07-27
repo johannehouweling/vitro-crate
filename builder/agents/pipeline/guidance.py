@@ -60,6 +60,10 @@ Determinism & safety contract:
   are single bounded calls gated on ``get_provider()``; the drafter's output is
   confirmed before commit, and the interpreter's output is a *structured* decision
   — a free-text reply is never stored verbatim.
+* **Every leaf call is accounted.** Each one reports its token usage to the run's
+  :data:`UsageSink`, which logs the same profile event the spine and the ReAct
+  model node log — so the status bar re-printed before every question, the
+  ``--dashboard`` table and the eval all include the tail's spend (#384).
 * **HITL is never removed.** ask-user and draft-confirm both route through the
   injected :class:`HumanInterface`; the loop cannot silently fabricate content.
 * **D5 at the chokepoint.** Identifier-bearing fields are never committed from the
@@ -85,7 +89,16 @@ from typing import TYPE_CHECKING, Any, Callable
 # Re-exported at module scope so the spine, tests, and the eval harness have a
 # single stable monkeypatch target — and so a flaky/absent LLM drafter / guidance
 # leaf can be stubbed without importing langchain.
-from builder.agents.pipeline.pipeline import draft_entity_fields
+#
+# ``UsageSink`` / ``_make_usage_logger`` are the spine's token-accounting seam,
+# reused verbatim rather than reimplemented (#384): the logger emits the same
+# ``node_end``/``node="model"`` profile event the ReAct model node emits, which is
+# the only surface the status bar, the ``--dashboard`` table and the eval read.
+from builder.agents.pipeline.pipeline import (
+    UsageSink,
+    _make_usage_logger,
+    draft_entity_fields,
+)
 from builder.config import get_provider
 from builder.tools.field_kinds import (
     CITATION_FIELDS,
@@ -642,7 +655,7 @@ def _draft_context(engine: AgentEngine, gap: Gap) -> str:
     return "\n".join(parts).strip()
 
 
-def _drafted_value(engine: AgentEngine, gap: Gap) -> str | None:
+def _drafted_value(engine: AgentEngine, gap: Gap, *, usage_sink: UsageSink | None) -> str | None:
     """Draft a candidate value for ``gap`` via the bounded drafter leaf, or None.
 
     Calls :func:`draft_entity_fields` for the gap's ``entity_type`` and returns the
@@ -655,7 +668,9 @@ def _drafted_value(engine: AgentEngine, gap: Gap) -> str | None:
         return None
     field = _local_name(gap.property) or (gap.property or "")
     try:
-        fields = draft_entity_fields(entity_type, _draft_context(engine, gap))
+        fields = draft_entity_fields(
+            entity_type, _draft_context(engine, gap), usage_sink=usage_sink
+        )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
         logger.warning("guidance: drafter leaf failed for %s: %s", entity_type, exc)
         return None
@@ -883,7 +898,7 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
     return context
 
 
-def _phrase_question(engine: AgentEngine, gap: Gap) -> str:
+def _phrase_question(engine: AgentEngine, gap: Gap, *, usage_sink: UsageSink | None) -> str:
     """Phrase ``gap`` as one human question via the LLM leaf, with a safe fallback.
 
     Calls :func:`phrase_gap_question` (the drafter-tier leaf); on any failure or an
@@ -892,7 +907,7 @@ def _phrase_question(engine: AgentEngine, gap: Gap) -> str:
     """
     if phrase_gap_question is not None:
         try:
-            question = phrase_gap_question(_gap_context(engine, gap))
+            question = phrase_gap_question(_gap_context(engine, gap), usage_sink=usage_sink)
         except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
             logger.warning("guidance: phrase leaf failed: %s", exc)
             question = ""
@@ -924,7 +939,14 @@ def _deterministic_decision(gap: Gap, reply: str) -> dict[str, Any]:
     return {"action": "commit", "value": reply.strip()}
 
 
-def _interpret_reply(engine: AgentEngine, gap: Gap, question: str, reply: str) -> dict[str, Any]:
+def _interpret_reply(
+    engine: AgentEngine,
+    gap: Gap,
+    question: str,
+    reply: str,
+    *,
+    usage_sink: UsageSink | None,
+) -> dict[str, Any]:
     """Interpret ``reply`` into a structured decision via the LLM leaf.
 
     Calls :func:`interpret_gap_reply` (the drafter-tier leaf) and returns its
@@ -937,13 +959,21 @@ def _interpret_reply(engine: AgentEngine, gap: Gap, question: str, reply: str) -
     if interpret_gap_reply is None:  # pragma: no cover — provider gated elsewhere
         return _deterministic_decision(gap, reply)
     try:
-        return interpret_gap_reply(question, reply, _gap_context(engine, gap))
+        return interpret_gap_reply(
+            question, reply, _gap_context(engine, gap), usage_sink=usage_sink
+        )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
         logger.warning("guidance: interpret leaf failed (%s); deterministic fallback", exc)
         return _deterministic_decision(gap, reply)
 
 
-def _resolve_ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | None:
+def _resolve_ask_user(
+    engine: AgentEngine,
+    human: HumanInterface,
+    gap: Gap,
+    *,
+    usage_sink: UsageSink | None,
+) -> str | None:
     """Run the LLM-mediated ask-user exchange for ``gap``; return a clean value.
 
     The §14.6 "small guidance agent" (#244, #257). When a provider is configured
@@ -977,7 +1007,7 @@ def _resolve_ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> s
         value = _deterministic_decision(gap, reply).get("value")
         return value.strip() if isinstance(value, str) and value.strip() else None
 
-    question = _phrase_question(engine, gap)
+    question = _phrase_question(engine, gap, usage_sink=usage_sink)
     response = human.request_input(question)
     reply = _reply_text(response)
     if reply is None:
@@ -986,7 +1016,7 @@ def _resolve_ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> s
 
     follow_ups = 0
     while True:
-        decision = _interpret_reply(engine, gap, question, reply)
+        decision = _interpret_reply(engine, gap, question, reply, usage_sink=usage_sink)
         action = decision.get("action")
 
         if action == "commit":
@@ -1011,7 +1041,9 @@ def _resolve_ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> s
             # of logging the hint and skipping (the #244 behavior). The reply's
             # prose is never stored; only a value the extraction leaf pulls from
             # the file's text, gated to approved scan roots.
-            return _resolve_from_file(engine, gap, reply, decision.get("filename"))
+            return _resolve_from_file(
+                engine, gap, reply, decision.get("filename"), usage_sink=usage_sink
+            )
 
         # skip, an exhausted clarify budget, or any unrecognised action -> skip.
         return None
@@ -1095,7 +1127,12 @@ def _read_pointed_file(engine: AgentEngine, candidates: list[str]) -> str | None
 
 
 def _resolve_from_file(
-    engine: AgentEngine, gap: Gap, reply: str, filename: str | None
+    engine: AgentEngine,
+    gap: Gap,
+    reply: str,
+    filename: str | None,
+    *,
+    usage_sink: UsageSink | None,
 ) -> str | None:
     """Read the file the user pointed at and extract the gap's value (#257, fix C).
 
@@ -1135,7 +1172,9 @@ def _resolve_from_file(
         return None
 
     try:
-        value = extract_field_from_file(field, file_text, _gap_context(engine, gap))
+        value = extract_field_from_file(
+            field, file_text, _gap_context(engine, gap), usage_sink=usage_sink
+        )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
         logger.warning("guidance: from_file extraction leaf failed: %s", exc)
         return None
@@ -1157,6 +1196,7 @@ def _resolve_gap(
     *,
     resolved: list[dict[str, Any]],
     asked: list[dict[str, Any]],
+    usage_sink: UsageSink | None,
 ) -> bool:
     """Resolve a single ``gap``; return ``True`` iff it committed a change.
 
@@ -1168,7 +1208,8 @@ def _resolve_gap(
     * **ask-user** (or any non-auto fallback) -> prompt and apply the answer.
 
     Records the action in ``resolved`` (committed) or ``asked`` (surfaced to the
-    user) for the run summary.
+    user) for the run summary. ``usage_sink`` is threaded to every leaf this gap
+    may reach so the tail's token spend is accounted (#384).
     """
     record = {
         "tier": gap.tier,
@@ -1193,7 +1234,7 @@ def _resolve_gap(
 
     # --- draftable: draft -> confirm -> commit (D5) ---------------------------
     if gap.fix_hint == "draft":
-        candidate = _drafted_value(engine, gap)
+        candidate = _drafted_value(engine, gap, usage_sink=usage_sink)
         if candidate is not None:
             decision = human.present(
                 context=(
@@ -1214,7 +1255,7 @@ def _resolve_gap(
 
     # --- ask-user: phrase -> interpret -> apply (LLM-mediated, #244) ----------
     asked.append(record)
-    value = _resolve_ask_user(engine, human, gap)
+    value = _resolve_ask_user(engine, human, gap, usage_sink=usage_sink)
     if value is None:
         return False
     if _apply_value(engine, gap, value, human):
@@ -1245,6 +1286,7 @@ def run_guidance(
     human: HumanInterface,
     *,
     max_rounds: int = _DEFAULT_MAX_ROUNDS,
+    usage_sink: UsageSink | None = None,
 ) -> dict[str, Any]:
     """Run the deterministic HITL gap-resolution loop over the gap engine.
 
@@ -1267,6 +1309,15 @@ def run_guidance(
             ask-user prompts and draft confirmations.
         max_rounds: Hard upper bound on rounds (default 20). Guarantees
             termination even if a resolved gap never clears.
+        usage_sink: Where each leaf call reports its token usage (#384). Defaults
+            to the spine's own :func:`_make_usage_logger`, so the tail is
+            accounted whether or not a caller asks for it: without one, every
+            phrase / interpret / draft / from-file call is missing from
+            ``profile.ndjson`` and the status bar re-printed before EVERY
+            question shows a frozen token count while real money is spent. A
+            caller that injects its own sink takes over the accounting entirely
+            — including the profile write and its own totals — so the returned
+            ``usage`` then reports zero.
 
     Returns:
         A summary dict::
@@ -1277,8 +1328,15 @@ def run_guidance(
                 "remaining_gaps": {must_open, should_open, may_open},
                 "conformance":    {base, isa, tox},
                 "rounds":         <int>,
+                "usage":          {input_tokens, output_tokens, total_tokens},
             }
     """
+    # Token accounting (#384), mirroring ``run_pipeline``'s contract: the default
+    # sink both accumulates ``totals`` (the in-memory figure the summary reports)
+    # and logs the ``node_end``/``node="model"`` profile event that the status bar,
+    # the ``--dashboard`` table and the eval all read.
+    totals: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
+    sink = usage_sink or _make_usage_logger(engine, totals)
     resolved: list[dict[str, Any]] = []
     asked: list[dict[str, Any]] = []
     rounds = 0
@@ -1314,7 +1372,9 @@ def run_guidance(
         rounds += 1
         identity = _gap_identity(gap)
         resolved_before = len(resolved)
-        progressed = _resolve_gap(engine, human, gap, resolved=resolved, asked=asked)
+        progressed = _resolve_gap(
+            engine, human, gap, resolved=resolved, asked=asked, usage_sink=sink
+        )
 
         if progressed:
             # State changed: re-assess from scratch and forget the per-report
@@ -1349,6 +1409,11 @@ def run_guidance(
         "remaining_gaps": dict(report.counts),
         "conformance": dict(report.conformance),
         "rounds": rounds,
+        "usage": {
+            "input_tokens": totals["input_tokens"],
+            "output_tokens": totals["output_tokens"],
+            "total_tokens": totals["input_tokens"] + totals["output_tokens"],
+        },
     }
 
 

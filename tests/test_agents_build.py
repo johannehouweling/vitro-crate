@@ -186,6 +186,32 @@ class TestGuidanceSummary:
         assert isinstance(text, str)
         assert text  # non-empty
 
+    def test_format_guidance_summary_reports_the_tail_token_spend(self) -> None:
+        """#384: the tail's own token spend is surfaced, not just the spine's.
+
+        ``run_guidance`` reports what its leaves consumed under ``usage``; without
+        a line here that number would be a second dead dict (``run_pipeline``'s
+        ``usage`` already has no consumer anywhere).
+        """
+        from builder.agents.build import format_guidance_summary
+
+        result = {
+            **_GUIDANCE_RESULT,
+            "usage": {"input_tokens": 240, "output_tokens": 70, "total_tokens": 310},
+        }
+        text = format_guidance_summary(result)
+        assert "240" in text and "70" in text and "310" in text
+
+    def test_format_guidance_summary_omits_tokens_when_none_were_used(self) -> None:
+        """An offline / no-provider tail spends nothing — no misleading zero line."""
+        from builder.agents.build import format_guidance_summary
+
+        result = {
+            **_GUIDANCE_RESULT,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        }
+        assert "token" not in format_guidance_summary(result).lower()
+
     def test_run_interactive_build_surfaces_summary_via_output(self) -> None:
         """The interactive build prints the guidance summary to the output channel."""
         from builder.agents.build import run_interactive_build

@@ -349,7 +349,7 @@ class TestDraftable:
         # Stub the drafter leaf — NO real LLM.
         called: dict[str, object] = {}
 
-        def _fake_draft(entity_type, context, *, model=None):
+        def _fake_draft(entity_type, context, *, model=None, usage_sink=None):
             called["entity_type"] = entity_type
             return {"description": "A drafted value."}
 
@@ -395,7 +395,7 @@ class TestDraftable:
         )
         monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
 
-        def _fake_draft(entity_type, context, *, model=None):
+        def _fake_draft(entity_type, context, *, model=None, usage_sink=None):
             return {"description": "A drafted value the user rejects."}
 
         monkeypatch.setattr(guidance, "draft_entity_fields", _fake_draft)
@@ -824,12 +824,12 @@ class TestLLMMediatedAskUser:
         # The phrase leaf produces a clean question; the interpret leaf reads the
         # musing as a SKIP (action="skip"), carrying no value.
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "What does this study examine?"
         )
         monkeypatch.setattr(
             guidance,
             "interpret_gap_reply",
-            lambda _q, _reply, _ctx: {"action": "skip"},
+            lambda _q, _reply, _ctx, **_kw: {"action": "skip"},
         )
 
         human = ScriptedHuman(
@@ -859,12 +859,12 @@ class TestLLMMediatedAskUser:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "What does this study examine?"
         )
 
         captured: dict[str, object] = {}
 
-        def _interpret(question, reply, ctx):
+        def _interpret(question, reply, ctx, **_kw):
             captured["reply"] = reply
             return {
                 "action": "commit",
@@ -901,13 +901,13 @@ class TestLLMMediatedAskUser:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "What does this study examine?"
         )
 
         # Every interpretation says "clarify" — without a cap this loops forever.
         interpret_calls = {"n": 0}
 
-        def _always_clarify(question, reply, ctx):
+        def _always_clarify(question, reply, ctx, **_kw):
             interpret_calls["n"] += 1
             return {"action": "clarify", "question": "Could you be more specific?"}
 
@@ -939,7 +939,7 @@ class TestLLMMediatedAskUser:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "What does this study examine?"
         )
 
         decisions = iter(
@@ -949,7 +949,7 @@ class TestLLMMediatedAskUser:
             ]
         )
         monkeypatch.setattr(
-            guidance, "interpret_gap_reply", lambda _q, _r, _c: next(decisions)
+            guidance, "interpret_gap_reply", lambda _q, _r, _c, **_kw: next(decisions)
         )
 
         human = ScriptedHuman(
@@ -977,12 +977,12 @@ class TestLLMMediatedAskUser:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "What does this study examine?"
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "What does this study examine?"
         )
         monkeypatch.setattr(
             guidance,
             "interpret_gap_reply",
-            lambda _q, _r, _c: {"action": "from_file", "filename": "README.txt"},
+            lambda _q, _r, _c, **_kw: {"action": "from_file", "filename": "README.txt"},
         )
 
         human = ScriptedHuman(
@@ -1010,9 +1010,9 @@ class TestLLMMediatedAskUser:
         )
 
         phrased = "In one sentence, what does this study set out to find?"
-        monkeypatch.setattr(guidance, "phrase_gap_question", lambda _ctx: phrased)
+        monkeypatch.setattr(guidance, "phrase_gap_question", lambda _ctx, **_kw: phrased)
         monkeypatch.setattr(
-            guidance, "interpret_gap_reply", lambda _q, _r, _c: {"action": "skip"}
+            guidance, "interpret_gap_reply", lambda _q, _r, _c, **_kw: {"action": "skip"}
         )
 
         human = ScriptedHuman(input_answers=[_value("hmm")])
@@ -1195,14 +1195,14 @@ class TestQuestionNamesEntity:
         )
 
         # A realistic phrase leaf: it echoes the entity name it is handed.
-        def _phrase(ctx):
+        def _phrase(ctx, **_kw):
             name = ctx.get("entity_name") or "this chemical substance"
             return f"What is the CAS Registry Number for {name}?"
 
         monkeypatch.setattr(guidance, "phrase_gap_question", _phrase)
         # An identifier gap: the user's prose can never become the value (D5).
         monkeypatch.setattr(
-            guidance, "interpret_gap_reply", lambda _q, _r, _c: {"action": "skip"}
+            guidance, "interpret_gap_reply", lambda _q, _r, _c, **_kw: {"action": "skip"}
         )
 
         human = ScriptedHuman(input_answers=[_value("dunno")])
@@ -1304,13 +1304,13 @@ class TestMITGapGroundedInInstanceName:
 
         # A realistic phrase leaf: it grounds on the name it is handed, else it
         # would invent the stock "HepG2" example (the bug).
-        def _phrase(ctx):
+        def _phrase(ctx, **_kw):
             name = ctx.get("entity_name") or "HepG2"
             return f"What passage number was {name} at during the assay?"
 
         monkeypatch.setattr(guidance, "phrase_gap_question", _phrase)
         monkeypatch.setattr(
-            guidance, "interpret_gap_reply", lambda _q, _r, _c: {"action": "skip"}
+            guidance, "interpret_gap_reply", lambda _q, _r, _c, **_kw: {"action": "skip"}
         )
 
         human = ScriptedHuman(input_answers=[_value("dunno")])
@@ -1396,18 +1396,18 @@ class TestFromFileReadsAndExtracts:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "Describe the study."
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "Describe the study."
         )
         monkeypatch.setattr(
             guidance,
             "interpret_gap_reply",
-            lambda _q, _r, _c: {"action": "from_file", "filename": str(meta)},
+            lambda _q, _r, _c, **_kw: {"action": "from_file", "filename": str(meta)},
         )
 
         # The extraction leaf pulls the value from the file text.
         captured: dict[str, object] = {}
 
-        def _extract(field, file_text, ctx):
+        def _extract(field, file_text, ctx, **_kw):
             captured["field"] = field
             captured["file_text"] = file_text
             return "A CHO-K1 OATP1C1 uptake assay measuring transporter activity."
@@ -1464,12 +1464,12 @@ class TestFromFileReadsAndExtracts:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "Describe the study."
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "Describe the study."
         )
         monkeypatch.setattr(
             guidance,
             "interpret_gap_reply",
-            lambda _q, _r, _c: {"action": "from_file", "filename": str(outside)},
+            lambda _q, _r, _c, **_kw: {"action": "from_file", "filename": str(outside)},
         )
 
         def _boom_extract(*_a, **_k):  # pragma: no cover - must not run
@@ -1518,12 +1518,12 @@ class TestFromFileReadsAndExtracts:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "Describe the study."
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "Describe the study."
         )
         monkeypatch.setattr(
             guidance,
             "interpret_gap_reply",
-            lambda _q, _r, _c: {"action": "from_file", "filename": str(missing)},
+            lambda _q, _r, _c, **_kw: {"action": "from_file", "filename": str(missing)},
         )
         # Extraction must not even be reached (no readable text).
         monkeypatch.setattr(
@@ -1573,12 +1573,12 @@ class TestFromFileReadsAndExtracts:
         )
 
         monkeypatch.setattr(
-            guidance, "phrase_gap_question", lambda _ctx: "What is the CAS number?"
+            guidance, "phrase_gap_question", lambda _ctx, **_kw: "What is the CAS number?"
         )
         monkeypatch.setattr(
             guidance,
             "interpret_gap_reply",
-            lambda _q, _r, _c: {"action": "from_file", "filename": str(meta)},
+            lambda _q, _r, _c, **_kw: {"action": "from_file", "filename": str(meta)},
         )
         # Even if the leaf were to return a CAS, the loop's D5 guard refuses it.
         monkeypatch.setattr(
@@ -2187,7 +2187,10 @@ class TestIdentifierNeverCommittedFromProse:
 
         human = ScriptedHuman(input_answers=[_value("CVCL_9999")])
         resolved: list[dict] = []
-        assert _resolve_gap(engine, human, gap, resolved=resolved, asked=[]) is False
+        assert (
+            _resolve_gap(engine, human, gap, resolved=resolved, asked=[], usage_sink=None)
+            is False
+        )
 
         assert engine.state.metadata.accession == _ROOT_ACCESSION, (
             "the dataset DOI must survive an answer about a cell line"
@@ -2266,4 +2269,161 @@ class TestNonClearingGapIsNotReAsked:
         assert not lying, (
             f"{len(lying)} gap(s) were reported resolved but are still open: "
             f"{[(r['source'], r['entity_type'], r['property']) for r in lying]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# #384 — the guidance tail's LLM calls must reach the usage sink.
+#
+# All four guidance leaves accept a ``usage_sink`` and the deterministic spine
+# threads one, but the guidance tail never did: every phrase / interpret / draft /
+# from-file-extract call (1-5 per gap, up to ``max_rounds`` gaps) was invisible to
+# the accounting, so the status bar re-printed before EVERY gap question showed a
+# frozen token count while real money was spent.
+#
+# The assertions here deliberately read the numbers back through
+# ``ui._read_token_totals`` — the SAME function ``ui.print_status_bar`` uses — which
+# re-parses ``profile.ndjson`` off disk. Nothing hand-builds the expected total, so
+# a sink that is threaded but not wired to the displayed surface still fails.
+# (Never assert through ``ui.snapshot_from_engine``: once tokens > 0 it calls
+# ``builder.pricing.compute_cost``, which does a live urlopen on a cold cache.)
+# ---------------------------------------------------------------------------
+
+
+_PHRASED = "What does this study examine, in one or two sentences?"
+
+
+def _profiled_engine(monkeypatch, tmp_path) -> AgentEngine:
+    """A real engine whose real ``ProfilingLogger`` writes under ``tmp_path``.
+
+    ``ui._read_token_totals`` re-imports ``SESSION_DIR`` from
+    ``builder.tools.profiler`` on every call, so patching it there redirects both
+    the writer and the reader — no session data lands in the repo.
+    """
+    import builder.tools.profiler as profiler_mod
+
+    monkeypatch.setattr(profiler_mod, "SESSION_DIR", tmp_path)
+    engine = AgentEngine(state=_backbone())
+    engine.initialize()
+    return engine
+
+
+class TestGuidanceTokenAccounting:
+    """#384: the interactive tail's token spend reaches the status bar."""
+
+    @staticmethod
+    def _drive(monkeypatch, tmp_path, *, reported: tuple):
+        """One real ask-user round whose leaves each report ``reported`` usage.
+
+        Returns ``(engine, summary, human)``. The stubs stand in for the two
+        drafter-tier leaves only — the loop, the gap dispatch, the commit path and
+        the profiler are all real.
+        """
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = _profiled_engine(monkeypatch, tmp_path)
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+
+        def _phrase(gap_context, *, model=None, usage_sink):
+            usage_sink(*reported)
+            return _PHRASED
+
+        def _interpret(question, reply, gap_context, *, model=None, usage_sink):
+            usage_sink(*reported)
+            return {"action": "commit", "value": reply.strip()}
+
+        monkeypatch.setattr(guidance, "phrase_gap_question", _phrase)
+        monkeypatch.setattr(guidance, "interpret_gap_reply", _interpret)
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        human = ScriptedHuman(
+            input_answers=[_value("A dose-response cytotoxicity study in HepG2 cells.")]
+        )
+        summary = run_guidance(engine, human, max_rounds=5)
+        return engine, summary, human
+
+    def test_status_bar_token_totals_include_the_guidance_leaves(self, monkeypatch, tmp_path):
+        from builder.agents import ui
+
+        engine, summary, _human = self._drive(
+            monkeypatch, tmp_path, reported=(120, 35, "gpt-4o-mini")
+        )
+
+        # The round really happened (the harness is not idling past the leaves).
+        assert _get(engine, "st1").fields.get("description") == (
+            "A dose-response cytotoxicity study in HepG2 cells."
+        )
+        assert summary["resolved"], "the ask-user round must have committed"
+
+        # Two leaf calls (phrase + interpret) x (120 in / 35 out), read back
+        # through the status bar's own reader off the real profile.ndjson.
+        assert ui._read_token_totals(engine.state.session_id) == (240, 70, "gpt-4o-mini")
+
+    def test_guidance_summary_reports_its_own_usage(self, monkeypatch, tmp_path):
+        _engine, summary, _human = self._drive(
+            monkeypatch, tmp_path, reported=(120, 35, "gpt-4o-mini")
+        )
+
+        assert summary["usage"] == {
+            "input_tokens": 240,
+            "output_tokens": 70,
+            "total_tokens": 310,
+        }
+
+    def test_token_totals_stay_zero_when_the_leaves_report_no_usage(self, monkeypatch, tmp_path):
+        """Honesty control: the ``240`` above is the leaves' REPORTED usage flowing
+        through the new plumbing — not "guidance ran", and not a pre-existing
+        logger. ``(None, None, None)`` is what ``_extract_token_usage`` returns for
+        a fake/offline model, and it must total zero while the gap still commits.
+        """
+        from builder.agents import ui
+
+        engine, summary, _human = self._drive(
+            monkeypatch, tmp_path, reported=(None, None, None)
+        )
+
+        assert ui._read_token_totals(engine.state.session_id) == (0, 0, "")
+        assert summary["usage"]["total_tokens"] == 0
+        assert summary["resolved"], "the gap must still commit when usage is unknown"
+
+    def test_threading_the_sink_does_not_silently_fall_back(self, monkeypatch, tmp_path):
+        """The trap: all four leaf calls sit inside a broad ``except Exception``
+        whose fallback is the deterministic path, so a misnamed or positionally-
+        passed ``usage_sink`` degrades SILENTLY to ``_ask_user_prompt`` instead of
+        raising. A strict-signature stub makes that fallback observable: the
+        sentinel question is what the human must have been prompted with.
+        """
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = _profiled_engine(monkeypatch, tmp_path)
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+
+        def _phrase(gap_context, *, usage_sink):
+            usage_sink(7, 3, "gpt-4o-mini")
+            return _PHRASED
+
+        monkeypatch.setattr(guidance, "phrase_gap_question", _phrase)
+        monkeypatch.setattr(
+            guidance,
+            "interpret_gap_reply",
+            lambda _q, _r, _c, **_kw: {"action": "skip"},
+        )
+        _single_ask_gap_report(
+            monkeypatch,
+            _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
+        )
+
+        human = ScriptedHuman(input_answers=[_value("dunno")])
+        run_guidance(engine, human, max_rounds=5)
+
+        assert [p for p, _ft in human.inputs] == [_PHRASED], (
+            "the phrase leaf fell back to the deterministic prompt — the sink was "
+            "not accepted by its keyword name"
         )
