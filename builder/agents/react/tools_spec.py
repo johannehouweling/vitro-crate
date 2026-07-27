@@ -168,7 +168,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_publication_with_authors",
-        "description": "Create a publication (from a DOI) AND wire every author as a Person in ONE call, harmonizing each author's @id to their ORCID when it can be determined. Resolution cascade per author (first hit wins): (1) the Crossref ORCID on the author (verified before use); (2) an in-crate Person with a verified ORCID matching the author's family + given/initial (e.g. citation 'Fabian Wagenaars' -> root 'F.M.A. Wagenaars'); (3) a public ORCID search — a single strong (family + full given) match is auto-used, anything ambiguous (multiple candidates or an initial-only match) asks YOU via present_to_human/request_input; (4) fallback to a synthesized #CitationAuthor_<Given>_<Family> Person. NEVER attaches an unverified or guessed ORCID (D5). Prefer this over draft_publication when you want the authors resolved too. Example: draft_publication_with_authors(doi='10.1016/j.tox.2021.152898').",
+        "description": "Create a publication (from a DOI) AND wire every author as a Person in ONE call, harmonizing each author's @id to their ORCID when it can be determined. Resolution cascade per author (first hit wins): (1) the Crossref ORCID on the author (verified before use); (2) an in-crate Person with a verified ORCID matching the author's family + given/initial (e.g. citation 'Fabian Wagenaars' -> root 'F.M.A. Wagenaars'); (3) a public ORCID search — a single strong (family + full given) match is auto-used, anything ambiguous (multiple candidates or an initial-only match) asks YOU via present_to_human/request_input; (4) fallback to a synthesized #CitationAuthor_<Given>_<Family> Person. NEVER attaches an unverified or guessed ORCID (D5). Prefer this over draft_publication when you want the authors resolved too. Example: draft_publication_with_authors(doi='10.1234/example').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -182,7 +182,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_molecular_entity",
-        "description": "Create a MolecularEntity from a compound name. Look the compound up first (lookup_compound) so you can pass a verified pubchem_cid. Example: draft_molecular_entity(name='Silychristin A', hints={'pubchem_cid': '443515', 'identifier': '33889-69-9'}).",
+        "description": "Create a MolecularEntity from a compound name. Look the compound up first (lookup_compound) so you can pass a verified pubchem_cid. Example: draft_molecular_entity(name='Silychristin A', hints={'pubchem_cid': '<CID returned by lookup_compound>', 'identifier': '<CAS RN returned by lookup_compound>'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -194,7 +194,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_cell_line_sample",
-        "description": "Create a CellLineSample from a cell-line name. Look it up first (lookup_cell_line) to get a verified Cellosaurus accession. Example: draft_cell_line_sample(name='HepG2', hints={'accession': 'CVCL_0027'}).",
+        "description": "Create a CellLineSample from a cell-line name. Look the cell line up first (lookup_cell_line_by_name) to get a verified Cellosaurus accession; lookup_cell_line takes an accession you already hold, so it cannot resolve a bare name. Never carry an accession over from another cell line — an accession that resolves to a different record is worse than none. Example: draft_cell_line_sample(name='HepG2', hints={'accession': '<CVCL_… returned by lookup_cell_line_by_name>'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -320,7 +320,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_person",
-        "description": "Create a Person entity. Look the person up first (lookup_orcid) to pass a verified orcid. Example: draft_person(name='Jane Doe', hints={'orcid': '0000-0002-1825-0097'}).",
+        "description": "Create a Person entity. Pass an orcid only when you already hold one you can confirm with lookup_orcid, which takes an ORCID iD and not a name; when the person is an author of a DOI, draft_publication_with_authors resolves their ORCID for you. Example: draft_person(name='Jane Doe', hints={'orcid': '<ORCID iD confirmed with lookup_orcid>'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -356,7 +356,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_defined_term",
-        "description": "Create a schema:DefinedTerm contextual entity to PERSIST a looked-up ontology / AOP / Key-Event term so it round-trips into the crate and can be referenced (via set_fields/link) as a mentions / measurementMethod / sampleType target. Pass the looked-up IRI as the 'url' hint so the node gets a dereferenceable @id. Example: draft_defined_term(name='cell viability assay', hints={'term_code': 'BAO:0002993', 'url': 'http://www.bioassayontology.org/bao#BAO_0002993'}).",
+        "description": "Create a schema:DefinedTerm contextual entity to PERSIST a looked-up ontology / AOP / Key-Event term so it round-trips into the crate and can be referenced (via set_fields/link) as a mentions / measurementMethod / sampleType target. Pass the looked-up IRI as the 'url' hint so the node gets a dereferenceable @id. Example: draft_defined_term(name='cell viability assay', hints={'term_code': '<CURIE returned by lookup_bao_term / lookup_ontology_term>', 'url': '<IRI returned by the same lookup>'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -380,7 +380,7 @@ TOOL_SPECS = [
     },
     {
         "name": "set_fields",
-        "description": "Set one or more fields on an existing entity (the single mutation tool — pass one key or many). Use it to fill or correct an entity's metadata, e.g. after build_and_validate names a field to fix. Example: set_fields(entity_id='chem_silychristin_a', fields={'identifier': '33889-69-9', 'smiles': 'C[C@H]1...'}).",
+        "description": "Set one or more fields on an existing entity (the single mutation tool — pass one key or many). Use it to fill or correct an entity's metadata, e.g. after build_and_validate names a field to fix. Example: set_fields(entity_id='chem_silychristin_a', fields={'identifier': '<CAS RN from a verified lookup>', 'smiles': 'C[C@H]1...'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -475,7 +475,7 @@ TOOL_SPECS = [
     },
     {
         "name": "lookup_cell_line",
-        "description": "Look up cell line via Cellosaurus",
+        "description": "Fetch a Cellosaurus record from an accession you already hold (CVCL_*). It does NOT accept a cell-line name — from a bare name use lookup_cell_line_by_name.",
         "parameters": {
             "type": "object",
             "properties": {"accession": {"type": "string"}},
