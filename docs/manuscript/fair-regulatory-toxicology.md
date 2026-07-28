@@ -121,10 +121,12 @@ structured around the research-data lifecycle and assigns recommendations to dis
 thereby placing obligations at the point of generation rather than asking assessors to repair
 under-documented studies downstream. For data already in hand, structured appraisal
 instruments determine how they can be assessed for relevance and reliability: the Klimisch
-categories (Klimisch et al., 1997; *Regul Toxicol Pharmacol* 25(1):1–5), operationalised by
-ToxRTool (Schneider et al., 2009; *Toxicol Lett* 189(2):138–144), the CRED criteria (Moermond
-et al., 2016; *Environ Toxicol Chem* 35(5):1297–1309) and the SciRAP platform (Beronius et
-al., 2018; doi:10.1002/jat.3648). These are complementary to FAIR rather than substitutes for
+categories (Klimisch et al., 1997; doi:10.1006/rtph.1996.1076), operationalised by ToxRTool
+(Schneider et al., 2009; doi:10.1016/j.toxlet.2009.05.013), the CRED criteria for ecotoxicity
+data (Moermond et al., 2016; doi:10.1002/etc.3259) and the SciRAP platform, whose *in vitro*
+tools extend an approach first developed for *in vivo* studies (Roth et al., 2021;
+doi:10.3389/ftox.2021.746430; Beronius et al., 2018; doi:10.1002/jat.3648). These are
+complementary to FAIR rather than substitutes for
 it, and illustrate the general point developed later in this paper: FAIRness determines
 whether a study can be located and interrogated at acceptable cost, these instruments whether
 it can be relied upon.
@@ -136,10 +138,18 @@ between making a NAM FAIR and making NAM-derived data FAIR. Making the NAM itsel
 assay, model or protocol — FAIR means describing the method such that it can be assessed
 independently of any dataset it produced. Structured templates such as ToxTemp were
 developed to satisfy OECD Guidance Document 211 on describing non-guideline *in vitro* test
-methods, and define the test-system characterisation, procedural detail and explicit
-acceptance criteria required (Krebs et al., 2019; doi:10.14573/altex.1909271); GIVIMP
-supplies the quality-practice counterpart (OECD Series on Testing and Assessment No. 286;
-doi:10.1787/9789264304796-en), and DB-ALM and TSAR provide method-level findability. The unit
+methods (OECD, 2017, Series on Testing and Assessment No. 211;
+doi:10.1787/9789264274730-en; issued as ENV/JM/MONO(2014)35), and define the test-system
+characterisation, procedural detail and explicit
+acceptance criteria required (Krebs et al., 2019; doi:10.14573/altex.1909271, erratum
+doi:10.14573/altex.1909271e); GIVIMP supplies the quality-practice counterpart (OECD Series
+on Testing and Assessment No. 286; doi:10.1787/9789264304796-en; second edition 2025, No.
+421, doi:10.1787/5ba6777b-en). Method-level findability is provided by TSAR, the Tracking
+System for Alternative methods towards Regulatory acceptance maintained by EURL ECVAM at the
+JRC, which follows a method from submission through validation and peer review to regulatory
+acceptance; its predecessor protocol database DB-ALM was archived in 2019 and survives only
+as a static dataset, itself an illustration of how difficult sustained curation of
+method-level resources has proved. The unit
 of description is the method, and its persistent identity is what allows independently
 generated datasets to be recognised as products of the same procedure. Making NAM-derived
 data FAIR concerns the individual experiment instead — which substance, biological model,
@@ -162,10 +172,20 @@ into a single traceable unit.
 - CDISC SEND — https://www.cdisc.org/standards/foundational/send
 - FDA Study Data Technical Conformance Guide — cite the current version
 
-### DOIs still needed
+### Verification notes
 
-- **Klimisch et al. 1997**, **Schneider et al. 2009**, **Moermond et al. 2016** — journal,
-  volume and pages verified; DOIs not established in this session, insert from Zotero.
+- TSAR — https://tsar.jrc.ec.europa.eu/ (EURL ECVAM, JRC). DB-ALM archived 2019; static
+  dataset at http://data.europa.eu/89h/b7597ada-148d-4560-9079-ab0a5539cad3
+- Author lists confirmed: Moermond, Kase, Korkaric & Ågerstrand (four, no *et al.*);
+  Schneider, Schwarz, Burkholder, Kopp-Schneider, Edler, Kinsner-Ovaskainen, Hartung &
+  Hoffmann (eight); Beronius, Molander, Zilliacus, Rudén & Hanberg (five); Roth, Zilliacus &
+  Beronius (three).
+- Kase et al. 2016 (*Environ Sci Eur* 28:7, doi:10.1186/s12302-016-0073-x) is a ring test
+  comparing CRED with Klimisch — cite only as evidence of uptake, not as the CRED method
+  source.
+
+### Still outstanding
+
 - **Carnesecchi et al. 2023** — article number 105426 verified; DOI not seen directly.
   Expected form `10.1016/j.yrtph.2023.105426`, confirm before use.
 - **Lauer et al. 2022** — F1000Research DOI not captured; PMC9096149 / PMID 35602243 verified.
