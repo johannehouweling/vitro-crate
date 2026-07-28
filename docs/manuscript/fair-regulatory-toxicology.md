@@ -98,9 +98,10 @@ predictions.
 
 ## FAIR data as a precondition for NAM uptake
 
-The increasing adoption of NAMs for regulatory decision-making has highlighted the
-importance of FAIR data so that diverse evidence streams can be interpreted, integrated and
-reused throughout chemical safety assessment (Schmeisser et al., 2023; Hardy et al., 2024).
+The increasing adoption of NAMs for regulatory decision-making (Schmeisser et al., 2023) has
+highlighted the importance of FAIR data so that diverse evidence streams can be interpreted,
+integrated and reused throughout chemical safety assessment (Watford et al., 2019; Hardy et
+al., 2024).
 Unlike traditional animal studies, NAMs generate heterogeneous datasets spanning
 high-content imaging, transcriptomics, metabolomics, *in vitro* assays, organ-on-chip models
 and computational predictions (Colbourne et al., 2025; Serafini et al., 2024), platforms
