@@ -86,6 +86,20 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
                 # Additive content-quality signal — ``None`` for cases that do not
                 # declare a min_entities quota.
                 "meets_quota": result.meets_quota,
+                # Spread across repeats (#400). Without these the diff reports
+                # means with no dispersion, so a real tweak is indistinguishable
+                # from run-to-run noise on the stochastic ReAct arm. Note
+                # ``stop_reasons`` (all repeats) beside ``stop_reason`` (repeat #1):
+                # a case that self-terminated once and hit the cap twice must not
+                # read as a clean win.
+                "variance": result.variance(),
+                "total_tokens_per_repeat": result.total_tokens_per_repeat,
+                "latency_per_repeat": [round(x, 4) for x in result.latency_per_repeat],
+                "stop_reasons": result.stop_reasons,
+                "transient_retries": result.transient_retries,
+                # Cost of every repeat, and the case's true spend (#401).
+                "cost_usd_per_repeat": result.cost_usd_per_repeat,
+                "total_cost_usd": result.total_cost_usd,
             }
 
     return {"labels": labels, "summaries": summaries, "cases": cases}

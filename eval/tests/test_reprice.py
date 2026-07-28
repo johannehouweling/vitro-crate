@@ -72,6 +72,79 @@ class TestRepriceRecords:
         assert records[0]["cost_usd"] is None  # original untouched
 
 
+class TestRepriceAcrossRepeats:
+    """A reprice must rebuild the ALL-repeat total, not repeat #1's (#401).
+
+    ``reprice_records`` re-derives cost from the tokens already in the report. If
+    it only ever read the repeat-#1 token fields it would quietly re-introduce the
+    understatement #401 fixes, on every report it touched.
+    """
+
+    def _multi_repeat_case(self):
+        # 1M / 2M / 3M input tokens at $2.50/Mtok -> $2.50 / $5.00 / $7.50.
+        return _case(
+            input_tokens=1_000_000,
+            output_tokens=0,
+            input_tokens_per_repeat=[1_000_000, 2_000_000, 3_000_000],
+            output_tokens_per_repeat=[0, 0, 0],
+        )
+
+    def test_prices_every_repeat(self) -> None:
+        out = reprice_records(
+            [self._multi_repeat_case()], price_input=2.50, price_output=10.00
+        )
+        assert out[0]["cost_usd_per_repeat"] == pytest.approx([2.50, 5.00, 7.50])
+
+    def test_case_total_sums_all_repeats(self) -> None:
+        out = reprice_records(
+            [self._multi_repeat_case()], price_input=2.50, price_output=10.00
+        )
+        assert out[0]["total_cost_usd"] == pytest.approx(15.00)
+
+    def test_representative_cost_stays_repeat_one(self) -> None:
+        out = reprice_records(
+            [self._multi_repeat_case()], price_input=2.50, price_output=10.00
+        )
+        assert out[0]["cost_usd"] == pytest.approx(2.50)
+
+    def test_summary_total_is_the_all_repeat_spend(self) -> None:
+        records = [
+            self._multi_repeat_case(),
+            {"record": "summary", "repeats": 3, "total_cost_usd": None},
+        ]
+        out = reprice_records(records, price_input=2.50, price_output=10.00)
+        assert out[-1]["total_cost_usd"] == pytest.approx(15.00)
+        assert out[-1]["mean_cost_usd_per_repeat"] == pytest.approx(5.00)
+
+    def test_legacy_report_without_per_repeat_arrays_still_reprices(self) -> None:
+        # Backwards compatible: the stored *-luna.ndjson baselines predate #401 and
+        # carry no per-repeat token arrays. They reprice from repeat #1 as before —
+        # the only figure such a report contains.
+        records = [
+            _case(input_tokens=1_000_000, output_tokens=0),
+            {"record": "summary", "repeats": 3, "total_cost_usd": None},
+        ]
+        out = reprice_records(records, price_input=2.50, price_output=10.00)
+        assert out[0]["cost_usd"] == pytest.approx(2.50)
+        assert out[0]["total_cost_usd"] == pytest.approx(2.50)
+        assert out[-1]["total_cost_usd"] == pytest.approx(2.50)
+
+    def test_ragged_arrays_fall_back_rather_than_mispricing(self) -> None:
+        # Honesty control: mismatched input/output lengths are corrupt data, not a
+        # licence to zip them and invent a price.
+        records = [
+            _case(
+                input_tokens=1_000_000,
+                output_tokens=0,
+                input_tokens_per_repeat=[1_000_000, 2_000_000, 3_000_000],
+                output_tokens_per_repeat=[0, 0],
+            )
+        ]
+        out = reprice_records(records, price_input=2.50, price_output=10.00)
+        assert out[0]["cost_usd"] == pytest.approx(2.50)
+        assert out[0]["total_cost_usd"] == pytest.approx(2.50)
+
+
 class TestRepriceFile:
     def test_roundtrips_a_report_in_place(self, tmp_path) -> None:
         path = tmp_path / "r.ndjson"

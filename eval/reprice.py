@@ -35,11 +35,20 @@ def reprice_records(
 ) -> list[dict[str, Any]]:
     """Return *records* with cost fields recomputed under the given price.
 
-    Each ``record == "case"`` line's ``cost_usd`` is re-derived from its
-    ``input_tokens`` / ``output_tokens`` via :func:`compute_cost` with the price
-    override; the ``record == "summary"`` line's ``total_cost_usd`` becomes the sum
-    of the repriced case costs (``None`` only when there are no case lines). Every
-    other field is left untouched, and the input list is **not** mutated.
+    Each ``record == "case"`` line is repriced across **every** repeat (#401): its
+    ``input_tokens_per_repeat`` / ``output_tokens_per_repeat`` arrays are priced
+    into ``cost_usd_per_repeat``, whose sum becomes the case's ``total_cost_usd``.
+    ``cost_usd`` stays repeat #1's representative figure, matching the runner. The
+    ``record == "summary"`` line's ``total_cost_usd`` becomes the sum of the case
+    totals (``None`` only when no case had a known price), plus a
+    ``mean_cost_usd_per_repeat`` derived from the summary's ``repeats``.
+
+    A report written before #401 carries no per-repeat arrays; it reprices from
+    ``input_tokens`` / ``output_tokens`` alone, exactly as before — one repeat is
+    the only figure such a report holds. Ragged arrays (differing lengths) are
+    treated the same way rather than zipped into an invented price.
+
+    Every other field is left untouched, and the input list is **not** mutated.
 
     Args:
         records: Parsed ndjson report lines (case lines followed by one summary).
@@ -47,29 +56,40 @@ def reprice_records(
         price_output: USD price per 1M output tokens.
 
     Returns:
-        A new list of new dicts with ``cost_usd`` / ``total_cost_usd`` recomputed.
+        A new list of new dicts with the cost fields recomputed.
     """
     override = (price_input, price_output)
     repriced: list[dict[str, Any]] = []
-    case_costs: list[float] = []
+    case_totals: list[float] = []
     for rec in records:
         new = dict(rec)
         if new.get("record") == "case":
-            cost = compute_cost(
-                int(new.get("input_tokens", 0) or 0),
-                int(new.get("output_tokens", 0) or 0),
-                new.get("model_name"),
-                price_override=override,
-            )
-            new["cost_usd"] = cost
-            if cost is not None:
-                case_costs.append(cost)
+            model = new.get("model_name")
+            ins = new.get("input_tokens_per_repeat") or []
+            outs = new.get("output_tokens_per_repeat") or []
+            if not (ins and len(ins) == len(outs)):
+                # Pre-#401 or corrupt: repeat #1 is all we can honestly price.
+                ins = [new.get("input_tokens", 0) or 0]
+                outs = [new.get("output_tokens", 0) or 0]
+            per_repeat = [
+                compute_cost(int(i or 0), int(o or 0), model, price_override=override)
+                for i, o in zip(ins, outs)
+            ]
+            known = [c for c in per_repeat if c is not None]
+            case_total = sum(known) if known else None
+            new["cost_usd_per_repeat"] = per_repeat
+            new["cost_usd"] = per_repeat[0]
+            new["total_cost_usd"] = case_total
+            if case_total is not None:
+                case_totals.append(case_total)
         repriced.append(new)
 
-    total = sum(case_costs) if case_costs else None
+    total = sum(case_totals) if case_totals else None
     for new in repriced:
         if new.get("record") == "summary":
             new["total_cost_usd"] = total
+            repeats = max(1, int(new.get("repeats", 1) or 1))
+            new["mean_cost_usd_per_repeat"] = None if total is None else total / repeats
     return repriced
 
 
