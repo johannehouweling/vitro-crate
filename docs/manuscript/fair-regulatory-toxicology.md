@@ -57,25 +57,29 @@ computational predictions.
 
 ### FAIR data as a precondition for NAM uptake
 
-The increasing adoption of new approach methodologies (NAMs) for regulatory decision-making
+The increasing adoption of new approach methodologies (NAMs) — an umbrella term covering
+*in vitro*, *in silico* and *in chemico* approaches and integrated strategies combining them
+(Colbourne et al., 2025; doi:10.1093/etojnl/vgae093) — for regulatory decision-making
 (Schmeisser et al., 2023; doi:10.1016/j.envint.2023.108082) has highlighted the importance of
 FAIR data to ensure that diverse evidence streams can be interpreted, integrated and reused
 throughout chemical safety assessment (Watford et al., 2019;
 doi:10.1016/j.taap.2019.114707). Unlike traditional animal studies, NAMs generate
 heterogeneous datasets spanning high-content imaging, transcriptomics, metabolomics,
-*in vitro* assays, organ-on-chip models and computational predictions (Colbourne et al.,
-2025; doi:10.1093/etojnl/vgae093; Sheng et al., 2025;
-doi:10.1007/s00204-025-04169-y). Their regulatory acceptance therefore depends not only on
-scientific validity but also on standardised metadata, transparent provenance, interoperable
-data formats and reproducible analytical workflows: the scientific-confidence framework for
-NAMs rests on fitness for purpose, human biological relevance, technical characterisation,
-data integrity and transparency, and independent review (van der Zalm et al., 2022;
-doi:10.1007/s00204-022-03365-4), and inter-laboratory reproducibility is treated as a
-component of confidence distinct from validity (Jacobs et al., 2024;
-doi:10.1007/s00204-024-03736-z). Notably, much of this regulatory literature imposes
-requirements that are functionally equivalent to FAIR without invoking the term, framing them
-instead as documentation, transparency or reporting completeness — a divergence in vocabulary
-that obscures how far the two agendas already coincide.
+*in vitro* assays, organ-on-chip models and computational predictions (Schmeisser et al.,
+2023; Sheng et al., 2025; doi:10.1007/s00204-025-04169-y). Their regulatory acceptance
+therefore depends not only on scientific validity but also on standardised metadata,
+transparent provenance, interoperable data formats and reproducible analytical workflows.
+This is reflected in how regulatory confidence is now framed: scientific confidence in a NAM
+has been proposed to rest on five elements — fitness for purpose, human biological relevance,
+technical characterisation, data integrity and transparency, and independent review (van der
+Zalm et al., 2022; doi:10.1007/s00204-022-03365-4) — only the first two of which concern the
+underlying biology. Reliability, in this framing, is established through transferability and
+inter-laboratory reproducibility assessed as part of validation, which is why ring trials
+remain a requirement rather than an option (Jacobs et al., 2024;
+doi:10.1007/s00204-024-03736-z). Notably, of the regulatory literature cited here only
+Watford et al. invoke FAIR by name; the remainder impose functionally equivalent requirements
+under the headings of documentation, transparency, reliability and reporting completeness — a
+divergence in vocabulary that obscures how far the two agendas already coincide.
 
 Deepika et al. present FAIRification and harmonisation as enablers of NAM data usability, and
 thus of NAM applicability. NAM data are now generated in rapidly growing volumes, but
@@ -171,6 +175,30 @@ into a single traceable unit.
 - OECD Mutual Acceptance of Data — https://www.oecd.org/en/topics/sub-issues/testing-of-chemicals/mutual-acceptance-of-data-system.html
 - CDISC SEND — https://www.cdisc.org/standards/foundational/send
 - FDA Study Data Technical Conformance Guide — cite the current version
+
+### Claim-support audit — outcomes
+
+- **Watford et al. 2019 — supports.** FAIR is explicit in the abstract: the paper "reviews a
+  number of toxicology-related efforts specifically related to bioactivity and toxicological
+  data interoperability based on the goals established by [FAIR] Data Principles." Its
+  emphasis is *semantic* interoperability (controlled vocabularies, AOPs) rather than file
+  formats.
+- **van der Zalm et al. 2022 — five elements verified verbatim** (US spelling
+  "characterization" in the original). The paper's move is to replace "validation" with
+  "scientific confidence"; do not frame it as validity-versus-data-practice, which is a
+  dichotomy it does not draw.
+- **Jacobs et al. 2024 — earlier placement was an inversion, now corrected.** The paper holds
+  that reliability *and* relevance are both assessed **by** validation, with reproducibility
+  inside reliability. Its purpose is to argue against making ring trials optional.
+- **Colbourne et al. 2025 — does not support a modality enumeration**; it is a definitional
+  commentary giving a category-level definition. Now cited for the definition only. Note: a
+  detailed modality list circulating in search results attributed to this paper is actually
+  ASPIS project website copy.
+- **Sheng et al. 2025 — partial.** Abstract covers organ-on-chip, multi-omics (genomics,
+  proteomics, metabolomics) and computational toxicology. It does **not** name high-content
+  imaging or transcriptomics, and does not diagnose format/metadata/normalisation
+  heterogeneity. Schmeisser now co-carries the modality sentence; **spot-check that Schmeisser
+  covers imaging and transcriptomics** before submission.
 
 ### Verification notes
 
