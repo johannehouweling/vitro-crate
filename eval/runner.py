@@ -77,8 +77,16 @@ class CaseResult:
 
     For the stochastic ReAct arm one draw is noisy, so ``total_tokens_per_repeat``
     / ``latency_per_repeat`` / ``stop_reasons`` additionally record **every**
-    repeat (trap 4, #335); :meth:`to_dict` derives a mean ± spread block from them.
+    repeat (trap 4, #335); :meth:`variance` derives a mean ± spread block from them.
     The headline fields above stay repeat #1's so existing consumers are unchanged.
+
+    Cost follows the same additive shape (#401): ``cost_usd`` remains repeat #1's
+    — one representative build, consistent with the token fields — while
+    ``cost_usd_per_repeat`` prices **every** repeat and :attr:`total_cost_usd` sums
+    them into what the run actually spent. ``input_tokens_per_repeat`` /
+    ``output_tokens_per_repeat`` are recorded alongside so an offline reprice
+    (:mod:`eval.reprice`) can rebuild that total under a different price instead of
+    silently falling back to repeat #1.
 
     ``meets_quota`` / ``entity_counts`` are the additive content-quality signal:
     for cases that declare ``min_entities`` they say whether the build drafted the
@@ -110,11 +118,41 @@ class CaseResult:
     total_tokens_per_repeat: list[int] = field(default_factory=list)
     latency_per_repeat: list[float] = field(default_factory=list)
     stop_reasons: list[str | None] = field(default_factory=list)
+    input_tokens_per_repeat: list[int] = field(default_factory=list)
+    output_tokens_per_repeat: list[int] = field(default_factory=list)
+    cost_usd_per_repeat: list[float | None] = field(default_factory=list)
 
     @property
     def total_tokens(self) -> int:
         """Combined input + output token count for the representative run."""
         return self.input_tokens + self.output_tokens
+
+    @property
+    def total_cost_usd(self) -> float | None:
+        """USD actually spent on this case across **all** repeats (#401).
+
+        Sums the priced repeats in :attr:`cost_usd_per_repeat`. ``None`` when no
+        repeat had a known price, so an unpriced case reads as "cost unknown"
+        rather than a misleading ``$0`` (trap 5). Falls back to the representative
+        :attr:`cost_usd` when no per-repeat prices were recorded at all — a
+        hand-built or pre-#401 result, where one draw is the only figure there is.
+        """
+        known = [c for c in self.cost_usd_per_repeat if c is not None]
+        if known:
+            return sum(known)
+        return None if self.cost_usd_per_repeat else self.cost_usd
+
+    def variance(self) -> dict[str, dict[str, float]]:
+        """Mean ± spread across repeats for the noisy metrics (trap 4, #335).
+
+        The single definition shared by :meth:`to_dict` (the ndjson case line) and
+        :func:`eval.report.compare_reports` (the A/B diff), so the written report
+        and the comparison can never drift apart.
+        """
+        return {
+            "total_tokens": _spread(self.total_tokens_per_repeat),
+            "latency_seconds": _spread(self.latency_per_repeat),
+        }
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict (one ndjson line per case)."""
@@ -143,10 +181,11 @@ class CaseResult:
             "total_tokens_per_repeat": self.total_tokens_per_repeat,
             "latency_per_repeat": [round(x, 4) for x in self.latency_per_repeat],
             "stop_reasons": self.stop_reasons,
-            "variance": {
-                "total_tokens": _spread(self.total_tokens_per_repeat),
-                "latency_seconds": _spread(self.latency_per_repeat),
-            },
+            "input_tokens_per_repeat": self.input_tokens_per_repeat,
+            "output_tokens_per_repeat": self.output_tokens_per_repeat,
+            "cost_usd_per_repeat": self.cost_usd_per_repeat,
+            "total_cost_usd": self.total_cost_usd,
+            "variance": self.variance(),
         }
 
 
@@ -179,8 +218,15 @@ class EvalReport:
         num_error = sum(1 for r in self.results if r.stop_reason == "error")
         # Total $ over cases with a KNOWN price; ``None`` when no case was priced,
         # so an unpriced run reads as "cost unknown", not a misleading $0 (trap 5).
-        known_costs = [r.cost_usd for r in self.results if r.cost_usd is not None]
+        # Each case contributes ALL its repeats (#401) — this is the run's actual
+        # spend, matching what the API bills, not one repeat presented as the total.
+        known_costs = [r.total_cost_usd for r in self.results if r.total_cost_usd is not None]
         total_cost_usd = sum(known_costs) if known_costs else None
+        # The same money divided by the repeat count, so runs made with different
+        # ``--repeats`` remain comparable to each other.
+        mean_cost_usd_per_repeat = (
+            total_cost_usd / max(1, self.repeats) if total_cost_usd is not None else None
+        )
         # Per-repeat spread (trap 4, #335): the mean coefficient of variation of
         # total tokens across cases — one arm-level "how stochastic" number. ~0 for
         # a deterministic arm, high for a stochastic one. A case with a zero mean (no
@@ -206,6 +252,7 @@ class EvalReport:
             "num_cap_hit": num_cap_hit,
             "num_error": num_error,
             "total_cost_usd": total_cost_usd,
+            "mean_cost_usd_per_repeat": mean_cost_usd_per_repeat,
             "mean_total_tokens_cv": mean_total_tokens_cv,
         }
 
@@ -339,15 +386,19 @@ def _run_case(
 
     # Mine every repeat's profile so the report carries the spread, not just one
     # noisy draw (trap 4, #335). The representative headline fields below stay
-    # repeat #1's (cost, dashboards read those) — the per-repeat arrays are additive.
+    # repeat #1's (dashboards read those) — the per-repeat arrays are additive.
     per_repeat_metrics = [
         mine_profile_metrics(profile_reader(o.session_id) if o.session_id else [])
         for o, _ in repeat_runs
     ]
     pm = per_repeat_metrics[0]
-    cost_usd = compute_cost(
-        pm.input_tokens, pm.output_tokens, pm.model_name, price_override=price_override
-    )
+    # Price EVERY repeat (#401). Summing these is what the run actually cost;
+    # ``cost_usd`` below stays repeat #1's representative figure.
+    cost_usd_per_repeat = [
+        compute_cost(m.input_tokens, m.output_tokens, m.model_name, price_override=price_override)
+        for m in per_repeat_metrics
+    ]
+    cost_usd = cost_usd_per_repeat[0]
 
     deterministic: bool | None = None
     if len(hashes) > 1:
@@ -377,6 +428,9 @@ def _run_case(
         total_tokens_per_repeat=[m.total_tokens for m in per_repeat_metrics],
         latency_per_repeat=[lat for _, lat in repeat_runs],
         stop_reasons=[o.stop_reason for o, _ in repeat_runs],
+        input_tokens_per_repeat=[m.input_tokens for m in per_repeat_metrics],
+        output_tokens_per_repeat=[m.output_tokens for m in per_repeat_metrics],
+        cost_usd_per_repeat=cost_usd_per_repeat,
     )
 
 

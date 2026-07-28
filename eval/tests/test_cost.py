@@ -139,3 +139,118 @@ class TestRunnerCapturesCost:
             price_override=(4.0, 20.0),
         )
         assert report.results[0].cost_usd == pytest.approx(4.0)
+
+
+def _varying_gpt4o_reader(input_tokens_per_call: list[int]):
+    """Return a priced profile reader yielding a different token count per call.
+
+    The runner reads the profile once per repeat, so call ``k`` reports
+    ``input_tokens_per_call[k]`` — modelling a stochastic arm whose repeats cost
+    genuinely *different* amounts. Deliberately unequal so a total can distinguish
+    "sum of every repeat" from "repeat #1 multiplied by the repeat count".
+    """
+    calls = {"n": 0}
+
+    def reader(_sid: str) -> list[dict]:
+        i = calls["n"]
+        calls["n"] += 1
+        value = (
+            input_tokens_per_call[i]
+            if i < len(input_tokens_per_call)
+            else input_tokens_per_call[-1]
+        )
+        return [
+            {
+                "event": "node_end",
+                "node": "model",
+                "input_tokens": value,
+                "output_tokens": 0,
+                "model_name": "gpt-4o",
+            }
+        ]
+
+    return reader
+
+
+# gpt-4o input is $2.50/Mtok, so 1M/2M/3M input tokens cost $2.50/$5.00/$7.50.
+_UNEQUAL_REPEATS = [1_000_000, 2_000_000, 3_000_000]
+_PER_REPEAT_COSTS = [2.50, 5.00, 7.50]
+
+
+class TestCostAcrossRepeats:
+    """``total_cost_usd`` must bill every repeat, not repeat #1 alone (#401).
+
+    A 3-repeat run previously reported repeat #1's cost as the run total — a ~3x
+    understatement of the headline efficiency number the whole A/B rests on.
+    """
+
+    def _report(self, repeats: int = 3):
+        return run_eval(
+            lambda: _ProfiledAgent(),
+            DEFAULT_CORPUS[:1],
+            repeats=repeats,
+            profile_reader=_varying_gpt4o_reader(_UNEQUAL_REPEATS),
+        )
+
+    def test_case_records_the_cost_of_every_repeat(self) -> None:
+        res = self._report().results[0]
+        assert res.cost_usd_per_repeat == pytest.approx(_PER_REPEAT_COSTS)
+
+    def test_case_total_cost_sums_all_repeats(self) -> None:
+        res = self._report().results[0]
+        assert res.total_cost_usd == pytest.approx(15.00)
+
+    def test_summary_total_is_actual_spend_not_repeat_one(self) -> None:
+        # The bug: this reported 2.50 (repeat #1) for a run that spent 15.00.
+        summary = self._report().summary()
+        assert summary["total_cost_usd"] == pytest.approx(15.00)
+
+    def test_summary_total_is_not_repeat_one_scaled_by_repeat_count(self) -> None:
+        # Guards against the tempting wrong fix: repeats * cost_usd == 7.50, which
+        # is right only when every repeat costs the same. Real repeats do not.
+        summary = self._report().summary()
+        assert summary["total_cost_usd"] != pytest.approx(2.50 * 3)
+
+    def test_summary_reports_mean_cost_per_repeat_for_comparability(self) -> None:
+        # Comparable across runs that used different --repeats values.
+        summary = self._report().summary()
+        assert summary["mean_cost_usd_per_repeat"] == pytest.approx(5.00)
+
+    def test_representative_cost_usd_stays_repeat_one(self) -> None:
+        # Additive contract, matching total_tokens (#335): the headline per-case
+        # field remains one representative build so reprice/dashboards are unmoved.
+        res = self._report().results[0]
+        assert res.cost_usd == pytest.approx(2.50)
+        assert res.cost_usd == pytest.approx(res.cost_usd_per_repeat[0])
+
+    def test_to_dict_carries_the_per_repeat_costs(self) -> None:
+        as_dict = self._report().results[0].to_dict()
+        assert as_dict["cost_usd_per_repeat"] == pytest.approx(_PER_REPEAT_COSTS)
+        assert as_dict["total_cost_usd"] == pytest.approx(15.00)
+
+    def test_single_repeat_total_equals_the_one_cost(self) -> None:
+        # Honesty control: with one repeat the fix must change nothing at all.
+        summary = self._report(repeats=1).summary()
+        assert summary["total_cost_usd"] == pytest.approx(2.50)
+        assert summary["mean_cost_usd_per_repeat"] == pytest.approx(2.50)
+
+    def test_unpriced_model_totals_none_across_repeats(self) -> None:
+        # Honesty control: an unpriced run still reads "cost unknown", never $0.
+        def reader(_sid: str) -> list[dict]:
+            return [
+                {
+                    "event": "node_end",
+                    "node": "model",
+                    "input_tokens": 1_000,
+                    "output_tokens": 0,
+                    "model_name": "mystery-model",
+                }
+            ]
+
+        report = run_eval(
+            lambda: _ProfiledAgent(), DEFAULT_CORPUS[:1], repeats=3, profile_reader=reader
+        )
+        assert report.results[0].cost_usd_per_repeat == [None, None, None]
+        assert report.results[0].total_cost_usd is None
+        assert report.summary()["total_cost_usd"] is None
+        assert report.summary()["mean_cost_usd_per_repeat"] is None

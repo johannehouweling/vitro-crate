@@ -244,10 +244,14 @@ def run_main(
 
     write_report(report, out_path)
     summary = report.summary()
+    # total_spend is every repeat of every case — what the API actually billed —
+    # and cost_per_repeat is that divided by --repeats, so runs made with different
+    # repeat counts stay comparable (#401). Naming both keeps either unmistakable.
     cost = summary["total_cost_usd"]
+    per_repeat = summary["mean_cost_usd_per_repeat"]
     logger.info(
         "Done: success_rate=%.2f mean_tokens=%.0f determinism_rate=%.2f "
-        "completed=%d cap_hit=%d error=%d total_cost=%s -> %s",
+        "completed=%d cap_hit=%d error=%d total_spend=%s cost_per_repeat=%s -> %s",
         summary["success_rate"],
         summary["mean_total_tokens"],
         summary["determinism_rate"],
@@ -255,6 +259,7 @@ def run_main(
         summary["num_cap_hit"],
         summary["num_error"],
         f"${cost:.4f}" if cost is not None else "n/a",
+        f"${per_repeat:.4f}" if per_repeat is not None else "n/a",
         out_path,
     )
     return 0

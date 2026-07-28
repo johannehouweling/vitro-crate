@@ -95,7 +95,15 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
 - **model + cost** (#331) — `model_name` mined from `profile.ndjson`, and `cost_usd`
   from `eval.metrics.MODEL_PRICES` (or the `--price-input`/`--price-output` override
   for an unlisted model). An unpriced model records `cost_usd = None` — never a
-  guessed `0`;
+  guessed `0`. Every repeat is priced into `cost_usd_per_repeat`, and their sum is
+  the case's `total_cost_usd` — the money actually spent (#401). `cost_usd` itself
+  stays repeat #1's, matching the token fields, so existing consumers are unmoved;
+- **per-repeat spread** (#335, #400) — `total_tokens_per_repeat`,
+  `latency_per_repeat`, `stop_reasons`, `input_tokens_per_repeat` /
+  `output_tokens_per_repeat`, plus a `variance` block (`mean`/`min`/`max`/`stdev`
+  for tokens and latency). Note `stop_reasons` beside the singular `stop_reason`:
+  a case that self-terminated once and hit the cap twice must not read as a clean
+  win;
 - **transient retries** (#331) — how many transient network/API failures were re-run
   before the result counted (a connection drop / timeout / rate-limit is not an
   architecture failure);
@@ -105,8 +113,15 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
 
 The aggregate `EvalReport.summary()` reports **success rate**, **mean/median tokens**,
 **mean/median latency**, the **determinism rate**, the **stop-reason breakdown**
-(`num_completed` / `num_cap_hit` / `num_error`), and **`total_cost_usd`** (summed over
-priced cases, `None` when no case was priced).
+(`num_completed` / `num_cap_hit` / `num_error`), **`mean_total_tokens_cv`** (the
+arm-level "how stochastic" number), and two cost figures: **`total_cost_usd`** — the
+run's actual spend, every repeat of every priced case, `None` when no case was priced
+— and **`mean_cost_usd_per_repeat`**, the same money divided by `repeats` so runs made
+with different `--repeats` stay comparable.
+
+`compare_reports` carries the per-case spread through to the A/B diff, not just the
+means (#400) — without it a real tweak is indistinguishable from run-to-run noise on
+the stochastic ReAct arm, which is the whole reason `--repeats` defaults to 3.
 
 ## Report format
 
