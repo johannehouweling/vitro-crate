@@ -118,6 +118,19 @@ regulatory use of an omics NAM rather than as documentation overhead (Viant et a
 and open processing pipelines that record every analytical decision have been built for the
 same reason (Filer et al., 2017).
 
+This requirement is stated in two registers, and distinguishing them matters for reading the
+literature. One body of work names FAIR directly, typically in the title: the knowledge
+infrastructure built to manage and integrate NAM data (Hardy et al., 2024), the case for
+machine-actionable adverse outcome pathways (Wittwehr et al., 2024), the principles derived
+for *in silico* toxicology models (Cronin et al., 2023), the enumeration of FAIRification
+challenges in nanosafety data (Jeliazkova et al., 2021), and a regulator's own interpretation
+of the principles (EFSA, 2025). A second and larger body — consensus papers, evaluation
+frameworks and OECD guidance — imposes functionally equivalent requirements without invoking
+the term, framing them instead as documentation, transparency, data integrity, reporting
+completeness or reproducibility (Schmeisser et al., 2023; van der Zalm et al., 2022; Viant et
+al., 2019; Jacobs et al., 2024). The two converge on the same object; the vocabulary does
+not.
+
 Deepika et al. (2025) attribute the integration problem to two causes — heterogeneity of
 format, structure and terminology across structured, semi-structured and unstructured
 sources, and the absence of standardisation in generation and reporting — in contrast to
@@ -171,9 +184,12 @@ prediction, dossier — with no maintained crosswalks, so conformance with one i
 about another and the same experiment is re-described in several vocabularies. They differ
 in legal standing, from treaty-backed acceptance through mandatory filing format and
 guidance to voluntary convention, giving the producer no signal as to which subset suffices
-for a given regulatory question. And the vocabulary of harmonisation is itself unharmonised:
-EFSA glosses the final FAIR principle as reproducibility rather than reusability (EFSA,
-2025).
+for a given regulatory question. And the vocabulary of harmonisation is itself unharmonised. EFSA
+glosses the final FAIR principle as reproducibility rather than reusability (EFSA, 2025);
+more consequentially, most of the guidance that implements FAIR in practice — GD 211's
+completeness requirements, GIVIMP's record retention, the OORF's reporting elements — never
+uses the term, so a producer cannot establish what is required by searching for it, and
+conformance with FAIR cannot be read off conformance with the guidance or vice versa.
 
 The burden falls on the party least equipped to carry it. A laboratory generating a NAM
 dataset for eventual regulatory use may face a funder's data-management requirement, a
