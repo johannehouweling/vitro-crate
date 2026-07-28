@@ -20,10 +20,9 @@ therefore require highly structured metadata, standardised reporting formats and
 provenance — including study identity, test facility, GLP status, protocol deviations and
 the versions of the guideline and reporting standard applied — to enable independent
 evaluation and regulatory decision-making (Briggs et al., 2021; OECD, 2025). It is worth
-noting how this machine-actionability was obtained: in both of the major regulatory
-ecosystems described below, structured reporting became routine only once a shared
-information model, a validation service and a submission pipeline were made a condition of
-filing.
+noting how this machine-actionability was obtained: in the regulatory ecosystems described
+below, structured reporting became routine only once a shared information model, a
+validation service and a submission pipeline were made a condition of filing.
 
 ## Harmonised reporting under the OECD
 
@@ -39,7 +38,11 @@ for REACH registrations and is also used for biocides, plant protection products
 regulatory programmes outside the European Union (OECD, n.d.). The resulting records are
 surfaced across jurisdictions through eChemPortal and, for REACH, through ECHA's public
 dissemination platform, which together constitute the largest openly queryable body of
-regulatory toxicology data in existence.
+regulatory toxicology data in existence. The gravitational pull of this ecosystem is
+illustrated by its adoption beyond its original scope: EFSA's chemical hazards database
+OpenFoodTox was migrated in its third major version into IUCLID 6 and restructured in line
+with the OHTs, explicitly to enable standardised collection and reporting and
+interoperability with the EU Common Data Platform on Chemicals (Benfenati et al., 2026).
 
 Two features make this ecosystem instructive as a FAIR implementation. First,
 interoperability is a precondition of submission rather than an aspiration: dossiers are
@@ -119,15 +122,79 @@ captured inconsistently, dispersed across documents, or held only in non-machine
 form (Krebs et al., 2020; Blum et al., 2025). The same argument has been made for the
 mechanistic scaffolding on which NAM evidence is hung: adverse outcome pathways must
 themselves be FAIR if they are to serve as a stable interoperability layer between assays
-and regulatory endpoints (Wittwehr et al., 2024). The regulatory response has been a set of
-reporting frameworks that function as domain-specific metadata standards. GIVIMP (OECD,
-2018) sets out good *in vitro* method practices covering test systems, reagents, standard
-operating procedures, method performance and record retention; the OECD Omics Reporting
-Framework (OECD, 2023) defines the reporting elements required for regulatory use of
-transcriptomics and metabolomics data; and for computational methods the (Q)SAR Model
-Reporting Format and Prediction Reporting Format play the analogous role. Each specifies
-what must be recorded. None specifies a machine-actionable container in which the record and
-the data travel together.
+and regulatory endpoints (Wittwehr et al., 2024).
+
+## An accumulating landscape of overlapping frameworks
+
+The regulatory response to each of these gaps has been a further reporting framework, and
+the frameworks now substantially outnumber the endpoints they were written to serve. GIVIMP
+(OECD, 2018) sets out good *in vitro* method practices covering test systems, reagents,
+standard operating procedures, method performance and record retention. The OECD Omics
+Reporting Framework (OECD, 2023) defines the reporting elements required for regulatory use
+of transcriptomics and metabolomics data. For computational methods the (Q)SAR Model
+Reporting Format and Prediction Reporting Format play the analogous role, and EFSA has
+issued its own interpretation of FAIR for mechanistic effect models (EFSA, 2025). Guidance
+Documents 34 and 211 govern validation and non-guideline method description respectively
+(OECD, 2005, 2017), ToxTemp operationalises the latter (Krebs et al., 2019), and Guidance
+Document 417 addresses research data generated outside regulatory frameworks altogether
+(OECD, 2025). Table 1 summarises the principal instruments a NAM dataset may be expected to
+satisfy.
+
+**Table 1.** Principal reporting and data-structuring instruments relevant to NAM evidence
+in a regulatory context, by the object each describes.
+
+| Instrument | Custodian | What it standardises | Object described | Status |
+|---|---|---|---|---|
+| OECD Harmonised Templates | OECD | Study summary content per endpoint | Study summary | De facto mandatory for dossier submission |
+| IUCLID 6 | ECHA / OECD | Dossier structure and submission format | Substance dossier | Mandatory (REACH, biocides, PPP) |
+| OHT 201 "Intermediate effects" | OECD | Non-apical and mechanistic observations | Observation | Available; adoption emerging |
+| CDISC SEND / SENDIG | CDISC | Nonclinical study tabulation | *In vivo* study | Mandatory (US FDA) |
+| GD 34 | OECD | Validation and regulatory acceptance | Method | Guidance |
+| GD 211 | OECD | Non-guideline *in vitro* method description | Method | Guidance |
+| ToxTemp | Academic community | Operationalisation of GD 211 | Method | Voluntary |
+| GIVIMP (GD 286) | OECD | *In vitro* method quality practices | Method and facility | Guidance |
+| OECD Omics Reporting Framework (No. 390) | OECD | Transcriptomics / metabolomics reporting | Dataset | Guidance |
+| QMRF / QPRF | JRC / ECHA | (Q)SAR model and prediction reporting | Model and prediction | Expected with QSAR evidence |
+| EFSA FAIR statement | EFSA | FAIR interpretation for effect models | Model | Statement |
+| GD 417 | OECD | Generation, reporting and use of research data | Research dataset | Guidance |
+| ISA, Bioschemas, RO-Crate | Community | Structure and packaging | Research object | Community standard |
+
+Three properties of this landscape create difficulty beyond the sum of its parts. First, the
+instruments describe *different objects* — a method, a facility, a study summary, a dataset,
+a model, a prediction, a dossier — and there are no maintained crosswalks between them, so
+conformance with one implies nothing about conformance with another and the same underlying
+experiment must be re-described in several vocabularies. Second, they differ in legal
+standing, from mandatory submission formats through guidance to voluntary community
+conventions, which means a data producer cannot infer priority from the documents themselves
+and receives no signal about which subset is sufficient for a given regulatory question.
+Third, even the vocabulary of harmonisation is not harmonised: EFSA's statement glosses the
+final FAIR principle as reproducibility rather than reusability (EFSA, 2025), a small
+divergence that nonetheless illustrates how a principle can be locally reinterpreted at each
+point of adoption.
+
+The burden of reconciling this falls on the party least equipped to carry it. A single
+academic laboratory generating a NAM dataset intended for eventual regulatory use may be
+expected to satisfy a funder's FAIR data-management requirement, a journal's data
+availability policy, GD 211 and ToxTemp for the method description, GIVIMP for quality
+practices, the Omics Reporting Framework if transcriptomics are involved, and OHT 201 should
+the data enter a dossier — each with its own template, terminology and level of granularity,
+and none of which reads the others' output. Completing a single ToxTemp has been estimated
+to take up to five days (ONTOX, 2025); the aggregate is a documentation burden that predicts
+its own outcome, namely partial and inconsistent compliance. What the proliferation reflects
+is not redundancy so much as an unresolved division of labour: each framework specifies what
+must be recorded about one object, none specifies a machine-actionable container in which
+the records and the data travel together, and consequently the integration work is repeated
+by every producer and every assessor.
+
+The more promising signals are therefore consolidative rather than additive. The migration
+of OpenFoodTox into IUCLID 6 and the OHTs (Benfenati et al., 2026), the extension of the OHT
+suite to mechanistic evidence through OHT 201 (Wittwehr et al., 2023), and eTRANSAFE's
+retrofitting of legacy studies into CDISC SEND (Lauer et al., 2022) all reuse an existing
+carrier rather than minting a new one. This suggests that the practical requirement is not a
+further reporting standard but a packaging convention capable of *carrying* multiple
+conformance claims — declaring explicitly which guidance and community standards a given
+dataset adheres to, and binding those declarations to the data and method descriptions they
+qualify.
 
 ## Federated infrastructure for proprietary evidence
 
@@ -202,6 +269,18 @@ Tracking System for Alternative methods towards Regulatory acceptance. The unit 
 description is the method, and its persistent identity is what allows independently
 generated datasets to be recognised as products of the same procedure.
 
+That this is a general regulatory problem rather than an *in vitro* one is shown by EFSA's
+parallel treatment of mechanistic effect models. Its working group on effect models in
+environmental risk assessment set out an interpretation of each FAIR principle specifically
+for models used in the regulatory environmental risk assessment of pesticides, surveying the
+resources available to support implementation and arguing that greater FAIRness of the
+models themselves would yield a more efficient review process and better integration of
+model-based evidence, with benefits across stakeholder groups (EFSA, 2025). The statement is
+deliberately non-prescriptive, intended to open discussion within the modelling community
+rather than impose a template. Its significance here is structural: a model, like an assay,
+is a *method*, and EFSA's argument is that the object requiring FAIRification is the method
+and not only the numbers it emits.
+
 Making NAM-derived data FAIR is a different problem, concerned with the individual
 experiment: which substance was tested, on which biological model, under which exposure
 design, measuring which endpoint, processed by which pipeline, and answering which
@@ -217,13 +296,17 @@ both remain irreproducible unless the analytical workflow that turned measuremen
 reported result is itself captured and re-executable. Existing regulatory infrastructures
 address these unevenly. IUCLID and the OHTs standardise the reported result, SEND
 standardises the study tabulation, GD 211 and ToxTemp standardise the method description,
-and the OECD Omics Reporting Framework standardises omics reporting; but no single instrument
-currently binds method description, raw and processed data, analysis code and regulatory
-context into one traceable, machine-actionable unit.
+the Omics Reporting Framework standardises omics reporting, and EFSA's statement addresses
+the model; but no single instrument currently binds method description, raw and processed
+data, analysis code and regulatory context into one traceable, machine-actionable unit.
 
 ---
 
 ## References
+
+Benfenati, E., et al. (2026). Further development and update of EFSA's Chemical Hazards
+database: OpenFoodTox 3.0. *EFSA Supporting Publications*, EN-10099.
+https://doi.org/10.2903/sp.efsa.2026.EN-10099
 
 Beronius, A., Molander, L., Zilliacus, J., Rudén, C., & Hanberg, A. (2018). Testing and
 refining the Science in Risk Assessment and Policy (SciRAP) web-based platform for
@@ -245,6 +328,10 @@ https://www.cdisc.org/standards/foundational/send
 Deepika, D., Bharti, K., & Sharma, S. (2025). Advancing human health risk assessment: the
 role of new approach methodologies. *Frontiers in Toxicology*, 7, 1632941.
 https://doi.org/10.3389/ftox.2025.1632941
+
+EFSA (European Food Safety Authority). (2025). Statement on the interpretation of FAIR
+principles for mechanistic effect models in the regulatory environmental risk assessment of
+pesticides. *EFSA Journal*, 23(11), e9741. https://doi.org/10.2903/j.efsa.2025.9741
 
 FDA. (2024). *Study Data Technical Conformance Guide*. U.S. Food and Drug Administration.
 
@@ -268,6 +355,10 @@ Moermond, C. T. A., Kase, R., Korkaric, M., & Ågerstrand, M. (2016). CRED: Crit
 reporting and evaluating ecotoxicity data. *Environmental Toxicology and Chemistry*, 35(5),
 1297–1309.
 
+OECD. (2005). *Guidance Document on the Validation and International Acceptance of New or
+Updated Test Methods for Hazard Assessment* (Series on Testing and Assessment No. 34).
+OECD Publishing.
+
 OECD. (2017). *Guidance Document for Describing Non-Guideline In Vitro Test Methods*
 (Series on Testing and Assessment No. 211). OECD Publishing.
 
@@ -286,10 +377,17 @@ https://doi.org/10.1787/8d49ec1d-en
 OECD. (n.d.). *International Uniform ChemicaL Information Database (IUCLID)*.
 https://www.oecd.org/en/topics/sub-issues/assessment-of-chemicals/international-uniform-chemical-information-database.html
 
+ONTOX. (2025). [Estimate of ToxTemp completion effort — complete citation from project
+deliverable.]
+
 Ouedraogo, G., Alépée, N., Tan, B., & Roper, C. S. (2025). A call to action: Advancing new
 approach methodologies (NAMs) in regulatory toxicology through a unified framework for
 validation and acceptance. *Regulatory Toxicology and Pharmacology*, 162, 105904.
 https://doi.org/10.1016/j.yrtph.2025.105904
+
+Pineda-Pampliega, J., et al. (2022). Developing a framework for open and FAIR data
+management practices for next generation risk- and benefit assessment of fish and seafood.
+*EFSA Journal*, 20(S1), e200917. https://doi.org/10.2903/j.efsa.2022.e200917
 
 Schneider, K., Schwarz, M., Burkholder, I., Kopp-Schneider, A., Edler, L.,
 Kinsner-Ovaskainen, A., Hartung, T., & Hoffmann, S. (2009). "ToxRTool", a new tool to
