@@ -27,11 +27,44 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Source-header synonyms -> the canonical condition-table title (#381). Real plate
+# maps do not use the ten canonical names, and the writer below drops anything that
+# does not match one exactly, so without this map a genuine plate map produces a
+# table of blank cells — strictly worse than the honest header-only placeholder.
+#
+# ``concentration`` / ``unit`` / ``duration`` are the pre-#180 five-column names the
+# ReAct tool description advertised long after they stopped existing; a model that
+# obeyed that description had every one of its values silently discarded.
+_CONDITION_TABLE_ALIASES: dict[str, str] = {
+    "well": "well_id",
+    "well_position": "well_id",
+    "concentration": "concentration_value",
+    "conc": "concentration_value",
+    "dose": "concentration_value",
+    "unit": "concentration_unit",
+    "units": "concentration_unit",
+    "duration": "exposure_duration",
+    "exposure_time": "exposure_duration",
+    "cell": "cell_line",
+    "cell line": "cell_line",
+    "chemical": "compound",
+    "substance": "compound",
+    "test_item": "compound",
+    "replicate": "technical_replicate",
+}
+
+# A dose column that carries its unit in the header (``concentration_uM``,
+# ``dose_mM``): the value feeds concentration_value and the suffix becomes the
+# literal concentration_unit. D5 — the suffix is prose from a filename, so it is
+# carried verbatim and never lifted to a UO IRI; that needs an authoritative lookup.
+_UNIT_SUFFIX_RE = re.compile(r"^(?:concentration|conc|dose)_(?P<unit>[A-Za-zµ%/]+)$", re.IGNORECASE)
 
 # CSVW datatype (from #94's _CONDITION_TABLE_COLUMNS) -> Frictionless field type.
 # Anything unmapped falls back to "string" (Frictionless's permissive default).
@@ -281,6 +314,86 @@ def csvw_to_frictionless(columns: Iterable[Mapping[str, Any]]) -> dict[str, Any]
     return {"fields": fields}
 
 
+def project_condition_rows(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Project source rows onto the canonical condition-table columns (#381).
+
+    Maps each source header to its canonical title via
+    :data:`_CONDITION_TABLE_ALIASES` and the suffix-unit rule
+    (:data:`_UNIT_SUFFIX_RE`), so a real plate map populates real columns instead
+    of being dropped by the writer's ``extrasaction="ignore"``.
+
+    Precedence is deliberate: a **canonical** source name always wins, and an alias
+    never overwrites a canonical value already set on that row. So a row carrying
+    both ``well_id`` and ``well`` keeps ``well_id``, and an explicit
+    ``concentration_unit`` survives a ``dose_uM`` header.
+
+    Args:
+        rows: Source row mappings, keyed by whatever headers the source used.
+
+    Returns:
+        ``{"rows": [...], "mapped_columns": [...], "unmapped_source_columns": [...]}``
+        — the projected rows, the canonical columns any row populated, and the
+        source columns nothing could be done with (reported, never silently
+        swallowed: a measurement column like ``tpo_activity_rfu`` has no canonical
+        home and the caller deserves to know it was skipped).
+    """
+    from builder.tools._crate_mapping import _CONDITION_TABLE_HEADER
+
+    canonical = _CONDITION_TABLE_HEADER.strip("\n").split(",")
+    canonical_set = set(canonical)
+
+    projected: list[dict[str, Any]] = []
+    mapped: set[str] = set()
+    unmapped: set[str] = set()
+
+    for row in rows:
+        out: dict[str, Any] = {}
+        # Canonical headers first, so an alias can never displace them.
+        for key, value in row.items():
+            name = str(key).strip()
+            if name in canonical_set and _has_value(value):
+                out[name] = value
+                mapped.add(name)
+        for key, value in row.items():
+            name = str(key).strip()
+            if name in canonical_set:
+                continue
+            lowered = name.lower()
+            target = _CONDITION_TABLE_ALIASES.get(lowered)
+            if target is not None:
+                if _has_value(value) and target not in out:
+                    out[target] = value
+                    mapped.add(target)
+                continue
+            # Match the ORIGINAL header, not the lower-cased one: the regex is
+            # already case-insensitive, and the captured suffix must keep its case
+            # because uM / mM / nM differ by three orders of magnitude each.
+            suffix = _UNIT_SUFFIX_RE.match(name)
+            if suffix is not None:
+                if _has_value(value) and "concentration_value" not in out:
+                    out["concentration_value"] = value
+                    mapped.add("concentration_value")
+                    if "concentration_unit" not in out:
+                        out["concentration_unit"] = suffix.group("unit")
+                        mapped.add("concentration_unit")
+                continue
+            unmapped.add(name)
+        projected.append(out)
+
+    return {
+        "rows": projected,
+        "mapped_columns": sorted(mapped),
+        "unmapped_source_columns": sorted(unmapped),
+    }
+
+
+def _has_value(value: Any) -> bool:
+    """True when *value* carries content (not ``None`` and not blank/whitespace)."""
+    return value is not None and str(value).strip() != ""
+
+
 def populate_condition_table(
     state: Any,
     exposure_id: str,
@@ -339,11 +452,15 @@ def populate_condition_table(
     base_dir = Path(output_dir) if output_dir else None
     if base_dir is None:
         out_path = getattr(getattr(state, "metadata", None), "output_path", None)
-        base_dir = Path(out_path) if out_path else Path.cwd()
+        if out_path:
+            base_dir = Path(out_path)
+        else:
+            # Resolve exactly as export_crate does (#381). The old Path.cwd()
+            # fallback let populate and export target different roots, so rows
+            # written here vanished at export with nothing reported.
+            from builder.tools.builder import _default_crate_path
 
-    rel = _condition_table_rel(_mint_id(proc))
-    dest = base_dir / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
+            base_dir = Path(_default_crate_path(state))
 
     header_cols = _CONDITION_TABLE_HEADER.strip("\n").split(",")
 
@@ -357,14 +474,53 @@ def populate_condition_table(
     else:
         rows = rows_or_csv_path
 
+    # Alias source headers onto the canonical titles BEFORE deciding to write, so
+    # a real plate map is populated rather than dropped by extrasaction="ignore".
+    projection = project_condition_rows(rows)
+    projected = projection["rows"]
+    unmapped = projection["unmapped_source_columns"]
+
+    # Refusal contract (#381): a table of blank cells is worse than the honest
+    # header-only placeholder, because the CSVW schema then advertises typed
+    # columns backed by nothing. Refuse, write NOTHING, and say what was skipped.
+    if not projection["mapped_columns"]:
+        return {
+            "ok": False,
+            "error": (
+                "No source column maps to a condition-table column; refusing to write "
+                "a blank table. Expected one of: " + ", ".join(header_cols)
+            ),
+            "unmapped_source_columns": unmapped,
+        }
+    if not any(_has_value(row.get("well_id")) for row in projected):
+        return {
+            "ok": False,
+            "error": (
+                "No row resolves a well_id; a per-well design table without a well key "
+                "is not a design table. Refusing to write."
+            ),
+            "unmapped_source_columns": unmapped,
+        }
+
+    rel = _condition_table_rel(_mint_id(proc))
+    dest = base_dir / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
     with dest.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=header_cols, extrasaction="ignore")
         writer.writeheader()
-        for row in rows:
+        for row in projected:
             writer.writerow({c: row.get(c, "") for c in header_cols})
 
-    logger.debug("Wrote %d condition-table rows to %s", len(rows), dest)
-    return {"ok": True, "path": str(dest), "rows": len(rows)}
+    logger.debug("Wrote %d condition-table rows to %s", len(projected), dest)
+    if unmapped:
+        logger.info("Condition table: skipped unmapped source columns %s", unmapped)
+    return {
+        "ok": True,
+        "path": str(dest),
+        "rows": len(projected),
+        "unmapped_source_columns": unmapped,
+    }
 
 
 # ---------------------------------------------------------------------------
