@@ -688,7 +688,7 @@ TOOL_SPECS = [
     },
     {
         "name": "populate_condition_table",
-        "description": "Write per-well rows into an Exposure's CSVW condition table (replacing the header-only placeholder). Pass rows_or_csv_path as a list of row dicts keyed by the columns cell_line/compound/concentration/unit/duration, or a path to a user-supplied plate-map CSV. The table's CSVW typing (tableSchema) is preserved. Returns {ok, path, rows}. Validate the result with validate_table using the inferred schema.",
+        "description": "Write per-well rows into an Exposure's CSVW condition table (replacing the header-only placeholder). Pass rows_or_csv_path as a list of row dicts, or a path to a user-supplied plate-map CSV. The canonical columns are well_id, assay, cell_line, compound, concentration_value, concentration_unit, exposure_duration, experiment, technical_replicate, control. Common synonyms are aliased for you (well->well_id, concentration/conc/dose->concentration_value, unit(s)->concentration_unit, duration/exposure_time->exposure_duration, cell->cell_line, chemical/substance/test_item->compound, replicate->technical_replicate), and a unit-suffixed dose header like concentration_uM fills concentration_value AND concentration_unit. Source columns with no canonical home (e.g. a measurement column) are reported in unmapped_source_columns, not written. The tool REFUSES and writes nothing if no canonical column maps or if no row has a well_id — a blank table is worse than the honest header. The table's CSVW typing (tableSchema) is preserved. Returns {ok, path, rows, unmapped_source_columns}. Validate the result with validate_table using the inferred schema.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -697,7 +697,7 @@ TOOL_SPECS = [
                     "description": "entity_id of the Exposure LabProcess.",
                 },
                 "rows_or_csv_path": {
-                    "description": "A list of row dicts (keys: cell_line/compound/concentration/unit/duration) OR a path to a plate-map CSV.",
+                    "description": "A list of row dicts (canonical keys: well_id/assay/cell_line/compound/concentration_value/concentration_unit/exposure_duration/experiment/technical_replicate/control; common synonyms are aliased) OR a path to a plate-map CSV.",
                     "anyOf": [
                         {"type": "array", "items": {"type": "object"}},
                         {"type": "string"},
