@@ -209,12 +209,19 @@ class TestDraftEntitiesWiring:
         assert calls, "the leaf must be invoked when provider + context are present"
         assert any("TPO inhibition" in ctx for _, ctx in calls)
 
-        # The descriptive field landed on a backbone entity and the seeded compound.
+        # The descriptive field landed on the backbone entities.
         study = engine.state.get_entity("st1")
-        chem = engine.state.get_entity("chem1")
-        assert study is not None and chem is not None
+        assert study is not None
         assert study.fields.get("description") == "drafted Study"
-        assert chem.fields.get("description") == "drafted MolecularEntity"
+
+        # The seeded compound is NOT enriched: `MolecularEntity`'s D5-pruned
+        # schema exposes only `name`, which it already has, so the leaf is never
+        # called for it (#423). This stub returns a `description` that the real
+        # leaf could not — see TestDrafterLeafIsSkippedWhenItCannotHelp.
+        chem = engine.state.get_entity("chem1")
+        assert chem is not None
+        assert not chem.fields.get("description")
+        assert "MolecularEntity" not in [t for t, _ in calls]
 
         # D5: the identifier the leaf returned was NOT applied to any entity.
         for ent_id in ("inv1", "st1", "as1", "chem1"):
@@ -300,6 +307,246 @@ class TestDraftEntitiesWiring:
         assert before == after, "no-context _draft_entities must mutate nothing"
         assert result.get("drafted") == []
         assert result.get("fields_applied") == 0
+
+
+class TestDrafterLeafIsSkippedWhenItCannotHelp:
+    """The leaf is not called when nothing it can return is applicable (#423).
+
+    The model is bound to a D5-pruned structured-output schema
+    (:func:`builder.agents.pipeline.leaves._structured_output_schema`), and the
+    spine applies only `_DESCRIPTIVE_APPLY_FIELDS` that the entity is *missing*.
+    When those two sets do not intersect, the call cannot change state whatever
+    the model returns — so it must not be made at all.
+
+    This is not a heuristic about which types are "worth" drafting: it is a
+    property of the schema. `MolecularEntity` exposes only `name`, so a compound
+    that already has a name (every compound resolved via `resolve_compound`) can
+    only ever be missing `description` — a field the model is never offered.
+    """
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def _titled_state(self) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "TPO inhibition dose-response screen"
+        state.metadata.description = "A cell-based in vitro TPO inhibition assay."
+        return state
+
+    def _record_calls(
+        self, monkeypatch: pytest.MonkeyPatch, returns: dict | None = None
+    ) -> list[str]:
+        """Stub the leaf; return the list it appends each called entity_type to."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        seen: list[str] = []
+
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
+            seen.append(entity_type)
+            return dict(returns or {})
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+        return seen
+
+    def test_named_compound_never_reaches_the_leaf(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A compound with a name is missing only `description`, which the
+        MolecularEntity schema does not expose — so no call is made."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        seen = self._record_calls(monkeypatch, {"description": "drafted"})
+
+        state = self._titled_state()
+        state.add_entity(_entity("chem1", "MolecularEntity", name="Methimazole"))
+        engine = _engine(state)
+
+        result = pipeline_mod._draft_entities(engine)
+
+        assert "MolecularEntity" not in seen, (
+            "a named compound cannot be enriched by the leaf — the pruned schema "
+            f"offers only 'name', which is already set; calls made: {seen}"
+        )
+        assert result["fields_applied"] == 0
+        chem = engine.state.get_entity("chem1")
+        assert chem is not None and not chem.fields.get("description")
+
+    def test_an_unnamed_compound_still_reaches_the_leaf(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The guard is an intersection, not a per-type blacklist: a compound
+        missing its `name` CAN be helped, so the call must still happen."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        seen = self._record_calls(monkeypatch, {"name": "Methimazole"})
+
+        state = self._titled_state()
+        state.add_entity(_entity("chem1", "MolecularEntity"))
+        engine = _engine(state)
+
+        pipeline_mod._draft_entities(engine)
+
+        assert seen.count("MolecularEntity") == 1
+        chem = engine.state.get_entity("chem1")
+        assert chem is not None and chem.fields.get("name") == "Methimazole"
+
+    def test_a_described_type_is_unaffected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Control — `Assay` DOES expose `description`, so the guard must not
+        touch it. Without this, "skip everything" would pass the test above."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        seen = self._record_calls(monkeypatch, {"description": "drafted assay"})
+
+        state = self._titled_state()
+        state.add_entity(_entity("as1", "Assay", name="As"))
+        engine = _engine(state)
+
+        pipeline_mod._draft_entities(engine)
+
+        assert seen.count("Assay") == 1
+        assay = engine.state.get_entity("as1")
+        assert assay is not None
+        assert assay.fields.get("description") == "drafted assay"
+
+    def test_the_guard_matches_the_schema_the_model_is_actually_bound_to(self) -> None:
+        """The skip set is derived from the real leaf schema, not hardcoded.
+
+        Pins the property that makes the guard correct: for every draftable type,
+        the fields the spine can apply are exactly the visible-schema fields it
+        intersects. If someone adds `description` to the MolecularEntity draft
+        schema, the guard must start calling the leaf again on its own.
+        """
+        pytest.importorskip("langchain_core")
+        from builder.agents.pipeline.leaves import _structured_output_schema
+
+        visible = set(_structured_output_schema("MolecularEntity").get("properties", {}))
+        assert "description" not in visible, (
+            "this test encodes WHY named compounds are skipped; if MolecularEntity "
+            "gains a description field the skip is no longer correct"
+        )
+        assert "description" in set(_structured_output_schema("Assay").get("properties", {})), (
+            "Assay must still expose description, else the control test is vacuous"
+        )
+
+
+class TestDrafterPromptCarriesEntityIdentity:
+    """Each drafted entity gets its own context, not one shared digest (#423).
+
+    `draft_entity_fields` receives only `(entity_type, context)`. When `context`
+    is the same crate-wide digest for every entity, two entities of one type send
+    a byte-identical prompt and the model returns the same text twice — observed
+    on a real build as the parental line `cell_cho_k1` being described as
+    "stably transfected with ... OATP1C1", copied from its transfected sibling.
+
+    The fix is the pattern the sibling caller already uses
+    (`guidance.py::_draft_context`): fold the entity's own identity into the
+    free-text context. No signature change.
+    """
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def test_two_same_type_entities_get_different_prompts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        contexts: dict[str, str] = {}
+        order: list[str] = []
+
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
+            order.append(context)
+            return {"description": f"desc for context #{len(order)}"}
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+
+        state = CrateState()
+        state.metadata.title = "OATP1C1 T4 uptake inhibition screen"
+        state.metadata.description = "Transfected CHO-K1 cell model."
+        state.add_entity(_entity("cell_cho_k1", "CellLineSample", name="CHO-K1"))
+        state.add_entity(_entity("cell_cho_k1_oatp1c1", "CellLineSample", name="CHO-K1 OATP1C1"))
+        engine = _engine(state)
+
+        pipeline_mod._draft_entities(engine)
+
+        assert len(order) == 2, f"expected one call per cell line, got {len(order)}"
+        assert order[0] != order[1], (
+            "both cell lines were sent a byte-identical prompt — the model cannot "
+            "tell which one it is describing"
+        )
+
+        # Each prompt must name the entity it is about, and must NOT be dominated
+        # by the sibling's identity.
+        contexts = dict(zip(["cell_cho_k1", "cell_cho_k1_oatp1c1"], order, strict=True))
+        assert "CHO-K1 OATP1C1" in contexts["cell_cho_k1_oatp1c1"]
+        assert "cell_cho_k1_oatp1c1" not in contexts["cell_cho_k1"], (
+            "the parental line's prompt names its transfected sibling — this is "
+            "exactly how the transfection description leaked onto the parental line"
+        )
+
+    def test_a_field_heavy_entity_cannot_balloon_the_prompt(self) -> None:
+        """The identity block is bounded in total, not just per field.
+
+        This fix exists partly to stop the drafter burning tokens; an entity
+        carrying many long fields must not spend them back. Per-field truncation
+        alone does not bound the block — twenty fields at the per-field cap is
+        still a large prompt.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        entity = _entity(
+            "as1",
+            "Assay",
+            **{f"field_{i}": ("x" * 400) for i in range(40)},
+        )
+        context = pipeline_mod._entity_draft_context(entity, "SHARED DIGEST")
+
+        identity = context.split("SHARED DIGEST", 1)[1]
+        assert len(identity) <= pipeline_mod._ENTITY_CONTEXT_MAX_CHARS + 200, (
+            f"the per-entity block is unbounded ({len(identity)} chars) — a "
+            "field-heavy entity would spend back what the skip guard saves"
+        )
+        # Identity survives the truncation: it is emitted before the field dump.
+        assert "as1" in context
+        assert "Assay" in context
+
+    def test_the_shared_crate_context_is_still_present(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Per-entity identity is ADDED to the crate digest, not swapped for it.
+
+        The leaf still needs the surrounding document to have anything to say;
+        the fix must not starve it down to just an id.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        seen: list[str] = []
+
+        def fake_leaf(entity_type, context, *, overrides=None, usage_sink=None):
+            seen.append(context)
+            return {}
+
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", fake_leaf)
+
+        state = CrateState()
+        state.metadata.title = "TPO inhibition dose-response screen"
+        state.metadata.description = "A cell-based in vitro TPO inhibition assay."
+        state.add_entity(_entity("as1", "Assay", name="As"))
+        engine = _engine(state)
+
+        pipeline_mod._draft_entities(engine)
+
+        assert seen, "the leaf must still be called for a describable entity"
+        assert "TPO inhibition" in seen[0], (
+            "the shared crate context was dropped; the leaf has nothing to draft from"
+        )
 
 
 class TestGatherContextMetadataFirst:

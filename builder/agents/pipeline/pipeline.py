@@ -55,9 +55,11 @@ from builder.config import get_provider
 # mis-placed into givenName). Re-exported under the legacy private name so the
 # materialize-path callsite and tests can keep using ``_split_person_name``.
 from builder.tools.drafters import split_person_name as _split_person_name
+from builder.tools.field_kinds import drafter_visible_fields
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
+    from builder.state import Entity
 
 logger = logging.getLogger(__name__)
 
@@ -593,6 +595,57 @@ def _gather_context(engine: AgentEngine) -> str:
     return "\n\n".join(parts).strip()
 
 
+# Per-field cap on the entity digest folded into the drafter prompt. Enough for a
+# cell line's genetic-modification note, short enough that a long scanned blob on
+# one entity cannot crowd out the shared crate context.
+_ENTITY_CONTEXT_FIELD_CHARS = 300
+
+# Cap on the whole per-entity block. Per-field truncation alone does not bound it
+# — a field-heavy entity would spend back what the skip guard (§14.5 step 2)
+# saves. Identity comes first, so what a cap drops is the field tail, never which
+# entity the model is being asked about.
+_ENTITY_CONTEXT_MAX_CHARS = 1500
+
+
+def _entity_draft_context(entity: Entity, shared: str) -> str:
+    """The drafter prompt's context for *entity*: the crate digest + its identity.
+
+    The leaf's signature is ``(entity_type, context)`` — the entity itself never
+    reaches it. Passing only the crate-wide *shared* digest means every entity of
+    one type sends a byte-identical prompt, so the model cannot tell which one it
+    is describing and returns the same text for all of them. Observed on a real
+    build as the parental cell line ``cho_k1`` being described as "stably
+    transfected with ... OATP1C1" — its transfected sibling's description (#423).
+
+    So fold the entity's own id, type and already-known field values in. Only
+    *this* entity's fields are included: naming a sibling here would reintroduce
+    the same confusion from the other direction. Mirrors
+    :func:`builder.agents.pipeline.guidance._draft_context`, which already varies
+    the context per gap.
+    """
+    parts = [shared] if shared else []
+    identity = [f"Entity id: {entity.entity_id}", f"Entity type: {entity.type}"]
+    budget = _ENTITY_CONTEXT_MAX_CHARS - sum(len(line) for line in identity)
+    for field, value in sorted(entity.fields.items()):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if len(text) > _ENTITY_CONTEXT_FIELD_CHARS:
+            text = text[:_ENTITY_CONTEXT_FIELD_CHARS].rstrip() + "…"
+        line = f"{field}: {text}"
+        # Checked BEFORE appending: a cap that can be overshot by a whole field
+        # is not a cap. Fields are sorted, so what survives is stable per entity.
+        if len(line) > budget:
+            break
+        identity.append(line)
+        budget -= len(line)
+    parts.append(
+        "The entity you are describing, and what is already known about it "
+        "(describe THIS entity only, not any related one):\n" + "\n".join(identity)
+    )
+    return "\n\n".join(parts)
+
+
 def _draft_entities(
     engine: AgentEngine,
     usage_sink: UsageSink | None = None,
@@ -650,9 +703,28 @@ def _draft_entities(
         if not missing:
             continue
 
+        # Gate 3 — the model must actually be OFFERED a field we could apply.
+        # The leaf binds the model to a D5-pruned schema, and we apply only what
+        # is both descriptive and missing; when those sets are disjoint the call
+        # cannot change state no matter what comes back, so don't pay for it.
+        # On the S-VHPS26 fixture this is 21 of 26 calls (#423) — every named
+        # compound, plus Person and Organization, whose schemas expose no
+        # `description`.
+        if not set(missing) & drafter_visible_fields(entity.type):
+            logger.debug(
+                "drafter-leaf skipped for %s (%s): missing %s, none offered by its schema",
+                entity.entity_id,
+                entity.type,
+                missing,
+            )
+            continue
+
         try:
             leaf_fields = draft_entity_fields(
-                entity.type, context, usage_sink=usage_sink, overrides=overrides
+                entity.type,
+                _entity_draft_context(entity, context),
+                usage_sink=usage_sink,
+                overrides=overrides,
             )
         except Exception as exc:  # noqa: BLE001 - a flaky leaf must not break the spine
             logger.warning(

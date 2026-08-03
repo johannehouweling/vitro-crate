@@ -30,12 +30,13 @@ from __future__ import annotations
 from typing import Any
 
 from builder.state import CrateState
-from builder.tools._crate_mapping import _REF_FIELDS
+from builder.tools._crate_mapping import _REF_FIELDS, draft_hints_schema
 
 __all__ = [
     "CITATION_FIELDS",
     "IDENTIFIER_FIELDS",
     "PERSON_FIELDS",
+    "drafter_visible_fields",
     "is_citation_field",
     "is_identifier_field",
     "is_person_field",
@@ -101,6 +102,13 @@ IDENTIFIER_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+# Fields pruned from the schema the drafter model sees AND stripped from its
+# output (D5): identifiers it must never invent, plus entity references, which
+# are wired deterministically by ``link`` / the resolver rather than extracted
+# as free text. The leaf aliases this rather than redefining it, so the schema
+# the model is bound to and the spine's "can this call help?" test cannot drift.
+_EXCLUDED_DRAFT_FIELDS: frozenset[str] = IDENTIFIER_FIELDS | _REF_FIELDS
+
 
 def normalise_field_name(field: str | None) -> str:
     """Reduce a property name to a spelling-insensitive comparison key.
@@ -150,6 +158,30 @@ def is_reference_field(field: str) -> bool:
     the build uses to strip such keys out of an entity's scalar properties.
     """
     return field in _REF_FIELDS
+
+
+def drafter_visible_fields(entity_type: str) -> frozenset[str]:
+    """The fields the drafter model is actually offered for ``entity_type``.
+
+    :func:`builder.tools._crate_mapping.draft_hints_schema` minus every
+    identifier-bearing and reference field (D5 — the model is never *asked* for
+    an identifier). This is the exact property set of the structured-output
+    schema the leaf binds the model to.
+
+    It lives here, not in the leaf, because two callers need it and only one of
+    them may import ``langchain``: the leaf builds its structured-output schema
+    from it, and the pipeline spine uses it to decide whether a drafter call can
+    accomplish anything at all before paying for one (#423). Deriving both from
+    this single function is what stops the spine's skip rule from drifting away
+    from what the model can really return.
+
+    Note the schema stays open (``additionalProperties: true``), so a model MAY
+    return a field outside this set — the leaf strips identifiers from the result
+    defensively regardless. This is what the model is *offered*, which is the
+    right basis for "could this call possibly help?".
+    """
+    props = draft_hints_schema(entity_type).get("properties", {})
+    return frozenset(key for key in props if key not in _EXCLUDED_DRAFT_FIELDS)
 
 
 def is_resolvable_reference(state: CrateState, value: Any) -> bool:

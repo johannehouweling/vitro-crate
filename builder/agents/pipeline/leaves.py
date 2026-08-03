@@ -36,8 +36,12 @@ from builder.agents.llm import (
     _extract_model_name,
     _extract_token_usage,
 )
-from builder.tools._crate_mapping import _REF_FIELDS, draft_hints_schema
-from builder.tools.field_kinds import IDENTIFIER_FIELDS, is_identifier_field
+from builder.tools._crate_mapping import draft_hints_schema
+from builder.tools.field_kinds import (
+    _EXCLUDED_DRAFT_FIELDS,
+    IDENTIFIER_FIELDS,
+    is_identifier_field,
+)
 
 # A usage sink is notified of one leaf call's token usage:
 # ``(input_tokens, output_tokens, model_name)``. Any element may be ``None`` when
@@ -94,7 +98,10 @@ def _invoke_structured_with_usage(
 _IDENTIFIER_SCALAR_FIELDS: frozenset[str] = IDENTIFIER_FIELDS
 
 # Fields removed from the schema the model sees AND stripped from its output (D5).
-_EXCLUDED_FIELDS: frozenset[str] = _IDENTIFIER_SCALAR_FIELDS | _REF_FIELDS
+# Aliased from :mod:`builder.tools.field_kinds`, which owns the one definition:
+# the deterministic spine needs the same set to decide whether a drafter call can
+# apply anything (#423) and must not import this module (langchain).
+_EXCLUDED_FIELDS: frozenset[str] = _EXCLUDED_DRAFT_FIELDS
 
 _SYSTEM_PROMPT = (
     "You are a bounded metadata extractor for ISA-Tox RO-Crates. Given an entity "
