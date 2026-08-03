@@ -73,6 +73,12 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
             per_label = cases.setdefault(result.case_id, {})
             per_label[report.label] = {
                 "success": result.success,
+                # Validity across ALL repeats (#405), beside repeat #1's verdict:
+                # a case that conformed once in three must not diff as a clean win
+                # against one that conformed three times in three.
+                "success_per_repeat": result.success_per_repeat,
+                "success_rate": result.success_rate,
+                "always_succeeds": result.always_succeeds,
                 "total_tokens": result.total_tokens,
                 "latency_seconds": round(result.latency_seconds, 4),
                 "iterations": result.iterations,
