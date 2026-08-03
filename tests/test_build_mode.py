@@ -78,11 +78,14 @@ class TestRunBuildDispatch:
         # run_build returns None rather than a structured pipeline result.
         # `resumed` rides along on every dispatch and defaults to False — a build
         # that was not told it is a resume must not present itself as one (#410).
+        # `initial_prompt` likewise defaults to None: no kickoff means the loop
+        # keeps its conversational default and waits for a typed line (#412).
         assert captured == {
             "provider": "openai",
             "model": "m",
             "base_url": "u",
             "resumed": False,
+            "initial_prompt": None,
         }
         assert result is None
 
@@ -101,6 +104,39 @@ class TestRunBuildDispatch:
         run_build(BuildMode.REACT, object(), resumed=True)
 
         assert captured["resumed"] is True
+
+    def test_initial_prompt_reaches_the_react_arm(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--prompt` is the ReAct kickoff and must survive the dispatch (#412)."""
+        import builder.agents.react.agent_loop as agent_loop
+
+        captured: dict[str, Any] = {}
+
+        def _fake_agent(engine: Any, **kw: Any) -> None:
+            captured.update(kw)
+
+        monkeypatch.setattr(agent_loop, "run_interactive_agent", _fake_agent)
+        run_build(BuildMode.REACT, object(), initial_prompt="build the crate")
+
+        assert captured["initial_prompt"] == "build the crate"
+
+    def test_initial_prompt_is_not_forwarded_to_the_pipeline_arm(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The pipeline auto-runs and takes no opening message — mode-specific kwarg."""
+        import builder.agents.build as build_mod
+
+        captured: dict[str, Any] = {}
+
+        def _fake_build(engine: Any, **kw: Any) -> dict[str, Any]:
+            captured.update(kw)
+            return {}
+
+        monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
+        run_build(BuildMode.PIPELINE, object(), initial_prompt="ignored here")
+
+        assert "initial_prompt" not in captured
 
     def test_resume_provenance_reaches_the_pipeline_arm(
         self, monkeypatch: pytest.MonkeyPatch

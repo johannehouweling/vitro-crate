@@ -135,6 +135,28 @@ class TestInteractiveDispatch:
         args = parse_args(["--interactive", "--legacy-react"])
         assert args.legacy_react is True
 
+    def test_prompt_flag_is_parsed(self):
+        """`--prompt/-P` carries the ReAct kickoff message (#412)."""
+        assert parse_args(["--interactive"]).prompt is None
+        assert parse_args(["--interactive", "--prompt", "build it"]).prompt == "build it"
+        assert parse_args(["--interactive", "-P", "go"]).prompt == "go"
+
+    def test_prompt_flag_reaches_the_react_loop(self, monkeypatch):
+        """The kickoff must survive main -> run_build -> the loop (#412)."""
+        self._stub_config(monkeypatch)
+        captured: dict = {}
+
+        import builder.agents.react.agent_loop as agent_loop
+
+        monkeypatch.setattr(
+            agent_loop,
+            "run_interactive_agent",
+            lambda engine, **kw: captured.update(kw),
+        )
+
+        assert main(["--interactive", "--legacy-react", "--prompt", "build the crate"]) == 0
+        assert captured["initial_prompt"] == "build the crate"
+
     def test_default_interactive_routes_to_pipeline_build(self, monkeypatch, tmp_path):
         """--interactive (no opt-in) runs the deterministic pipeline + guidance.
 

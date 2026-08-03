@@ -255,6 +255,7 @@ def run_build(
     base_url: str | None = None,
     output: OutputChannel | None = None,
     resumed: bool = False,
+    initial_prompt: str | None = None,
 ) -> dict[str, Any] | None:
     """Dispatch a build to *mode*'s entrypoint — the single A/B switch (#309).
 
@@ -287,6 +288,9 @@ def run_build(
         output: Progress/summary sink for the pipeline path (e.g. ``print``).
         resumed: True iff this run was started from a saved session
             (``--resume``), as opposed to a fresh scan.
+        initial_prompt: ReAct-only opening message, so the loop starts working
+            instead of blocking on stdin (#412). Ignored for ``PIPELINE``, which
+            has no stdin gate — the spine runs unprompted.
 
     Returns:
         The pipeline result dict for :attr:`BuildMode.PIPELINE`; ``None`` for
@@ -301,6 +305,7 @@ def run_build(
             model=model,
             base_url=base_url,
             resumed=resumed,
+            initial_prompt=initial_prompt,
         )
         return None
 
