@@ -17,6 +17,15 @@ from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 _BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name"
 _CAS_PATTERN = re.compile(r"^\d{2,7}-\d{2}-\d$")
 
+# PubChem returns several SMILES flavours under the one ``SMILES`` label, keyed
+# by ``urn.name``, and has renamed them: the old ``Canonical`` was retired in
+# favour of ``Absolute`` (with stereochemistry) and ``Connectivity`` (without).
+# Lower rank wins. ``Absolute`` is preferred because we store a *stereochemical*
+# InChI alongside it, and a flat SMILES next to a stereo InChI describes two
+# different molecules. ``Canonical`` is kept so an older cached or mirrored
+# response still parses.
+_SMILES_PREFERENCE: dict[str, int] = {"Absolute": 0, "Canonical": 1, "Connectivity": 2}
+
 
 @functools.lru_cache(maxsize=512)
 def lookup_pubchem(name: str) -> dict:
@@ -37,13 +46,21 @@ def lookup_pubchem(name: str) -> dict:
         cid = str(compound["id"]["id"]["cid"])
 
         props: dict = {}
+        _smiles_rank = len(_SMILES_PREFERENCE)
         for p in compound.get("props", []):
             urn = p.get("urn", {})
             label = urn.get("label", "")
             name_key = urn.get("name", "")
             val = p.get("value", {})
-            if label == "SMILES" and name_key == "Canonical":
-                props["smiles"] = val.get("sval", "")
+            if label == "SMILES":
+                # PubChem ships several SMILES variants under one label and has
+                # renamed them before; take the most preferred one present rather
+                # than matching a single spelling. Matching only "Canonical" is
+                # what silently emptied this field for every compound (#425).
+                rank = _SMILES_PREFERENCE.get(name_key)
+                if rank is not None and rank < _smiles_rank:
+                    props["smiles"] = val.get("sval", "")
+                    _smiles_rank = rank
             elif label == "InChIKey":
                 props["inchikey"] = val.get("sval", "")
             elif label == "InChI" and name_key == "Standard":

@@ -85,10 +85,84 @@ class TestPubChemContract:
         assert result["formula"] == "C15H12O5"
         assert result["mass"] == "272.25"
         assert "VEEGZPWAAPPXRB" in result["inchikey"]
-        assert result["smiles"] != ""
+        # Pinned to the exact value, not `!= ""`: PubChem renamed this property
+        # and the parser silently stopped matching it, so every crate lost its
+        # SMILES while this test kept passing against a stale fixture (#425).
+        # The stereochemical ("Absolute") form is the one that agrees with the
+        # stereochemical InChI stored alongside it.
+        assert result["smiles"] == "C1=CC(=C(C=C1[C@@H]2[C@H](C(=O)C3=C(O2)C=C(C=C3)O)O)O)O"
         assert result["inchi"].startswith("InChI=")
         assert result["iupac_name"] != ""
         assert result["cas"] == "480-18-2"
+
+    @staticmethod
+    def _compound_with_smiles(*variants: tuple[str, str]) -> dict:
+        """A minimal PC_Compounds payload carrying only the given SMILES props.
+
+        ``variants`` are ``(urn.name, value)`` pairs, in the order PubChem would
+        emit them.
+        """
+        return {
+            "PC_Compounds": [
+                {
+                    "id": {"id": {"cid": 1}},
+                    "props": [
+                        {"urn": {"label": "SMILES", "name": key}, "value": {"sval": value}}
+                        for key, value in variants
+                    ],
+                }
+            ]
+        }
+
+    def _smiles_for(self, *variants: tuple[str, str], name: str = "x") -> str:
+        """Parse a payload carrying only *variants* and return the SMILES chosen.
+
+        ``name`` varies per call because ``lookup_pubchem`` is ``lru_cache``d on
+        it — two calls under one name in a single test would replay the first
+        result rather than parse the second payload.
+        """
+        responses.add(
+            responses.GET,
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{name}/JSON",
+            json=self._compound_with_smiles(*variants),
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{name}/synonyms/JSON",
+            status=404,
+        )
+        return lookup_pubchem(name)["smiles"]
+
+    @responses.activate
+    def test_prefers_the_stereochemical_smiles(self):
+        """`Absolute` wins over `Connectivity` however they are ordered.
+
+        We store a stereochemical InChI; a flat SMILES beside it would describe
+        a different molecule.
+        """
+        assert self._smiles_for(("Connectivity", "FLAT"), ("Absolute", "STEREO")) == "STEREO"
+
+    @responses.activate
+    def test_falls_back_to_connectivity_when_there_is_no_stereo_form(self):
+        """An achiral compound has no `Absolute` form — it must not come back
+        empty just because the preferred variant is absent."""
+        assert self._smiles_for(("Connectivity", "FLAT")) == "FLAT"
+
+    @responses.activate
+    def test_still_accepts_the_retired_canonical_name(self):
+        """A cached or mirrored older response must keep parsing."""
+        assert self._smiles_for(("Canonical", "LEGACY")) == "LEGACY"
+
+    @responses.activate
+    def test_an_unknown_smiles_variant_is_not_taken(self):
+        """Only known variants are accepted, so a future PubChem addition cannot
+        silently displace the one we deliberately prefer."""
+        assert (
+            self._smiles_for(("Absolute", "STEREO"), ("SomeNewVariant", "OTHER"), name="a")
+            == "STEREO"
+        )
+        assert self._smiles_for(("SomeNewVariant", "OTHER"), name="b") == ""
 
     @responses.activate
     def test_not_found_returns_empty(self):

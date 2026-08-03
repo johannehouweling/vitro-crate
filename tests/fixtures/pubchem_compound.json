@@ -3,8 +3,9 @@
     {
       "id": {"id": {"cid": 5280863}},
       "props": [
-        {"urn": {"label": "SMILES", "name": "Canonical"}, "value": {"sval": "C1=CC(=C(C=C1[C@@H]2[C@H](C(=O)C3=C(O2)C=C(C=C3)O)O)O)O"}},
-        {"urn": {"label": "InChIKey"}, "value": {"sval": "VEEGZPWAAPPXRB-BJMVGYQFSA-N"}},
+        {"urn": {"label": "SMILES", "name": "Absolute"}, "value": {"sval": "C1=CC(=C(C=C1[C@@H]2[C@H](C(=O)C3=C(O2)C=C(C=C3)O)O)O)O"}},
+        {"urn": {"label": "SMILES", "name": "Connectivity"}, "value": {"sval": "C1=CC(=C(C=C1C2C(C(=O)C3=C(O2)C=C(C=C3)O)O)O)O"}},
+        {"urn": {"label": "InChIKey", "name": "Standard"}, "value": {"sval": "VEEGZPWAAPPXRB-BJMVGYQFSA-N"}},
         {"urn": {"label": "InChI", "name": "Standard"}, "value": {"sval": "InChI=1S/C15H12O5/c16-9-3-1-8(2-4-9)15-14(19)13(18)11-7-10(17)5-6-12(11)20-15/h1-7,14-17,19H/t14-,15+/m0/s1"}},
         {"urn": {"label": "Molecular Formula"}, "value": {"sval": "C15H12O5"}},
         {"urn": {"label": "Molecular Weight"}, "value": {"sval": "272.25"}},
