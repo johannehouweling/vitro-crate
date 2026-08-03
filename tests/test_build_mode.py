@@ -76,8 +76,48 @@ class TestRunBuildDispatch:
 
         # ReAct-only kwargs are forwarded; the loop mutates state in place, so
         # run_build returns None rather than a structured pipeline result.
-        assert captured == {"provider": "openai", "model": "m", "base_url": "u"}
+        # `resumed` rides along on every dispatch and defaults to False — a build
+        # that was not told it is a resume must not present itself as one (#410).
+        assert captured == {
+            "provider": "openai",
+            "model": "m",
+            "base_url": "u",
+            "resumed": False,
+        }
         assert result is None
+
+    def test_resume_provenance_reaches_the_react_arm(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--resume` is a caller fact and must survive the dispatch (#410)."""
+        import builder.agents.react.agent_loop as agent_loop
+
+        captured: dict[str, Any] = {}
+
+        def _fake_agent(engine: Any, **kw: Any) -> None:
+            captured.update(kw)
+
+        monkeypatch.setattr(agent_loop, "run_interactive_agent", _fake_agent)
+        run_build(BuildMode.REACT, object(), resumed=True)
+
+        assert captured["resumed"] is True
+
+    def test_resume_provenance_reaches_the_pipeline_arm(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same fact must reach the other arm, or the banner lies there instead."""
+        import builder.agents.build as build_mod
+
+        captured: dict[str, Any] = {}
+
+        def _fake_build(engine: Any, **kw: Any) -> dict[str, Any]:
+            captured.update(kw)
+            return {}
+
+        monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
+        run_build(BuildMode.PIPELINE, object(), resumed=True)
+
+        assert captured["resumed"] is True
 
 
 class TestPipelineModelOverrides:

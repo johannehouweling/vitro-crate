@@ -266,8 +266,15 @@ def render_reply(content: Any) -> RenderableType:
     return Group("", "", grid, "")
 
 
-def render_resume_summary(snap: UiSnapshot) -> RenderableType:
-    """The "Resumed Session" panel — session id, counts, MIT, validation, breakdown."""
+def render_resume_summary(snap: UiSnapshot, *, resumed: bool) -> RenderableType:
+    """The session summary panel — session id, counts, MIT, validation, breakdown.
+
+    *resumed* is the panel's provenance and is **mandatory**: it decides only the
+    title ("Resumed Session" vs "Session"), never the body. It cannot be derived
+    from *snap* — a fresh ``--input`` run has already scanned files (and may have
+    drafted entities) by the time this renders, so a populated snapshot is not
+    evidence of a resume (#410). The caller knows; the renderer must be told.
+    """
     summary = Table.grid(padding=(0, 2))
     summary.add_column(style="bold", width=16)
     summary.add_column(style="white")
@@ -298,7 +305,8 @@ def render_resume_summary(snap: UiSnapshot) -> RenderableType:
         )
         summary.add_row("Breakdown:", parts)
 
-    return Panel(summary, title="[yellow]Resumed Session[/yellow]", border_style="yellow")
+    title = "Resumed Session" if resumed else "Session"
+    return Panel(summary, title=f"[yellow]{title}[/yellow]", border_style="yellow")
 
 
 def render_goodbye(
@@ -352,16 +360,20 @@ def print_status_bar(engine: AgentEngine) -> None:
     get_console().print(render_status_bar(snapshot_from_engine(engine)))
 
 
-def print_resume_summary(engine: AgentEngine) -> None:
-    """Print the resume summary panel when the session carries prior work (both arms).
+def print_resume_summary(engine: AgentEngine, *, resumed: bool) -> None:
+    """Print the session summary panel when there is anything to show (both arms).
 
-    A no-op on a fresh session (no entities, no scanned files) — there is nothing
-    to summarise — so callers need no guard of their own.
+    A no-op on an empty session (no entities, no scanned files) — there is nothing
+    to summarise — so callers need no guard of their own. That emptiness check is
+    about *content*; it is not a resume test. *resumed* carries provenance and is
+    mandatory precisely so no call site can fall back to inferring it from content
+    (#410) — the two are independent, and conflating them is what labelled every
+    fresh ``--input`` run a resume.
     """
     snap = snapshot_from_engine(engine)
     if snap.entity_count or snap.file_count:
         console = get_console()
-        console.print(render_resume_summary(snap))
+        console.print(render_resume_summary(snap, resumed=resumed))
         console.print()
 
 

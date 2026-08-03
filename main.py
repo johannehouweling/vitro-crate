@@ -524,6 +524,10 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             base_url=args.api_base,
             output=print,
+            # This is the only place that knows whether the session was loaded or
+            # freshly scanned; both arms are told rather than left to infer it
+            # from state that --input has already populated (#410).
+            resumed=bool(args.resume),
         )
         return 0
 

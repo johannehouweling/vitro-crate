@@ -943,12 +943,44 @@ class TestSharedChrome:
 
         build.run_interactive_build(
             engine,
+            resumed=True,
             pipeline_runner=lambda eng, **kw: dict(_PIPELINE_RESULT),
             guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
             exporter=_stub_export,
         )
 
         assert "Resumed Session" in rec.export_text()
+
+    def test_interactive_fresh_scan_does_not_render_a_resume_banner(self, monkeypatch) -> None:
+        """A populated state is not a resume unless the CLI says so (#410).
+
+        Same engine shape as the resume case above — entities present — but the run
+        did not come from ``--resume``, so the banner must not claim one.
+        """
+        from builder.agents import build, ui
+        from builder.state import Entity, EntityProvenance
+
+        rec = _rec_console()
+        monkeypatch.setattr(ui, "get_console", lambda: rec)
+        engine = _engine(_InteractiveHuman())
+        engine.state.add_entity(
+            Entity(
+                entity_id="inv_001",
+                type="Investigation",
+                fields={"title": "I"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+
+        build.run_interactive_build(
+            engine,
+            resumed=False,
+            pipeline_runner=lambda eng, **kw: dict(_PIPELINE_RESULT),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            exporter=_stub_export,
+        )
+
+        assert "Resumed" not in rec.export_text()
 
     def test_interactive_build_renders_goodbye(self, monkeypatch) -> None:
         from builder.agents import build, ui

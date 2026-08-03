@@ -1415,6 +1415,8 @@ def run_interactive_agent(
     model: str | None = None,
     base_url: str | None = None,
     max_iterations: int | None = None,
+    *,
+    resumed: bool = False,
 ) -> None:
     """Run an interactive LangChain agent loop reading from stdin.
 
@@ -1432,6 +1434,12 @@ def run_interactive_agent(
         max_iterations: Maximum tool-calling iterations. Falls back to
             ``VITRO_MAX_ITERATIONS`` env var, then config file
             ``[agent.max_iterations]``, then built-in default (100).
+        resumed: True iff the session was loaded with ``--resume``. Selects the
+            greeting and the banner title. It is passed in, never inferred from
+            ``engine.state``: a fresh ``--input`` run has already scanned files by
+            the time the loop starts, so the old content-based guess greeted new
+            sessions as resumes and asked the model to recap work that did not
+            exist — which produced a passive summary instead of a build (#410).
     """
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.runnables import RunnableConfig
@@ -1505,21 +1513,25 @@ def run_interactive_agent(
             return
         console.print(ui.render_reply(content))
 
-    # ── Resume summary vs fresh greeting ────────────────────────────────
+    # ── Session banner + greeting ───────────────────────────────────────
+    # `resumed` is the caller's fact (--resume), never a guess from how populated
+    # the state looks: initialize(--input) scans files before the loop starts, so
+    # the old `entity_count > 0 or file_count > 0` inference called every fresh
+    # run a resume and told the model to summarise work that did not exist — the
+    # model duly recapped instead of building (#410).
     entity_count = len(engine.state.list_entities())
     file_count = len(engine.state.scanned_files)
-    is_resume = entity_count > 0 or file_count > 0
+    val = engine.state.validation
+    # Per-type entity breakdown (feeds the greeting prompt + the fallback panels).
+    counts: dict[str, int] = {}
+    for e in engine.state.list_entities():
+        typ = getattr(e, "type", "Unknown")
+        counts[typ] = counts.get(typ, 0) + 1
 
-    if is_resume:
-        val = engine.state.validation
-        # Per-type entity breakdown (also feeds the greeting prompt + fallback).
-        counts: dict[str, int] = {}
-        for e in engine.state.list_entities():
-            typ = getattr(e, "type", "Unknown")
-            counts[typ] = counts.get(typ, 0) + 1
+    # A no-op when there is nothing to show; the title reflects real provenance.
+    ui.print_resume_summary(engine, resumed=resumed)
 
-        ui.print_resume_summary(engine)
-
+    if resumed:
         # Tell the LLM about the current state so it can give a contextual greeting
         greeting_prompt = (
             f"The user has resumed a session with {entity_count} entities and "
@@ -1531,6 +1543,15 @@ def run_interactive_agent(
             f"Entity breakdown: {counts}. "
             "Briefly welcome them back and summarise what has been done "
             "and what the next logical step is."
+        )
+    elif file_count:
+        # New session whose input folder is already scanned. Say what WILL be
+        # built — asking for a recap here is what made the agent go passive.
+        greeting_prompt = (
+            f"The user has just started a new session; {file_count} input files "
+            "have been scanned and no entities have been drafted yet. "
+            "Briefly say what you will build from those files and invite them to "
+            "start. Do not imply any prior work exists."
         )
     else:
         greeting_prompt = "Greet the user and tell them what you can help build."
@@ -1596,11 +1617,10 @@ def run_interactive_agent(
         reply = _extract_reply(result) if (outcome == "ok" and result) else ""
         if reply:
             _print_reply(reply)
+        elif resumed:
+            _print_resume_fallback()
         else:
-            if is_resume:
-                _print_resume_fallback()
-            else:
-                _print_fresh_fallback()
+            _print_fresh_fallback()
     except Exception as exc:
         logger.debug("Greeting skipped: %s", exc)
         console.print(
@@ -1612,7 +1632,7 @@ def run_interactive_agent(
                 border_style="yellow",
             )
         )
-        if is_resume:
+        if resumed:
             _print_resume_fallback()
         else:
             _print_fresh_fallback()
