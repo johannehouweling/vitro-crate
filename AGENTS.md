@@ -2028,11 +2028,23 @@ HITL and lives **outside** the spine, in the interactive entrypoint
 #### 14.6.1 The interactive entrypoint (`builder/agents/build.py`)
 
 `BuildMode` (`PIPELINE` / `REACT`) is the single switch that selects a variant, and
-`run_build(mode, engine, *, provider=None, model=None, base_url=None, output=None)`
-dispatches to it — `PIPELINE` → `run_interactive_build` (below), `REACT` →
-`run_interactive_agent` (§4). `main.py` derives the mode from `--legacy-react`
-(`BuildMode.from_cli`) and the eval harness maps its `--arch` string onto the same
-enum (`BuildMode(arch)`), so A/B is chosen in **one** place (#309).
+`run_build(mode, engine, *, provider=None, model=None, base_url=None, output=None,
+resumed=False)` dispatches to it — `PIPELINE` → `run_interactive_build` (below),
+`REACT` → `run_interactive_agent` (§4). `main.py` derives the mode from
+`--legacy-react` (`BuildMode.from_cli`) and the eval harness maps its `--arch`
+string onto the same enum (`BuildMode(arch)`), so A/B is chosen in **one** place
+(#309).
+
+**Session provenance is passed, never inferred (#410).** `resumed` states whether
+the run was loaded from a saved session (`--resume`) or started fresh, and reaches
+**both** arms. Only the CLI knows: `engine.initialize(--input)` populates
+`scanned_files` — and the drafters may populate entities — before either arm
+begins, so a populated `CrateState` is *not* evidence of a resume. Anything that
+branches on resume-ness (the session banner's title, the ReAct greeting prompt and
+its offline fallback) takes this flag; `ui.print_resume_summary(engine, *, resumed)`
+makes it a **required** keyword so no call site can quietly re-derive it from state
+content. Content emptiness still decides whether the banner appears at all — that
+is a separate question from where the content came from.
 
 `run_interactive_build(engine, *, pipeline_runner=None, guidance_runner=None,
 exporter=None, output=None) -> dict` joins the two halves into the end-to-end

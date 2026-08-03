@@ -116,6 +116,7 @@ def run_interactive_build(
     exporter: Exporter | None = None,
     output: OutputChannel | None = None,
     overrides: ModelOverrides | None = None,
+    resumed: bool = False,
 ) -> dict[str, Any]:
     """Run the automated pipeline, the HITL guidance tail, then export to disk.
 
@@ -224,7 +225,7 @@ def run_interactive_build(
         from builder.agents import ui
 
         if interactive:
-            ui.print_resume_summary(engine)
+            ui.print_resume_summary(engine, resumed=resumed)
         with spinner_ctx:
             result = _run_build_body(
                 engine,
@@ -253,6 +254,7 @@ def run_build(
     model: str | None = None,
     base_url: str | None = None,
     output: OutputChannel | None = None,
+    resumed: bool = False,
 ) -> dict[str, Any] | None:
     """Dispatch a build to *mode*'s entrypoint — the single A/B switch (#309).
 
@@ -270,6 +272,12 @@ def run_build(
     ``--model X`` A/B ran the two arms on two different models (#399). ``output``
     remains pipeline-only; the ReAct loop has no progress sink.
 
+    ``resumed`` likewise reaches **both** modes. It is the caller's fact — in the
+    CLI, ``bool(args.resume)`` — and must never be re-derived downstream from how
+    populated ``engine.state`` looks: ``initialize(--input)`` scans files before
+    either arm starts, so content-based inference reports every fresh run as a
+    resume (#410).
+
     Args:
         mode: Which variant to run.
         engine: An initialized :class:`~builder.engine.AgentEngine`.
@@ -277,6 +285,8 @@ def run_build(
         model: Model-name override.
         base_url: Custom OpenAI-compatible base URL.
         output: Progress/summary sink for the pipeline path (e.g. ``print``).
+        resumed: True iff this run was started from a saved session
+            (``--resume``), as opposed to a fresh scan.
 
     Returns:
         The pipeline result dict for :attr:`BuildMode.PIPELINE`; ``None`` for
@@ -285,7 +295,13 @@ def run_build(
     if mode is BuildMode.REACT:
         from builder.agents.react.agent_loop import run_interactive_agent
 
-        run_interactive_agent(engine, provider=provider, model=model, base_url=base_url)
+        run_interactive_agent(
+            engine,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            resumed=resumed,
+        )
         return None
 
     from builder.agents.llm import ModelOverrides
@@ -294,6 +310,7 @@ def run_build(
         engine,
         output=output,
         overrides=ModelOverrides(provider=provider, model=model, base_url=base_url),
+        resumed=resumed,
     )
 
 

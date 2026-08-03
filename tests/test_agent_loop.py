@@ -1714,6 +1714,82 @@ class TestTimeoutEndsTurnGracefully:
         assert backstop_calls["n"] >= 1
 
 
+class TestGreetingProvenance:
+    """The greeting reflects real ``--resume`` provenance, not inferred state (#410).
+
+    ``engine.initialize(--input)`` populates ``scanned_files`` before the loop
+    starts, so the old ``is_resume = entity_count > 0 or file_count > 0`` inference
+    told the model a brand-new session had been *resumed* and asked it to
+    "summarise what has been done" — work that does not exist. The observed
+    consequence was a passive recap instead of a build.
+    """
+
+    @staticmethod
+    def _capture_greeting(monkeypatch, *, resumed, scanned=6, entities=0):
+        """Run the loop to its one-shot greeting and return the prompt it sent."""
+        from langchain_core.messages import AIMessage
+
+        from builder.agents.react import agent_loop
+        from builder.engine import AgentEngine
+        from builder.state import Entity, FileClassification
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_greeting_410"
+        for i in range(entities):
+            engine.state.add_entity(Entity(entity_id=f"e{i}", type="Investigation"))
+        engine.state.scanned_files = [
+            FileClassification(
+                path=f"/d/f{i}.csv", filename=f"f{i}.csv", size=10, mime_type="text/csv"
+            )
+            for i in range(scanned)
+        ]
+
+        seen: list[str] = []
+
+        class _RecordingApp:
+            def invoke(self, payload, config):
+                seen.append(str(payload["messages"][0].content))
+                return {"messages": [AIMessage(content="ok")]}
+
+        def _eof(console, label="❯"):
+            raise EOFError
+
+        monkeypatch.setattr(agent_loop, "_build_chat_model", lambda **kw: object())
+        monkeypatch.setattr(agent_loop, "_build_agent_graph", lambda *a, **k: _RecordingApp())
+        monkeypatch.setattr(agent_loop.ui, "boxed_input", _eof)
+        monkeypatch.setattr(agent_loop, "_finish_backstop", lambda eng, *, emit=None: None)
+
+        import builder.tools.session as session_mod
+
+        monkeypatch.setattr(session_mod, "save_session", lambda *a, **k: {"success": True})
+
+        agent_loop.run_interactive_agent(engine, resumed=resumed)
+        assert seen, "the greeting invoke never happened"
+        return seen[0]
+
+    def test_a_fresh_scan_is_not_greeted_as_a_resume(self, monkeypatch):
+        """Scanned files with no entities is a NEW session, however full state looks."""
+        prompt = self._capture_greeting(monkeypatch, resumed=False, scanned=6)
+        lowered = prompt.lower()
+        assert "resumed" not in lowered
+        assert "welcome them back" not in lowered
+        # The bug's active ingredient: asking for a recap of nonexistent work.
+        assert "summarise what has been done" not in lowered
+        # It should still know the files are there, so it can offer to build them.
+        assert "6" in prompt
+
+    def test_a_real_resume_is_greeted_as_a_resume(self, monkeypatch):
+        """``--resume`` still gets the recap greeting — the fix is provenance, not removal."""
+        prompt = self._capture_greeting(monkeypatch, resumed=True, scanned=6, entities=2)
+        assert "resumed" in prompt.lower()
+        assert "2" in prompt
+
+    def test_an_empty_fresh_session_greets_plainly(self, monkeypatch):
+        """Conversation mode (no --input) keeps the plain greeting."""
+        prompt = self._capture_greeting(monkeypatch, resumed=False, scanned=0)
+        assert "resumed" not in prompt.lower()
+
+
 # ---------------------------------------------------------------------------
 # Issue #287: export-on-completed-build (Fix A) + repeated-non-progress
 # loop-breaker (Fix B). The engine/tools are stubbed; no SHACL / LLM / network.

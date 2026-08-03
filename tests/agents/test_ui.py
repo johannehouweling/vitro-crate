@@ -20,6 +20,7 @@ import dataclasses
 import io
 from types import SimpleNamespace
 
+import pytest
 from rich.console import Console, RenderableType
 
 from builder.agents import ui
@@ -251,7 +252,7 @@ def test_render_reply_flattens_structured_content_no_leak() -> None:
 
 
 def test_render_resume_summary_shows_session_and_breakdown() -> None:
-    text = _render(ui.render_resume_summary(_snapshot()))
+    text = _render(ui.render_resume_summary(_snapshot(), resumed=True))
     assert "Resumed Session" in text
     assert "sess-1" in text
     assert "Investigation" in text
@@ -262,8 +263,26 @@ def test_render_resume_summary_shows_session_and_breakdown() -> None:
 
 def test_render_resume_summary_hides_mit_when_unassessed() -> None:
     """An unassessed crate omits the MIT row rather than showing a misleading 0%."""
-    text = _render(ui.render_resume_summary(_snapshot(mit_assessed=False, mit_score=0.0)))
+    text = _render(
+        ui.render_resume_summary(_snapshot(mit_assessed=False, mit_score=0.0), resumed=True)
+    )
     assert "MIT score" not in text
+
+
+def test_render_resume_summary_does_not_claim_resume_on_a_fresh_session() -> None:
+    """A never-resumed session must not be titled "Resumed" (#410).
+
+    The panel is still worth showing on a fresh ``--input`` run — session id and
+    scanned-file count are a useful preflight — but the *same populated snapshot*
+    must read as a plain session when the run did not come from ``--resume``.
+    """
+    snap = _snapshot()
+    assert "Resumed" in _render(ui.render_resume_summary(snap, resumed=True))
+    text = _render(ui.render_resume_summary(snap, resumed=False))
+    assert "Resumed" not in text
+    # The body still carries the useful preflight facts.
+    assert "sess-1" in text
+    assert "Investigation" in text
 
 
 # ---------------------------------------------------------------------------
@@ -305,15 +324,35 @@ def test_print_status_bar_prints_for_engine(monkeypatch) -> None:
 def test_print_resume_summary_prints_when_populated(monkeypatch) -> None:
     rec = _rec()
     monkeypatch.setattr(ui, "get_console", lambda: rec)
-    ui.print_resume_summary(_real_engine())
+    ui.print_resume_summary(_real_engine(), resumed=True)
     assert "Resumed Session" in rec.export_text()
 
 
 def test_print_resume_summary_is_noop_on_fresh_session(monkeypatch) -> None:
     rec = _rec()
     monkeypatch.setattr(ui, "get_console", lambda: rec)
-    ui.print_resume_summary(_real_engine(populated=False))
+    ui.print_resume_summary(_real_engine(populated=False), resumed=False)
     assert rec.export_text() == ""
+
+
+def test_print_resume_summary_does_not_claim_resume_after_a_scan(monkeypatch) -> None:
+    """Scanned files alone must not read as a resume (#410).
+
+    ``engine.initialize(--input)`` fills ``scanned_files`` before either arm prints
+    its banner, so the old content-based gate (``entity_count or file_count``) made
+    a brand-new session indistinguishable from a resumed one. Provenance is a
+    caller fact, so the adapter must be *told*, never left to infer.
+    """
+    rec = _rec()
+    monkeypatch.setattr(ui, "get_console", lambda: rec)
+    ui.print_resume_summary(_real_engine(), resumed=False)
+    assert "Resumed" not in rec.export_text()
+
+
+def test_print_resume_summary_requires_explicit_provenance() -> None:
+    """``resumed`` is keyword-only and mandatory — no silently-wrong default (#410)."""
+    with pytest.raises(TypeError):
+        ui.print_resume_summary(_real_engine())  # ty: ignore[missing-argument]
 
 
 def test_print_goodbye_prints_for_engine(monkeypatch) -> None:
