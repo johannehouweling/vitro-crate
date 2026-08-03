@@ -1733,6 +1733,12 @@ Contract:
   **removed from the schema the model sees** — it is never even asked for an
   identifier — *and* defensively stripped from the result. Those fields are left
   empty for a downstream **lookup** to fill, never guessed.
+- **One definition of what the model is offered.** The pruned property set is
+  `field_kinds.drafter_visible_fields(entity_type)`, which lives outside this
+  module because the spine needs it too (to skip calls that cannot apply
+  anything, §14.5 step 2) and must not import `langchain`. Deriving the bound
+  schema and the spine's skip rule from the same function is what keeps them
+  from drifting apart.
 
 **Fidelity beyond validity — deterministic build-path wiring, not new LLM tools.**
 Reproducing the richer structure of a real gold crate is done through `_crate_mapping`
@@ -1803,6 +1809,22 @@ persistence". The sequence:
    never even imported on that path). **D5-safe:** identifier / `@id` / `entity_id`
    fields are never set or overwritten — those come from lookups. Returns
    `{drafted: [<ids>], fields_applied: <n>}`.
+
+   Two properties bound what the step spends and what it can assert:
+
+   - **A call is made only when it could apply something.** The leaf offers the
+     model exactly `field_kinds.drafter_visible_fields(entity_type)`; the spine
+     applies only fields that are both descriptive and *missing*. When those sets
+     are disjoint the call cannot change state whatever comes back, so it is not
+     made — a named `MolecularEntity`, `Organization` or `Publication` (schemas
+     that expose no `description`) never reaches the leaf.
+   - **Each entity gets its own context.** `_entity_draft_context` folds the
+     entity's id, type and known field values into the shared crate digest. The
+     leaf's signature carries no entity, so a shared-only context makes every
+     entity of one type send an identical prompt — the model cannot tell which
+     one it is describing, and one entity's description lands on its siblings.
+     Only the entity's *own* fields are folded in; naming a sibling reintroduces
+     the confusion from the other side.
 3. **build_and_validate** in memory (no disk write).
 4. **Fix loop** — `fix_required_issues` + re-validate, **bounded to ≤3 rounds**,
    stopping when no REQUIRED issue remains *or* a round fixes nothing (deterministic
