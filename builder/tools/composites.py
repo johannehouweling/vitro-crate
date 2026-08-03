@@ -1443,10 +1443,15 @@ def resolve_compound(
     # Identifier/source fields win over caller hints so a verified value from the
     # source is never clobbered by a (possibly stale) hint.
     merged_hints: dict[str, Any] = dict(hints or {})
+    # Tracked separately from the merged hints so the values the AUTHORITY
+    # supplied can be recorded as such. Everything else in ``merged_hints`` is
+    # the caller's (a plan value, a model-drafted hint) and keeps that origin.
+    looked_up: dict[str, Any] = {}
     for key in _COMPOUND_DATA_FIELDS:
         value = data.get(key)
         if value not in (None, ""):
             merged_hints[key] = value
+            looked_up[key] = value
 
     # Dedup by chemical IDENTITY first (Issue #179): two DIFFERENT names that
     # resolve to the SAME molecule (e.g. 'Indocyanine green' / 'ICG' -> same CID /
@@ -1480,6 +1485,14 @@ def resolve_compound(
             entity.set_fields_from_dict(refreshed, source="lookup")
         else:
             entity = draft_molecular_entity(state, display_name, merged_hints)
+            # ``draft_molecular_entity`` stamps every hint it is handed with
+            # ``source="llm"`` — correct for a drafted hint, wrong for the PubChem
+            # response we just merged in. Re-record that subset as looked-up, so a
+            # D5 audit reading ``_completion`` does not see four fabricated
+            # structural identifiers per compound. Matches the two reuse branches
+            # above, which already record these as ``"lookup"`` (#424).
+            if looked_up:
+                entity.set_fields_from_dict(looked_up, source="lookup")
 
     # Best-effort EPA DTXSID enrichment (#179). DTXSID is a first-class ISA-Tox
     # chemical identifier that the deterministic pipeline otherwise never

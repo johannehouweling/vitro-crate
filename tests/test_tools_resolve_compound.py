@@ -99,6 +99,75 @@ def offline_lookup(monkeypatch):
     return calls
 
 
+class TestLookupProvenanceIsRecordedHonestly:
+    """Looked-up values must not be recorded as if the model wrote them (#424).
+
+    ``_completion`` is the record of what was asserted versus what was verified —
+    it is what a D5 audit reads. ``draft_molecular_entity`` stamps every hint it
+    is given with ``source="llm"``, but ``resolve_compound`` hands it the PubChem
+    response, so a freshly minted compound claimed the model had produced its
+    InChI, InChIKey, formula and mass.
+
+    The two reuse branches already record these as ``"lookup"``; only the
+    mint-a-new-entity branch did not, so recorded provenance also depended on
+    whether the entity happened to exist already.
+    """
+
+    # Everything in _PUBCHEM_HIT that comes from the authority rather than from
+    # the caller or the model.
+    _FROM_PUBCHEM = ("cas", "smiles", "inchikey", "inchi", "formula", "mass", "pubchem_cid")
+
+    @staticmethod
+    def _sources(state: CrateState) -> dict[str, str | None]:
+        mol = _by_type(state, "MolecularEntity")[0]
+        out: dict[str, str | None] = {}
+        for field in TestLookupProvenanceIsRecordedHonestly._FROM_PUBCHEM:
+            status = mol.get_field_status(field)
+            out[field] = status.source if status is not None else None
+        return out
+
+    def test_a_newly_minted_compound_credits_the_lookup(self, offline_lookup):
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+
+        for field, source in self._sources(state).items():
+            assert source is not None, f"{field} has no recorded provenance"
+            assert source == "lookup", (
+                f"{field} came from PubChem but is recorded as source={source!r} "
+                "— a D5 audit would read it as fabricated"
+            )
+
+    def test_provenance_does_not_depend_on_whether_the_entity_existed(self, offline_lookup):
+        """Resolving twice must not change the recorded source.
+
+        The second call takes the reuse branch. Before the fix the branches
+        disagreed, so the same compound read as model-written or lookup-derived
+        depending only on call order.
+        """
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        first = self._sources(state)
+
+        resolve_compound(state, name="Silychristin A")
+        assert len(_by_type(state, "MolecularEntity")) == 1, "the second resolve must reuse"
+
+        assert first == self._sources(state)
+
+    def test_the_caller_supplied_name_is_not_credited_to_the_lookup(self, offline_lookup):
+        """The opposite error: ``name`` is what the caller asked for, not
+        something PubChem returned, so it must not be laundered into 'lookup'."""
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        mol = _by_type(state, "MolecularEntity")[0]
+
+        status = mol.get_field_status("name")
+        assert status is not None
+        assert status.source != "lookup", (
+            "the display name came from the caller; recording it as a lookup "
+            "result overstates what the authority confirmed"
+        )
+
+
 class TestResolveCompoundHappyPath:
     def test_mints_verified_molecular_entity(self, offline_lookup):
         state = CrateState()
