@@ -63,6 +63,7 @@ from builder.tools.hitl import SimulatedHumanInterface
 pytestmark = pytest.mark.timeout(120)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "svhps26_real_input"
+_METADATA_XLSX_NAME = "Assay-metadata-CHO-K1_OATP1C1-v1.1.xlsx"
 _DESCRIPTOR = FIXTURE_DIR / "S-VHPS26.json"
 _SOP = FIXTURE_DIR / "Assay_OATP1C1" / "OATP1C1 SOP TH 250425.docx"
 _RAW_DATA = (
@@ -434,6 +435,43 @@ class TestRealInputPipeline:
         metadata = _emitted_for("Assay-metadata-CHO-K1_OATP1C1")
         bulk = _emitted_for("220825_RA_CHO-K1_hOATP1C1_P1_Timecourse.pzfx")
         assert metadata > bulk, f"metadata {metadata} chars vs bulk {bulk} chars"
+
+    def test_a_second_metadata_file_does_not_starve_the_tiers_below(
+        self, tmp_path: Path
+    ) -> None:
+        """STARVATION CONTROL for the tier-0 raise (#419).
+
+        A tier's share is granted PER FILE, so raising tier 0 to 9,000 let two
+        `*metadata*` workbooks claim the whole 16,000 ceiling between them and the
+        BioStudies descriptor, the SOP and the README emitted nothing at all —
+        the same silent starvation #419 exists to remove, aimed at a different
+        document. A versioned or two-plate deposit is an ordinary shape and no
+        other test builds one.
+        """
+        import shutil
+
+        from builder.agents.pipeline.pipeline import _gather_context
+
+        deposit = tmp_path / "two_metadata"
+        shutil.copytree(FIXTURE_DIR, deposit)
+        workbook = deposit / "Assay_OATP1C1" / _METADATA_XLSX_NAME
+        shutil.copy(workbook, workbook.with_name("Assay-metadata-second-plate-v1.2.xlsx"))
+
+        context = _gather_context(_scanning_engine(deposit))
+
+        def _emitted_for(stem: str) -> int:
+            for block in context.split("\n- "):
+                if block.lstrip("- ").lower().startswith(stem.lower()):
+                    return len(block)
+            return 0
+
+        assert _emitted_for("Assay-metadata-CHO-K1_OATP1C1") > 0, "first workbook starved"
+        assert _emitted_for("Assay-metadata-second-plate") > 0, "second workbook starved"
+        # The descriptor is the deposit's only structured identity record; losing
+        # it to a duplicated workbook is a strictly worse trade than truncating
+        # either workbook.
+        assert _emitted_for("S-VHPS26.json") > 0, "the BioStudies descriptor was starved"
+        assert _TOKEN_SOP_BODY in context.lower(), "the tier-2 documents were starved"
 
     def test_pipeline_builds_conformant_crate_from_real_input(
         self, monkeypatch: pytest.MonkeyPatch
