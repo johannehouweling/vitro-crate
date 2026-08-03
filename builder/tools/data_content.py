@@ -394,6 +394,55 @@ def _has_value(value: Any) -> bool:
     return value is not None and str(value).strip() != ""
 
 
+def condition_table_multivalued_columns(csv_path: str) -> set[str]:
+    """Canonical columns in *csv_path* carrying more than one distinct value (#408).
+
+    The condition table's CSVW schema resolves the ``cell_line`` / ``compound``
+    columns to a single in-crate entity via ``valueUrl`` — a claim about the WHOLE
+    column. At zero rows that is vacuous; once rows exist it asserts that every
+    value in the column resolves to that one entity. On a multi-compound plate that
+    is false, so the build must drop the claim rather than inherit it (D5: never
+    assert an entity mapping that was not verified). Per-value mapping is out of
+    scope — this only reports which columns can no longer carry a column-wide
+    claim.
+
+    Blank cells are absence, not a second value, so a column of ``T4`` plus empties
+    stays single-valued. A missing/unreadable file or a header-only table yields an
+    empty set: the in-memory validate path has no CSV on disk, and no rows means
+    nothing to contradict.
+
+    Args:
+        csv_path: Path to the condition-table CSV.
+
+    Returns:
+        The canonical column titles carrying ≥2 distinct non-empty values.
+    """
+    from builder.tools._crate_mapping import _CONDITION_TABLE_HEADER
+
+    path = Path(csv_path)
+    if not path.is_file():
+        return set()
+
+    # Only canonical columns are described by the CSVW schema, so only they can
+    # carry (or lose) a valueUrl; a verbatim-copied plate map's extra headers are
+    # not the build's to reason about.
+    canonical = set(_CONDITION_TABLE_HEADER.strip("\n").split(","))
+    seen: dict[str, set[str]] = {}
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                for key, value in row.items():
+                    name = str(key).strip() if key is not None else ""
+                    if name not in canonical or not _has_value(value):
+                        continue
+                    seen.setdefault(name, set()).add(str(value).strip())
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        logger.warning("Could not read condition table %s: %s", path, exc)
+        return set()
+
+    return {column for column, values in seen.items() if len(values) > 1}
+
+
 def populate_condition_table(
     state: Any,
     exposure_id: str,

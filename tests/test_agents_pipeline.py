@@ -2792,3 +2792,174 @@ class TestPlanChainParameterOverlay:
         assert len(chain) == len(pipeline_mod._STANDARD_CHAIN)
         for step in chain:
             assert set(step["hints"]) == {"name"}
+
+
+class TestConditionTableFromPlan:
+    """#408 (b) — the plan's ``condition_table`` role must reach the populator.
+
+    ``extract_plan`` classifies every plan file into
+    ``["raw", "processed", "condition_table", "other"]`` and the pipeline threw the
+    answer away: ``_attach_scanned_files`` re-derives a role from the filename via
+    ``_file_role``, which only ever returns ``processed_data``/``raw_data``. So
+    ``condition_table`` was unreachable by construction and every exported table
+    shipped header-only while the per-well payload sat one directory away.
+    """
+
+    _PLATE = "plate_map.csv"
+    _BODY = (
+        "well_id,assay,cell_line,compound,concentration_value,concentration_unit\n"
+        "A1,uptake,CHO-K1,Thyroxine,1.0,uM\n"
+        "A2,uptake,CHO-K1,Thyroxine,10.0,uM\n"
+    )
+
+    def _state(self, tmp_path: Path, *, name: str | None = None, body: str | None = None):
+        """A scanned state whose inventory holds a plate-map CSV under an approved root."""
+        plate = tmp_path / (name or self._PLATE)
+        plate.write_text(body if body is not None else self._BODY, encoding="utf-8")
+        state = CrateState()
+        state.metadata.title = "OATP1C1 uptake"
+        state.metadata.description = "An in vitro uptake assay."
+        state.approved_scan_roots.add(str(tmp_path.resolve()))
+        state.scanned_files = [
+            FileClassification(
+                path=str(plate),
+                filename=plate.name,
+                size=plate.stat().st_size,
+                mime_type="text/csv",
+                first_rows=None,
+            )
+        ]
+        return state, plate
+
+    def _run(self, monkeypatch, state, plan_files):
+        """Drive `_materialize_plan` with a stubbed leaf returning *plan_files*.
+
+        The backbone is scaffolded first exactly as the spine's step 1 does, so the
+        standard chain (#262) lays down the Exposure the table hangs off — without
+        it there is no Exposure and the test would pass vacuously.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        plan = {
+            "study": {"name": "OATP1C1 uptake", "description": "An uptake assay."},
+            "files": plan_files,
+        }
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+        monkeypatch.setattr(
+            pipeline_mod,
+            "extract_plan",
+            lambda context, *, overrides=None, usage_sink=None: dict(plan),
+        )
+        engine = _engine(state)
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+        assert any(
+            e.type == "LabProcess" and e.fields.get("process_type") == "Exposure"
+            for e in engine.state.list_entities()
+        ), "fixture is vacuous: no Exposure was scaffolded"
+        return engine, result
+
+    def _table_path(self, engine: AgentEngine) -> Path | None:
+        from builder.tools._crate_mapping import _condition_table_rel, _mint_id
+
+        for e in engine.state.list_entities():
+            if e.type == "LabProcess" and e.fields.get("process_type") == "Exposure":
+                out = engine.state.metadata.output_path
+                if not out:
+                    return None
+                return Path(out) / _condition_table_rel(_mint_id(e))
+        return None
+
+    def test_a_basename_match_populates_the_table(self, monkeypatch, tmp_path: Path) -> None:
+        """The core wiring: role=condition_table → real rows in the Exposure's CSV."""
+        state, _ = self._state(tmp_path)
+        state.metadata.output_path = str(tmp_path / "crate")
+        engine, result = self._run(
+            monkeypatch, state, [{"path": self._PLATE, "role": "condition_table"}]
+        )
+
+        table = self._table_path(engine)
+        assert table is not None and table.is_file(), "no condition table was written"
+        rows = table.read_text(encoding="utf-8").strip().splitlines()
+        assert len(rows) > 1, "the table is still header-only — the role never reached the tool"
+        assert "Thyroxine" in "\n".join(rows)
+        assert result.get("condition_table")
+
+    def test_the_model_can_only_return_a_basename_so_an_exact_path_would_never_fire(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """The silent-no-op guard (#408).
+
+        ``_gather_context`` shows the leaf ``f.filename`` and never ``f.path``, so a
+        plan path is always a bare basename. Matching on full-path equality would
+        look wired and never fire once — this pins the basename contract by proving
+        the scanned path and the plan path are NOT equal, yet the table populates.
+        """
+        state, plate = self._state(tmp_path)
+        state.metadata.output_path = str(tmp_path / "crate")
+        assert str(plate) != self._PLATE, "fixture must exercise basename != full path"
+
+        engine, _ = self._run(
+            monkeypatch, state, [{"path": self._PLATE, "role": "condition_table"}]
+        )
+        table = self._table_path(engine)
+        assert table is not None and table.is_file()
+        assert len(table.read_text(encoding="utf-8").strip().splitlines()) > 1
+
+    def test_a_file_outside_the_approved_roots_is_refused(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """Fail-closed: plan paths are LLM free text and must not widen file access."""
+        state, _ = self._state(tmp_path)
+        state.metadata.output_path = str(tmp_path / "crate")
+        # The inventory entry survives, but no approved root now contains it.
+        state.approved_scan_roots.clear()
+        state.approved_scan_roots.add(str((tmp_path / "elsewhere").resolve()))
+
+        engine, result = self._run(
+            monkeypatch, state, [{"path": self._PLATE, "role": "condition_table"}]
+        )
+        table = self._table_path(engine)
+        assert table is None or not table.is_file() or (
+            len(table.read_text(encoding="utf-8").strip().splitlines()) == 1
+        ), "a file outside the approved roots must never be read"
+        assert not (result.get("condition_table") or {}).get("populated")
+
+    def test_two_candidates_refuse_to_guess(self, monkeypatch, tmp_path: Path) -> None:
+        state, _ = self._state(tmp_path)
+        second = tmp_path / "other_map.csv"
+        second.write_text(self._BODY, encoding="utf-8")
+        state.scanned_files.append(
+            FileClassification(
+                path=str(second),
+                filename=second.name,
+                size=second.stat().st_size,
+                mime_type="text/csv",
+                first_rows=None,
+            )
+        )
+        state.metadata.output_path = str(tmp_path / "crate")
+
+        engine, result = self._run(
+            monkeypatch,
+            state,
+            [
+                {"path": self._PLATE, "role": "condition_table"},
+                {"path": "other_map.csv", "role": "condition_table"},
+            ],
+        )
+        outcome = result.get("condition_table") or {}
+        assert not outcome.get("populated"), "two candidates — the spine must not guess"
+        assert outcome.get("reason"), "the refusal must be recorded, not silent"
+
+    def test_no_condition_table_role_records_a_reason(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        state, _ = self._state(tmp_path)
+        state.metadata.output_path = str(tmp_path / "crate")
+        engine, result = self._run(
+            monkeypatch, state, [{"path": self._PLATE, "role": "raw"}]
+        )
+        outcome = result.get("condition_table") or {}
+        assert not outcome.get("populated")
+        assert outcome.get("reason")
