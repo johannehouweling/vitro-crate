@@ -1466,7 +1466,9 @@ class _LoopHarness:
     assert auto-continuation vs prompting without any real network.
     """
 
-    def __init__(self, monkeypatch, *, replies, stdin_lines, complete_after=None):
+    def __init__(
+        self, monkeypatch, *, replies, stdin_lines, complete_after=None, initial_prompt=None
+    ):
         from builder.agents.react import agent_loop
         from builder.engine import AgentEngine
         from builder.state import Entity
@@ -1476,9 +1478,13 @@ class _LoopHarness:
         self.replies = list(replies)
         self.stdin_lines = list(stdin_lines)
         self.complete_after = complete_after
+        self.initial_prompt = initial_prompt
 
         self.invoke_count = 0
         self.stdin_reads: list[str] = []
+        # The human message that drove each counted turn, in order — lets a test
+        # assert WHAT started the work, not just that something did.
+        self.turn_messages: list[str] = []
         self.backstop_calls = 0
 
         engine = AgentEngine()
@@ -1514,6 +1520,7 @@ class _LoopHarness:
                 if _is_greeting(payload):
                     return {"messages": [AIMessage(content="Welcome back!")]}
                 harness.invoke_count += 1
+                harness.turn_messages.append(str(payload["messages"][0].content))
                 text = harness._fake_reply()
                 # Optionally mark the crate complete after N invocations so the
                 # autonomous loop can short-circuit on completion.
@@ -1557,7 +1564,7 @@ class _LoopHarness:
 
     def run(self):
         self.install()
-        self.agent_loop.run_interactive_agent(self.engine)
+        self.agent_loop.run_interactive_agent(self.engine, initial_prompt=self.initial_prompt)
 
 
 class TestAutonomousContinuation:
@@ -1788,6 +1795,81 @@ class TestGreetingProvenance:
         """Conversation mode (no --input) keeps the plain greeting."""
         prompt = self._capture_greeting(monkeypatch, resumed=False, scanned=0)
         assert "resumed" not in prompt.lower()
+
+
+class TestInitialPrompt:
+    """`--prompt` seeds the first turn so ReAct can start unattended (#412).
+
+    The greeting invoke sits OUTSIDE the autonomous-continuation loop, which is
+    keyed on a user-typed message — so without a kickoff the agent greets and then
+    blocks on stdin forever, having done no work. A caller-supplied opening message
+    drives the first turn; from there the existing loop takes over unchanged.
+    """
+
+    def test_initial_prompt_starts_work_without_reading_stdin(self, monkeypatch):
+        """The bug: no kickoff meant no work. A kickoff must not consume stdin."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Drafted the ISA backbone."],
+            stdin_lines=[],  # any stdin read would raise EOFError
+            complete_after=1,
+            initial_prompt="build the crate",
+        )
+        h.run()
+
+        assert h.invoke_count >= 1, "the agent never started working"
+        assert h.stdin_reads == [], "the kickoff must not consume a stdin line"
+        assert h.turn_messages[0] == "build the crate"
+
+    def test_initial_prompt_hands_over_to_the_autonomous_loop(self, monkeypatch):
+        """After the seeded turn, narration auto-continues as usual — no stdin."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Scanned the files.", "Drafted entities."],
+            stdin_lines=[],
+            complete_after=2,
+            initial_prompt="go",
+        )
+        h.run()
+
+        assert h.invoke_count >= 2, "the autonomous loop did not take over"
+        assert h.stdin_reads == []
+        assert h.turn_messages[0] == "go"
+        # The follow-up turn is the internal directive, not another user message.
+        assert h.turn_messages[1] == self._directive()
+
+    def test_without_an_initial_prompt_the_loop_still_waits_for_stdin(self, monkeypatch):
+        """The conversational default is unchanged — this is opt-in."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Working."],
+            stdin_lines=["start building"],
+            complete_after=1,
+        )
+        h.run()
+
+        assert h.stdin_reads == ["start building"]
+        assert h.turn_messages[0] == "start building"
+
+    def test_a_blank_initial_prompt_is_not_a_kickoff(self, monkeypatch):
+        """Empty/whitespace must fall through to stdin, not fire an empty turn."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Working."],
+            stdin_lines=["typed instead"],
+            complete_after=1,
+            initial_prompt="   ",
+        )
+        h.run()
+
+        assert h.stdin_reads == ["typed instead"]
+        assert h.turn_messages[0] == "typed instead"
+
+    @staticmethod
+    def _directive():
+        from builder.agents.react.agent_loop import _AUTO_CONTINUE_DIRECTIVE
+
+        return _AUTO_CONTINUE_DIRECTIVE
 
 
 # ---------------------------------------------------------------------------

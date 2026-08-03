@@ -2029,8 +2029,8 @@ HITL and lives **outside** the spine, in the interactive entrypoint
 
 `BuildMode` (`PIPELINE` / `REACT`) is the single switch that selects a variant, and
 `run_build(mode, engine, *, provider=None, model=None, base_url=None, output=None,
-resumed=False)` dispatches to it — `PIPELINE` → `run_interactive_build` (below),
-`REACT` → `run_interactive_agent` (§4). `main.py` derives the mode from
+resumed=False, initial_prompt=None)` dispatches to it — `PIPELINE` →
+`run_interactive_build` (below), `REACT` → `run_interactive_agent` (§4). `main.py` derives the mode from
 `--legacy-react` (`BuildMode.from_cli`) and the eval harness maps its `--arch`
 string onto the same enum (`BuildMode(arch)`), so A/B is chosen in **one** place
 (#309).
@@ -2045,6 +2045,15 @@ its offline fallback) takes this flag; `ui.print_resume_summary(engine, *, resum
 makes it a **required** keyword so no call site can quietly re-derive it from state
 content. Content emptiness still decides whether the banner appears at all — that
 is a separate question from where the content came from.
+
+**The ReAct arm needs a kickoff; the pipeline does not (#412).** `run_pipeline` is
+code-driven and starts unprompted, but the ReAct loop's greeting invoke sits
+*outside* the autonomous-continuation loop (§4), which is keyed on a user message —
+so the loop greets and then blocks on stdin having done no work. `initial_prompt`
+(CLI `--prompt/-P`, `REACT`-only) seeds that first turn in place of the first stdin
+read; blank is treated as absent, and control passes to the ordinary autonomous
+loop immediately afterwards. It is opt-in by design: auto-continuing every greeting
+would erase the conversational character that makes ReAct a distinct arm.
 
 `run_interactive_build(engine, *, pipeline_runner=None, guidance_runner=None,
 exporter=None, output=None) -> dict` joins the two halves into the end-to-end

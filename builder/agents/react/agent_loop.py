@@ -1417,6 +1417,7 @@ def run_interactive_agent(
     max_iterations: int | None = None,
     *,
     resumed: bool = False,
+    initial_prompt: str | None = None,
 ) -> None:
     """Run an interactive LangChain agent loop reading from stdin.
 
@@ -1440,6 +1441,12 @@ def run_interactive_agent(
             the time the loop starts, so the old content-based guess greeted new
             sessions as resumes and asked the model to recap work that did not
             exist — which produced a passive summary instead of a build (#410).
+        initial_prompt: An opening message to drive the first turn with, instead
+            of waiting for stdin. The greeting invoke is deliberately outside the
+            autonomous-continuation loop (which is keyed on a user message), so
+            without a kickoff the loop greets and blocks having done no work
+            (#412). Blank/whitespace is treated as absent. After this seeded turn
+            the autonomous loop takes over exactly as it does for a typed line.
     """
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.runnables import RunnableConfig
@@ -1730,15 +1737,25 @@ def run_interactive_agent(
         return reply, outcome
 
     # ── Main loop ───────────────────────────────────────────────────────
+    # A caller-supplied kickoff drives the first turn in place of the first stdin
+    # read (#412); everything after it is an ordinary typed turn. Blank is absent.
+    pending_input: str | None = (initial_prompt or "").strip() or None
+
     while True:
         try:
             # Compact status header above each prompt (counts live here now,
             # so the prompt line stays clean).
             ui.print_status_bar(engine)
             console.print()
-            # Rounded input box (Claude Code style); falls back to a plain
-            # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
-            user_input = ui.boxed_input(console)
+            if pending_input is not None:
+                # Echo the seeded line so the transcript shows what drove the
+                # turn, exactly as boxed_input echoes a typed one.
+                user_input, pending_input = pending_input, None
+                console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
+            else:
+                # Rounded input box (Claude Code style); falls back to a plain
+                # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
+                user_input = ui.boxed_input(console)
         except KeyboardInterrupt:
             # Ctrl+C: clear the line and re-prompt
             console.print()
