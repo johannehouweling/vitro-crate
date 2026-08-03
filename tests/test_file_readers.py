@@ -10,10 +10,33 @@ bounded; the byte ceiling is unified to 100 MB.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from builder.tools import file_readers
 from builder.tools.file_readers import _MAX_BYTES, _TEXT_BUDGET_BYTES, read_file
+
+
+def _folded_series_covers(cell: str, compacted: str) -> bool:
+    """True when *cell* is a series label ``X_N`` folded into a present ``X_A-B`` (#419).
+
+    Deliberately checks the RANGE rather than just the prefix: a fold that
+    silently narrowed to ``Chemical_1_Concentration_1-2`` would leave levels 3-8
+    genuinely lost, and this returns False for those.
+    """
+    match = re.match(r"^(?P<prefix>.+)_(?P<index>\d+)$", cell)
+    if match is None:
+        return False
+    index = int(match["index"])
+    for lo, hi in re.findall(rf"{re.escape(match['prefix'])}_(\d+)-(\d+)", compacted):
+        if int(lo) <= index <= int(hi):
+            return True
+    return False
+
+
+def _iri_stated_once(cell: str, compacted: str) -> bool:
+    """True when *cell* is a bare ontology IRI that survives elsewhere in the sheet."""
+    return bool(re.match(r"^https?://\S+$", cell)) and cell in compacted
 
 
 class TestSizeCeiling:
@@ -199,6 +222,19 @@ class TestCompactGridText:
         Value cell is empty looks right and silently destroys the author, the
         ORCID, the DOI, the assay name and the description. Every non-empty cell
         outside the Comments column must survive.
+
+        Two shapes are exempt, both introduced deliberately by #419 and both
+        checked here rather than merely skipped, so the control cannot be used to
+        wave through a real loss:
+
+        * a **series label** ``X_N`` folded into ``X_A-B`` — the exemption is
+          granted only when the folded label is present AND ``A <= N <= B``;
+        * a repeated **ontology IRI**, stated once per sheet — granted only when
+          that exact IRI still appears somewhere in the compacted text.
+
+        Neither exemption can hide the trap this control exists for: the author,
+        ORCID, DOI, assay name and description are none of these things, so the
+        "drop rows with an empty Value cell" rule still reddens the assertion.
         """
         from builder.tools.file_readers import compact_grid_text, read_excel
 
@@ -224,9 +260,20 @@ class TestCompactGridText:
             if len(payload) < 2:
                 continue
             for cell in payload:
-                if cell not in compacted:
-                    dropped.append(cell)
+                if cell in compacted:
+                    continue
+                if _folded_series_covers(cell, compacted) or _iri_stated_once(cell, compacted):
+                    continue
+                dropped.append(cell)
         assert not dropped, f"compaction dropped non-empty cells: {dropped[:5]}"
+
+        # The exemptions must be EARNED, not assumed: prove the fixture actually
+        # exercises both, or a future compaction change could silently start
+        # dropping cells into an exemption nobody is testing.
+        assert "Chemical_2_Concentration_1-8" in compacted, "series folding never fired"
+        assert compacted.count("http://semanticscience.org/resource/CHEMINF_000446") == 1, (
+            "the repeated CAS IRI should be stated exactly once per sheet"
+        )
 
     def test_is_a_noop_on_text_that_is_not_a_grid(self):
         """HONESTY CONTROL: the compactor must not mangle arbitrary prose."""

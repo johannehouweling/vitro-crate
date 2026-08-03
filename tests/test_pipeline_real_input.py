@@ -102,15 +102,45 @@ _TOKEN_PERSON = "wagenaars"
 _TOKEN_SOP_DURATION = "30 minutes"
 _TOKEN_SOP_INSTRUMENT = "gamma counter"
 
-# The five test chemicals the workbook's Chemical Information sheet names, in sheet
-# order. Chemicals 2-5 sit past 2,600 compacted chars, so the leaf saw none of them
-# before #378 — the crate carried the substrate alone.
+# The first five test chemicals in sheet order. Chemicals 2-5 sit past 2,600
+# compacted chars, so the leaf saw none of them before #378 — the crate carried the
+# substrate alone. These five drive the plan-stub gating below; the sheet holds many
+# more (see `_NAMED_CHEMICALS`), and gating the stub on all of them would be unsound
+# because several names are substrings of each other ("bisphenol-A" occurs inside
+# "tetrabromobisphenol-A").
 _TEST_CHEMICALS: tuple[tuple[str, str], ...] = (
     ("silychristin", "Silychristin"),
     (_TOKEN_CHEMICAL_2, "Lesinurad"),
     ("indocyanine", "Indocyanine green"),
     ("verapamil", "Verapamil"),
     (_TOKEN_CHEMICAL_5, "Diclofenac"),
+)
+
+# EVERY chemical the workbook actually names, by sheet row number (#419). The sheet
+# has 20 `Chemical_N` slots; row 6 has no `_Name` cell at all — "Probenecid" was
+# typed into `Chemical_6_CAS` instead — so 19 are named and slot 6 is unreachable at
+# any budget. Keyed by row number and asserted against the row label rather than the
+# bare name, because the names collide as substrings.
+_NAMED_CHEMICALS: tuple[tuple[int, str], ...] = (
+    (1, "Silychristin"),
+    (2, "Lesinurad"),
+    (3, "Indocyanine green"),
+    (4, "Verapamil"),
+    (5, "diclofenac"),
+    (7, "bromosulfophthalein"),
+    (8, "bisphenol-S"),
+    (9, "bisphenol-Z"),
+    (10, "bisphenol-AF"),
+    (11, "bisphenol-F"),
+    (12, "Sulforhodamine 101"),
+    (13, "pentachlorophenol"),
+    (14, "tetrabromobisphenol-A"),
+    (15, "bisphenol-A"),
+    (16, "perfluorooctanesulfonic acid (PFOA)"),
+    (17, "Perfluorooctanoic acid (PFOA)"),
+    (18, "Quercetin"),
+    (19, "Rifampicin"),
+    (20, "Triclosan"),
 )
 
 
@@ -355,6 +385,31 @@ class TestRealInputPipeline:
 
         cas_values = {e.fields.get("cas") for e in compounds if e.fields.get("cas")}
         assert len(cas_values) > 1, f"every compound got the same CAS: {cas_values}"
+
+    def test_every_named_chemical_reaches_the_extraction_leaf(self) -> None:
+        """The whole compound table must survive the context budget (#419).
+
+        The leaf can only propose what it was shown, so a chemical missing here is
+        unreachable at any temperature, prompt or model — silently. Three separate
+        truncations used to cut 19 named chemicals down to 5: `read_file`'s
+        `max_lines=100` row cap, the uncompacted concentration series, and the
+        tier-0 char share.
+
+        Asserted on the `Chemical_N_Name` row rather than the bare name because the
+        names collide as substrings — matching "bisphenol-A" alone would pass on
+        "tetrabromobisphenol-A" and hide a genuine miss.
+        """
+        from builder.agents.pipeline.pipeline import _gather_context
+
+        context = _gather_context(_scanning_engine(FIXTURE_DIR))
+
+        missing = [
+            f"Chemical_{row}_Name ({name})"
+            for row, name in _NAMED_CHEMICALS
+            if f"Chemical_{row}_Name".lower() not in context.lower()
+            or name.lower() not in context.lower()
+        ]
+        assert not missing, f"{len(missing)} of {len(_NAMED_CHEMICALS)} starved: {missing}"
 
     def test_bulk_data_does_not_consume_the_metadata_budget(
         self, monkeypatch: pytest.MonkeyPatch
