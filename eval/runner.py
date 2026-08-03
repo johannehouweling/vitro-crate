@@ -121,11 +121,42 @@ class CaseResult:
     input_tokens_per_repeat: list[int] = field(default_factory=list)
     output_tokens_per_repeat: list[int] = field(default_factory=list)
     cost_usd_per_repeat: list[float | None] = field(default_factory=list)
+    success_per_repeat: list[bool] = field(default_factory=list)
+    conformance_per_repeat: list[dict[str, bool]] = field(default_factory=list)
+    meets_quota_per_repeat: list[bool | None] = field(default_factory=list)
 
     @property
     def total_tokens(self) -> int:
         """Combined input + output token count for the representative run."""
         return self.input_tokens + self.output_tokens
+
+    @property
+    def success_rate(self) -> float:
+        """Fraction of this case's repeats that reached conformance (#405).
+
+        ``success`` above is repeat #1's representative verdict; this is what the
+        case actually achieved. A 1-in-3 case is ``0.33`` here and ``True`` there,
+        and the difference is the whole point: intermittent conformance is the
+        stochastic arm's characteristic failure mode, and it used to leave no trace
+        in the report at all. Falls back to :attr:`success` when no per-repeat
+        verdicts were recorded (a hand-built or pre-#405 result).
+        """
+        if not self.success_per_repeat:
+            return 1.0 if self.success else 0.0
+        return sum(1 for s in self.success_per_repeat if s) / len(self.success_per_repeat)
+
+    @property
+    def always_succeeds(self) -> bool:
+        """True when EVERY repeat conformed — the strict reading (#405).
+
+        Distinct from :attr:`deterministic`, which says the repeats produced an
+        identical graph. A case can be non-deterministic yet always conformant, or
+        non-deterministic and conformant only sometimes; those are very different
+        results and read identically without this.
+        """
+        if not self.success_per_repeat:
+            return self.success
+        return all(self.success_per_repeat)
 
     @property
     def total_cost_usd(self) -> float | None:
@@ -185,6 +216,11 @@ class CaseResult:
             "output_tokens_per_repeat": self.output_tokens_per_repeat,
             "cost_usd_per_repeat": self.cost_usd_per_repeat,
             "total_cost_usd": self.total_cost_usd,
+            "success_per_repeat": self.success_per_repeat,
+            "conformance_per_repeat": self.conformance_per_repeat,
+            "meets_quota_per_repeat": self.meets_quota_per_repeat,
+            "success_rate": self.success_rate,
+            "always_succeeds": self.always_succeeds,
             "variance": self.variance(),
         }
 
@@ -203,9 +239,26 @@ class EvalReport:
         Keyed so a ReAct run and a pipeline run can be diffed field by field:
         success rate, mean/median tokens and latency, and the determinism rate
         (over cases where determinism is defined).
+
+        ``success_rate`` is the share of **all** (case x repeat) builds that reached
+        conformance — not repeat #1's pass rate (#405). ``num_success_all_repeats``
+        (every repeat conformed) and ``num_success_any_repeat`` (at least one did)
+        give the strict and optimistic readings alongside it; a flaky case shows up
+        as the gap between them.
         """
         n = len(self.results)
-        successes = sum(1 for r in self.results if r.success)
+        # ``success_rate`` spans repeats (#405): the mean of each case's own
+        # conformant fraction, i.e. the share of all (case x repeat) builds that
+        # worked. It used to be repeat #1's pass rate under a name every reader
+        # takes to mean "how often this architecture works" — a 1-in-3 case scored
+        # a full 1.0. The mean is chosen over any-repeat (optimistic, the old
+        # behaviour by accident) and all-repeat (strict, but 1-of-3 and 2-of-3
+        # collapse to the same 0) because it is the only one that preserves
+        # magnitude AND stays comparable across different --repeats. Both stricter
+        # readings are still reported below, named for what they count.
+        success_rate = statistics.mean([r.success_rate for r in self.results]) if n else 0.0
+        num_success_all_repeats = sum(1 for r in self.results if r.always_succeeds)
+        num_success_any_repeat = sum(1 for r in self.results if r.success_rate > 0)
         totals = [r.total_tokens for r in self.results]
         latencies = [r.latency_seconds for r in self.results]
         decided = [r for r in self.results if r.deterministic is not None]
@@ -241,8 +294,11 @@ class EvalReport:
             "label": self.label,
             "repeats": self.repeats,
             "num_cases": n,
-            "num_success": successes,
-            "success_rate": (successes / n) if n else 0.0,
+            # Both readings, each named for exactly what it counts (#405). The bare
+            # ``num_success`` they replace could not say which one it meant.
+            "num_success_all_repeats": num_success_all_repeats,
+            "num_success_any_repeat": num_success_any_repeat,
+            "success_rate": success_rate,
             "mean_total_tokens": statistics.mean(totals) if totals else 0.0,
             "median_total_tokens": statistics.median(totals) if totals else 0.0,
             "mean_latency_seconds": statistics.mean(latencies) if latencies else 0.0,
@@ -379,10 +435,33 @@ def _run_case(
         hashes.append(crate_graph_hash(outcome.state))
 
     first_outcome, first_latency = repeat_runs[0]  # repeats >= 1 guarantees one run
-    state = first_outcome.state
 
-    predicate = reaches_isa_tox_conformance(state)
-    quota = meets_entity_quota(state, case.min_entities)
+    # Score EVERY repeat (#405) — without it a case that conformed once in three
+    # contributed a full 1.0 to success_rate and its two failures left no trace.
+    #
+    # Memoised on the crate hash, which is ALREADY computed above for the
+    # determinism signal. The predicate is not free: `reaches_isa_tox_conformance`
+    # runs a full 3-pass SHACL `build_and_validate`, so scoring naively would
+    # triple this harness's validation cost at the default --repeats 3. Two repeats
+    # with an identical canonical @graph cannot disagree about conformance, so the
+    # verdict is computed once per DISTINCT crate: a deterministic arm pays exactly
+    # what it paid before, and a stochastic one pays only for crates that genuinely
+    # differ.
+    scored: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    predicates: list[dict[str, Any]] = []
+    quotas: list[dict[str, Any]] = []
+    for (outcome_i, _), digest in zip(repeat_runs, hashes, strict=True):
+        verdict = scored.get(digest)
+        if verdict is None:
+            verdict = (
+                reaches_isa_tox_conformance(outcome_i.state),
+                meets_entity_quota(outcome_i.state, case.min_entities),
+            )
+            scored[digest] = verdict
+        predicates.append(verdict[0])
+        quotas.append(verdict[1])
+    predicate = predicates[0]
+    quota = quotas[0]
 
     # Mine every repeat's profile so the report carries the spread, not just one
     # noisy draw (trap 4, #335). The representative headline fields below stay
@@ -431,6 +510,9 @@ def _run_case(
         input_tokens_per_repeat=[m.input_tokens for m in per_repeat_metrics],
         output_tokens_per_repeat=[m.output_tokens for m in per_repeat_metrics],
         cost_usd_per_repeat=cost_usd_per_repeat,
+        success_per_repeat=[bool(p["success"]) for p in predicates],
+        conformance_per_repeat=[dict(p["conformance"]) for p in predicates],
+        meets_quota_per_repeat=[q["meets_quota"] for q in quotas],
     )
 
 

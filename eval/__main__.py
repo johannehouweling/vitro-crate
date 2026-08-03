@@ -250,9 +250,15 @@ def run_main(
     cost = summary["total_cost_usd"]
     per_repeat = summary["mean_cost_usd_per_repeat"]
     logger.info(
-        "Done: success_rate=%.2f mean_tokens=%.0f determinism_rate=%.2f "
+        "Done: success_rate=%.2f (all_repeats=%d/%d any_repeat=%d/%d) "
+        "mean_tokens=%.0f determinism_rate=%.2f "
         "completed=%d cap_hit=%d error=%d total_spend=%s cost_per_repeat=%s -> %s",
         summary["success_rate"],
+        # A gap between these two is flakiness — the thing #405 made visible.
+        summary["num_success_all_repeats"],
+        summary["num_cases"],
+        summary["num_success_any_repeat"],
+        summary["num_cases"],
         summary["mean_total_tokens"],
         summary["determinism_rate"],
         summary["num_completed"],
