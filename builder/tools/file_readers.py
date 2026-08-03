@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -322,9 +323,11 @@ def compact_grid_text(text: str) -> str:
     real S-VHPS26 workbook that noise pushes the cell line, RRID, author and
     chemicals 2-5 past any affordable context slice.
 
-    Three rules, in order: drop the repeated header row; drop the trailing
+    Four rules, in order: drop the repeated header row; drop the trailing
     Comments column **only when that sheet's own header names it** ``Comments``;
-    drop empty cells, then drop rows left with fewer than two non-empty cells.
+    drop empty cells, then drop rows left with fewer than two non-empty cells;
+    finally fold a numbered series into one row (see
+    :func:`_collapse_numbered_series`).
 
     **Rows are never dropped on the emptiness of one named column.** That rule
     looks right and destroys the General information sheet, because this
@@ -336,6 +339,7 @@ def compact_grid_text(text: str) -> str:
     out: list[str] = []
     drop_last_column = False
     seen_header = False
+    seen_iris: set[str] = set()
 
     for line in lines:
         stripped = line.strip()
@@ -344,6 +348,7 @@ def compact_grid_text(text: str) -> str:
             # per-sheet property, not a workbook-wide one.
             seen_header = False
             drop_last_column = False
+            seen_iris = set()
             out.append(line)
             continue
         if not stripped.startswith("|"):
@@ -362,9 +367,91 @@ def compact_grid_text(text: str) -> str:
         kept = [c for c in cells if c]
         if len(kept) < 2:
             continue
+        # An ontology IRI annotating a column repeats verbatim on every row it
+        # types — four of them account for 4,133 chars on the real S-VHPS26
+        # workbook. State each once per sheet (#419). Never at the cost of the
+        # row's last identifying cell: a row that would fall below two cells
+        # keeps its IRI, so no label is ever traded away for the saving.
+        deduped = [c for c in kept if not (c in seen_iris and _IRI_CELL.match(c))]
+        if len(deduped) >= 2:
+            kept = deduped
+        seen_iris.update(c for c in kept if _IRI_CELL.match(c))
         out.append("| " + " | ".join(kept) + " |")
 
-    return "\n".join(out).strip()
+    return "\n".join(_collapse_numbered_series(out)).strip()
+
+
+# A numbered series must be at least this long to be folded. Two consecutive rows
+# that merely happen to end in 1 and 2 are far more likely to be distinct
+# parameters than a series, and folding them would lose a label.
+_MIN_SERIES_RUN = 3
+
+_SERIES_KEY = re.compile(r"^(?P<prefix>.+)_(?P<index>\d+)$")
+
+# A cell that is nothing but an ontology/identifier IRI — the annotation form a
+# depositor workbook repeats per row. Deliberately anchored and whole-cell: a cell
+# that merely CONTAINS a URL alongside prose is real content and is never deduped.
+_IRI_CELL = re.compile(r"^https?://\S+$")
+
+
+def _collapse_numbered_series(rows: list[str]) -> list[str]:
+    """Fold ``<prefix>_1 … <prefix>_N`` rows that differ only in their value (#419).
+
+    A depositor-filled workbook states a dose series one row per level, repeating
+    the same ontology IRI every time::
+
+        | Chemical_1_Concentration_1 | http://nmrML.org/nmrCV#NMR:1000095 | 0.003 |
+        | Chemical_1_Concentration_2 | http://nmrML.org/nmrCV#NMR:1000095 | 0.01  |
+
+    On the real S-VHPS26 workbook 160 such rows carry 11,693 characters — 53% of
+    the whole compacted sheet — to express 19 dose series. Folding each run to one
+    row is what makes the full chemical table affordable inside the existing
+    context budget, instead of buying it with a budget increase that would cost
+    tokens on every run.
+
+    A run folds only when the rows are CONSECUTIVE, share a prefix, number
+    contiguously, agree on every cell but the last, and are at least
+    :data:`_MIN_SERIES_RUN` long. Anything else is emitted untouched — so a sheet
+    without a series is returned byte-identical.
+    """
+    out: list[str] = []
+    run: list[tuple[str, int, list[str]]] = []
+
+    def _flush() -> None:
+        if not run:
+            return
+        if len(run) < _MIN_SERIES_RUN:
+            out.extend("| " + " | ".join([f"{p}_{i}", *rest]) + " |" for p, i, rest in run)
+        else:
+            prefix = run[0][0]
+            shared = run[0][2][:-1]
+            values = ", ".join(cells[-1] for _p, _i, cells in run)
+            label = f"{prefix}_{run[0][1]}-{run[-1][1]}"
+            out.append("| " + " | ".join([label, *shared, values]) + " |")
+        run.clear()
+
+    for row in rows:
+        stripped = row.strip()
+        cells = (
+            [c.strip() for c in stripped.strip("|").split("|")]
+            if stripped.startswith("|")
+            else []
+        )
+        match = _SERIES_KEY.match(cells[0]) if len(cells) >= 2 else None
+        if match is None:
+            _flush()
+            out.append(row)
+            continue
+
+        prefix, index, rest = match["prefix"], int(match["index"]), cells[1:]
+        contiguous = run and run[-1][0] == prefix and run[-1][1] == index - 1
+        same_shape = run and run[-1][2][:-1] == rest[:-1]
+        if not (contiguous and same_shape):
+            _flush()
+        run.append((prefix, index, rest))
+
+    _flush()
+    return out
 
 
 def _flatten_attributes(attrs: Any, out: list[str], indent: str = "") -> None:

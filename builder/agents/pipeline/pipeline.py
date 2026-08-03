@@ -276,7 +276,14 @@ _DEFAULT_ASSAY_NAME = "Assay"
 # metadata workbook: compaction pays most of it back (-41% on the grid, -73% on
 # the BioStudies descriptor), but chemicals 2-5 of the real S-VHPS26 deposit sit
 # past 2,600 compacted chars and cannot be reached at 8000 under any weighting.
-_MAX_CONTEXT_CHARS = 14000
+#
+# Raised 14000 -> 16000 with #419. The two new compaction rules cut the S-VHPS26
+# workbook from 22,007 chars to 8,675, but a tier's share is granted PER FILE, so
+# seating the whole chemical table in tier 0 left the second tier-2 document (the
+# README) only 1,000 chars — below the offset its own regression token sits at.
+# The +2,000 restores that second document. Net against the old ceiling: 4x the
+# chemicals for ~500 extra tokens on one bounded cheap-model call.
+_MAX_CONTEXT_CHARS = 16000
 
 # Per-file share by `_metadata_read_priority` tier (#378). Metadata-first was
 # previously an ORDERING only: every file got an equal `_MAX_CONTEXT_CHARS // n`
@@ -289,7 +296,15 @@ _MAX_CONTEXT_CHARS = 14000
 # flows its headroom down to the next (see `_gather_context`). That flow-down is
 # what keeps a bulk-data-only deposit safe — with no metadata/doc files, the
 # first priority-3 file inherits 10,500 chars rather than being held to 500.
-_TIER_SHARES: dict[int, int] = {0: 6000, 1: 2000, 2: 2000, 3: 500}
+#
+# Tier 0 was raised 6000 -> 9000 with #419. At 6000 it cut the real S-VHPS26
+# chemical table at chemical 15 of 19 — and because carry flows DOWNWARD only
+# (tier 0 is weighted first, with `carry = 0`), no other tier's headroom could
+# ever reach it. The raise is paid for entirely by the two new compaction rules,
+# which took that workbook from 22,007 chars to 8,675: the shares now total
+# 13,500 and still fit inside the unchanged `_MAX_CONTEXT_CHARS`, so the whole
+# table costs no more tokens than five chemicals used to.
+_TIER_SHARES: dict[int, int] = {0: 9000, 1: 2000, 2: 2000, 3: 500}
 
 # Tiers whose body is worth a full `read_file` with compaction rather than the
 # scanner's 20-rows-per-sheet preview (#378). The preview cap loses chemicals 3-5
@@ -297,6 +312,15 @@ _TIER_SHARES: dict[int, int] = {0: 6000, 1: 2000, 2: 2000, 3: 500}
 # ROW before any of this budgeting runs. `_EXCEL_PREVIEW_ROWS` deliberately stays
 # at 20 — the binding constraint is chars, and raising it slows every scan.
 _COMPACTED_READ_TIERS = frozenset({0, 1})
+
+# `read_file` defaults to 100 rows per sheet, which is a *row* cut made before any
+# char budgeting runs — so it cannot be traded against the budget and leaves no
+# trace in the emitted slice. The real S-VHPS26 chemical sheet needs ~240 rows to
+# state its 19 chemicals, and the 100-row default silently cut it at chemical 8
+# (#419). Compacted tiers read to `read_excel`'s own ceiling instead; series
+# folding, not a row cut, is what keeps the result affordable.
+_COMPACTED_READ_MAX_ROWS = 500
+_DEFAULT_READ_MAX_ROWS = 100
 
 
 def _backbone_hints(engine: AgentEngine) -> dict[str, dict[str, str]]:
@@ -403,7 +427,11 @@ def _read_body_excerpt(
         return None
 
     try:
-        body = read_file(path, compact=compact)
+        body = read_file(
+            path,
+            compact=compact,
+            max_lines=_COMPACTED_READ_MAX_ROWS if compact else _DEFAULT_READ_MAX_ROWS,
+        )
     except (OSError, ValueError, ImportError) as exc:
         logger.warning("Body read failed for %s; skipping: %s", path, exc)
         return None
