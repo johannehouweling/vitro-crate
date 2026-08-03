@@ -354,3 +354,192 @@ class TestReactToolDescriptionMatchesTheCode:
 def test_alias_table_covers_the_documented_synonyms(source: str, canonical: str) -> None:
     got = project_condition_rows([{source: "X"}])["rows"][0]
     assert got[canonical] == "X"
+
+
+class TestMultivaluedColumns:
+    """#408 (c) — a populated column may no longer carry a column-wide ``valueUrl``.
+
+    ``_build_condition_table_schema`` asserts ``cells[0]`` / ``chems[0]`` for the
+    WHOLE cell_line / compound column. At zero rows that claim is vacuous. Once
+    rows exist it says every value in the column resolves to that one entity — so
+    populating a multi-compound plate converts unverified prose into false
+    entity-resolved claims. D5 says refuse the claim, not inherit it.
+    """
+
+    def _write(self, tmp_path: Path, rows: list[dict[str, str]]) -> Path:
+        csv_path = tmp_path / "condition_table.csv"
+        titles = [c["titles"] for c in _CONDITION_TABLE_COLUMNS]
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=titles, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+        return csv_path
+
+    def test_a_single_valued_column_is_not_multivalued(self, tmp_path: Path) -> None:
+        from builder.tools.data_content import condition_table_multivalued_columns
+
+        csv_path = self._write(
+            tmp_path,
+            [
+                {"well_id": "A1", "cell_line": "CHO-K1", "compound": "T4"},
+                {"well_id": "A2", "cell_line": "CHO-K1", "compound": "T4"},
+            ],
+        )
+        got = condition_table_multivalued_columns(str(csv_path))
+        assert "compound" not in got
+        assert "cell_line" not in got
+        # Every well differs by design, so well_id IS multivalued — the function
+        # reports any canonical column, and the caller decides which ones matter.
+        assert got == {"well_id"}
+
+    def test_a_multi_compound_plate_reports_the_compound_column(self, tmp_path: Path) -> None:
+        from builder.tools.data_content import condition_table_multivalued_columns
+
+        csv_path = self._write(
+            tmp_path,
+            [
+                {"well_id": "A1", "cell_line": "CHO-K1", "compound": "T4"},
+                {"well_id": "A2", "cell_line": "CHO-K1", "compound": "T3"},
+            ],
+        )
+        got = condition_table_multivalued_columns(str(csv_path))
+        assert "compound" in got
+        assert "cell_line" not in got, "one cell line across both wells — still single-valued"
+
+    def test_non_canonical_source_columns_are_ignored(self, tmp_path: Path) -> None:
+        """A verbatim-copied plate map's extra headers have no CSVW column to guard."""
+        from builder.tools.data_content import condition_table_multivalued_columns
+
+        csv_path = tmp_path / "verbatim.csv"
+        csv_path.write_text(
+            "well_id,compound,tpo_activity_rfu\nA1,T4,101\nA2,T4,202\n", encoding="utf-8"
+        )
+        assert "tpo_activity_rfu" not in condition_table_multivalued_columns(str(csv_path))
+
+    def test_blanks_do_not_count_as_a_distinct_value(self, tmp_path: Path) -> None:
+        """An empty cell is absence, not a second compound."""
+        from builder.tools.data_content import condition_table_multivalued_columns
+
+        csv_path = self._write(
+            tmp_path,
+            [
+                {"well_id": "A1", "compound": "T4"},
+                {"well_id": "A2", "compound": ""},
+                {"well_id": "A3", "compound": "  "},
+            ],
+        )
+        assert "compound" not in condition_table_multivalued_columns(str(csv_path))
+
+    def test_a_header_only_table_is_not_multivalued(self, tmp_path: Path) -> None:
+        """The pre-#408 state: no rows, so nothing to contradict."""
+        from builder.tools.data_content import condition_table_multivalued_columns
+
+        assert condition_table_multivalued_columns(str(self._write(tmp_path, []))) == set()
+
+    def test_a_missing_file_is_not_multivalued(self, tmp_path: Path) -> None:
+        """The in-memory validate path has no CSV on disk — must not raise."""
+        from builder.tools.data_content import condition_table_multivalued_columns
+
+        assert condition_table_multivalued_columns(str(tmp_path / "nope.csv")) == set()
+
+
+class TestValueUrlDropsOnMultivaluedColumn:
+    """#408 (c), through the real crate mapping + export — not the helper alone.
+
+    The Exposure's ``chemicals`` ref field and its cultured-sample ``object`` are
+    what feed ``cells``/``chems`` into ``_build_condition_table_schema``, so these
+    build the same wiring ``_materialize_plan`` produces.
+    """
+
+    _REL = Path("data") / "LabProcess_proc_exp_condition_table.csv"
+
+    def _state(self, compound_ids: list[str]) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "Exposure crate"
+
+        def add(eid: str, type_: str, **fields: object) -> None:
+            state.add_entity(
+                Entity(
+                    entity_id=eid,
+                    type=type_,  # ty: ignore[invalid-argument-type]
+                    fields=fields,
+                    _provenance=EntityProvenance(created_by="llm"),
+                )
+            )
+
+        add("samp_c", "Sample", name="Cultured CHO-K1")
+        for eid in compound_ids:
+            add(eid, "MolecularEntity", name=eid)
+        add(
+            "proc_exp",
+            "LabProcess",
+            process_type="Exposure",
+            name="Exposure step",
+            chemicals=compound_ids,
+            object=["samp_c"],
+        )
+        return state
+
+    def _export_value_urls(
+        self, out_dir: Path, csv_body: str, compound_ids: list[str]
+    ) -> dict[str, str | None]:
+        """Pre-populate the condition CSV, export, and read back column valueUrls."""
+        import json
+
+        from builder.tools.builder import export_crate
+
+        dest = out_dir / self._REL
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(csv_body, encoding="utf-8")
+
+        state = self._state(compound_ids)
+        state.metadata.output_path = str(out_dir)
+        export_crate(state)
+
+        doc = json.loads((out_dir / "ro-crate-metadata.json").read_text(encoding="utf-8"))
+        urls: dict[str, str | None] = {}
+        for node in doc["@graph"]:
+            if "csvw:Column" not in str(node.get("@type", "")):
+                continue
+            raw = node.get("valueUrl")
+            urls[str(node.get("titles") or "")] = (
+                raw.get("@id") if isinstance(raw, dict) else raw
+            )
+        return urls
+
+    _HEADER = "well_id,assay,cell_line,compound\n"
+
+    def test_single_valued_compound_column_keeps_its_valueurl(self, tmp_path: Path) -> None:
+        """The control: existing #94/#180 behaviour must survive the change."""
+        urls = self._export_value_urls(
+            tmp_path / "crate",
+            self._HEADER + "A1,uptake,CHO-K1,Thyroxine\n",
+            ["chem_t4"],
+        )
+        assert urls.get("compound"), "a single-compound plate must keep its column valueUrl"
+        assert urls.get("cell_line"), "a single-cell-line plate must keep its column valueUrl"
+
+    def test_multi_compound_column_drops_its_valueurl(self, tmp_path: Path) -> None:
+        urls = self._export_value_urls(
+            tmp_path / "crate",
+            self._HEADER + "A1,uptake,CHO-K1,Thyroxine\nA2,uptake,CHO-K1,Triiodothyronine\n",
+            ["chem_t4", "chem_t3"],
+        )
+        assert urls.get("compound") is None, (
+            "two compounds in the column — a column-wide valueUrl would be a false claim"
+        )
+        # cell_line is still single-valued, so that claim stands: the guard is
+        # per-column, not a blanket retreat.
+        assert urls.get("cell_line"), "single-valued cell_line must keep its valueUrl"
+
+    def test_header_only_table_keeps_its_valueurl(self, tmp_path: Path) -> None:
+        """The pre-#408 vacuous case is unchanged — no rows contradict the claim."""
+        urls = self._export_value_urls(tmp_path / "crate", self._HEADER, ["chem_t4"])
+        assert urls.get("compound"), "a header-only table asserts nothing to contradict"
+
+    def test_populated_rows_survive_the_export(self, tmp_path: Path) -> None:
+        """`if not dest.exists()` + ro-crate-py's samefile guard must not clobber rows."""
+        out = tmp_path / "crate"
+        body = self._HEADER + "A1,uptake,CHO-K1,Thyroxine\nA2,uptake,CHO-K1,Triiodothyronine\n"
+        self._export_value_urls(out, body, ["chem_t4", "chem_t3"])
+        assert (out / self._REL).read_text(encoding="utf-8") == body

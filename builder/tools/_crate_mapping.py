@@ -1507,16 +1507,33 @@ def _build_csvw_schema(
 
 
 def _build_condition_table_schema(
-    crate: ROCrate, exp_slug: str, cells: list[Any], chems: list[Any]
+    crate: ROCrate,
+    exp_slug: str,
+    cells: list[Any],
+    chems: list[Any],
+    *,
+    multivalued: set[str] | None = None,
 ) -> ContextEntity:
     """The csvw:Schema entity describing the condition table's typed columns.
 
     The cell-line and compound columns resolve their ``valueUrl`` to the in-crate
     Sample / MolecularEntity id, so a row's value maps to its entity (#94, #180).
+
+    That is a claim about the **whole column** — ``cells[0]`` / ``chems[0]`` stand
+    for every row. It is vacuous while the table is header-only, but once rows
+    exist a multi-compound or multi-cell-line plate makes it false. *multivalued*
+    names the columns the populated CSV shows carrying more than one distinct value
+    (:func:`~builder.tools.data_content.condition_table_multivalued_columns`); each
+    one drops its ``valueUrl`` rather than assert an unverified mapping (D5, #408).
+    The guard is per-column: a single-valued ``cell_line`` keeps its claim even when
+    ``compound`` loses one.
     """
+    dropped = multivalued or set()
     value_urls: dict[str, str | None] = {
-        "cell_line": _node_id(cells[0]) if cells else None,
-        "compound": _node_id(chems[0]) if chems else None,
+        "cell_line": None
+        if "cell_line" in dropped
+        else (_node_id(cells[0]) if cells else None),
+        "compound": None if "compound" in dropped else (_node_id(chems[0]) if chems else None),
     }
     return _build_csvw_schema(
         crate,
@@ -1556,6 +1573,7 @@ def _synth_condition_table(
     # in-memory validate path (#87) skips the write; the File node below still
     # carries dest_path=rel so the metadata graph is complete for validation.
     source: str | None = None
+    multivalued: set[str] = set()
     if materialize_payload and output_dir is not None:
         dest = output_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1565,6 +1583,12 @@ def _synth_condition_table(
         # payload (its _copy_file no-ops when source and dest are the same file)
         # instead of warning "No source for …" (#128).
         source = str(dest)
+        # A pre-populated table (#408 (b)) may contradict the column-wide valueUrl
+        # the schema is about to assert; read it back and drop the claims it breaks.
+        # Local import: data_content already imports from this module.
+        from builder.tools.data_content import condition_table_multivalued_columns
+
+        multivalued = condition_table_multivalued_columns(str(dest))
     table = crate.add(
         File(
             crate,
@@ -1580,7 +1604,9 @@ def _synth_condition_table(
     # entity ids). The table points to it via tableSchema (canonical CSVW) and
     # conformsTo (RO-Crate conformance — not a bare inline tableSchema dict).
     # Issue #94.
-    schema = _build_condition_table_schema(crate, _slug(exp_pid), cells, chems)
+    schema = _build_condition_table_schema(
+        crate, _slug(exp_pid), cells, chems, multivalued=multivalued
+    )
     table["tableSchema"] = {"@id": schema.id}
     table.append_to("conformsTo", schema)
     return table

@@ -1066,19 +1066,37 @@ def _extract_title_from_pdf_text(text: str) -> str | None:
     return None
 
 
-def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
-    """Path of the scanned PDF a plan publication *title* refers to, or ``None``.
+def _scanned_path_for_name(
+    engine: AgentEngine, name: str, *, suffix: str | None = None
+) -> str | None:
+    """Path of the scanned file *name* refers to, matched by BASENAME, or ``None``.
 
-    A plan publication is treated as PDF-backed when its ``title`` itself names a
-    PDF (ends in ``.pdf``) and a scanned file matches it by basename — the common
-    #245 case where the extractor returned the filename as the title. The returned
-    path is **fail-closed to ``approved_scan_roots``** (the containment guard the
-    rest of the spine uses), so the publication path never widens filesystem
-    access. Returns ``None`` when the title is an ordinary article title (resolve
-    it directly) or names no scanned PDF.
+    The single resolver for "the plan named a file; which scanned file is that?"
+    — shared by the #245 publication-PDF path and the #408 condition table.
+
+    **Basename, deliberately.** :func:`_gather_context` shows the extraction leaf
+    only ``f.filename``, never ``f.path``, so a plan can only ever name a bare
+    basename. Comparing full paths would make any caller look wired and silently
+    never fire.
+
+    The result is **fail-closed to ``approved_scan_roots``** via the same
+    :func:`builder.tools.scanner._contain` guard the rest of the spine uses: plan
+    paths are LLM free text, so resolving one must never widen filesystem access.
+
+    Args:
+        engine: The engine whose ``state.scanned_files`` is the inventory.
+        name: The plan's file reference (a basename, possibly with directories).
+        suffix: When given, require *name* to end with it (case-insensitive) —
+            e.g. ``".pdf"`` for the publication case. ``None`` accepts any name.
+
+    Returns:
+        The scanned file's path, or ``None`` when *name* is empty, fails the
+        *suffix* test, matches no scanned file, or resolves outside the roots.
     """
-    candidate = title.strip()
-    if not candidate.lower().endswith(".pdf"):
+    candidate = (name or "").strip()
+    if not candidate:
+        return None
+    if suffix is not None and not candidate.lower().endswith(suffix.lower()):
         return None
 
     from pathlib import PurePath
@@ -1093,13 +1111,106 @@ def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
             continue
         # Fail-closed: only read a file that resolves inside an approved root.
         if _contain(f.path, roots) is None:
-            logger.debug(
-                "Publication PDF %s is outside approved scan roots — skipping (#245).",
-                f.path,
-            )
+            logger.debug("Scanned file %s is outside approved scan roots — refusing.", f.path)
             return None
         return f.path
     return None
+
+
+def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
+    """Path of the scanned PDF a plan publication *title* refers to, or ``None``.
+
+    A plan publication is treated as PDF-backed when its ``title`` itself names a
+    PDF (ends in ``.pdf``) and a scanned file matches it by basename — the common
+    #245 case where the extractor returned the filename as the title. Returns
+    ``None`` when the title is an ordinary article title (resolve it directly) or
+    names no scanned PDF inside the approved roots.
+    """
+    return _scanned_path_for_name(engine, title, suffix=".pdf")
+
+
+def _populate_condition_table_from_plan(
+    engine: AgentEngine, plan: dict[str, Any], exposure_id: str
+) -> dict[str, Any]:
+    """Write the plan's ``condition_table`` file into the Exposure's CSV (#408).
+
+    The extraction leaf classifies every plan file into
+    ``raw``/``processed``/``condition_table``/``other``, but the spine re-derived a
+    role from the filename (:func:`_file_role`, which only returns
+    ``raw_data``/``processed_data``) and dropped the answer — so ``condition_table``
+    was unreachable and every exported table shipped header-only while the per-well
+    payload sat beside it as an untyped ``File``.
+
+    Deterministic and conservative:
+
+    * exactly ONE ``condition_table`` entry is actionable — zero or several and the
+      spine records why and does nothing rather than guess which plate map is the
+      design table;
+    * the path is resolved through :func:`_scanned_path_for_name` (basename match,
+      fail-closed to ``approved_scan_roots``);
+    * the write goes through ``engine.run_tool("populate_condition_table", ...)``,
+      never a hand-rolled CSV, so it lands on the exact path
+      :func:`~builder.tools._crate_mapping._synth_condition_table` types as a
+      ``csvw:Table`` and the #94/#180 schema stays attached. ``output_dir`` is left
+      to the tool, which resolves it the same way ``export_crate`` does (#381).
+
+    Never raises: a tool failure is logged and reported as a reason, so one bad
+    plate map cannot break the spine.
+
+    Returns:
+        ``{"populated": bool, "reason": str}`` plus, on success, the tool's
+        ``rows`` / ``path`` / ``unmapped_source_columns``. Surfaced in
+        :func:`_materialize_plan`'s result so it reaches ``run_pipeline``.
+    """
+    entries = [f for f in (plan.get("files") or []) if isinstance(f, dict)]
+    candidates = [e for e in entries if str(e.get("role") or "").strip() == "condition_table"]
+    if not candidates:
+        return {"populated": False, "reason": "no plan file is classified as condition_table"}
+    if len(candidates) > 1:
+        names = ", ".join(sorted(str(c.get("path") or "?") for c in candidates))
+        return {
+            "populated": False,
+            "reason": f"{len(candidates)} condition_table candidates ({names}) — refusing to guess",
+        }
+
+    named = str(candidates[0].get("path") or "").strip()
+    if not named:
+        return {"populated": False, "reason": "the condition_table entry carries no path"}
+
+    path = _scanned_path_for_name(engine, named)
+    if path is None:
+        return {
+            "populated": False,
+            "reason": f"{named!r} matches no scanned file inside the approved scan roots",
+        }
+
+    try:
+        outcome = engine.run_tool(
+            "populate_condition_table",
+            exposure_id=exposure_id,
+            rows_or_csv_path=path,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("populate_condition_table failed for %s: %s", path, exc)
+        return {"populated": False, "reason": f"populate_condition_table raised: {exc}"}
+
+    outcome = outcome if isinstance(outcome, dict) else {}
+    if not outcome.get("ok"):
+        reason = str(outcome.get("error") or "populate_condition_table declined")
+        logger.info("Condition table not populated from %s: %s", named, reason)
+        return {"populated": False, "reason": reason}
+
+    logger.info(
+        "Populated condition table from %s: %s row(s) (#408).", named, outcome.get("rows")
+    )
+    return {
+        "populated": True,
+        "reason": "",
+        "source": named,
+        "rows": outcome.get("rows"),
+        "path": outcome.get("path"),
+        "unmapped_source_columns": outcome.get("unmapped_source_columns") or [],
+    }
 
 
 def _recover_publication_query(engine: AgentEngine, title: str) -> tuple[str, str] | None:
@@ -1206,6 +1317,14 @@ def _materialize_plan(
       ``process_chain``, each plan step's ``name`` is overlaid onto the matching
       ``process_type`` so the two paths share ONE chain (no duplicate processes).
       This runs even with NO provider, so the crate is never structurally hollow.
+    * **condition table (#408).** The ONE plan file classified
+      ``role == "condition_table"`` is written into the Exposure's typed CSVW table
+      via ``populate_condition_table``
+      (:func:`_populate_condition_table_from_plan`) — the leaf already emits that
+      role and the spine used to discard it, so every crate declared a ten-column
+      ``csvw:Table`` and shipped it header-only. Zero or several candidates → the
+      spine records why and writes nothing rather than guess. The outcome is
+      surfaced on this function's result.
     * **scanned files — ALWAYS, regardless of provider (#262).** Every
       ``engine.state.scanned_files`` entry is added as a ``File`` entity and placed
       under the scaffolded Assay (else Study) ``hasPart`` via the idempotent
@@ -1271,6 +1390,9 @@ def _materialize_plan(
         "people": 0,
         "publications": 0,
         "publications_deferred": [],
+        # #408: whether the plan's condition_table file reached the Exposure's CSV,
+        # and when it did not, why — never a silent skip.
+        "condition_table": {"populated": False, "reason": "not attempted"},
     }
 
     # Extract the candidate plan FIRST (when there is a provider + usable context),
@@ -1396,6 +1518,22 @@ def _materialize_plan(
         exposure_id = exposure_step.get("process_id") if exposure_step else None
         if exposure_id:
             _set_ref_field(engine, str(exposure_id), "chemicals", compound_ids)
+
+    # --- condition table (#408): the plan already classified one file as the
+    # per-well design table; write it into the Exposure's typed CSVW table rather
+    # than leaving the header-only placeholder beside an untyped payload File.
+    # Runs regardless of `compound_ids` — a plate map is worth populating even when
+    # no compound resolved. ---
+    exposure_for_table = (chain_by_type.get("Exposure") or {}).get("process_id")
+    if exposure_for_table:
+        result["condition_table"] = _populate_condition_table_from_plan(
+            engine, plan, str(exposure_for_table)
+        )
+    else:
+        result["condition_table"] = {
+            "populated": False,
+            "reason": "no Exposure in the process chain to attach a condition table to",
+        }
     if cell_line_ids:
         culture_step = chain_by_type.get("CellCulture")
         culture_id = culture_step.get("process_id") if culture_step else None

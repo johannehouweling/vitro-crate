@@ -939,7 +939,15 @@ Lane D): `well_id`, `assay`, `cell_line`, `compound`, `concentration_value`,
 `control` — each with a `datatype` + ontology `propertyUrl` (and a `valueUrl`
 resolving the cell-line/compound columns to their in-crate Sample /
 MolecularEntity id). Population fills whatever columns the data provides; the
-schema describes all 10 and missing cells are written empty. It targets the
+schema describes all 10 and missing cells are written empty.
+
+A column's `valueUrl` is a claim about **every row in that column**, so it holds
+only while the column carries at most one distinct value. Once rows exist,
+`data_content.condition_table_multivalued_columns` reads the populated CSV back
+and any column with ≥2 distinct values **drops** its `valueUrl` rather than assert
+an unverified per-value mapping (D5, #408). The guard is per-column — a
+single-compound plate keeps its claim; a multi-compound one loses only `compound`.
+Per-value entity mapping is out of scope. It targets the
 exact path the build wires (`_crate_mapping._condition_table_rel`), so the #94
 CSVW typing (`tableSchema`) stays attached to the populated table. The companion
 bridge `data_content.csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)` converts
@@ -1679,6 +1687,14 @@ re-implementation. Its parts:
   EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
   Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
   Chain Tools).
+- **Plan file roles** — the extraction leaf classifies each plan file
+  (`raw`/`processed`/`condition_table`/`other`) and the spine **consumes** that
+  classification: the single `condition_table` entry is written into the Exposure's
+  typed CSV via `populate_condition_table` (#408). A role the spine cannot act on is
+  a bug, not a spare field — the plan is not paid for in drafter tokens to be
+  discarded. Plan-named files resolve through `_scanned_path_for_name`: matched by
+  **basename** (the leaf only ever sees `f.filename`, never `f.path`) and fail-closed
+  to `approved_scan_roots`, since plan paths are LLM free text.
 - **The spine** — `run_pipeline` (`builder/agents/pipeline/pipeline.py`, §14.5), the
   code-driven orchestrator and the default `main.py --interactive` build (via
   `run_interactive_build`, §14.6.1); also selectable in the eval harness
