@@ -295,15 +295,21 @@ _MAX_CONTEXT_CHARS = 16000
 # A tier claims its share only if it HAS files; an absent or under-spending tier
 # flows its headroom down to the next (see `_gather_context`). That flow-down is
 # what keeps a bulk-data-only deposit safe — with no metadata/doc files, the
-# first priority-3 file inherits 10,500 chars rather than being held to 500.
+# first priority-3 file inherits its own share plus every unclaimed one, rather
+# than being held to 500.
 #
 # Tier 0 was raised 6000 -> 9000 with #419. At 6000 it cut the real S-VHPS26
 # chemical table at chemical 15 of 19 — and because carry flows DOWNWARD only
 # (tier 0 is weighted first, with `carry = 0`), no other tier's headroom could
-# ever reach it. The raise is paid for entirely by the two new compaction rules,
-# which took that workbook from 22,007 chars to 8,675: the shares now total
-# 13,500 and still fit inside the unchanged `_MAX_CONTEXT_CHARS`, so the whole
-# table costs no more tokens than five chemicals used to.
+# ever reach it. Most of the raise is paid for by the two new compaction rules,
+# which took that workbook from 22,007 chars to 8,675; the rest is paid in
+# tokens, `_MAX_CONTEXT_CHARS` having moved 14000 -> 16000 in the same change.
+# The shares total 13,500 and the real deposit's emitted context grows 13,242 ->
+# 16,224 chars, about +750 tokens, for 5 chemicals -> 19.
+#
+# A share is granted PER FILE, not per tier, so raising this one starves the
+# tiers below on a multi-metadata deposit unless their shares are reserved
+# first — see the `reserved` computation in `_gather_context`.
 _TIER_SHARES: dict[int, int] = {0: 9000, 1: 2000, 2: 2000, 3: 500}
 
 # Tiers whose body is worth a full `read_file` with compaction rather than the
@@ -554,8 +560,22 @@ def _gather_context(engine: AgentEngine) -> str:
                 # Nobody claimed this tier's share; hand it to the tiers below.
                 carry += _TIER_SHARES[tier]
                 continue
+            # Reserve the shares of the POPULATED tiers below this one before
+            # sizing each file (#419). A tier's share is granted per FILE, so
+            # without this a deposit holding two `*metadata*` workbooks let them
+            # claim the whole ceiling between them and the BioStudies descriptor,
+            # SOP and README all emitted nothing — the same silent starvation
+            # this issue exists to remove, only pointed at a different document.
+            # Counted PER FILE, because the share is granted per file: a tier
+            # holding two documents needs two shares, and reserving only one
+            # still left the second (the README, behind the SOP) at zero.
+            reserved = sum(
+                share * len(by_tier.get(lower) or ())
+                for lower, share in _TIER_SHARES.items()
+                if lower > tier
+            )
             for f in files:
-                allowance = min(_TIER_SHARES[tier] + carry, budget)
+                allowance = min(_TIER_SHARES[tier] + carry, max(0, budget - reserved))
                 slice_text = _file_slice(f, approved_roots, allowance, tier)
                 # Unused headroom flows down rather than being forfeited.
                 carry = max(0, allowance - len(slice_text))

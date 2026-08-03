@@ -411,22 +411,49 @@ def _collapse_numbered_series(rows: list[str]) -> list[str]:
 
     A run folds only when the rows are CONSECUTIVE, share a prefix, number
     contiguously, agree on every cell but the last, and are at least
-    :data:`_MIN_SERIES_RUN` long. Anything else is emitted untouched — so a sheet
-    without a series is returned byte-identical.
+    :data:`_MIN_SERIES_RUN` long. A run that qualifies structurally is still
+    REFUSED when folding it would not round-trip:
+
+    * **a value containing the join separator.** ``1,2-dichloroethane`` and the
+      decimal comma an EU depositor may well type (``0,03``) both make the joined
+      list unreadable — the reader cannot recover how many members there were,
+      let alone which index each belongs to.
+    * **a value that is a bare ontology IRI.** The dedup pass above removes an
+      annotation cell, so a row whose value was blank collapses to
+      ``[label, IRI]`` and looks the same shape as its neighbours; folding then
+      presents the IRI *as a dose*. Refusing the run keeps the rows honest.
+    * **inconsistent zero-padding** across the run's indices, which a numeric
+      range label cannot express.
+
+    Rows are re-emitted VERBATIM whenever a run does not fold, so the index token
+    is never rewritten — ``Aliquot_007`` must not come back as ``Aliquot_7`` — and
+    a sheet without a series is returned byte-identical.
     """
     out: list[str] = []
-    run: list[tuple[str, int, list[str]]] = []
+    # (prefix, numeric index, raw index token, cells after the label, original row)
+    run: list[tuple[str, int, str, list[str], str]] = []
+
+    def _foldable() -> bool:
+        if len(run) < _MIN_SERIES_RUN:
+            return False
+        values = [cells[-1] for *_rest, cells, _row in run]
+        if any("," in v for v in values):
+            return False
+        if any(_IRI_CELL.match(v) for v in values):
+            return False
+        widths = {len(token) for _p, _i, token, _c, _r in run}
+        return len(widths) == 1 or not any(t.startswith("0") for _p, _i, t, _c, _r in run)
 
     def _flush() -> None:
         if not run:
             return
-        if len(run) < _MIN_SERIES_RUN:
-            out.extend("| " + " | ".join([f"{p}_{i}", *rest]) + " |" for p, i, rest in run)
+        if not _foldable():
+            out.extend(row for *_rest, row in run)
         else:
             prefix = run[0][0]
-            shared = run[0][2][:-1]
-            values = ", ".join(cells[-1] for _p, _i, cells in run)
-            label = f"{prefix}_{run[0][1]}-{run[-1][1]}"
+            shared = run[0][3][:-1]
+            values = ", ".join(cells[-1] for _p, _i, _t, cells, _r in run)
+            label = f"{prefix}_{run[0][2]}-{run[-1][2]}"
             out.append("| " + " | ".join([label, *shared, values]) + " |")
         run.clear()
 
@@ -443,12 +470,13 @@ def _collapse_numbered_series(rows: list[str]) -> list[str]:
             out.append(row)
             continue
 
-        prefix, index, rest = match["prefix"], int(match["index"]), cells[1:]
+        prefix, token, rest = match["prefix"], match["index"], cells[1:]
+        index = int(token)
         contiguous = run and run[-1][0] == prefix and run[-1][1] == index - 1
-        same_shape = run and run[-1][2][:-1] == rest[:-1]
+        same_shape = run and run[-1][3][:-1] == rest[:-1]
         if not (contiguous and same_shape):
             _flush()
-        run.append((prefix, index, rest))
+        run.append((prefix, index, token, rest, row))
 
     _flush()
     return out
