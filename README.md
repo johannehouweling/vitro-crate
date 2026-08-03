@@ -138,7 +138,18 @@ uv run python -m main --interactive --provider openai --api-base http://localhos
 
 # Conversational ReAct agent (supported alternative):
 uv run python -m main --interactive --legacy-react
+
+# …and start it working straight away instead of waiting for you to type:
+uv run python -m main --interactive --legacy-react -i /path/to/experiment/ \
+    --prompt "build the crate"
 ```
+
+**Starting the ReAct agent.** The conversational arm greets you and then waits for
+an instruction — on its own it does no work, so a run left at the prompt builds
+nothing. Give it an opening instruction with `--prompt/-P` (or just type one) and
+it works autonomously from there, checking back only when it genuinely needs you.
+The session stays interactive afterwards. The default pipeline build needs none of
+this: it runs unprompted.
 
 **Where the crate is written.** The completed build is written to disk as a valid
 RO-Crate (`ro-crate-metadata.json` plus payload), and the **absolute** output path

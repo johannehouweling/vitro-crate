@@ -143,6 +143,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "see AGENTS.md §14)",
     )
     parser.add_argument(
+        "--prompt",
+        "-P",
+        help="With --interactive --legacy-react, an opening instruction (e.g. "
+        "'build the crate') that starts the agent working immediately instead of "
+        "waiting for you to type one. The session stays interactive afterwards. "
+        "Ignored by the default pipeline build, which runs unprompted.",
+    )
+    parser.add_argument(
         "--provider",
         "-p",
         type=str,
@@ -528,6 +536,10 @@ def main(argv: list[str] | None = None) -> int:
             # freshly scanned; both arms are told rather than left to infer it
             # from state that --input has already populated (#410).
             resumed=bool(args.resume),
+            # ReAct-only kickoff: without it the loop greets and blocks on stdin
+            # having done no work, because the greeting invoke sits outside the
+            # autonomous-continuation loop (#412).
+            initial_prompt=args.prompt,
         )
         return 0
 
