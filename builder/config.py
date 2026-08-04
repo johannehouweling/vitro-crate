@@ -242,6 +242,7 @@ def merge_with_env(config: dict[str, Any]) -> dict[str, Any]:
     mapping = {
         ("openai", "api_key"): "VITRO_OPENAI_API_KEY",
         ("openai", "base_url"): "VITRO_OPENAI_BASE_URL",
+        ("openai", "ca_bundle"): "VITRO_OPENAI_CA_BUNDLE",
         ("openai", "model"): "VITRO_OPENAI_MODEL",
         ("openai", "drafter_model"): "VITRO_OPENAI_DRAFTER_MODEL",
         ("openai", "reasoning_effort"): "VITRO_OPENAI_REASONING_EFFORT",
@@ -367,6 +368,7 @@ def describe_config() -> str:
         "VITRO_OPENAI_API_KEY": bool(os.environ.get("VITRO_OPENAI_API_KEY")),
         "OPENAI_API_KEY": bool(os.environ.get("OPENAI_API_KEY")),
         "VITRO_OPENAI_BASE_URL": os.environ.get("VITRO_OPENAI_BASE_URL") or "",
+        "VITRO_OPENAI_CA_BUNDLE": os.environ.get("VITRO_OPENAI_CA_BUNDLE") or "",
         "VITRO_OPENAI_MODEL": os.environ.get("VITRO_OPENAI_MODEL") or "gpt-4o",
         "VITRO_ANTHROPIC_API_KEY": bool(os.environ.get("VITRO_ANTHROPIC_API_KEY")),
         "VITRO_ANTHROPIC_MODEL": os.environ.get("VITRO_ANTHROPIC_MODEL") or "",

@@ -256,6 +256,7 @@ def run_build(
     output: OutputChannel | None = None,
     resumed: bool = False,
     initial_prompt: str | None = None,
+    verbose: bool = False,
 ) -> dict[str, Any] | None:
     """Dispatch a build to *mode*'s entrypoint — the single A/B switch (#309).
 
@@ -291,6 +292,8 @@ def run_build(
         initial_prompt: ReAct-only opening message, so the loop starts working
             instead of blocking on stdin (#412). Ignored for ``PIPELINE``, which
             has no stdin gate — the spine runs unprompted.
+        verbose: Show bounded diagnostics for legacy ReAct model errors. Ignored
+            by the pipeline mode.
 
     Returns:
         The pipeline result dict for :attr:`BuildMode.PIPELINE`; ``None`` for
@@ -299,14 +302,18 @@ def run_build(
     if mode is BuildMode.REACT:
         from builder.agents.react.agent_loop import run_interactive_agent
 
-        run_interactive_agent(
-            engine,
-            provider=provider,
-            model=model,
-            base_url=base_url,
-            resumed=resumed,
-            initial_prompt=initial_prompt,
-        )
+        react_kwargs: dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+            "base_url": base_url,
+            "resumed": resumed,
+            "initial_prompt": initial_prompt,
+        }
+        # Preserve the exact legacy call shape for callers that omit the new
+        # flag; the ReAct runner's default remains False.
+        if verbose:
+            react_kwargs["verbose"] = True
+        run_interactive_agent(engine, **react_kwargs)
         return None
 
     from builder.agents.llm import ModelOverrides

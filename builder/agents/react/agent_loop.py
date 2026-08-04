@@ -7,7 +7,9 @@ and lets the LLM decide which tools to call based on user requests.
 from __future__ import annotations
 
 import logging
+import re
 import threading
+import traceback
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
@@ -48,6 +50,41 @@ from typing import TypedDict
 from langchain_core.messages import BaseMessage
 
 logger = logging.getLogger(__name__)
+
+_DIAGNOSTIC_MAX_CHARS = 1200
+_SENSITIVE_DIAGNOSTIC_RE = re.compile(
+    r"(?i)(?:bearer\s+|api[_ -]?key\s*[:=]\s*|authorization\s*[:=]\s*|cookie\s*[:=]\s*)[^\s,;]+"
+    r"|sk-[A-Za-z0-9_-]+"
+)
+
+
+def _sanitize_diagnostic(value: str, *, limit: int = _DIAGNOSTIC_MAX_CHARS) -> str:
+    """Redact common credentials and bound model-error diagnostics."""
+    sanitized = _SENSITIVE_DIAGNOSTIC_RE.sub("[REDACTED]", value).replace("\x00", "")
+    return sanitized if len(sanitized) <= limit else sanitized[:limit] + "…"
+
+
+def _exception_chain(exc: BaseException) -> str:
+    """Return bounded exception class/message pairs without request details."""
+    parts: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen and len(parts) < 4:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {_sanitize_diagnostic(str(current), limit=400)}")
+        current = current.__cause__ or current.__context__
+    return _sanitize_diagnostic(" <- ".join(parts))
+
+
+def _error_diagnostic(exc: BaseException, traceback_text: str | None) -> dict[str, str]:
+    """Build safe, bounded diagnostics for a failed model/graph invocation."""
+    traceback_lines = (traceback_text or "").splitlines()
+    return {
+        "exception_type": type(exc).__name__,
+        "message": _sanitize_diagnostic(str(exc)),
+        "exception_chain": _exception_chain(exc),
+        "traceback_tail": _sanitize_diagnostic("\n".join(traceback_lines[-4:])),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +356,8 @@ def _invoke_with_timeout(
     config: Any,
     *,
     timeout: float,
-) -> tuple[dict[str, Any] | None, str]:
+    include_error: bool = False,
+) -> tuple[dict[str, Any] | None, str] | tuple[dict[str, Any] | None, str, dict[str, str] | None]:
     """Run ``app.invoke(payload, config)`` under a wall-clock guard (#263 Fix A).
 
     The provider-level request timeout on the chat model is the first line of
@@ -337,7 +375,7 @@ def _invoke_with_timeout(
 
     This function NEVER raises and NEVER hangs longer than ``timeout``.
     """
-    outcome: dict[str, Any] = {"result": None, "error": None}
+    outcome: dict[str, Any] = {"result": None, "error": None, "traceback": None}
 
     def _worker() -> None:
         try:
@@ -347,6 +385,7 @@ def _invoke_with_timeout(
             # escapes the worker thread and crashes the loop. Genuinely fatal
             # signals on the main thread (KeyboardInterrupt) are unaffected.
             outcome["error"] = exc
+            outcome["traceback"] = traceback.format_exc()
 
     worker = threading.Thread(target=_worker, daemon=True, name="vitro-model-invoke")
     worker.start()
@@ -357,11 +396,14 @@ def _invoke_with_timeout(
             "Model invoke exceeded %.1fs wall-clock timeout; ending turn gracefully",
             timeout,
         )
-        return None, "timeout"
+        return (None, "timeout", None) if include_error else (None, "timeout")
     if outcome["error"] is not None:
         logger.warning("Model invoke raised: %s", outcome["error"])
+        if include_error:
+            error = outcome["error"]
+            return None, "error", _error_diagnostic(error, outcome["traceback"])
         return None, "error"
-    return outcome["result"], "ok"
+    return (outcome["result"], "ok", None) if include_error else (outcome["result"], "ok")
 
 
 def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> str:
@@ -1418,6 +1460,7 @@ def run_interactive_agent(
     *,
     resumed: bool = False,
     initial_prompt: str | None = None,
+    verbose: bool = False,
 ) -> None:
     """Run an interactive LangChain agent loop reading from stdin.
 
@@ -1447,6 +1490,8 @@ def run_interactive_agent(
             without a kickoff the loop greets and blocks having done no work
             (#412). Blank/whitespace is treated as absent. After this seeded turn
             the autonomous loop takes over exactly as it does for a typed line.
+        verbose: Show bounded, sanitized diagnostics when a legacy model turn
+            raises. The default preserves the generic error message.
     """
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.runnables import RunnableConfig
@@ -1606,6 +1651,7 @@ def run_interactive_agent(
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
         spinner = ProgressSpinner(console, "intoxicating")
+        greeting_diagnostic: dict[str, str] | None = None
         greeting_config = {
             **thread_config,
             "callbacks": [_ToolSpinnerCallback(spinner)],
@@ -1614,11 +1660,12 @@ def run_interactive_agent(
             # Wall-clock guard (#263 Fix A): a hung greeting must never block the
             # session from starting. On timeout/error we fall through to the
             # static fallback panel below.
-            result, outcome = _invoke_with_timeout(
+            result, outcome, greeting_diagnostic = _invoke_with_timeout(
                 app,
                 {"messages": [HumanMessage(content=greeting_prompt)]},
                 greeting_config,
                 timeout=request_timeout,
+                include_error=True,
             )
         root_logger.setLevel(old_root_level)
         reply = _extract_reply(result) if (outcome == "ok" and result) else ""
@@ -1628,6 +1675,25 @@ def run_interactive_agent(
             _print_resume_fallback()
         else:
             _print_fresh_fallback()
+        if verbose and outcome == "error" and greeting_diagnostic:
+            diagnostic_record = {
+                "event": "model_error",
+                "exception_type": greeting_diagnostic["exception_type"],
+                "message": greeting_diagnostic["message"],
+                "exception_chain": greeting_diagnostic["exception_chain"],
+                "traceback_tail": greeting_diagnostic["traceback_tail"],
+                "stage": "legacy_greeting",
+            }
+            if engine.profiler is not None:
+                engine.profiler.log_event(**diagnostic_record)
+            console.print(
+                "[yellow]Legacy greeting error[/yellow]: "
+                f"{greeting_diagnostic['exception_chain']}"
+            )
+            if greeting_diagnostic["traceback_tail"]:
+                console.print(
+                    f"[dim]Traceback tail:\n{greeting_diagnostic['traceback_tail']}[/dim]"
+                )
     except Exception as exc:
         logger.debug("Greeting skipped: %s", exc)
         console.print(
@@ -1679,13 +1745,15 @@ def run_interactive_agent(
         }
         outcome = "ok"
         reply = ""
+        diagnostic: dict[str, str] | None = None
         try:
             with spinner:
-                result, outcome = _invoke_with_timeout(
+                result, outcome, diagnostic = _invoke_with_timeout(
                     app,
                     {"messages": [HumanMessage(content=message_content)]},
                     main_config,
                     timeout=request_timeout,
+                    include_error=True,
                 )
         except GraphRecursionError:
             # The turn hit the recursion_limit safety net — treat as a graceful
@@ -1718,10 +1786,29 @@ def run_interactive_agent(
             )
             console.print()
         elif outcome == "error":
-            console.print(
-                "[yellow]I hit an error on that step[/yellow] and stopped. Your "
-                "work so far is saved."
-            )
+            if verbose and diagnostic:
+                diagnostic_record = {
+                    "event": "model_error",
+                    "exception_type": diagnostic["exception_type"],
+                    "message": diagnostic["message"],
+                    "exception_chain": diagnostic["exception_chain"],
+                    "traceback_tail": diagnostic["traceback_tail"],
+                    "stage": "legacy_model_turn",
+                }
+                if engine.profiler is not None:
+                    engine.profiler.log_event(**diagnostic_record)
+                console.print(
+                    "[yellow]Legacy model error[/yellow]: "
+                    f"{diagnostic['exception_type']}: {diagnostic['message']}"
+                )
+                if diagnostic["traceback_tail"]:
+                    console.print(f"[dim]Traceback tail: {diagnostic['traceback_tail']}[/dim]")
+                console.print("Your work so far is saved.")
+            else:
+                console.print(
+                    "[yellow]I hit an error on that step[/yellow] and stopped. Your "
+                    "work so far is saved."
+                )
             console.print()
 
         # Best-effort session autosave (always attempted, even on a bad outcome).

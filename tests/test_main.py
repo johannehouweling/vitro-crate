@@ -157,6 +157,20 @@ class TestInteractiveDispatch:
         assert main(["--interactive", "--legacy-react", "--prompt", "build the crate"]) == 0
         assert captured["initial_prompt"] == "build the crate"
 
+    def test_verbose_reaches_the_react_loop(self, monkeypatch):
+        """The diagnostic opt-in survives main -> run_build -> ReAct (#verbose)."""
+        self._stub_config(monkeypatch)
+        captured: dict = {}
+
+        import builder.agents.react.agent_loop as agent_loop
+
+        monkeypatch.setattr(
+            agent_loop, "run_interactive_agent", lambda engine, **kw: captured.update(kw)
+        )
+
+        assert main(["--interactive", "--legacy-react", "--verbose"]) == 0
+        assert captured["verbose"] is True
+
     def test_default_interactive_routes_to_pipeline_build(self, monkeypatch, tmp_path):
         """--interactive (no opt-in) runs the deterministic pipeline + guidance.
 

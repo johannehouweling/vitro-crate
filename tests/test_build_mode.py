@@ -121,6 +121,18 @@ class TestRunBuildDispatch:
 
         assert captured["initial_prompt"] == "build the crate"
 
+    def test_verbose_reaches_the_react_arm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.react.agent_loop as agent_loop
+
+        captured: dict[str, Any] = {}
+        monkeypatch.setattr(
+            agent_loop, "run_interactive_agent", lambda engine, **kw: captured.update(kw)
+        )
+
+        run_build(BuildMode.REACT, object(), verbose=True)
+
+        assert captured["verbose"] is True
+
     def test_initial_prompt_is_not_forwarded_to_the_pipeline_arm(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

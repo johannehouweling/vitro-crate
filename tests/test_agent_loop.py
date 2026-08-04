@@ -1369,6 +1369,23 @@ class TestInvokeWithTimeout:
         assert outcome == "error"
         assert result is None
 
+    def test_verbose_error_diagnostic_is_bounded_and_sanitized(self):
+        from builder.agents.react.agent_loop import _invoke_with_timeout
+
+        class _BoomApp:
+            def invoke(self, payload, config):
+                raise RuntimeError("provider exploded api_key=sk-secret-value")
+
+        result, outcome, diagnostic = _invoke_with_timeout(
+            _BoomApp(), {"messages": []}, {}, timeout=5.0, include_error=True
+        )
+        assert result is None
+        assert outcome == "error"
+        assert diagnostic is not None
+        assert diagnostic["exception_type"] == "RuntimeError"
+        assert "provider exploded" in diagnostic["message"]
+        assert "sk-secret-value" not in diagnostic["message"]
+
 
 class TestReplyIsQuestion:
     """Fix B: deterministic question detection drives whether the loop prompts

@@ -540,6 +540,7 @@ def main(argv: list[str] | None = None) -> int:
             # having done no work, because the greeting invoke sits outside the
             # autonomous-continuation loop (#412).
             initial_prompt=args.prompt,
+            verbose=args.verbose > 0,
         )
         return 0
 

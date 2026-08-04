@@ -216,6 +216,7 @@ def _build_chat_model(
         resolved_base = (
             base_url or os.environ.get("VITRO_OPENAI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
         )
+        ca_bundle = os.environ.get("VITRO_OPENAI_CA_BUNDLE")
         resolved_model = (
             model
             or os.environ.get("VITRO_OPENAI_MODEL")
@@ -267,6 +268,27 @@ def _build_chat_model(
             kwargs["api_key"] = api_key
         if resolved_base:
             kwargs["base_url"] = resolved_base
+        if ca_bundle:
+            # Opt-in custom CA trust for corporate HTTPS endpoints.  When unset,
+            # ChatOpenAI keeps its normal httpx transport and verification.
+            import ssl
+            from pathlib import Path
+
+            cert_path = Path(ca_bundle).expanduser()
+            if not cert_path.is_file():
+                raise ValueError(
+                    "VITRO_OPENAI_CA_BUNDLE must point to an existing CA certificate bundle"
+                )
+            import httpx
+
+            try:
+                ssl_context = ssl.create_default_context(cafile=str(cert_path))
+            except (OSError, ssl.SSLError) as exc:
+                raise ValueError(
+                    "VITRO_OPENAI_CA_BUNDLE must contain a readable CA certificate bundle"
+                ) from exc
+            kwargs["http_client"] = httpx.Client(verify=ssl_context)
+            kwargs["http_async_client"] = httpx.AsyncClient(verify=ssl_context)
 
         return ChatOpenAI(**kwargs)
 

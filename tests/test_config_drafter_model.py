@@ -53,6 +53,29 @@ class TestDrafterModelEnvMapping:
             else:
                 os.environ.pop("VITRO_OPENAI_DRAFTER_MODEL", None)
 
+    def test_openai_ca_bundle_mapped_from_config(self) -> None:
+        old = os.environ.pop("VITRO_OPENAI_CA_BUNDLE", None)
+        try:
+            config.merge_with_env({"openai": {"ca_bundle": "/tmp/corp-ca.pem"}})
+            assert os.environ.get("VITRO_OPENAI_CA_BUNDLE") == "/tmp/corp-ca.pem"
+        finally:
+            if old is not None:
+                os.environ["VITRO_OPENAI_CA_BUNDLE"] = old
+            else:
+                os.environ.pop("VITRO_OPENAI_CA_BUNDLE", None)
+
+    def test_ca_bundle_env_var_wins_over_config(self) -> None:
+        old = os.environ.get("VITRO_OPENAI_CA_BUNDLE")
+        os.environ["VITRO_OPENAI_CA_BUNDLE"] = "/tmp/from-env.pem"
+        try:
+            config.merge_with_env({"openai": {"ca_bundle": "/tmp/from-config.pem"}})
+            assert os.environ["VITRO_OPENAI_CA_BUNDLE"] == "/tmp/from-env.pem"
+        finally:
+            if old is not None:
+                os.environ["VITRO_OPENAI_CA_BUNDLE"] = old
+            else:
+                os.environ.pop("VITRO_OPENAI_CA_BUNDLE", None)
+
 
 class TestGetDrafterModel:
     """`get_drafter_model` resolves the tier, defaulting to None (no-op)."""
