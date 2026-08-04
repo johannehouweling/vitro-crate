@@ -10,6 +10,7 @@ the real parsing logic in each lookup module. Each test class covers:
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -694,14 +695,53 @@ class TestOntologyTermContract:
 
 
 class TestCompToxContract:
-    """Contract tests for lookups/comptox.py."""
+    """Contract tests for lookups/comptox.py.
+
+    The mocked URL is part of the contract here: these tests replay against
+    whatever path the module requests, so pinning a retired one lets the suite
+    pass for years against an endpoint that 404s in production (#426). The
+    payloads are the shape CompTox actually returns today — a bare list of hits
+    carrying `dtxsid`/`dtxcid`/`searchMatch`/`rank`, with no name, CAS or
+    InChIKey.
+    """
+
+    _SEARCH = "https://comptox.epa.gov/dashboard-api/ccdapp1/search/chemical/equal"
 
     @responses.activate
-    def test_resolves_dtxsid_from_list(self):
-        """A list response yields the first hit's DTXSID."""
+    def test_resolves_dtxsid_from_the_real_response_shape(self):
+        """The live response carries no preferredName/casrn/inchikey."""
         responses.add(
             responses.GET,
-            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/Bisphenol%20A",
+            f"{self._SEARCH}/Bisphenol%20A",
+            json=[
+                {
+                    "dtxsid": "DTXSID7020182",
+                    "dtxcid": "DTXCID30182",
+                    "searchMatch": "Approved Name",
+                    "rank": 9,
+                    "hasStructureImage": True,
+                    "searchWord": "Bisphenol A",
+                }
+            ],
+            status=200,
+        )
+
+        result = lookup_dtxsid("Bisphenol A")
+        assert result["dtxsid"] == "DTXSID7020182"
+        assert result["@type"] == "MolecularEntity"
+        assert result["@id"].endswith("DTXSID7020182")
+        # No name in the payload — fall back to the query rather than inventing one.
+        assert result["name"] == "Bisphenol A"
+        # Absent optional fields are omitted, not stored empty.
+        assert "casrn" not in result
+        assert "inchikey" not in result
+
+    @responses.activate
+    def test_uses_the_enriched_fields_when_present(self):
+        """Some deployments do return them; take them when they are there."""
+        responses.add(
+            responses.GET,
+            f"{self._SEARCH}/Bisphenol%20A",
             json=[
                 {
                     "dtxsid": "DTXSID7020182",
@@ -714,36 +754,39 @@ class TestCompToxContract:
         )
 
         result = lookup_dtxsid("Bisphenol A")
-        assert result["dtxsid"] == "DTXSID7020182"
-        assert result["@type"] == "MolecularEntity"
         assert result["casrn"] == "80-05-7"
         assert result["inchikey"] == "IISBACLAFKSPIT-UHFFFAOYSA-N"
-        assert result["@id"].endswith("DTXSID7020182")
 
     @responses.activate
-    def test_no_hits_returns_empty(self):
-        responses.add(
-            responses.GET,
-            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/Nope",
-            json=[],
-            status=200,
-        )
-        assert lookup_dtxsid("Nope") == {}
+    def test_a_genuine_miss_is_an_empty_list_and_is_quiet(self, caplog):
+        """CompTox answers an unknown chemical with 200 + []. That is a normal
+        answer, not a fault, and must not be reported as one."""
+        responses.add(responses.GET, f"{self._SEARCH}/Nope", json=[], status=200)
+
+        with caplog.at_level(logging.WARNING):
+            assert lookup_dtxsid("Nope") == {}
+        assert not caplog.records, f"a genuine miss logged: {caplog.text}"
 
     @responses.activate
-    def test_404_returns_empty(self):
-        responses.add(
-            responses.GET,
-            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/Nope",
-            status=404,
-        )
-        assert lookup_dtxsid("Nope") == {}
+    def test_a_404_is_reported_as_an_integration_breakage(self, caplog):
+        """A 404 means the search PATH is gone, not that the chemical is.
+
+        This is exactly how the previous endpoint died: every lookup 404'd,
+        `http_get_json` mapped it to "not found", and three layers of
+        by-design tolerance turned a dead API into silence for months (#426).
+        """
+        responses.add(responses.GET, f"{self._SEARCH}/Nope", status=404)
+
+        with caplog.at_level(logging.WARNING):
+            assert lookup_dtxsid("Nope") == {}
+        assert caplog.records, "a 404 from the search endpoint was not reported"
+        assert "404" in caplog.text or "endpoint" in caplog.text.lower()
 
     @responses.activate
     def test_timeout_raises_transient(self):
         responses.add(
             responses.GET,
-            "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal/BPA",
+            f"{self._SEARCH}/BPA",
             body=Timeout("timed out"),
         )
         with pytest.raises(TransientLookupError):
@@ -752,6 +795,7 @@ class TestCompToxContract:
     @responses.activate
     def test_empty_query_no_http(self):
         assert lookup_dtxsid("") == {}
+
 
 
 # ===========================================================================

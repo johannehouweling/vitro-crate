@@ -13,13 +13,21 @@ Follows the same shape as the other raw lookup modules (``http_get_json`` +
 from __future__ import annotations
 
 import functools
+import logging
 from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
+logger = logging.getLogger(__name__)
+
 # Public CompTox Dashboard search endpoint (no API key required). An exact
 # ("equal") match is tried first; the response is a list of candidate hits.
-_BASE = "https://comptox.epa.gov/dashboard-api/ccdapp2/search/chemical/equal"
+#
+# The search moved from ``ccdapp2`` to ``ccdapp1``: every path under the former
+# now 404s, including its own base, so every DTXSID lookup silently failed
+# (#426). ``ccdapp2`` still exists as an application root, which is why the
+# breakage was not obvious from the host being up.
+_BASE = "https://comptox.epa.gov/dashboard-api/ccdapp1/search/chemical/equal"
 
 
 def _first_hit(data: object) -> dict | None:
@@ -60,6 +68,17 @@ def lookup_dtxsid(query: str) -> dict:
     try:
         data = http_get_json(f"{_BASE}/{quote(query.strip())}")
         if data is NOT_FOUND:
+            # CompTox answers an unknown chemical with 200 + [], so a 404 is the
+            # SEARCH PATH being gone, not the chemical. Say so: the previous
+            # endpoint died exactly this way and, because a miss is non-fatal by
+            # design, a permanently dead API was indistinguishable from "this
+            # compound isn't in CompTox" for as long as nobody checked (#426).
+            logger.warning(
+                "CompTox search returned 404 for %r — the endpoint has likely moved "
+                "again (%s); every DTXSID lookup will fail until it is repointed.",
+                query,
+                _BASE,
+            )
             return {}
 
         hit = _first_hit(data)
