@@ -886,8 +886,15 @@ def build_crate_graph(
     reachable = _reachable_from(root_id, full_edges)
 
     # Referenced ids that are NOT in-crate nodes → external or dangling stubs.
+    # The generated graph artifact is registered in the exported metadata as a
+    # ``File`` about the root, but it is intentionally omitted from the graph
+    # visualization input to avoid drawing the diagram inside itself. Treat that
+    # reserved artifact as external plumbing rather than a dangling entity.
     referenced = {e["src"] for e in full_edges} | {e["dst"] for e in full_edges}
-    stub_ids = {r for r in referenced if r not in nodes}
+    stub_ids = {
+        r for r in referenced
+        if r not in nodes and str(r).rsplit("/", 1)[-1] not in _EXCLUDED_IDS
+    }
 
     def _layer_of(nid: str) -> int:
         return 1 if nid == root_id else _entity_layer(nodes[nid])

@@ -607,6 +607,9 @@ def _gather_context(engine: AgentEngine) -> str:
             line = f"[{role}] {name} (score: {score:.2f})"
             if reason_str:
                 line += f" — {reason_str}"
+            preview = str(doc.get("preview") or "").strip()
+            if preview:
+                line += f"\n{preview[:2000]}"
             doc_lines.append(line)
         if doc_lines:
             parts.append("Discovered documentation:\n" + "\n".join(doc_lines))
@@ -743,7 +746,7 @@ def _draft_entities(
                 entity.type,
                 _entity_draft_context(entity, context),
                 usage_sink=usage_sink,
-                overrides=overrides,
+                **({"overrides": overrides} if overrides is not None else {}),
             )
         except Exception as exc:  # noqa: BLE001 - a flaky leaf must not break the spine
             logger.warning(
@@ -1544,9 +1547,10 @@ def _materialize_plan(
         context = _gather_context(engine)
         if context:
             try:
-                extracted = extract_plan(
-                    context, usage_sink=usage_sink, overrides=overrides
-                )
+                extract_kwargs: dict[str, Any] = {"usage_sink": usage_sink}
+                if overrides is not None:
+                    extract_kwargs["overrides"] = overrides
+                extracted = extract_plan(context, **extract_kwargs)
             except Exception as exc:  # noqa: BLE001 - a flaky extractor must not break the spine
                 logger.warning("extract_plan failed; skipping plan materialization: %s", exc)
                 extracted = None

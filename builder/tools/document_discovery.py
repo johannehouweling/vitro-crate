@@ -8,9 +8,9 @@ Filenames are signals, never requirements.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
 from typing import Any
 
 from builder.state import FileClassification
@@ -24,11 +24,21 @@ _MAX_PREVIEW_CHARS = 3_000
 _MAX_CONTEXT_CHARS = 12_000
 _ROLE_TERMS: dict[str, tuple[str, ...]] = {
     "publication": ("doi", "pmid", "journal", "abstract", "references", "supplementary"),
-    "assay_protocol": ("assay", "test method", "experimental procedure", "endpoint", "readout"),
-    "sop": ("sop", "standard operating procedure", "work instruction", "laboratory procedure"),
-    "study_plan": ("study design", "study plan", "objective", "investigation", "experimental design"),
-    "metadata": ("metadata", "data dictionary", "sample sheet", "plate map", "condition table"),
-    "analysis_method": ("data analysis", "analysis method", "statistics", "normalization", "pipeline"),
+    "assay_protocol": (
+        "assay", "test method", "experimental procedure", "endpoint", "readout"
+    ),
+    "sop": (
+        "sop", "standard operating procedure", "work instruction", "laboratory procedure"
+    ),
+    "study_plan": (
+        "study design", "study plan", "objective", "investigation", "experimental design"
+    ),
+    "metadata": (
+        "metadata", "data dictionary", "sample sheet", "plate map", "condition table"
+    ),
+    "analysis_method": (
+        "data analysis", "analysis method", "statistics", "normalization", "pipeline"
+    ),
 }
 _FILENAME_TERMS = {
     "publication": ("publication", "paper", "article", "doi", "pmid"),
@@ -142,7 +152,13 @@ def discover_documents(
         depth = len(Path(relative).parts) - 1
         preview = _safe_preview(file.path, approved_roots, _MAX_PREVIEW_CHARS)
         role, reasons, score = _role_and_signals(file.filename, preview)
-        location_bonus = 0.24 if depth == 0 else 0.16 if depth == 1 else max(0.0, 0.08 - depth * 0.01)
+        location_bonus = (
+            0.24
+            if depth == 0
+            else 0.16
+            if depth == 1
+            else max(0.0, 0.08 - depth * 0.01)
+        )
         score += location_bonus
         reasons.append(f"directory depth {depth}")
         if preview:

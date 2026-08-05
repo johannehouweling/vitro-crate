@@ -143,7 +143,10 @@ def _order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
     selected = [i for i in issues if i.get("severity") == severity]
     selected.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
     return [
-        f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: {i.get('message') or ''}".rstrip()
+        (
+            f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: "
+            f"{i.get('message') or ''}"
+        ).rstrip()
         for i in selected
     ]
 
@@ -256,6 +259,7 @@ def _run_document_discovery(engine: AgentEngine) -> None:
             "relative_path": c.relative_path,
             "score": c.score,
             "reasons": list(c.reasons),
+            "preview": c.preview,
         }
         for c in candidates
     ]
@@ -316,6 +320,14 @@ class AgentEngine:
         # (validation-input hash, profile, severity) so consecutive validations
         # of an unchanged crate skip the ~3.7s SHACL re-run (#155).
         self._validation_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def ensure_profiler(self) -> None:
+        """Attach the session profiler without rescanning or resetting state."""
+        profiler_session = getattr(self.profiler, "_session_id", None)
+        if self.profiler is None or profiler_session != self.state.session_id:
+            if self.profiler is not None:
+                self.profiler.close()
+            self.profiler = ProfilingLogger(self.state.session_id)
 
     # ------------------------------------------------------------------
     # Initialization
@@ -579,7 +591,13 @@ class AgentEngine:
         try:
             cb(tool_name, phase, kwargs_str)
         except Exception:  # noqa: BLE001 — a UI callback must never break run_tool
-            logger.debug("on_tool_event(%s, %s, %s) raised", tool_name, phase, kwargs_str, exc_info=True)
+            logger.debug(
+                "on_tool_event(%s, %s, %s) raised",
+                tool_name,
+                phase,
+                kwargs_str,
+                exc_info=True,
+            )
 
     def run_tool(self, tool_name: str, **kwargs) -> Any:
         """Execute a tool by name with kwargs.
@@ -607,6 +625,17 @@ class AgentEngine:
         """
         kwargs_str = _compact_tool_kwargs(tool_name, kwargs)
         self._fire_tool_event(tool_name, "start", kwargs_str)
+        # Emit a live profiler marker before entering slow tools. The completed
+        # ``tool_call`` record is intentionally written after return, but without
+        # this start event profile.ndjson looks idle during long validation,
+        # network resolution, or HITL waits.
+        if self.profiler is not None:
+            self.profiler.log_event(
+                event="tool_start",
+                tool=tool_name,
+                iteration=self.state.iteration_count,
+                args=kwargs_str or None,
+            )
         try:
             return self._run_tool_impl(tool_name, **kwargs)
         finally:
@@ -780,7 +809,12 @@ class AgentEngine:
         # state.validation) reflect the latest result instead of stale defaults
         # (#153). Orchestration-layer side effect, mirroring the scan_files
         # write-back above; the validation tools themselves stay pure.
-        self._writeback_validation(tool_name, result)
+        self._writeback_validation(
+            tool_name,
+            result,
+            severity=kwargs.get("severity"),
+            profile=kwargs.get("profile"),
+        )
 
         self.state.iteration_count += 1
         # Embed a compact, bounded repr of the call args in the action so the log
@@ -823,7 +857,14 @@ class AgentEngine:
 
         return result
 
-    def _writeback_validation(self, tool_name: str, result: Any) -> None:
+    def _writeback_validation(
+        self,
+        tool_name: str,
+        result: Any,
+        *,
+        severity: str | None = None,
+        profile: str | None = None,
+    ) -> None:
         """Fold a validation result into ``state.validation`` (#153).
 
         ``validate`` returns a fully-formed :class:`ValidationReport` (disk,
@@ -851,7 +892,7 @@ class AgentEngine:
             if "tox" in conformance:
                 report.tox_passed = bool(conformance["tox"])
             issues = result.get("issues") or []
-            severity = str(result.get("severity") or "required")
+            severity = str(severity or "required")
             if severity == "required":
                 report.required_issues = _order_issues(issues, "required")
                 report.assessed_tiers.add("required")

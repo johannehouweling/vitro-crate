@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import tempfile
 import webbrowser
@@ -46,6 +47,24 @@ def _default_output_dir(input_path: str | Path, output_root: str | Path = "outpu
     while (root / f"{name}_crate_v{version}").exists():
         version += 1
     return root / f"{name}_crate_v{version}"
+
+
+def _next_output_version(path: str | Path) -> Path:
+    """Return a sibling crate path that will not overwrite an earlier export."""
+    target = Path(path)
+    if not target.exists():
+        return target
+    stem = target.name
+    match = re.match(r"^(.*)_v(\d+)$", stem)
+    if match:
+        base, version = match.group(1), int(match.group(2)) + 1
+    else:
+        base, version = stem, 2
+    candidate = target.with_name(f"{base}_v{version}")
+    while candidate.exists():
+        version += 1
+        candidate = target.with_name(f"{base}_v{version}")
+    return candidate
 
 
 def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
@@ -472,6 +491,11 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Session not found: %s", args.resume)
             return 1
         engine.state = loaded
+        # Resumed sessions bypass initialize(), so restore the profiler before
+        # the ReAct/pipeline loop starts. Without this, run_tool and graph-node
+        # instrumentation silently has no writer and profile.ndjson stops at the
+        # previous session checkpoint.
+        engine.ensure_profiler()
     elif args.input:
         logger.info("Initializing from input: %s", args.input)
         engine.initialize(args.input)
@@ -490,6 +514,13 @@ def main(argv: list[str] | None = None) -> int:
         engine.state.metadata.output_path = args.output
     elif args.input:
         engine.state.metadata.output_path = str(_default_output_dir(args.input))
+    elif args.resume and engine.state.metadata.output_path:
+        # A continued session must never silently overwrite its previous crate.
+        # Version the prior destination for each resumed export unless the user
+        # explicitly supplied --output.
+        engine.state.metadata.output_path = str(
+            _next_output_version(engine.state.metadata.output_path)
+        )
 
     entity_count = len(engine.state.list_entities())
     logger.info(

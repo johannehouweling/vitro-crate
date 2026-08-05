@@ -9,6 +9,47 @@ from __future__ import annotations
 from builder.state import CrateState, Entity, EntityProvenance
 from profiles.ontology_iris import iri
 
+
+def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str, str]]:
+    """Resolve one unambiguous ORCID for a drafted person, best-effort.
+
+    Name-only drafting must never fabricate an identifier. A single full-name
+    ORCID search result is verified through the record endpoint before its URL is
+    used as the entity id; ambiguous, unavailable, or weak results leave the
+    deterministic local id path intact.
+    """
+    explicit = hints.get("orcid") or hints.get("identifier")
+    if explicit:
+        return None, {}
+    try:
+        from lookups.orcid import lookup_orcid, lookup_orcid_by_name
+
+        given, family = split_person_name(name)
+        if not given or not family:
+            return None, {}
+        candidates = lookup_orcid_by_name(given, family, hints.get("affiliation"))
+        strong = [
+            candidate
+            for candidate in candidates
+            if str(candidate.get("given", "")).casefold().strip() == given.casefold().strip()
+            and str(candidate.get("family", "")).casefold().strip() == family.casefold().strip()
+        ]
+        if len(strong) != 1:
+            return None, {}
+        bare = str(strong[0].get("orcid", "")).rsplit("/", 1)[-1]
+        record = lookup_orcid(bare)
+        record_family = record.get("familyName", "").casefold().strip()
+        if not record or record_family != family.casefold().strip():
+            return None, {}
+        fields = {"orcid": bare}
+        for key in ("givenName", "familyName", "name"):
+            if record.get(key):
+                fields[key] = str(record[key])
+        return f"https://orcid.org/{bare}", fields
+    except Exception:  # noqa: BLE001 — identifier lookup must not block drafting
+        return None, {}
+
+
 VALID_PROCESS_TYPES = frozenset(
     {
         "CellCulture",
@@ -369,13 +410,18 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
             merged_hints["givenName"] = given
         if family:
             merged_hints["familyName"] = family
-    entity_id = _make_entity_id("person", name, hints)
+    orcid_id, orcid_fields = _resolve_person_orcid(name, merged_hints)
+    if orcid_id:
+        merged_hints.update(orcid_fields)
+    entity_id = orcid_id or _make_entity_id("person", name, hints)
     entity = Entity(
         entity_id=entity_id,
         type="Person",
         _provenance=EntityProvenance(created_by="llm"),
     )
     entity.set_fields_from_dict(merged_hints, source="llm")
+    if orcid_id:
+        entity.set_field_status("orcid", "verified", "lookup")
     state.add_entity(entity)
     return entity
 
