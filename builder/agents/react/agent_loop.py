@@ -1761,13 +1761,24 @@ def run_interactive_agent(
             "and what the next logical step is."
         )
     elif file_count:
-        # New session whose input folder is already scanned. Say what WILL be
-        # built — asking for a recap here is what made the agent go passive.
+        # New session whose input folder is already scanned. Include the ranked
+        # document evidence so the user can correct a bad interpretation before
+        # the agent drafts anything; filenames alone are insufficient intervention
+        # context when several documents have different roles.
+        documents = getattr(engine.state, "documents", [])
+        document_lines = []
+        for doc in documents[:20]:
+            role = doc.get("role", "document")
+            name = doc.get("filename", doc.get("relative_path", "?"))
+            score = doc.get("score", 0.0)
+            document_lines.append(f"- [{role}] {name} (score: {score:.2f})")
+        discovered = "\n".join(document_lines) or "- No ranked document evidence available."
         greeting_prompt = (
-            f"The user has just started a new session; {file_count} input files "
-            "have been scanned and no entities have been drafted yet. "
-            "Briefly say what you will build from those files and invite them to "
-            "start. Do not imply any prior work exists."
+            f"The user has just started a new session; {file_count} input files have "
+            "been scanned and no entities have been drafted yet. Briefly explain what "
+            "you will build, then list the ranked documents below so the user can "
+            "correct roles or ask you to inspect a different file before drafting. "
+            "Do not imply prior work exists.\n\nRanked input documents:\n" + discovered
         )
     else:
         greeting_prompt = "Greet the user and tell them what you can help build."
