@@ -9,7 +9,7 @@ tool schemas (a test asserts it matches one-for-one), so every tool here is
 callable and every callable tool is here.
 
 File scanning & reading:
-- scan_files: Scan an input directory or zip for files (archives auto-extracted)
+- scan_files: Scan an input directory or zip for files (archives auto-extracted). When the session was started with `--input`, the input path is the fixed filesystem boundary: do not call this on `.` or any other path; use the existing scanned-file inventory.
 - preview_archive: List a zip archive's members without extracting
 - unzip_file: Extract a zip archive to a directory
 - read_file_sample: Read a sample of one file (content/summary/overview); the lines argument controls how much 'content' returns; a directory returns guidance to use list_scanned_files

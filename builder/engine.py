@@ -506,6 +506,28 @@ class AgentEngine:
         if _contain(path, self.state.approved_scan_roots) is not None:
             return None
 
+        # ``--input`` establishes the session's explicit data boundary. A model
+        # asking to scan ``.`` or another unrelated directory must not turn that
+        # bounded run into a broader filesystem grant. Refuse without prompting;
+        # the user already supplied the authoritative input root at startup.
+        input_root = self.state.metadata.input_path
+        if input_root:
+            logger.warning(
+                "Refusing scan of %s: session is bounded to --input %s",
+                path,
+                input_root,
+            )
+            self.state.log_reasoning(
+                "refuse_scan_root",
+                "scan_files",
+                f"Refused: {path} is outside the --input boundary {input_root}.",
+            )
+            return _scan_refusal(
+                path,
+                f"Refused: this session is restricted to the --input path {input_root}. "
+                "Use the existing scanned-file inventory instead of scanning another folder.",
+            )
+
         if not is_interactive(self.human_interface):
             # Headless/simulated: never widen filesystem access on the agent's
             # say-so. Surface the reason rather than a silent empty result.

@@ -263,6 +263,8 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
         return
 
+    # This call is synchronous: the optional prompt cannot be reached until the
+    # recommended validator has returned and its state writeback is complete.
     recommended = engine.run_tool(
         "build_and_validate", severity="recommended", profile="all"
     )
@@ -270,10 +272,22 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
         return
 
+    recommended_issues = recommended.get("issues") or []
+    recommended_status = (
+        f"{len(recommended_issues)} finding(s)"
+        if recommended_issues
+        else "no findings"
+    )
     # The recommended result can be unsuccessful because it found SHOULD issues;
     # that is still a completed tier and should be reported before asking about
     # the optional tier. Only tool errors abort the cascade.
-    if approved("Recommended validation completed. Run optional checks?"):
+    if approved(
+        "Recommended validation completed ("
+        + recommended_status
+        + "). Run optional checks?"
+    ):
+        # As above, this call is synchronous and completes before the escalation
+        # fingerprint is recorded or control returns to the model loop.
         engine.run_tool("build_and_validate", severity="optional", profile="all")
     setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
 
@@ -1761,13 +1775,30 @@ def run_interactive_agent(
             "and what the next logical step is."
         )
     elif file_count:
-        # New session whose input folder is already scanned. Say what WILL be
-        # built — asking for a recap here is what made the agent go passive.
+        # New session whose input folder is already scanned. Include the ranked
+        # document evidence so the user can correct a bad interpretation before
+        # the agent drafts anything; filenames alone are insufficient intervention
+        # context when several documents have different roles.
+        documents = getattr(engine.state, "documents", [])
+        document_lines = []
+        for doc in documents[:20]:
+            role = doc.get("role", "document")
+            name = doc.get("filename", doc.get("relative_path", "?"))
+            score = doc.get("score", 0.0)
+            document_lines.append(f"- [{role}] {name} (score: {score:.2f})")
+        discovered = "\n".join(document_lines) or "- No ranked document evidence available."
+        approved_roots = sorted(getattr(engine.state, "approved_scan_roots", set()))
+        input_root = approved_roots[0] if approved_roots else engine.state.metadata.input_path
         greeting_prompt = (
-            f"The user has just started a new session; {file_count} input files "
-            "have been scanned and no entities have been drafted yet. "
-            "Briefly say what you will build from those files and invite them to "
-            "start. Do not imply any prior work exists."
+            f"The user has just started a new session; {file_count} input files have "
+            "already been scanned from the approved input path below and no entities "
+            "have been drafted yet. Do NOT call scan_files or ask for scan approval; "
+            "use the existing inventory and discovered documents. Briefly explain what "
+            "you will build, then list the ranked documents below so the user can "
+            "correct roles or ask you to inspect a different file before drafting. "
+            "Do not imply prior work exists.\n\n"
+            f"Approved input path: {input_root or '(already scanned)'}\n\n"
+            "Ranked input documents:\n" + discovered
         )
     else:
         greeting_prompt = "Greet the user and tell them what you can help build."
