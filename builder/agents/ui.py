@@ -418,6 +418,15 @@ def boxed_input(console: Console, label: str = "❯") -> str:
     try:
         from prompt_toolkit import Application
         from prompt_toolkit.application.current import get_app
+        from prompt_toolkit.output import create_output
+
+        # Some terminal frontends (including certain IDE/WSL PTYs) do not answer
+        # the cursor-position request prompt_toolkit uses during startup. In that
+        # case prompt_toolkit can wait indefinitely, so use the safe line-input
+        # fallback instead of attempting to start the full-screen application.
+        output = create_output()
+        if not getattr(output, "responds_to_cpr", True):
+            return _fallback()
         from prompt_toolkit.buffer import Buffer
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
@@ -480,6 +489,7 @@ def boxed_input(console: Console, label: str = "❯") -> str:
         key_bindings=kb,
         style=style,
         full_screen=False,
+        output=output,
     )
     try:
         text = app.run()

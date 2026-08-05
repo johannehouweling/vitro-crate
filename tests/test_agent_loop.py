@@ -546,7 +546,7 @@ class TestToolSpinnerCallback:
         spinner = _FakeSpinner()
         _ToolSpinnerCallback(spinner).on_tool_start({"name": "scan_files"}, "/data")  # ty: ignore[invalid-argument-type]
 
-        assert spinner.tools == ["scan_files"]
+        assert spinner.tools == ["scan_files(/data)"]
 
     def test_on_tool_start_defaults_when_unnamed(self):
         """A tool with no name falls back to a generic label."""
@@ -566,7 +566,19 @@ class TestToolSpinnerCallback:
         cb.on_tool_start({"name": "lookup_compound"}, "aspirin")
         cb.on_tool_end("result")
 
-        assert spinner.tools == ["lookup_compound", None]
+        assert spinner.tools == ["lookup_compound(aspirin)", None]
+
+    def test_on_tool_start_bounds_long_input(self):
+        """Long tool inputs are visible but cannot overwhelm the spinner line."""
+        from builder.agents.react.agent_loop import _ToolSpinnerCallback
+
+        spinner = _FakeSpinner()
+        long_input = "x" * 200
+        _ToolSpinnerCallback(spinner).on_tool_start(
+            {"name": "read_file"}, long_input
+        )  # ty: ignore[invalid-argument-type]
+
+        assert spinner.tools == ["read_file(" + ("x" * 77) + "...)"]
 
 
 class TestMainInteractiveFlag:
@@ -1071,6 +1083,59 @@ class TestCompletenessNudge:
         )
         assert "next:" not in brief.lower()
 
+    def test_brief_includes_document_count_when_nonzero(self):
+        """_build_system_prompt_with_state shows the document count when >0."""
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
+
+        brief = _build_system_prompt_with_state(
+            session_id="sid",
+            entity_count=2,
+            file_count=5,
+            document_count=3,
+            iteration_count=1,
+        )
+        assert "Documents: 3" in brief
+
+    def test_brief_omits_document_count_when_zero(self):
+        """No documents found => the brief omits the document line."""
+        from builder.agents.react.agent_loop import _build_system_prompt_with_state
+
+        brief = _build_system_prompt_with_state(
+            session_id="sid",
+            entity_count=0,
+            file_count=0,
+            document_count=0,
+            iteration_count=0,
+        )
+        assert "Documents:" not in brief
+
+    def test_format_document_context_empty(self):
+        """Empty documents list returns empty string."""
+        from builder.agents.react.agent_loop import _format_document_context
+
+        assert _format_document_context([]) == ""
+        assert _format_document_context(None) == ""
+
+    def test_format_document_context_renders_candidates(self):
+        """Ranked documents produce role-labelled lines with score and reasons."""
+        from builder.agents.react.agent_loop import _format_document_context
+
+        docs = [
+            {"role": "sop", "filename": "SOP-001.pdf",
+             "relative_path": "docs/SOP-001.pdf",
+             "score": 0.85, "reasons": ["content signals: 3 sop term(s)",
+                                        "prose-like preview"]},
+            {"role": "metadata", "filename": "sample-sheet.csv",
+             "relative_path": "sample-sheet.csv",
+             "score": 0.72, "reasons": ["content signals: 2 metadata term(s)"]},
+        ]
+        result = _format_document_context(docs)
+        assert "[sop] SOP-001.pdf (score: 0.85)" in result
+        assert "[metadata] sample-sheet.csv (score: 0.72)" in result
+        assert "content signals: 3 sop term(s)" in result
+        # Renders both entries
+        assert result.count("\n") == 1  # one newline between the two lines
+
 
 class TestFinishBackstop:
     """Issue #251: a deterministic finish backstop guarantees a crate lands on
@@ -1422,6 +1487,39 @@ class TestInvokeWithTimeout:
         assert diagnostic["exception_type"] == "RuntimeError"
         assert "provider exploded" in diagnostic["message"]
         assert "sk-secret-value" not in diagnostic["message"]
+
+    def test_timeout_cancellation_is_idempotent(self):
+        """Repeated cancellation checks do not revive a timed-out invocation."""
+        import threading
+        import time
+
+        from builder.agents.react.agent_loop import _invoke_with_timeout
+
+        started = threading.Event()
+        release = threading.Event()
+        checks = {"count": 0}
+
+        class _CooperativeApp:
+            def invoke(self, payload, config):
+                started.set()
+                while not release.is_set():
+                    from builder.agents.react.agent_loop import _raise_if_invocation_cancelled
+
+                    _raise_if_invocation_cancelled()
+                    checks["count"] += 1
+                    time.sleep(0.005)
+                return {"messages": []}
+
+        result, outcome = _invoke_with_timeout(
+            _CooperativeApp(), {"messages": []}, {}, timeout=0.03
+        )
+        assert started.wait(1.0)
+        assert outcome == "timeout"
+        assert result is None
+        count_at_return = checks["count"]
+        time.sleep(0.05)
+        assert checks["count"] == count_at_return
+        release.set()
 
 
 class TestReplyIsQuestion:

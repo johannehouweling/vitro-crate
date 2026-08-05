@@ -366,6 +366,42 @@ def _verified_orcid_for(family: str, bare_orcid: str) -> str | None:
     return bare_orcid if verified is not None else None
 
 
+def _apply_measurement_method(
+    engine: AgentEngine, gap: Gap, value: str, *, human: HumanInterface | None = None
+) -> bool:
+    """Resolve a human method description into a crate DefinedTerm reference."""
+    state_id = _resolve_entity_id(engine, gap)
+    if state_id is None:
+        return False
+    try:
+        from builder.tools.lookups import lookup_bao_term
+
+        result = lookup_bao_term(value.strip())
+    except Exception as exc:  # noqa: BLE001 — a lookup failure is a guidance skip
+        logger.warning("guidance: measurement method lookup failed: %s", exc)
+        result = {"found": False}
+    data = result.get("data") if isinstance(result, dict) else None
+    if not result.get("found") or not isinstance(data, dict) or not data.get("@id"):
+        _notify(
+            human,
+            f"I could not resolve '{value}' to a BioAssay Ontology method. "
+            "Please provide a more specific method name or skip this field.",
+        )
+        return False
+    hints = {
+        "entity_id": data["@id"],
+        "termCode": data.get("termCode") or data.get("term_code"),
+        "inDefinedTermSet": data.get("inDefinedTermSet") or "http://bioassayontology.org/bao",
+    }
+    term = engine.run_tool("draft_defined_term", name=data.get("name") or value, hints=hints)
+    term_id = getattr(term, "entity_id", None)
+    if not term_id:
+        return False
+    field = _local_name(gap.property) or "measurementMethod"
+    engine.run_tool("set_fields", entity_id=state_id, fields={field: {"@id": term_id}})
+    return True
+
+
 def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     """Mint a Person for a person/agent-typed gap and link it by reference (#275).
 
@@ -560,6 +596,14 @@ def _apply_value(
     if _is_citation_field(field) and _gap_is_root(engine, gap):
         return _apply_citation_value(engine, gap, value)
 
+    # Assay measurementMethod is a DefinedTerm reference, but the user naturally
+    # answers it with a method name (for example, "Gamma counter"). Resolve that
+    # prose through BAO/OLS, persist the verified term, and link the assay to it.
+    # Otherwise the generic reference guard rejects a valid human answer because
+    # no DefinedTerm existed yet.
+    if field == "measurementMethod":
+        return _apply_measurement_method(engine, gap, value, human=human)
+
     # (#375, D5) An identifier is never taken from prose, on ANY path. This is the
     # single chokepoint every commit funnels through, and it has two feeders that
     # are otherwise unguarded: the no-provider ask-user path and the draft-confirm
@@ -729,7 +773,13 @@ def _ask_user_prompt(gap: Gap, engine: AgentEngine | None = None) -> str:
         lines.append(f"Why: {gap.message}")
     if gap.suggestion:
         lines.append(f"Suggestion: {gap.suggestion}")
-    lines.append("Expected: free text (leave blank or skip to defer this field).")
+    lines.extend(
+        [
+            "Enter the suggested value, or type a modified value.",
+            "Type 'skip' to leave this field unresolved, or 'build' to stop guidance "
+            "and build the current crate.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -760,7 +810,10 @@ def _ask_user(engine: AgentEngine, human: HumanInterface, gap: Gap) -> str | Non
     value = response.get("value")
     if value is None or not str(value).strip():
         return None
-    return str(value)
+    text = str(value).strip()
+    if text.casefold() in {"skip", "skip this", "defer"}:
+        return None
+    return text
 
 
 def _reply_text(response: Any) -> str | None:
@@ -1393,6 +1446,10 @@ def run_guidance(
     tried_identities: set[GapIdentity] = set()
 
     for _ in range(max(0, max_rounds)):
+        # A real interactive user may explicitly end guidance even while MUST
+        # gaps remain; export the current crate rather than forcing more prompts.
+        if _user_signals_done(human):
+            break
         index = _next_actionable_index(report, skipped, tried_identities)
 
         # --- termination: the whole report is exhausted -----------------------

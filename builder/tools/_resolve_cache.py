@@ -46,9 +46,8 @@ DEFAULT_RESOLVE_CONCURRENCY = 4
 
 # Default per-compound wall-clock budget (seconds). A resolution that exceeds it
 # returns a graceful partial/empty result rather than hanging on a stuck network
-# round-trip. Generous enough for a healthy multi-round-trip lookup, far below the
-# 30-66s pathological stalls Issue #252 reports.
-DEFAULT_RESOLVE_TIMEOUT = 20.0
+# round-trip.
+DEFAULT_RESOLVE_TIMEOUT = 240.0
 
 
 def normalize_compound_name(name: str) -> str:

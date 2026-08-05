@@ -37,6 +37,7 @@ from builder.agents.progress_spinner import ProgressSpinner
 from builder.agents.react.system_prompt import SYSTEM_PROMPT
 from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
+from builder.tools.hitl import is_interactive
 
 if TYPE_CHECKING:
     from typing import cast
@@ -140,7 +141,16 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
         input_str: str,
         **kwargs: Any,
     ) -> None:
-        self.spinner.set_current(serialized.get("name", "tool"))
+        tool_name = serialized.get("name", "tool")
+        # LangChain supplies the rendered tool input separately from the
+        # serialized tool metadata. Show a bounded version so a long-running
+        # tool call tells the user both WHAT is running and WHAT it is acting
+        # on, without allowing a large payload to take over the spinner.
+        tool_input = str(input_str or "").replace("\n", " ").strip()
+        if len(tool_input) > 80:
+            tool_input = tool_input[:77] + "..."
+        current = f"{tool_name}({tool_input})" if tool_input else tool_name
+        self.spinner.set_current(current)
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         self.spinner.set_current(None)
@@ -229,6 +239,43 @@ _AUTO_EXPORT_FINGERPRINT_FLAG = "_crate_auto_export_fingerprint"
 # A). Default ``None`` is a strict no-op (mirrors ``on_tool_event``, #266), so a
 # headless/test engine without a console behaves identically.
 _AUTO_EXPORT_EMIT_FLAG = "on_auto_export"
+_VALIDATION_ESCALATION_FP_FLAG = "_validation_escalation_fingerprint"
+_VALIDATION_ESCALATION_PURPOSE = "validation_escalation"
+
+
+def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, Any]) -> None:
+    """Offer progressively broader validation once required checks pass."""
+    if not required_result.get("ok") or not is_interactive(engine.human_interface):
+        return
+    fingerprint = engine.state.validation_fingerprint()
+    if getattr(engine, _VALIDATION_ESCALATION_FP_FLAG, None) == fingerprint:
+        return
+
+    def approved(context: str) -> bool:
+        response = engine.human_interface.present(
+            context,
+            options=["yes", "no"],
+            purpose=_VALIDATION_ESCALATION_PURPOSE,
+        )
+        return response.get("action") == "approved"
+
+    if not approved("Required validation passed. Run recommended checks?"):
+        setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
+        return
+
+    recommended = engine.run_tool(
+        "build_and_validate", severity="recommended", profile="all"
+    )
+    if not isinstance(recommended, dict) or "error" in recommended:
+        setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
+        return
+
+    # The recommended result can be unsuccessful because it found SHOULD issues;
+    # that is still a completed tier and should be reported before asking about
+    # the optional tier. Only tool errors abort the cascade.
+    if approved("Recommended validation completed. Run optional checks?"):
+        engine.run_tool("build_and_validate", severity="optional", profile="all")
+    setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
 
 # ---------------------------------------------------------------------------
 # Issue #287 Fix B: loop-breaker for repeated non-progress tool calls
@@ -733,6 +780,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # crate whenever build_and_validate passes base conformance.
                     elif tool_name == "build_and_validate":
                         _auto_export_after_build(engine, result)
+                        severity = kwargs.get("severity") or "required"
+                        profile = kwargs.get("profile") or "all"
+                        if severity == "required" and profile == "all":
+                            _run_validation_escalation(engine, result)
 
                 # Update the loop-breaker detection state AFTER post-processing so
                 # it sees the same message the model sees. A repeated identical
@@ -970,7 +1021,8 @@ def _build_system_prompt_with_state(
     session_id: str,
     entity_count: int,
     file_count: int,
-    iteration_count: int,
+    document_count: int = 0,
+    iteration_count: int = 0,
     next_fix: str | None = None,
     nudge: str | None = None,
 ) -> str:
@@ -981,7 +1033,7 @@ def _build_system_prompt_with_state(
     duplicate metadata in MemorySaver.
 
     Returns a single short line like:
-    ``[Session: sid | Files: 5 | Entities: 3 | Iteration: 42]``
+    ``[Session: sid | Files: 5 | Entities: 3 | Documents: 2 | Iteration: 42]``
 
     When ``next_fix`` is given (the top REQUIRED validation issue, surfaced from
     ``state.validation`` after the #153 write-back), a second line names it so a
@@ -997,8 +1049,10 @@ def _build_system_prompt_with_state(
         f"[Session: {session_id} | "
         f"Files: {file_count} | "
         f"Entities: {entity_count} | "
-        f"Iteration: {iteration_count}]"
     )
+    if document_count:
+        brief += f"Documents: {document_count} | "
+    brief += f"Iteration: {iteration_count}]"
     if next_fix:
         brief += f"\n[Next REQUIRED fix: {next_fix}]"
     if nudge:
@@ -1103,6 +1157,32 @@ def _prune_state_backed_outputs(messages: list) -> list:
     return pruned
 
 
+def _format_document_context(documents: list[dict[str, Any]]) -> str:
+    """Format the ranked document discovery results as a bounded context string.
+
+    Produces one line per candidate::
+
+        [role] filename (score: 0.85) — directory: reason, reason
+
+    The result is a single paragraph (no markdown, no multi-line headers) so it
+    slots cleanly into the system brief without busting the cache-friendly layout.
+    """
+    if not documents:
+        return ""
+    lines: list[str] = []
+    for doc in documents[:20]:  # safety cap — never exceed 20 entries
+        role = doc.get("role", "document")
+        name = doc.get("filename", doc.get("relative_path", "?"))
+        score = doc.get("score", 0.0)
+        reasons = doc.get("reasons", [])
+        reason_str = "; ".join(reasons[:3]) if reasons else ""
+        line = f"[{role}] {name} (score: {score:.2f})"
+        if reason_str:
+            line += f" — {reason_str}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _trim_history(messages: list, *, max_tokens: int) -> list:
     """Bound the per-turn message history so verbose tool outputs aren't replayed.
 
@@ -1164,7 +1244,9 @@ def _assemble_model_messages(
     session_id: str,
     entity_count: int,
     file_count: int,
-    iteration_count: int,
+    document_count: int = 0,
+    document_context: str | None = None,
+    iteration_count: int = 0,
     next_fix: str | None = None,
     nudge: str | None = None,
     max_history_tokens: int | None = None,
@@ -1173,6 +1255,12 @@ def _assemble_model_messages(
     layout (Issue #60) and a bounded history (Issue #61).
 
     Layout: ``[SystemMessage(SYSTEM_PROMPT), *trimmed_history, SystemMessage(state_brief)]``.
+
+    When ``document_context`` is provided (the formatted, ranked documentation from
+    initialisation), an additional ``SystemMessage`` is added between the state brief
+    and the trimmed history so the model has direct access to identified SOPs,
+    protocols, publications, and metadata documentation descriptions without needing
+    to re-read files.
 
     The leading system message is kept **byte-stable** (``SYSTEM_PROMPT`` only, no
     volatile state appended), so every provider can cache the stable
@@ -1207,15 +1295,23 @@ def _assemble_model_messages(
         session_id=session_id,
         entity_count=entity_count,
         file_count=file_count,
+        document_count=document_count,
         iteration_count=iteration_count,
         next_fix=next_fix,
         nudge=nudge,
     )
-    return [
+    parts = [
         SystemMessage(content=SYSTEM_PROMPT),
         *trimmed_history,
-        SystemMessage(content=state_brief),
     ]
+    if document_context:
+        parts.append(
+            SystemMessage(
+                content=f"[Discovered document evidence]\n{document_context}"
+            )
+        )
+    parts.append(SystemMessage(content=state_brief))
+    return parts
 
 
 # Progressive tool disclosure (#156). Tools pruned from the per-turn advertised
@@ -1330,11 +1426,19 @@ def _build_agent_graph(
         # so a weak model is steered to the next concrete step instead of
         # stalling once the obvious entities exist.
         nudge = _completeness_nudge(engine.state)
+        # Document discovery context (#179): ranked SOPs, protocols, publications,
+        # metadata files identified during scanning. Passed as a separate block
+        # so the model sees which documentation is available without re-reading.
+        documents = getattr(engine.state, "documents", [])
+        document_count = len(documents)
+        document_context = _format_document_context(documents) if documents else None
         model_messages = _assemble_model_messages(
             messages,
             session_id=engine.state.session_id,
             entity_count=len(engine.state.list_entities()),
             file_count=len(engine.state.scanned_files),
+            document_count=document_count,
+            document_context=document_context,
             iteration_count=engine.state.iteration_count,
             next_fix=next_fix,
             nudge=nudge,
@@ -1837,8 +1941,12 @@ def run_interactive_agent(
                 _print_reply(reply)
         elif outcome == "timeout":
             console.print(
-                "[yellow]The model stopped responding[/yellow] and I ended this "
-                "step to avoid hanging. Your work so far is saved."
+                "[yellow]A tool timed out[/yellow] and I ended this step "
+                "to avoid hanging. Your work so far is saved."
+            )
+            console.print(
+                "  [dim]You can continue by typing[/dim] "
+                "[bold]continue[/bold]"
             )
             console.print()
         elif outcome == "recursion":

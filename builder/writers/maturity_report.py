@@ -56,6 +56,7 @@ def _validation_has_signal(validation: ValidationReport) -> bool:
         or validation.required_issues
         or validation.should_issues
         or validation.may_issues
+        or validation.assessed_tiers
     )
 
 
@@ -148,6 +149,10 @@ def _severity_tiers(val: ValidationReport) -> list[dict[str, str]]:
         if issues:
             tiers.append(
                 {"tier": label, "state": "no", "summary": _plural_issues(len(issues)), "note": note}
+            )
+        elif label.casefold() in val.assessed_tiers:
+            tiers.append(
+                {"tier": label, "state": "ok", "summary": "0 issues", "note": note}
             )
         else:
             tiers.append(

@@ -255,6 +255,25 @@ class ConsoleHumanInterface:
         """
         self._read: Callable[[str], str] = prompt_func or _default_console_prompt
         self._show: Callable[[str], None] = show_func or _default_console_show
+        self._done = False
+
+    def is_done(self) -> bool:
+        """Whether the user requested that guidance stop and the crate be built."""
+        return self._done
+
+    @staticmethod
+    def _is_stop_command(value: str) -> bool:
+        normalized = " ".join(value.casefold().split())
+        stop_words = {
+            "stop",
+            "done",
+            "exit",
+            "quit",
+            "build",
+            "build the crate",
+            "build the rocrate",
+        }
+        return normalized in stop_words or normalized.startswith("can you stop here")
 
     def present(
         self,
@@ -269,18 +288,32 @@ class ConsoleHumanInterface:
         with suspend_console_animation():
             print(context)
             if options:
-                print(f"Options: {', '.join(options)}")
+                print("Choose one of the following:")
+                for index, option in enumerate(options, start=1):
+                    print(f"  {index}. {option}")
             try:
                 answer = input(f"Approve?{suffix}").strip().lower()
             except EOFError:
+                self._done = True
                 answer = ""
+        if self._is_stop_command(answer):
+            self._done = True
+            return {"action": "skipped", "comments": None, "edits": None}
         if purpose == SCAN_ROOT_PURPOSE:
             # Fail-closed: a new scan root requires an explicit affirmative.
             approved = answer in ("y", "yes")
+            comments = None
+        elif options and answer.isdigit() and 1 <= int(answer) <= len(options):
+            # Preserve the selected option so callers can resolve a real menu
+            # choice (for example, an ambiguous publication author) rather than
+            # reducing every response to a yes/no approval.
+            comments = options[int(answer) - 1]
+            approved = True
         else:
             approved = answer in ("", "y", "yes")
+            comments = None
         action = "approved" if approved else "rejected"
-        return {"action": action, "comments": None, "edits": None}
+        return {"action": action, "comments": comments, "edits": None}
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Prompt the user for a value; an empty answer (or EOF) is a skip.
@@ -295,7 +328,11 @@ class ConsoleHumanInterface:
             try:
                 value = self._read(field_type).strip()
             except EOFError:
+                self._done = True
                 value = ""
+        if self._is_stop_command(value):
+            self._done = True
+            return {"value": None, "skipped": True}
         if not value:
             return {"value": None, "skipped": True}
         return {"value": value, "skipped": False}

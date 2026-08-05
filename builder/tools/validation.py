@@ -257,6 +257,9 @@ def build_and_validate(
             )
 
     ok = not any(result.issues for result in results)
+    # Keep the original routable tool shape stable. The engine receives the
+    # requested severity/profile as call arguments and routes writeback from
+    # those arguments rather than expanding this public result contract.
     return {"ok": ok, "conformance": conformance, "issues": issues}
 
 

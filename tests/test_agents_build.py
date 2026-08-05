@@ -811,7 +811,7 @@ class TestProgressSpinner:
         out_dir = tmp_path / "restore-ro-crate"
         engine = _engine(_InteractiveHuman())
         engine.state.metadata.output_path = str(out_dir)
-        sentinel = lambda _n, _p: None  # noqa: E731
+        sentinel = lambda _n, _p, _a: None  # noqa: E731
         engine.on_tool_event = sentinel
 
         run_interactive_build(

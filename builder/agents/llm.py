@@ -94,7 +94,7 @@ def _detect_provider() -> str | None:
 # Per-request wall-clock timeout default (seconds) for the chat model when no
 # VITRO_REQUEST_TIMEOUT is set. A real --legacy-react run hung with a 349s+ model
 # invoke and no timeout, so the turn never ended and the #254 backstop never ran.
-_DEFAULT_REQUEST_TIMEOUT = 120.0
+_DEFAULT_REQUEST_TIMEOUT = 600.0
 
 
 def _get_request_timeout() -> float:
@@ -107,7 +107,7 @@ def _get_request_timeout() -> float:
     is the second). Precedence:
 
         1. Environment variable ``VITRO_REQUEST_TIMEOUT`` (seconds)
-        2. Built-in default (120s)
+        2. Built-in default (600s / 10 minutes)
 
     A non-positive or unparseable value falls back to the default so the model
     is never built without a finite timeout.

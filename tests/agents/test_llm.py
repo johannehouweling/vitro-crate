@@ -79,7 +79,7 @@ class TestGetRequestTimeout:
         from builder.agents.llm import _get_request_timeout
 
         monkeypatch.delenv("VITRO_REQUEST_TIMEOUT", raising=False)
-        assert _get_request_timeout() == 120.0
+        assert _get_request_timeout() == 600.0
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from builder.agents.llm import _get_request_timeout
@@ -91,7 +91,7 @@ class TestGetRequestTimeout:
         from builder.agents.llm import _get_request_timeout
 
         monkeypatch.setenv("VITRO_REQUEST_TIMEOUT", "not-a-number")
-        assert _get_request_timeout() == 120.0
+        assert _get_request_timeout() == 600.0
 
 
 class TestIsOpenAIReasoningModel:

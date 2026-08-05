@@ -517,17 +517,17 @@ class TestOnToolEvent:
         assert engine.on_tool_event is None
 
     def test_callback_fires_start_then_end_when_set(self) -> None:
-        """The callback receives (tool_name, 'start') then (tool_name, 'end')."""
+        """The callback receives (tool_name, 'start', args) then (tool_name, 'end', '')."""
         engine = AgentEngine()
         engine.initialize()
-        events: list[tuple[str, str]] = []
-        engine.on_tool_event = lambda name, phase: events.append((name, phase))
+        events: list[tuple[str, str, str]] = []
+        engine.on_tool_event = lambda name, phase, args_str: events.append((name, phase, args_str))
 
         engine.run_tool("draft_investigation", hints={"name": "Inv"})
 
         assert events == [
-            ("draft_investigation", "start"),
-            ("draft_investigation", "end"),
+            ("draft_investigation", "start", "Inv"),
+            ("draft_investigation", "end", ""),
         ]
 
     def test_end_fires_even_when_tool_raises(self) -> None:
@@ -536,15 +536,15 @@ class TestOnToolEvent:
 
         engine = AgentEngine()
         engine.initialize()
-        events: list[tuple[str, str]] = []
-        engine.on_tool_event = lambda name, phase: events.append((name, phase))
+        events: list[tuple[str, str, str]] = []
+        engine.on_tool_event = lambda name, phase, args_str: events.append((name, phase, args_str))
 
         with pytest.raises(ValueError):
             engine.run_tool("nonexistent_tool_xyz")
 
         # start fired before the lookup; end still fired despite the raise.
-        assert ("nonexistent_tool_xyz", "start") in events
-        assert ("nonexistent_tool_xyz", "end") in events
+        assert ("nonexistent_tool_xyz", "start", "") in events
+        assert ("nonexistent_tool_xyz", "end", "") in events
 
     def test_unset_callback_no_calls_no_error(self) -> None:
         """With no callback set, run_tool behaves exactly as before (no error)."""
@@ -560,7 +560,7 @@ class TestOnToolEvent:
         engine = AgentEngine()
         engine.initialize()
 
-        def _boom(_name: str, _phase: str) -> None:
+        def _boom(_name: str, _phase: str, _args_str: str = "") -> None:
             raise RuntimeError("spinner blew up")
 
         engine.on_tool_event = _boom

@@ -1045,11 +1045,28 @@ def _run_live_dashboard(
     cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
     def _resolve_session() -> str | None:
-        """Pick the session to render this wake: pinned, or the newest one."""
+        """Pick the session to render this wake: pinned, or the newest one.
+
+        Do not call ``list_sessions_available`` here: that helper parses every
+        ``profile.ndjson`` under ``sessions/`` to build static-session metadata.
+        The live dashboard only needs the newest directory, and reparsing hundreds
+        of historical profiles every two seconds makes the TUI appear frozen.
+        """
         if session_id is not None:
             return session_id
-        sessions = list_sessions_available()
-        return sessions[0]["session_id"] if sessions else None
+        try:
+            newest = max(
+                (
+                    child
+                    for child in SESSION_DIR.iterdir()
+                    if child.is_dir() and (child / "profile.ndjson").is_file()
+                ),
+                key=lambda child: child.stat().st_mtime,
+                default=None,
+            )
+        except OSError:
+            return None
+        return newest.name if newest is not None else None
 
     def _build() -> Layout:
         sid = _resolve_session()
