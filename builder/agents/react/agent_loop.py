@@ -263,6 +263,8 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
         return
 
+    # This call is synchronous: the optional prompt cannot be reached until the
+    # recommended validator has returned and its state writeback is complete.
     recommended = engine.run_tool(
         "build_and_validate", severity="recommended", profile="all"
     )
@@ -270,10 +272,22 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
         return
 
+    recommended_issues = recommended.get("issues") or []
+    recommended_status = (
+        f"{len(recommended_issues)} finding(s)"
+        if recommended_issues
+        else "no findings"
+    )
     # The recommended result can be unsuccessful because it found SHOULD issues;
     # that is still a completed tier and should be reported before asking about
     # the optional tier. Only tool errors abort the cascade.
-    if approved("Recommended validation completed. Run optional checks?"):
+    if approved(
+        "Recommended validation completed ("
+        + recommended_status
+        + "). Run optional checks?"
+    ):
+        # As above, this call is synchronous and completes before the escalation
+        # fingerprint is recorded or control returns to the model loop.
         engine.run_tool("build_and_validate", severity="optional", profile="all")
     setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
 
