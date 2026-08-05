@@ -209,8 +209,9 @@ def run_interactive_build(
     emit = _spinner_emit(base_emit, spinner)
     prior_tool_event = engine.on_tool_event
     if spinner is not None:
-        engine.on_tool_event = lambda tool, _phase: (
-            spinner.set_current(tool) if _phase == "start" else None
+        engine.on_tool_event = lambda tool, _phase, args_str: (
+            spinner.set_current(f"{tool}({args_str})" if args_str else tool)
+            if _phase == "start" else None
         )
 
     spinner_ctx = spinner if spinner is not None else nullcontext()

@@ -257,7 +257,13 @@ def build_and_validate(
             )
 
     ok = not any(result.issues for result in results)
-    return {"ok": ok, "conformance": conformance, "issues": issues}
+    return {
+        "ok": ok,
+        "conformance": conformance,
+        "issues": issues,
+        "severity": severity,
+        "profile": profile,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,15 @@ File scanning & reading:
 - read_docx: Read a .docx file's text
 - extract_pdf_text: Extract structured text, tables, and image metadata from a PDF
 
+Document evidence (discovered during initialization):
+- The engine scans first-depth directories for readable scientific documentation
+  (SOPs, protocols, publications, metadata files, data dictionaries, sample sheets,
+  assay/process documentation) and ranks them by content signals, filename clues,
+  and directory depth. The state brief shows how many were found.
+- Use read_file or read_file_sample to inspect a discovered document when you need
+  its details for entity drafting. The ranked list is always accessible via the
+  state brief and get_status.
+
 Entity drafting:
 - scaffold_isa_backbone: Create a linked Investigation+Study+Assay backbone in one call (idempotent) — the fastest path to a BASE-passing crate
 - draft_process_chain: Create and wire a whole LabProcess derivation chain (CellCulture->Exposure->EndpointReadout->DataAnalysis, any subset) in one idempotent call — synthesizes the outputs EndpointReadout/DataAnalysis require so the chain never dangles into a validation error

@@ -418,6 +418,7 @@ class ValidationReport:
     required_issues: list[str] = field(default_factory=list)
     should_issues: list[str] = field(default_factory=list)
     may_issues: list[str] = field(default_factory=list)
+    assessed_tiers: set[str] = field(default_factory=set)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -427,6 +428,7 @@ class ValidationReport:
             "required_issues": list(self.required_issues),
             "should_issues": list(self.should_issues),
             "may_issues": list(self.may_issues),
+            "assessed_tiers": sorted(self.assessed_tiers),
         }
 
     @classmethod
@@ -438,6 +440,7 @@ class ValidationReport:
             required_issues=data.get("required_issues", []),
             should_issues=data.get("should_issues", []),
             may_issues=data.get("may_issues", []),
+            assessed_tiers=set(data.get("assessed_tiers", [])),
         )
 
 
@@ -800,6 +803,14 @@ class CrateState:
 
     scanned_files: list[FileClassification] = field(default_factory=list)
     approved_scan_roots: set[str] = field(default_factory=set)
+
+    # Discovered, ranked scientific documentation (SOPs, protocols, publications,
+    # metadata files, data dictionaries, etc.) — populated by the engine after
+    # file scanning, consumed by both the ReAct brief and the pipeline context.
+    # Stored as a list of dicts to keep CrateState JSON-serializable without
+    # importing the document_discovery module at load time.
+    documents: list[dict[str, Any]] = field(default_factory=list)
+
     validation: ValidationReport = field(default_factory=ValidationReport)
     mit_assessment: MITReport = field(default_factory=MITReport)
     fair_assessment: FAIRReport = field(default_factory=FAIRReport)
@@ -1021,6 +1032,7 @@ class StateSerializer:
             "entities": cls._encode(state.entities),
             "approved_scan_roots": list(state.approved_scan_roots),
             "scanned_files": [cls._encode(f) for f in state.scanned_files],
+            "documents": state.documents,
             "validation": cls._encode(state.validation),
             "mit_assessment": cls._encode(state.mit_assessment),
             "fair_assessment": cls._encode(state.fair_assessment),
@@ -1063,6 +1075,7 @@ class StateSerializer:
             entities=EntityStore.from_dict(data.get("entities", {})),
             approved_scan_roots=set(data.get("approved_scan_roots", [])),
             scanned_files=[FileClassification.from_dict(f) for f in data.get("scanned_files", [])],
+            documents=list(data.get("documents", [])),
             validation=ValidationReport.from_dict(data.get("validation", {})),
             mit_assessment=MITReport.from_dict(data.get("mit_assessment", {})),
             fair_assessment=FAIRReport.from_dict(data.get("fair_assessment", {})),

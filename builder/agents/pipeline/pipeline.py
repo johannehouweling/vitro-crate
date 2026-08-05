@@ -592,6 +592,25 @@ def _gather_context(engine: AgentEngine) -> str:
         if file_lines:
             parts.append("Scanned files:\n" + "\n".join(file_lines))
 
+    # Document discovery context (#179): ranked, role-labelled documentation
+    # discovered by the engine after scanning. This is stored as a list of
+    # compact dicts on state and rendered as a concise summary line per doc.
+    documents = getattr(state, "documents", [])
+    if documents:
+        doc_lines: list[str] = []
+        for doc in documents[:20]:
+            role = doc.get("role", "document")
+            name = doc.get("filename", doc.get("relative_path", "?"))
+            score = doc.get("score", 0.0)
+            reasons = doc.get("reasons", [])
+            reason_str = "; ".join(reasons[:2]) if reasons else ""
+            line = f"[{role}] {name} (score: {score:.2f})"
+            if reason_str:
+                line += f" — {reason_str}"
+            doc_lines.append(line)
+        if doc_lines:
+            parts.append("Discovered documentation:\n" + "\n".join(doc_lines))
+
     return "\n\n".join(parts).strip()
 
 

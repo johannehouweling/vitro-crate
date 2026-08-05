@@ -22,6 +22,62 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _compact_tool_kwargs(tool_name: str, kwargs: dict[str, Any]) -> str:
+    """Build a compact, human-readable string of a tool's arguments.
+
+    Used by the progress spinner so the terminal shows e.g.
+    ``resolve_compound(Silychristin A)`` rather than just the bare tool name,
+    giving the user visibility into what is happening during long operations.
+
+    Long string values (>60 chars) are truncated; ``name`` / ``query`` / ``path``
+    / ``entity_type`` / ``id`` fields are prioritised for display.  Also
+    reaches into ``hints`` / ``fields`` dicts to find those keys.
+    """
+    if not kwargs:
+        return ""
+
+    # Priority keys: pick the single most informative argument per tool.
+    priority_keys = ["name", "query", "path", "entity_type", "id", "entity_id",
+                     "doi", "aop_id", "title", "process_type", "accession"]
+
+    # Crawl kwargs AND any hints/fields dict values for the first priority key.
+    display_value: str | None = None
+    for key in priority_keys:
+        # Direct kwarg hit.
+        val = kwargs.get(key)
+        if val is not None:
+            display_value = str(val)
+            break
+        # Nested inside ``hints`` / ``fields`` dict.
+        for container in ("hints", "fields"):
+            inner = kwargs.get(container)
+            if isinstance(inner, dict):
+                val = inner.get(key)
+                if val is not None:
+                    display_value = str(val)
+                    break
+        if display_value is not None:
+            break
+
+    if display_value is not None:
+        if len(display_value) > 60:
+            display_value = display_value[:57] + "..."
+        return display_value
+
+    # Fall back to showing compact key=value pairs.
+    parts: list[str] = []
+    for i, (k, v) in enumerate(kwargs.items()):
+        if i >= 3:
+            parts.append("...")
+            break
+        vs = str(v)
+        if len(vs) > 40:
+            vs = vs[:37] + "..."
+        parts.append(f"{k}={vs}")
+
+    return ", ".join(parts)
+
+
 def _directory_to_approve(scanned_path: str) -> str | None:
     """Return the directory to add to ``approved_scan_roots`` for *scanned_path*.
 
@@ -82,26 +138,19 @@ def _scan_refusal(path: str, reason: str) -> dict[str, Any]:
 _VALIDATION_LAYER_ORDER = {"base": 0, "isa": 1, "tox": 2}
 
 
-def _order_required_issues(issues: list[dict[str, Any]]) -> list[str]:
-    """Return REQUIRED-severity issues as strings, ordered base -> isa -> tox.
+def _order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
+    """Return one severity tier as stable, layer-ordered display strings."""
+    selected = [i for i in issues if i.get("severity") == severity]
+    selected.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
+    return [
+        f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: {i.get('message') or ''}".rstrip()
+        for i in selected
+    ]
 
-    ``build_and_validate`` reports issues as routable dicts
-    (``{entity_id, property, message, severity, profile, fix}``); the
-    :class:`ValidationReport` stores them as human-readable strings consumed by
-    ``get_hint`` and the maturity report. We keep only REQUIRED-severity issues
-    (the blocking ones) and order them by validation layer so the first entry is
-    the next fix that unblocks the pyramid. The sort is stable, preserving the
-    validator's within-layer order.
-    """
-    required = [i for i in issues if i.get("severity") == "required"]
-    required.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
-    lines: list[str] = []
-    for issue in required:
-        profile = issue.get("profile") or "?"
-        entity = issue.get("entity_id") or "?"
-        message = issue.get("message") or ""
-        lines.append(f"[{profile}] {entity}: {message}".rstrip())
-    return lines
+
+def _order_required_issues(issues: list[dict[str, Any]]) -> list[str]:
+    """Return REQUIRED-severity issues as strings, ordered base -> isa -> tox."""
+    return _order_issues(issues, "required")
 
 
 # Upper bound on the per-engine build_and_validate result cache (#155). The
@@ -167,6 +216,57 @@ def _compact_args_repr(kwargs: dict[str, Any], *, max_len: int = _REASONING_ARGS
     return rendered
 
 
+def _run_document_discovery(engine: AgentEngine) -> None:
+    """Run deterministic document discovery after file scanning and store results in state.
+
+    Uses the shared ``discover_documents`` function which screens scanned files for
+    readable scientific documentation (SOPs, protocols, publications, metadata files,
+    data dictionaries, sample sheets, assay/process docs) and ranks them by content
+    signals, filename clues, and directory depth. The formatted context is stored on
+    ``engine.state.documents`` for both arms:
+
+    - **ReAct**: the state brief includes a ``Documents: N`` line and the context is
+      appended as a document-context SystemMessage block.
+    - **Pipeline**: :func:`builder.agents.pipeline.pipeline._gather_context` folds
+      the discovered documents into the drafter/extraction leaf context.
+
+    Discovery is best-effort and bounded (``_MAX_CONTEXT_CHARS`` caps preview text).
+    A failure never breaks initialization — it just leaves ``state.documents`` empty.
+    """
+    from builder.tools.document_discovery import (
+        discover_documents,
+        format_document_context,
+    )
+
+    approved = list(engine.state.approved_scan_roots)
+    root = approved[0] if approved else engine.state.metadata.input_path or ""
+    if not root:
+        return
+
+    candidates = discover_documents(
+        engine.state.scanned_files,
+        input_root=root,
+        approved_roots=engine.state.approved_scan_roots,
+    )
+    context = format_document_context(candidates)
+    engine.state.documents = [
+        {
+            "role": c.role,
+            "filename": c.filename,
+            "relative_path": c.relative_path,
+            "score": c.score,
+            "reasons": list(c.reasons),
+        }
+        for c in candidates
+    ]
+    if context and engine.state.metadata:
+        logger.info(
+            "Document discovery: %d candidates, ~%d chars of context",
+            len(candidates),
+            len(context),
+        )
+
+
 class AgentEngine:
     """Orchestrator for the LLM agent toolbox loop.
 
@@ -204,7 +304,14 @@ class AgentEngine:
         # single hook the interactive build's progress spinner subscribes to in
         # order to show the currently-running tool. A callback that raises must
         # never break ``run_tool`` (it is UI chrome).
-        self.on_tool_event: Callable[[str, str], None] | None = None
+        # Optional observer for tool execution lifecycle (Issue #266). Fired with
+        # ``(tool_name, phase, kwargs_str)`` — the third argument is a compact
+        # representation of the tool's arguments so UI chrome can show e.g.
+        # ``resolve_compound(Silychristin A)`` rather than just the tool name.
+        # ``None`` means no observer (a strict no-op — the default, so behaviour
+        # is unchanged when unset). A raising observer is logged but never
+        # propagated (it is UI chrome).
+        self.on_tool_event: Callable[[str, str, str], None] | None = None
         # Per-session memo of build_and_validate results keyed on
         # (validation-input hash, profile, severity) so consecutive validations
         # of an unchanged crate skip the ~3.7s SHACL re-run (#155).
@@ -215,7 +322,7 @@ class AgentEngine:
     # ------------------------------------------------------------------
 
     def initialize(self, input_path: str | None = None) -> CrateState:
-        """Run initialization: scan files, create initial state."""
+        """Run initialization: scan files, discover documents, create initial state."""
         from builder.tools.scanner import scan_files
 
         if input_path:
@@ -234,6 +341,18 @@ class AgentEngine:
                 # scan too; the persistent root remains the extraction dir.
                 scan_roots = self.state.approved_scan_roots | {str(Path(input_path).resolve())}
                 self.state.scanned_files = scan_files(input_path, approved_roots=scan_roots)
+
+                # --- Document discovery (#179) ---
+                # After the file inventory is built, run the deterministic,
+                # bounded document discovery to rank SOPs, protocols, publications,
+                # metadata files, and other scientific documentation. The result
+                # is stored in CrateState and consumed by both the ReAct state
+                # brief and the pipeline's _gather_context.
+                if self.state.scanned_files and approved:
+                    try:
+                        _run_document_discovery(self)
+                    except Exception as exc:  # noqa: BLE001 — discovery is best-effort
+                        logger.warning("Document discovery failed (continuing): %s", exc)
             else:
                 logger.warning(
                     "Refusing to initialize scan on forbidden input path: %s", input_path
@@ -441,20 +560,26 @@ class AgentEngine:
         )
         return None
 
-    def _fire_tool_event(self, tool_name: str, phase: str) -> None:
+    def _fire_tool_event(self, tool_name: str, phase: str, kwargs_str: str = "") -> None:
         """Notify the optional ``on_tool_event`` observer (#266).
 
         Best-effort: a ``None`` observer is a no-op, and an observer that raises
         is logged but never propagated — the callback is UI chrome (the interactive
         build's progress spinner) and must never break a tool call.
+
+        Args:
+            tool_name: The name of the tool being executed.
+            phase: ``"start"`` or ``"end"``.
+            kwargs_str: Compact string representation of the tool arguments,
+                e.g. ``'Silychristin A'`` for ``resolve_compound``.
         """
         cb = self.on_tool_event
         if cb is None:
             return
         try:
-            cb(tool_name, phase)
+            cb(tool_name, phase, kwargs_str)
         except Exception:  # noqa: BLE001 — a UI callback must never break run_tool
-            logger.debug("on_tool_event(%s, %s) raised", tool_name, phase, exc_info=True)
+            logger.debug("on_tool_event(%s, %s, %s) raised", tool_name, phase, kwargs_str, exc_info=True)
 
     def run_tool(self, tool_name: str, **kwargs) -> Any:
         """Execute a tool by name with kwargs.
@@ -463,11 +588,12 @@ class AgentEngine:
         Records the call in the reasoning log and the profiling log
         (if a profiler is active).
 
-        Fires the optional ``on_tool_event`` observer with ``(tool_name, "start")``
-        before and ``(tool_name, "end")`` after the call (#266) — the "end" event
-        fires even when the tool raises (``finally``-guarded), and a raising
-        observer never breaks the call. The observer defaults to ``None`` (a strict
-        no-op), so behaviour is unchanged when it is unset.
+        Fires the optional ``on_tool_event`` observer with
+        ``(tool_name, "start", kwargs_str)`` before and ``(tool_name, "end", "")``
+        after the call (#266) — the "end" event fires even when the tool raises
+        (``finally``-guarded), and a raising observer never breaks the call.
+        The observer defaults to ``None`` (a strict no-op), so behaviour is
+        unchanged when it is unset.
 
         Args:
             tool_name: Name of the tool to execute.
@@ -479,7 +605,8 @@ class AgentEngine:
         Raises:
             ValueError: If the tool name is not recognised.
         """
-        self._fire_tool_event(tool_name, "start")
+        kwargs_str = _compact_tool_kwargs(tool_name, kwargs)
+        self._fire_tool_event(tool_name, "start", kwargs_str)
         try:
             return self._run_tool_impl(tool_name, **kwargs)
         finally:
@@ -723,7 +850,17 @@ class AgentEngine:
                 report.isa_passed = bool(conformance["isa"])
             if "tox" in conformance:
                 report.tox_passed = bool(conformance["tox"])
-            report.required_issues = _order_required_issues(result.get("issues") or [])
+            issues = result.get("issues") or []
+            severity = str(result.get("severity") or "required")
+            if severity == "required":
+                report.required_issues = _order_issues(issues, "required")
+                report.assessed_tiers.add("required")
+            elif severity == "recommended":
+                report.should_issues = _order_issues(issues, "recommended")
+                report.assessed_tiers.add("recommended")
+            elif severity == "optional":
+                report.may_issues = _order_issues(issues, "optional")
+                report.assessed_tiers.add("optional")
 
     def close_profiler(self) -> None:
         """Close the profiling log file, if open.
