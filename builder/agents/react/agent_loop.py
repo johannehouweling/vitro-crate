@@ -1773,12 +1773,18 @@ def run_interactive_agent(
             score = doc.get("score", 0.0)
             document_lines.append(f"- [{role}] {name} (score: {score:.2f})")
         discovered = "\n".join(document_lines) or "- No ranked document evidence available."
+        approved_roots = sorted(getattr(engine.state, "approved_scan_roots", set()))
+        input_root = approved_roots[0] if approved_roots else engine.state.metadata.input_path
         greeting_prompt = (
             f"The user has just started a new session; {file_count} input files have "
-            "been scanned and no entities have been drafted yet. Briefly explain what "
+            "already been scanned from the approved input path below and no entities "
+            "have been drafted yet. Do NOT call scan_files or ask for scan approval; "
+            "use the existing inventory and discovered documents. Briefly explain what "
             "you will build, then list the ranked documents below so the user can "
             "correct roles or ask you to inspect a different file before drafting. "
-            "Do not imply prior work exists.\n\nRanked input documents:\n" + discovered
+            "Do not imply prior work exists.\n\n"
+            f"Approved input path: {input_root or '(already scanned)'}\n\n"
+            "Ranked input documents:\n" + discovered
         )
     else:
         greeting_prompt = "Greet the user and tell them what you can help build."
