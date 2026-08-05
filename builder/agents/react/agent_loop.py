@@ -10,6 +10,7 @@ import logging
 import re
 import threading
 import traceback
+from contextvars import ContextVar
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
@@ -50,6 +51,22 @@ from typing import TypedDict
 from langchain_core.messages import BaseMessage
 
 logger = logging.getLogger(__name__)
+
+
+class _InvocationCancelled(Exception):
+    """Stop an abandoned graph invocation at its next cooperative boundary."""
+
+
+_invocation_cancel_event: ContextVar[threading.Event | None] = ContextVar(
+    "vitro_invocation_cancel_event", default=None
+)
+
+
+def _raise_if_invocation_cancelled() -> None:
+    """Abort work belonging to a timed-out model invocation, if requested."""
+    event = _invocation_cancel_event.get()
+    if event is not None and event.is_set():
+        raise _InvocationCancelled("model invocation was cancelled after timeout")
 
 _DIAGNOSTIC_MAX_CHARS = 1200
 _SENSITIVE_DIAGNOSTIC_RE = re.compile(
@@ -376,9 +393,12 @@ def _invoke_with_timeout(
     This function NEVER raises and NEVER hangs longer than ``timeout``.
     """
     outcome: dict[str, Any] = {"result": None, "error": None, "traceback": None}
+    cancel_event = threading.Event()
 
     def _worker() -> None:
+        token = _invocation_cancel_event.set(cancel_event)
         try:
+            _raise_if_invocation_cancelled()
             outcome["result"] = app.invoke(payload, config)
         except BaseException as exc:  # noqa: BLE001 — captured, surfaced as "error".
             # Capture *everything* (including provider SDK errors) so nothing
@@ -386,14 +406,18 @@ def _invoke_with_timeout(
             # signals on the main thread (KeyboardInterrupt) are unaffected.
             outcome["error"] = exc
             outcome["traceback"] = traceback.format_exc()
+        finally:
+            _invocation_cancel_event.reset(token)
 
     worker = threading.Thread(target=_worker, daemon=True, name="vitro-model-invoke")
     worker.start()
     worker.join(timeout)
 
     if worker.is_alive():
+        cancel_event.set()
         logger.warning(
-            "Model invoke exceeded %.1fs wall-clock timeout; ending turn gracefully",
+            "Model invoke exceeded %.1fs wall-clock timeout; cancelling its next "
+            "cooperative boundary and ending turn gracefully",
             timeout,
         )
         return (None, "timeout", None) if include_error else (None, "timeout")
@@ -638,6 +662,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
         def _make_tool(tool_name: str, tool_desc: str, tool_params: dict) -> BaseTool:
             def _run(**kwargs: Any) -> Any:
+                _raise_if_invocation_cancelled()
                 # Loop-breaker (#287 Fix B): if this is the Nth consecutive
                 # IDENTICAL call that has been returning a non-progress result
                 # (directory/None/error), REFUSE to repeat it — return a forceful
@@ -654,6 +679,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
                 try:
                     result = engine.run_tool(tool_name, **kwargs)
+                    _raise_if_invocation_cancelled()
                 except (ValueError, KeyError, TypeError) as exc:
                     # Recoverable tool-body exceptions are converted to a dict
                     # with an 'error' key so the LLM receives them as a tool
@@ -786,6 +812,7 @@ def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> A
         return call_model
 
     def timed_model_node(state: dict[str, Any]) -> dict[str, Any]:
+        _raise_if_invocation_cancelled()
         iteration = iteration_getter()
         messages_in = len(state.get("messages", []))
         profiler.log_event(event="node_start", node="model", iteration=iteration)
@@ -841,6 +868,7 @@ def _wrap_tools_node(tool_node: Any, profiler: Any, iteration_getter: Any) -> An
         return tool_node
 
     def timed_tools_node(state: dict[str, Any]) -> Any:
+        _raise_if_invocation_cancelled()
         tools_called = _tool_names_from_state(state)
         profiler.log_event(
             event="node_start",
@@ -1288,6 +1316,7 @@ def _build_agent_graph(
 
     def call_model(state: dict[str, Any]) -> dict[str, Any]:
         """Model node: build a cache-friendly message list and invoke the LLM."""
+        _raise_if_invocation_cancelled()
         assert engine is not None, "AgentEngine must be set before call_model is invoked"
         messages = state.get("messages", [])
         # Stable SYSTEM_PROMPT prefix + history, with the volatile per-turn state
@@ -1319,6 +1348,7 @@ def _build_agent_graph(
             has_entities=bool(engine.state.list_entities()),
         )
         model = llm.bind_tools(active_tools) if active_tools else llm
+        _raise_if_invocation_cancelled()
         response = model.invoke(model_messages)
         # Return only the new response; the add_messages reducer appends it
         return {"messages": [response]}
@@ -1529,16 +1559,46 @@ def run_interactive_agent(
         max_iterations = get_max_iterations()
 
     # Use LangGraph's built-in thread tracking so the agent accumulates
-    # conversation history automatically. The recursion_limit bounds a single
-    # turn's model/tools alternation so a runaway loop stops gracefully instead
-    # of hitting LangGraph's silent default of 25 super-steps (#56).
-    thread_config = cast(
-        RunnableConfig,
-        {
-            "configurable": {"thread_id": engine.state.session_id},
-            "recursion_limit": _recursion_limit(max_iterations),
-        },
-    )
+    # conversation history automatically. ``CrateState.session_id`` is durable,
+    # whereas this checkpoint key is deliberately disposable: an interrupted
+    # graph can persist an AI function call before its matching ToolMessage. The
+    # Responses API rightly rejects that partial history on the next turn. On a
+    # timeout/provider error we therefore rotate this *ephemeral* key while
+    # retaining the same CrateState and all drafted work (#413).
+    checkpoint_generation = 0
+    checkpoint_thread_id = engine.state.session_id
+
+    def _thread_config() -> RunnableConfig:
+        """Build config from the current, recoverable LangGraph checkpoint key."""
+        return cast(
+            RunnableConfig,
+            {
+                "configurable": {"thread_id": checkpoint_thread_id},
+                "recursion_limit": _recursion_limit(max_iterations),
+            },
+        )
+
+    def _rotate_checkpoint(outcome: str) -> None:
+        """Abandon an unsafe graph transcript after a failed invocation.
+
+        A daemon worker cannot be forcibly killed while an HTTP request is in
+        flight. Reusing its MemorySaver key could replay a checkpoint containing
+        an unresolved tool call, yielding ``No tool output found for function
+        call ...`` forever. A new key isolates the next user turn; CrateState is
+        the durable source of truth and remains untouched.
+        """
+        nonlocal checkpoint_generation, checkpoint_thread_id
+        if outcome == "ok":
+            return
+        checkpoint_generation += 1
+        checkpoint_thread_id = (
+            f"{engine.state.session_id}:recovered-{checkpoint_generation}"
+        )
+        logger.warning(
+            "Rotated LangGraph checkpoint after %s; continuing with fresh thread %s",
+            outcome,
+            checkpoint_thread_id,
+        )
 
     def _extract_reply(state: dict) -> str:
         """Pull the last AIMessage content from the agent state, as plain text.
@@ -1653,7 +1713,7 @@ def run_interactive_agent(
         spinner = ProgressSpinner(console, "intoxicating")
         greeting_diagnostic: dict[str, str] | None = None
         greeting_config = {
-            **thread_config,
+            **_thread_config(),
             "callbacks": [_ToolSpinnerCallback(spinner)],
         }
         with spinner:
@@ -1668,6 +1728,7 @@ def run_interactive_agent(
                 include_error=True,
             )
         root_logger.setLevel(old_root_level)
+        _rotate_checkpoint(outcome)
         reply = _extract_reply(result) if (outcome == "ok" and result) else ""
         if reply:
             _print_reply(reply)
@@ -1740,7 +1801,7 @@ def run_interactive_agent(
 
         spinner = ProgressSpinner(console)
         main_config = {
-            **thread_config,
+            **_thread_config(),
             "callbacks": [_ToolSpinnerCallback(spinner)],
         }
         outcome = "ok"
@@ -1761,6 +1822,8 @@ def run_interactive_agent(
             outcome = "recursion"
         finally:
             root_logger.setLevel(old_root_level)
+
+        _rotate_checkpoint(outcome)
 
         # Flush any in-loop auto-export status lines buffered during the invoke
         # (#287 Fix A) now the spinner's Live region is gone, so "Crate written

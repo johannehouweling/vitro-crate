@@ -1355,6 +1355,43 @@ class TestInvokeWithTimeout:
         # Returned promptly rather than after the full 5s hang.
         assert elapsed < 3.0
 
+    def test_timeout_cancels_cooperative_worker_before_next_call(self):
+        """A timed-out graph must not continue issuing later model/tool calls."""
+        import threading
+        import time
+
+        from builder.agents.react.agent_loop import _invoke_with_timeout
+
+        started = threading.Event()
+        follow_up_calls = 0
+
+        class _CooperativeApp:
+            def invoke(self, payload, config):
+                started.set()
+                while True:
+                    # A real graph reaches this boundary before every follow-up
+                    # model/tool node. Importing the helper here also ensures the
+                    # test exercises the same per-worker ContextVar.
+                    from builder.agents.react.agent_loop import _raise_if_invocation_cancelled
+
+                    _raise_if_invocation_cancelled()
+                    nonlocal follow_up_calls
+                    follow_up_calls += 1
+                    time.sleep(0.01)
+
+        result, outcome = _invoke_with_timeout(
+            _CooperativeApp(), {"messages": []}, {}, timeout=0.05
+        )
+        assert started.wait(1.0)
+        assert outcome == "timeout"
+        assert result is None
+        # The cancellation is observed before the simulated follow-up call, rather
+        # than the abandoned worker silently continuing its graph.
+        calls_at_timeout = follow_up_calls
+        time.sleep(0.05)
+        assert calls_at_timeout > 0
+        assert follow_up_calls == calls_at_timeout
+
     def test_returns_error_outcome_when_invoke_raises(self):
         """An exception inside invoke is captured, not propagated."""
         from builder.agents.react.agent_loop import _invoke_with_timeout
@@ -1736,6 +1773,113 @@ class TestTimeoutEndsTurnGracefully:
 
         # The hung greeting/turn timed out; the backstop still ran on EOF exit.
         assert backstop_calls["n"] >= 1
+
+    def test_error_rotates_checkpoint_before_next_user_turn(self, monkeypatch):
+        """A failed turn cannot poison a later ``continue`` with an orphaned call.
+
+        LangGraph persists messages by ``thread_id``.  In production a provider
+        failure can happen after the graph persisted an AI function call but
+        before its ToolMessage was checkpointed.  The next turn must use a fresh
+        checkpoint key, rather than resubmitting that invalid transcript to the
+        Responses API (#413).
+        """
+        from langchain_core.messages import AIMessage
+
+        from builder.agents.react import agent_loop
+        from builder.engine import AgentEngine
+        from builder.state import Entity
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_checkpoint_recovery"
+        engine.state.add_entity(Entity(entity_id="e0", type="Investigation"))
+        main_thread_ids: list[str] = []
+
+        class _PoisonedApp:
+            def invoke(self, payload, config):
+                content = str(payload["messages"][0].content)
+                if content.startswith(("Greet the user", "The user has resumed")):
+                    return {"messages": [AIMessage(content="Welcome")]}
+                main_thread_ids.append(config["configurable"]["thread_id"])
+                if len(main_thread_ids) == 1:
+                    raise RuntimeError("missing tool output after interrupted call")
+                return {"messages": [AIMessage(content="What should I do next?")]}
+
+        monkeypatch.setattr(agent_loop, "_build_chat_model", lambda **kw: object())
+        monkeypatch.setattr(agent_loop, "_build_agent_graph", lambda *a, **k: _PoisonedApp())
+        stdin = ["start", "continue", "quit"]
+
+        def fake_boxed_input(console, label="❯"):
+            return stdin.pop(0)
+
+        monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
+        monkeypatch.setattr(agent_loop, "_finish_backstop", lambda *a, **k: None)
+
+        import builder.tools.session as session_mod
+
+        monkeypatch.setattr(session_mod, "save_session", lambda *a, **k: {"success": True})
+
+        agent_loop.run_interactive_agent(engine)
+
+        assert main_thread_ids == [
+            "test_checkpoint_recovery",
+            "test_checkpoint_recovery:recovered-1",
+        ]
+
+    def test_timeout_rotates_checkpoint_before_next_user_turn(self, monkeypatch):
+        """A timed-out invocation cannot poison the next ``continue`` either.
+
+        The abandoned worker deliberately remains blocked while the second turn
+        runs. This proves recovery is based on a fresh MemorySaver key, not on
+        waiting for an HTTP request that cannot be force-cancelled.
+        """
+        import threading
+
+        from langchain_core.messages import AIMessage
+
+        from builder.agents.react import agent_loop
+        from builder.engine import AgentEngine
+        from builder.state import Entity
+
+        engine = AgentEngine()
+        engine.state.session_id = "test_timeout_checkpoint_recovery"
+        engine.state.add_entity(Entity(entity_id="e0", type="Investigation"))
+        release_first_turn = threading.Event()
+        main_thread_ids: list[str] = []
+
+        class _TimedOutApp:
+            def invoke(self, payload, config):
+                content = str(payload["messages"][0].content)
+                if content.startswith(("Greet the user", "The user has resumed")):
+                    return {"messages": [AIMessage(content="Welcome")]}
+                main_thread_ids.append(config["configurable"]["thread_id"])
+                if len(main_thread_ids) == 1:
+                    release_first_turn.wait(timeout=5.0)
+                return {"messages": [AIMessage(content="What should I do next?")]}
+
+        monkeypatch.setattr(agent_loop, "_build_chat_model", lambda **kw: object())
+        monkeypatch.setattr(agent_loop, "_build_agent_graph", lambda *a, **k: _TimedOutApp())
+        monkeypatch.setenv("VITRO_REQUEST_TIMEOUT", "0.05")
+        stdin = ["start", "continue", "quit"]
+
+        def fake_boxed_input(console, label="❯"):
+            return stdin.pop(0)
+
+        monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
+        monkeypatch.setattr(agent_loop, "_finish_backstop", lambda *a, **k: None)
+
+        import builder.tools.session as session_mod
+
+        monkeypatch.setattr(session_mod, "save_session", lambda *a, **k: {"success": True})
+
+        try:
+            agent_loop.run_interactive_agent(engine)
+        finally:
+            release_first_turn.set()
+
+        assert main_thread_ids == [
+            "test_timeout_checkpoint_recovery",
+            "test_timeout_checkpoint_recovery:recovered-1",
+        ]
 
 
 class TestGreetingProvenance:
