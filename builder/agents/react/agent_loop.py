@@ -892,8 +892,18 @@ def _format_compact_state_summary(engine: AgentEngine, *, limit: int = 8) -> str
 
 
 def _reader_evidence_key(engine: AgentEngine, path: str) -> str:
-    """Normalize an approved reader path the same way engine storage does."""
+    """Normalize an approved reader path the same way engine storage does.
+
+    A bare filename is resolved inside the approved roots first, exactly as the
+    engine's gate does. Without that the two normalizations disagree: the engine
+    stores evidence under ``Assay_OATP1C1/SOP.docx`` while this returned the raw
+    ``SOP.docx``, so the "already loaded" check never matched and the model was
+    free to re-read the same document indefinitely.
+    """
     try:
+        resolved_bare = engine._resolve_within_roots(path)
+        if resolved_bare is not None:
+            path = resolved_bare
         resolved = Path(path).resolve()
         for root in getattr(engine.state, "approved_scan_roots", set()):
             try:

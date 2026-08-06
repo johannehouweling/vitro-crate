@@ -182,6 +182,13 @@ def _validation_input_hash(state: CrateState) -> str:
 _DOCUMENT_EVIDENCE_MAX_CHARS = 12000
 _DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 30000
 
+# Readers whose successful output is kept as bounded session evidence, so the
+# "already loaded this document" guard can suppress an identical re-read. These
+# take a single ``path`` kwarg and return text.
+_DOCUMENT_EVIDENCE_TOOLS = frozenset(
+    {"read_file", "read_excel", "read_docx", "read_file_sample"}
+)
+
 _FILE_READ_TOOLS: dict[str, str] = {
     "read_file": "path",
     "read_excel": "path",
@@ -454,6 +461,53 @@ class AgentEngine:
             evidence.pop(next(iter(evidence)))
         self.state.document_evidence = evidence
 
+    def _resolve_within_roots(self, path: Any) -> str | None:
+        """Resolve a bare filename to an absolute path inside an approved root.
+
+        Returns ``None`` unless *path* has no directory component and exactly one
+        file with that name exists under the approved roots — an ambiguous name
+        (the same basename in two subfolders) is left for the caller to refuse,
+        because picking one would silently read a file the agent did not ask for.
+
+        Prefers the scanned-file inventory (already built, no disk walk) and falls
+        back to a bounded ``rglob`` when the inventory is empty or predates the
+        file. Containment is re-checked on the result, so this can only ever widen
+        the agent's reach to files the sandbox would already have allowed.
+        """
+        from builder.tools.scanner import _contain
+
+        if not isinstance(path, str) or not path.strip():
+            return None
+        name = Path(path).name
+        # Only a BARE name is resolved. A path with directories in it was a real
+        # (wrong) location, not a filename the model read off the inventory.
+        if not name or name != path.strip():
+            return None
+
+        matches: list[str] = []
+        for scanned in self.state.scanned_files:
+            candidate = getattr(scanned, "path", None)
+            if candidate and Path(candidate).name == name:
+                matches.append(str(candidate))
+
+        if not matches:
+            for root in self.state.approved_scan_roots:
+                try:
+                    matches.extend(str(p) for p in Path(root).rglob(name) if p.is_file())
+                except (OSError, RuntimeError, ValueError):
+                    continue
+
+        unique = sorted({str(Path(m).resolve()) for m in matches})
+        if len(unique) != 1:
+            if len(unique) > 1:
+                logger.info(
+                    "Not resolving bare filename %r — %d files share that name",
+                    path,
+                    len(unique),
+                )
+            return None
+        return unique[0] if _contain(unique[0], self.state.approved_scan_roots) else None
+
     def _gate_file_read(self, tool_name: str, kwargs: dict[str, Any]) -> Any:
         """Sandbox a file-reading tool to ``approved_scan_roots`` (#167).
 
@@ -491,8 +545,28 @@ class AgentEngine:
                 kwargs["paths"] = allowed
             return _GATE_OK
 
-        path = kwargs.get(_FILE_READ_TOOLS[tool_name])
+        path_kwarg = _FILE_READ_TOOLS[tool_name]
+        path = kwargs.get(path_kwarg)
         if path is not None and _contain(path, roots) is not None:
+            return _GATE_OK
+
+        # A bare filename ("OATP1C1 SOP TH 250425.docx") is what the model
+        # naturally emits — it sees filenames in the scanned-file inventory, not
+        # absolute paths. Resolving it relative to the CWD puts it outside every
+        # approved root, so the read was refused, and because a refusal is never
+        # recorded as evidence the model simply tried again: one session spent 226
+        # of 235 reader calls re-reading three files it could never open this way.
+        # Resolve the basename inside the approved roots instead. Only an
+        # UNAMBIGUOUS match is accepted — several files sharing a name give no
+        # basis to pick one, so that still refuses rather than guessing.
+        resolved_path = self._resolve_within_roots(path)
+        if resolved_path is not None:
+            kwargs[path_kwarg] = resolved_path
+            logger.info(
+                "Resolved bare filename %r to %s inside an approved scan root",
+                path,
+                resolved_path,
+            )
             return _GATE_OK
 
         logger.warning(
@@ -798,8 +872,6 @@ class AgentEngine:
             if tool_name == "scan_files":
                 tool_kwargs["approved_roots"] = self.state.approved_scan_roots.copy()
             result = tool_fn(**tool_kwargs)
-            if tool_name in {"read_file", "read_excel", "read_docx", "read_file_sample"}:
-                self._store_document_evidence(tool_name, kwargs.get("path", ""), result, kwargs)
             # Fold sandbox-refused paths back into read_multiple_files' own
             # ``skipped`` list so the agent sees them as unread (#167).
             if (
@@ -844,6 +916,18 @@ class AgentEngine:
                 result = spec.fn(self.state, **call_kwargs)
             else:
                 result = spec.fn(**call_kwargs)
+
+        # Record successful reader output as bounded session evidence. This sits
+        # AFTER every dispatch branch on purpose: `read_file`/`read_excel`/
+        # `read_docx` resolve through the generic registry below, not through
+        # `scanner_tools`, so hooking this inside the scanner branch (where it
+        # used to live) meant it only ever fired for `read_file_sample` and the
+        # evidence store stayed permanently empty — taking the "already loaded
+        # this document" de-duplication down with it.
+        if tool_name in _DOCUMENT_EVIDENCE_TOOLS:
+            self._store_document_evidence(
+                tool_name, str(kwargs.get("path", "")), result, kwargs
+            )
 
         # Memoize a fresh, non-error build_and_validate result for the debounce
         # above (#155). Bounded so a long session cannot grow the cache without
