@@ -33,7 +33,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from rich.console import Console, Group, RenderableType
 from rich.markdown import Markdown
@@ -46,6 +46,11 @@ if TYPE_CHECKING:
     from builder.engine import AgentEngine
 
 logger = logging.getLogger(__name__)
+
+# rich's ``Console.color_system`` property widens to ``str | None`` on the way
+# out, but ``Console.__init__`` only accepts this literal set on the way back in
+# — so round-tripping one console's colour system into another needs a cast.
+ColorSystem = Literal["auto", "standard", "256", "truecolor", "windows"]
 
 # Marker glyphs shared across the chrome (green ● = active/pass, ○ = pending).
 _PASS_DOT = "[green]●[/green]"
@@ -854,7 +859,7 @@ class PinnedFooter:
                 file=buffer,
                 width=width,
                 force_terminal=True,
-                color_system=self._console.color_system,  # type: ignore[arg-type]
+                color_system=cast("ColorSystem | None", self._console.color_system),
                 highlight=False,
                 soft_wrap=True,
                 legacy_windows=False,

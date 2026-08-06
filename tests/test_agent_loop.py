@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from builder.state import Entity
+from builder.state import Entity, EntityType
 
 
 class TestDetectProvider:
@@ -599,9 +599,13 @@ class TestToolSpinnerCallback:
 
         spinner = _FakeSpinner()
         long_input = "x" * 200
-        _ToolSpinnerCallback(spinner).on_tool_start(
+        # _FakeSpinner implements only the handful of methods the callback calls,
+        # so it is a stand-in rather than a ProgressSpinner. The ignore has to sit
+        # on the CONSTRUCTOR line — it was previously parked on the closing paren,
+        # where it silenced nothing and registered as unused.
+        _ToolSpinnerCallback(spinner).on_tool_start(  # ty: ignore[invalid-argument-type]
             {"name": "read_file"}, long_input
-        )  # ty: ignore[invalid-argument-type]
+        )
 
         assert spinner.tools == ["read_file(" + ("x" * 77) + "...)"]
 
@@ -2167,7 +2171,7 @@ class TestExportOnCompletedBuild:
     crate to disk (no quit needed), surfaces the absolute path, stamps the
     _EXPORTED_FLAG, and leaves the finish backstop a no-op afterward."""
 
-    def _engine_with_entities(self, *types: str):
+    def _engine_with_entities(self, *types: EntityType):
         from builder.engine import AgentEngine
 
         engine = AgentEngine()

@@ -36,9 +36,13 @@ class TestBuildModeFromCli:
 
         parser = build_arg_parser()
         arch = next(a for a in parser._actions if "--arch" in a.option_strings)
-        assert set(arch.choices) == {m.value for m in BuildMode}
+        # argparse types `choices` as optional; a `--arch` with no choices at all
+        # would silently pass both assertions below, so pin it here.
+        choices = arch.choices
+        assert choices is not None, "--arch must constrain its choices"
+        assert set(choices) == {m.value for m in BuildMode}
         # Every CLI choice round-trips through the shared enum.
-        for choice in arch.choices:
+        for choice in choices:
             assert BuildMode(choice).value == choice
 
 
@@ -56,7 +60,7 @@ class TestRunBuildDispatch:
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
 
-        result = run_build(BuildMode.PIPELINE, object(), output=print)
+        result = run_build(BuildMode.PIPELINE, cast("AgentEngine", object()), output=print)
 
         assert captured["kw"].get("output") is print
         assert result == {"pipeline": {}, "guidance": None}
@@ -72,7 +76,13 @@ class TestRunBuildDispatch:
 
         monkeypatch.setattr(agent_loop, "run_interactive_agent", _fake_agent)
 
-        result = run_build(BuildMode.REACT, object(), provider="openai", model="m", base_url="u")
+        result = run_build(
+            BuildMode.REACT,
+            cast("AgentEngine", object()),
+            provider="openai",
+            model="m",
+            base_url="u",
+        )
 
         # ReAct-only kwargs are forwarded; the loop mutates state in place, so
         # run_build returns None rather than a structured pipeline result.
@@ -101,7 +111,7 @@ class TestRunBuildDispatch:
             captured.update(kw)
 
         monkeypatch.setattr(agent_loop, "run_interactive_agent", _fake_agent)
-        run_build(BuildMode.REACT, object(), resumed=True)
+        run_build(BuildMode.REACT, cast("AgentEngine", object()), resumed=True)
 
         assert captured["resumed"] is True
 
@@ -117,7 +127,7 @@ class TestRunBuildDispatch:
             captured.update(kw)
 
         monkeypatch.setattr(agent_loop, "run_interactive_agent", _fake_agent)
-        run_build(BuildMode.REACT, object(), initial_prompt="build the crate")
+        run_build(BuildMode.REACT, cast("AgentEngine", object()), initial_prompt="build the crate")
 
         assert captured["initial_prompt"] == "build the crate"
 
@@ -129,7 +139,7 @@ class TestRunBuildDispatch:
             agent_loop, "run_interactive_agent", lambda engine, **kw: captured.update(kw)
         )
 
-        run_build(BuildMode.REACT, object(), verbose=True)
+        run_build(BuildMode.REACT, cast("AgentEngine", object()), verbose=True)
 
         assert captured["verbose"] is True
 
@@ -146,7 +156,7 @@ class TestRunBuildDispatch:
             return {}
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
-        run_build(BuildMode.PIPELINE, object(), initial_prompt="ignored here")
+        run_build(BuildMode.PIPELINE, cast("AgentEngine", object()), initial_prompt="ignored here")
 
         assert "initial_prompt" not in captured
 
@@ -163,7 +173,7 @@ class TestRunBuildDispatch:
             return {}
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
-        run_build(BuildMode.PIPELINE, object(), resumed=True)
+        run_build(BuildMode.PIPELINE, cast("AgentEngine", object()), resumed=True)
 
         assert captured["resumed"] is True
 

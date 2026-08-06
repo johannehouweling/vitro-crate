@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import xml.etree.ElementTree as ET
 
 from rocrate.rocrate import ROCrate
 
@@ -30,6 +31,19 @@ from builder.writers.provenance_dag import (
     render_provenance_svg,
 )
 from profiles.context import ISA_TOX_CONTEXT
+
+
+def _attr(el: ET.Element, name: str) -> str:
+    """A geometry attribute the renderer must always emit.
+
+    ``Element.get`` is optional-typed, so every ``float(el.get(...))`` in the
+    viewBox-containment tests is a type error waiting to become a bare
+    ``AttributeError: 'NoneType'``. Failing here names the element that lost the
+    attribute instead.
+    """
+    value = el.get(name)
+    assert value is not None, f"<{el.tag}> is missing {name!r}"
+    return value
 
 
 def _full_chain_graph() -> dict:
@@ -539,22 +553,20 @@ class TestRenderChemicalsSvg:
     def test_geometry_stays_inside_the_viewbox(self) -> None:
         # The page scrolls the SVG horizontally; anything drawn outside the
         # viewBox would simply be invisible.
-        import xml.etree.ElementTree as ET
-
         svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
         root = ET.fromstring(svg)  # also asserts well-formedness
-        _, _, width, height = (float(v) for v in root.get("viewBox").split())
+        _, _, width, height = (float(v) for v in _attr(root, "viewBox").split())
         xs: list[float] = []
         ys: list[float] = []
         for el in root.iter():
             if el.tag == "polygon" and el.get("class", "").startswith("n "):
-                for point in el.get("points").split():
+                for point in _attr(el, "points").split():
                     px, py = point.split(",")
                     xs.append(float(px))
                     ys.append(float(py))
             elif el.tag == "text":
-                xs.append(float(el.get("x")))
-                ys.append(float(el.get("y")))
+                xs.append(float(_attr(el, "x")))
+                ys.append(float(_attr(el, "y")))
         assert xs and ys
         assert 0 <= min(xs) and max(xs) <= width
         assert 0 <= min(ys) and max(ys) <= height
@@ -938,14 +950,14 @@ class TestRenderPeopleSvgCompleteness:
         import xml.etree.ElementTree as ET
 
         root = ET.fromstring(render_people_svg(build_people_inventory(self._many(9))))
-        _, _, width, height = (float(v) for v in root.get("viewBox").split())
+        _, _, width, height = (float(v) for v in _attr(root, "viewBox").split())
         ys: list[float] = []
         xs: list[float] = []
         for el in root.iter():
             if el.tag == "rect" and (el.get("class") or "").startswith("n "):
-                x, y = float(el.get("x")), float(el.get("y"))
-                xs += [x, x + float(el.get("width"))]
-                ys += [y, y + float(el.get("height"))]
+                x, y = float(_attr(el, "x")), float(_attr(el, "y"))
+                xs += [x, x + float(_attr(el, "width"))]
+                ys += [y, y + float(_attr(el, "height"))]
         assert ys and 0 <= min(ys) and max(ys) <= height
         assert 0 <= min(xs) and max(xs) <= width
 
