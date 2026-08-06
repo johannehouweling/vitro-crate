@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import random
 import threading
+from collections.abc import Callable
 from time import monotonic
 from typing import Any
 
@@ -41,6 +42,15 @@ from builder.tools.hitl import (
 logger = logging.getLogger(__name__)
 
 __all__ = ["ProgressSpinner", "TOX_SPINNER_PHRASES"]
+
+# Animation frames for the delegated (footer-painted) line. Rich's "dots"
+# spinner draws these itself in Live mode; the footer needs them spelled out.
+_DELEGATED_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+# Characters of streamed reply text kept on the spinner line. Sized to leave
+# room for the phrase, the elapsed counter and the quotes on an 80-column
+# terminal; the footer truncates anything wider anyway.
+_PREVIEW_WIDTH = 40
 
 
 # The single toxicology-themed phrase list, shared by both build arms (#344).
@@ -109,6 +119,7 @@ class ProgressSpinner:
         phrase: str | None = None,
         *,
         tick_interval: float = 0.5,
+        activity_sink: Callable[[str | None], None] | None = None,
     ) -> None:
         """Build a spinner.
 
@@ -119,6 +130,15 @@ class ProgressSpinner:
                 :data:`TOX_SPINNER_PHRASES`.
             tick_interval: Seconds between elapsed-time repaints by the daemon
                 thread. Kept configurable so tests can tick quickly.
+            activity_sink: When given, the spinner **delegates** its display:
+                it opens no Rich ``Live`` region and instead pushes its rendered
+                line to this callback (``None`` when it finishes), which the
+                pinned footer paints on its own reserved row. Two wins beyond
+                tidiness — the working line stops drifting up the transcript
+                with the output it interleaves with, and since the footer sits
+                OUTSIDE the terminal's scrolling region it cannot clobber a
+                prompt, so nothing has to be suspended to read stdin. Without a
+                sink the spinner behaves exactly as before.
         """
         if console is None:
             from rich.console import Console
@@ -127,7 +147,11 @@ class ProgressSpinner:
         self._console = console
         self._phrase = phrase or random.choice(TOX_SPINNER_PHRASES)
         self._current: str | None = None
+        self._preview: str | None = None
+        self._preview_buffer = ""
         self._tick_interval = tick_interval
+        self._sink = activity_sink
+        self._frame = 0
         self._start = monotonic()
         self._stop = threading.Event()
         # Set while a HITL prompt owns the terminal: the tick thread must not
@@ -138,11 +162,19 @@ class ProgressSpinner:
         # refresh thread, no daemon tick thread — nothing to hang on teardown.
         # A console missing ``is_terminal`` (a test fake) defaults to animated.
         self._active: bool = bool(getattr(console, "is_terminal", True))
-        if self._active:
-            self._status: Any | None = console.status(
+        if self._sink is not None:
+            # Delegated: the footer owns the pixels, so there is no Live region
+            # to build — but the tick thread still runs, because the elapsed
+            # counter and the spinner frame have to keep moving.
+            self._status: Any | None = None
+            self._thread: threading.Thread | None = threading.Thread(
+                target=self._tick, daemon=True
+            )
+        elif self._active:
+            self._status = console.status(
                 self._render(), spinner="dots", spinner_style="green"
             )
-            self._thread: threading.Thread | None = threading.Thread(target=self._tick, daemon=True)
+            self._thread = threading.Thread(target=self._tick, daemon=True)
         else:
             self._status = None
             self._thread = None
@@ -152,12 +184,37 @@ class ProgressSpinner:
     # ------------------------------------------------------------------
 
     def _render(self) -> str:
-        """Render the spinner line: phrase, elapsed seconds, and the current op."""
+        """Render the spinner line: phrase, elapsed seconds, and the current op.
+
+        A running tool wins over the reply tail: they never overlap in time
+        (the model finishes writing before a tool starts), and when both are
+        somehow set the concrete tool is the more informative of the two.
+        """
         elapsed = int(monotonic() - self._start)
         line = f"[green]{self._phrase}…[/green] [dim]({elapsed}s)[/dim]"
         if self._current:
             line += f"  [dim]·[/dim] [cyan]{self._current}[/cyan]"
+        elif self._preview:
+            line += f'  [dim]·[/dim] [dim]writing:[/dim] [white]"{self._preview}"[/white]'
         return line
+
+    def _render_delegated(self) -> str:
+        """The delegated line — the animation frame Rich would otherwise draw.
+
+        ``console.status`` supplies the turning glyph in Live mode; when the
+        footer paints the line instead, the frame has to come from here.
+        """
+        glyph = _DELEGATED_FRAMES[self._frame % len(_DELEGATED_FRAMES)]
+        return f"[green]{glyph}[/green] {self._render()}"
+
+    def _publish(self) -> None:
+        """Push the current line to the activity sink (best-effort)."""
+        if self._sink is None:
+            return
+        try:
+            self._sink(self._render_delegated())
+        except Exception:  # noqa: BLE001 — UI chrome must never break the build
+            logger.debug("spinner publish failed", exc_info=True)
 
     def _tick(self) -> None:
         """Daemon loop: repaint the elapsed time roughly every tick_interval.
@@ -167,6 +224,10 @@ class ProgressSpinner:
         """
         while not self._stop.wait(self._tick_interval):
             if self._paused.is_set():
+                continue
+            if self._sink is not None:
+                self._frame += 1
+                self._publish()
                 continue
             status = self._status
             if status is None:  # silent mode never starts this thread; belt-and-braces
@@ -189,6 +250,10 @@ class ProgressSpinner:
         the op is still remembered but there is no Live region to repaint.
         """
         self._current = text
+        if self._sink is not None:
+            if not self._paused.is_set():
+                self._publish()
+            return
         if not self._active or self._status is None:
             return  # silent mode: remember the op, paint nothing
         if self._paused.is_set():
@@ -198,6 +263,26 @@ class ProgressSpinner:
         except Exception:  # noqa: BLE001 — UI chrome must never break the build
             logger.debug("spinner set_current: status.update failed", exc_info=True)
 
+    def append_preview(self, token: str) -> None:
+        """Append a streamed token to the live reply tail.
+
+        Deliberately does NOT repaint: a fast stream would otherwise mean a
+        terminal write per token. The tick thread picks the text up on its next
+        pass, so the tail advances at the animation rate whatever the token rate.
+        """
+        if not token:
+            return
+        self._preview_buffer += token
+        # Keep a moving window of the most recent characters: a fixed head
+        # would freeze after the first few words and stop reading as live.
+        window = self._preview_buffer.replace("\n", " ")[-_PREVIEW_WIDTH:]
+        self._preview = window.lstrip()
+
+    def set_preview(self, text: str | None) -> None:
+        """Replace (``None`` clears) the reply tail shown while the model writes."""
+        self._preview_buffer = text or ""
+        self._preview = (text or "").replace("\n", " ")[-_PREVIEW_WIDTH:] or None
+
     def pause(self) -> None:
         """Tear down the Live region and stop ticking so a HITL prompt is clean.
 
@@ -206,6 +291,11 @@ class ProgressSpinner:
         no-op in silent mode (there is no Live region owning the terminal).
         """
         self._paused.set()
+        if self._sink is not None:
+            # Delegated: the footer lives outside the scrolling region, so it
+            # never overwrites a prompt. Freeze the line (the elapsed counter
+            # stops while the user reads) but leave it visible.
+            return
         if not self._active or self._status is None:
             return
         try:
@@ -218,6 +308,10 @@ class ProgressSpinner:
 
         A no-op in silent mode (there was no Live region to restart).
         """
+        if self._sink is not None:
+            self._paused.clear()
+            self._publish()
+            return
         if not self._active or self._status is None:
             self._paused.clear()
             return
@@ -234,7 +328,11 @@ class ProgressSpinner:
     def __enter__(self) -> "ProgressSpinner":
         # In silent mode (non-TTY) there is no Live region and no tick thread to
         # start — just register so a HITL prompt's suspend/resume stays valid.
-        if self._active and self._status is not None and self._thread is not None:
+        if self._sink is not None:
+            if self._thread is not None:
+                self._thread.start()
+            self._publish()
+        elif self._active and self._status is not None and self._thread is not None:
             self._status.__enter__()
             self._thread.start()
         register_console_animation(self)
@@ -242,6 +340,17 @@ class ProgressSpinner:
 
     def __exit__(self, *exc: Any) -> None:
         unregister_console_animation(self)
+        if self._sink is not None:
+            # Stop ticking and clear the footer's activity row — the work this
+            # line described is over, so leaving it up would misreport.
+            self._stop.set()
+            if self._thread is not None:
+                self._thread.join(timeout=1.0)
+            try:
+                self._sink(None)
+            except Exception:  # noqa: BLE001 — teardown must never raise
+                logger.debug("spinner exit: sink clear failed", exc_info=True)
+            return
         # Silent mode: nothing was started, so nothing to stop or join.
         if not self._active:
             return

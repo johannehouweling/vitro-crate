@@ -22,10 +22,17 @@ Design contract:
 
 from __future__ import annotations
 
+import atexit
+import io
+import json
 import logging
+import os
 import sys
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console, Group, RenderableType
@@ -33,6 +40,7 @@ from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -131,27 +139,77 @@ class UiSnapshot:
     cost_usd: float | None = None
 
 
+@dataclass
+class _TokenTail:
+    """Where the incremental profile reader stopped, and the totals so far."""
+
+    inode: int
+    offset: int
+    tokens_in: int
+    tokens_out: int
+    last_model: str
+
+
+# Per-profile-file resume points for :func:`_read_token_totals`, keyed by the
+# resolved path (so a monkeypatched ``SESSION_DIR`` gets its own entry).
+_TOKEN_TAILS: dict[str, _TokenTail] = {}
+
+
 def _read_token_totals(session_id: str) -> tuple[int, int, str]:
     """Best-effort cumulative ``(input, output, last_model)`` from the profile.
 
-    Reads ``profile.ndjson`` for the session and sums ``model`` ``node_end``
-    token counts. Returns zeros on any failure — token display is advisory.
+    Sums the ``input_tokens`` / ``output_tokens`` of ``model`` ``node_end``
+    events in the session's ``profile.ndjson``. Returns zeros on any failure —
+    token display is advisory.
+
+    The read is **incremental**: only bytes appended since the previous call are
+    parsed, and only up to the last complete line (a half-written record is
+    re-read next time). The pinned footer repaints about once a second over a
+    file that grows to hundreds of KB in a long session, so re-parsing the whole
+    profile per repaint would burn real CPU for an unchanged prefix. The cache
+    resets itself whenever the file is replaced (inode change) or truncated.
     """
     try:
-        from builder.tools.dashboard import read_profile
         from builder.tools.profiler import SESSION_DIR
 
         profile_path = SESSION_DIR / session_id / "profile.ndjson"
         if not profile_path.exists():
             return 0, 0, ""
-        records = read_profile(profile_path)
-        model_ends = [
-            r for r in records if r.get("event") == "node_end" and r.get("node") == "model"
-        ]
-        total_in = sum(int(r.get("input_tokens", 0) or 0) for r in model_ends)
-        total_out = sum(int(r.get("output_tokens", 0) or 0) for r in model_ends)
-        last_model = (model_ends[-1].get("model_name") or "") if model_ends else ""
-        return total_in, total_out, last_model
+
+        stat = profile_path.stat()
+        key = str(profile_path)
+        tail = _TOKEN_TAILS.get(key)
+        if tail is None or tail.inode != stat.st_ino or stat.st_size < tail.offset:
+            tail = _TokenTail(
+                inode=stat.st_ino, offset=0, tokens_in=0, tokens_out=0, last_model=""
+            )
+            _TOKEN_TAILS[key] = tail
+
+        if stat.st_size > tail.offset:
+            with profile_path.open("rb") as handle:
+                handle.seek(tail.offset)
+                chunk = handle.read(stat.st_size - tail.offset)
+            complete = chunk.rfind(b"\n")
+            if complete >= 0:
+                tail.offset += complete + 1
+                for raw in chunk[: complete + 1].splitlines():
+                    if not raw.strip():
+                        continue
+                    try:
+                        record = json.loads(raw)
+                    except (ValueError, UnicodeDecodeError):
+                        continue  # a torn/foreign line is skipped, never fatal
+                    if (
+                        not isinstance(record, dict)
+                        or record.get("event") != "node_end"
+                        or record.get("node") != "model"
+                    ):
+                        continue
+                    tail.tokens_in += int(record.get("input_tokens", 0) or 0)
+                    tail.tokens_out += int(record.get("output_tokens", 0) or 0)
+                    tail.last_model = record.get("model_name") or tail.last_model
+
+        return tail.tokens_in, tail.tokens_out, tail.last_model
     except Exception:
         logger.debug("token totals unavailable for %s", session_id, exc_info=True)
         return 0, 0, ""
@@ -215,34 +273,152 @@ def _dot(ok: bool) -> str:
     return _PASS_DOT if ok else _PENDING_DOT
 
 
-def render_status_bar(snap: UiSnapshot) -> RenderableType:
-    """A compact one-line status header (session · counts · validation · tokens).
+def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None = None) -> str:
+    """The status line as one line of Rich markup (no padding, no newline).
 
-    Rendered as a re-printed dim line (not a pinned bar, which would conflict
-    with ``console.input``/``console.status``); includes one blank line above
-    for breathing room.
+    The single composition of the status fields, shared by the scrolling
+    :func:`render_status_bar` and the :class:`PinnedFooter`, so the pinned line
+    and the printed line can never drift apart.
+
+    Args:
+        snap: The state to render.
+        highlight: Optional ``field key -> Rich style`` overrides, replacing that
+            field's normal dim styling. :class:`StatusFader` uses this to tint
+            the fields that just changed. Keys are the ones in
+            :func:`status_field_values`.
     """
+    styles = highlight or {}
+
+    def field(key: str, text: str, style: str = "dim") -> str:
+        return f"[{styles.get(key, style)}]{text}[/]"
+
     token_str = ""
     if snap.tokens_in + snap.tokens_out > 0:
         from builder.pricing import format_cost
 
         cost_str = f"@{format_cost(snap.cost_usd)}" if snap.cost_usd is not None else ""
         total = snap.tokens_in + snap.tokens_out
-        token_str = (
-            f"  {_SEP}  [dim]tok {snap.tokens_in}→{snap.tokens_out} ({total})"
-            f"{cost_str}[/dim]"
+        token_str = "  " + _SEP + "  " + field(
+            "tokens", f"tok {snap.tokens_in}→{snap.tokens_out} ({total}){cost_str}"
         )
 
-    status = (
-        f"[dim]{snap.session_id}[/dim]  {_SEP}  "
-        f"[dim]{snap.entity_count} entities[/dim]  {_SEP}  "
-        f"[dim]{snap.file_count} files[/dim]  {_SEP}  "
-        f"{_dot(snap.base_passed)} [dim]base[/dim]  "
-        f"{_dot(snap.isa_passed)} [dim]ISA[/dim]  "
-        f"{_dot(snap.tox_passed)} [dim]Tox[/dim]"
+    return (
+        f"{field('session', snap.session_id)}  {_SEP}  "
+        f"{field('entities', f'{snap.entity_count} entities')}  {_SEP}  "
+        f"{field('files', f'{snap.file_count} files')}  {_SEP}  "
+        f"{_dot(snap.base_passed)} {field('base', 'base')}  "
+        f"{_dot(snap.isa_passed)} {field('isa', 'ISA')}  "
+        f"{_dot(snap.tox_passed)} {field('tox', 'Tox')}"
         f"{token_str}"
     )
-    return Group("", Padding(status, (0, 0, 0, 1)))
+
+
+def status_field_values(snap: UiSnapshot) -> dict[str, Any]:
+    """The comparable value behind each status field, keyed as in *highlight*."""
+    return {
+        "session": snap.session_id,
+        "entities": snap.entity_count,
+        "files": snap.file_count,
+        "base": snap.base_passed,
+        "isa": snap.isa_passed,
+        "tox": snap.tox_passed,
+        "tokens": (snap.tokens_in, snap.tokens_out, snap.cost_usd),
+    }
+
+
+# How a just-changed field cools off: (age in seconds below which it applies,
+# style). Bright at the moment of change, deepening, then back to normal dim —
+# enough to catch the eye mid-run without the line ever looking like an error.
+_FADE_STEPS: tuple[tuple[float, str], ...] = (
+    (0.7, "bold #9cc3ff"),
+    (1.6, "#5f87ff"),
+    (2.6, "#4a5f9e"),
+    (3.5, "#3b4a72"),
+)
+
+# The same ramp in red, for a change that made things WORSE — entities or files
+# disappearing, or a validation layer that used to pass and no longer does. Blue
+# for both would report "something moved" while hiding which way, and losing a
+# passing profile is the one event in this line worth interrupting someone for.
+_FADE_STEPS_WORSE: tuple[tuple[float, str], ...] = (
+    (0.7, "bold #ff9c9c"),
+    (1.6, "#ff5f5f"),
+    (2.6, "#b34a4a"),
+    (3.5, "#7d3838"),
+)
+
+
+def _fade_style(age: float, *, worse: bool = False) -> str | None:
+    """The highlight style for a change *age* seconds old (``None`` once cold)."""
+    for limit, style in _FADE_STEPS_WORSE if worse else _FADE_STEPS:
+        if age < limit:
+            return style
+    return None
+
+
+def _is_worse(key: str, previous: Any, current: Any) -> bool:
+    """Whether *key* moving from *previous* to *current* is a regression.
+
+    Counts fewer entities or files, and a validation profile that stops
+    passing. Token/cost growth is deliberately NOT a regression: it only ever
+    goes up, so painting it red would make the normal case look alarming.
+    """
+    if key in ("entities", "files"):
+        try:
+            return int(current) < int(previous)
+        except (TypeError, ValueError):
+            return False
+    if key in ("base", "isa", "tox"):
+        return bool(previous) and not bool(current)
+    return False
+
+
+class StatusFader:
+    """Tracks which status fields changed and fades their highlight over time.
+
+    A pinned line is easy to stop reading: the numbers move, but nothing draws
+    the eye to WHICH number moved. This tints each field for a few seconds after
+    it changes — entities climbing, a validation dot flipping, cost ticking up —
+    and lets the tint decay back to normal, so the footer reports change without
+    becoming a permanent light show. Blue for ordinary progress, red when the
+    change is a regression (see :func:`_is_worse`), so direction is visible at a
+    glance rather than needing the number to be read.
+
+    Pure apart from the clock, which is injectable for tests.
+    """
+
+    def __init__(self, clock: Callable[[], float] | None = None) -> None:
+        self._clock = clock or monotonic
+        self._values: dict[str, Any] = {}
+        # key -> (when it changed, whether that change was a regression)
+        self._changed_at: dict[str, tuple[float, bool]] = {}
+
+    def markup(self, snap: UiSnapshot) -> str:
+        """Render *snap*, highlighting fields that changed since the last call."""
+        now = self._clock()
+        for key, value in status_field_values(snap).items():
+            if key in self._values and self._values[key] != value:
+                self._changed_at[key] = (now, _is_worse(key, self._values[key], value))
+            self._values[key] = value
+
+        highlight: dict[str, str] = {}
+        for key, (changed_at, worse) in list(self._changed_at.items()):
+            style = _fade_style(now - changed_at, worse=worse)
+            if style is None:
+                del self._changed_at[key]  # cold: stop tracking it
+            else:
+                highlight[key] = style
+        return render_status_markup(snap, highlight=highlight)
+
+
+def render_status_bar(snap: UiSnapshot) -> RenderableType:
+    """A compact one-line status header (session · counts · validation · tokens).
+
+    The scrolling form: a re-printed dim line with one blank line above for
+    breathing room. Used when the terminal cannot host the pinned footer
+    (non-TTY, dumb terminal, or the footer explicitly disabled).
+    """
+    return Group("", Padding(render_status_markup(snap), (0, 0, 0, 1)))
 
 
 def render_reply(content: Any) -> RenderableType:
@@ -341,6 +517,314 @@ def render_goodbye(
 
 
 # ---------------------------------------------------------------------------
+# Pinned footer — a status line held on the bottom rows of the terminal
+# ---------------------------------------------------------------------------
+
+# Set to 1/true/yes to force the scrolling status bar instead of the pinned
+# footer. The escape sequences below are standard (DECSTBM), but a terminal that
+# mishandles them corrupts the whole session, so there must be an off switch
+# that needs no code change.
+FOOTER_DISABLE_ENV = "VITRO_NO_PINNED_FOOTER"
+
+# Rows the footer reserves at the bottom: a rule, the activity line (the
+# spinner, when work is running), and the status line.
+_FOOTER_ROWS = 3
+
+# Below this terminal height the footer is not worth three of the user's rows.
+_FOOTER_MIN_HEIGHT = 10
+
+# Consecutive write failures after which the footer disables itself for good
+# rather than fighting a terminal that clearly does not want it.
+_FOOTER_MAX_FAILURES = 3
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+class PinnedFooter:
+    """A status line pinned to the bottom rows of the terminal.
+
+    Mechanism: a DEC scrolling region (``CSI 1;{h-2} r``) shrinks the terminal's
+    scroll area to everything above the last two rows, so ordinary output —
+    Rich prints, the spinner's ``Live`` region, the ``prompt_toolkit`` input box
+    — scrolls underneath a footer that is repainted in place. Nothing else in
+    the session has to know the footer exists.
+
+    Every paint is a single ``write`` wrapped in save-cursor/restore-cursor, and
+    is taken under the Rich console's own lock, so it cannot interleave with a
+    Rich repaint and cannot move the cursor out from under one.
+
+    The footer is **best-effort chrome**: it is inactive unless stdout is a real
+    terminal, it disables itself after a few failed writes, and
+    :meth:`stop` — which is also registered with :mod:`atexit` — always restores
+    the full scrolling region. Callers never need to branch on any of that,
+    except to fall back to the scrolling status bar when :attr:`active` is
+    false.
+    """
+
+    def __init__(
+        self,
+        console: Console,
+        provider: Callable[[], str],
+        *,
+        interval: float = 1.0,
+    ) -> None:
+        """Build a footer.
+
+        Args:
+            console: The Rich console that owns the terminal.
+            provider: Called on every repaint; returns one line of Rich markup.
+                Kept as a callback (not a value) so the footer always paints
+                *current* state, whoever triggers the repaint.
+            interval: Seconds between background repaints.
+        """
+        self._console = console
+        self._provider = provider
+        self._interval = interval
+        self._file = getattr(console, "file", sys.stdout)
+        # Rich serialises its own output on Console._lock; sharing it is what
+        # keeps a footer paint from landing inside a Live repaint.
+        self._lock: Any = getattr(console, "_lock", None) or threading.RLock()
+        self._active = False
+        self._failures = 0
+        self._size: tuple[int, int] = (0, 0)
+        self._activity: str | None = None
+        self._paused = threading.Event()
+        self._stopping = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    # -- capability ----------------------------------------------------------
+
+    @staticmethod
+    def supported(console: Console) -> bool:
+        """Whether *console* can host a pinned footer (fail-closed)."""
+        if _truthy(os.environ.get(FOOTER_DISABLE_ENV)):
+            return False
+        if not getattr(console, "is_terminal", False):
+            return False
+        if getattr(console, "is_dumb_terminal", False):
+            return False
+        if (os.environ.get("TERM") or "").strip().lower() in {"", "dumb"}:
+            return False
+        stream = getattr(console, "file", None)
+        try:
+            return bool(stream is not None and stream.isatty())
+        except Exception:
+            return False
+
+    @property
+    def active(self) -> bool:
+        """Whether the footer currently owns the bottom rows."""
+        return self._active
+
+    # -- lifecycle -----------------------------------------------------------
+
+    def start(self) -> None:
+        """Reserve the bottom rows and begin repainting (no-op if unsupported)."""
+        if self._active or not self.supported(self._console):
+            return
+        width, height = self._terminal_size()
+        if height < _FOOTER_MIN_HEIGHT:
+            return
+        # Scroll the reserved rows into existence FIRST, then step back up into
+        # what is about to become the region: without this the footer would be
+        # painted over whatever occupied the bottom rows.
+        if not self._write("\n" * _FOOTER_ROWS + f"\x1b[{_FOOTER_ROWS}A"):
+            return
+        self._active = True
+        self._apply_region(width, height)
+        atexit.register(self.stop)
+        self._thread = threading.Thread(target=self._tick, daemon=True)
+        self._thread.start()
+        self.refresh()
+
+    def stop(self) -> None:
+        """Restore the full scrolling region and clear the footer rows.
+
+        Idempotent, and safe to call from ``atexit`` or an exception path — a
+        session that ends without this leaves the user's terminal unable to
+        scroll its bottom rows.
+        """
+        if not self._active:
+            return
+        self._active = False
+        self._stopping.set()
+        _, height = self._terminal_size()
+        cleared = "".join(
+            f"\x1b[{max(1, height - offset)};1H\x1b[2K" for offset in range(_FOOTER_ROWS)
+        )
+        self._write("\x1b7" + cleared + "\x1b[r" + "\x1b8")
+        try:
+            atexit.unregister(self.stop)
+        except Exception:  # noqa: BLE001 — teardown must never raise
+            logger.debug("footer: atexit.unregister failed", exc_info=True)
+
+    def __enter__(self) -> PinnedFooter:
+        self.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.stop()
+
+    # -- painting ------------------------------------------------------------
+
+    def refresh(self) -> None:
+        """Repaint the footer now (safe to call from any thread; never raises)."""
+        if not self._active or self._paused.is_set():
+            return
+        try:
+            width, height = self._terminal_size()
+            if height < _FOOTER_MIN_HEIGHT:
+                # The window shrank below the point where reserving two rows is
+                # reasonable — give them back rather than squatting on them.
+                self.stop()
+                return
+            if (width, height) != self._size:
+                self._apply_region(width, height)
+            markup = self._provider()
+        except Exception:  # noqa: BLE001 — chrome must never break a build
+            logger.debug("footer: refresh failed", exc_info=True)
+            return
+
+        line = self._to_ansi(markup, width - 1)
+        rule = self._to_ansi(f"[grey35]{'─' * max(0, width - 1)}[/grey35]", width - 1)
+        activity = self._to_ansi(self._activity or "", width - 1)
+        self._write(
+            "\x1b7"
+            + f"\x1b[{height - 2};1H\x1b[2K"
+            + rule
+            + f"\x1b[{height - 1};1H\x1b[2K"
+            + activity
+            + f"\x1b[{height};1H\x1b[2K"
+            + line
+            + "\x1b8"
+        )
+
+    def set_activity(self, markup: str | None) -> None:
+        """Show (``None`` clears) the working line on the footer's middle row.
+
+        The spinner pushes here instead of opening its own Rich ``Live`` region,
+        so the "what is running right now" line holds still at the bottom
+        instead of scrolling away with the transcript.
+        """
+        self._activity = markup or None
+        self.refresh()
+
+    def pause(self) -> None:
+        """Stop repainting (the rows keep their last paint) — for a full-screen op."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Resume repainting after :meth:`pause` and paint immediately."""
+        self._paused.clear()
+        self.refresh()
+
+    # -- internals -----------------------------------------------------------
+
+    def _terminal_size(self) -> tuple[int, int]:
+        """The output terminal's real ``(width, height)``, straight from the fd.
+
+        Deliberately NOT ``console.size``: Rich prefers the ``COLUMNS``/``LINES``
+        environment variables, which many shells set once and never update, so a
+        resized window would leave the footer painting over live content or off
+        the bottom of the screen. The ioctl is always current, which also makes
+        resize handling fall out for free. Falls back to Rich when the stream has
+        no usable descriptor (a captured stream in a test).
+        """
+        try:
+            size = os.get_terminal_size(self._file.fileno())
+            if size.columns > 0 and size.lines > 0:
+                return size.columns, size.lines
+        except Exception:  # noqa: BLE001 — not a real fd; fall through to Rich
+            logger.debug("footer: terminal size unavailable", exc_info=True)
+        width, height = self._console.size
+        return width, height
+
+    def _apply_region(self, width: int, height: int) -> None:
+        """(Re-)set the scrolling region to everything above the footer rows.
+
+        Setting DECSTBM homes the cursor, so the sequence is wrapped in
+        save/restore — otherwise the next print would land at the top of the
+        screen and overwrite the transcript.
+        """
+        bottom = max(1, height - _FOOTER_ROWS)
+        if self._write("\x1b7" + f"\x1b[1;{bottom}r" + "\x1b8"):
+            self._size = (width, height)
+
+    def _to_ansi(self, markup: str, width: int) -> str:
+        """Render one line of Rich markup to ANSI, truncated to *width* columns.
+
+        Truncation is to ``width`` (already one short of the terminal) so the
+        write can never reach the final column: on an auto-wrap terminal that
+        would scroll the screen out from under the region.
+        """
+        if width <= 0:
+            return ""
+        try:
+            text = Text.from_markup(markup)
+            text.truncate(width, overflow="ellipsis")
+            buffer = io.StringIO()
+            scratch = Console(
+                file=buffer,
+                width=width,
+                force_terminal=True,
+                color_system=self._console.color_system,  # type: ignore[arg-type]
+                highlight=False,
+                soft_wrap=True,
+                legacy_windows=False,
+            )
+            scratch.print(text, end="")
+            return buffer.getvalue()
+        except Exception:  # noqa: BLE001 — fall back to unstyled text
+            logger.debug("footer: markup render failed", exc_info=True)
+            return Text.from_markup(markup).plain[:width]
+
+    def _write(self, payload: str) -> bool:
+        """Write one escape payload under the console lock; disable on repeat failure."""
+        try:
+            with self._lock:
+                self._file.write(payload)
+                self._file.flush()
+            self._failures = 0
+            return True
+        except Exception:  # noqa: BLE001 — a terminal that rejects this loses the footer
+            logger.debug("footer: write failed", exc_info=True)
+            self._failures += 1
+            if self._failures >= _FOOTER_MAX_FAILURES and self._active:
+                logger.debug("footer: disabling after %d failed writes", self._failures)
+                self._active = False
+                self._stopping.set()
+            return False
+
+    def _tick(self) -> None:
+        """Daemon loop: repaint so tokens/cost advance while the agent works."""
+        while not self._stopping.wait(self._interval):
+            if self._active and not self._paused.is_set():
+                self.refresh()
+
+
+def make_status_footer(engine: AgentEngine, console: Console | None = None) -> PinnedFooter:
+    """A :class:`PinnedFooter` showing *engine*'s live status line (both arms).
+
+    The provider re-snapshots the engine on every repaint, so entity counts,
+    validation dots, tokens and cost track the run without any call site having
+    to push updates, and a :class:`StatusFader` tints whatever just changed.
+
+    The repaint interval is well under the fade so the highlight decays smoothly
+    rather than stepping; each repaint is a state read plus an incremental
+    profile tail-read, which is why that is affordable.
+    """
+    target = console or get_console()
+    fader = StatusFader()
+    return PinnedFooter(
+        target,
+        lambda: fader.markup(snapshot_from_engine(engine)),
+        interval=0.25,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Print-for-engine helpers — the ONE place "snapshot → render → print to the
 # shared console" lives, so both build arms call the same code instead of each
 # inlining its own copy (#344). The pure render_* above stay unit-testable; these
@@ -348,7 +832,7 @@ def render_goodbye(
 # ---------------------------------------------------------------------------
 
 
-def print_status_bar(engine: AgentEngine) -> None:
+def print_status_bar(engine: AgentEngine, footer: PinnedFooter | None = None) -> None:
     """Print the one-line status bar for *engine*'s current state (both arms).
 
     The per-prompt status line the ReAct loop shows before every input and the
@@ -356,7 +840,14 @@ def print_status_bar(engine: AgentEngine) -> None:
     authoritative by the time either arm calls this (the pipeline's final
     ``build_and_validate`` runs via ``engine.run_tool``, whose #153 write-back
     folds conformance into state), so the base/ISA/Tox dots read real values.
+
+    When an active *footer* is passed, the same information is already pinned to
+    the bottom of the terminal, so this repaints it instead of printing a second
+    copy into the transcript.
     """
+    if footer is not None and footer.active:
+        footer.refresh()
+        return
     get_console().print(render_status_bar(snapshot_from_engine(engine)))
 
 
@@ -400,7 +891,12 @@ def print_goodbye(engine: AgentEngine, *, resumable: bool | None = None) -> None
 # ---------------------------------------------------------------------------
 
 
-def boxed_input(console: Console, label: str = "❯") -> str:
+def boxed_input(
+    console: Console,
+    label: str = "❯",
+    *,
+    on_render: Callable[[], None] | None = None,
+) -> str:
     """Read one line of input inside a rounded box (Claude Code style).
 
     Renders an ephemeral rounded box via ``prompt_toolkit``; once submitted the
@@ -408,6 +904,15 @@ def boxed_input(console: Console, label: str = "❯") -> str:
     Falls back to ``console.input`` when stdin is not a TTY or ``prompt_toolkit``
     is unavailable. Raises ``KeyboardInterrupt`` (Ctrl+C) and ``EOFError``
     (Ctrl+D on an empty line), matching ``input()``.
+
+    Args:
+        console: The Rich console to fall back to and echo through.
+        label: The prompt glyph shown inside the box.
+        on_render: Called after every ``prompt_toolkit`` repaint. The pinned
+            footer passes its refresh here: prompt_toolkit erases from the
+            cursor to the end of the screen when it redraws, which wipes the
+            footer rows, so they are repainted on the same beat instead of
+            waiting for the next background tick (which would read as flicker).
     """
 
     def _fallback() -> str:
@@ -484,12 +989,26 @@ def boxed_input(console: Console, label: str = "❯") -> str:
         ]
     )
     style = Style.from_dict({"box": "fg:#5f5f5f", "prompt": "bold ansicyan"})
+
+    def _after_render(_app: Any) -> None:
+        if on_render is None:
+            return
+        try:
+            on_render()
+        except Exception:  # noqa: BLE001 — chrome must never break the prompt
+            logger.debug("boxed_input: on_render failed", exc_info=True)
+
     app: Any = Application(
         layout=Layout(root, focused_element=buf_window),
         key_bindings=kb,
         style=style,
         full_screen=False,
         output=output,
+        after_render=_after_render,
+        # Without this the box is NOT ephemeral: prompt_toolkit leaves it on
+        # screen, and the echo below then prints the same line a second time, so
+        # every answered prompt appeared twice in the transcript.
+        erase_when_done=True,
     )
     try:
         text = app.run()
@@ -503,3 +1022,191 @@ def boxed_input(console: Console, label: str = "❯") -> str:
         # The box was ephemeral — echo the submitted line into the transcript.
         console.print(f"[bold cyan]{label}[/bold cyan] {text}")
     return text
+
+
+def select_option(
+    console: Console,
+    options: list[str],
+    *,
+    default: int = 0,
+    hint: str | None = None,
+    on_render: Callable[[], None] | None = None,
+) -> int | None:
+    """Choose one of *options* in a rounded box; return its index (``None`` = cancel).
+
+    The choice starts on *default* and moves with ↑/↓ (or j/k); Enter takes the
+    highlighted row and a number key jumps straight to it. This replaces the
+    "print a numbered list, then ask ``Approve? [Y/n]``" prompt, which asked two
+    different questions at once — a menu and a yes/no — and left the user unsure
+    which one the answer applied to.
+
+    Falls back to a plain numbered ``input()`` (Enter = the default) when stdin
+    is not a TTY or ``prompt_toolkit`` is unavailable, so piped and CI runs keep
+    working unchanged.
+
+    Args:
+        console: The Rich console to render the fallback and the echo through.
+        options: The choices, in display order. Must be non-empty.
+        default: Index highlighted first — the safe/expected answer. Callers that
+            must fail closed (a filesystem-scope escalation) pass the denying
+            option here so Enter cannot widen access by accident.
+        hint: Optional one-line prompt shown above the choices.
+        on_render: Called after every repaint (the pinned footer's refresh).
+
+    Returns:
+        The selected index, or ``None`` when the user cancelled (Ctrl+C / Esc)
+        or gave no answer.
+    """
+    if not options:
+        return None
+    default = max(0, min(default, len(options) - 1))
+
+    def _fallback() -> int | None:
+        if hint:
+            console.print(f"[bold]{hint}[/bold]")
+        for index, option in enumerate(options, start=1):
+            marker = "❯" if index - 1 == default else " "
+            console.print(f" {marker} [cyan]{index}[/cyan]. {option}")
+        try:
+            raw = console.input(
+                f"[bold cyan]Select[/bold cyan] [dim][1-{len(options)}, "
+                f"Enter = {default + 1}][/dim] "
+            )
+        except EOFError:
+            return None
+        # Same answer grammar as the plain-terminal chooser (number, yes/no word,
+        # or a prefix), so a piped run behaves like an interactive one.
+        from builder.tools.hitl import match_choice
+
+        return match_choice(raw, options, default)
+
+    if not sys.stdin.isatty():
+        return _fallback()
+    try:
+        from prompt_toolkit import Application
+        from prompt_toolkit.application.current import get_app
+        from prompt_toolkit.output import create_output
+
+        output = create_output()
+        if not getattr(output, "responds_to_cpr", True):
+            return _fallback()
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import HSplit, Layout, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.styles import Style
+    except Exception:
+        return _fallback()
+
+    cursor = {"index": default}
+
+    kb = KeyBindings()
+
+    @kb.add("up")
+    @kb.add("k")
+    def _(event: Any) -> None:
+        cursor["index"] = (cursor["index"] - 1) % len(options)
+
+    @kb.add("down")
+    @kb.add("j")
+    def _(event: Any) -> None:
+        cursor["index"] = (cursor["index"] + 1) % len(options)
+
+    @kb.add("enter")
+    def _(event: Any) -> None:
+        event.app.exit(result=cursor["index"])
+
+    @kb.add("c-c")
+    @kb.add("escape", eager=True)
+    def _(event: Any) -> None:
+        event.app.exit(result=None)
+
+    for position in range(min(len(options), 9)):
+
+        @kb.add(str(position + 1))
+        def _(event: Any, position: int = position) -> None:
+            cursor["index"] = position
+            event.app.exit(result=position)
+
+    def _hline(left: str, right: str):
+        def _get() -> list[tuple[str, str]]:
+            width = get_app().output.get_size().columns
+            return [("class:box", left + "─" * max(0, width - 2) + right)]
+
+        return _get
+
+    def _rows() -> list[tuple[str, str]]:
+        width = get_app().output.get_size().columns
+        inner = max(0, width - 4)  # the two border columns on each side
+        fragments: list[tuple[str, str]] = []
+        for index, option in enumerate(options):
+            selected = index == cursor["index"]
+            marker = "❯ " if selected else "  "
+            body = f"{marker}{index + 1}. {option}"[:inner].ljust(inner)
+            fragments.append(("class:box", "│ "))
+            fragments.append(("class:selected" if selected else "class:option", body))
+            fragments.append(("class:box", " │"))
+            fragments.append(("", "\n"))
+        return fragments
+
+    def _hint_row() -> list[tuple[str, str]]:
+        width = get_app().output.get_size().columns
+        inner = max(0, width - 4)
+        return [
+            ("class:box", "│ "),
+            ("class:hint", str(hint)[:inner].ljust(inner)),
+            ("class:box", " │"),
+        ]
+
+    body_rows = [Window(FormattedTextControl(_rows), height=len(options))]
+    header = [Window(FormattedTextControl(_hint_row), height=1)] if hint else []
+    root = HSplit(
+        [
+            Window(FormattedTextControl(_hline("╭", "╮")), height=1),
+            *header,
+            *body_rows,
+            Window(FormattedTextControl(_hline("╰", "╯")), height=1),
+            Window(
+                FormattedTextControl(
+                    [("class:help", "  ↑/↓ move · enter select · 1-9 jump · esc cancel")]
+                ),
+                height=1,
+            ),
+        ]
+    )
+    style = Style.from_dict(
+        {
+            "box": "fg:#5f5f5f",
+            "hint": "bold",
+            "option": "",
+            "selected": "bold ansicyan",
+            "help": "fg:#5f5f5f",
+        }
+    )
+
+    def _after_render(_app: Any) -> None:
+        if on_render is None:
+            return
+        try:
+            on_render()
+        except Exception:  # noqa: BLE001 — chrome must never break the prompt
+            logger.debug("select_option: on_render failed", exc_info=True)
+
+    app: Any = Application(
+        layout=Layout(root),
+        key_bindings=kb,
+        style=style,
+        full_screen=False,
+        output=output,
+        after_render=_after_render,
+        erase_when_done=True,
+    )
+    try:
+        chosen = app.run()
+    except Exception:
+        return _fallback()
+
+    if chosen is None:
+        return None
+    # The box was ephemeral — echo the choice so the transcript records it.
+    console.print(f"[bold cyan]❯[/bold cyan] {options[chosen]}")
+    return int(chosen)

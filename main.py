@@ -477,6 +477,11 @@ def main(argv: list[str] | None = None) -> int:
             human_interface=ConsoleHumanInterface(
                 prompt_func=lambda _field_type: ui.boxed_input(ui.get_console()),
                 show_func=lambda text: ui.get_console().print(ui.render_reply(text)),
+                # Decisions render as the same rounded box as free text, with the
+                # expected answer pre-selected and arrow keys to change it.
+                select_func=lambda choices, default: ui.select_option(
+                    ui.get_console(), choices, default=default
+                ),
             )
         )
     else:
