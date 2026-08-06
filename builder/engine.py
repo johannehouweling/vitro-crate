@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import builder.config as _config
-from builder.state import CrateState, ValidationReport
+from builder.state import CrateState
 from builder.tools.profiler import ProfilingLogger
 
 if TYPE_CHECKING:
@@ -139,16 +139,16 @@ _VALIDATION_LAYER_ORDER = {"base": 0, "isa": 1, "tox": 2}
 
 
 def _order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
-    """Return one severity tier as stable, layer-ordered display strings."""
-    selected = [i for i in issues if i.get("severity") == severity]
-    selected.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
-    return [
-        (
-            f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: "
-            f"{i.get('message') or ''}"
-        ).rstrip()
-        for i in selected
-    ]
+    """Return one severity tier as stable, layer-ordered display strings.
+
+    Thin delegation to :func:`builder.tools.validation.order_issues`, which is
+    where the definition lives so the engine write-back and ``export_crate``'s
+    own validation produce byte-identical reports. Kept as a module-level name
+    because ``tests/test_validation_writeback.py`` imports it from here.
+    """
+    from builder.tools.validation import order_issues
+
+    return order_issues(issues, severity)
 
 
 def _order_required_issues(issues: list[dict[str, Any]]) -> list[str]:
@@ -1014,36 +1014,9 @@ class AgentEngine:
         ``profile=`` call) keep their prior value, and an errored result is left
         untouched so a transient failure never wipes known issues.
         """
-        if tool_name == "validate" and isinstance(result, ValidationReport):
-            self.state.validation = result
-            return
-        if tool_name == "build_and_validate" and isinstance(result, dict):
-            if "error" in result:
-                return
-            conformance = result.get("conformance") or {}
-            if not conformance:
-                return
-            report = self.state.validation
-            if "base" in conformance:
-                report.base_passed = bool(conformance["base"])
-            if "isa" in conformance:
-                report.isa_passed = bool(conformance["isa"])
-            if "tox" in conformance:
-                report.tox_passed = bool(conformance["tox"])
-            issues = result.get("issues") or []
-            # The caller's kwarg wins; fall back to the severity the validator
-            # stamped on its own result before assuming "required", so a
-            # recommended/optional result can never be filed as REQUIRED issues.
-            severity = str(severity or result.get("severity") or "required")
-            if severity == "required":
-                report.required_issues = _order_issues(issues, "required")
-                report.assessed_tiers.add("required")
-            elif severity == "recommended":
-                report.should_issues = _order_issues(issues, "recommended")
-                report.assessed_tiers.add("recommended")
-            elif severity == "optional":
-                report.may_issues = _order_issues(issues, "optional")
-                report.assessed_tiers.add("optional")
+        from builder.tools.validation import apply_validation_result
+
+        apply_validation_result(self.state, tool_name, result, severity=severity)
 
     def close_profiler(self) -> None:
         """Close the profiling log file, if open.

@@ -300,6 +300,7 @@ def export_crate(
     *,
     embed_graph: bool = True,
     embed_report: bool = True,
+    validate: bool = True,
 ) -> dict[str, Any]:
     """Assemble an RO-Crate from CrateState and write it to disk (ro-crate-py).
 
@@ -321,6 +322,12 @@ def export_crate(
             True). Set False to skip the visualization artifact.
         embed_report: Write the maturity report (ro-crate-metadata-maturity.html, #85)
             into the crate (default True). Set False to skip it.
+        validate: Validate before writing, unless the recorded verdict is already
+            current (default True). The export embeds a maturity report whose
+            headline verdict comes from ``state.validation``; without this, a
+            crate edited after its last validation ships a report describing a
+            state nobody checked. A failing validation does NOT block the write —
+            the crate is still written and the report states the real verdict.
 
     Returns:
         A dict with keys:
@@ -328,6 +335,11 @@ def export_crate(
             crate_path (str): The output path used (can be passed directly
                 to :func:`validate`).
             error (str | None): Error message if success is False.
+            validation (dict): ``{"ran", "reason", "ok", "error"}`` from the
+                pre-write freshness check — ``reason`` is ``"fresh"`` (skipped,
+                the recorded verdict still describes this crate),
+                ``"never-validated"`` or ``"stale"``. Absent when
+                ``validate=False``.
     """
     try:
         if not output_path:
@@ -337,6 +349,23 @@ def export_crate(
 
         output_dir = Path(output_path)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Validate BEFORE assembling, so the maturity report embedded below
+        # reports on the crate actually being written. Skipped when the recorded
+        # verdict's fingerprint still matches the state (re-validating an
+        # unchanged crate would burn the dominant tox pass for a verdict we
+        # already hold). Never blocks the write: the report tells the truth.
+        validation_info: dict[str, Any] | None = None
+        if validate:
+            from builder.tools.validation import ensure_validated
+
+            validation_info = ensure_validated(state)
+            if validation_info["error"]:
+                logger.warning(
+                    "Export-time validation did not complete (%s); the maturity "
+                    "report will mark the verdict unverified",
+                    validation_info["error"],
+                )
 
         crate = assemble_crate(state, output_dir, materialize_payload=True)
         # Embed the standard ro-crate-py preview (ro-crate-preview.html, a
@@ -365,7 +394,10 @@ def export_crate(
         crate.write(str(output_dir))
 
         logger.info("Crate exported to %s", output_path)
-        return {"success": True, "crate_path": output_path, "error": None}
+        out: dict[str, Any] = {"success": True, "crate_path": output_path, "error": None}
+        if validation_info is not None:
+            out["validation"] = validation_info
+        return out
 
     except OSError as e:
         logger.error("Failed to create crate at %s: %s", output_path, e)

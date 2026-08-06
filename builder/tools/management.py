@@ -335,6 +335,50 @@ def set_crate_metadata(
     }
 
 
+def set_validation_preference(
+    state: CrateState,
+    recommended: bool | None = None,
+    optional: bool | None = None,
+) -> dict[str, Any]:
+    """Record whether the user wants the RECOMMENDED / OPTIONAL validation tiers.
+
+    The interactive loop offers each broader tier once and then honours the
+    answer silently. Call this when the user changes their mind mid-session —
+    "stop running the recommended checks", "let's look at the optional findings
+    after all" — so the loop stops asking, or starts running, accordingly.
+
+    The tiers are a hierarchy, and this enforces it: OPTIONAL findings are only
+    meaningful once the SHOULD-tier gaps are being worked, so turning
+    ``recommended`` off turns ``optional`` off with it. Turning ``optional`` on
+    turns ``recommended`` on for the same reason.
+
+    Args:
+        state: The crate state whose preferences are updated.
+        recommended: Run the RECOMMENDED tier from now on. ``None`` leaves it.
+        optional: Run the OPTIONAL tier from now on. ``None`` leaves it.
+
+    Returns:
+        The preferences now in effect, plus the tiers that will run.
+    """
+    prefs = state.validation_preferences
+    if recommended is not None:
+        prefs["recommended"] = bool(recommended)
+        if not recommended:
+            # Optional sits above recommended: keeping it on while its
+            # foundation is off would go back to asking about MAY-level
+            # findings the user has just said they do not want.
+            prefs["optional"] = False
+    if optional is not None:
+        prefs["optional"] = bool(optional)
+        if optional:
+            prefs["recommended"] = True
+    return {
+        "validation_preferences": dict(prefs),
+        "tiers_that_will_run": ["required"]
+        + [tier for tier in ("recommended", "optional") if prefs.get(tier)],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
@@ -351,3 +395,6 @@ TOOL_REGISTRY.register("set_fields", set_fields, takes_state=True)
 # Crate-level (Root Data Entity) metadata setter — title/description/accession
 # plus the root dates releaseDate/dateModified (Issue #180).
 TOOL_REGISTRY.register("set_crate_metadata", set_crate_metadata, takes_state=True)
+# Standing answer to "run the broader validation tiers?" — so the user can
+# revoke it mid-session instead of being asked again (or never again).
+TOOL_REGISTRY.register("set_validation_preference", set_validation_preference, takes_state=True)

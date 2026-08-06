@@ -244,13 +244,28 @@ def _load_shell() -> str:
     return _SHELL_PATH.read_text(encoding="utf-8")
 
 
-def _render_header(title: str, accession: str, tiers: list[dict[str, str]] | None) -> str:
+def _render_header(
+    title: str,
+    accession: str,
+    tiers: list[dict[str, str]] | None,
+    *,
+    stale: bool = False,
+) -> str:
     esc = html.escape
     chip = f'<span class="chip mono">{esc(accession)}</span>' if accession else ""
     if tiers is None:
         verdict = (
             '<span class="vpill warning"><span class="glyph"></span>Not yet validated</span>'
             '<span class="vsub">Run validation to populate profile adherence.</span>'
+        )
+    elif stale:
+        # A verdict recorded against a DIFFERENT state. Reporting the old pass
+        # would ship a green "Conformant" for a crate nobody checked — strictly
+        # worse than admitting the gap, because it looks verified.
+        verdict = (
+            '<span class="vpill warning"><span class="glyph"></span>Validation out of date</span>'
+            '<span class="vsub">The crate changed after this verdict was recorded — '
+            "re-validate before trusting it.</span>"
         )
     elif tiers[0]["state"] == "ok":
         verdict = (
@@ -377,8 +392,20 @@ def _render_kpis(
     return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{chem_tile}{repro_tile}</div>\n'
 
 
-def _render_profile_section(val: ValidationReport, tiers: list[dict[str, str]] | None) -> str:
+def _render_profile_section(
+    val: ValidationReport, tiers: list[dict[str, str]] | None, *, stale: bool = False
+) -> str:
     esc = html.escape
+    if stale:
+        return (
+            "<section>\n"
+            '  <div class="sec-h"><h2>Profile adherence</h2>'
+            '<span class="sec-meta">out of date</span></div>\n'
+            '  <p class="lead">The last recorded verdict was computed against an earlier '
+            "version of this crate, so it is not reported here. Re-run validation to "
+            "restore profile adherence.</p>\n"
+            "</section>\n"
+        )
     if tiers is None:
         return (
             "<section>\n"
@@ -1276,10 +1303,21 @@ def build_maturity_html(
     val = validation if validation is not None else state.validation
 
     tiers = _severity_tiers(val) if _validation_has_signal(val) else None
+    # Does the recorded verdict still describe THIS state? `export_crate`
+    # re-validates when it does not, so a stale banner here means the report was
+    # built directly from a state that outran its last validation.
+    stale = tiers is not None and val.is_stale_for(state)
+    if stale:
+        for tier in tiers:
+            tier["state"] = "na"
+            # The summary goes too: "3 / 3 profiles" asserts a pass just as
+            # loudly as a green tick, and it was measured on a different crate.
+            tier["summary"] = "out of date"
+            tier["note"] = "Recorded before the crate's latest changes."
     checks = _reproducibility_checks(state)
     repro_ready = sum(1 for _, ok, _ in checks if ok)
 
-    header = _render_header(title, accession, tiers)
+    header = _render_header(title, accession, tiers, stale=stale)
     # The chemicals inventory is shared: it feeds the KPI tile and the Chemicals
     # graph view, and is a single cheap pass over the graph — build it once.
     chem_inv: dict[str, Any] | None = None
@@ -1297,7 +1335,7 @@ def build_maturity_html(
         len(checks),
         chem_inv if chem_inv and chem_inv["chemicals"] else None,
     )
-    prof_section = _render_profile_section(val, tiers)
+    prof_section = _render_profile_section(val, tiers, stale=stale)
     fair_section = _render_fair_section(fair)
     mit_section = _render_mit_section(mit)
     repro_section = _render_repro_section(checks)

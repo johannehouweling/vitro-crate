@@ -285,11 +285,11 @@ _AUTO_EXPORT_EMIT_FLAG = "on_auto_export"
 _VALIDATION_ESCALATION_FP_FLAG = "_validation_escalation_fingerprint"
 _VALIDATION_ESCALATION_PURPOSE = "validation_escalation"
 
-# Attribute holding the user's standing answers: ``{"recommended": bool,
-# "optional": bool}``. Whether they want the broader tiers is a preference about
-# how they work, not a judgement about one crate state, so it is asked once and
-# then honoured silently for the rest of the session.
-_VALIDATION_ESCALATION_PREF_FLAG = "_validation_escalation_preferences"
+# The user's standing answers live on ``state.validation_preferences``
+# (``{"recommended": bool, "optional": bool}``). Whether they want the broader
+# tiers is a preference about how they work, not a judgement about one crate
+# state, so it is asked once and then honoured silently — and revocable through
+# the set_validation_preference tool.
 
 
 # How many issue strings each escalation tier contributes to the summary handed
@@ -358,7 +358,10 @@ def _run_validation_escalation(
     # not a per-state decision: keyed on the fingerprint alone, the same question
     # came back after every mutation that re-passed REQUIRED, so a long session
     # asked "Run recommended checks?" over and over having already been told yes.
-    prefs: dict[str, bool] = dict(getattr(engine, _VALIDATION_ESCALATION_PREF_FLAG, None) or {})
+    # Held on the state (not the engine) so it survives a --resume, and so the
+    # set_validation_preference tool can revoke it when the user changes their
+    # mind mid-session.
+    prefs = engine.state.validation_preferences
 
     def approved(tier: str, context: str) -> bool:
         """The user's standing answer for *tier*, asked at most once per session."""
@@ -370,7 +373,6 @@ def _run_validation_escalation(
             purpose=_VALIDATION_ESCALATION_PURPOSE,
         )
         prefs[tier] = response.get("action") == "approved"
-        setattr(engine, _VALIDATION_ESCALATION_PREF_FLAG, prefs)
         return prefs[tier]
 
     if not approved("recommended", "Required validation passed. Run recommended checks?"):
@@ -943,6 +945,34 @@ def _no_op_mutation_message(tool_name: str, kwargs: dict[str, Any], engine: Agen
     return "\n".join(lines)
 
 
+def _log_suppressed(
+    engine: AgentEngine, tool_name: str, reason: str, kwargs: dict[str, Any]
+) -> None:
+    """Record a tool call the loop refused to run, and why.
+
+    A guard that returns before ``engine.run_tool`` leaves NO profiler record —
+    no ``tool_start``, no ``tool_call`` — so a model bouncing off one is
+    indistinguishable from idle time in the profile. One observed session spent
+    35s and ~70k input tokens on six consecutive model calls whose tools node
+    ran for 20ms and executed nothing, with no way to tell which guard was
+    firing. Best-effort: never raises, and a headless engine without a profiler
+    is a no-op.
+    """
+    profiler = getattr(engine, "profiler", None)
+    if profiler is None:
+        return
+    try:
+        profiler.log_event(
+            event="tool_suppressed",
+            tool=tool_name,
+            iteration=engine.state.iteration_count,
+            args=str(kwargs)[:300] or None,
+            reason=reason,
+        )
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("suppression logging failed", exc_info=True)
+
+
 def _is_non_progress_result(result: Any) -> bool:
     """Return True when a tool result represents NO forward progress (#287 Fix B).
 
@@ -1160,12 +1190,14 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     list_last = getattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
                     list_count = getattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
                     if list_last == signature and list_count >= _LIST_ENTITIES_BREAKER_THRESHOLD:
+                        _log_suppressed(engine, tool_name, "repeated_list_query", kwargs)
                         return _list_entities_intervention(engine)
                 last_sig = getattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, None)
                 repeat_count = getattr(engine, _LOOP_BREAKER_COUNT_FLAG, 0)
                 if last_sig == signature and repeat_count >= _LOOP_BREAKER_THRESHOLD:
                     # Do NOT run the tool again — the identical non-progress call
                     # is short-circuited and the model is steered elsewhere.
+                    _log_suppressed(engine, tool_name, "loop_breaker", kwargs)
                     return _loop_breaker_intervention(engine, tool_name)
 
                 if tool_name in _FILE_READ_TOOLS:
@@ -1176,6 +1208,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         item.get("path") == path and item.get("args", {}) == read_args
                         for item in evidence.values()
                     ):
+                        _log_suppressed(engine, tool_name, "already_in_evidence", kwargs)
                         return (
                             "Already loaded this document into bounded session evidence. "
                             "Use the loaded evidence in the state context; request a specific "
@@ -1205,6 +1238,9 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                             bv_sig,
                             strikes,
                             _VALIDATE_SUPPRESS_ABORT,
+                        )
+                        _log_suppressed(
+                            engine, tool_name, f"unchanged_state_strike_{strikes}", kwargs
                         )
                         # Suppressing the SHACL pass saves seconds but NOT tokens:
                         # the model reads the corrective and immediately calls

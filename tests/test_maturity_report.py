@@ -118,6 +118,175 @@ class TestEmbeddedInCrate:
         assert not (out / REPORT_FILENAME).exists()
 
 
+class TestStaleValidation:
+    """A verdict recorded against a DIFFERENT crate is never reported as a pass.
+
+    The agent keeps editing after validating, so ``state.validation`` can outrun
+    the crate. Rendering the old verdict would ship a green "Conformant" inside
+    the exported crate for a state nobody checked — strictly worse than admitting
+    the gap, because it looks verified.
+    """
+
+    def _validated(self) -> CrateState:
+        state = vhps_fixture_state("S-VHPS21")
+        state.validation = ValidationReport(
+            base_passed=True,
+            isa_passed=True,
+            tox_passed=True,
+            input_fingerprint=state.validation_fingerprint(),
+        )
+        return state
+
+    def _verdict(self, page: str) -> str:
+        import re
+
+        m = re.search(r'<span class="vpill (\w+)"><span class="glyph"></span>([^<]*)', page)
+        assert m, "no verdict pill rendered"
+        return m.group(2)
+
+    def test_fresh_verdict_still_reports_conformant(self) -> None:
+        assert self._verdict(build_maturity_html(self._validated())) == "Conformant"
+
+    def test_edited_after_validating_is_reported_out_of_date(self) -> None:
+        state = self._validated()
+        state.metadata.title = "Edited after validating"
+        assert self._verdict(build_maturity_html(state)) == "Validation out of date"
+
+    def test_stale_report_makes_no_pass_claim_anywhere(self) -> None:
+        state = self._validated()
+        state.metadata.title = "Edited after validating"
+        page = build_maturity_html(state)
+        assert "Conformant" not in page
+        # The tier summary asserts a pass as loudly as a green tick.
+        assert "3 / 3 profiles" not in page
+        assert "out of date" in page
+        assert "Re-run validation" in page
+
+    def test_unstamped_verdict_is_trusted_not_flagged(self) -> None:
+        # A checkpoint written before the stamp existed must not be downgraded.
+        state = vhps_fixture_state("S-VHPS21")
+        state.validation = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        assert self._verdict(build_maturity_html(state)) == "Conformant"
+
+
+class TestExportCoupledToValidation:
+    """``export_crate`` validates before writing unless the verdict is current.
+
+    The export embeds a maturity report whose headline comes from
+    ``state.validation``; without this a crate edited since its last validation
+    ships a report describing a state nobody checked.
+    """
+
+    def _stub(self, monkeypatch, calls: list) -> None:
+        import builder.tools.validation as validation
+
+        def _fake(state, severity="required", profile="all"):
+            calls.append(severity)
+            return {
+                "ok": True,
+                "conformance": {"base": True, "isa": True, "tox": True},
+                "issues": [],
+            }
+
+        monkeypatch.setattr(validation, "build_and_validate", _fake)
+
+    def test_validates_when_never_validated(self, monkeypatch, tmp_path: Path) -> None:
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        res = export_crate(vhps_fixture_state("S-VHPS21"), str(tmp_path / "c"))
+        assert res["success"]
+        assert res["validation"]["ran"] is True
+        assert res["validation"]["reason"] == "never-validated"
+        assert calls == ["required"]
+
+    def test_skips_when_the_verdict_is_already_current(self, monkeypatch, tmp_path: Path) -> None:
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        state = vhps_fixture_state("S-VHPS21")
+        export_crate(state, str(tmp_path / "c1"))
+        res = export_crate(state, str(tmp_path / "c2"))
+        assert res["validation"] == {
+            "ran": False,
+            "reason": "fresh",
+            "ok": None,
+            "error": None,
+        }
+        assert calls == ["required"], "re-validated an unchanged crate"
+
+    def test_revalidates_after_the_crate_changes(self, monkeypatch, tmp_path: Path) -> None:
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        state = vhps_fixture_state("S-VHPS21")
+        export_crate(state, str(tmp_path / "c1"))
+        state.metadata.title = "Edited after export"
+        res = export_crate(state, str(tmp_path / "c2"))
+        assert res["validation"]["reason"] == "stale"
+        assert calls == ["required", "required"]
+
+    def test_embedded_report_reflects_the_fresh_verdict(self, monkeypatch, tmp_path: Path) -> None:
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        out = tmp_path / "c"
+        export_crate(vhps_fixture_state("S-VHPS21"), str(out))
+        page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
+        assert "not yet validated" not in page.lower()
+        assert "Validation out of date" not in page
+
+    def test_failing_validation_still_writes_the_crate(self, monkeypatch, tmp_path: Path) -> None:
+        # A hard gate would throw away the agent loop's end-of-session salvage;
+        # the crate is written and the report states the real verdict.
+        import builder.tools.validation as validation
+
+        def _failing(state, severity="required", profile="all"):
+            return {
+                "ok": False,
+                "conformance": {"base": False, "isa": False, "tox": False},
+                "issues": [
+                    {
+                        "entity_id": "./",
+                        "property": "name",
+                        "message": "root MUST have a name",
+                        "severity": "required",
+                        "profile": "base",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(validation, "build_and_validate", _failing)
+        out = tmp_path / "c"
+        res = export_crate(vhps_fixture_state("S-VHPS21"), str(out))
+        assert res["success"] is True
+        assert (out / "ro-crate-metadata.json").is_file()
+        page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
+        assert "Not conformant" in page
+        assert "root MUST have a name" in page
+
+    def test_validator_failure_does_not_fail_the_export(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        import builder.tools.validation as validation
+
+        def _boom(state, severity="required", profile="all"):
+            raise RuntimeError("shapes graph unavailable")
+
+        monkeypatch.setattr(validation, "build_and_validate", _boom)
+        out = tmp_path / "c"
+        res = export_crate(vhps_fixture_state("S-VHPS21"), str(out))
+        assert res["success"] is True
+        assert (out / "ro-crate-metadata.json").is_file()
+        assert "shapes graph unavailable" in res["validation"]["error"]
+
+    def test_validate_false_skips_entirely(self, monkeypatch, tmp_path: Path) -> None:
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        res = export_crate(
+            vhps_fixture_state("S-VHPS21"), str(tmp_path / "c"), validate=False
+        )
+        assert res["success"] is True
+        assert "validation" not in res
+        assert calls == []
+
+
 class TestProvenanceSection:
     """When a crate ``@graph`` is supplied, the report folds in a Provenance &
     graph section: the derivation-chain SVG plus a graph-topology strip (#85)."""
