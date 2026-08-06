@@ -144,6 +144,10 @@ def _scripted_build(engine: AgentEngine) -> dict:
             "name": f"{spec.compound} uptake exposure",
             "samples": cell.entity_id,
             "chemicals": compound.entity_id,
+            # The tox profile requires an Exposure to carry at least one
+            # schema:additionalProperty; the scripted sequence states the study's
+            # real duration rather than relying on a placeholder to satisfy it.
+            "duration": spec.exposure_duration,
         },
     )
 

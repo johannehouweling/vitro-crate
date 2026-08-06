@@ -82,16 +82,24 @@ class TestRunPipelineShape:
 
 
 class TestEmptyStateReachesConformance:
-    def test_scaffold_only_reaches_base_isa_tox(self) -> None:
-        """An empty state, run through the spine, becomes {base,isa,tox}-conformant."""
+    def test_scaffold_only_reaches_base_and_isa(self) -> None:
+        """An empty state, run through the spine, becomes {base,isa}-conformant."""
         from builder.agents.pipeline.pipeline import run_pipeline
 
         engine = _engine()
         result = run_pipeline(engine)
 
+        # BASE and ISA conform from the scaffold alone. TOX does not, and that is
+        # correct: an empty state has no exposure duration or detection instrument
+        # to state, and `_pv` refuses to publish "unknown" as if it were a
+        # measurement (D5). The shape firing IS the prompt to go and supply it.
         conformance = result["conformance"]
-        assert conformance == {"base": True, "isa": True, "tox": True}
-        assert result["ok"] is True
+        assert conformance == {"base": True, "isa": True, "tox": False}
+        assert result["issues"], "tox must report why it did not conform"
+        assert all(
+            str(issue.get("property", "")).endswith("additionalProperty")
+            for issue in result["issues"]
+        ), result["issues"]
 
         # The backbone really exists in state (scaffold step ran via the engine).
         types = {e.type for e in engine.state.list_entities()}
@@ -137,9 +145,17 @@ class TestBoundedFixLoop:
         engine = _engine(state)
         result = run_pipeline(engine)
 
-        # The seeded issue cleared: full conformance and the File is now wired.
-        assert result["conformance"] == {"base": True, "isa": True, "tox": True}
-        assert result["ok"] is True
+        # The seeded issue cleared: the File is now wired. Tox still reports the
+        # scaffold's unparameterised chain steps — with no provider and no source
+        # documents there is nothing to assert about them, and `_pv` will not
+        # publish "unknown" to paper over it (D5). What matters here is that the
+        # RESULT issue is gone; anything left must be the parameter gap.
+        assert result["conformance"]["base"] is True
+        assert result["conformance"]["isa"] is True
+        assert all(
+            str(issue.get("property", "")).endswith("additionalProperty")
+            for issue in result.get("issues") or []
+        ), result.get("issues")
         readout = engine.state.get_entity("er1")
         assert readout is not None
         wired = str(readout.fields.get("result") or readout.fields.get("output") or "")
@@ -714,10 +730,26 @@ class TestMaterializePlan:
             }
         ],
         "process_chain": [
+            # Exposure / EndpointReadout / DataAnalysis each MUST carry at least
+            # one schema:additionalProperty under the tox profile, and `_pv` no
+            # longer publishes "unknown" to satisfy it — so a plan whose crate is
+            # expected to CONFORM has to supply a real parameter per step.
             {"process_type": "CellCulture", "name": "Seed cells"},
-            {"process_type": "Exposure", "name": "Dose"},
-            {"process_type": "EndpointReadout", "name": "Read TPO"},
-            {"process_type": "DataAnalysis", "name": "Fit dose-response"},
+            {
+                "process_type": "Exposure",
+                "name": "Dose",
+                "parameters": {"duration": "24 hours"},
+            },
+            {
+                "process_type": "EndpointReadout",
+                "name": "Read TPO",
+                "parameters": {"detection_instrument": "Plate reader"},
+            },
+            {
+                "process_type": "DataAnalysis",
+                "name": "Fit dose-response",
+                "parameters": {"data_processing": "Four-parameter logistic fit"},
+            },
         ],
         "aops": [{"aop_id": "610"}],
         "people": [{"name": "Ada Lovelace", "affiliation_name": "Analytical Engine"}],
@@ -2548,8 +2580,11 @@ class TestPipelineProgress:
 
         engine = _engine()
         # Must not raise and must not print — a missing callback is a strict no-op.
+        # This is about the CALLBACK, not conformance: an empty state has no
+        # process parameters to state, so `ok` is legitimately False here (see
+        # test_scaffold_only_reaches_base_and_isa).
         result = run_pipeline(engine)
-        assert result["ok"] is True
+        assert set(result["conformance"]) == {"base", "isa", "tox"}
 
 
 # ---------------------------------------------------------------------------

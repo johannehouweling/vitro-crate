@@ -64,6 +64,11 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
             process_type="EndpointReadout",
             name="Readout",
             assay_id="as1",
+            # The missing RESULT is what this fixture is about. Give it a real
+            # parameter so the separate "MUST have at least one
+            # additionalProperty" issue does not also fire and mask the repair
+            # under test — `_pv` no longer emits a placeholder to satisfy it.
+            detection_instrument="Plate reader",
         )
     )
     for i in range(n_files):

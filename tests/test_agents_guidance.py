@@ -77,6 +77,10 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
             process_type="EndpointReadout",
             name="Readout",
             assay_id="as1",
+            # As in tests/test_tools_repair.py: the missing RESULT is the gap
+            # under test, so give the readout a real parameter rather than let
+            # the separate additionalProperty MUST fire alongside it.
+            detection_instrument="Plate reader",
         )
     )
     for i in range(n_files):
