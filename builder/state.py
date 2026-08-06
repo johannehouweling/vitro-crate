@@ -819,6 +819,13 @@ class CrateState:
     fair_assessment: FAIRReport = field(default_factory=FAIRReport)
     checkpoint: ReasoningLog = field(default_factory=ReasoningLog)
 
+    # Standing answers to "run the broader validation tiers?", keyed
+    # ``"recommended"`` / ``"optional"``. Absent means "not asked yet"; a
+    # recorded bool means the user has decided and must not be asked again.
+    # Persisted deliberately: an answer given before a --resume is still the
+    # user's answer afterwards.
+    validation_preferences: dict[str, bool] = field(default_factory=dict)
+
     # ------------------------------------------------------------------
     # Entity management
     # ------------------------------------------------------------------
@@ -1041,6 +1048,7 @@ class StateSerializer:
             "mit_assessment": cls._encode(state.mit_assessment),
             "fair_assessment": cls._encode(state.fair_assessment),
             "checkpoint": cls._encode(state.checkpoint),
+            "validation_preferences": dict(state.validation_preferences),
             "iteration_count": state.iteration_count,
             "max_iterations": state.max_iterations,
             "stuck": state.stuck,
@@ -1085,6 +1093,10 @@ class StateSerializer:
             mit_assessment=MITReport.from_dict(data.get("mit_assessment", {})),
             fair_assessment=FAIRReport.from_dict(data.get("fair_assessment", {})),
             checkpoint=checkpoint,
+            # Read back, not just written: without this the standing "don't ask
+            # me again" answers reset to {} on every --resume, which is the one
+            # thing persisting them was meant to prevent.
+            validation_preferences=dict(data.get("validation_preferences") or {}),
         )
 
     @classmethod

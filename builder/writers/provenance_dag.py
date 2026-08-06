@@ -358,10 +358,7 @@ def render_provenance_mermaid(
     Returns:
         The Mermaid source as a string.
     """
-    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    nodes: dict[str, dict[str, Any]] = {
-        n["@id"]: n for n in graph if isinstance(n, dict) and "@id" in n
-    }
+    nodes = _graph_nodes(metadata)
 
     # Collect derivation edges first; the set of touched ids defines the
     # provenance subgraph we actually draw (everything else is excluded).
@@ -474,6 +471,7 @@ _SVG_CLASS = {
     "chem": ("n-chem", "tag-chem"),
     "agent": ("n-agent", "tag-agent"),
     "org": ("n-org", "tag-org"),
+    "container": ("n-container", "tag-container"),
 }
 
 
@@ -512,6 +510,13 @@ def _svg_node_shape(cls: str, x: int, y: int, variant: str = "") -> str:
         )
         fold = f"M{x + w - f},{y} V{y + f} H{x + w} Z"
         return f'<path class="n n-data{extra}" d="{body}"/><path class="fold" d="{fold}"/>'
+    if cls == "container":  # barred block — an ISA container (Investigation/Study/Assay)
+        bar = 7
+        return (
+            f'<rect class="n n-container{extra}" x="{x}" y="{y}" width="{w}" '
+            f'height="{h}" rx="3" ry="3"/>'
+            f'<path class="bars" d="M{x + bar},{y} V{y + h} M{x + w - bar},{y} V{y + h}"/>'
+        )
     if cls == "agent":  # pill — a person (no materials share this view)
         return (
             f'<rect class="n n-agent{extra}" x="{x}" y="{y}" width="{w}" height="{h}" '
@@ -560,10 +565,7 @@ def render_provenance_svg(
         The ``<svg>…</svg>`` markup, or ``""`` when the crate records no
         derivation chain (no in-crate process input/output edges to draw).
     """
-    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    nodes: dict[str, dict[str, Any]] = {
-        n["@id"]: n for n in graph if isinstance(n, dict) and "@id" in n
-    }
+    nodes = _graph_nodes(metadata)
 
     # Directed derivation edges, both pointing "downstream": material --object-->
     # process, process --result--> data. Only edges whose endpoints are both
@@ -711,6 +713,22 @@ _AUTHOR_KEYS = (
     "http://schema.org/author",
     "http://schema.org/creator",
 )
+_CONTRIBUTOR_KEYS = (
+    "contributor",
+    "maintainer",
+    "http://schema.org/contributor",
+    "http://schema.org/maintainer",
+)
+# A Person's institution. This is the ONLY edge that reaches an affiliation-only
+# Organization: nothing else in the crate references it, so leaving it out of the
+# relation sets below reports every ROR-backed institution as an orphan while the
+# crate is in fact correct.
+_AFFILIATION_KEYS = (
+    "affiliation",
+    "memberOf",
+    "http://schema.org/affiliation",
+    "https://schema.org/affiliation",
+)
 _PROTOCOL_KEYS = ("executesLabProtocol", "https://bioschemas.org/executesLabProtocol")
 _ABOUT_GRAPH_KEYS = _ABOUT_KEYS + ("labProcesses",)
 _SAMPLETYPE_KEYS = ("sampleType",)
@@ -739,6 +757,8 @@ _PRIMARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_ABOUT_GRAPH_KEYS, "about", False),
     (_MENTIONS_KEYS, "mentions", False),
     (_AUTHOR_KEYS, "author", False),
+    (_CONTRIBUTOR_KEYS, "contributor", False),
+    (_AFFILIATION_KEYS, "affiliation", False),
     (_PROTOCOL_KEYS, "executes", False),
     (_SAMPLETYPE_KEYS, "sampleType", False),
 )
@@ -901,7 +921,7 @@ def build_crate_graph(
         identifier_backed, orphan}``.
     """
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    raw = {n["@id"]: n for n in graph if isinstance(n, dict) and "@id" in n}
+    raw = _graph_nodes(graph)
     root_id = _find_root_id(raw, list(graph))
 
     # In-crate nodes = everything except plumbing descriptors.
@@ -1052,10 +1072,27 @@ _CAS_RE = re.compile(r"\d{2,7}-\d{2}-\d")
 # its ``propertyID`` *and* against the compound's own ``@id``, so a crate whose
 # @id is the PubChem/CompTox page still counts as carrying that identifier even
 # when it never spells the scheme out as a PropertyValue.
-_CHEM_ID_SCHEMES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
-    ("CAS", "CAS", ("cas", "casrn", "cas rn", "cas number", "cas registry number"), ()),
-    ("PubChem CID", "CID", ("pubchem cid", "pubchem", "cid"), ("pubchem.ncbi.nlm.nih.gov",)),
-    ("DTXSID", "DTXSID", ("dtxsid", "dsstox", "dsstox substance id"), ("comptox.epa.gov",)),
+# ``pattern`` guards the URL fallback below: a host match alone would turn ANY
+# PubChem page (a /bioassay/, a /patent/) into a "CID", inflating the
+# identification score with a value that identifies nothing.
+_CHEM_ID_SCHEMES: tuple[
+    tuple[str, str, tuple[str, ...], tuple[str, ...], "re.Pattern[str] | None"], ...
+] = (
+    ("CAS", "CAS", ("cas", "casrn", "cas rn", "cas number", "cas registry number"), (), _CAS_RE),
+    (
+        "PubChem CID",
+        "CID",
+        ("pubchem cid", "pubchem", "cid"),
+        ("pubchem.ncbi.nlm.nih.gov/compound",),
+        re.compile(r"\d+"),
+    ),
+    (
+        "DTXSID",
+        "DTXSID",
+        ("dtxsid", "dsstox", "dsstox substance id"),
+        ("comptox.epa.gov/dashboard/chemical",),
+        re.compile(r"DTXSID\w+", re.IGNORECASE),
+    ),
 )
 
 # Structure/characterisation fields carried directly on the compound. The
@@ -1092,8 +1129,21 @@ _CHEM_STRUCTURE_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # The coverage matrix columns: (full name, column header). Registry identifiers
 # first (they are what makes a compound orderable), then structure.
 CHEM_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = tuple(
-    (scheme, short) for scheme, short, _a, _h in _CHEM_ID_SCHEMES
+    (scheme, short) for scheme, short, *_rest in _CHEM_ID_SCHEMES
 ) + tuple((label, label) for label, _keys in _CHEM_STRUCTURE_FIELDS)
+
+# The less canonical ways an entity can still be referenced. They are scanned
+# last (a canonical route is preferred when both exist) but they MUST be scanned:
+# the panel states outright that "nothing in the crate references this compound",
+# and the topology strip a few lines below it reaches the same node over the
+# fuller `_PRIMARY_RELATIONS`/`_SECONDARY_RELATIONS` vocabulary. Omitting them
+# let the two halves of one section contradict each other.
+_EXTRA_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (_OUTPUT_KEYS, "result"),
+    (_LINEAGE_KEYS, "derivesFrom"),
+    (_HASPART_KEYS, "hasPart"),
+    (_PARAM_KEYS, "parameter"),
+)
 
 # Relations by which some other entity can point AT a compound, most canonical
 # first — the order decides which route is drawn when a compound is reachable
@@ -1106,13 +1156,31 @@ _CHEM_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
     (_VALUEURL_KEYS, "valueUrl"),
     (_MENTIONS_KEYS, "mentions"),
     (_INPUT_KEYS, "input"),
-    (_PARAM_KEYS, "parameter"),
-)
+) + _EXTRA_LINK_RELATIONS
 # Containment relations walked *upward* from a referrer to the entity a process
 # actually produced: a `compound` column is owned by a csvw:Schema, which is the
 # tableSchema of the condition table, which is the Exposure's result.
 _CHEM_CONTAINMENT_KEYS: tuple[tuple[str, ...], ...] = (_TABLESCHEMA_KEYS, _COLUMNS_KEYS)
 _CHEM_ANCHOR_HOPS = 3
+
+
+def _graph_nodes(
+    metadata: dict[str, Any] | list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Index a serialized document by ``@id``, skipping malformed entries.
+
+    ``@id`` MUST be a string, but a hand-edited or machine-mangled crate can
+    carry a number or an object there. Indexing on it unguarded raises
+    ``TypeError`` out of the report writer, and because the report is built
+    inside ``export_crate`` that costs the crate its entire maturity report over
+    one bad node. Skipping the node degrades one row instead.
+    """
+    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
+    return {
+        n["@id"]: n
+        for n in graph
+        if isinstance(n, dict) and isinstance(n.get("@id"), str)
+    }
 
 
 def _is_chemical(node: dict[str, Any]) -> bool:
@@ -1135,7 +1203,7 @@ def _literal(node: dict[str, Any], keys: tuple[str, ...]) -> str | None:
 def _registry_identifiers(
     node: dict[str, Any],
     nodes: dict[str, Any],
-    schemes: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...],
+    schemes: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...], Any], ...],
 ) -> dict[str, str]:
     """Persistent identifiers an entity carries, as ``{scheme: value}``.
 
@@ -1150,18 +1218,35 @@ def _registry_identifiers(
 
     def _scheme_of(name: str | None, url: str | None) -> str | None:
         key = (name or "").strip().casefold().replace("_", " ")
-        for scheme, _short, aliases, hosts in schemes:
+        for scheme, _short, aliases, hosts, _pat in schemes:
             if key and key in aliases:
                 return scheme
             if url and any(host in url for host in hosts):
                 return scheme
         return None
 
+    def _from_url(url: str) -> tuple[str, str] | None:
+        """``(scheme, value)`` when *url* is a registry URL whose tail actually
+        looks like that registry's identifier."""
+        for scheme, _short, _aliases, hosts, pattern in schemes:
+            if not hosts or not any(host in url for host in hosts):
+                continue
+            tail = url.rstrip("/").rsplit("/", 1)[-1]
+            if not tail:
+                return None
+            if pattern is None:
+                return (scheme, tail)
+            match = pattern.fullmatch(tail)
+            # A host match alone is not an identifier: /bioassay/1234 lives on the
+            # PubChem host and identifies no compound.
+            return (scheme, match.group(0)) if match else None
+        return None
+
     for key in _IDENTIFIER_KEYS:
         for item in _as_list(node.get(key)):
             if not isinstance(item, dict):
                 continue
-            pv = nodes.get(item["@id"], item) if "@id" in item else item
+            pv = nodes.get(item["@id"], item) if isinstance(item.get("@id"), str) else item
             prop_id = _first(pv, _PROPERTYID_KEYS)
             if isinstance(prop_id, dict):
                 prop_id = prop_id.get("@id")
@@ -1171,15 +1256,19 @@ def _registry_identifiers(
             value = _literal(pv, _VALUE_KEYS)
             if scheme and value and scheme not in found:
                 found[scheme] = value
+                continue
+            # The identifier node may BE the registry URL (an ORCID or a ROR
+            # given as {"@id": "https://orcid.org/…"}) with no separate value.
+            own = pv.get("@id")
+            if isinstance(own, str) and (hit := _from_url(own)) and hit[0] not in found:
+                found[hit[0]] = hit[1]
 
-    nid = str(node.get("@id", ""))
-    for scheme, _short, _aliases, hosts in schemes:
-        if scheme in found or not hosts:
+    for candidate in (_literal(node, _URL_KEYS), node.get("@id")):
+        if not isinstance(candidate, str):
             continue
-        if any(host in nid for host in hosts):
-            tail = nid.rstrip("/").rsplit("/", 1)[-1]
-            if tail:
-                found[scheme] = tail
+        hit = _from_url(candidate)
+        if hit and hit[0] not in found:
+            found[hit[0]] = hit[1]
     return found
 
 
@@ -1200,27 +1289,155 @@ def _chem_identifiers(node: dict[str, Any], nodes: dict[str, Any]) -> dict[str, 
     return found
 
 
-def _chem_referrers(
-    nodes: dict[str, Any], chem_ids: set[str]
+def _referrers_to(
+    nodes: dict[str, Any],
+    member_ids: set[str],
+    relations: tuple[tuple[tuple[str, ...], str], ...],
 ) -> dict[str, list[tuple[str, str]]]:
-    """``chemical id -> [(referrer id, relation label)]``, deterministically ordered.
+    """``member id -> [(referrer id, relation label)]``, deterministically ordered.
 
-    Compound→compound references are ignored: they are not a route into the
+    References *between* members are ignored: they are not a route into the
     experiment, and counting them would let a cluster of mutually-referencing
-    compounds mask the fact that none of them reaches a process.
+    entities mask the fact that none of them reaches a process.
     """
-    order = {label: i for i, (_keys, label) in enumerate(_CHEM_LINK_RELATIONS)}
+    order = {label: i for i, (_keys, label) in enumerate(relations)}
     out: dict[str, set[tuple[str, str]]] = {}
     for nid, node in nodes.items():
-        if nid in chem_ids or str(nid).rsplit("/", 1)[-1] in _EXCLUDED_IDS:
+        if nid in member_ids or str(nid).rsplit("/", 1)[-1] in _EXCLUDED_IDS:
             continue
-        for keys, label in _CHEM_LINK_RELATIONS:
+        for keys, label in relations:
             for ref in _refs(node, keys):
-                if ref in chem_ids:
+                if ref in member_ids:
                     out.setdefault(ref, set()).add((nid, label))
+    return {mid: sorted(pairs, key=lambda p: (order[p[1]], p[0])) for mid, pairs in out.items()}
+
+
+def _route_resolver(
+    nodes: dict[str, Any],
+    member_ids: set[str],
+    relations: tuple[tuple[tuple[str, ...], str], ...],
+) -> Any:
+    """Build ``resolve(member_id) -> route | None`` for a routed inventory.
+
+    A *route* is how a reader gets from a ``LabProcess`` to the entity:
+    ``{process, via, link, edge}``. Some referrers are not themselves produced by
+    a process — a CSVW column is owned by a schema which is the ``tableSchema`` of
+    the table a process actually produced — so the referrer is walked up the
+    containment chain to the nearest process-produced ancestor before giving up.
+
+    ``process`` is ``None`` when the entity is referenced in-crate but by nothing
+    a process produced; the whole route is ``None`` when nothing references it.
+    """
+    referrers = _referrers_to(nodes, member_ids, relations)
+
+    producers: dict[str, list[str]] = {}
+    parents: dict[str, list[str]] = {}
+    for nid, node in nodes.items():
+        if _is_process(node):
+            for dst in _refs(node, _OUTPUT_KEYS):
+                producers.setdefault(dst, []).append(nid)
+        for keys in _CHEM_CONTAINMENT_KEYS:
+            for ref in _refs(node, keys):
+                parents.setdefault(ref, []).append(nid)
+
+    def _anchor_of(ref_id: str) -> str | None:
+        """Nearest ancestor of *ref_id* (itself included) that a process produced."""
+        seen: set[str] = set()
+        frontier = [ref_id]
+        for _ in range(_CHEM_ANCHOR_HOPS + 1):
+            nxt: list[str] = []
+            for cur in frontier:
+                if cur in seen:
+                    continue
+                seen.add(cur)
+                if cur in producers:
+                    return cur
+                nxt.extend(parents.get(cur, ()))
+            if not nxt:
+                break
+            frontier = sorted(nxt)
+        return None
+
+    def _resolve(mid: str) -> dict[str, Any] | None:
+        fallback: dict[str, Any] | None = None
+        for rid, label in referrers.get(mid, []):
+            if _is_process(nodes[rid]):
+                return {"process": rid, "via": rid, "link": rid, "edge": label}
+            anchor = _anchor_of(rid)
+            if anchor is not None:
+                return {
+                    "process": sorted(producers[anchor])[0],
+                    "via": anchor,
+                    "link": rid,
+                    "edge": label,
+                }
+            if fallback is None:
+                fallback = {"process": None, "via": rid, "link": rid, "edge": label}
+        return fallback
+
+    return _resolve
+
+
+_ROUTE_STATE_ORDER = {"wired": 0, "mentioned": 1, "unlinked": 2}
+
+
+def _route_state(route: dict[str, Any] | None) -> str:
+    if route is None:
+        return "unlinked"
+    return "wired" if route["process"] else "mentioned"
+
+
+def _route_bands(
+    members: list[dict[str, Any]], nodes: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Group routed members into the diagram's bands.
+
+    Members sharing a ``(process, via)`` pair travel together — the relation is
+    *not* part of the key, so a table that reaches some of its members by
+    ``about`` and others by the column's ``valueUrl`` still draws one band; the
+    band's edge label then names both mechanisms rather than the diagram
+    repeating the same process and table twice.
+    """
+    banded: dict[tuple[str, str | None, str | None], list[dict[str, Any]]] = {}
+    for member in members:
+        route = member["route"] or {}
+        banded.setdefault(
+            (member["state"], route.get("process"), route.get("via")), []
+        ).append(member)
+    return [
+        {
+            "state": state,
+            "edge": " · ".join(sorted({m["route"]["edge"] for m in group if m["route"]})),
+            "process": _chem_node_brief(proc, nodes[proc]) if proc else None,
+            "via": _chem_node_brief(via, nodes[via]) if via else None,
+            "members": group,
+        }
+        for (state, proc, via), group in sorted(
+            banded.items(),
+            key=lambda kv: (_ROUTE_STATE_ORDER[kv[0][0]], kv[0][1] or "", kv[0][2] or ""),
+        )
+    ]
+
+
+def _route_counts(members: list[dict[str, Any]]) -> dict[str, int]:
     return {
-        cid: sorted(pairs, key=lambda p: (order[p[1]], p[0])) for cid, pairs in out.items()
+        "total": len(members),
+        "wired": sum(1 for m in members if m["state"] == "wired"),
+        "mentioned": sum(1 for m in members if m["state"] == "mentioned"),
+        "unlinked": sum(1 for m in members if m["state"] == "unlinked"),
+        "fields_met": sum(m["met"] for m in members),
+        "fields_total": sum(m["total"] for m in members),
     }
+
+
+_EMPTY_ROUTE_COUNTS = {
+    "total": 0,
+    "wired": 0,
+    "mentioned": 0,
+    "unlinked": 0,
+    "fields_met": 0,
+    "fields_total": 0,
+}
 
 
 def _chem_node_brief(nid: str, node: dict[str, Any]) -> dict[str, str]:
@@ -1267,84 +1484,24 @@ def build_chemical_inventory(
         carries ``total`` / ``wired`` / ``mentioned`` / ``unlinked`` plus
         ``fields_met`` / ``fields_total`` for the identification coverage.
     """
-    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    nodes: dict[str, dict[str, Any]] = {
-        n["@id"]: n for n in graph if isinstance(n, dict) and "@id" in n
-    }
+    nodes = _graph_nodes(metadata)
     chem_ids = {nid for nid, n in nodes.items() if _is_chemical(n)}
-    empty_counts = {
-        "total": 0,
-        "wired": 0,
-        "mentioned": 0,
-        "unlinked": 0,
-        "fields_met": 0,
-        "fields_total": 0,
-    }
     if not chem_ids:
-        return {"chemicals": [], "groups": [], "counts": empty_counts}
+        return {"chemicals": [], "groups": [], "counts": dict(_EMPTY_ROUTE_COUNTS)}
 
-    referrers = _chem_referrers(nodes, chem_ids)
-
-    # Which process produced a given entity, and the CSVW containment chain used
-    # to walk a referrer up to such an entity.
-    producers: dict[str, list[str]] = {}
-    parents: dict[str, list[str]] = {}
-    for nid, node in nodes.items():
-        if _is_process(node):
-            for dst in _refs(node, _OUTPUT_KEYS):
-                producers.setdefault(dst, []).append(nid)
-        for keys in _CHEM_CONTAINMENT_KEYS:
-            for ref in _refs(node, keys):
-                parents.setdefault(ref, []).append(nid)
-
-    def _anchor_of(ref_id: str) -> str | None:
-        """Nearest ancestor of *ref_id* (itself included) that a process produced."""
-        seen: set[str] = set()
-        frontier = [ref_id]
-        for _ in range(_CHEM_ANCHOR_HOPS + 1):
-            nxt: list[str] = []
-            for cur in frontier:
-                if cur in seen:
-                    continue
-                seen.add(cur)
-                if cur in producers:
-                    return cur
-                nxt.extend(parents.get(cur, ()))
-            if not nxt:
-                break
-            frontier = sorted(nxt)
-        return None
-
-    def _route_of(cid: str) -> dict[str, Any] | None:
-        """The best route into *cid*: process-backed if one exists, else the first
-        in-crate referrer (a compound that is named but produced by nothing)."""
-        fallback: dict[str, Any] | None = None
-        for rid, label in referrers.get(cid, []):
-            if _is_process(nodes[rid]):
-                return {"process": rid, "via": rid, "link": rid, "edge": label}
-            anchor = _anchor_of(rid)
-            if anchor is not None:
-                return {
-                    "process": sorted(producers[anchor])[0],
-                    "via": anchor,
-                    "link": rid,
-                    "edge": label,
-                }
-            if fallback is None:
-                fallback = {"process": None, "via": rid, "link": rid, "edge": label}
-        return fallback
+    resolve = _route_resolver(nodes, chem_ids, _CHEM_LINK_RELATIONS)
 
     chemicals: list[dict[str, Any]] = []
     for cid in sorted(chem_ids, key=lambda c: (_name(nodes[c]).casefold(), c)):
         node = nodes[cid]
         ids = _chem_identifiers(node, nodes)
-        structure = {
-            label: _literal(node, keys) is not None for label, keys in _CHEM_STRUCTURE_FIELDS
+        fields: dict[str, bool] = {
+            scheme: scheme in ids for scheme, *_rest in _CHEM_ID_SCHEMES
         }
-        fields = {scheme: scheme in ids for scheme, _s, _a, _h in _CHEM_ID_SCHEMES}
-        fields.update(structure)
-        route = _route_of(cid)
-        state = "unlinked" if route is None else ("wired" if route["process"] else "mentioned")
+        fields.update(
+            {label: _literal(node, keys) is not None for label, keys in _CHEM_STRUCTURE_FIELDS}
+        )
+        route = resolve(cid)
         chemicals.append(
             {
                 **_chem_node_brief(cid, node),
@@ -1353,47 +1510,196 @@ def build_chemical_inventory(
                 "fields": fields,
                 "met": sum(1 for ok in fields.values() if ok),
                 "total": len(fields),
-                "state": state,
+                "state": _route_state(route),
                 "route": route,
             }
         )
 
-    # Diagram bands: compounds sharing a (process, via) pair travel together —
-    # the relation is *not* part of the key, so a table that reaches some of its
-    # compounds by `about` and others by the column's `valueUrl` still draws one
-    # band; the band's edge label then names both mechanisms rather than the
-    # diagram repeating the same process and table twice.
-    order = {"wired": 0, "mentioned": 1, "unlinked": 2}
-    banded: dict[tuple[str, str | None, str | None], list[dict[str, Any]]] = {}
-    for chem in chemicals:
-        route = chem["route"] or {}
-        banded.setdefault(
-            (chem["state"], route.get("process"), route.get("via")), []
-        ).append(chem)
-    groups = [
-        {
-            "state": state,
-            "edge": " · ".join(
-                sorted({c["route"]["edge"] for c in members if c["route"]})
-            ),
-            "process": _chem_node_brief(proc, nodes[proc]) if proc else None,
-            "via": _chem_node_brief(via, nodes[via]) if via else None,
-            "chemicals": members,
-        }
-        for (state, proc, via), members in sorted(
-            banded.items(), key=lambda kv: (order[kv[0][0]], kv[0][1] or "", kv[0][2] or "")
-        )
-    ]
-
-    counts = {
-        "total": len(chemicals),
-        "wired": sum(1 for c in chemicals if c["state"] == "wired"),
-        "mentioned": sum(1 for c in chemicals if c["state"] == "mentioned"),
-        "unlinked": sum(1 for c in chemicals if c["state"] == "unlinked"),
-        "fields_met": sum(c["met"] for c in chemicals),
-        "fields_total": sum(c["total"] for c in chemicals),
+    return {
+        "chemicals": chemicals,
+        "groups": _route_bands(chemicals, nodes),
+        "counts": _route_counts(chemicals),
     }
-    return {"chemicals": chemicals, "groups": groups, "counts": counts}
+
+
+# ---------------------------------------------------------------------------
+# Cell lines (#85) — the biological test system, and whether it is pinned down.
+#
+# A cell line is the other half of "what was tested", and it fails the same two
+# ways a compound does. It is *unreachable* when the CellCulture consumes a
+# freshly minted generic Sample instead of the declared CellLineSample — the line
+# is then described in the crate and used by nothing, exactly the shape the
+# compound view exposes. And it is *unidentified* when it carries a name but no
+# Cellosaurus RRID: "CHO-K1" names a family of divergent stocks, RRID CVCL_0214
+# names one, and passage/organ/tissue are what let another lab reproduce the
+# culture rather than merely recognise it.
+# ---------------------------------------------------------------------------
+
+_CELLLINE_TYPES = frozenset({"CellLine", "CellLineSample"})
+_CELL_LINE_TERM_HINT = "cell line"
+
+# Cellosaurus accessions, with or without the RRID: prefix (RRID:CVCL_0214).
+_RRID_RE = re.compile(r"(?:RRID[:\s]*)?CVCL[_:][A-Z0-9]+", re.IGNORECASE)
+
+_ADDPROP_KEYS: tuple[str, ...] = (
+    "additionalProperty",
+    "http://schema.org/additionalProperty",
+    "https://schema.org/additionalProperty",
+)
+_URL_KEYS: tuple[str, ...] = ("url", "http://schema.org/url", "https://schema.org/url")
+
+# ISA Sample Characteristics that make a culture reproducible, matched
+# case-folded against each additionalProperty PropertyValue's ``name`` (the
+# shape ``_crate_mapping._CELL_LINE_CHARACTERISTICS`` mints).
+_CELLLINE_CHARACTERISTICS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Organ", ("organ",)),
+    ("Tissue", ("tissue",)),
+    ("Passage", ("passage", "passage number")),
+)
+
+CELLLINE_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("Cellosaurus RRID", "RRID"),
+    ("Typed as a cell line", "Type"),
+) + tuple((label, label) for label, _keys in _CELLLINE_CHARACTERISTICS)
+
+# How something can point at a cell line. ``input`` is canonical and first: the
+# CellCulture consumes the line (``_INPUT_KEYS`` already covers the ``cell_line``
+# alias). ``derivesFrom`` catches the cultured Sample that descends from it, and
+# ``mentions`` the Study-level ``cell_lines``/``biologicalModels`` alias.
+_CELLLINE_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (_INPUT_KEYS, "input"),
+    (_ABOUT_KEYS, "about"),
+    (_VALUEURL_KEYS, "valueUrl"),
+    (_MENTIONS_KEYS, "mentions"),
+) + _EXTRA_LINK_RELATIONS
+
+
+def _is_cellline(node: dict[str, Any], nodes: dict[str, Any]) -> bool:
+    """True for a cell-line entity.
+
+    Accepts the canonical ISA-Tox shape (a ``Sample`` with
+    ``additionalType: CellLine``), a bare ``CellLine`` type, and a ``Sample``
+    whose ``sampleType`` resolves to the shared "cell line" ``DefinedTerm`` —
+    the last so a crate that types its line only by term still appears.
+    """
+    if _types(node) & _CELLLINE_TYPES or _additional_type(node) in _CELLLINE_TYPES:
+        return True
+    if "Sample" not in _types(node):
+        return False
+    return any(
+        _CELL_LINE_TERM_HINT in (_literal(nodes[ref], _NAME_KEYS) or "").casefold()
+        for ref in _refs(node, _SAMPLETYPE_KEYS)
+        if ref in nodes
+    )
+
+
+def _cellline_rrid(node: dict[str, Any], nodes: dict[str, Any]) -> str | None:
+    """The Cellosaurus accession, from an ``identifier``, a ``url`` or the ``@id``."""
+    candidates: list[str] = []
+    for key in _IDENTIFIER_KEYS:
+        for item in _as_list(node.get(key)):
+            if isinstance(item, str):
+                candidates.append(item)
+            elif isinstance(item, dict):
+                pv = nodes.get(item["@id"], item) if "@id" in item else item
+                candidates.extend(
+                    v for v in (_literal(pv, _VALUE_KEYS), pv.get("@id")) if isinstance(v, str)
+                )
+    candidates.extend(
+        v for v in (_literal(node, _URL_KEYS), node.get("@id")) if isinstance(v, str)
+    )
+    for cand in candidates:
+        match = _RRID_RE.search(cand)
+        if match:
+            return match.group(0)
+    return None
+
+
+def _cellline_characteristics(node: dict[str, Any], nodes: dict[str, Any]) -> dict[str, bool]:
+    """Which reproducibility characteristics (organ / tissue / passage) are recorded.
+
+    Read from the ISA ``additionalProperty`` PropertyValues the builder mints,
+    falling back to a bare literal on the entity so an externally-authored crate
+    that never promoted them still scores.
+    """
+    present: set[str] = set()
+    for key in _ADDPROP_KEYS:
+        for item in _as_list(node.get(key)):
+            if not isinstance(item, dict):
+                continue
+            pv = nodes.get(item["@id"], item) if "@id" in item else item
+            if not isinstance(pv, dict) or _literal(pv, _VALUE_KEYS) is None:
+                continue
+            name = (_literal(pv, _NAME_KEYS) or "").strip().casefold()
+            for label, aliases in _CELLLINE_CHARACTERISTICS:
+                if name in aliases:
+                    present.add(label)
+    for label, aliases in _CELLLINE_CHARACTERISTICS:
+        if label not in present and _literal(node, aliases) is not None:
+            present.add(label)
+    return {label: label in present for label, _aliases in _CELLLINE_CHARACTERISTICS}
+
+
+def build_cellline_inventory(
+    metadata: dict[str, Any] | list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Model the crate's cell lines: their route into the experiment + their identity.
+
+    Resolves, for every cell-line entity, how it is reachable from a
+    ``LabProcess`` — canonically the ``CellCulture`` that consumes it as
+    ``input``/``cell_line``, or the cultured ``Sample`` that ``derivesFrom`` it —
+    and whether it carries a Cellosaurus RRID, an ontology-backed ``sampleType``,
+    and the organ / tissue / passage characteristics another lab needs to
+    reproduce the culture.
+
+    Pure and cheap: one pass over the serialized ``@graph``, no validation and no
+    network. Crate-controlled text is HTML-escaped in ``label`` (#169).
+
+    Returns:
+        ``{"celllines": [...], "groups": [...], "counts": {...}}``, shaped exactly
+        like :func:`build_chemical_inventory` so both feed the same renderer —
+        ``state`` is ``"wired"`` / ``"mentioned"`` / ``"unlinked"``.
+    """
+    nodes = _graph_nodes(metadata)
+    line_ids = {nid for nid, n in nodes.items() if _is_cellline(n, nodes)}
+    if not line_ids:
+        return {"celllines": [], "groups": [], "counts": dict(_EMPTY_ROUTE_COUNTS)}
+
+    resolve = _route_resolver(nodes, line_ids, _CELLLINE_LINK_RELATIONS)
+
+    lines: list[dict[str, Any]] = []
+    for lid in sorted(line_ids, key=lambda c: (_name(nodes[c]).casefold(), c)):
+        node = nodes[lid]
+        rrid = _cellline_rrid(node, nodes)
+        typed = bool(
+            _additional_type(node) in _CELLLINE_TYPES
+            or _types(node) & _CELLLINE_TYPES
+            or any(ref in nodes for ref in _refs(node, _SAMPLETYPE_KEYS))
+        )
+        fields: dict[str, bool] = {
+            "Cellosaurus RRID": rrid is not None,
+            "Typed as a cell line": typed,
+        }
+        fields.update(_cellline_characteristics(node, nodes))
+        route = resolve(lid)
+        lines.append(
+            {
+                **_chem_node_brief(lid, node),
+                "resolvable": _is_uri(lid),
+                "rrid": rrid,
+                "fields": fields,
+                "met": sum(1 for ok in fields.values() if ok),
+                "total": len(fields),
+                "state": _route_state(route),
+                "route": route,
+            }
+        )
+
+    return {
+        "celllines": lines,
+        "groups": _route_bands(lines, nodes),
+        "counts": _route_counts(lines),
+    }
 
 
 # --- chemicals diagram -----------------------------------------------------
@@ -1410,20 +1716,30 @@ _CHEM_BAND_GAP = 26
 # inter-column gap (_CHEM_COL_DX - _SVG_NODE_W = 44px), or a stub drawn next to a
 # populated column lands on top of that column's node.
 _CHEM_BREAK_DX = 30
-# Named compounds drawn per band before the tail is folded into one aggregate
-# node. A band of exactly _CHEM_MAX_NODES is drawn in full — aggregating a single
-# compound into "1 more" would cost a row and tell the reader less.
-_CHEM_MAX_NAMED = 3
-_CHEM_MAX_NODES = 4
+# Every compound in a band is drawn by name (see _band_nodes). The former
+# 3-named-plus-aggregate cap is gone: it hid exactly the detail the band exists
+# to show.
+
+# Arrowhead element ids — one per diagram (see _svg_link).
+_CHEM_MARKER = "chem-ar-link"
+_CELLLINE_MARKER = "cell-ar-link"
+_ISA_MARKER = "isa-ar-link"
+_PEOPLE_MARKER = "people-ar-link"
 
 
 def _band_nodes(members: list[dict[str, Any]]) -> list[dict[str, Any] | None]:
-    """The entries drawn for one band: each member, or a named head then ``None``
-    standing for "and N more" — the diagram answers *how do these connect*, and a
-    long verbatim list is the matrix's job, not the picture's."""
-    if len(members) <= _CHEM_MAX_NODES:
-        return list(members)
-    return [*members[:_CHEM_MAX_NAMED], None]
+    """The entries drawn for one band: **every** member, named.
+
+    This used to draw a head of :data:`_CHEM_MAX_NAMED` and fold the tail into a
+    single "and N more" node, on the reasoning that the diagram answers *how do
+    these connect* and a verbatim list is the matrix's job. In practice the
+    aggregate hid the thing the picture is for: a crate with 22 compounds
+    rendered as "3 named + 19 more", so which compounds were unwired — all of
+    them, as it turned out — could not be read off the diagram at all. The band
+    grows a row per compound; the SVG canvas is sized from the accumulated band
+    height, so it scales with the list.
+    """
+    return list(members)
 
 
 def _svg_place(
@@ -1448,12 +1764,21 @@ def _svg_place(
     )
 
 
-def _svg_link(out: list[str], x1: int, y1: int, x2: int, y2: int, label: str = "") -> None:
-    """Append a labelled bezier edge between two node edges."""
+def _svg_link(
+    out: list[str], x1: int, y1: int, x2: int, y2: int, label: str = "", *, marker: str
+) -> None:
+    """Append a labelled bezier edge between two node edges.
+
+    ``marker`` is the arrowhead's element id, which every diagram must namespace
+    for itself: several of these SVGs share one HTML document, ``url(#…)``
+    resolves to the first matching id in that document, and the panels that hold
+    them are ``display:none`` until their tab is selected — so a shared id points
+    the arrowheads of one diagram at a marker inside a hidden subtree.
+    """
     dx = (x2 - x1) // 2 if y1 == y2 else max((x2 - x1) // 2, 30)
     out.append(
         f'<path class="e e-link" d="M{x1},{y1} C{x1 + dx},{y1} {x2 - dx},{y2} {x2},{y2}" '
-        'marker-end="url(#view-ar-link)"/>'
+        f'marker-end="url(#{marker})"/>'
     )
     if label:
         out.append(
@@ -1481,20 +1806,23 @@ def _svg_break(out: list[str], x_end: int, y: int, *, leading: bool = True) -> N
         )
 
 
-_VIEW_MARKER = (
-    '<marker id="view-ar-link" viewBox="0 0 10 10" refX="9" refY="5" '
-    'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-    '<path d="M0,0 L10,5 L0,10 z" class="mk-link"/></marker>'
-)
-
-
-def _svg_document(body_edges: list[str], body_nodes: list[str], w: int, h: int, aria: str) -> str:
+def _svg_document(
+    body_edges: list[str],
+    body_nodes: list[str],
+    w: int,
+    h: int,
+    aria: str,
+    *,
+    marker: str,
+) -> str:
     """Wrap drawn edges/nodes in the finished, self-contained ``<svg>`` element."""
     return (
         f'<svg viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
         f'role="img" aria-label="{_escape(aria)}" class="prov view">'
         f"<title>{_escape(aria)}</title>"
-        f"<defs>{_VIEW_MARKER}</defs>"
+        f'<defs><marker id="{marker}" viewBox="0 0 10 10" refX="9" refY="5" '
+        'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" class="mk-link"/></marker></defs>'
         f'<g class="edges">{"".join(body_edges)}</g>'
         f'<g class="nodes">{"".join(body_nodes)}</g></svg>'
     )
@@ -1521,16 +1849,80 @@ def render_chemicals_svg(inventory: dict[str, Any]) -> str:
         The ``<svg>…</svg>`` markup, or ``""`` when the crate declares no
         compounds.
     """
+    return _render_routed_svg(
+        inventory,
+        node_cls="chem",
+        more_tag="MolecularEntity",
+        noun="compounds",
+        marker=_CHEM_MARKER,
+    )
+
+
+def render_celllines_svg(inventory: dict[str, Any]) -> str:
+    """Draw the cell-line routes as a self-contained inline ``<svg>``.
+
+    Same bands as the compound view, because the failure is the same: the
+    canonical route is ``CellCulture --input--> cell line`` (or the cultured
+    ``Sample --derivesFrom--> cell line``), and when the culture consumes a
+    freshly minted generic Sample instead, the declared line is left with no
+    inbound edge at all.
+
+    Args:
+        inventory: The result of :func:`build_cellline_inventory`.
+
+    Returns:
+        The ``<svg>…</svg>`` markup, or ``""`` when the crate declares no lines.
+    """
+    return _render_routed_svg(
+        inventory,
+        # A cell line IS a Sample, so it reuses the derivation chain's material
+        # stadium — the same entity keeps the same shape across every view.
+        node_cls="mat",
+        more_tag="Sample · CellLine",
+        noun="cell lines",
+        marker=_CELLLINE_MARKER,
+    )
+
+
+def _render_routed_svg(
+    inventory: dict[str, Any],
+    *,
+    node_cls: str,
+    more_tag: str,
+    noun: str,
+    marker: str,
+) -> str:
+    """Draw a routed inventory's bands: ``process → via → members``.
+
+    Shared by the compound and cell-line views — both answer "can a reader get
+    from a process to this entity", and drawing them identically is the point:
+    a break in one reads exactly like a break in the other.
+    """
     groups = inventory.get("groups") or []
     if not groups:
         return ""
 
-    # Drop the leading columns no band uses, so a crate whose compounds are all
+    def _hops(group: dict[str, Any]) -> list[dict[str, str]]:
+        """The band's left-hand nodes, rightmost last.
+
+        Two hops for the indirect route a compound takes
+        (``process --result--> table --about--> compound``); one when a process
+        references the member itself (a ``CellCulture`` consuming its cell line)
+        — drawing that process in both columns with a ``result`` edge between
+        them would depict a step the crate does not contain.
+        """
+        process, via = group["process"], group["via"]
+        if via is None:
+            return []
+        if process is not None and process["id"] != via["id"]:
+            return [process, via]
+        return [via]
+
+    # Drop the leading columns no band uses, so a crate whose members are all
     # unlinked doesn't render a diagram that is mostly empty gutter. The reserved
     # pad keeps room for the dashed ✗ stub once a left column is gone.
-    has_proc = any(g["process"] for g in groups)
-    has_via = any(g["via"] for g in groups)
-    first_col = 0 if has_proc else (1 if has_via else 2)
+    widest = max((len(_hops(g)) for g in groups), default=0)
+    first_col = 2 - widest
     x0 = _CHEM_X0 + (_CHEM_BREAK_DX + 10 if first_col else 0)
     col_x = [x0 + (i - first_col) * _CHEM_COL_DX for i in range(3)]
 
@@ -1540,24 +1932,23 @@ def render_chemicals_svg(inventory: dict[str, Any]) -> str:
     band_y = _CHEM_Y0
 
     for group in groups:
-        members = group["chemicals"]
+        members = group["members"]
         drawn = _band_nodes(members)
         span = (len(drawn) - 1) * _CHEM_ROW_DY
         centre_y = band_y + span // 2
         variant = "" if group["state"] == "wired" else "unwired"
 
-        for i, chem in enumerate(drawn):
+        for i, member in enumerate(drawn):
             y = band_y + i * _CHEM_ROW_DY
+            # ``None`` (the old "and N more" aggregate) is no longer produced by
+            # _band_nodes; the branch stays so a caller that reintroduces a cap
+            # still renders rather than crashing on a missing key.
             brief = (
-                {
-                    "id": "",
-                    "name": f"{len(members) - _CHEM_MAX_NAMED} more",
-                    "tag": "MolecularEntity",
-                }
-                if chem is None
-                else {"id": chem["id"], "name": chem["name"], "tag": chem["tag"]}
+                {"id": "", "name": "more", "tag": more_tag}
+                if member is None
+                else {"id": member["id"], "name": member["name"], "tag": member["tag"]}
             )
-            _svg_place(nodes_svg, brief, "chem", col_x[2], y, variant)
+            _svg_place(nodes_svg, brief, node_cls, col_x[2], y, variant)
             if group["via"] is not None:
                 _svg_link(
                     edges,
@@ -1566,22 +1957,23 @@ def render_chemicals_svg(inventory: dict[str, Any]) -> str:
                     col_x[2],
                     y + mid,
                     group["edge"] if i == 0 else "",
+                    marker=marker,
                 )
-            else:  # nothing in the crate points at these compounds at all
+            else:  # nothing in the crate points at these entities at all
                 _svg_break(edges, col_x[2], y + mid)
 
-        if group["via"] is not None:
-            _svg_place(
-                nodes_svg, group["via"], _node_class_for_brief(group["via"]), col_x[1], centre_y
-            )
-            if group["process"] is not None:
+        hops = _hops(group)
+        for offset, hop in enumerate(reversed(hops)):  # rightmost hop first
+            col = 1 - offset
+            _svg_place(nodes_svg, hop, _node_class_for_brief(hop), col_x[col], centre_y)
+            if offset:  # link this hop to the one on its right
                 _svg_link(
-                    edges, col_x[0] + _SVG_NODE_W, centre_y + mid, col_x[1], centre_y + mid,
-                    "result",
+                    edges, col_x[col] + _SVG_NODE_W, centre_y + mid, col_x[col + 1],
+                    centre_y + mid, "result", marker=marker,
                 )
-                _svg_place(nodes_svg, group["process"], "proc", col_x[0], centre_y)
-            else:  # named in the crate, but produced by no process
-                _svg_break(edges, col_x[1], centre_y + mid)
+        if hops and group["process"] is None:
+            # Named in the crate, but produced by no process.
+            _svg_break(edges, col_x[2 - len(hops)], centre_y + mid)
 
         band_y += span + _SVG_NODE_H + _CHEM_BAND_GAP
 
@@ -1591,8 +1983,9 @@ def render_chemicals_svg(inventory: dict[str, Any]) -> str:
         nodes_svg,
         col_x[2] + _SVG_NODE_W + 16,
         band_y - _CHEM_BAND_GAP + 18,
-        f"Compound routes: {counts.get('wired', 0)} of {counts.get('total', 0)} "
-        "compounds reachable from a process",
+        f"Routes: {counts.get('wired', 0)} of {counts.get('total', 0)} {noun} "
+        "reachable from a process",
+        marker=marker,
     )
 
 
@@ -1628,20 +2021,21 @@ _ORG_TYPES = frozenset(
     }
 )
 
-_AFFILIATION_KEYS: tuple[str, ...] = (
-    "affiliation",
-    "memberOf",
-    "http://schema.org/affiliation",
-    "https://schema.org/affiliation",
-)
-
 # Persistent-identifier schemes for agents, resolved the same way compounds are
 # (PropertyValue name / propertyID host / the entity's own @id).
-_AGENT_ID_SCHEMES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
-    ("ORCID", "ORCID", ("orcid", "orcid id", "orcid.org"), ("orcid.org",)),
-    ("ROR", "ROR", ("ror", "ror id"), ("ror.org",)),
-    ("ISNI", "ISNI", ("isni",), ("isni.org",)),
-    ("GRID", "GRID", ("grid", "grid id"), ("grid.ac",)),
+_AGENT_ID_SCHEMES: tuple[
+    tuple[str, str, tuple[str, ...], tuple[str, ...], "re.Pattern[str] | None"], ...
+] = (
+    (
+        "ORCID",
+        "ORCID",
+        ("orcid", "orcid id", "orcid.org"),
+        ("orcid.org/",),
+        re.compile(r"\d{4}-\d{4}-\d{4}-\d{3}[\dXx]"),
+    ),
+    ("ROR", "ROR", ("ror", "ror id"), ("ror.org/",), re.compile(r"0[0-9a-z]{6}[0-9]{2}")),
+    ("ISNI", "ISNI", ("isni",), ("isni.org/isni/",), re.compile(r"[\d ]{15,20}[\dXx]")),
+    ("GRID", "GRID", ("grid", "grid id"), ("grid.ac/institutes/",), re.compile(r"grid\.\d+\.\w+")),
 )
 # Which of those count as "identified" for each kind, most preferred first.
 _PID_FOR_KIND: dict[str, tuple[str, ...]] = {
@@ -1672,7 +2066,10 @@ AGENT_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("Persistent identifier", "PID"),
     ("Name", "Name"),
     ("Affiliation", "Affiliation"),
-    ("Credited in crate", "Credited"),
+    # "Linked", not "Credited": an organisation is normally reached through a
+    # person's affiliation rather than credited directly, and that is a correct
+    # crate — the column asks whether anything connects the agent at all.
+    ("Linked in crate", "Linked"),
 )
 
 
@@ -1710,7 +2107,7 @@ def build_people_inventory(
         ``{"agents": [...], "groups": [...], "counts": {...}}``.
 
         Each agent: ``{id, name, label, tag, kind, pid, pid_scheme, resolvable,
-        affiliation, fields, met, total, state}`` where ``state`` is
+        affiliations, fields, met, total, state}`` where ``state`` is
         ``"credited"`` (something in the crate credits it), ``"affiliated"`` (an
         organisation reached only through a person's affiliation) or
         ``"unattached"`` (nothing references it — the duplicate-institution
@@ -1720,9 +2117,7 @@ def build_people_inventory(
         credits, and those people's organisations.
     """
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    nodes: dict[str, dict[str, Any]] = {
-        n["@id"]: n for n in graph if isinstance(n, dict) and "@id" in n
-    }
+    nodes = _graph_nodes(metadata)
     kinds = {nid: _agent_kind(n) for nid, n in nodes.items()}
     agent_ids = {nid for nid, kind in kinds.items() if kind}
     empty_counts = {
@@ -1738,7 +2133,7 @@ def build_people_inventory(
     if not agent_ids:
         return {"agents": [], "groups": [], "counts": empty_counts}
 
-    root_id = _find_root_id(nodes, list(graph))
+    root_id = _find_root_id(nodes, [n for n in graph if isinstance(n, dict)])
 
     # Who credits whom. An agent crediting another agent (a ScholarlyArticle's
     # author list is fine, but Person --author--> Person is not attribution)
@@ -1753,17 +2148,20 @@ def build_people_inventory(
                 if ref in agent_ids and ref != nid:
                     credits.setdefault(ref, set()).add((nid, label))
 
-    # Person → organisation, and its inverse over the drawn subgraph.
-    affiliation: dict[str, str] = {}
+    # Person → organisation(s), and the inverse. EVERY affiliation is recorded,
+    # not just the first: a co-affiliated researcher is ordinary, and stopping at
+    # one leaves the second institution referenced by nothing — which this view
+    # then reports as an unattached duplicate and advises the reader to delete.
+    affiliation: dict[str, list[str]] = {}
     affiliates: dict[str, list[str]] = {}
     for nid in sorted(agent_ids):
         if kinds[nid] != "person":
             continue
-        for ref in _refs(nodes[nid], _AFFILIATION_KEYS):
-            if kinds.get(ref) == "org":
-                affiliation[nid] = ref
+        orgs = [ref for ref in _refs(nodes[nid], _AFFILIATION_KEYS) if kinds.get(ref) == "org"]
+        if orgs:
+            affiliation[nid] = orgs
+            for ref in orgs:
                 affiliates.setdefault(ref, []).append(nid)
-                break
 
     def _credit_source(aid: str) -> tuple[str, str] | None:
         """Best credit source: the crate root when it credits this agent (that is
@@ -1774,8 +2172,15 @@ def build_people_inventory(
         rooted = [p for p in found if p[0] == root_id]
         return sorted(rooted or found, key=lambda p: (rel_order[p[1]], p[0]))[0]
 
+    # The @id tiebreak is load-bearing: `agent_ids` is a SET, so two agents with
+    # the same display name would otherwise be ordered by the per-process string
+    # hash seed — and same-named agents are exactly the duplicate-entity case
+    # this view exists to surface. The embedded artifact must be byte-stable.
+    def _agent_order(aid: str) -> tuple[bool, str, str]:
+        return (kinds[aid] != "person", _name(nodes[aid]).casefold(), aid)
+
     agents: list[dict[str, Any]] = []
-    for aid in sorted(agent_ids, key=lambda a: (kinds[a] != "person", _name(nodes[a]).casefold())):
+    for aid in sorted(agent_ids, key=_agent_order):
         node = nodes[aid]
         kind = kinds[aid]
         assert kind is not None
@@ -1793,7 +2198,7 @@ def build_people_inventory(
             "Name": _literal(node, _NAME_KEYS) is not None,
             # An organisation has no affiliation of its own — n/a, not a miss.
             "Affiliation": (aid in affiliation) if kind == "person" else None,
-            "Credited in crate": state != "unattached",
+            "Linked in crate": state != "unattached",
         }
         agents.append(
             {
@@ -1803,7 +2208,7 @@ def build_people_inventory(
                 "pid_scheme": pid_scheme,
                 "identifiers": ids,
                 "resolvable": _is_uri(aid),
-                "affiliation": affiliation.get(aid),
+                "affiliations": affiliation.get(aid, []),
                 "fields": fields,
                 "met": sum(1 for ok in fields.values() if ok),
                 "total": sum(1 for ok in fields.values() if ok is not None),
@@ -1832,10 +2237,10 @@ def build_people_inventory(
     for key, band in banded.items():
         seen = {o["id"] for o in band["orgs"]}
         for person in band["persons"]:
-            org_id = person["affiliation"]
-            if org_id and org_id not in seen and org_id in by_id:
-                seen.add(org_id)
-                band["orgs"].append(by_id[org_id])
+            for org_id in person["affiliations"]:
+                if org_id not in seen and org_id in by_id:
+                    seen.add(org_id)
+                    band["orgs"].append(by_id[org_id])
 
     groups = [
         {
@@ -1849,7 +2254,12 @@ def build_people_inventory(
             banded.items(), key=lambda kv: (kv[0][0] != root_id, kv[0][0] or "", kv[0][1])
         )
     ]
-    loose = [a for a in agents if a["state"] == "unattached"]
+    # Anything no band picked up — the unattached, plus an organisation whose only
+    # affiliate is itself unattached (counted and listed, but previously drawn
+    # nowhere). The trailing band mixes states, so the diagram marks each node
+    # from its OWN state rather than the band's.
+    placed = {a["id"] for band in banded.values() for a in band["persons"] + band["orgs"]}
+    loose = [a for a in agents if a["id"] not in placed]
     if loose:
         groups.append(
             {
@@ -1907,33 +2317,28 @@ def render_people_svg(inventory: dict[str, Any]) -> str:
     def _row_y(row: int) -> int:
         return band_y + row * _CHEM_ROW_DY
 
-    def _more(count: int, tag: str) -> dict[str, str]:
-        return {"id": "", "name": f"{count - _CHEM_MAX_NAMED} more", "tag": tag}
-
     for group in groups:
-        persons, orgs = group["persons"], group["orgs"]
-        drawn_people = _band_nodes(persons)
-        drawn_orgs = _band_nodes(orgs)
+        # Every agent is drawn — no "+N more" aggregate. This view exists so a
+        # person can CHECK the attribution metadata entity by entity, and an
+        # elided tail is exactly where a duplicated institution or a
+        # missing-ORCID author would hide.
+        drawn_people = group["persons"]
+        drawn_orgs = group["orgs"]
         unattached = group["state"] == "unattached"
-        variant = "unwired" if unattached else ""
-        person_rows = {p["id"]: i for i, p in enumerate(drawn_people) if p is not None}
+        person_rows = {p["id"]: i for i, p in enumerate(drawn_people)}
 
-        # An organisation takes the row of its first drawn affiliate so the
-        # affiliation edge stays horizontal; collisions step down to the next
-        # free row. The aggregate ("+N more") is placed the same way.
+        # An organisation takes the row of its first affiliate so the affiliation
+        # edge stays horizontal; collisions step down to the next free row.
         org_rows: dict[str, int] = {}
         used: set[int] = set()
         for org in drawn_orgs:
-            oid = org["id"] if org is not None else ""
             wanted = [
-                person_rows[p["id"]]
-                for p in drawn_people
-                if p is not None and org is not None and p["affiliation"] == org["id"]
+                person_rows[p["id"]] for p in drawn_people if org["id"] in p["affiliations"]
             ]
             row = min(wanted) if wanted else 0
             while row in used:
                 row += 1
-            org_rows[oid] = row
+            org_rows[org["id"]] = row
             used.add(row)
 
         rows = max(len(drawn_people), max(used, default=-1) + 1, 1)
@@ -1950,12 +2355,11 @@ def render_people_svg(inventory: dict[str, Any]) -> str:
 
         for i, person in enumerate(drawn_people):
             y = _row_y(i)
-            brief = (
-                _more(len(persons), "Person")
-                if person is None
-                else {"id": person["id"], "name": person["name"], "tag": person["tag"]}
+            brief = {"id": person["id"], "name": person["name"], "tag": person["tag"]}
+            loose_person = person["state"] == "unattached"
+            _svg_place(
+                nodes_svg, brief, "agent", col_x[1], y, "unwired" if loose_person else ""
             )
-            _svg_place(nodes_svg, brief, "agent", col_x[1], y, variant)
             if group["source"] is not None:
                 _svg_link(
                     edges,
@@ -1964,43 +2368,41 @@ def render_people_svg(inventory: dict[str, Any]) -> str:
                     col_x[1],
                     y + mid,
                     group["edge"] if i == 0 else "",
+                    marker=_PEOPLE_MARKER,
                 )
-            elif unattached:
+            elif loose_person:
                 _svg_break(edges, col_x[1], y + mid)
-            if person is None:
-                continue
-            if person["affiliation"] in org_rows:
+            linked = [o for o in person["affiliations"] if o in org_rows]
+            for j, org_id in enumerate(linked):
                 _svg_link(
                     edges,
                     col_x[1] + _SVG_NODE_W,
                     y + mid,
                     col_x[2],
-                    _row_y(org_rows[person["affiliation"]]) + mid,
-                    "affiliation" if i == 0 else "",
+                    _row_y(org_rows[org_id]) + mid,
+                    "affiliation" if i == 0 and j == 0 else "",
+                    marker=_PEOPLE_MARKER,
                 )
-            elif not unattached:
+            if not linked and not loose_person:
                 # Credited, but the institution behind the person is missing.
                 _svg_break(edges, col_x[1] + _SVG_NODE_W, y + mid, leading=False)
 
         for org in drawn_orgs:
-            oid = org["id"] if org is not None else ""
-            y = _row_y(org_rows[oid])
-            brief = (
-                _more(len(orgs), "Organization")
-                if org is None
-                else {"id": org["id"], "name": org["name"], "tag": org["tag"]}
-            )
-            _svg_place(nodes_svg, brief, "org", col_x[2], y, variant)
-            if unattached:
+            y = _row_y(org_rows[org["id"]])
+            brief = {"id": org["id"], "name": org["name"], "tag": org["tag"]}
+            loose_org = org["state"] == "unattached"
+            _svg_place(nodes_svg, brief, "org", col_x[2], y, "unwired" if loose_org else "")
+            if loose_org:
                 _svg_break(edges, col_x[2], y + mid)
-            elif (
-                org is not None
-                and group["source"] is not None
-                and not any(p is not None and p["affiliation"] == org["id"] for p in drawn_people)
+            elif not unattached and group["source"] is not None and not any(
+                org["id"] in p["affiliations"] for p in drawn_people
             ):
                 # Credited straight from the source (a publisher or a funder),
                 # with no person in between.
-                _svg_link(edges, col_x[0] + _SVG_NODE_W, centre + mid, col_x[2], y + mid, "")
+                _svg_link(
+                    edges, col_x[0] + _SVG_NODE_W, centre + mid, col_x[2], y + mid,
+                    group["edge"], marker=_PEOPLE_MARKER,
+                )
 
         band_y += (rows - 1) * _CHEM_ROW_DY + _SVG_NODE_H + _CHEM_BAND_GAP
 
@@ -2012,6 +2414,257 @@ def render_people_svg(inventory: dict[str, Any]) -> str:
         band_y - _CHEM_BAND_GAP + 18,
         f"Attribution: {counts.get('pid_backed', 0)} of {counts.get('total', 0)} agents "
         "carry a persistent identifier",
+        marker=_PEOPLE_MARKER,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ISA structure (#85) — the Investigation / Study / Assay backbone.
+#
+# ISA is the skeleton every other view hangs off: the Investigation states what
+# was asked, each Study a coherent set of work toward it, each Assay one
+# measurement campaign whose LabProcesses the other views trace. The skeleton is
+# expressed purely as ``hasPart`` between Datasets that differ only by
+# ``additionalType`` — so it is invisible in the JSON and easy to break in ways
+# that still validate: a Study nobody lists as a part (present in the crate,
+# outside the hierarchy), an Assay with no process attached to it, or a level
+# with no ``identifier``, which is what makes an ISA node citable at all.
+# ---------------------------------------------------------------------------
+
+_ISA_LEVELS: tuple[str, ...] = ("Investigation", "Study", "Assay")
+_ISA_CHILD_LEVEL = {"Investigation": "Study", "Study": "Assay"}
+_DESCRIPTION_KEYS: tuple[str, ...] = (
+    "description",
+    "http://schema.org/description",
+    "https://schema.org/description",
+)
+
+ISA_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("Identifier", "Identifier"),
+    ("Description", "Description"),
+    ("Listed by its parent", "In parent"),
+    ("Contains the next level", "Contains"),
+)
+
+
+def _isa_level(node: dict[str, Any], is_root: bool) -> str | None:
+    """``Investigation`` / ``Study`` / ``Assay`` for an ISA container, else None.
+
+    The Root Data Entity is the Investigation whether or not it says so — a crate
+    whose root omits ``additionalType`` is still an investigation-level record,
+    and reporting it as "not an ISA node" would hide the whole hierarchy.
+    """
+    add = _additional_type(node)
+    if add in _ISA_LEVELS:
+        return add
+    return "Investigation" if is_root and "Dataset" in _types(node) else None
+
+
+def build_isa_inventory(
+    metadata: dict[str, Any] | list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Model the crate's ISA backbone: Investigation → Study → Assay.
+
+    Resolves each container's level, the parent that lists it under ``hasPart``,
+    the children it lists in turn, and — for an Assay — the ``LabProcess``es it is
+    ``about``. Reports per node whether it carries an ``identifier`` and a
+    ``description``, whether a parent lists it, and whether it contains the level
+    below (an Assay's "level below" is its processes).
+
+    Pure and cheap: one pass over the serialized ``@graph``, no validation and no
+    network. Crate-controlled text is HTML-escaped in ``label`` (#169).
+
+    Returns:
+        ``{"nodes": [...], "counts": {...}}``. Each node carries ``level``,
+        ``parent``, ``children``, ``processes``, ``fields``, ``met``, ``total``
+        and ``state`` — ``"linked"`` when a parent lists it (or it is the
+        Investigation), ``"detached"`` when nothing does.
+    """
+    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
+    nodes = _graph_nodes(metadata)
+    root_id = _find_root_id(nodes, [n for n in graph if isinstance(n, dict)])
+    levels = {
+        nid: lvl
+        for nid, n in nodes.items()
+        if (lvl := _isa_level(n, nid == root_id)) is not None
+    }
+    if not levels:
+        return {
+            "nodes": [],
+            "counts": {
+                "total": 0,
+                "investigations": 0,
+                "studies": 0,
+                "assays": 0,
+                "processes": 0,
+                "detached": 0,
+                "fields_met": 0,
+                "fields_total": 0,
+            },
+        }
+
+    # hasPart, restricted to ISA containers — the parent/child skeleton. A file
+    # part is not a structural child and must not make an Assay look populated.
+    children: dict[str, list[str]] = {}
+    parent: dict[str, str] = {}
+    for nid in sorted(levels):
+        kids = [ref for ref in _refs(nodes[nid], _HASPART_KEYS) if ref in levels]
+        if kids:
+            children[nid] = kids
+        for kid in kids:
+            parent.setdefault(kid, nid)
+
+    processes: dict[str, list[str]] = {}
+    for nid in sorted(levels):
+        if levels[nid] != "Assay":
+            continue
+        procs = [
+            ref
+            for ref in _refs(nodes[nid], _ABOUT_GRAPH_KEYS)
+            if ref in nodes and _is_process(nodes[ref])
+        ]
+        if procs:
+            processes[nid] = procs
+
+    def _order(nid: str) -> tuple[int, str, str]:
+        return (_ISA_LEVELS.index(levels[nid]), _name(nodes[nid]).casefold(), nid)
+
+    out: list[dict[str, Any]] = []
+    for nid in sorted(levels, key=_order):
+        node = nodes[nid]
+        level = levels[nid]
+        is_root = nid == root_id
+        kids = children.get(nid, [])
+        procs = processes.get(nid, [])
+        contains = bool(procs) if level == "Assay" else bool(kids)
+        fields: dict[str, bool | None] = {
+            "Identifier": _literal(node, _IDENTIFIER_KEYS) is not None
+            or bool(_refs(node, _IDENTIFIER_KEYS))
+            or _is_uri(nid),
+            "Description": _literal(node, _DESCRIPTION_KEYS) is not None,
+            # The Investigation is the top of the hierarchy — it has no parent to
+            # be listed by, which is not a defect.
+            "Listed by its parent": None if level == "Investigation" else nid in parent,
+            "Contains the next level": contains,
+        }
+        out.append(
+            {
+                **_chem_node_brief(nid, node),
+                "level": level,
+                "parent": parent.get(nid),
+                "children": kids,
+                "processes": procs,
+                "fields": fields,
+                "met": sum(1 for ok in fields.values() if ok),
+                "total": sum(1 for ok in fields.values() if ok is not None),
+                "state": "linked" if (is_root or nid in parent) else "detached",
+            }
+        )
+
+    counts = {
+        "total": len(out),
+        "investigations": sum(1 for n in out if n["level"] == "Investigation"),
+        "studies": sum(1 for n in out if n["level"] == "Study"),
+        "assays": sum(1 for n in out if n["level"] == "Assay"),
+        "processes": len({p for n in out for p in n["processes"]}),
+        "detached": sum(1 for n in out if n["state"] == "detached"),
+        "fields_met": sum(n["met"] for n in out),
+        "fields_total": sum(n["total"] for n in out),
+    }
+    return {"nodes": out, "counts": counts}
+
+
+def render_isa_svg(inventory: dict[str, Any]) -> str:
+    """Draw the ISA backbone as a self-contained inline ``<svg>``.
+
+    One column per level (Investigation → Study → Assay), each node on its own
+    row so nothing is elided, with ``hasPart`` edges between them. A container no
+    parent lists gets the dashed ✗ stub on its left — present in the crate but
+    outside the hierarchy, the failure that still validates.
+
+    An Assay's LabProcess count rides in its type tag rather than as a fourth
+    column: the processes themselves are what the Provenance view draws, and
+    repeating them here would make the skeleton unreadable.
+
+    Args:
+        inventory: The result of :func:`build_isa_inventory`.
+
+    Returns:
+        The ``<svg>…</svg>`` markup, or ``""`` when the crate has no ISA nodes.
+    """
+    nodes = inventory.get("nodes") or []
+    if not nodes:
+        return ""
+    by_id = {n["id"]: n for n in nodes}
+
+    # Rows: depth-first over the hierarchy so a parent sits with its children,
+    # then anything detached, so no node is ever dropped for lack of a parent.
+    row_of: dict[str, int] = {}
+    order: list[str] = []
+
+    def _walk(nid: str) -> None:
+        if nid in row_of:
+            return
+        row_of[nid] = len(order)
+        order.append(nid)
+        for kid in by_id[nid]["children"]:
+            if kid in by_id:
+                _walk(kid)
+
+    for n in nodes:
+        if n["level"] == "Investigation":
+            _walk(n["id"])
+    for n in nodes:
+        _walk(n["id"])
+
+    x0 = _CHEM_X0 + _CHEM_BREAK_DX + 10
+    col_x = [x0 + i * _CHEM_COL_DX for i in range(3)]
+    mid = _SVG_NODE_H // 2
+    edges: list[str] = []
+    nodes_svg: list[str] = []
+
+    def _y(nid: str) -> int:
+        return _CHEM_Y0 + row_of[nid] * _CHEM_ROW_DY
+
+    for n in nodes:
+        col = _ISA_LEVELS.index(n["level"])
+        y = _y(n["id"])
+        variant = "unwired" if n["state"] == "detached" else ""
+        tag = n["tag"]
+        if n["level"] == "Assay":
+            tag = f"{tag} · {len(n['processes'])} proc"
+        _svg_place(
+            nodes_svg,
+            {"id": n["id"], "name": n["name"], "tag": tag},
+            "container",
+            col_x[col],
+            y,
+            variant,
+        )
+        if n["state"] == "detached":
+            _svg_break(edges, col_x[col], y + mid)
+        for j, kid in enumerate(n["children"]):
+            if kid not in by_id:
+                continue
+            _svg_link(
+                edges,
+                col_x[col] + _SVG_NODE_W,
+                y + mid,
+                col_x[_ISA_LEVELS.index(by_id[kid]["level"])],
+                _y(kid) + mid,
+                "hasPart" if col == 0 and j == 0 else "",
+                marker=_ISA_MARKER,
+            )
+
+    counts = inventory.get("counts", {})
+    return _svg_document(
+        edges,
+        nodes_svg,
+        col_x[2] + _SVG_NODE_W + 16,
+        _CHEM_Y0 + (len(order) - 1) * _CHEM_ROW_DY + _SVG_NODE_H + 18,
+        f"ISA structure: {counts.get('investigations', 0)} investigation, "
+        f"{counts.get('studies', 0)} studies, {counts.get('assays', 0)} assays",
+        marker=_ISA_MARKER,
     )
 
 
@@ -2024,6 +2677,15 @@ def _node_class_for_brief(brief: dict[str, str]) -> str:
     """
     tag = brief.get("tag", "")
     head = tag.split(" · ", 1)[0]
+    if head in _PROCESS_DISCRIMINATORS or head == "LabProcess":
+        return "proc"
+    # An agent can also be a credit source (a ScholarlyArticle's authors, an
+    # organisation that funds another). Keep its own shape, or the same entity
+    # renders with two different outlines in one diagram.
+    if head == "Person":
+        return "agent"
+    if head in _ORG_TYPES:
+        return "org"
     if head in ("Table", "File", "MediaObject"):
         return "data"
     if head == "Sample":

@@ -212,7 +212,9 @@ class ProgressSpinner:
         """
         elapsed = int(monotonic() - self._start)
         line = f"[green]{self._phrase}…[/green] [dim]({elapsed}s)[/dim]"
-        if self._item_text:
+        if self._item_kind == "thinking" and not self._item_done:
+            line += "  [dim]·[/dim] [cyan]thinking…[/cyan]"
+        elif self._item_text:
             style = "grey62" if self._item_done else "cyan"
             if self._item_kind == "writing":
                 label = "[dim]wrote:[/dim] " if self._item_done else "[dim]writing:[/dim] "
@@ -365,6 +367,17 @@ class ProgressSpinner:
         else:
             self._offer(window, "writing")
 
+    def begin_generation(self) -> None:
+        """Mark the model as generating before any text has arrived.
+
+        Most calls in this agent emit tool calls with no prose at all, so
+        without this the line kept showing the last finished tool for the whole
+        model call and read as "still stuck on that tool". ``thinking…`` says
+        the model has the floor; the first real token replaces it with the tail.
+        """
+        self._preview_buffer = ""
+        self._offer("", "thinking")
+
     def set_preview(self, text: str | None) -> None:
         """Seed the reply tail, or (with ``None``) end it.
 
@@ -374,7 +387,7 @@ class ProgressSpinner:
         """
         self._preview_buffer = text or ""
         if not text:
-            if self._item_kind == "writing":
+            if self._item_kind in ("writing", "thinking"):
                 self._mark_done()
             return
         window = text.replace("\n", " ")[-_PREVIEW_WIDTH:].lstrip()

@@ -59,6 +59,7 @@ class TestStateSerializerOutput:
             "mit_assessment",
             "fair_assessment",
             "checkpoint",
+            "validation_preferences",
             "iteration_count",
             "max_iterations",
             "stuck",
@@ -102,6 +103,19 @@ class TestStateSerializerRoundTrip:
     def test_to_json_is_valid_json(self):
         text = StateSerializer.to_json(_populated_state())
         assert json.loads(text)["session_id"] == "sess-1"
+
+    def test_validation_preferences_round_trip(self):
+        """The standing "don't ask me again" answers survive a save/resume.
+
+        The existing round-trips compare ``to_dict`` output on states that leave
+        this dict empty, so ``{} == {}`` held even while ``from_dict`` dropped
+        the field entirely — the answers silently reset on every resume, which
+        is precisely what persisting them exists to prevent.
+        """
+        state = CrateState()
+        state.validation_preferences = {"recommended": True, "optional": False}
+        restored = StateSerializer.from_dict(StateSerializer.to_dict(state))
+        assert restored.validation_preferences == {"recommended": True, "optional": False}
 
     def test_partial_state_round_trips(self):
         state = CrateState(session_id="only-id")
