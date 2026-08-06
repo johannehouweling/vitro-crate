@@ -1001,7 +1001,7 @@ class TestSharedChrome:
         assert "Goodbye" in out
         assert engine.state.session_id in out
 
-    def test_status_bar_human_renders_before_prompt_and_delegates(self, monkeypatch) -> None:
+    def test_status_bar_human_delegates_without_reprinting_the_bar(self, monkeypatch) -> None:
         from builder.agents import build, ui
 
         rec = _rec_console()
@@ -1026,10 +1026,12 @@ class TestSharedChrome:
         # Delegates the read to the inner interface…
         assert resp == {"value": "x", "skipped": False}
         assert inner_calls == [("Describe the study", "text")]
-        # …after rendering a status bar (same shared line as the ReAct loop).
+        # …and prints no status bar of its own: the live spinner already carries
+        # the current phase/tool, so reprinting the full bar before every guidance
+        # question duplicated the progress UI and made long sessions noisy.
         out = rec.export_text()
-        assert engine.state.session_id in out
-        assert "entities" in out
+        assert engine.state.session_id not in out
+        assert out.strip() == ""
         # Everything else passes through to the wrapped interface.
         assert wrapped.is_interactive is True
         assert wrapped.present("x")["action"] == "approved"

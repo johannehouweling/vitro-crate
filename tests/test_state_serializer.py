@@ -53,6 +53,8 @@ class TestStateSerializerOutput:
             "entities",
             "approved_scan_roots",
             "scanned_files",
+            "documents",
+            "document_evidence",
             "validation",
             "mit_assessment",
             "fair_assessment",
