@@ -530,20 +530,31 @@ class TestRenderChemicalsSvg:
         # viewBox would simply be invisible.
         import xml.etree.ElementTree as ET
 
+        def attr(el: ET.Element, name: str) -> str:
+            """A geometry attribute the renderer must always emit.
+
+            ``Element.get`` is optional-typed, and a missing coordinate here
+            would otherwise crash with a bare ``AttributeError: 'NoneType'``
+            instead of naming the element that lost it.
+            """
+            value = el.get(name)
+            assert value is not None, f"<{el.tag}> is missing {name!r}"
+            return value
+
         svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
         root = ET.fromstring(svg)  # also asserts well-formedness
-        _, _, width, height = (float(v) for v in root.get("viewBox").split())
+        _, _, width, height = (float(v) for v in attr(root, "viewBox").split())
         xs: list[float] = []
         ys: list[float] = []
         for el in root.iter():
             if el.tag == "polygon" and el.get("class", "").startswith("n "):
-                for point in el.get("points").split():
+                for point in attr(el, "points").split():
                     px, py = point.split(",")
                     xs.append(float(px))
                     ys.append(float(py))
             elif el.tag == "text":
-                xs.append(float(el.get("x")))
-                ys.append(float(el.get("y")))
+                xs.append(float(attr(el, "x")))
+                ys.append(float(attr(el, "y")))
         assert xs and ys
         assert 0 <= min(xs) and max(xs) <= width
         assert 0 <= min(ys) and max(ys) <= height

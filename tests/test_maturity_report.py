@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from pathlib import Path
 
 from builder.state import CrateState, ValidationReport
@@ -434,10 +435,10 @@ class TestSeverityTiers:
     unevaluated tier as a green zero would be a false pass.
     """
 
-    def _passed(self, **overrides: object) -> ValidationReport:
-        base = {"base_passed": True, "isa_passed": True, "tox_passed": True}
+    def _passed(self, **overrides: Any) -> ValidationReport:
+        base: dict[str, Any] = {"base_passed": True, "isa_passed": True, "tox_passed": True}
         base.update(overrides)
-        return ValidationReport(**base)  # type: ignore[arg-type]
+        return ValidationReport(**base)
 
     def test_reports_all_three_severity_tiers(self) -> None:
         state = vhps_fixture_state("S-VHPS21")

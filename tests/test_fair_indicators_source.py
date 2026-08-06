@@ -24,8 +24,10 @@ GEN = REPO / "scripts" / "gen_fair_indicators.py"
 
 def _load_generator():
     spec = importlib.util.spec_from_file_location("gen_fair_indicators", GEN)
-    mod = importlib.util.module_from_spec(spec)
+    # Checked BEFORE module_from_spec, which cannot take None — the assert used
+    # to sit after the call it was meant to guard.
     assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
