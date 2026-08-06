@@ -395,7 +395,7 @@ TOOL_SPECS = [
     },
     {
         "name": "set_crate_metadata",
-        "description": "Set top-level crate metadata on the Root Data Entity (./): title/description/accession plus the root dates release_date (schema:releaseDate) and date_modified (schema:dateModified). Pass ISO-8601 strings for the dates, e.g. release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z'. Only the fields you pass are written — never fabricate a date. datePublished is auto-set at build time and is not controlled here. Example: set_crate_metadata(accession='S-VHPS21', release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z').",
+        "description": "WRITE-ONLY setter for top-level crate metadata on the Root Data Entity (./): title/description/accession plus the root dates release_date (schema:releaseDate) and date_modified (schema:dateModified). You MUST pass at least one value to write — a call with all fields null writes nothing, is REJECTED with an error, and does not read anything back; use get_status to READ the current crate metadata. Pass ISO-8601 strings for the dates, e.g. release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z'. Only the fields you pass are written — never fabricate a date. datePublished is auto-set at build time and is not controlled here. Example: set_crate_metadata(accession='S-VHPS21', release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z').",
         "parameters": {
             "type": "object",
             "properties": {

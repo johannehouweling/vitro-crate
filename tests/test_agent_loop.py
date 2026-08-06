@@ -2178,7 +2178,17 @@ class TestExportOnCompletedBuild:
 
     def _install_spy(self, engine, *, build_result, export_result):
         """Replace engine.run_tool with a recording spy returning canned results
-        for build_and_validate / export_crate; record the call order."""
+        for build_and_validate / export_crate; record the call order.
+
+        A mutation tool must actually CHANGE the state here. The spy replaces
+        ``run_tool`` wholesale, so without this a stubbed ``set_crate_metadata``
+        leaves ``validation_fingerprint()`` byte-identical — and the no-op
+        mutation guard then correctly reports it wrote nothing, which is the
+        opposite of what a test about mutations resetting the guard is driving.
+        Real tools write to state; the spy has to as well.
+        """
+        from builder.agents.react.agent_loop import _MUTATION_TOOLS
+
         calls: list[str] = []
 
         def fake_run_tool(tool_name: str, **kwargs):
@@ -2187,6 +2197,8 @@ class TestExportOnCompletedBuild:
                 return dict(build_result)
             if tool_name in ("export_crate", "build_crate"):
                 return dict(export_result)
+            if tool_name in _MUTATION_TOOLS:
+                engine.state.metadata.title = f"{engine.state.metadata.title or ''}·{len(calls)}"
             return {"ok": True}
 
         engine.run_tool = fake_run_tool  # type: ignore[method-assign]
