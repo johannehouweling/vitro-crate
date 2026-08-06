@@ -6,7 +6,7 @@
   --good:#0ca30c; --good-ink:#0a7d0a; --warn:#fab219; --warn-ink:#8a6500;
   --low:#d03b3b; --low-ink:#b3261e; --na-a:#e6ebeb; --na-b:#f3f6f6; --na-ink:#7a8688;
   --cov:#0e7c86; --track:#e6ebeb;
-  --cat-process:#2a78d6; --cat-material:#008300; --cat-data:#c0407a;
+  --cat-process:#2a78d6; --cat-material:#008300; --cat-data:#c0407a; --cat-chemical:#9a5b00;
   --edge-object:#8a9698; --edge-result:#0e7c86;
   color-scheme: light;
   background:var(--page); color:var(--ink);
@@ -178,6 +178,47 @@
 .mat .prov-legend .lg { display:inline-flex; align-items:center; gap:.4rem; }
 .mat .prov-legend .gl { width:1.5rem; height:0; border-top:2px solid var(--edge-result); }
 .mat .prov-legend .gl.obj { border-top:2px dashed var(--edge-object); }
+
+/* chemicals — route diagram + identification matrix (#85) */
+.mat .prov.chem { min-width:34rem; }
+.mat .prov .n-chem { fill:color-mix(in srgb,var(--cat-chemical) 9%,var(--surface-2));
+  stroke:var(--cat-chemical); }
+.mat .prov .tag-chem { fill:var(--cat-chemical); }
+/* A compound the crate never links to a process: dashed outline + alarm colour,
+   so "described but unreachable" never reads like a wired one. */
+.mat .prov .n-chem.unwired { fill:color-mix(in srgb,var(--low) 7%,var(--surface-2));
+  stroke:var(--low); stroke-dasharray:5 3; }
+.mat .prov .tag-chem.unwired { fill:var(--low-ink); }
+.mat .prov .e-link { stroke:var(--edge-result); }
+.mat .prov .mk-link { fill:var(--edge-result); }
+.mat .prov .e-break { stroke:var(--low); stroke-dasharray:4 3; }
+.mat .prov .brk { fill:var(--low-ink); font-size:11px; font-weight:700; text-anchor:end; }
+.mat .prov .elabel { fill:var(--muted); font-size:8.5px; text-anchor:middle;
+  font-weight:600; letter-spacing:.03em; }
+.mat .prov-legend .gl.brk { border-top:2px dashed var(--low); }
+.mat .chem-warn { display:flex; gap:.55rem; align-items:flex-start; margin:.9rem 0 0;
+  font-size:.84rem; color:var(--ink-2); max-width:72ch; }
+.mat .chem-warn b { color:var(--low-ink); font-weight:640; }
+.mat .chem-warn code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.78rem;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
+  padding:.02rem .3rem; color:var(--ink); }
+.mat .chem-tbl-scroll { overflow-x:auto; margin-top:.95rem; }
+.mat table.chem-tbl { border-collapse:collapse; width:100%; min-width:32rem; font-size:.82rem; }
+.mat .chem-tbl th, .mat .chem-tbl td { text-align:center; padding:.34rem .3rem;
+  border-bottom:1px solid var(--hairline); }
+.mat .chem-tbl thead th { font-size:.66rem; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--muted); font-weight:650; white-space:nowrap; vertical-align:bottom; }
+.mat .chem-tbl th[scope="row"] { text-align:left; font-weight:550; color:var(--ink-2);
+  display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; padding-right:.7rem; }
+.mat .chem-tbl thead th:first-child { text-align:left; }
+.mat .chem-tbl .cn { font-weight:580; color:var(--ink); }
+.mat .chem-tbl tbody tr:last-child th, .mat .chem-tbl tbody tr:last-child td { border-bottom:none; }
+.mat .chem-tbl tr.more th { color:var(--muted); font-style:italic; font-weight:500; }
+.mat .chem-flag { font-size:.66rem; text-transform:uppercase; letter-spacing:.05em;
+  font-weight:650; color:var(--low-ink); background:color-mix(in srgb,var(--low) 11%,transparent);
+  border-radius:999px; padding:.05rem .42rem; white-space:nowrap; }
+.mat .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 
 /* graph-topology strip (relocated here from the header) */
 .mat .comp { display:flex; flex-wrap:wrap; gap:.5rem .9rem; align-items:center;

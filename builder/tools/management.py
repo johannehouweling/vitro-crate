@@ -293,8 +293,28 @@ def set_crate_metadata(
 
     Returns:
         A token-bounded summary of the metadata values now in effect for the
-        fields this tool manages.
+        fields this tool manages, or an ``{"error": ...}`` dict when the call
+        supplies no value to write.
+
+    A call with every field empty is REFUSED rather than treated as a harmless
+    read. It cannot write anything, so it is always a mistake — and the
+    successful-looking summary it used to return read as progress to the caller,
+    which is how one session issued this call 33 times in a row (~990k input
+    tokens) without anything stopping it. Use ``get_status`` to read the current
+    metadata.
     """
+    supplied = (title, description, accession, release_date, date_modified)
+    if all(value in (None, "") for value in supplied):
+        return {
+            "error": (
+                "set_crate_metadata needs at least one value to write. Pass the "
+                "field(s) you want to set — title, description, accession, "
+                "release_date or date_modified — or use get_status to read the "
+                "current crate metadata."
+            ),
+            "tool": "set_crate_metadata",
+        }
+
     m = state.metadata
     if title not in (None, ""):
         m.title = title

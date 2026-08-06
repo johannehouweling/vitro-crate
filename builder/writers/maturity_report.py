@@ -280,6 +280,7 @@ def _render_kpis(
     mit: MITReport,
     repro_ready: int,
     repro_total: int,
+    chem: dict[str, Any] | None = None,
 ) -> str:
     # Profile-adherence tile: severity mini-rows, or an "awaiting validation" row.
     if tiers is None:
@@ -353,7 +354,27 @@ def _render_kpis(
         "</article>"
     )
 
-    return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{repro_tile}</div>\n'
+    # Chemicals tile — only when the crate actually declares compounds, so a
+    # non-chemical crate isn't given a tile reading "0".
+    chem_tile = ""
+    if chem:
+        c = chem["counts"]
+        wired, total = c["wired"], c["total"]
+        id_pct = round(c["fields_met"] / c["fields_total"] * 100) if c["fields_total"] else 0
+        chem_tile = (
+            '<article class="kpi">'
+            '<div class="kpi-h"><span class="eyebrow">Chemicals</span>'
+            f'{_mk("ok" if wired == total else "no")}</div>'
+            f'<div class="kpi-v"><b>{wired}</b><span class="den">/ {total}</span> '
+            '<span class="tag-inline">wired</span></div>'
+            f'<div class="kpi-sub">{id_pct}% of identification fields filled</div>'
+            f'<div class="meter" role="img" aria-label="identification {id_pct}%">'
+            f'<i class="{_fill_class(c["fields_met"], c["fields_total"])}" '
+            f'style="width:{id_pct}%"></i></div>'
+            "</article>"
+        )
+
+    return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{chem_tile}{repro_tile}</div>\n'
 
 
 def _render_profile_section(val: ValidationReport, tiers: list[dict[str, str]] | None) -> str:
@@ -659,6 +680,138 @@ def _render_provenance_section(graph: dict[str, Any] | list[dict[str, Any]]) -> 
     )
 
 
+# Cap the per-compound matrix so a screening crate with hundreds of compounds
+# can't blow up the page; the tail is summarised as "+N more" (never dropped
+# silently). Unwired compounds sort first — they are the actionable ones.
+_CHEM_LIST_CAP = 12
+
+_CHEM_STATE_MARK = {"wired": "ok", "mentioned": "na", "unlinked": "no"}
+_CHEM_STATE_NOTE = {
+    "wired": "reachable from a process",
+    "mentioned": "named in the crate, but produced by no process",
+    "unlinked": "nothing in the crate references this compound",
+}
+
+
+def _render_chemicals_section(inv: dict[str, Any]) -> str:
+    """The Chemicals section: how each compound reaches the experiment, and how
+    completely it is identified.
+
+    Two views of the same inventory, because either alone misleads. The diagram
+    answers *can a reader get from a process to this compound* — the chain ISA
+    forces to run through the condition table rather than the process object, and
+    the one that quietly breaks. The matrix answers *could a reader obtain this
+    substance* — CAS / PubChem CID / DTXSID plus the structure fields. A crate can
+    score perfectly on one and fail the other, so the section never collapses them
+    into a single number.
+
+    Returns ``""`` when the crate declares no compounds — an empty chemicals
+    panel on a non-chemical crate would read as a failure rather than as
+    "not applicable".
+    """
+    from builder.writers.provenance_dag import CHEM_COVERAGE_FIELDS, render_chemicals_svg
+
+    chems = inv["chemicals"]
+    if not chems:
+        return ""
+    counts = inv["counts"]
+    total, wired = counts["total"], counts["wired"]
+    id_pct = (
+        round(counts["fields_met"] / counts["fields_total"] * 100)
+        if counts["fields_total"]
+        else 0
+    )
+
+    svg = render_chemicals_svg(inv)
+    unreached = total - wired
+    if unreached:
+        route_note = (
+            f'<p class="chem-warn">{_mk("no")}<span><b>{unreached} of {total} compounds '
+            "cannot be reached from any process.</b> ISA forbids a MolecularEntity as a "
+            "LabProcess <code>object</code>, so a compound is linked <em>through</em> the "
+            "Exposure&rsquo;s condition table — give the table an <code>about</code> "
+            "pointing at the compound (and the <code>compound</code> column a "
+            "<code>valueUrl</code>), or the substance stays described but unused.</span></p>"
+        )
+    else:
+        route_note = (
+            '<p class="good-note">Every compound is reachable from the process that used it.</p>'
+        )
+
+    # Per-compound identification matrix. Unwired first, then worst-covered, so
+    # the rows that survive the cap are the ones worth acting on.
+    ordered = sorted(
+        chems, key=lambda c: (c["state"] == "wired", c["met"], c["name"].casefold())
+    )
+    head = "".join(
+        f'<th scope="col" title="{html.escape(full)}">{html.escape(short)}</th>'
+        for full, short in CHEM_COVERAGE_FIELDS
+    )
+    rows = []
+    for c in ordered[:_CHEM_LIST_CAP]:
+        link = " 🔗" if c["resolvable"] else ""
+        flag = (
+            ""
+            if c["state"] == "wired"
+            else f'<span class="chem-flag" title="{html.escape(_CHEM_STATE_NOTE[c["state"]])}">'
+            f"{'not linked' if c['state'] == 'unlinked' else 'no process'}</span>"
+        )
+        cells = "".join(
+            f'<td>{_mk("ok" if c["fields"].get(full) else "no")}</td>'
+            for full, _short in CHEM_COVERAGE_FIELDS
+        )
+        rows.append(
+            f'<tr><th scope="row">{_mk(_CHEM_STATE_MARK[c["state"]])}'
+            f'<span class="cn">{c["label"]}{link}</span>{flag}</th>{cells}</tr>'
+        )
+    extra = len(ordered) - _CHEM_LIST_CAP
+    if extra > 0:
+        rows.append(
+            f'<tr class="more"><th scope="row">+{extra} more compounds</th>'
+            f'<td colspan="{len(CHEM_COVERAGE_FIELDS)}"></td></tr>'
+        )
+    matrix = (
+        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+        f'<caption class="sr-only">Identification fields carried by each compound</caption>'
+        f'<thead><tr><th scope="col">Compound</th>{head}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>'
+    )
+
+    diagram = (
+        f'<div class="prov-scroll">{svg}</div>\n'
+        '  <div class="prov-legend">'
+        '<span class="lg"><svg width="20" height="14" aria-hidden="true">'
+        '<polygon points="4,1 14,1 18,7 14,13 4,13 1,7" fill="var(--accent-soft)" '
+        'stroke="var(--cat-process)" stroke-width="1.6"/></svg> Process</span>'
+        '<span class="lg"><svg width="20" height="14" aria-hidden="true">'
+        '<rect x="1" y="1" width="15" height="12" rx="2" fill="var(--surface-2)" '
+        'stroke="var(--cat-data)" stroke-width="1.6"/></svg> Condition table</span>'
+        '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+        '<polygon points="4,1 18,1 21,4 21,10 18,13 4,13 1,10 1,4" '
+        'fill="var(--surface-2)" stroke="var(--cat-chemical)" stroke-width="1.6"/>'
+        "</svg> Compound</span>"
+        '<span class="lg"><span class="gl"></span> links to</span>'
+        '<span class="lg"><span class="gl brk"></span> ✗ route stops here</span>'
+        "</div>"
+        if svg
+        else ""
+    )
+
+    return (
+        "<section>\n"
+        '  <div class="sec-h"><h2>Chemicals</h2>'
+        f'<span class="sec-meta"><b>{total}</b> compound{"" if total == 1 else "s"} · '
+        f"<b>{wired}</b> wired · <b>{id_pct}%</b> identified</span></div>\n"
+        '  <p class="lead">The substances under test — whether each one is actually '
+        "connected to the experiment that used it, and whether a reader could obtain the "
+        "same material.</p>\n"
+        f"  {diagram}\n"
+        f"  {route_note}\n"
+        f"  {matrix}\n"
+        "</section>\n"
+    )
+
+
 def build_maturity_html(
     state: CrateState,
     *,
@@ -709,7 +862,16 @@ def build_maturity_html(
     repro_ready = sum(1 for _, ok, _ in checks if ok)
 
     header = _render_header(title, accession, tiers)
-    kpis = _render_kpis(tiers, fair, mit, repro_ready, len(checks))
+    if graph is not None:
+        from builder.writers.provenance_dag import build_chemical_inventory
+
+        chem_inv = build_chemical_inventory(graph)
+        chem_section = _render_chemicals_section(chem_inv)
+    else:
+        chem_inv, chem_section = None, ""
+    kpis = _render_kpis(
+        tiers, fair, mit, repro_ready, len(checks), chem_inv if chem_section else None
+    )
     prov_section = _render_provenance_section(graph) if graph is not None else ""
     prof_section = _render_profile_section(val, tiers)
     fair_section = _render_fair_section(fair)
@@ -724,6 +886,7 @@ def build_maturity_html(
         header
         + kpis
         + prov_section
+        + chem_section
         + prof_section
         + fair_section
         + mit_section

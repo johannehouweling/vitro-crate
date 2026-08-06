@@ -163,11 +163,16 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
 
     on_chat_model_start = on_llm_start
 
-    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+    def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:
         # Only fires when the model was built with streaming. The spinner keeps
         # the running text and repaints it on its own tick, so a fast token
         # stream cannot turn into a write per token.
-        self.spinner.append_preview(token)
+        #
+        # `token` is NOT always a string: the Responses API (every reasoning
+        # model) streams content-block lists, and concatenating one raised a
+        # TypeError per token. Flattening through the shared #341 helper also
+        # drops reasoning/tool-call blocks, so only real text reaches the line.
+        self.spinner.append_preview(ui.flatten_message_content(token))
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         # The reply is about to be printed in full to the transcript; a stale
@@ -837,10 +842,48 @@ def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Marker in the corrective returned for a mutation that left the crate
+# unchanged. It doubles as the signal to _is_non_progress_result, so a repeated
+# no-op feeds the loop-breaker instead of resetting it.
+_NO_OP_MUTATION_MARKER = "changed nothing in the crate"
+
+
+def _no_op_mutation_message(tool_name: str, kwargs: dict[str, Any], engine: AgentEngine) -> str:
+    """The corrective for a mutation call that left the crate byte-identical.
+
+    A weak model can sit in a loop of a mutation that writes nothing —
+    ``set_crate_metadata`` with every field ``None`` was observed 33 times in
+    one session, burning ~990k input tokens — because the call looks successful:
+    it returns a normal dict, so nothing downstream treats it as a dead end.
+    This says plainly that nothing changed and what to do instead.
+    """
+    supplied = sorted(k for k, v in kwargs.items() if v not in (None, "", [], {}))
+    lines = [f"{tool_name} {_NO_OP_MUTATION_MARKER} — the state is identical to before the call."]
+    if not supplied:
+        lines.append(
+            "Every argument was empty, so there was nothing to write. Calling it "
+            "again with empty arguments will do nothing again."
+        )
+    else:
+        lines.append(
+            f"The fields you passed ({', '.join(supplied)}) already hold exactly "
+            "those values, so re-writing them is a no-op."
+        )
+    state_summary = _format_compact_state_summary(engine)
+    if state_summary:
+        lines.append(f"\nCurrent state:\n{state_summary}")
+    lines.append(
+        "\nDo NOT repeat this call. Either call it with a genuinely different "
+        "value, or move on to the next step toward a complete crate (draft the "
+        "missing entities, wire the process chain, then build_and_validate)."
+    )
+    return "\n".join(lines)
+
+
 def _is_non_progress_result(result: Any) -> bool:
     """Return True when a tool result represents NO forward progress (#287 Fix B).
 
-    A weak model loops when a tool keeps handing back the same dead-end. Three
+    A weak model loops when a tool keeps handing back the same dead-end. Four
     shapes count as non-progress:
 
     1. An ``error`` dict — the wrapper turns a recoverable tool-body exception
@@ -849,6 +892,10 @@ def _is_non_progress_result(result: Any) -> bool:
        ``"<path> is a directory, not a file …"`` (#240/#281).
     3. An unreadable/None string — a reader that could not return text returns
        ``"<tool> could not return text …"`` (#101/#148).
+    4. A no-op mutation corrective — a mutation whose call left the crate state
+       unchanged (:func:`_no_op_mutation_message`). Without this a tool that
+       writes nothing counts as progress and RESETS every loop guard, which is
+       exactly how a 33-call ``set_crate_metadata`` loop stayed alive.
 
     Anything else (real file content, a successful build dict, a list, …) is
     progress and resets the loop-breaker. The check is purely structural so it
@@ -857,7 +904,11 @@ def _is_non_progress_result(result: Any) -> bool:
     if isinstance(result, dict):
         return "error" in result
     if isinstance(result, str):
-        return "is a directory, not a file" in result or "could not return text" in result
+        return (
+            "is a directory, not a file" in result
+            or "could not return text" in result
+            or _NO_OP_MUTATION_MARKER in result
+        )
     return False
 
 
@@ -1095,6 +1146,19 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         logger.info("Suppressed repeated unchanged %s", bv_sig)
                         return corrective
 
+                # Snapshot the state so a mutation that writes nothing can be
+                # recognised AFTER the fact. The tools reject the obvious cases
+                # themselves; this catches every other way a mutation can be a
+                # no-op (re-linking an existing edge, re-setting an identical
+                # field) — all of which otherwise read as progress and reset the
+                # loop guards.
+                mutation_fingerprint: str | None = None
+                if tool_name in _MUTATION_TOOLS:
+                    try:
+                        mutation_fingerprint = engine.state.validation_fingerprint()
+                    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+                        logger.debug("no-op guard: fingerprint failed", exc_info=True)
+
                 try:
                     result = engine.run_tool(tool_name, **kwargs)
                     _raise_if_invocation_cancelled()
@@ -1164,11 +1228,25 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                             if escalation and isinstance(result, dict):
                                 result = {**result, "escalation": escalation}
 
-                # Track repeated list queries independently: this never stores or
-                # reuses their result, and mutations always reset the streak.
-                if tool_name in _MUTATION_TOOLS and not (
+                # A mutation that left the state byte-identical did NOT make
+                # progress, whatever its return value looks like. Swap in the
+                # corrective before the bookkeeping below, so it neither counts
+                # as a mutation (which would reset every guard) nor escapes the
+                # loop-breaker (_is_non_progress_result recognises the marker).
+                if mutation_fingerprint is not None and not (
                     isinstance(result, dict) and result.get("error")
                 ):
+                    try:
+                        unchanged = engine.state.validation_fingerprint() == mutation_fingerprint
+                    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+                        unchanged = False
+                    if unchanged:
+                        logger.info("No-op mutation suppressed: %s(%s)", tool_name, signature)
+                        result = _no_op_mutation_message(tool_name, kwargs, engine)
+
+                # Track repeated list queries independently: this never stores or
+                # reuses their result, and mutations always reset the streak.
+                if tool_name in _MUTATION_TOOLS and not _is_non_progress_result(result):
                     _record_recent_mutation(engine, result)
                     setattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
                     setattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)

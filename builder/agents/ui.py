@@ -137,6 +137,11 @@ class UiSnapshot:
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float | None = None
+    # The most recent model call on its own. The prompt is rebuilt every call,
+    # so this input figure IS the current context size — the number that shows
+    # context bloat, which the session total (a sum over every re-send) hides.
+    turn_tokens_in: int = 0
+    turn_tokens_out: int = 0
 
 
 @dataclass
@@ -148,6 +153,10 @@ class _TokenTail:
     tokens_in: int
     tokens_out: int
     last_model: str
+    # The last model call's own counts, kept alongside the running totals so the
+    # per-turn figures cost no extra parsing.
+    last_call_in: int = 0
+    last_call_out: int = 0
 
 
 # Per-profile-file resume points for :func:`_read_token_totals`, keyed by the
@@ -205,14 +214,32 @@ def _read_token_totals(session_id: str) -> tuple[int, int, str]:
                         or record.get("node") != "model"
                     ):
                         continue
-                    tail.tokens_in += int(record.get("input_tokens", 0) or 0)
-                    tail.tokens_out += int(record.get("output_tokens", 0) or 0)
+                    tail.last_call_in = int(record.get("input_tokens", 0) or 0)
+                    tail.last_call_out = int(record.get("output_tokens", 0) or 0)
+                    tail.tokens_in += tail.last_call_in
+                    tail.tokens_out += tail.last_call_out
                     tail.last_model = record.get("model_name") or tail.last_model
 
         return tail.tokens_in, tail.tokens_out, tail.last_model
     except Exception:
         logger.debug("token totals unavailable for %s", session_id, exc_info=True)
         return 0, 0, ""
+
+
+def _read_turn_tokens(session_id: str) -> tuple[int, int]:
+    """The last model call's ``(input, output)`` tokens, or ``(0, 0)``.
+
+    Reads the cache :func:`_read_token_totals` maintains, so it must be called
+    after it (as :func:`snapshot_from_engine` does) and costs no extra parsing.
+    """
+    try:
+        from builder.tools.profiler import SESSION_DIR
+
+        tail = _TOKEN_TAILS.get(str(SESSION_DIR / session_id / "profile.ndjson"))
+        return (tail.last_call_in, tail.last_call_out) if tail else (0, 0)
+    except Exception:
+        logger.debug("turn tokens unavailable for %s", session_id, exc_info=True)
+        return 0, 0
 
 
 def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
@@ -234,6 +261,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
     mit_assessed = bool(getattr(mit, "module_scores", None))
 
     tokens_in, tokens_out, last_model = _read_token_totals(state.session_id)
+    turn_in, turn_out = _read_turn_tokens(state.session_id)
     cost_usd: float | None = None
     if tokens_in + tokens_out > 0:
         try:
@@ -261,6 +289,8 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         cost_usd=cost_usd,
+        turn_tokens_in=turn_in,
+        turn_tokens_out=turn_out,
     )
 
 
@@ -271,6 +301,20 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
 
 def _dot(ok: bool) -> str:
     return _PASS_DOT if ok else _PENDING_DOT
+
+
+def _compact_tokens(count: int) -> str:
+    """Token count in a fixed-width-ish compact form: ``842``, ``12.9k``, ``2.5M``.
+
+    A pinned line has one row to spend, and six-digit counts push the validation
+    dots off a narrow terminal. Counts under 1000 are shown exactly — rounding
+    the small numbers would lose the detail that matters at the start of a run.
+    """
+    if count < 1000:
+        return str(count)
+    if count < 1_000_000:
+        return f"{count / 1000:.1f}k".replace(".0k", "k")
+    return f"{count / 1_000_000:.1f}M".replace(".0M", "M")
 
 
 def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None = None) -> str:
@@ -296,10 +340,18 @@ def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None =
     if snap.tokens_in + snap.tokens_out > 0:
         from builder.pricing import format_cost
 
-        cost_str = f"@{format_cost(snap.cost_usd)}" if snap.cost_usd is not None else ""
+        cost_str = f" @{format_cost(snap.cost_usd)}" if snap.cost_usd is not None else ""
         total = snap.tokens_in + snap.tokens_out
+        # ↑/↓ are THIS turn — the prompt is rebuilt every call, so ↑ is the live
+        # context size and its drift is the bloat signal. Before the first call
+        # completes there is no turn figure, so fall back to the session numbers
+        # rather than showing a misleading pair of zeros.
+        turn_in = snap.turn_tokens_in or snap.tokens_in
+        turn_out = snap.turn_tokens_out or snap.tokens_out
         token_str = "  " + _SEP + "  " + field(
-            "tokens", f"tok {snap.tokens_in}→{snap.tokens_out} ({total}){cost_str}"
+            "tokens",
+            f"↑{_compact_tokens(turn_in)} ↓{_compact_tokens(turn_out)}"
+            f"  {_compact_tokens(total)} tok{cost_str}",
         )
 
     return (
@@ -322,7 +374,15 @@ def status_field_values(snap: UiSnapshot) -> dict[str, Any]:
         "base": snap.base_passed,
         "isa": snap.isa_passed,
         "tox": snap.tox_passed,
-        "tokens": (snap.tokens_in, snap.tokens_out, snap.cost_usd),
+        # The per-turn figures are included so the fader tints the segment when
+        # a new turn lands, not only when the cumulative cost ticks over.
+        "tokens": (
+            snap.tokens_in,
+            snap.tokens_out,
+            snap.cost_usd,
+            snap.turn_tokens_in,
+            snap.turn_tokens_out,
+        ),
     }
 
 

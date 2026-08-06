@@ -52,6 +52,12 @@ _DELEGATED_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 # terminal; the footer truncates anything wider anyway.
 _PREVIEW_WIDTH = 40
 
+# Minimum seconds an op stays on the line before a newer one may replace it.
+# Most tools return in milliseconds, so without this the line was a stream of
+# unreadable flashes; long enough to read a tool name, short enough that the
+# display never trails reality by more than a blink.
+_MIN_DWELL = 0.7
+
 
 # The single toxicology-themed phrase list, shared by both build arms (#344).
 # ``ProgressSpinner`` picks one at random when no explicit phrase is given.
@@ -146,8 +152,21 @@ class ProgressSpinner:
             console = Console()
         self._console = console
         self._phrase = phrase or random.choice(TOX_SPINNER_PHRASES)
-        self._current: str | None = None
-        self._preview: str | None = None
+        # The single "what is happening" slot. It holds the last thing that
+        # happened rather than only what is happening *right now*, so a tool that
+        # returns in 10ms is still readable afterwards.
+        self._item_text: str | None = None
+        self._item_kind = "tool"  # "tool" | "writing"
+        self._item_done = False
+        self._item_at = 0.0
+        # Newest item waiting for the current one to serve its minimum dwell.
+        # Only the newest is kept: the display may lag reality by up to
+        # _MIN_DWELL, but it never queues up a backlog to replay.
+        self._pending: tuple[str, str] | None = None
+        # Ops displaced before they were ever displayed — reported as "+N more"
+        # so a fast burst is not misread as a single tool call.
+        self._skipped = 0
+        self._shown_skipped = 0
         self._preview_buffer = ""
         self._tick_interval = tick_interval
         self._sink = activity_sink
@@ -186,16 +205,22 @@ class ProgressSpinner:
     def _render(self) -> str:
         """Render the spinner line: phrase, elapsed seconds, and the current op.
 
-        A running tool wins over the reply tail: they never overlap in time
-        (the model finishes writing before a tool starts), and when both are
-        somehow set the concrete tool is the more informative of the two.
+        The op **lingers**: it is shown in cyan while it runs and stays, dimmed,
+        once it finishes, until something newer takes its place. Clearing the
+        moment a tool returned meant most tools — which finish in milliseconds —
+        appeared only as an unreadable flash.
         """
         elapsed = int(monotonic() - self._start)
         line = f"[green]{self._phrase}…[/green] [dim]({elapsed}s)[/dim]"
-        if self._current:
-            line += f"  [dim]·[/dim] [cyan]{self._current}[/cyan]"
-        elif self._preview:
-            line += f'  [dim]·[/dim] [dim]writing:[/dim] [white]"{self._preview}"[/white]'
+        if self._item_text:
+            style = "grey62" if self._item_done else "cyan"
+            if self._item_kind == "writing":
+                label = "[dim]wrote:[/dim] " if self._item_done else "[dim]writing:[/dim] "
+                line += f'  [dim]·[/dim] {label}[{style}]"{self._item_text}"[/{style}]'
+            else:
+                line += f"  [dim]·[/dim] [{style}]{self._item_text}[/{style}]"
+                if self._shown_skipped:
+                    line += f" [dim](+{self._shown_skipped} more)[/dim]"
         return line
 
     def _render_delegated(self) -> str:
@@ -225,6 +250,7 @@ class ProgressSpinner:
         while not self._stop.wait(self._tick_interval):
             if self._paused.is_set():
                 continue
+            self._promote_pending()
             if self._sink is not None:
                 self._frame += 1
                 self._publish()
@@ -241,15 +267,64 @@ class ProgressSpinner:
     # Public API
     # ------------------------------------------------------------------
 
-    def set_current(self, text: str | None) -> None:
-        """Show (or clear, with ``None``) the currently-running tool/phase.
+    def _offer(self, text: str, kind: str) -> None:
+        """Display *text* now, or hold it until the current item has had its dwell."""
+        now = monotonic()
+        if self._item_text is None or (now - self._item_at) >= _MIN_DWELL:
+            self._item_text, self._item_kind, self._item_done = text, kind, False
+            self._item_at = now
+            self._pending = None
+            # Shown straight away, so nothing was displaced on its behalf: clear
+            # BOTH counters or the previous burst's tally rides along with it.
+            self._skipped = 0
+            self._shown_skipped = 0
+        else:
+            if self._pending is not None and self._pending[1] != "writing":
+                # An op is being displaced before it was ever shown. Count it —
+                # a burst of fast tools would otherwise look like one tool ran.
+                self._skipped += 1
+            self._pending = (text, kind)
 
-        Records the op and repaints immediately — unless paused, in which case the
-        op is remembered but the Live region is left alone so a HITL prompt stays
-        readable (the next resume/tick picks it up). On a non-TTY (silent mode)
-        the op is still remembered but there is no Live region to repaint.
+    def _mark_done(self) -> None:
+        """Mark the newest known item finished — it stays visible, dimmed."""
+        if self._pending is not None:
+            # It has not been shown yet; it still gets its dwell, already ended.
+            self._pending = (self._pending[0], self._pending[1])
+            self._item_done_pending = True
+        elif self._item_text is not None:
+            self._item_done = True
+
+    def _promote_pending(self) -> None:
+        """Move a waiting item into the display once the dwell has elapsed."""
+        if self._pending is None:
+            return
+        if (monotonic() - self._item_at) < _MIN_DWELL:
+            return
+        text, kind = self._pending
+        self._item_text, self._item_kind = text, kind
+        self._item_done = getattr(self, "_item_done_pending", False)
+        self._item_done_pending = False
+        self._item_at = monotonic()
+        self._pending = None
+        self._shown_skipped, self._skipped = self._skipped, 0
+
+    def set_current(self, text: str | None) -> None:
+        """Show the currently-running tool/phase; ``None`` marks it finished.
+
+        ``None`` no longer blanks the line — it dims what is there, so the last
+        thing that ran stays readable until something newer replaces it. A new op
+        arriving inside :data:`_MIN_DWELL` waits its turn rather than overwriting
+        a line the user has not had time to read.
+
+        Repaints immediately — unless paused, in which case the op is remembered
+        but the Live region is left alone so a HITL prompt stays readable (the
+        next resume/tick picks it up). On a non-TTY (silent mode) the op is still
+        remembered but there is no Live region to repaint.
         """
-        self._current = text
+        if text is None:
+            self._mark_done()
+        else:
+            self._offer(text, "tool")
         if self._sink is not None:
             if not self._paused.is_set():
                 self._publish()
@@ -272,16 +347,42 @@ class ProgressSpinner:
         """
         if not token:
             return
+        if not isinstance(token, str):
+            # Belt and braces: callers flatten content blocks, but a stray
+            # non-string must never raise inside a callback — LangChain would
+            # log a warning for every single token of the stream.
+            token = str(token)
         self._preview_buffer += token
         # Keep a moving window of the most recent characters: a fixed head
         # would freeze after the first few words and stop reading as live.
-        window = self._preview_buffer.replace("\n", " ")[-_PREVIEW_WIDTH:]
-        self._preview = window.lstrip()
+        window = self._preview_buffer.replace("\n", " ")[-_PREVIEW_WIDTH:].lstrip()
+        if self._item_kind == "writing" and self._item_text is not None:
+            # Same logical item, just more of it — update in place so the dwell
+            # rule (which exists to stop items REPLACING each other too fast)
+            # does not freeze a stream that is meant to look live.
+            self._item_text = window
+            self._item_done = False
+        else:
+            self._offer(window, "writing")
 
     def set_preview(self, text: str | None) -> None:
-        """Replace (``None`` clears) the reply tail shown while the model writes."""
+        """Seed the reply tail, or (with ``None``) end it.
+
+        Ending marks the tail finished rather than erasing it: the last thing
+        the model wrote stays on the line, dimmed, until the next tool or reply
+        replaces it.
+        """
         self._preview_buffer = text or ""
-        self._preview = (text or "").replace("\n", " ")[-_PREVIEW_WIDTH:] or None
+        if not text:
+            if self._item_kind == "writing":
+                self._mark_done()
+            return
+        window = text.replace("\n", " ")[-_PREVIEW_WIDTH:].lstrip()
+        if self._item_kind == "writing" and self._item_text is not None:
+            self._item_text = window
+            self._item_done = False
+        else:
+            self._offer(window, "writing")
 
     def pause(self) -> None:
         """Tear down the Live region and stop ticking so a HITL prompt is clean.

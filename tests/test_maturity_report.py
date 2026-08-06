@@ -284,6 +284,146 @@ class TestActionableTopology:
         assert "#loose11" not in page
 
 
+class TestChemicalsSection:
+    """The Chemicals section (#85): how each compound reaches the experiment and
+    how completely it is identified.
+
+    ISA forbids a MolecularEntity as a LabProcess ``object``, so a compound is
+    only ever connected *through* the Exposure's condition table. A crate can
+    therefore pass every profile while every compound sits orphaned — described
+    in full, but unreachable from the experiment that used it. The section must
+    make that state visible instead of scoring the compounds on description alone.
+    """
+
+    def _graph(self, *, wire: bool = True) -> dict:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#table"}]},
+                {"@id": "#cells", "@type": "Sample", "name": "Cultured cells"},
+                {
+                    "@id": "#exposure",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "name": "Exposure step",
+                    "object": {"@id": "#cells"},
+                    "result": {"@id": "#table"},
+                },
+                {
+                    "@id": "#table",
+                    "@type": ["File", "csvw:Table"],
+                    "name": "Condition table",
+                    **({"about": [{"@id": "#compound"}]} if wire else {}),
+                },
+                {
+                    "@id": "#compound",
+                    "@type": "MolecularEntity",
+                    "name": "Aflatoxin B1",
+                    "inchikey": "OQIQSTLJSLGHID-WNWIJWBNSA-N",
+                    "smiles": "CO",
+                    "formula": "C17H12O6",
+                    "mass": "312.3",
+                    "identifier": [{"@id": "#cas"}],
+                },
+                {"@id": "#cas", "@type": "PropertyValue", "name": "CAS", "value": "1162-65-8"},
+            ]
+        }
+        return graph
+
+    def _page(self, **kw: bool) -> str:
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
+
+    def test_section_renders_diagram_and_matrix(self) -> None:
+        page = self._page()
+        assert "<h2>Chemicals</h2>" in page
+        assert 'class="prov view"' in page  # the inline route diagram
+        assert 'class="chem-tbl"' in page  # the identification matrix
+        assert "Aflatoxin B1" in page
+        # Matrix columns name the identification fields.
+        for column in ("CAS", "CID", "DTXSID", "InChIKey", "SMILES", "Formula", "Mass"):
+            assert f">{column}</th>" in page, f"missing coverage column: {column}"
+
+    def test_wired_compound_reports_a_clean_route(self) -> None:
+        page = self._page(wire=True)
+        assert "Every compound is reachable from the process that used it." in page
+        assert "cannot be reached from any process" not in page
+
+    def test_unwired_compound_is_called_out_with_the_fix(self) -> None:
+        page = self._page(wire=False)
+        assert "1 of 1 compounds cannot be reached from any process." in page
+        # The callout names the actual remedy, not just the defect.
+        assert "condition table" in page
+        assert "<code>about</code>" in page
+        assert 'class="chem-flag"' in page
+
+    def test_identification_is_scored_separately_from_wiring(self) -> None:
+        # An unwired compound can still be perfectly identified; conflating the
+        # two would hide which of the two problems the crate actually has.
+        page = self._page(wire=False)
+        assert "cannot be reached from any process" in page
+        # CAS + InChIKey + SMILES + Formula + Mass of 7 fields — the compound is
+        # well described and still unreachable; both must be reported.
+        assert "<b>71%</b> identified" in page
+
+    def test_kpi_tile_reports_wired_over_total(self) -> None:
+        import re
+
+        page = self._page(wire=False)
+        assert re.search(
+            r'<span class="eyebrow">Chemicals</span>.*?<b>0</b><span class="den">/ 1</span>',
+            page,
+            re.S,
+        ), "chemicals KPI tile missing or not reporting 0 / 1 wired"
+
+    def test_crate_without_compounds_omits_the_section(self) -> None:
+        # "Not applicable" must not render as an empty panel scoring zero.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#f"}]},
+                {"@id": "#f", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<h2>Chemicals</h2>" not in page
+        assert '<span class="eyebrow">Chemicals</span>' not in page
+
+    def test_no_graph_omits_the_section(self) -> None:
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        assert "<h2>Chemicals</h2>" not in page
+
+    def test_matrix_is_bounded_with_more_marker(self) -> None:
+        graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
+        for i in range(15):
+            graph["@graph"].append(
+                {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i:02d}"}
+            )
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "+3 more compounds" in page
+
+    def test_escapes_compound_names(self) -> None:
+        graph = {
+            "@graph": [
+                {
+                    "@id": "#c",
+                    "@type": "MolecularEntity",
+                    "name": "<script>alert(1)</script>",
+                }
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>alert(1)</script>" not in page
+        assert "&lt;script&gt;" in page
+
+    def test_section_stays_self_contained(self) -> None:
+        # The report is offline/no-script; the chemicals diagram must not break
+        # that (it is finished SVG, like the derivation chain).
+        page = self._page()
+        section = page.split("<h2>Chemicals</h2>", 1)[1].split("</section>", 1)[0]
+        assert "<script" not in section.lower()
+        assert "src=" not in section and "@import" not in section
+
+
 class TestSeverityTiers:
     """Profile adherence reported across Required / Recommended / Optional (#306).
 
