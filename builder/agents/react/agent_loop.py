@@ -158,9 +158,13 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
 
     def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
         # A new generation begins: drop the previous reply's tail so the line
-        # never shows text from the step before.
-        self.spinner.set_preview(None)
+        # never shows text from the step before, and say the model has the floor
+        # — most calls here emit only tool calls, so there may be no text at all.
+        self.spinner.begin_generation()
 
+    # LangChain dispatches chat models to on_chat_model_start, never
+    # on_llm_start; the positional shape is the same (serialized, then the
+    # prompt payload), so the same handler serves both.
     on_chat_model_start = on_llm_start
 
     def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:
@@ -197,7 +201,15 @@ def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | N
         return None
     properties = params.get("properties", {})
     if not properties:
-        return None
+        # A zero-parameter tool still needs an EXPLICIT empty schema. Advertised
+        # with no schema at all, the model invents a placeholder payload —
+        # `get_status(args=[], kwargs=None)` — which the tool function rejects
+        # with a TypeError. That cost 33 of 36 get_status calls in one session:
+        # each one burned a model turn and returned an error the model then
+        # tried to work around.
+        from pydantic import BaseModel, create_model
+
+        return create_model(f"{name}_args", __base__=BaseModel)
 
     from pydantic import BaseModel, Field, create_model
 
@@ -266,6 +278,12 @@ _AUTO_EXPORT_EMIT_FLAG = "on_auto_export"
 _VALIDATION_ESCALATION_FP_FLAG = "_validation_escalation_fingerprint"
 _VALIDATION_ESCALATION_PURPOSE = "validation_escalation"
 
+# Attribute holding the user's standing answers: ``{"recommended": bool,
+# "optional": bool}``. Whether they want the broader tiers is a preference about
+# how they work, not a judgement about one crate state, so it is asked once and
+# then honoured silently for the rest of the session.
+_VALIDATION_ESCALATION_PREF_FLAG = "_validation_escalation_preferences"
+
 
 # How many issue strings each escalation tier contributes to the summary handed
 # back to the model. Bounded so a noisy RECOMMENDED/OPTIONAL pass cannot flood
@@ -329,15 +347,26 @@ def _run_validation_escalation(
     if getattr(engine, _VALIDATION_ESCALATION_FP_FLAG, None) == fingerprint:
         return None
 
-    def approved(context: str) -> bool:
+    # A tier is offered ONCE per session. The answer is a standing preference,
+    # not a per-state decision: keyed on the fingerprint alone, the same question
+    # came back after every mutation that re-passed REQUIRED, so a long session
+    # asked "Run recommended checks?" over and over having already been told yes.
+    prefs: dict[str, bool] = dict(getattr(engine, _VALIDATION_ESCALATION_PREF_FLAG, None) or {})
+
+    def approved(tier: str, context: str) -> bool:
+        """The user's standing answer for *tier*, asked at most once per session."""
+        if tier in prefs:
+            return prefs[tier]
         response = engine.human_interface.present(
             context,
             options=["yes", "no"],
             purpose=_VALIDATION_ESCALATION_PURPOSE,
         )
-        return response.get("action") == "approved"
+        prefs[tier] = response.get("action") == "approved"
+        setattr(engine, _VALIDATION_ESCALATION_PREF_FLAG, prefs)
+        return prefs[tier]
 
-    if not approved("Required validation passed. Run recommended checks?"):
+    if not approved("recommended", "Required validation passed. Run recommended checks?"):
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
         return {
             "recommended": {"status": "declined_by_user"},
@@ -387,9 +416,8 @@ def _run_validation_escalation(
     if has_recommended_findings:
         summary["optional"] = {"status": "blocked_by_recommended_findings"}
     elif approved(
-        "Recommended validation completed ("
-        + recommended_status
-        + "). Run optional checks?"
+        "optional",
+        "Recommended validation completed (" + recommended_status + "). Run optional checks?",
     ):
         # As above, this call is synchronous and completes before the escalation
         # fingerprint is recorded or control returns to the model loop.
@@ -438,21 +466,20 @@ _LIST_ENTITIES_COUNT_FLAG = "_list_entities_repeat_count"
 # ReAct-level guard: repeated unchanged build_and_validate calls
 # ---------------------------------------------------------------------------
 
-# Attribute name on the engine storing the last build_and_validate call
-# signature (normalised severity + profile). Used to detect when the model
-# re-issues the same validation call without any intervening mutation.
-_BUILD_VALIDATE_LAST_SIG_FLAG = "_build_validate_last_signature"
+# Attribute holding ``{(severity, profile): state fingerprint when it last ran}``.
+# Consecutive-repeat detection alone was evadable by ALTERNATING scopes: a
+# session issued 10x (required, all) and 10x (required, base) against one
+# unchanged crate, and because no two consecutive calls matched, the guard never
+# fired. Keying on the state a scope was last validated against catches any
+# order — and needs no invalidation, since a real mutation changes the
+# fingerprint and every stored entry stops matching by construction.
+_BUILD_VALIDATE_SEEN_FLAG = "_build_validate_seen_fingerprints"
 
-# Attribute name storing how many consecutive identical unchanged
-# build_and_validate calls have been observed so far. The first call is
-# allowed; subsequent identical non-mutation calls are suppressed.
-_BUILD_VALIDATE_COUNT_FLAG = "_build_validate_repeat_count"
-_BUILD_VALIDATE_FP_FLAG = "_build_validate_input_fingerprint"
-
-# How many consecutive identical build_and_validate calls are tolerated
-# before the guard kicks in. A value of 1 means the second identical call
-# (with no mutation in between) is the one that gets redirected.
-_BUILD_VALIDATE_REPEAT_THRESHOLD = 1
+# Bounces off the suppression guard (same scope, same state) that end the turn.
+# Suppression alone does not stop the loop — the model reads the corrective and
+# calls straight back, so every bounce still costs a full model turn. Two
+# warnings, then hand control to the user.
+_VALIDATE_SUPPRESS_ABORT = 3
 
 
 def _build_validate_signature(kwargs: dict[str, Any]) -> tuple[str, str]:
@@ -706,6 +733,13 @@ def _invoke_with_timeout(
         )
         return (None, "timeout", None) if include_error else (None, "timeout")
     if outcome["error"] is not None:
+        # A deliberate stop (a guard ending a non-progressing turn) is NOT an
+        # error: reporting it as one would tell the user something broke when
+        # the loop did exactly what it should. The timeout path also raises
+        # _InvocationCancelled, so the set cancel_event distinguishes them.
+        if isinstance(outcome["error"], _InvocationCancelled) and not cancel_event.is_set():
+            logger.info("Model invoke stopped by a loop guard: %s", outcome["error"])
+            return (None, "stopped", None) if include_error else (None, "stopped")
         logger.warning("Model invoke raised: %s", outcome["error"])
         if include_error:
             error = outcome["error"]
@@ -1074,7 +1108,17 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
         params: dict[str, Any] = cast(dict[str, Any], spec_dict.get("parameters", {}))
 
         def _make_tool(tool_name: str, tool_desc: str, tool_params: dict) -> BaseTool:
+            declared = set((tool_params or {}).get("properties") or {})
+
             def _run(**kwargs: Any) -> Any:
+                # Drop the generic `args`/`kwargs` placeholders some providers
+                # emit for a tool whose schema declares no such parameter. They
+                # reach the tool function as unexpected keywords and raise a
+                # TypeError, turning a harmless status query into a failed call.
+                if kwargs and not declared.intersection(kwargs):
+                    kwargs = {
+                        k: v for k, v in kwargs.items() if k not in ("args", "kwargs")
+                    }
                 _raise_if_invocation_cancelled()
                 # Loop-breaker (#287 Fix B): if this is the Nth consecutive
                 # IDENTICAL call that has been returning a non-progress result
@@ -1110,26 +1154,63 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         )
                 if tool_name == "build_and_validate":
                     bv_sig = _build_validate_signature(kwargs)
-                    bv_last = getattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, None)
-                    bv_count = getattr(engine, _BUILD_VALIDATE_COUNT_FLAG, 0)
                     try:
                         bv_fp = engine.state.validation_fingerprint()
                     except Exception:  # noqa: BLE001 — the guard must never block a call.
                         bv_fp = None
-                    bv_last_fp = getattr(engine, _BUILD_VALIDATE_FP_FLAG, None)
-                    if (
-                        bv_sig == bv_last
-                        and bv_fp is not None
-                        and bv_fp == bv_last_fp
-                        and bv_count >= _BUILD_VALIDATE_REPEAT_THRESHOLD
-                    ):
+                    bv_seen: dict[tuple[str, str], tuple[str, int]] = getattr(
+                        engine, _BUILD_VALIDATE_SEEN_FLAG, None
+                    ) or {}
+                    bv_entry = bv_seen.get(bv_sig)
+                    # Suppress when THIS scope has already been validated against
+                    # THIS state, whatever ran in between — alternating scopes is
+                    # otherwise a free pass through a consecutive-repeat check.
+                    if bv_fp is not None and bv_entry is not None and bv_entry[0] == bv_fp:
+                        strikes = bv_entry[1] + 1
+                        bv_seen = dict(bv_seen)
+                        bv_seen[bv_sig] = (bv_fp, strikes)
+                        setattr(engine, _BUILD_VALIDATE_SEEN_FLAG, bv_seen)
+                        logger.info(
+                            "Suppressed build_and_validate%s (strike %d/%d) — already "
+                            "validated against this unchanged state",
+                            bv_sig,
+                            strikes,
+                            _VALIDATE_SUPPRESS_ABORT,
+                        )
+                        # Suppressing the SHACL pass saves seconds but NOT tokens:
+                        # the model reads the corrective and immediately calls
+                        # again, so a bounce still costs a full model turn (~12.5k
+                        # input tokens; 17 bounces in 90s were observed). After a
+                        # couple of strikes, end the turn instead of answering —
+                        # handing control back to the user is the only thing that
+                        # reliably stops it.
+                        if strikes >= _VALIDATE_SUPPRESS_ABORT:
+                            logger.warning(
+                                "Ending turn: build_and_validate%s bounced %d times "
+                                "against unchanged state",
+                                bv_sig,
+                                strikes,
+                            )
+                            raise _InvocationCancelled(
+                                "repeated validation of an unchanged crate"
+                            )
                         issue_text = _format_validation_issues_summary(engine)
                         v = engine.state.validation
+                        opener = (
+                            f"build_and_validate({bv_sig[0]}, {bv_sig[1]}) has already run "
+                            "against this exact crate state — no state change since, and "
+                            "re-running another scope over the same state will not help "
+                            "either. The result has not changed. "
+                        )
+                        if strikes > 1:
+                            opener = (
+                                f"STOP. build_and_validate({bv_sig[0]}, {bv_sig[1]}) has now "
+                                f"been called {strikes} times against an unchanged crate — "
+                                "no state change, so no new result is possible. "
+                            )
                         corrective = (
-                            f"build_and_validate({bv_sig[0]}, {bv_sig[1]}) called "
-                            "again with no state change since the last identical call. "
-                            "The result has not changed. "
-                            f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
+                            opener
+                            + f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
                             f"isa={'pass' if v.isa_passed else 'fail'}, "
                             f"tox={'pass' if v.tox_passed else 'fail'}. "
                             f"{_validation_tier_counts(engine)} "
@@ -1139,12 +1220,20 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         if issue_text:
                             corrective += f"\n\nCurrent issues:\n{issue_text}"
                         corrective += (
-                            "\n\nIf you believe the state has changed, make a mutation "
-                            "first (set_fields, link, etc.) and validation will "
-                            "re-run automatically."
+                            "\n\nYour next call MUST be a mutation (set_fields, link, "
+                            "draft_*, attach_files) or export_crate — not another "
+                            "validation. Validation re-runs automatically once the "
+                            "state actually changes."
                         )
-                        logger.info("Suppressed repeated unchanged %s", bv_sig)
                         return corrective
+                    if bv_fp is not None:
+                        # Record BEFORE running: validation never mutates entities
+                        # or metadata (the #153 write-back only touches
+                        # state.validation, which the fingerprint excludes), so
+                        # the pre-call fingerprint is the state it validated.
+                        bv_seen = dict(bv_seen)
+                        bv_seen[bv_sig] = (bv_fp, 0)
+                        setattr(engine, _BUILD_VALIDATE_SEEN_FLAG, bv_seen)
 
                 # Snapshot the state so a mutation that writes nothing can be
                 # recognised AFTER the fact. The tools reject the obvious cases
@@ -1250,11 +1339,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     _record_recent_mutation(engine, result)
                     setattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
                     setattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
-                    # A mutation resets the build_and_validate repeat guard so
-                    # the next (changed-state) call is allowed to run fresh.
-                    setattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, None)
-                    setattr(engine, _BUILD_VALIDATE_COUNT_FLAG, 0)
-                    setattr(engine, _BUILD_VALIDATE_FP_FLAG, None)
+                    # The build_and_validate memo needs no clearing here: a real
+                    # mutation changes the state fingerprint, so every scope it
+                    # recorded stops matching and the next validation runs fresh.
+                    setattr(engine, _BUILD_VALIDATE_SEEN_FLAG, {})
                 elif tool_name == "list_entities":
                     list_last = getattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
                     list_count = getattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
@@ -1267,60 +1355,12 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     setattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
                     setattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
 
-                # ReAct-level guard: repeated identical build_and_validate calls
-                # with no intervening mutation.  The engine-level debounce (#155)
-                # already avoids re-running the SHACL pass, but the model still
-                # burns tokens on unnecessary tool/model iterations.  Intercept
-                # here — BEFORE the loop-breaker (which guards non-progress, not
-                # this) — and redirect to the cached result + a corrective message
-                # telling the model to work on the reported issues instead.
-                # (Issue #NNN: fix validation escalation and repeated validation
-                # loops.)
-                if tool_name == "build_and_validate":
-                    bv_sig = _build_validate_signature(kwargs)
-                    bv_last = getattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, None)
-                    bv_count = getattr(engine, _BUILD_VALIDATE_COUNT_FLAG, 0)
-                    try:
-                        bv_fp = engine.state.validation_fingerprint()
-                    except Exception:  # noqa: BLE001 — best-effort bookkeeping.
-                        bv_fp = None
-                    setattr(engine, _BUILD_VALIDATE_FP_FLAG, bv_fp)
-                    if bv_sig == bv_last and bv_count >= _BUILD_VALIDATE_REPEAT_THRESHOLD:
-                        # Defensive fallback for callers that bypass the pre-run guard.
-                        # Suppress the redundant call — return a compact corrective result.
-                        issue_text = _format_validation_issues_summary(engine)
-                        v = engine.state.validation
-                        corrective = (
-                            f"build_and_validate({bv_sig[0]}, {bv_sig[1]}) called "
-                            f"again with no state change since the last identical call. "
-                            f"The result has not changed. "
-                            f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
-                            f"isa={'pass' if v.isa_passed else 'fail'}, "
-                            f"tox={'pass' if v.tox_passed else 'fail'}. "
-                            f"{_validation_tier_counts(engine)} "
-                            f"Use the existing validation result and address the "
-                            f"reported issues instead of re-validating."
-                        )
-                        if issue_text:
-                            corrective += f"\n\nCurrent issues:\n{issue_text}"
-                        corrective += (
-                            "\n\nIf you believe the state has changed, make a mutation "
-                            "first (set_fields, link, etc.) and validation will "
-                            "re-run automatically."
-                        )
-                        # Stamp the fingerprint so the escalation guard also
-                        # recognises this as stable state.
-                        try:
-                            setattr(
-                                engine,
-                                _VALIDATION_ESCALATION_FP_FLAG,
-                                engine.state.validation_fingerprint(),
-                            )
-                        except Exception:  # noqa: BLE001 — fingerprint is best-effort.
-                            pass
-                        return corrective
-                    setattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, bv_sig)
-                    setattr(engine, _BUILD_VALIDATE_COUNT_FLAG, bv_count + 1)
+                # The pre-run guard above is the only build_and_validate
+                # gate: it suppresses BEFORE the SHACL pass and before the
+                # tokens are spent. A second post-run copy used to sit here as
+                # a fallback, keyed on consecutive repeats — the very scheme
+                # alternating scopes walked straight through — so it could only
+                # ever fire after the work it was meant to prevent.
 
                 # Update the loop-breaker detection state AFTER post-processing so
                 # it sees the same message the model sees. A repeated identical
@@ -1419,13 +1459,17 @@ def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> A
             last_msg = out_messages[-1]
             input_tokens, output_tokens = _extract_token_usage(last_msg)
             model_name = _extract_model_name(last_msg)
-            # Capture the model's reply text — truncate to avoid bloating profile
+            # Capture the model's reply TEXT — truncate to avoid bloating profile.
+            # str(content) would write the raw content-block repr (#341): with the
+            # Responses API that means every profile line carried reasoning-block
+            # ids and empty summaries, so `response_text` looked non-empty on all
+            # 196 calls of one session while only a handful said anything.
             content = getattr(last_msg, "content", None)
             if content:
-                text = str(content)
+                text = ui.flatten_message_content(content)
                 if len(text) > 2000:
                     text = text[:1997] + "..."
-                response_text = text
+                response_text = text or None
 
         profiler.log_event(
             event="node_end",
@@ -2546,6 +2590,16 @@ def run_interactive_agent(
             console.print(
                 "  [dim]You can continue by typing[/dim] "
                 "[bold]continue[/bold]"
+            )
+            console.print()
+        elif outcome == "stopped":
+            console.print(
+                "[yellow]I was repeating the same step without making progress[/yellow], "
+                "so I stopped. Your work so far is saved."
+            )
+            console.print(
+                "  [dim]Tell me what to do next — e.g.[/dim] [bold]export the crate[/bold] "
+                "[dim]or[/dim] [bold]what is still missing?[/bold]"
             )
             console.print()
         elif outcome == "recursion":

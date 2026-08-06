@@ -11,6 +11,16 @@ from builder.writers.maturity_report import REPORT_FILENAME, build_maturity_html
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
 
+def _body(page: str) -> str:
+    """The rendered markup without the inlined stylesheet.
+
+    The report embeds its whole CSS in a ``<style>`` block, and that block names
+    every tab id it styles — so an "``id=…`` is absent" assertion against the raw
+    page would match the stylesheet and pass for the wrong reason.
+    """
+    return page.split("</style>", 1)[-1]
+
+
 class TestReportFilename:
     """The report filename shares the crate's ``ro-crate-metadata`` stem."""
 
@@ -335,7 +345,7 @@ class TestChemicalsSection:
 
     def test_section_renders_diagram_and_matrix(self) -> None:
         page = self._page()
-        assert "<h2>Chemicals</h2>" in page
+        assert '<div class="panel" id="p-chem">' in page
         assert 'class="prov view"' in page  # the inline route diagram
         assert 'class="chem-tbl"' in page  # the identification matrix
         assert "Aflatoxin B1" in page
@@ -384,22 +394,28 @@ class TestChemicalsSection:
                 {"@id": "#f", "@type": "File", "name": "result.csv"},
             ]
         }
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert "<h2>Chemicals</h2>" not in page
-        assert '<span class="eyebrow">Chemicals</span>' not in page
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
+        assert 'id="p-chem"' not in body
+        assert 'for="mv-chem"' not in body
+        assert '<span class="eyebrow">Chemicals</span>' not in body
 
     def test_no_graph_omits_the_section(self) -> None:
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert "<h2>Chemicals</h2>" not in page
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21")))
+        assert 'id="p-chem"' not in body
+        assert "Graph views" not in body
 
-    def test_matrix_is_bounded_with_more_marker(self) -> None:
+    def test_matrix_lists_every_compound(self) -> None:
+        # Uncapped, matching the diagram: this is a metadata-checking view, and a
+        # truncated tail hides exactly the rows worth acting on.
         graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
         for i in range(15):
             graph["@graph"].append(
                 {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i:02d}"}
             )
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert "+3 more compounds" in page
+        for i in range(15):
+            assert f"Compound {i:02d}" in page, f"compound {i} missing from the matrix"
+        assert "more compounds" not in page
 
     def test_escapes_compound_names(self) -> None:
         graph = {
@@ -419,9 +435,396 @@ class TestChemicalsSection:
         # The report is offline/no-script; the chemicals diagram must not break
         # that (it is finished SVG, like the derivation chain).
         page = self._page()
-        section = page.split("<h2>Chemicals</h2>", 1)[1].split("</section>", 1)[0]
-        assert "<script" not in section.lower()
-        assert "src=" not in section and "@import" not in section
+        panel = page.split('<div class="panel" id="p-chem">', 1)[1].split("</div>", 1)[0]
+        assert "<script" not in panel.lower()
+        assert "src=" not in panel and "@import" not in panel
+
+
+class TestGraphViewTabs:
+    """The three diagrams share one tabbed section (#85).
+
+    The report is a self-contained offline artifact embedded in the crate, so the
+    tabs must work with no script: radio inputs plus ``:checked ~`` sibling CSS.
+    That constrains the markup — the inputs must PRECEDE both the tab bar and the
+    panels as siblings, or the sibling combinator never matches and every panel
+    stays hidden.
+    """
+
+    def _graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Crate",
+                    "hasPart": [{"@id": "#table"}],
+                    "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
+                },
+                {"@id": "#cells", "@type": "Sample", "name": "Cultured cells"},
+                {
+                    "@id": "#line",
+                    "@type": "Sample",
+                    "additionalType": "CellLine",
+                    "name": "CHO-K1",
+                    "identifier": "CVCL_0214",
+                },
+                {
+                    "@id": "#culture",
+                    "@type": "LabProcess",
+                    "additionalType": "CellCulture",
+                    "name": "Cell culture",
+                    "input": {"@id": "#line"},
+                    "output": {"@id": "#cells"},
+                },
+                {
+                    "@id": "#exposure",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "name": "Exposure step",
+                    "object": {"@id": "#cells"},
+                    "result": {"@id": "#table"},
+                },
+                {
+                    "@id": "#table",
+                    "@type": ["File", "csvw:Table"],
+                    "name": "Condition table",
+                    "about": [{"@id": "#compound"}],
+                },
+                {"@id": "#compound", "@type": "MolecularEntity", "name": "Aflatoxin B1"},
+                {
+                    "@id": "https://orcid.org/0000-0002-1825-0097",
+                    "@type": "Person",
+                    "name": "Josiah Carberry",
+                    "affiliation": {"@id": "https://ror.org/05gq02987"},
+                },
+                {
+                    "@id": "https://ror.org/05gq02987",
+                    "@type": "Organization",
+                    "name": "Brown University",
+                },
+            ]
+        }
+
+    def test_all_three_views_are_tabbed(self) -> None:
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert "<h2>Graph views</h2>" in page
+        for label in ("ISA structure", "Provenance", "Chemicals", "Cell lines",
+                      "People &amp; orgs"):
+            assert f'<span class="tb-n">{label}</span>' in page, f"missing tab: {label}"
+        for pid in ("p-isa", "p-prov", "p-chem", "p-cell", "p-people"):
+            assert f'<div class="panel" id="{pid}">' in page, f"missing panel: {pid}"
+
+    def test_inputs_precede_the_tabbar_and_panels(self) -> None:
+        # The CSS-only mechanism is `input:checked ~ .panel`; a panel emitted
+        # before its radio can never be revealed.
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        last_input = page.rindex('<input class="tab-in"')
+        assert last_input < page.index('<div class="tabbar">')
+        assert last_input < page.index('<div class="panel"')
+
+    def test_exactly_one_tab_starts_selected(self) -> None:
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        assert body.count('name="mat-view"') == 5
+        assert body.count(" checked>") == 1
+        # ISA is first: the structural backbone every other view hangs off.
+        assert 'id="mv-isa" checked>' in body
+
+    def test_tabs_carry_no_script(self) -> None:
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert "<script" not in page.lower()
+        assert "onclick" not in page.lower()
+
+    def test_absent_views_drop_their_tab_and_first_survivor_is_selected(self) -> None:
+        # No compounds, no cell lines and nobody credited. The root Dataset is
+        # still an Investigation, so ISA survives alongside Provenance — and the
+        # first surviving tab must be the selected one, never a dead tab bar.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#d"}]},
+                {"@id": "#s", "@type": "Sample", "name": "Input"},
+                {
+                    "@id": "#p",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "object": {"@id": "#s"},
+                    "result": {"@id": "#d"},
+                },
+                {"@id": "#d", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
+        for absent in ("mv-chem", "p-chem", "mv-cell", "p-cell", "mv-people", "p-people"):
+            assert f'"{absent}"' not in body, f"{absent} should have been dropped"
+        assert 'id="mv-isa" checked>' in body
+        assert body.count(" checked>") == 1
+
+    def test_every_element_id_in_the_page_is_unique(self) -> None:
+        # Several SVGs now share one document. `url(#…)` resolves to the FIRST
+        # matching id in the document, and the panels holding them are
+        # display:none until selected — so a duplicated marker id points one
+        # diagram's arrowheads at a marker inside a hidden subtree.
+        import re
+
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        ids = re.findall(r' id="([^"]+)"', body)
+        assert sorted(ids) == sorted(set(ids)), "duplicate element id in the report"
+
+    def test_each_diagram_references_only_its_own_marker(self) -> None:
+        import re
+
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        for svg in re.findall(r"<svg .*?</svg>", body, re.S):
+            defined = set(re.findall(r'<marker id="([^"]+)"', svg))
+            used = set(re.findall(r"url\(#([^)]+)\)", svg))
+            assert used <= defined, f"marker referenced across SVGs: {used - defined}"
+
+    def test_routed_views_are_not_stretched_to_the_chain_width(self) -> None:
+        # `.mat svg.prov` forces width:100%/min-width:44rem for the wide, fixed
+        # derivation chain. The routed views size themselves to their content
+        # (~210-540 units); inheriting that floor upscales a small diagram
+        # several times over, so they must carry their own sizing rule.
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        css = page.split("<style>", 1)[1].split("</style>", 1)[0]
+        assert ".mat svg.prov.view {" in css, "routed views have no sizing rule"
+        assert "min-width:0" in css.split(".mat svg.prov.view {", 1)[1].split("}", 1)[0]
+        # …and the rule must actually match the class the renderer emits.
+        assert 'class="prov view"' in _body(page)
+
+    def test_print_styles_expand_every_panel(self) -> None:
+        # Tabs are a screen affordance; a printed report must not silently lose
+        # two of the three views.
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert ".mat .panel{display:block !important;" in page.replace("\n", "")
+        assert ".mat .panel > .panel-h{display:block;" in page.replace("\n", "")
+
+    def test_topology_strip_stays_below_the_tabs(self) -> None:
+        # The strip describes the whole graph, not one view — it must not be
+        # trapped inside a panel that a reader has to select to see.
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert page.index('<div class="panel" id="p-people">') < page.index("Graph topology")
+
+
+class TestCellLinesPanel:
+    """The Cell lines view (#85): the biological test system, and whether it is
+    pinned down.
+
+    A cell line fails the same two ways a compound does — unreachable when the
+    ``CellCulture`` consumes a freshly minted generic ``Sample`` instead of the
+    declared line, and unidentified when it carries a name but no Cellosaurus
+    RRID ("CHO-K1" names a family of divergent stocks; CVCL_0214 names one).
+    """
+
+    def _graph(self, *, wire: bool = True, rrid: bool = True) -> dict:
+        line: dict = {
+            "@id": "#cho",
+            "@type": "Sample",
+            "additionalType": "CellLine",
+            "name": "CHO-K1",
+            "sampleType": {"@id": "#term"},
+        }
+        if rrid:
+            line["identifier"] = "CVCL_0214"
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#cultured"}]},
+                {"@id": "#generic", "@type": "Sample", "name": "Input sample"},
+                {
+                    "@id": "#culture",
+                    "@type": "LabProcess",
+                    "additionalType": "CellCulture",
+                    "name": "CHO-K1 culture",
+                    "input": {"@id": "#cho" if wire else "#generic"},
+                    "output": {"@id": "#cultured"},
+                },
+                {"@id": "#cultured", "@type": "Sample", "name": "Cultured cells"},
+                line,
+                {"@id": "#term", "@type": "DefinedTerm", "name": "cell line"},
+            ]
+        }
+
+    def _page(self, **kw: bool) -> str:
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
+
+    def test_renders_diagram_and_matrix(self) -> None:
+        page = self._page()
+        assert '<div class="panel" id="p-cell">' in page
+        assert '<span class="tb-n">Cell lines</span>' in page
+        assert "CHO-K1" in page
+        assert "CVCL_0214" in page
+        for column in ("RRID", "Type", "Organ", "Tissue", "Passage"):
+            assert f">{column}</th>" in page, f"missing cell-line column: {column}"
+
+    def test_unconsumed_line_is_called_out_with_the_fix(self) -> None:
+        page = self._page(wire=False)
+        assert "1 of 1 cell lines are not consumed by any process." in page
+        assert "<code>CellCulture</code>" in page
+        assert "<code>input</code>" in page
+
+    def test_consumed_line_reports_a_clean_route(self) -> None:
+        page = self._page(wire=True, rrid=True)
+        assert "not consumed by any process" not in page
+
+    def test_missing_rrid_is_called_out_separately_from_wiring(self) -> None:
+        # Correctly consumed but unidentified: the two defects are independent
+        # and collapsing them would hide whichever the crate actually has.
+        page = self._page(wire=True, rrid=False)
+        assert "not consumed by any process" not in page
+        assert "1 of 1 cell lines carry no Cellosaurus RRID." in page
+
+    def test_crate_without_cell_lines_omits_the_view(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#f"}]},
+                {"@id": "#f", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
+        assert 'id="p-cell"' not in body
+        assert 'for="mv-cell"' not in body
+
+    def test_escapes_cell_line_names(self) -> None:
+        graph = self._graph()
+        graph["@graph"][5]["name"] = "<script>alert(1)</script>"
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>alert(1)</script>" not in page
+        assert "&lt;script&gt;" in page
+
+
+class TestPeoplePanel:
+    """The People & organisations view (#85): who the crate credits, how resolvably.
+
+    Attribution passes every profile with a bare ``name`` while crediting nobody a
+    registry can resolve, and the classic defect — one institution minted twice,
+    once ROR-backed and once locally — is invisible in a list and obvious in a
+    graph where one copy has edges and the other has none.
+    """
+
+    def _graph(self, *, duplicate_org: bool = True) -> dict:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Crate",
+                    "author": [
+                        {"@id": "https://orcid.org/0000-0002-1825-0097"},
+                        {"@id": "#Person_no_orcid"},
+                    ],
+                },
+                {
+                    "@id": "https://orcid.org/0000-0002-1825-0097",
+                    "@type": "Person",
+                    "name": "Josiah Carberry",
+                    "affiliation": {"@id": "https://ror.org/05gq02987"},
+                },
+                # Credited, but neither ORCID-backed nor affiliated.
+                {"@id": "#Person_no_orcid", "@type": "Person", "name": "Jane Doe"},
+                {
+                    "@id": "https://ror.org/05gq02987",
+                    "@type": "Organization",
+                    "name": "Brown University",
+                },
+            ]
+        }
+        if duplicate_org:
+            # The same institution, minted locally and referenced by nobody.
+            graph["@graph"].append(
+                {"@id": "#Organization_brown", "@type": "Organization", "name": "Brown Univ."}
+            )
+        return graph
+
+    def _page(self, **kw: bool) -> str:
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
+
+    def test_renders_diagram_and_matrix(self) -> None:
+        page = self._page()
+        assert '<div class="panel" id="p-people">' in page
+        assert "Josiah Carberry" in page
+        assert "Brown University" in page
+        for column in ("PID", "Name", "Affiliation", "Linked"):
+            assert f">{column}</th>" in page, f"missing attribution column: {column}"
+
+    def test_flags_the_unattached_duplicate_institution(self) -> None:
+        page = self._page(duplicate_org=True)
+        assert "1 of 4 agents are referenced by nothing in the crate" in page
+        assert "Brown Univ." in page
+        assert "duplicate" in page  # the callout names the likely cause
+        # The unattached duplicate is flagged as a defect; the correctly
+        # affiliation-linked institution gets only the muted route chip.
+        assert ">unattached</span>" in page
+        assert 'class="chem-flag muted"' in page
+        assert 'class="chem-flag"' in page
+
+    def test_flags_agents_without_a_persistent_identifier(self) -> None:
+        page = self._page(duplicate_org=False)
+        # Jane Doe has no ORCID; Brown University has a ROR; Carberry an ORCID.
+        assert "1 of 3 agents carry no persistent identifier" in page
+        assert "ORCID" in page and "ROR" in page
+
+    def test_clean_attribution_reports_no_defect(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Crate",
+                    "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
+                },
+                {
+                    "@id": "https://orcid.org/0000-0002-1825-0097",
+                    "@type": "Person",
+                    "name": "Josiah Carberry",
+                    "affiliation": {"@id": "https://ror.org/05gq02987"},
+                },
+                {
+                    "@id": "https://ror.org/05gq02987",
+                    "@type": "Organization",
+                    "name": "Brown University",
+                },
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "Every agent is credited and identifier-backed." in page
+        assert "referenced by nothing" not in page
+
+    def test_organisation_affiliation_column_is_not_a_miss(self) -> None:
+        # An Organization has no affiliation of its own; scoring that as a miss
+        # would penalise every crate for a field that cannot apply.
+        from builder.writers.provenance_dag import build_people_inventory
+
+        inv = build_people_inventory(self._graph(duplicate_org=False))
+        org = next(a for a in inv["agents"] if a["kind"] == "org")
+        assert org["fields"]["Affiliation"] is None
+        assert org["total"] == 3  # PID + Name + Credited — Affiliation excluded
+
+    def test_crate_without_agents_omits_the_view(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#f"}]},
+                {"@id": "#f", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert 'id="p-people"' not in page
+
+    def test_escapes_agent_names(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "author": [{"@id": "#p"}]},
+                {"@id": "#p", "@type": "Person", "name": "<script>alert(1)</script>"},
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>alert(1)</script>" not in page
+        assert "&lt;script&gt;" in page
 
 
 class TestSeverityTiers:

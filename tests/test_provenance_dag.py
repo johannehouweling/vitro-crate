@@ -8,14 +8,24 @@ only, generated from real data rather than hand-drawn.
 
 from __future__ import annotations
 
+import json
+import os
+
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import populate_crate
 from builder.writers.provenance_dag import (
+    build_cellline_inventory,
     build_chemical_inventory,
+    build_crate_graph,
+    build_isa_inventory,
+    build_people_inventory,
+    render_celllines_svg,
     render_chemicals_svg,
+    render_isa_svg,
     render_mermaid_html,
+    render_people_svg,
     render_provenance_mermaid,
     render_provenance_svg,
 )
@@ -494,17 +504,18 @@ class TestRenderChemicalsSvg:
         assert svg.count('class="n n-process"') == 1
         assert "about · valueUrl" in svg
 
-    def test_large_group_folds_its_tail_into_an_aggregate(self) -> None:
+    def test_every_member_of_a_large_band_is_named(self) -> None:
+        # No "+N more" aggregate: the picture exists so a reader can see WHICH
+        # compounds are unwired, and an elided tail hides exactly that.
         graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
         for i in range(9):
             graph["@graph"].append(
                 {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i}"}
             )
         svg = render_chemicals_svg(build_chemical_inventory(graph))
-        # 3 named + an aggregate naming the remainder — nothing silently dropped.
-        assert "Compound 0" in svg and "Compound 2" in svg
-        assert "Compound 8" not in svg
-        assert "6 more" in svg
+        for i in range(9):
+            assert f"Compound {i}" in svg, f"compound {i} elided from the diagram"
+        assert "more" not in svg
 
     def test_escapes_crate_controlled_names(self) -> None:
         graph = {
@@ -552,6 +563,393 @@ class TestRenderChemicalsSvg:
         assert render_chemicals_svg(build_chemical_inventory(_no_compound_graph())) == ""
 
 
+def _cellline_graph(*, wire: bool = True) -> dict:
+    """A crate with a CellLineSample and a CellCulture that may or may not use it.
+
+    The defect this view exists to catch: the culture consumes a freshly minted
+    generic ``Sample`` (``#generic``) instead of the declared line, leaving the
+    line described in the crate and consumed by nothing.
+    """
+    culture_input = "#cho" if wire else "#generic"
+    return {
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#cultured"}]},
+            {"@id": "#generic", "@type": "Sample", "name": "Input sample"},
+            {
+                "@id": "#culture",
+                "@type": "LabProcess",
+                "additionalType": "CellCulture",
+                "name": "CHO-K1 culture",
+                "input": {"@id": culture_input},
+                "output": {"@id": "#cultured"},
+            },
+            {"@id": "#cultured", "@type": "Sample", "name": "Cultured cells"},
+            {
+                "@id": "#cho",
+                "@type": "Sample",
+                "additionalType": "CellLine",
+                "name": "CHO-K1",
+                "identifier": "CVCL_0214",
+                "sampleType": {"@id": "#term"},
+                "additionalProperty": [{"@id": "#organ"}, {"@id": "#passage"}],
+            },
+            {"@id": "#term", "@type": "DefinedTerm", "name": "cell line"},
+            {"@id": "#organ", "@type": "PropertyValue", "name": "Organ", "value": "ovary"},
+            {"@id": "#passage", "@type": "PropertyValue", "name": "passage", "value": "12"},
+        ]
+    }
+
+
+class TestBuildCellLineInventory:
+    """``build_cellline_inventory`` resolves each cell line's route into the
+    experiment and how completely the culture is characterised."""
+
+    def test_cellline_consumed_by_the_culture_is_wired(self) -> None:
+        inv = build_cellline_inventory(_cellline_graph(wire=True))
+        assert [c["name"] for c in inv["celllines"]] == ["CHO-K1"]
+        line = inv["celllines"][0]
+        assert line["state"] == "wired"
+        # The process references the line directly — it is both process and via.
+        assert line["route"]["process"] == "#culture"
+        assert line["route"]["edge"] == "input"
+
+    def test_cellline_the_culture_skipped_is_unlinked(self) -> None:
+        # The exact defect: a generic Sample was minted and consumed instead.
+        inv = build_cellline_inventory(_cellline_graph(wire=False))
+        assert inv["celllines"][0]["state"] == "unlinked"
+        assert inv["counts"]["wired"] == 0
+
+    def test_cultured_sample_lineage_counts_as_a_route(self) -> None:
+        graph = _cellline_graph(wire=False)
+        for node in graph["@graph"]:
+            if node["@id"] == "#cultured":
+                node["derivesFrom"] = {"@id": "#cho"}
+        inv = build_cellline_inventory(graph)
+        line = inv["celllines"][0]
+        assert line["state"] == "wired"
+        assert line["route"]["edge"] == "derivesFrom"
+        assert line["route"]["via"] == "#cultured"
+
+    def test_rrid_and_characteristics_are_scored(self) -> None:
+        line = build_cellline_inventory(_cellline_graph())["celllines"][0]
+        assert line["rrid"] == "CVCL_0214"
+        assert line["fields"] == {
+            "Cellosaurus RRID": True,
+            "Typed as a cell line": True,
+            "Organ": True,
+            "Tissue": False,  # never recorded by this crate
+            "Passage": True,
+        }
+        assert (line["met"], line["total"]) == (4, 5)
+
+    def test_rrid_read_from_a_cellosaurus_url(self) -> None:
+        graph = {
+            "@graph": [
+                {
+                    "@id": "https://www.cellosaurus.org/CVCL_0031",
+                    "@type": "Sample",
+                    "additionalType": "CellLine",
+                    "name": "HepG2",
+                }
+            ]
+        }
+        assert build_cellline_inventory(graph)["celllines"][0]["rrid"] == "CVCL_0031"
+
+    def test_sample_typed_only_by_term_is_recognised(self) -> None:
+        # No additionalType — the line is identified solely by its sampleType
+        # DefinedTerm, which an externally-authored crate may well do.
+        graph = {
+            "@graph": [
+                {
+                    "@id": "#line",
+                    "@type": "Sample",
+                    "name": "MDCK",
+                    "sampleType": {"@id": "#t"},
+                },
+                {"@id": "#t", "@type": "DefinedTerm", "name": "cell line"},
+            ]
+        }
+        assert len(build_cellline_inventory(graph)["celllines"]) == 1
+
+    def test_plain_sample_is_not_a_cell_line(self) -> None:
+        graph = {"@graph": [{"@id": "#s", "@type": "Sample", "name": "Cultured cells"}]}
+        assert build_cellline_inventory(graph)["celllines"] == []
+
+    def test_crate_without_cell_lines_is_empty(self) -> None:
+        inv = build_cellline_inventory(_no_compound_graph())
+        assert inv["celllines"] == []
+        assert inv["counts"]["total"] == 0
+
+
+class TestRenderCellLinesSvg:
+    """The cell-line diagram reuses the compound view's bands — a break reads the
+    same in both — and the material stadium, because a cell line IS a Sample."""
+
+    def test_direct_process_route_draws_the_process_once(self) -> None:
+        # `input` makes the process itself the referrer; drawing it in two
+        # columns joined by a `result` edge would depict a step that does not
+        # exist in the crate.
+        svg = render_celllines_svg(build_cellline_inventory(_cellline_graph(wire=True)))
+        assert svg.count('class="n n-process"') == 1
+        assert '"result"' not in svg and ">result<" not in svg
+        assert "CHO-K1" in svg
+
+    def test_cell_line_uses_the_material_shape(self) -> None:
+        svg = render_celllines_svg(build_cellline_inventory(_cellline_graph()))
+        assert "n-material" in svg
+
+    def test_unlinked_line_gets_a_break_marker(self) -> None:
+        svg = render_celllines_svg(build_cellline_inventory(_cellline_graph(wire=False)))
+        assert "e-break" in svg and "✗" in svg and "unwired" in svg
+
+    def test_empty_inventory_returns_empty(self) -> None:
+        assert render_celllines_svg(build_cellline_inventory(_no_compound_graph())) == ""
+
+    def test_escapes_crate_controlled_names(self) -> None:
+        graph = {
+            "@graph": [
+                {
+                    "@id": "#l",
+                    "@type": "Sample",
+                    "additionalType": "CellLine",
+                    "name": "<script>alert(1)</script>",
+                }
+            ]
+        }
+        svg = render_celllines_svg(build_cellline_inventory(graph))
+        assert "<script>alert(1)</script>" not in svg
+        assert "&lt;script&gt;" in svg
+
+
+class TestAffiliationReachability:
+    """``affiliation`` is an edge of the crate graph (#85).
+
+    Nothing else in a crate references an affiliation-only Organization, so
+    omitting the relation reported every ROR-backed institution as an orphan
+    while the crate was in fact correct — and the People view showed the very
+    same institution as connected. The two must agree.
+    """
+
+    def _graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Crate",
+                    "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
+                },
+                {
+                    "@id": "https://orcid.org/0000-0002-1825-0097",
+                    "@type": "Person",
+                    "name": "Josiah Carberry",
+                    "affiliation": {"@id": "https://ror.org/05gq02987"},
+                },
+                {
+                    "@id": "https://ror.org/05gq02987",
+                    "@type": "Organization",
+                    "name": "Brown University",
+                },
+            ]
+        }
+
+    def test_affiliated_organisation_is_not_an_orphan(self) -> None:
+        model = build_crate_graph(self._graph(), all_edges=True)
+        org = next(n for n in model["nodes"] if n["id"] == "https://ror.org/05gq02987")
+        assert org["orphan"] is False
+        assert model["counts"]["orphan"] == 0
+
+    def test_topology_and_people_view_agree(self) -> None:
+        graph = self._graph()
+        orphans = {
+            n["id"] for n in build_crate_graph(graph, all_edges=True)["nodes"] if n["orphan"]
+        }
+        unattached = {
+            a["id"] for a in build_people_inventory(graph)["agents"] if a["state"] == "unattached"
+        }
+        assert orphans == unattached == set()
+
+    def test_contributor_only_person_is_not_an_orphan(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "contributor": [{"@id": "#p"}]},
+                {"@id": "#p", "@type": "Person", "name": "Jane Doe"},
+            ]
+        }
+        model = build_crate_graph(graph, all_edges=True)
+        assert model["counts"]["orphan"] == 0
+
+
+class TestRouteClaimsMatchTopology:
+    """"Nothing in the crate references this" must be TRUE when the panel says it.
+
+    The routed views and the graph-topology strip render inside the same section.
+    When the views scanned a narrower relation vocabulary than
+    ``build_crate_graph``, an entity reached only by ``result`` / ``derivesFrom``
+    / ``hasPart`` was reported as referenced by nothing a few lines above a strip
+    that counted it as reachable.
+    """
+
+    def _graph(self, relation: str) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#holder"}]},
+                {"@id": "#holder", "@type": "File", "name": "holder.csv", relation: {"@id": "#c"}},
+                {"@id": "#c", "@type": "MolecularEntity", "name": "Aflatoxin B1"},
+            ]
+        }
+
+    def test_secondary_relations_are_not_reported_as_unreferenced(self) -> None:
+        for relation in ("result", "derivesFrom", "hasPart"):
+            state = build_chemical_inventory(self._graph(relation))["chemicals"][0]["state"]
+            assert state != "unlinked", f"{relation} edge reported as no reference at all"
+
+    def test_unlinked_agrees_with_the_topology_orphan_flag(self) -> None:
+        for relation in ("result", "derivesFrom", "hasPart", "about", "mentions"):
+            graph = self._graph(relation)
+            unlinked = {
+                c["id"]
+                for c in build_chemical_inventory(graph)["chemicals"]
+                if c["state"] == "unlinked"
+            }
+            orphans = {
+                n["id"] for n in build_crate_graph(graph, all_edges=True)["nodes"] if n["orphan"]
+            }
+            assert unlinked <= orphans, (
+                f"{relation}: view claims unreferenced, topology says reachable"
+            )
+
+    def test_canonical_route_still_wins_over_a_secondary_one(self) -> None:
+        # A compound reachable both canonically and loosely must report the
+        # canonical route — the added relations are a fallback, not a reordering.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#c"}, {"@id": "#t"}]},
+                {"@id": "#s", "@type": "Sample", "name": "cells"},
+                {
+                    "@id": "#p",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "name": "Exposure",
+                    "object": {"@id": "#s"},
+                    "result": {"@id": "#t"},
+                },
+                {
+                    "@id": "#t",
+                    "@type": ["File", "csvw:Table"],
+                    "name": "Condition table",
+                    "about": [{"@id": "#c"}],
+                },
+                {"@id": "#c", "@type": "MolecularEntity", "name": "Aflatoxin B1"},
+            ]
+        }
+        route = build_chemical_inventory(graph)["chemicals"][0]["route"]
+        assert route["edge"] == "about"
+        assert route["process"] == "#p"
+
+
+class TestCoAffiliation:
+    """Every ``affiliation`` a person declares is modelled, not just the first.
+
+    Taking only the first left a co-affiliated researcher's second institution
+    referenced by nothing — which this view reports as an unattached duplicate
+    and advises the reader to delete. Wrong, and destructively so.
+    """
+
+    def _graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "name": "Crate", "author": [{"@id": "#p"}]},
+                {
+                    "@id": "#p",
+                    "@type": "Person",
+                    "name": "Jointly Affiliated",
+                    "affiliation": [{"@id": "#org_a"}, {"@id": "#org_b"}],
+                },
+                {"@id": "#org_a", "@type": "Organization", "name": "Institute A"},
+                {"@id": "#org_b", "@type": "Organization", "name": "Institute B"},
+            ]
+        }
+
+    def test_second_affiliation_is_not_reported_unattached(self) -> None:
+        agents = {a["name"]: a for a in build_people_inventory(self._graph())["agents"]}
+        assert agents["Institute A"]["state"] == "affiliated"
+        assert agents["Institute B"]["state"] == "affiliated"
+        assert agents["Jointly Affiliated"]["affiliations"] == ["#org_a", "#org_b"]
+
+    def test_both_affiliations_are_drawn(self) -> None:
+        svg = render_people_svg(build_people_inventory(self._graph()))
+        assert "Institute A" in svg and "Institute B" in svg
+        # Two affiliation edges out of the one person, and no "link missing" stub.
+        assert svg.count('class="e e-link"') == 3  # author + two affiliations
+        assert "e-break" not in svg
+
+    def test_topology_agrees_that_both_are_reachable(self) -> None:
+        model = build_crate_graph(self._graph(), all_edges=True)
+        assert model["counts"]["orphan"] == 0
+
+
+class TestRenderPeopleSvgCompleteness:
+    """The people diagram draws EVERY agent — no "+N more" aggregate.
+
+    This view exists so a person can check the attribution entity by entity, and
+    an elided tail is exactly where a duplicated institution or a missing-ORCID
+    author would hide.
+    """
+
+    def _many(self, n: int) -> dict:
+        graph: dict = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "name": "Crate", "author": []},
+            ]
+        }
+        for i in range(n):
+            graph["@graph"][1]["author"].append({"@id": f"#p{i}"})
+            graph["@graph"].append(
+                {
+                    "@id": f"#p{i}",
+                    "@type": "Person",
+                    "name": f"Author {i:02d}",
+                    "affiliation": {"@id": f"#org{i}"},
+                }
+            )
+            graph["@graph"].append(
+                {"@id": f"#org{i}", "@type": "Organization", "name": f"Institute {i:02d}"}
+            )
+        return graph
+
+    def test_every_person_and_organisation_is_drawn(self) -> None:
+        svg = render_people_svg(build_people_inventory(self._many(9)))
+        assert "more" not in svg
+        for i in range(9):
+            assert f"Author {i:02d}" in svg, f"person {i} elided"
+            assert f"Institute {i:02d}" in svg, f"organisation {i} elided"
+
+    def test_band_height_covers_every_drawn_row(self) -> None:
+        # With one organisation per person the rows cannot collide, but the band
+        # must still be tall enough that nothing escapes the viewBox.
+        import xml.etree.ElementTree as ET
+
+        root = ET.fromstring(render_people_svg(build_people_inventory(self._many(9))))
+        _, _, width, height = (float(v) for v in root.get("viewBox").split())
+        ys: list[float] = []
+        xs: list[float] = []
+        for el in root.iter():
+            if el.tag == "rect" and (el.get("class") or "").startswith("n "):
+                x, y = float(el.get("x")), float(el.get("y"))
+                xs += [x, x + float(el.get("width"))]
+                ys += [y, y + float(el.get("height"))]
+        assert ys and 0 <= min(ys) and max(ys) <= height
+        assert 0 <= min(xs) and max(xs) <= width
+
+
 def _exposure_state() -> CrateState:
     state = CrateState()
     state.metadata.title = "Exposure crate"
@@ -579,3 +977,274 @@ def test_renders_from_real_assembled_crate(tmp_path) -> None:
     assert "Exposure" in out
     assert "Condition table" in out
     assert "result" in out
+
+
+def _isa_graph(*, detach_study: bool = False, empty_assay: bool = False) -> dict:
+    """An Investigation → Study → Assay hierarchy, optionally broken.
+
+    ``detach_study`` drops the Study from the Investigation's ``hasPart`` (present
+    in the crate, outside the hierarchy — a break that still validates);
+    ``empty_assay`` removes the Assay's processes.
+    """
+    inv_parts = [] if detach_study else [{"@id": "#study"}]
+    assay: dict = {
+        "@id": "#assay",
+        "@type": "Dataset",
+        "additionalType": "Assay",
+        "name": "Transport assay",
+        "identifier": "inv/study/assay",
+        "description": "One measurement campaign.",
+    }
+    if not empty_assay:
+        assay["about"] = [{"@id": "#p"}]
+    return {
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {
+                "@id": "./",
+                "@type": "Dataset",
+                "additionalType": "Investigation",
+                "name": "OATP1C1 investigation",
+                "identifier": "inv",
+                "description": "The question.",
+                "hasPart": inv_parts,
+            },
+            {
+                "@id": "#study",
+                "@type": "Dataset",
+                "additionalType": "Study",
+                "name": "Time-course study",
+                "identifier": "inv/study",
+                "description": "A body of work.",
+                "hasPart": [{"@id": "#assay"}],
+            },
+            assay,
+            {
+                "@id": "#p",
+                "@type": "LabProcess",
+                "additionalType": "Exposure",
+                "name": "Exposure",
+            },
+        ]
+    }
+
+
+class TestBuildIsaInventory:
+    """``build_isa_inventory`` models the Investigation / Study / Assay backbone.
+
+    The hierarchy is expressed only as ``hasPart`` between Datasets that differ by
+    ``additionalType``, so it is invisible in the JSON and breaks in ways that
+    still validate.
+    """
+
+    def _by_level(self, graph: dict) -> dict:
+        return {n["level"]: n for n in build_isa_inventory(graph)["nodes"]}
+
+    def test_resolves_the_three_levels_and_their_links(self) -> None:
+        nodes = self._by_level(_isa_graph())
+        assert set(nodes) == {"Investigation", "Study", "Assay"}
+        assert nodes["Study"]["parent"] == "./"
+        assert nodes["Assay"]["parent"] == "#study"
+        assert nodes["Assay"]["processes"] == ["#p"]
+        assert all(n["state"] == "linked" for n in nodes.values())
+
+    def test_root_is_the_investigation_even_without_additional_type(self) -> None:
+        graph = _isa_graph()
+        del graph["@graph"][1]["additionalType"]
+        assert self._by_level(graph)["Investigation"]["id"] == "./"
+
+    def test_container_no_parent_lists_is_detached(self) -> None:
+        nodes = self._by_level(_isa_graph(detach_study=True))
+        assert nodes["Study"]["state"] == "detached"
+        assert nodes["Study"]["fields"]["Listed by its parent"] is False
+        # The Investigation has no parent to be listed by — n/a, not a miss.
+        assert nodes["Investigation"]["fields"]["Listed by its parent"] is None
+
+    def test_assay_with_no_process_does_not_count_as_populated(self) -> None:
+        nodes = self._by_level(_isa_graph(empty_assay=True))
+        assert nodes["Assay"]["fields"]["Contains the next level"] is False
+        assert nodes["Study"]["fields"]["Contains the next level"] is True
+
+    def test_file_parts_are_not_structural_children(self) -> None:
+        # An Assay listing only data files still contains no ISA level below it.
+        graph = _isa_graph(empty_assay=True)
+        graph["@graph"][3]["hasPart"] = [{"@id": "#f"}]
+        graph["@graph"].append({"@id": "#f", "@type": "File", "name": "raw.csv"})
+        assert self._by_level(graph)["Assay"]["fields"]["Contains the next level"] is False
+
+    def test_counts_summarise_the_hierarchy(self) -> None:
+        counts = build_isa_inventory(_isa_graph())["counts"]
+        assert counts["investigations"] == 1
+        assert counts["studies"] == 1
+        assert counts["assays"] == 1
+        assert counts["processes"] == 1
+        assert counts["detached"] == 0
+
+    def test_crate_without_isa_containers_is_empty(self) -> None:
+        assert build_isa_inventory({"@graph": [{"@id": "#f", "@type": "File"}]})["nodes"] == []
+
+
+class TestRenderIsaSvg:
+    """The ISA diagram: one column per level, one row per container, nothing elided."""
+
+    def test_draws_every_container_with_haspart_edges(self) -> None:
+        svg = render_isa_svg(build_isa_inventory(_isa_graph()))
+        for label in ("OATP1C1 investigation", "Time-course study", "Transport assay"):
+            assert label in svg, f"{label} missing from the ISA diagram"
+        assert "hasPart" in svg
+        assert svg.count('class="n n-container"') == 3
+
+    def test_assay_tag_carries_its_process_count(self) -> None:
+        svg = render_isa_svg(build_isa_inventory(_isa_graph()))
+        assert "1 PROC" in svg.upper()
+
+    def test_detached_container_is_marked_and_still_drawn(self) -> None:
+        svg = render_isa_svg(build_isa_inventory(_isa_graph(detach_study=True)))
+        assert "Time-course study" in svg  # never dropped for lack of a parent
+        assert "e-break" in svg and "unwired" in svg
+
+    def test_empty_inventory_returns_empty(self) -> None:
+        assert render_isa_svg(build_isa_inventory({"@graph": []})) == ""
+
+    def test_escapes_crate_controlled_names(self) -> None:
+        graph = _isa_graph()
+        graph["@graph"][2]["name"] = "<script>alert(1)</script>"
+        svg = render_isa_svg(build_isa_inventory(graph))
+        assert "<script>alert(1)</script>" not in svg
+        assert "&lt;script&gt;" in svg
+
+
+class TestIdentifierFallbackIsNotFabricated:
+    """The registry-URL fallback must identify, not merely match a hostname."""
+
+    def _chem(self, nid: str) -> dict:
+        inv = build_chemical_inventory(
+            {"@graph": [{"@id": nid, "@type": "MolecularEntity", "name": "X"}]}
+        )
+        return inv["chemicals"][0]["identifiers"]
+
+    def test_registry_resource_url_yields_the_identifier(self) -> None:
+        assert self._chem("https://pubchem.ncbi.nlm.nih.gov/compound/6623") == {
+            "PubChem CID": "6623"
+        }
+
+    def test_other_paths_on_the_registry_host_yield_nothing(self) -> None:
+        # /bioassay/1234 lives on the PubChem host and identifies no compound;
+        # counting it would inflate the identification score with a wrong value.
+        assert self._chem("https://pubchem.ncbi.nlm.nih.gov/bioassay/1234") == {}
+
+    def test_tail_that_is_not_shaped_like_the_identifier_is_rejected(self) -> None:
+        assert self._chem("https://pubchem.ncbi.nlm.nih.gov/compound/not-a-cid") == {}
+
+    def test_identifier_node_that_is_itself_a_registry_url_is_read(self) -> None:
+        graph = {
+            "@graph": [
+                {
+                    "@id": "#p",
+                    "@type": "Person",
+                    "name": "Josiah Carberry",
+                    "identifier": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
+                }
+            ]
+        }
+        agent = build_people_inventory(graph)["agents"][0]
+        assert agent["identifiers"] == {"ORCID": "0000-0002-1825-0097"}
+        assert agent["pid_scheme"] == "ORCID"
+
+
+class TestMalformedGraphDegradesGracefully:
+    """A single bad node must cost one row, not the whole report.
+
+    ``build_maturity_html`` runs inside ``export_crate``, so an exception here
+    loses the crate its entire maturity report.
+    """
+
+    def test_non_string_id_is_skipped_not_fatal(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": 5, "@type": "Person", "name": "Numeric id"},
+                {"@id": {"nested": 1}, "@type": "MolecularEntity", "name": "Object id"},
+                {"@id": "#ok", "@type": "Person", "name": "Fine"},
+                {"@id": "#c", "@type": "MolecularEntity", "name": "Aflatoxin B1"},
+            ]
+        }
+        assert [a["name"] for a in build_people_inventory(graph)["agents"]] == ["Fine"]
+        assert [c["name"] for c in build_chemical_inventory(graph)["chemicals"]] == [
+            "Aflatoxin B1"
+        ]
+        assert build_cellline_inventory(graph)["celllines"] == []
+        assert build_isa_inventory(graph)["nodes"] == []
+        # …and the topology model the report renders beside them survives too.
+        assert build_crate_graph(graph, all_edges=True)["counts"]["layer1"] >= 1
+
+    def test_whole_report_still_renders(self) -> None:
+        from builder.writers.maturity_report import build_maturity_html
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "name": "Crate"},
+                {"@id": 5, "@type": "Person", "name": "Numeric id"},
+                {"@id": "#c", "@type": "MolecularEntity", "name": "Aflatoxin B1"},
+            ]
+        }
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "Graph views" in page
+
+
+class TestDeterministicOrdering:
+    """The embedded artifact must be byte-stable for a given ``@graph``.
+
+    Sorting a set-derived list on a key that can tie leaves the order to the
+    per-process string hash seed — and same-named agents are exactly the
+    duplicate-entity case these views exist to surface.
+    """
+
+    def _graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Crate",
+                    "author": [{"@id": f"#p{i}"} for i in range(6)],
+                },
+                *[
+                    {"@id": f"#p{i}", "@type": "Person", "name": "Same Name"}
+                    for i in range(6)
+                ],
+                *[
+                    {"@id": f"#c{i}", "@type": "MolecularEntity", "name": "Same Compound"}
+                    for i in range(6)
+                ],
+            ]
+        }
+
+    def test_agent_and_compound_order_is_stable_across_hash_seeds(self) -> None:
+        import subprocess
+        import sys
+
+        script = (
+            "import json,sys;"
+            "from builder.writers.provenance_dag import "
+            "build_people_inventory, build_chemical_inventory;"
+            "g=json.load(sys.stdin);"
+            "print([a['id'] for a in build_people_inventory(g)['agents']],"
+            "[c['id'] for c in build_chemical_inventory(g)['chemicals']])"
+        )
+        payload = json.dumps(self._graph())
+        outputs = set()
+        for seed in ("0", "1", "12345"):
+            env = {**os.environ, "PYTHONHASHSEED": seed}
+            res = subprocess.run(
+                [sys.executable, "-c", script],
+                input=payload,
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            outputs.add(res.stdout.strip())
+        assert len(outputs) == 1, f"ordering varies with the hash seed: {outputs}"

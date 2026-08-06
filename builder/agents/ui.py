@@ -597,6 +597,12 @@ _FOOTER_MIN_HEIGHT = 10
 # rather than fighting a terminal that clearly does not want it.
 _FOOTER_MAX_FAILURES = 3
 
+# Key hint shown at the right-hand end of the footer's rule. Ctrl+C interrupts
+# the agent mid-run and hands the prompt back (the session and the crate
+# survive); Ctrl+D on an empty prompt ends the session. Both are otherwise
+# undiscoverable while the agent is working.
+_FOOTER_KEY_HINT = "ctrl+c interrupt · ctrl+d exit"
+
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -748,7 +754,7 @@ class PinnedFooter:
             return
 
         line = self._to_ansi(markup, width - 1)
-        rule = self._to_ansi(f"[grey35]{'─' * max(0, width - 1)}[/grey35]", width - 1)
+        rule = self._to_ansi(self._rule_markup(width - 1), width - 1)
         activity = self._to_ansi(self._activity or "", width - 1)
         self._write(
             "\x1b7"
@@ -759,6 +765,25 @@ class PinnedFooter:
             + f"\x1b[{height};1H\x1b[2K"
             + line
             + "\x1b8"
+        )
+
+    def _rule_markup(self, width: int) -> str:
+        """The separator rule, carrying the key hint at its right-hand end.
+
+        The hint rides on the rule rather than taking a row of its own: the two
+        keys that matter while the agent is working are only discoverable by
+        guessing otherwise, and the rule is the one line here with space to
+        spare. Dropped when the terminal is too narrow to hold both.
+        """
+        if width <= 0:
+            return ""
+        if not _FOOTER_KEY_HINT or width < len(_FOOTER_KEY_HINT) + 12:
+            return f"[grey35]{'─' * width}[/grey35]"
+        dashes = width - len(_FOOTER_KEY_HINT) - 3
+        return (
+            f"[grey35]{'─' * dashes}[/grey35] "
+            f"[grey42]{_FOOTER_KEY_HINT}[/grey42] "
+            f"[grey35]─[/grey35]"
         )
 
     def set_activity(self, markup: str | None) -> None:
