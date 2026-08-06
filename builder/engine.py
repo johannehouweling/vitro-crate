@@ -947,7 +947,10 @@ class AgentEngine:
             if "tox" in conformance:
                 report.tox_passed = bool(conformance["tox"])
             issues = result.get("issues") or []
-            severity = str(severity or "required")
+            # The caller's kwarg wins; fall back to the severity the validator
+            # stamped on its own result before assuming "required", so a
+            # recommended/optional result can never be filed as REQUIRED issues.
+            severity = str(severity or result.get("severity") or "required")
             if severity == "required":
                 report.required_issues = _order_issues(issues, "required")
                 report.assessed_tiers.add("required")

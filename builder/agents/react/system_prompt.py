@@ -117,6 +117,10 @@ The three validation passes stack like a pyramid:
 
 **TOX cannot pass if ISA fails. ISA cannot pass if BASE fails.** Every `build_and_validate` call runs all three layers (unless you scope to one); the conformance map and each issue's profile field show which layer is blocking, and every issue names the entity id and property to fix. Fix bottom-up: tackle BASE REQUIRED issues first, then ISA, then TOX. No need to `export_crate` to check — `build_and_validate` writes nothing.
 
+### Reporting Validation Results
+
+A `build_and_validate` result may carry an **escalation** field: the user was asked whether to run the broader RECOMMENDED and OPTIONAL checks, and those passes ran outside your tool calls. When that field is present, your summary MUST report every tier it describes — RECOMMENDED and OPTIONAL findings alongside the REQUIRED count — not the REQUIRED tier alone. Report a tier as clean only if it actually ran; if a tier was declined, blocked, or never run, say that instead of implying it passed.
+
 ### What a Minimal "BASE-passing" Crate Looks Like
 - At least one Investigation entity
 - At least one Study (linked to Investigation)

@@ -244,13 +244,67 @@ _VALIDATION_ESCALATION_FP_FLAG = "_validation_escalation_fingerprint"
 _VALIDATION_ESCALATION_PURPOSE = "validation_escalation"
 
 
-def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, Any]) -> None:
-    """Offer progressively broader validation once required checks pass."""
+# How many issue strings each escalation tier contributes to the summary handed
+# back to the model. Bounded so a noisy RECOMMENDED/OPTIONAL pass cannot flood
+# the tool message.
+_ESCALATION_MAX_ISSUES = 5
+
+# Appended to every escalation summary: the model reported only the REQUIRED
+# tier because that was the only result it ever saw. The escalation tiers run
+# out-of-band (engine.run_tool, not a model tool call), so they must be handed
+# back explicitly or they stay invisible in the user-facing wrap-up.
+_ESCALATION_REPORT_NOTE = (
+    "The user opted into these broader checks. Report the RECOMMENDED and "
+    "OPTIONAL results alongside the REQUIRED result in your summary to the "
+    "user — do not present the crate as validated on the REQUIRED tier alone."
+)
+
+
+def _escalation_tier_summary(
+    result: dict[str, Any],
+    state_issues: list[str] | None,
+) -> dict[str, Any]:
+    """Compact per-tier payload: status, issue count, and a bounded issue list.
+
+    Prefers the ordered issue strings already written back to
+    ``state.validation`` (base -> isa -> tox, human-readable); falls back to the
+    raw routable issues from the tool result when the write-back has not landed.
+    """
+    raw = result.get("issues") or []
+    if state_issues:
+        shown = [str(issue) for issue in state_issues[:_ESCALATION_MAX_ISSUES]]
+    else:
+        shown = [
+            str(issue.get("message", issue)) if isinstance(issue, dict) else str(issue)
+            for issue in raw[:_ESCALATION_MAX_ISSUES]
+        ]
+    tier: dict[str, Any] = {
+        "status": "completed",
+        "issue_count": len(raw),
+        "issues": shown,
+    }
+    if len(raw) > len(shown):
+        tier["not_shown"] = len(raw) - len(shown)
+    return tier
+
+
+def _run_validation_escalation(
+    engine: AgentEngine, required_result: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Offer progressively broader validation once required checks pass.
+
+    Returns a compact per-tier summary of what actually ran (``None`` when no
+    escalation happened at all) so the caller can fold it into the
+    ``build_and_validate`` result the model receives. The RECOMMENDED/OPTIONAL
+    passes are invoked directly on the engine rather than as model tool calls,
+    so without this return value the model never learns they happened and its
+    closing summary reports REQUIRED findings only.
+    """
     if not required_result.get("ok") or not is_interactive(engine.human_interface):
-        return
+        return None
     fingerprint = engine.state.validation_fingerprint()
     if getattr(engine, _VALIDATION_ESCALATION_FP_FLAG, None) == fingerprint:
-        return
+        return None
 
     def approved(context: str) -> bool:
         response = engine.human_interface.present(
@@ -262,7 +316,14 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
 
     if not approved("Required validation passed. Run recommended checks?"):
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
-        return
+        return {
+            "recommended": {"status": "declined_by_user"},
+            "optional": {"status": "not_offered"},
+            "note": (
+                "The user declined the broader checks; the crate is validated on "
+                "the REQUIRED tier only. Say so explicitly in your summary."
+            ),
+        }
 
     # This call is synchronous: the optional prompt cannot be reached until the
     # recommended validator has returned and its state writeback is complete.
@@ -271,7 +332,11 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
     )
     if not isinstance(recommended, dict) or "error" in recommended:
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
-        return
+        detail = recommended.get("error") if isinstance(recommended, dict) else None
+        return {
+            "recommended": {"status": "error", "detail": str(detail or "unknown error")},
+            "optional": {"status": "not_reached"},
+        }
 
     recommended_issues = recommended.get("issues") or []
     recommended_status = (
@@ -279,6 +344,12 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
         if recommended_issues
         else "no findings"
     )
+    summary: dict[str, Any] = {
+        "recommended": _escalation_tier_summary(
+            recommended, engine.state.validation.should_issues
+        ),
+        "note": _ESCALATION_REPORT_NOTE,
+    }
     # The recommended result can be unsuccessful because it found SHOULD issues;
     # that is still a completed tier and should be reported before asking about
     # the optional tier. Only tool errors abort the cascade.
@@ -290,16 +361,30 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
     # required pass over the same state.
     # (Issue #NNN: fix validation escalation and repeated validation loops.)
     has_recommended_findings = bool(recommended_issues)
-    if not has_recommended_findings:
-        if approved(
-            "Recommended validation completed ("
-            + recommended_status
-            + "). Run optional checks?"
-        ):
-            # As above, this call is synchronous and completes before the escalation
-            # fingerprint is recorded or control returns to the model loop.
-            engine.run_tool("build_and_validate", severity="optional", profile="all")
+    if has_recommended_findings:
+        summary["optional"] = {"status": "blocked_by_recommended_findings"}
+    elif approved(
+        "Recommended validation completed ("
+        + recommended_status
+        + "). Run optional checks?"
+    ):
+        # As above, this call is synchronous and completes before the escalation
+        # fingerprint is recorded or control returns to the model loop.
+        optional = engine.run_tool("build_and_validate", severity="optional", profile="all")
+        if isinstance(optional, dict) and "error" not in optional:
+            summary["optional"] = _escalation_tier_summary(
+                optional, engine.state.validation.may_issues
+            )
+        else:
+            detail = optional.get("error") if isinstance(optional, dict) else None
+            summary["optional"] = {
+                "status": "error",
+                "detail": str(detail or "unknown error"),
+            }
+    else:
+        summary["optional"] = {"status": "declined_by_user"}
     setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
+    return summary
 
 # ---------------------------------------------------------------------------
 # Issue #287 Fix B: loop-breaker for repeated non-progress tool calls
@@ -382,9 +467,32 @@ def _format_validation_issues_summary(
     remaining_should = max(0, (len(v.should_issues or []) - max_issues))
     if remaining_should:
         issues.append(f"[… {remaining_should} more RECOMMENDED issue(s) not shown]")
+    for issue in (v.may_issues or [])[:max_issues]:
+        issues.append(f"[OPTIONAL] {issue}")
+    remaining_may = max(0, (len(v.may_issues or []) - max_issues))
+    if remaining_may:
+        issues.append(f"[… {remaining_may} more OPTIONAL issue(s) not shown]")
     if not issues:
         return ""
     return "\n".join(issues)
+
+
+def _validation_tier_counts(engine: AgentEngine) -> str:
+    """Per-tier issue counts for every tier that has actually been assessed.
+
+    REQUIRED is always reported; RECOMMENDED/OPTIONAL only once their pass has
+    run (``assessed_tiers``), so an unassessed tier is never misreported as
+    clean — the distinction the user needs when deciding whether the crate is
+    done.
+    """
+    v = engine.state.validation
+    parts = [f"REQUIRED issues: {len(v.required_issues)}."]
+    tiers = getattr(v, "assessed_tiers", set()) or set()
+    if "recommended" in tiers:
+        parts.append(f"RECOMMENDED issues: {len(v.should_issues)}.")
+    if "optional" in tiers:
+        parts.append(f"OPTIONAL issues: {len(v.may_issues)}.")
+    return " ".join(parts)
 _MUTATION_TOOLS = frozenset(
     {
         "set_fields",
@@ -945,7 +1053,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                             f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
                             f"isa={'pass' if v.isa_passed else 'fail'}, "
                             f"tox={'pass' if v.tox_passed else 'fail'}. "
-                            f"REQUIRED issues: {len(v.required_issues)}. "
+                            f"{_validation_tier_counts(engine)} "
                             "Use the existing validation result and address the "
                             "reported issues instead of re-validating."
                         )
@@ -1018,7 +1126,15 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         severity = kwargs.get("severity") or "required"
                         profile = kwargs.get("profile") or "all"
                         if severity == "required" and profile == "all":
-                            _run_validation_escalation(engine, result)
+                            escalation = _run_validation_escalation(engine, result)
+                            # Attach the broader tiers to the result the model
+                            # receives. They ran on the engine, not as model tool
+                            # calls, so this is the only channel through which the
+                            # model can learn about them — without it the closing
+                            # summary reports REQUIRED findings only, even though
+                            # the user asked for the recommended/optional passes.
+                            if escalation and isinstance(result, dict):
+                                result = {**result, "escalation": escalation}
 
                 # Track repeated list queries independently: this never stores or
                 # reuses their result, and mutations always reset the streak.
@@ -1075,7 +1191,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                             f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
                             f"isa={'pass' if v.isa_passed else 'fail'}, "
                             f"tox={'pass' if v.tox_passed else 'fail'}. "
-                            f"REQUIRED issues: {len(v.required_issues)}. "
+                            f"{_validation_tier_counts(engine)} "
                             f"Use the existing validation result and address the "
                             f"reported issues instead of re-validating."
                         )
@@ -2098,7 +2214,7 @@ def run_interactive_agent(
             f"Validation: base={'pass' if val.base_passed else 'fail'}, "
             f"ISA={'pass' if val.isa_passed else 'fail'}, "
             f"Tox={'pass' if val.tox_passed else 'fail'}. "
-            f"Required issues: {len(val.required_issues)}. "
+            f"{_validation_tier_counts(engine)} "
             f"Entity breakdown: {counts}. "
             "Briefly welcome them back and summarise what has been done "
             "and what the next logical step is."

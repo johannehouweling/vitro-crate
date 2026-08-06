@@ -601,7 +601,10 @@ def _apply_value(
     # prose through BAO/OLS, persist the verified term, and link the assay to it.
     # Otherwise the generic reference guard rejects a valid human answer because
     # no DefinedTerm existed yet.
-    if field == "measurementMethod":
+    # A value that ALREADY names a crate entity (or is an IRI) is a reference, not
+    # prose, so it falls through to the generic reference path below — sending it
+    # to the BAO lookup would fail to resolve "term1" and reject a valid answer.
+    if field == "measurementMethod" and not is_resolvable_reference(engine.state, value):
         return _apply_measurement_method(engine, gap, value, human=human)
 
     # (#375, D5) An identifier is never taken from prose, on ANY path. This is the
