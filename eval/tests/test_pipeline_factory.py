@@ -43,7 +43,15 @@ class TestPipelineAgentWiring:
         assert isinstance(engine.human_interface, SimulatedHumanInterface)
 
     def test_build_returns_conformant_outcome(self) -> None:
-        """A real build of the minimal case reaches {base,isa,tox} conformance."""
+        """A real build of the minimal case reaches BASE + ISA conformance.
+
+        TOX does not pass here, and that is correct rather than a regression: the
+        minimal case runs the spine with no provider, so nothing states an
+        exposure duration or detection instrument, and ``_pv`` will not publish
+        "unknown" as though it were a measurement (D5). The remaining issues must
+        be exactly that gap — any OTHER issue is a real wiring regression, which
+        is what this test is here to catch.
+        """
         from eval.corpus import reaches_isa_tox_conformance
 
         agent = PipelineBuildAgent()
@@ -54,7 +62,14 @@ class TestPipelineAgentWiring:
         assert isinstance(outcome.state, CrateState)
         assert outcome.session_id  # initialize() assigns one
         assert outcome.error is None
-        assert reaches_isa_tox_conformance(outcome.state)["success"] is True
+
+        verdict = reaches_isa_tox_conformance(outcome.state)
+        assert verdict["conformance"]["base"] is True
+        assert verdict["conformance"]["isa"] is True
+        assert all(
+            str(issue.get("property", "")).endswith("additionalProperty")
+            for issue in verdict["issues"]
+        ), verdict["issues"]
 
     def test_pipeline_runner_is_injectable(self) -> None:
         """The pipeline-driver is injected so wiring is unit-testable in isolation."""
