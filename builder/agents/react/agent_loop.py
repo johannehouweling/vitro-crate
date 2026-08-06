@@ -13,7 +13,7 @@ import traceback
 from contextvars import ContextVar
 from pathlib import Path
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langgraph.errors import GraphRecursionError
@@ -161,7 +161,16 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
         # never shows text from the step before.
         self.spinner.set_preview(None)
 
-    on_chat_model_start = on_llm_start
+    def on_chat_model_start(
+        self, serialized: dict[str, Any], messages: list[list[Any]], **kwargs: Any
+    ) -> None:
+        # Same reset as on_llm_start, but declared separately rather than aliased.
+        # The base signature takes `messages`, not `prompts`, so `on_chat_model_start
+        # = on_llm_start` was an LSP violation: a caller passing `messages=` by
+        # keyword would have hit an unexpected-argument TypeError. Both bodies
+        # ignore their payload, so this only ever mattered to a keyword caller —
+        # but the alias made the class type-incorrect for every checker.
+        self.spinner.set_preview(None)
 
     def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:
         # Only fires when the model was built with streaming. The spinner keeps
@@ -649,6 +658,28 @@ def _reply_is_empty_completion(reply: str | None) -> bool:
     if not reply:
         return True
     return not reply.strip()
+
+
+@overload
+def _invoke_with_timeout(
+    app: Any,
+    payload: dict[str, Any],
+    config: Any,
+    *,
+    timeout: float,
+    include_error: Literal[False] = False,
+) -> tuple[dict[str, Any] | None, str]: ...
+
+
+@overload
+def _invoke_with_timeout(
+    app: Any,
+    payload: dict[str, Any],
+    config: Any,
+    *,
+    timeout: float,
+    include_error: Literal[True],
+) -> tuple[dict[str, Any] | None, str, dict[str, str] | None]: ...
 
 
 def _invoke_with_timeout(
@@ -1715,7 +1746,7 @@ def _format_document_evidence(engine: AgentEngine, *, limit: int = 12000) -> str
     return "".join(parts)
 
 
-def _format_document_context(documents: list[dict[str, Any]]) -> str:
+def _format_document_context(documents: list[dict[str, Any]] | None) -> str:
     """Format the ranked document discovery results as a bounded context string.
 
     Produces one line per candidate::
@@ -2431,7 +2462,7 @@ def run_interactive_agent(
         else:
             _print_fresh_fallback()
         if verbose and outcome == "error" and greeting_diagnostic:
-            diagnostic_record = {
+            diagnostic_record: dict[str, Any] = {
                 "event": "model_error",
                 "exception_type": greeting_diagnostic["exception_type"],
                 "message": greeting_diagnostic["message"],
@@ -2557,7 +2588,7 @@ def run_interactive_agent(
             console.print()
         elif outcome == "error":
             if verbose and diagnostic:
-                diagnostic_record = {
+                diagnostic_record: dict[str, Any] = {
                     "event": "model_error",
                     "exception_type": diagnostic["exception_type"],
                     "message": diagnostic["message"],

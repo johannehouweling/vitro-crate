@@ -40,8 +40,12 @@ jobs:
         run: uvx ruff check
 
       - name: Type check (ty)
+        # Enforcing as of the ty-clean sweep: the tree reports zero diagnostics,
+        # so this now gates. It ran with continue-on-error for a long time and
+        # quietly accumulated 36 findings that nothing was ever going to force
+        # anyone to fix — including a genuinely wrong `_format_document_context`
+        # signature and an LSP-violating callback override.
         run: uv run ty check
-        continue-on-error: true  # ty is a Rust-based type checker still evolving
 
   test:
     runs-on: ubuntu-latest
