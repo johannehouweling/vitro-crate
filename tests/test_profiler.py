@@ -217,7 +217,7 @@ class TestProfilerEngineIntegration:
         engine.close_profiler()
 
     def test_run_tool_writes_profile_entry(self, tmp_path):
-        """run_tool writes a tool_call event to the profiler."""
+        """run_tool writes a tool_start marker and then a completed tool_call."""
         import builder.tools.profiler as profiler_mod
         from builder.engine import AgentEngine
         from builder.tools.profiler import ProfilingLogger
@@ -233,11 +233,15 @@ class TestProfilerEngineIntegration:
 
             profile_path = tmp_path / "sessions" / engine.state.session_id / "profile.ndjson"
             assert profile_path.exists()
-            lines = profile_path.read_text().strip().splitlines()
-            assert len(lines) >= 1
+            records = [json.loads(line) for line in profile_path.read_text().strip().splitlines()]
 
-            record = json.loads(lines[0])
-            assert record["event"] == "tool_call"
+            # A live "tool_start" marker is emitted before entering the tool so
+            # profile.ndjson does not look idle during a slow call; the completed
+            # record with the duration is still written after it returns.
+            assert [r["event"] for r in records] == ["tool_start", "tool_call"]
+            assert records[0]["tool"] == "draft_investigation"
+
+            record = records[1]
             assert record["tool"] == "draft_investigation"
             assert record["duration_ms"] > 0
             assert record["iteration"] == 1
@@ -263,11 +267,14 @@ class TestProfilerEngineIntegration:
             engine.run_tool("draft_investigation", hints={"name": "Three"})
 
             profile_path = tmp_path / "sessions" / engine.state.session_id / "profile.ndjson"
-            lines = profile_path.read_text().strip().splitlines()
-            assert len(lines) == 3
+            records = [json.loads(line) for line in profile_path.read_text().strip().splitlines()]
 
-            iterations = [json.loads(line)["iteration"] for line in lines]
-            assert iterations == [1, 2, 3]
+            # Each call contributes a "tool_start" marker plus its completed
+            # "tool_call"; the iteration counter is stamped on the completed one.
+            completed = [r for r in records if r["event"] == "tool_call"]
+            assert len(completed) == 3
+            assert [r["iteration"] for r in completed] == [1, 2, 3]
+            assert len([r for r in records if r["event"] == "tool_start"]) == 3
         finally:
             profiler_mod.SESSION_DIR = orig
             engine.close_profiler()
@@ -292,7 +299,10 @@ class TestProfilerEngineIntegration:
             engine.run_tool("draft_investigation", hints={"name": "After"})
 
             profile_path = tmp_path / "sessions" / engine.state.session_id / "profile.ndjson"
-            lines = profile_path.read_text().strip().splitlines()
-            assert len(lines) == 1
+            records = [json.loads(line) for line in profile_path.read_text().strip().splitlines()]
+            # Only the pre-close call is recorded (its "tool_start" + "tool_call");
+            # the post-close call writes nothing at all.
+            assert [r["event"] for r in records] == ["tool_start", "tool_call"]
+            assert all(r["tool"] == "draft_investigation" for r in records)
         finally:
             profiler_mod.SESSION_DIR = orig

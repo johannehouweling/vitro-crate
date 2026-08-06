@@ -179,6 +179,9 @@ def _validation_input_hash(state: CrateState) -> str:
 # are gated by :meth:`AgentEngine._gate_file_read`. The value is the kwarg that
 # names the path(s): a single string for the per-file readers, ``"paths"`` (a
 # list) for ``read_multiple_files``.
+_DOCUMENT_EVIDENCE_MAX_CHARS = 12000
+_DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 30000
+
 _FILE_READ_TOOLS: dict[str, str] = {
     "read_file": "path",
     "read_excel": "path",
@@ -422,6 +425,34 @@ class AgentEngine:
     # ------------------------------------------------------------------
     # Tool execution
     # ------------------------------------------------------------------
+
+    def _store_document_evidence(
+        self, tool_name: str, path: str, result: Any, kwargs: dict[str, Any]
+    ) -> None:
+        """Store bounded successful reader output in serializable session state."""
+        if not isinstance(result, str) or not result.strip():
+            return
+        try:
+            resolved = Path(path).resolve()
+            root = next(Path(r).resolve() for r in self.state.approved_scan_roots)
+            relative = str(resolved.relative_to(root))
+        except (OSError, RuntimeError, StopIteration, ValueError):
+            return
+        content = result[:_DOCUMENT_EVIDENCE_MAX_CHARS]
+        evidence = dict(self.state.document_evidence)
+        evidence[relative] = {
+            "tool": tool_name,
+            "path": relative,
+            "content": content,
+            "truncated": len(result) > len(content),
+            "args": {k: v for k, v in kwargs.items() if k != "path"},
+        }
+        while (
+            sum(len(str(item.get("content", ""))) for item in evidence.values())
+            > _DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS
+        ):
+            evidence.pop(next(iter(evidence)))
+        self.state.document_evidence = evidence
 
     def _gate_file_read(self, tool_name: str, kwargs: dict[str, Any]) -> Any:
         """Sandbox a file-reading tool to ``approved_scan_roots`` (#167).
@@ -767,6 +798,8 @@ class AgentEngine:
             if tool_name == "scan_files":
                 tool_kwargs["approved_roots"] = self.state.approved_scan_roots.copy()
             result = tool_fn(**tool_kwargs)
+            if tool_name in {"read_file", "read_excel", "read_docx", "read_file_sample"}:
+                self._store_document_evidence(tool_name, kwargs.get("path", ""), result, kwargs)
             # Fold sandbox-refused paths back into read_multiple_files' own
             # ``skipped`` list so the agent sees them as unread (#167).
             if (
@@ -914,7 +947,10 @@ class AgentEngine:
             if "tox" in conformance:
                 report.tox_passed = bool(conformance["tox"])
             issues = result.get("issues") or []
-            severity = str(severity or "required")
+            # The caller's kwarg wins; fall back to the severity the validator
+            # stamped on its own result before assuming "required", so a
+            # recommended/optional result can never be filed as REQUIRED issues.
+            severity = str(severity or result.get("severity") or "required")
             if severity == "required":
                 report.required_issues = _order_issues(issues, "required")
                 report.assessed_tiers.add("required")

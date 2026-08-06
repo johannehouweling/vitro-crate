@@ -11,6 +11,7 @@ import re
 import threading
 import traceback
 from contextvars import ContextVar
+from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
@@ -243,13 +244,67 @@ _VALIDATION_ESCALATION_FP_FLAG = "_validation_escalation_fingerprint"
 _VALIDATION_ESCALATION_PURPOSE = "validation_escalation"
 
 
-def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, Any]) -> None:
-    """Offer progressively broader validation once required checks pass."""
+# How many issue strings each escalation tier contributes to the summary handed
+# back to the model. Bounded so a noisy RECOMMENDED/OPTIONAL pass cannot flood
+# the tool message.
+_ESCALATION_MAX_ISSUES = 5
+
+# Appended to every escalation summary: the model reported only the REQUIRED
+# tier because that was the only result it ever saw. The escalation tiers run
+# out-of-band (engine.run_tool, not a model tool call), so they must be handed
+# back explicitly or they stay invisible in the user-facing wrap-up.
+_ESCALATION_REPORT_NOTE = (
+    "The user opted into these broader checks. Report the RECOMMENDED and "
+    "OPTIONAL results alongside the REQUIRED result in your summary to the "
+    "user — do not present the crate as validated on the REQUIRED tier alone."
+)
+
+
+def _escalation_tier_summary(
+    result: dict[str, Any],
+    state_issues: list[str] | None,
+) -> dict[str, Any]:
+    """Compact per-tier payload: status, issue count, and a bounded issue list.
+
+    Prefers the ordered issue strings already written back to
+    ``state.validation`` (base -> isa -> tox, human-readable); falls back to the
+    raw routable issues from the tool result when the write-back has not landed.
+    """
+    raw = result.get("issues") or []
+    if state_issues:
+        shown = [str(issue) for issue in state_issues[:_ESCALATION_MAX_ISSUES]]
+    else:
+        shown = [
+            str(issue.get("message", issue)) if isinstance(issue, dict) else str(issue)
+            for issue in raw[:_ESCALATION_MAX_ISSUES]
+        ]
+    tier: dict[str, Any] = {
+        "status": "completed",
+        "issue_count": len(raw),
+        "issues": shown,
+    }
+    if len(raw) > len(shown):
+        tier["not_shown"] = len(raw) - len(shown)
+    return tier
+
+
+def _run_validation_escalation(
+    engine: AgentEngine, required_result: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Offer progressively broader validation once required checks pass.
+
+    Returns a compact per-tier summary of what actually ran (``None`` when no
+    escalation happened at all) so the caller can fold it into the
+    ``build_and_validate`` result the model receives. The RECOMMENDED/OPTIONAL
+    passes are invoked directly on the engine rather than as model tool calls,
+    so without this return value the model never learns they happened and its
+    closing summary reports REQUIRED findings only.
+    """
     if not required_result.get("ok") or not is_interactive(engine.human_interface):
-        return
+        return None
     fingerprint = engine.state.validation_fingerprint()
     if getattr(engine, _VALIDATION_ESCALATION_FP_FLAG, None) == fingerprint:
-        return
+        return None
 
     def approved(context: str) -> bool:
         response = engine.human_interface.present(
@@ -261,7 +316,14 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
 
     if not approved("Required validation passed. Run recommended checks?"):
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
-        return
+        return {
+            "recommended": {"status": "declined_by_user"},
+            "optional": {"status": "not_offered"},
+            "note": (
+                "The user declined the broader checks; the crate is validated on "
+                "the REQUIRED tier only. Say so explicitly in your summary."
+            ),
+        }
 
     # This call is synchronous: the optional prompt cannot be reached until the
     # recommended validator has returned and its state writeback is complete.
@@ -270,7 +332,11 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
     )
     if not isinstance(recommended, dict) or "error" in recommended:
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
-        return
+        detail = recommended.get("error") if isinstance(recommended, dict) else None
+        return {
+            "recommended": {"status": "error", "detail": str(detail or "unknown error")},
+            "optional": {"status": "not_reached"},
+        }
 
     recommended_issues = recommended.get("issues") or []
     recommended_status = (
@@ -278,18 +344,47 @@ def _run_validation_escalation(engine: AgentEngine, required_result: dict[str, A
         if recommended_issues
         else "no findings"
     )
+    summary: dict[str, Any] = {
+        "recommended": _escalation_tier_summary(
+            recommended, engine.state.validation.should_issues
+        ),
+        "note": _ESCALATION_REPORT_NOTE,
+    }
     # The recommended result can be unsuccessful because it found SHOULD issues;
     # that is still a completed tier and should be reported before asking about
     # the optional tier. Only tool errors abort the cascade.
-    if approved(
+    # However, when recommended findings EXIST, the optional pass is blocked:
+    # running optional validation while SHOULD issues are unresolved creates
+    # a confusing noise floor — the model is more likely to chase MAY-level
+    # findings than to fix the SHOULD-tier gaps that matter more.  Block and
+    # record the fingerprint so the escalation does not repeat on the next
+    # required pass over the same state.
+    # (Issue #NNN: fix validation escalation and repeated validation loops.)
+    has_recommended_findings = bool(recommended_issues)
+    if has_recommended_findings:
+        summary["optional"] = {"status": "blocked_by_recommended_findings"}
+    elif approved(
         "Recommended validation completed ("
         + recommended_status
         + "). Run optional checks?"
     ):
         # As above, this call is synchronous and completes before the escalation
         # fingerprint is recorded or control returns to the model loop.
-        engine.run_tool("build_and_validate", severity="optional", profile="all")
+        optional = engine.run_tool("build_and_validate", severity="optional", profile="all")
+        if isinstance(optional, dict) and "error" not in optional:
+            summary["optional"] = _escalation_tier_summary(
+                optional, engine.state.validation.may_issues
+            )
+        else:
+            detail = optional.get("error") if isinstance(optional, dict) else None
+            summary["optional"] = {
+                "status": "error",
+                "detail": str(detail or "unknown error"),
+            }
+    else:
+        summary["optional"] = {"status": "declined_by_user"}
     setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
+    return summary
 
 # ---------------------------------------------------------------------------
 # Issue #287 Fix B: loop-breaker for repeated non-progress tool calls
@@ -309,6 +404,111 @@ _LOOP_BREAKER_THRESHOLD = 3
 # arrives.
 _LOOP_BREAKER_LAST_SIG_FLAG = "_loop_breaker_last_signature"
 _LOOP_BREAKER_COUNT_FLAG = "_loop_breaker_repeat_count"
+
+# Consecutive identical list reads are handled separately from failed file reads:
+# list_entities is a live query, so this is a guard, never a result cache.
+_LIST_ENTITIES_BREAKER_THRESHOLD = 3
+_LIST_ENTITIES_LAST_SIG_FLAG = "_list_entities_last_signature"
+_LIST_ENTITIES_COUNT_FLAG = "_list_entities_repeat_count"
+
+# ---------------------------------------------------------------------------
+# ReAct-level guard: repeated unchanged build_and_validate calls
+# ---------------------------------------------------------------------------
+
+# Attribute name on the engine storing the last build_and_validate call
+# signature (normalised severity + profile). Used to detect when the model
+# re-issues the same validation call without any intervening mutation.
+_BUILD_VALIDATE_LAST_SIG_FLAG = "_build_validate_last_signature"
+
+# Attribute name storing how many consecutive identical unchanged
+# build_and_validate calls have been observed so far. The first call is
+# allowed; subsequent identical non-mutation calls are suppressed.
+_BUILD_VALIDATE_COUNT_FLAG = "_build_validate_repeat_count"
+_BUILD_VALIDATE_FP_FLAG = "_build_validate_input_fingerprint"
+
+# How many consecutive identical build_and_validate calls are tolerated
+# before the guard kicks in. A value of 1 means the second identical call
+# (with no mutation in between) is the one that gets redirected.
+_BUILD_VALIDATE_REPEAT_THRESHOLD = 1
+
+
+def _build_validate_signature(kwargs: dict[str, Any]) -> tuple[str, str]:
+    """Normalised signature for a build_and_validate call: (severity, profile).
+
+    Only severity and profile determine whether a re-run is redundant.  Other
+    kwargs (if any ever appear) are ignored so the model cannot circumvent the
+    guard by adding a spurious argument.
+    """
+    return (
+        str(kwargs.get("severity") or "required"),
+        str(kwargs.get("profile") or "all"),
+    )
+
+
+def _format_validation_issues_summary(
+    engine: AgentEngine,
+    *,
+    max_issues: int = 5,
+) -> str:
+    """Return a compact summary of current validation issues for the corrective
+    message, preferring REQUIRED issues then RECOMMENDED, limited to *max_issues*.
+
+    Returns an empty string when there are no issues to report.
+    """
+    v = engine.state.validation
+    issues: list[str] = []
+    for issue in (v.required_issues or [])[:max_issues]:
+        issues.append(f"[REQUIRED] {issue}")
+    remaining_required = max(0, (len(v.required_issues or []) - max_issues))
+    if remaining_required:
+        issues.append(f"[… {remaining_required} more REQUIRED issue(s) not shown]")
+    for issue in (v.should_issues or [])[:max_issues]:
+        issues.append(f"[RECOMMENDED] {issue}")
+    remaining_should = max(0, (len(v.should_issues or []) - max_issues))
+    if remaining_should:
+        issues.append(f"[… {remaining_should} more RECOMMENDED issue(s) not shown]")
+    for issue in (v.may_issues or [])[:max_issues]:
+        issues.append(f"[OPTIONAL] {issue}")
+    remaining_may = max(0, (len(v.may_issues or []) - max_issues))
+    if remaining_may:
+        issues.append(f"[… {remaining_may} more OPTIONAL issue(s) not shown]")
+    if not issues:
+        return ""
+    return "\n".join(issues)
+
+
+def _validation_tier_counts(engine: AgentEngine) -> str:
+    """Per-tier issue counts for every tier that has actually been assessed.
+
+    REQUIRED is always reported; RECOMMENDED/OPTIONAL only once their pass has
+    run (``assessed_tiers``), so an unassessed tier is never misreported as
+    clean — the distinction the user needs when deciding whether the crate is
+    done.
+    """
+    v = engine.state.validation
+    parts = [f"REQUIRED issues: {len(v.required_issues)}."]
+    tiers = getattr(v, "assessed_tiers", set()) or set()
+    if "recommended" in tiers:
+        parts.append(f"RECOMMENDED issues: {len(v.should_issues)}.")
+    if "optional" in tiers:
+        parts.append(f"OPTIONAL issues: {len(v.may_issues)}.")
+    return " ".join(parts)
+_MUTATION_TOOLS = frozenset(
+    {
+        "set_fields",
+        "set_crate_metadata",
+        "remove_entity",
+        "link",
+        "attach_files",
+        "populate_condition_table",
+        "fix_required_issues",
+        "scaffold_isa_backbone",
+        "draft_process_chain",
+        "resolve_compound",
+        "resolve_publication",
+        "materialize_aop_subgraph",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Issue #263: stall recovery (Fix A) + autonomous continuation (Fix B)
@@ -643,6 +843,79 @@ def _is_non_progress_result(result: Any) -> bool:
     return False
 
 
+def _record_recent_mutation(engine: AgentEngine, result: Any) -> None:
+    """Keep a bounded list of entities returned by successful mutations."""
+    entity = result
+    if isinstance(result, dict):
+        entity = (
+            result.get("entity")
+            or result.get("updated_entity")
+            or result.get("created_entity")
+        )
+    if not hasattr(entity, "entity_id") or not hasattr(entity, "type"):
+        return
+    recent = list(getattr(engine, "_react_recent_mutations", []))
+    item = (str(entity.type), str(entity.entity_id), str(entity.fields.get("name", ""))[:60])
+    recent = [entry for entry in recent if entry[:2] != item[:2]]
+    recent.append(item)
+    setattr(engine, "_react_recent_mutations", recent[-8:])
+
+
+def _format_compact_state_summary(engine: AgentEngine, *, limit: int = 8) -> str:
+    """Return bounded live state context for tool results and interventions."""
+    try:
+        entities = engine.state.list_entities()
+        counts: dict[str, int] = {}
+        for entity in entities:
+            counts[entity.type] = counts.get(entity.type, 0) + 1
+        count_text = ", ".join(f"{key}: {counts[key]}" for key in sorted(counts)) or "none"
+        tracked = getattr(engine, "_react_recent_mutations", [])
+        recent = tracked[-limit:] or [
+            (entity.type, entity.entity_id, str(entity.fields.get("name", ""))[:60])
+            for entity in entities[-limit:]
+        ]
+        recent_text = ", ".join(
+            f"{entity_type}:{entity_id}"
+            + (f" ({name})" if name else "")
+            for entity_type, entity_id, name in recent
+        ) or "none"
+        validation = engine.state.validation
+        status = (
+            f"base={'pass' if validation.base_passed else 'fail'}, "
+            f"isa={'pass' if validation.isa_passed else 'fail'}, "
+            f"tox={'pass' if validation.tox_passed else 'fail'}, "
+            f"required={len(validation.required_issues)}"
+        )
+        return f"[Live state | counts: {count_text} | recent: {recent_text} | validation: {status}]"
+    except Exception:  # noqa: BLE001 — context must never break tool execution.
+        return "[Live state unavailable]"
+
+
+def _reader_evidence_key(engine: AgentEngine, path: str) -> str:
+    """Normalize an approved reader path the same way engine storage does."""
+    try:
+        resolved = Path(path).resolve()
+        for root in getattr(engine.state, "approved_scan_roots", set()):
+            try:
+                return str(resolved.relative_to(Path(root).resolve()))
+            except ValueError:
+                continue
+    except (OSError, RuntimeError, TypeError, ValueError):
+        pass
+    return path
+
+
+def _list_entities_intervention(engine: AgentEngine) -> str:
+    """Explain a repeated list query without serving a stale cached result."""
+    return (
+        f"STOP — you have repeated the same list_entities query "
+        f"{_LIST_ENTITIES_BREAKER_THRESHOLD} times without a mutation. Do not "
+        "repeat it again; use the prior result and live state summary, search with "
+        "different arguments, or make the next meaningful mutation.\n"
+        + _format_compact_state_summary(engine)
+    )
+
+
 def _call_signature(tool_name: str, kwargs: dict[str, Any]) -> tuple[str, tuple]:
     """A hashable signature for a tool call (name + sorted, stringified args).
 
@@ -731,12 +1004,68 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # a weak model stops looping (it ignored #281's directory message
                 # and looped ~36×). Distinct calls / a single retry never trip this.
                 signature = _call_signature(tool_name, kwargs)
+                if tool_name == "list_entities":
+                    list_last = getattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
+                    list_count = getattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
+                    if list_last == signature and list_count >= _LIST_ENTITIES_BREAKER_THRESHOLD:
+                        return _list_entities_intervention(engine)
                 last_sig = getattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, None)
                 repeat_count = getattr(engine, _LOOP_BREAKER_COUNT_FLAG, 0)
                 if last_sig == signature and repeat_count >= _LOOP_BREAKER_THRESHOLD:
                     # Do NOT run the tool again — the identical non-progress call
                     # is short-circuited and the model is steered elsewhere.
                     return _loop_breaker_intervention(engine, tool_name)
+
+                if tool_name in _FILE_READ_TOOLS:
+                    evidence = getattr(engine.state, "document_evidence", {})
+                    path = _reader_evidence_key(engine, str(kwargs.get("path", "")))
+                    read_args = {k: v for k, v in kwargs.items() if k != "path"}
+                    if path and any(
+                        item.get("path") == path and item.get("args", {}) == read_args
+                        for item in evidence.values()
+                    ):
+                        return (
+                            "Already loaded this document into bounded session evidence. "
+                            "Use the loaded evidence in the state context; request a specific "
+                            "different slice only if needed."
+                        )
+                if tool_name == "build_and_validate":
+                    bv_sig = _build_validate_signature(kwargs)
+                    bv_last = getattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, None)
+                    bv_count = getattr(engine, _BUILD_VALIDATE_COUNT_FLAG, 0)
+                    try:
+                        bv_fp = engine.state.validation_fingerprint()
+                    except Exception:  # noqa: BLE001 — the guard must never block a call.
+                        bv_fp = None
+                    bv_last_fp = getattr(engine, _BUILD_VALIDATE_FP_FLAG, None)
+                    if (
+                        bv_sig == bv_last
+                        and bv_fp is not None
+                        and bv_fp == bv_last_fp
+                        and bv_count >= _BUILD_VALIDATE_REPEAT_THRESHOLD
+                    ):
+                        issue_text = _format_validation_issues_summary(engine)
+                        v = engine.state.validation
+                        corrective = (
+                            f"build_and_validate({bv_sig[0]}, {bv_sig[1]}) called "
+                            "again with no state change since the last identical call. "
+                            "The result has not changed. "
+                            f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
+                            f"isa={'pass' if v.isa_passed else 'fail'}, "
+                            f"tox={'pass' if v.tox_passed else 'fail'}. "
+                            f"{_validation_tier_counts(engine)} "
+                            "Use the existing validation result and address the "
+                            "reported issues instead of re-validating."
+                        )
+                        if issue_text:
+                            corrective += f"\n\nCurrent issues:\n{issue_text}"
+                        corrective += (
+                            "\n\nIf you believe the state has changed, make a mutation "
+                            "first (set_fields, link, etc.) and validation will "
+                            "re-run automatically."
+                        )
+                        logger.info("Suppressed repeated unchanged %s", bv_sig)
+                        return corrective
 
                 try:
                     result = engine.run_tool(tool_name, **kwargs)
@@ -797,7 +1126,95 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         severity = kwargs.get("severity") or "required"
                         profile = kwargs.get("profile") or "all"
                         if severity == "required" and profile == "all":
-                            _run_validation_escalation(engine, result)
+                            escalation = _run_validation_escalation(engine, result)
+                            # Attach the broader tiers to the result the model
+                            # receives. They ran on the engine, not as model tool
+                            # calls, so this is the only channel through which the
+                            # model can learn about them — without it the closing
+                            # summary reports REQUIRED findings only, even though
+                            # the user asked for the recommended/optional passes.
+                            if escalation and isinstance(result, dict):
+                                result = {**result, "escalation": escalation}
+
+                # Track repeated list queries independently: this never stores or
+                # reuses their result, and mutations always reset the streak.
+                if tool_name in _MUTATION_TOOLS and not (
+                    isinstance(result, dict) and result.get("error")
+                ):
+                    _record_recent_mutation(engine, result)
+                    setattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
+                    setattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
+                    # A mutation resets the build_and_validate repeat guard so
+                    # the next (changed-state) call is allowed to run fresh.
+                    setattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, None)
+                    setattr(engine, _BUILD_VALIDATE_COUNT_FLAG, 0)
+                    setattr(engine, _BUILD_VALIDATE_FP_FLAG, None)
+                elif tool_name == "list_entities":
+                    list_last = getattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
+                    list_count = getattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
+                    if list_last == signature:
+                        setattr(engine, _LIST_ENTITIES_COUNT_FLAG, list_count + 1)
+                    else:
+                        setattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, signature)
+                        setattr(engine, _LIST_ENTITIES_COUNT_FLAG, 1)
+                else:
+                    setattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
+                    setattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
+
+                # ReAct-level guard: repeated identical build_and_validate calls
+                # with no intervening mutation.  The engine-level debounce (#155)
+                # already avoids re-running the SHACL pass, but the model still
+                # burns tokens on unnecessary tool/model iterations.  Intercept
+                # here — BEFORE the loop-breaker (which guards non-progress, not
+                # this) — and redirect to the cached result + a corrective message
+                # telling the model to work on the reported issues instead.
+                # (Issue #NNN: fix validation escalation and repeated validation
+                # loops.)
+                if tool_name == "build_and_validate":
+                    bv_sig = _build_validate_signature(kwargs)
+                    bv_last = getattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, None)
+                    bv_count = getattr(engine, _BUILD_VALIDATE_COUNT_FLAG, 0)
+                    try:
+                        bv_fp = engine.state.validation_fingerprint()
+                    except Exception:  # noqa: BLE001 — best-effort bookkeeping.
+                        bv_fp = None
+                    setattr(engine, _BUILD_VALIDATE_FP_FLAG, bv_fp)
+                    if bv_sig == bv_last and bv_count >= _BUILD_VALIDATE_REPEAT_THRESHOLD:
+                        # Defensive fallback for callers that bypass the pre-run guard.
+                        # Suppress the redundant call — return a compact corrective result.
+                        issue_text = _format_validation_issues_summary(engine)
+                        v = engine.state.validation
+                        corrective = (
+                            f"build_and_validate({bv_sig[0]}, {bv_sig[1]}) called "
+                            f"again with no state change since the last identical call. "
+                            f"The result has not changed. "
+                            f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
+                            f"isa={'pass' if v.isa_passed else 'fail'}, "
+                            f"tox={'pass' if v.tox_passed else 'fail'}. "
+                            f"{_validation_tier_counts(engine)} "
+                            f"Use the existing validation result and address the "
+                            f"reported issues instead of re-validating."
+                        )
+                        if issue_text:
+                            corrective += f"\n\nCurrent issues:\n{issue_text}"
+                        corrective += (
+                            "\n\nIf you believe the state has changed, make a mutation "
+                            "first (set_fields, link, etc.) and validation will "
+                            "re-run automatically."
+                        )
+                        # Stamp the fingerprint so the escalation guard also
+                        # recognises this as stable state.
+                        try:
+                            setattr(
+                                engine,
+                                _VALIDATION_ESCALATION_FP_FLAG,
+                                engine.state.validation_fingerprint(),
+                            )
+                        except Exception:  # noqa: BLE001 — fingerprint is best-effort.
+                            pass
+                        return corrective
+                    setattr(engine, _BUILD_VALIDATE_LAST_SIG_FLAG, bv_sig)
+                    setattr(engine, _BUILD_VALIDATE_COUNT_FLAG, bv_count + 1)
 
                 # Update the loop-breaker detection state AFTER post-processing so
                 # it sees the same message the model sees. A repeated identical
@@ -1039,6 +1456,7 @@ def _build_system_prompt_with_state(
     iteration_count: int = 0,
     next_fix: str | None = None,
     nudge: str | None = None,
+    state_summary: str | None = None,
 ) -> str:
     """Build a lightweight state brief appended to the system prompt.
 
@@ -1071,6 +1489,8 @@ def _build_system_prompt_with_state(
         brief += f"\n[Next REQUIRED fix: {next_fix}]"
     if nudge:
         brief += f"\n{nudge}"
+    if state_summary:
+        brief += f"\n{state_summary[:1200]}"
     return brief
 
 
@@ -1111,9 +1531,9 @@ def _prune_stub(name: str) -> str:
             f"(paginated/filterable). Do not re-run {name}.]"
         )
     return (
-        f"[{name} output pruned from history to save tokens. It is NOT stored in "
-        f"the session state — if you still need this file's text, read it again "
-        f"with read_file(path).]"
+        f"[{name} output pruned from history to save tokens. A bounded copy may be "
+        f"available in loaded document evidence; request a specific missing section "
+        f"only when needed. Do not repeat the identical read automatically.]"
     )
 
 
@@ -1169,6 +1589,24 @@ def _prune_state_backed_outputs(messages: list) -> list:
         else:
             pruned.append(msg)
     return pruned
+
+
+def _format_document_evidence(engine: AgentEngine, *, limit: int = 12000) -> str:
+    """Format bounded loaded document evidence for the trailing state brief."""
+    evidence = getattr(engine.state, "document_evidence", {})
+    if not evidence:
+        return ""
+    parts: list[str] = ["[Loaded document evidence]"]
+    used = len(parts[0])
+    for path, item in evidence.items():
+        content = str(item.get("content", ""))
+        line = f"\n{path} ({item.get('tool', 'reader')}):\n{content}"
+        if used + len(line) > limit:
+            parts.append("\n[Additional loaded evidence omitted for context budget]")
+            break
+        parts.append(line)
+        used += len(line)
+    return "".join(parts)
 
 
 def _format_document_context(documents: list[dict[str, Any]]) -> str:
@@ -1263,6 +1701,7 @@ def _assemble_model_messages(
     iteration_count: int = 0,
     next_fix: str | None = None,
     nudge: str | None = None,
+    state_summary: str | None = None,
     max_history_tokens: int | None = None,
 ) -> list:
     """Assemble the message list for a model invocation with a cache-friendly
@@ -1313,6 +1752,7 @@ def _assemble_model_messages(
         iteration_count=iteration_count,
         next_fix=next_fix,
         nudge=nudge,
+        state_summary=state_summary,
     )
     parts = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -1456,6 +1896,11 @@ def _build_agent_graph(
             iteration_count=engine.state.iteration_count,
             next_fix=next_fix,
             nudge=nudge,
+            state_summary=(
+                _format_compact_state_summary(engine)
+                + "\n"
+                + _format_document_evidence(engine)
+            ),
         )
         # Progressive tool disclosure (#156): advertise only the state-relevant
         # subset so a weak model chooses from a smaller menu. Bind per-turn; the
@@ -1769,7 +2214,7 @@ def run_interactive_agent(
             f"Validation: base={'pass' if val.base_passed else 'fail'}, "
             f"ISA={'pass' if val.isa_passed else 'fail'}, "
             f"Tox={'pass' if val.tox_passed else 'fail'}. "
-            f"Required issues: {len(val.required_issues)}. "
+            f"{_validation_tier_counts(engine)} "
             f"Entity breakdown: {counts}. "
             "Briefly welcome them back and summarise what has been done "
             "and what the next logical step is."

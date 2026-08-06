@@ -810,6 +810,9 @@ class CrateState:
     # Stored as a list of dicts to keep CrateState JSON-serializable without
     # importing the document_discovery module at load time.
     documents: list[dict[str, Any]] = field(default_factory=list)
+    # Bounded content captured from successfully read main documents. This is
+    # session evidence, not a general-purpose result cache.
+    document_evidence: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     validation: ValidationReport = field(default_factory=ValidationReport)
     mit_assessment: MITReport = field(default_factory=MITReport)
@@ -1033,6 +1036,7 @@ class StateSerializer:
             "approved_scan_roots": list(state.approved_scan_roots),
             "scanned_files": [cls._encode(f) for f in state.scanned_files],
             "documents": state.documents,
+            "document_evidence": state.document_evidence,
             "validation": cls._encode(state.validation),
             "mit_assessment": cls._encode(state.mit_assessment),
             "fair_assessment": cls._encode(state.fair_assessment),
@@ -1075,7 +1079,8 @@ class StateSerializer:
             entities=EntityStore.from_dict(data.get("entities", {})),
             approved_scan_roots=set(data.get("approved_scan_roots", [])),
             scanned_files=[FileClassification.from_dict(f) for f in data.get("scanned_files", [])],
-            documents=list(data.get("documents", [])),
+            documents=list(data.get("documents") or []),
+            document_evidence=dict(data.get("document_evidence") or {}),
             validation=ValidationReport.from_dict(data.get("validation", {})),
             mit_assessment=MITReport.from_dict(data.get("mit_assessment", {})),
             fair_assessment=FAIRReport.from_dict(data.get("fair_assessment", {})),

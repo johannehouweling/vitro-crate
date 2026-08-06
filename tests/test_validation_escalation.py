@@ -121,10 +121,12 @@ def test_unchanged_content_is_not_prompted_twice():
 
 def test_writeback_routes_each_severity_to_its_state_field():
     engine = _engine(_HeadlessHuman())
+    # The tier comes from the CALL's `severity=` kwarg, not from the result dict:
+    # `build_and_validate` returns only {"ok", "conformance", "issues"}, so
+    # `run_tool` forwards the severity it was called with.
     engine._writeback_validation(
         "build_and_validate",
         {
-            "severity": "recommended",
             "conformance": {"base": True},
             "issues": [
                 {"severity": "required", "profile": "base", "message": "required"},
@@ -132,6 +134,7 @@ def test_writeback_routes_each_severity_to_its_state_field():
                 {"severity": "optional", "profile": "tox", "message": "may"},
             ],
         },
+        severity="recommended",
     )
     assert engine.state.validation.required_issues == []
     assert "should" in engine.state.validation.should_issues[0]
@@ -141,12 +144,12 @@ def test_writeback_routes_each_severity_to_its_state_field():
     engine._writeback_validation(
         "build_and_validate",
         {
-            "severity": "optional",
             "conformance": {"base": True},
             "issues": [
                 {"severity": "optional", "profile": "tox", "message": "may"},
             ],
         },
+        severity="optional",
     )
     assert "may" in engine.state.validation.may_issues[0]
     assert engine.state.validation.assessed_tiers == {"recommended", "optional"}

@@ -15,14 +15,13 @@ real nested layout:
     S-VHPS26.json                                  the BioStudies submission descriptor
     Assay_OATP1C1/
       Assay-metadata-CHO-K1_OATP1C1-v1.1.xlsx      the assay-metadata spreadsheet
-      README.txt                                   the study README
       OATP1C1 SOP TH 250425.docx                   the real Standard Operating Procedure
       raw data+individual processed data/220825_RA_CHO-K1_hOATP1C1/
         …_P1_Timecourse.xlsx                       real RAW measurement data
         …_P1_Timecourse.pzfx                       real PROCESSED (GraphPad) data
 
 So the scan exercises real directory recursion (paths with spaces / ``+``), the
-metadata/README/SOP body reads, the assay spreadsheet preview, and the raw-vs-
+metadata/SOP body reads, the assay spreadsheet preview, and the raw-vs-
 processed file-role split — none of which a flat, hand-built fixture touches.
 
 Only the two genuinely non-deterministic seams are stubbed, both offline:
@@ -76,15 +75,18 @@ _RAW_DATA = (
 _PROCESSED_DATA = _RAW_DATA.with_suffix(".pzfx")
 
 # Honesty anchor: the assay substrate, carried only in real document CONTENT (the
-# descriptor/README/spreadsheet), NEVER in a filename — so a total content regression
+# descriptor/SOP/spreadsheet), NEVER in a filename — so a total content regression
 # (scanner delivering filenames only) empties the plan. "oatp1c1"/"cho-k1"/"th"/"sop"
 # all occur in filenames and are deliberately NOT used as gates.
 _TOKEN_SUBSTRATE = "thyroxine"
-# A method token (the Sandell-Kolthoff readout) carried in document CONTENT and no
-# filename. It lives in `Assay_OATP1C1/README.txt` at offset 1796 — NOT in the SOP
-# .docx, which this was documented as proving for a long time. Verified across every
-# entry in that zip: "Sandell" appears nowhere in the Word document.
-_TOKEN_SOP_BODY = "sandell"
+# A method token carried in document CONTENT and no filename. This used to be
+# "sandell" (the Sandell-Kolthoff readout), which lived only in
+# `Assay_OATP1C1/README.txt` — a README copy-pasted from the unrelated MCT8-MDCK1
+# assay and removed in 6abf72c. This deposit reads T4 uptake out radiometrically,
+# so the gate is now the readout wording from the SOP .docx body itself (offset
+# 1871, inside the 2,000-char slice that tier gets, same sentence as
+# `_TOKEN_SOP_INSTRUMENT`). It occurs in no filename and in no other fixture file.
+_TOKEN_SOP_BODY = "cell lysate"
 # A token that really IS reachable only through the .docx body read (python-docx):
 # the gene symbol for the transporter, written out in the SOP's Definition section
 # and in no other file, filename or preview (the rest of the deposit says OATP1C1,
@@ -226,7 +228,7 @@ def _install_offline_seams(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                     "name": "OATP1C1 thyroxine-uptake SOP",
                     "description": (
                         "Standard operating procedure: cellular thyroxine uptake read "
-                        "out via the Sandell-Kolthoff reaction."
+                        "out as radioactivity of the cell lysate in a gamma counter."
                     ),
                     "process_hint": "Exposure",
                 }
@@ -347,7 +349,7 @@ class TestRealInputPipeline:
 
         context = capture["context"].lower()
         assert _TOKEN_SUBSTRATE in context, capture["context"][:600]
-        # Document CONTENT, never a filename (README.txt body).
+        # Document CONTENT, never a filename (SOP .docx body).
         assert _TOKEN_SOP_BODY in context, capture["context"][:600]
         # The Word-document body read specifically (python-docx).
         assert _TOKEN_DOCX_BODY in context, capture["context"][:600]
@@ -443,7 +445,7 @@ class TestRealInputPipeline:
 
         A tier's share is granted PER FILE, so raising tier 0 to 9,000 let two
         `*metadata*` workbooks claim the whole 16,000 ceiling between them and the
-        BioStudies descriptor, the SOP and the README emitted nothing at all —
+        BioStudies descriptor and the SOP emitted nothing at all —
         the same silent starvation #419 exists to remove, aimed at a different
         document. A versioned or two-plate deposit is an ordinary shape and no
         other test builds one.
