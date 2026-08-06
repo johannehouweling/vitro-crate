@@ -440,6 +440,31 @@ class TestBuildLangchainTools:
 
         assert result == []  # type: ignore[comparison-overlap]
 
+    def test_repeated_list_entities_is_bounded_without_caching(self):
+        """Identical list reads eventually stop, while state remains live."""
+        _, tool_map, engine = self._build()
+        list_tool = tool_map["list_entities"]
+
+        assert list_tool.invoke({"entity_type": "Study"}) == []
+        list_tool.invoke({"entity_type": "Study"})
+        list_tool.invoke({"entity_type": "Study"})
+        stopped = list_tool.invoke({"entity_type": "Study"})
+        assert isinstance(stopped, str)
+        assert "repeated the same list_entities query" in stopped
+        assert "Live state" in stopped
+
+        draft = tool_map["draft_investigation"].invoke({"hints": {"name": "Inv"}})
+        assert draft is not None
+        assert list_tool.invoke({"entity_type": "Study"}) == []
+
+    def test_different_list_entity_filters_remain_allowed(self):
+        """The guard applies only to identical normalized arguments."""
+        _, tool_map, _ = self._build()
+        list_tool = tool_map["list_entities"]
+        assert list_tool.invoke({"entity_type": "Study"}) == []
+        assert list_tool.invoke({"entity_type": "Assay"}) == []
+        assert list_tool.invoke({"entity_type": "Study"}) == []
+
     def test_draft_investigation_adds_entity(self):
         """Invoking draft_investigation adds an entity to the state."""
         tools, tool_map, engine = self._build()
@@ -2206,6 +2231,60 @@ class TestExportOnCompletedBuild:
         assert calls.count("export_crate") == before, (
             f"finish backstop must not double-export, got {calls}"
         )
+
+    def test_repeated_unchanged_validation_is_short_circuited(self):
+        from builder.agents.react.agent_loop import _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation")
+        calls = self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={"success": True, "crate_path": "/tmp/out", "error": None},
+        )
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+
+        first = tools["build_and_validate"].invoke({"severity": "required", "profile": "all"})
+        second = tools["build_and_validate"].invoke({"severity": "required", "profile": "all"})
+
+        assert isinstance(first, dict) and first["ok"] is True
+        assert isinstance(second, str)
+        assert "no state change" in second
+        assert calls.count("build_and_validate") == 1
+        assert calls.count("export_crate") == 1
+
+    def test_mutation_resets_validation_guard(self):
+        from builder.agents.react.agent_loop import _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation")
+        calls = self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={"success": True, "crate_path": "/tmp/out", "error": None},
+        )
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+
+        tools["build_and_validate"].invoke({})
+        tools["build_and_validate"].invoke({})
+        tools["set_crate_metadata"].invoke({"metadata": {"name": "updated"}})
+        tools["build_and_validate"].invoke({})
+
+        assert calls.count("build_and_validate") == 2
+
+    def test_validation_scope_change_is_allowed(self):
+        from builder.agents.react.agent_loop import _build_langchain_tools
+
+        engine = self._engine_with_entities("Investigation")
+        calls = self._install_spy(
+            engine,
+            build_result={"ok": True, "conformance": {"base": True}, "issues": []},
+            export_result={"success": True, "crate_path": "/tmp/out", "error": None},
+        )
+        tools = {t.name: t for t in _build_langchain_tools(engine)}
+
+        tools["build_and_validate"].invoke({"severity": "required", "profile": "all"})
+        tools["build_and_validate"].invoke({"severity": "recommended", "profile": "all"})
+
+        assert calls.count("build_and_validate") == 2
 
     def test_crate_path_is_surfaced(self):
         """The absolute crate path is surfaced through the loop's output channel."""
