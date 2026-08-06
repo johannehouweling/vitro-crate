@@ -1716,7 +1716,7 @@ class _LoopHarness:
 
         # Stdin reader: record every read; raise EOFError when exhausted so the
         # loop exits its main while-True deterministically.
-        def fake_boxed_input(console, label="❯"):
+        def fake_boxed_input(console, label="❯", **kwargs):
             if not harness.stdin_lines:
                 raise EOFError
             line = harness.stdin_lines.pop(0)
@@ -1873,7 +1873,7 @@ class TestTimeoutEndsTurnGracefully:
 
         stdin = ["build"]
 
-        def fake_boxed_input(console, label="❯"):
+        def fake_boxed_input(console, label="❯", **kwargs):
             if not stdin:
                 raise EOFError
             return stdin.pop(0)
@@ -1931,7 +1931,7 @@ class TestTimeoutEndsTurnGracefully:
         monkeypatch.setattr(agent_loop, "_build_agent_graph", lambda *a, **k: _PoisonedApp())
         stdin = ["start", "continue", "quit"]
 
-        def fake_boxed_input(console, label="❯"):
+        def fake_boxed_input(console, label="❯", **kwargs):
             return stdin.pop(0)
 
         monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
@@ -1984,7 +1984,7 @@ class TestTimeoutEndsTurnGracefully:
         monkeypatch.setenv("VITRO_REQUEST_TIMEOUT", "0.05")
         stdin = ["start", "continue", "quit"]
 
-        def fake_boxed_input(console, label="❯"):
+        def fake_boxed_input(console, label="❯", **kwargs):
             return stdin.pop(0)
 
         monkeypatch.setattr(agent_loop.ui, "boxed_input", fake_boxed_input)
@@ -2042,7 +2042,7 @@ class TestGreetingProvenance:
                 seen.append(str(payload["messages"][0].content))
                 return {"messages": [AIMessage(content="ok")]}
 
-        def _eof(console, label="❯"):
+        def _eof(console, label="❯", **kwargs):
             raise EOFError
 
         monkeypatch.setattr(agent_loop, "_build_chat_model", lambda **kw: object())

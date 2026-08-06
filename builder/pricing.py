@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import ssl
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -108,6 +109,7 @@ def _weighted_cost(entry: dict[str, Any]) -> float:
     return 10.0 * in_rate + 1.0 * out_rate
 
 
+@lru_cache(maxsize=64)
 def get_model_cost(
     model_name: str,
     provider: str | None = None,
@@ -131,6 +133,10 @@ def get_model_cost(
         A dict with pricing keys (``input_cost_per_token``,
         ``output_cost_per_token``, ``max_input_tokens``, etc.) or *None* if
         no match found.
+
+    Memoized: the fallback searches scan every key in a table of thousands of
+    models, and the pinned status footer asks for the cost of the same model
+    several times a second.
     """
     _ensure_loaded()
     if not _PRICES:

@@ -156,6 +156,24 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         self.spinner.set_current(None)
 
+    def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
+        # A new generation begins: drop the previous reply's tail so the line
+        # never shows text from the step before.
+        self.spinner.set_preview(None)
+
+    on_chat_model_start = on_llm_start
+
+    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        # Only fires when the model was built with streaming. The spinner keeps
+        # the running text and repaints it on its own tick, so a fast token
+        # stream cannot turn into a write per token.
+        self.spinner.append_preview(token)
+
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        # The reply is about to be printed in full to the transcript; a stale
+        # tail of it hanging around under the spinner would just be noise.
+        self.spinner.set_preview(None)
+
 
 # ---------------------------------------------------------------------------
 # LangChain tool wrapper
@@ -2104,8 +2122,16 @@ def run_interactive_agent(
     # wired onto the chat model, so the loop-level guard and the provider-level
     # request timeout agree.
     request_timeout = _get_request_timeout()
+    # Streaming feeds the footer's live reply tail via on_llm_new_token. invoke()
+    # still returns one aggregated message, so the graph, the timeout guard and
+    # tool-call handling are unchanged — the only visible difference is that the
+    # user can watch a long turn being written instead of staring at a timer.
     llm = _build_chat_model(
-        provider=provider, model=model, base_url=base_url, timeout=request_timeout
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        timeout=request_timeout,
+        streaming=True,
     )
 
     # Build the explicit StateGraph instead of using create_agent()
@@ -2389,7 +2415,16 @@ def run_interactive_agent(
         old_root_level = root_logger.level
         root_logger.setLevel(logging.ERROR)
 
-        spinner = ProgressSpinner(console)
+        # With the footer up, the spinner paints onto its activity row instead of
+        # opening a Live region in the scrolling area: the working line then
+        # holds still at the bottom rather than drifting up with the transcript.
+        # It ticks faster there because the footer, not Rich, animates the frame.
+        delegated = footer.active
+        spinner = ProgressSpinner(
+            console,
+            tick_interval=0.12 if delegated else 0.5,
+            activity_sink=footer.set_activity if delegated else None,
+        )
         main_config = {
             **_thread_config(),
             "callbacks": [_ToolSpinnerCallback(spinner)],
@@ -2485,108 +2520,127 @@ def run_interactive_agent(
     # read (#412); everything after it is an ordinary typed turn. Blank is absent.
     pending_input: str | None = (initial_prompt or "").strip() or None
 
-    while True:
-        try:
-            # Compact status header above each prompt (counts live here now,
-            # so the prompt line stays clean).
-            ui.print_status_bar(engine)
-            console.print()
-            if pending_input is not None:
-                # Echo the seeded line so the transcript shows what drove the
-                # turn, exactly as boxed_input echoes a typed one.
-                user_input, pending_input = pending_input, None
-                console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
-            else:
-                # Rounded input box (Claude Code style); falls back to a plain
-                # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
-                user_input = ui.boxed_input(console)
-        except KeyboardInterrupt:
-            # Ctrl+C: clear the line and re-prompt
-            console.print()
-            continue
-        except EOFError:
-            # Ctrl+D: exit
-            console.print()
-            _finalize_on_exit()
-            ui.print_goodbye(engine)
-            break
-
-        if user_input.lower() in ("quit", "exit", "q"):
-            _finalize_on_exit()
-            ui.print_goodbye(engine)
-            break
-
-        if not user_input:
-            continue
-
-        # ── One user message → possibly several model turns ─────────────────
-        # Fix B (#263): after the first (user-driven) turn, decide deterministically
-        # whether to PROMPT the user (a genuine question) or AUTO-CONTINUE the
-        # agent without reading stdin (it just narrated/worked). The autonomous
-        # run is bounded by _MAX_AUTONOMOUS_TURNS and stops as soon as the crate
-        # is complete. Fix A (#263): consecutive empty completions (the stall
-        # symptom) end the run after one retry so the #254 backstop can land the
-        # crate. _run_turn never raises and never hangs past request_timeout, so
-        # an exception can never escape this loop body.
-        try:
-            message = user_input
-            empty_streak = 0
-            for _autonomous_turn in range(_MAX_AUTONOMOUS_TURNS + 1):
-                reply, outcome = _run_turn(message)
-
-                # A non-ok outcome (timeout / error / recursion) ends the turn
-                # gracefully; fall back to prompting the user.
-                if outcome != "ok":
-                    break
-
-                # Empty-completion recovery (Fix A): retry ONCE, then stop.
-                if _reply_is_empty_completion(reply):
-                    empty_streak += 1
-                    if empty_streak >= _MAX_EMPTY_COMPLETIONS:
-                        logger.info(
-                            "Ending turn after %d consecutive empty completions",
-                            empty_streak,
-                        )
-                        break
-                    message = _AUTO_CONTINUE_DIRECTIVE
-                    continue
-                empty_streak = 0
-
-                # A genuine question → stop and prompt the user (current
-                # behavior). A user-typed message still overrides next loop.
-                if _reply_is_question(reply):
-                    break
-
-                # The crate is finished → stop auto-continuing and check in.
-                if _crate_is_complete(engine):
-                    logger.info("Crate complete — ending autonomous run")
-                    break
-
-                # Otherwise the agent just narrated/worked → AUTO-CONTINUE with
-                # an internal directive, WITHOUT reading stdin. The cap on the
-                # enclosing range bounds this so it can never spin forever.
-                message = _AUTO_CONTINUE_DIRECTIVE
-            else:
-                # The for-loop exhausted the cap without breaking → check in.
-                logger.info(
-                    "Reached max autonomous turns (%d) — checking in with the user",
-                    _MAX_AUTONOMOUS_TURNS,
-                )
-                console.print(
-                    "[dim]I've worked autonomously for a while — let me know how "
-                    "you'd like to proceed.[/dim]"
-                )
+    # The status footer is pinned to the bottom rows for the whole session so
+    # entities, validation dots, tokens and cost keep advancing while the agent
+    # works — the scrolling bar only ever refreshed when the user was prompted,
+    # which on a 15-turn autonomous run meant minutes of frozen numbers. It is a
+    # no-op on a non-TTY, where print_status_bar falls back to the scrolling bar.
+    footer = ui.make_status_footer(engine, console)
+    footer.start()
+    try:
+        while True:
+            try:
+                # Status before each prompt: a repaint of the pinned footer when
+                # it owns the bottom rows, otherwise the scrolling header (counts
+                # live there, so the prompt line stays clean).
+                ui.print_status_bar(engine, footer)
                 console.print()
-        except KeyboardInterrupt:
-            # Ctrl+C during a turn / the autonomous run: stop working and return
-            # to the prompt so the user can interject (preserve interruptibility).
-            console.print()
-            console.print("[dim]Stopped — back to you.[/dim]")
-            console.print()
-        except Exception as exc:  # noqa: BLE001 — the loop must never crash.
-            logger.exception("Agent error")
-            console.print(f"[red bold]Error:[/red bold] {exc}")
-            console.print()
+                if pending_input is not None:
+                    # Echo the seeded line so the transcript shows what drove the
+                    # turn, exactly as boxed_input echoes a typed one.
+                    user_input, pending_input = pending_input, None
+                    console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
+                else:
+                    # Rounded input box (Claude Code style); falls back to a plain
+                    # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
+                    # prompt_toolkit erases to the end of the screen on every
+                    # repaint, so the footer repaints on the same beat.
+                    user_input = ui.boxed_input(console, on_render=footer.refresh)
+            except KeyboardInterrupt:
+                # Ctrl+C: clear the line and re-prompt
+                console.print()
+                continue
+            except EOFError:
+                # Ctrl+D: exit
+                console.print()
+                _finalize_on_exit()
+                ui.print_goodbye(engine)
+                break
+
+            if user_input.lower() in ("quit", "exit", "q"):
+                _finalize_on_exit()
+                ui.print_goodbye(engine)
+                break
+
+            if not user_input:
+                continue
+
+            # ── One user message → possibly several model turns ─────────────────
+            # Fix B (#263): after the first (user-driven) turn, decide deterministically
+            # whether to PROMPT the user (a genuine question) or AUTO-CONTINUE the
+            # agent without reading stdin (it just narrated/worked). The autonomous
+            # run is bounded by _MAX_AUTONOMOUS_TURNS and stops as soon as the crate
+            # is complete. Fix A (#263): consecutive empty completions (the stall
+            # symptom) end the run after one retry so the #254 backstop can land the
+            # crate. _run_turn never raises and never hangs past request_timeout, so
+            # an exception can never escape this loop body.
+            try:
+                message = user_input
+                empty_streak = 0
+                for _autonomous_turn in range(_MAX_AUTONOMOUS_TURNS + 1):
+                    reply, outcome = _run_turn(message)
+                    # Land the turn's work in the footer immediately rather than
+                    # waiting up to a tick — the reply and the counts it produced
+                    # should appear together.
+                    footer.refresh()
+
+                    # A non-ok outcome (timeout / error / recursion) ends the turn
+                    # gracefully; fall back to prompting the user.
+                    if outcome != "ok":
+                        break
+
+                    # Empty-completion recovery (Fix A): retry ONCE, then stop.
+                    if _reply_is_empty_completion(reply):
+                        empty_streak += 1
+                        if empty_streak >= _MAX_EMPTY_COMPLETIONS:
+                            logger.info(
+                                "Ending turn after %d consecutive empty completions",
+                                empty_streak,
+                            )
+                            break
+                        message = _AUTO_CONTINUE_DIRECTIVE
+                        continue
+                    empty_streak = 0
+
+                    # A genuine question → stop and prompt the user (current
+                    # behavior). A user-typed message still overrides next loop.
+                    if _reply_is_question(reply):
+                        break
+
+                    # The crate is finished → stop auto-continuing and check in.
+                    if _crate_is_complete(engine):
+                        logger.info("Crate complete — ending autonomous run")
+                        break
+
+                    # Otherwise the agent just narrated/worked → AUTO-CONTINUE with
+                    # an internal directive, WITHOUT reading stdin. The cap on the
+                    # enclosing range bounds this so it can never spin forever.
+                    message = _AUTO_CONTINUE_DIRECTIVE
+                else:
+                    # The for-loop exhausted the cap without breaking → check in.
+                    logger.info(
+                        "Reached max autonomous turns (%d) — checking in with the user",
+                        _MAX_AUTONOMOUS_TURNS,
+                    )
+                    console.print(
+                        "[dim]I've worked autonomously for a while — let me know how "
+                        "you'd like to proceed.[/dim]"
+                    )
+                    console.print()
+            except KeyboardInterrupt:
+                # Ctrl+C during a turn / the autonomous run: stop working and return
+                # to the prompt so the user can interject (preserve interruptibility).
+                console.print()
+                console.print("[dim]Stopped — back to you.[/dim]")
+                console.print()
+            except Exception as exc:  # noqa: BLE001 — the loop must never crash.
+                logger.exception("Agent error")
+                console.print(f"[red bold]Error:[/red bold] {exc}")
+                console.print()
+    finally:
+        # Always hand the bottom rows (and the scrolling region) back, on every
+        # exit path — quit, EOF, or an exception escaping the loop.
+        footer.stop()
 
 
 def _format_entity_summary(entities: list[Any]) -> str:

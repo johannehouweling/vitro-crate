@@ -146,6 +146,7 @@ def _build_chat_model(
     max_retries: int | None = None,
     role: str = "orchestrator",
     timeout: float | None = None,
+    streaming: bool = False,
 ) -> Any:
     """Build a LangChain chat model for the given or detected provider.
 
@@ -175,6 +176,15 @@ def _build_chat_model(
             (Issue #263). Falls back to ``VITRO_REQUEST_TIMEOUT`` then a finite
             built-in default so the model is never built without one — a silent
             provider stall can never hang a turn forever.
+        streaming: Stream the response token-by-token so a
+            ``on_llm_new_token`` callback can show the reply as it is written
+            (the interactive footer's live tail). ``invoke`` still returns one
+            aggregated message, so callers are unaffected. Set only by the
+            interactive ReAct loop; the pipeline's bounded leaves have nothing
+            to display and stay non-streaming. Off by default, and
+            ``VITRO_NO_STREAM=1`` forces it off everywhere — a provider that
+            mishandles streamed tool calls must be recoverable without a code
+            change.
 
     Returns:
         A LangChain ``BaseChatModel`` instance.
@@ -185,6 +195,9 @@ def _build_chat_model(
     if max_retries is None:
         env_val = os.environ.get("VITRO_MAX_RETRIES")
         max_retries = int(env_val) if env_val is not None else 3
+
+    if (os.environ.get("VITRO_NO_STREAM") or "").strip().lower() in ("1", "true", "yes", "on"):
+        streaming = False
 
     if timeout is None:
         timeout = _get_request_timeout()
@@ -253,6 +266,13 @@ def _build_chat_model(
             # "timeout" is the public alias of ChatOpenAI.request_timeout (#263).
             "timeout": timeout,
         }
+        if streaming:
+            kwargs["streaming"] = True
+            # OpenAI omits usage from a streamed response unless it is asked for.
+            # Without this the token counts silently become zero — and the status
+            # footer's tokens/cost, the profiler's accounting and the session
+            # cost report all read from that same usage metadata.
+            kwargs["stream_usage"] = True
         if use_responses:
             kwargs["use_responses_api"] = True
         if reasoning_effort:
@@ -309,6 +329,10 @@ def _build_chat_model(
             # .default_request_timeout (#263).
             "timeout": timeout,
         }
+        if streaming:
+            # Anthropic reports usage on the streamed message_start /
+            # message_delta events, so no extra opt-in is needed here.
+            kwargs["streaming"] = True
         if api_key:
             kwargs["api_key"] = api_key
         return ChatAnthropic(**kwargs)

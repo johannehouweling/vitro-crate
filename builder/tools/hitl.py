@@ -208,6 +208,94 @@ def _default_console_show(text: str) -> None:
     print(text)
 
 
+# The choices used when a caller presents a decision without naming its own.
+# Stated as full sentences: "yes"/"no" alone forced the user to re-read the
+# question to work out what a bare "yes" would agree to.
+_APPROVE_CHOICES = ["Yes, go ahead", "No, don't do that"]
+
+# The scan-root escalation names the consequence instead of asking yes/no, and
+# lists the refusal FIRST so the pre-selected answer denies (#197 fail-closed).
+_DENY_ALLOW_CHOICES = ["No, keep the current access", "Yes, allow this folder"]
+
+_AFFIRMATIVE = {"y", "yes", "approve", "approved", "ok", "okay", "confirm", "continue"}
+_NEGATIVE = {"n", "no", "reject", "rejected", "deny", "decline", "cancel"}
+
+
+def _choice_stance(choice: str) -> bool | None:
+    """Whether *choice* is a plain yes (True) / no (False), else ``None``.
+
+    Recognises both a bare word (the ``["yes", "no"]`` options callers pass) and
+    the sentence forms above, by reading the leading word. A real menu entry
+    ("Use different names") matches neither and comes back ``None`` so it is
+    returned to the caller as a selection rather than collapsed to a verdict.
+    """
+    lead = choice.strip().casefold().replace(",", " ").split()
+    if not lead:
+        return None
+    if lead[0] in _AFFIRMATIVE:
+        return True
+    if lead[0] in _NEGATIVE:
+        return False
+    return None
+
+
+def _default_choice_index(choices: list[str], *, deny_by_default: bool) -> int:
+    """Index to pre-select: the refusal when denying by default, else the first.
+
+    Fail-closed matters more than convenience here — for a scan-root escalation
+    the pre-selected row must be one that does NOT widen access, so an
+    absent-minded Enter cannot grant it. When no negative choice can be
+    identified, nothing is safe to pre-approve, so the last option is used.
+    """
+    if not deny_by_default:
+        return 0
+    for index, choice in enumerate(choices):
+        if _choice_stance(choice) is False:
+            return index
+    return len(choices) - 1
+
+
+def match_choice(raw: str, choices: list[str], default: int) -> int | None:
+    """Resolve a typed answer to a choice index (``None`` = no match).
+
+    Accepts what people actually type at a prompt like this: nothing (the
+    default), a number, or a yes/no word — ``y`` still means yes even though the
+    choices are now sentences, so muscle memory keeps working. Also matches a
+    leading-word prefix of a choice, so ``rev`` picks "Revise the names".
+    """
+    answer = raw.strip().casefold()
+    if not answer:
+        return default
+    if answer.isdigit() and 1 <= int(answer) <= len(choices):
+        return int(answer) - 1
+    stance = _choice_stance(answer)
+    if stance is not None:
+        for index, choice in enumerate(choices):
+            if _choice_stance(choice) is stance:
+                return index
+    for index, choice in enumerate(choices):
+        if choice.strip().casefold().startswith(answer):
+            return index
+    return None
+
+
+def _default_console_select(choices: list[str], default: int) -> int | None:
+    """Plain-terminal chooser — the default when no UI selector is injected.
+
+    Prints the numbered choices with the default marked and reads one line;
+    empty takes the default. The CLI injects the arrow-navigable rounded box
+    (:func:`builder.agents.ui.select_option`) instead.
+    """
+    for index, choice in enumerate(choices, start=1):
+        marker = "❯" if index - 1 == default else " "
+        print(f" {marker} {index}. {choice}")
+    try:
+        raw = input(f"Select [1-{len(choices)}, Enter = {default + 1}]: ")
+    except EOFError:
+        return None
+    return match_choice(raw, choices, default)
+
+
 class ConsoleHumanInterface:
     """A REAL interactive HITL interface that prompts on the terminal (stdin).
 
@@ -240,6 +328,7 @@ class ConsoleHumanInterface:
         self,
         prompt_func: Callable[[str], str] | None = None,
         show_func: Callable[[str], None] | None = None,
+        select_func: Callable[[list[str], int], int | None] | None = None,
     ) -> None:
         """Build the interface, optionally injecting the prompt reader + display.
 
@@ -252,9 +341,18 @@ class ConsoleHumanInterface:
                 Defaults to :func:`_default_console_show` (a plain ``print``). The
                 CLI passes a renderer that styles it as a green-● reply
                 (:func:`builder.agents.ui.render_reply`).
+            select_func: A ``(choices, default_index) -> index | None`` chooser
+                used by :meth:`present`. Defaults to
+                :func:`_default_console_select` (numbered lines + ``input()``).
+                The CLI passes the arrow-navigable rounded box
+                (:func:`builder.agents.ui.select_option`), so a decision and a
+                free-text answer look like the same control.
         """
         self._read: Callable[[str], str] = prompt_func or _default_console_prompt
         self._show: Callable[[str], None] = show_func or _default_console_show
+        self._select: Callable[[list[str], int], int | None] = (
+            select_func or _default_console_select
+        )
         self._done = False
 
     def is_done(self) -> bool:
@@ -281,39 +379,57 @@ class ConsoleHumanInterface:
         options: list[str] | None = None,
         purpose: str | None = None,
     ) -> HumanResponse:
-        """Show *context* + *options* and read an approve/reject decision."""
-        suffix = " [y/N]: " if purpose == SCAN_ROOT_PURPOSE else " [Y/n]: "
+        """Show *context* and read a decision as a single navigable choice.
+
+        One question, not two. The previous prompt printed a numbered menu and
+        then asked ``Approve? [Y/n]``, so the answer could plausibly mean either
+        "yes to the whole thing" or "option 1" — and typing ``2`` was read as an
+        approval whatever option 2 actually said. Here the choices ARE the
+        question: the expected answer starts selected and the user arrows to
+        another, so the decision is unambiguous both ways.
+
+        Fail-closed is preserved for a scan-root escalation: its default lands on
+        the denying choice, so an accidental Enter never widens filesystem
+        access. It is also the one prompt whose choices are stated as an explicit
+        allow/deny rather than a yes/no.
+        """
+        deny_by_default = purpose == SCAN_ROOT_PURPOSE
+        choices = list(options or [])
+        if not choices:
+            choices = _DENY_ALLOW_CHOICES if deny_by_default else _APPROVE_CHOICES
+        # The safe answer is first except when denying by default, where it is
+        # the refusal — whatever it is, it must be the pre-selected row.
+        default_index = _default_choice_index(choices, deny_by_default=deny_by_default)
+
         # Suspend any active terminal spinner so the prompt is readable and stdin
         # is not fighting a Rich Live repaint (legacy loop scan-root approval).
         with suspend_console_animation():
-            print(context)
-            if options:
-                print("Choose one of the following:")
-                for index, option in enumerate(options, start=1):
-                    print(f"  {index}. {option}")
-            try:
-                answer = input(f"Approve?{suffix}").strip().lower()
-            except EOFError:
-                self._done = True
-                answer = ""
+            self._show(context)
+            chosen = self._select(choices, default_index)
+
+        if chosen is None:
+            # Cancelled / EOF: decline without ending guidance, and fail closed.
+            return {"action": "rejected", "comments": None, "edits": None}
+        answer = choices[chosen]
         if self._is_stop_command(answer):
             self._done = True
             return {"action": "skipped", "comments": None, "edits": None}
-        if purpose == SCAN_ROOT_PURPOSE:
-            # Fail-closed: a new scan root requires an explicit affirmative.
-            approved = answer in ("y", "yes")
-            comments = None
-        elif options and answer.isdigit() and 1 <= int(answer) <= len(options):
-            # Preserve the selected option so callers can resolve a real menu
-            # choice (for example, an ambiguous publication author) rather than
-            # reducing every response to a yes/no approval.
-            comments = options[int(answer) - 1]
-            approved = True
-        else:
-            approved = answer in ("", "y", "yes")
-            comments = None
-        action = "approved" if approved else "rejected"
-        return {"action": action, "comments": comments, "edits": None}
+
+        stance = _choice_stance(answer)
+        if stance is not None:
+            # A plain yes/no choice is a decision, not a payload: returning "no"
+            # as comments used to read as an APPROVAL carrying the text "no".
+            return {
+                "action": "approved" if stance else "rejected",
+                "comments": None,
+                "edits": None,
+            }
+        if deny_by_default:
+            # Anything that is not an explicit affirmative denies (#197).
+            return {"action": "rejected", "comments": None, "edits": None}
+        # A real menu choice: hand the selected option back so callers can act on
+        # WHICH option was picked (e.g. an ambiguous publication author).
+        return {"action": "approved", "comments": answer, "edits": None}
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Prompt the user for a value; an empty answer (or EOF) is a skip.
