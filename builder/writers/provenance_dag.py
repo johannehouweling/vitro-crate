@@ -2673,6 +2673,127 @@ def render_isa_svg(inventory: dict[str, Any]) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# All-entities overview (#85) — the whole crate on one screen.
+#
+# The other five views each answer a question by drawing EDGES. This one answers
+# a different question — "what is actually in here, and how much of it is
+# connected?" — for which a node-link diagram is the wrong instrument: 188 nodes
+# and 79 edges render as a hairball that hides exactly the composition it is
+# meant to show.
+#
+# So it is a composition map instead: one tile per entity, clustered by
+# functional category inside its paper layer, with anything unreachable from the
+# Root Data Entity outlined in alarm colour. At a glance you get the crate's
+# shape (83 annotation nodes in the ISA layer, 22 compounds in the domain layer)
+# and its health (which blocks are solid, which are hollow) — and every tile
+# carries its name and type in a tooltip, so nothing is anonymised by the
+# summarising.
+# ---------------------------------------------------------------------------
+
+_OV_TILE = 13
+_OV_GAP = 3
+_OV_COLS = 34  # tiles per row inside a cluster
+_OV_X0 = 12
+_OV_Y0 = 16
+_OV_CLUSTER_GAP = 16
+_OV_LAYER_GAP = 22
+_OV_LABEL_H = 15
+_OV_BAND_H = 19
+
+# Draw order: the structural spine first, the annotation tail last, so the eye
+# meets the entities that carry the science before the ones that decorate it.
+_OV_CATEGORY_ORDER: tuple[str, ...] = (
+    "container",
+    "process",
+    "protocol",
+    "material",
+    "chemical",
+    "data",
+    "agent",
+    "publication",
+    "annotation",
+)
+
+
+def render_overview_svg(model: dict[str, Any]) -> str:
+    """Draw every entity in the crate as one composition map.
+
+    Args:
+        model: The result of :func:`build_crate_graph` (``all_edges=True`` so the
+            orphan flags reflect true connectivity).
+
+    Returns:
+        The ``<svg>…</svg>`` markup, or ``""`` for an empty crate.
+    """
+    nodes = [n for n in (model.get("nodes") or []) if n.get("layer") is not None]
+    if not nodes:
+        return ""
+
+    by_layer: dict[int, dict[str, list[dict[str, Any]]]] = {}
+    for node in nodes:
+        clusters = by_layer.setdefault(int(node["layer"]), {})
+        clusters.setdefault(str(node.get("category") or "annotation"), []).append(node)
+
+    tiles: list[str] = []
+    labels: list[str] = []
+    y = _OV_Y0
+
+    for layer in sorted(by_layer):
+        clusters = by_layer[layer]
+        total = sum(len(v) for v in clusters.values())
+        loose = sum(1 for group in clusters.values() for n in group if n.get("orphan"))
+        head = f"{_LAYER_NAMES[layer]} — {total} entit{'y' if total == 1 else 'ies'}"
+        if loose:
+            head += f" · {loose} unreachable"
+        labels.append(
+            f'<text class="ov-band" x="{_OV_X0}" y="{y + 11}">{_escape(head)}</text>'
+        )
+        y += _OV_BAND_H
+
+        for category in _OV_CATEGORY_ORDER:
+            group = clusters.get(category)
+            if not group:
+                continue
+            labels.append(
+                f'<text class="ov-cat" x="{_OV_X0}" y="{y + 9}">'
+                f"{_escape(category)} · {len(group)}</text>"
+            )
+            y += _OV_LABEL_H
+            for index, node in enumerate(
+                sorted(group, key=lambda n: (not n.get("orphan"), str(n["id"])))
+            ):
+                col = index % _OV_COLS
+                row = index // _OV_COLS
+                x = _OV_X0 + col * (_OV_TILE + _OV_GAP)
+                ty = y + row * (_OV_TILE + _OV_GAP)
+                cls = f"ov-t cat-{category}" + (" orphan" if node.get("orphan") else "")
+                tiles.append(
+                    f"<g><title>{node['label']} — {_escape(str(node.get('type') or ''))}"
+                    f"{' · unreachable from the crate root' if node.get('orphan') else ''}"
+                    f'</title><rect class="{cls}" x="{x}" y="{ty}" '
+                    f'width="{_OV_TILE}" height="{_OV_TILE}" rx="2.5"/></g>'
+                )
+            rows = (len(group) - 1) // _OV_COLS + 1
+            y += rows * (_OV_TILE + _OV_GAP) + _OV_CLUSTER_GAP
+        y += _OV_LAYER_GAP
+
+    width = _OV_X0 * 2 + _OV_COLS * (_OV_TILE + _OV_GAP)
+    height = y - _OV_LAYER_GAP + 6
+    counts = model.get("counts", {})
+    aria = (
+        f"Crate composition: {len(nodes)} entities, "
+        f"{counts.get('orphan', 0)} unreachable from the root"
+    )
+    return (
+        f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
+        f'role="img" aria-label="{_escape(aria)}" class="prov view overview">'
+        f"<title>{_escape(aria)}</title>"
+        f'<g class="ov-labels">{"".join(labels)}</g>'
+        f'<g class="ov-tiles">{"".join(tiles)}</g></svg>'
+    )
+
+
 def _node_class_for_brief(brief: dict[str, str]) -> str:
     """Style bucket for a drawn route hop, from the type tag already computed.
 

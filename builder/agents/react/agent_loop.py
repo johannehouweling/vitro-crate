@@ -489,6 +489,42 @@ _LIST_ENTITIES_COUNT_FLAG = "_list_entities_repeat_count"
 # fingerprint and every stored entry stops matching by construction.
 _BUILD_VALIDATE_SEEN_FLAG = "_build_validate_seen_fingerprints"
 
+# Read-only state queries. They mutate nothing, so re-running one against an
+# unchanged crate cannot return anything new — the answer is a pure function of
+# the state. The tool itself costs a millisecond; the MODEL TURN wrapped around
+# it costs ~12k input tokens, which is what makes a read loop expensive.
+#
+# The old consecutive-identical breaker could not see this: a model rotating
+# list_entities("LabProcess") -> ("CellLineSample") -> ("Sample") never repeats
+# two calls in a row. One session issued 168 such reads back to back with no
+# mutation between them — 82% of its tool calls, 1.5M input tokens, 42 minutes.
+# Keying on (query, state) catches any order, exactly as the validation guard
+# does, and any real mutation re-enables every query by changing the fingerprint.
+_STATE_QUERY_TOOLS = frozenset(
+    {"list_entities", "get_status", "list_scanned_files", "get_hint", "check_provenance"}
+)
+_STATE_QUERY_SEEN_FLAG = "_state_query_seen_fingerprints"
+
+# Repeats of one query against one unchanged state before the turn ends. Two
+# warnings, then hand control back — the same escalation the other guards use,
+# because a corrective the model can bounce off is not a stop.
+_STATE_QUERY_ABORT = 3
+
+# --- consecutive calls that change nothing ----------------------------------
+# The general form of every loop this codebase has hit. A tool call that leaves
+# the crate fingerprint untouched made no progress, whatever it was: a read, a
+# no-op write, a suppressed retry. Counting them as a RUN catches rotation that
+# per-tool guards miss, because it does not care which tool or which arguments
+# were used — only that nothing moved.
+#
+# Thresholds are measured, not guessed. Across 35 sessions, 66% of read runs are
+# 1-3 calls (routine planning: entities, then status, then files) and 80% are
+# <=5 — but runs of 6+ account for 1,642 calls, including runs of 187, 215 and
+# 231. So five is free, the sixth earns a warning, and the ninth ends the turn.
+_IDLE_STREAK_FLAG = "_calls_without_progress"
+_IDLE_STREAK_WARN = 6
+_IDLE_STREAK_ABORT = 9
+
 # Bounces off the suppression guard (same scope, same state) that end the turn.
 # Suppression alone does not stop the loop — the model reads the corrective and
 # calls straight back, so every bounce still costs a full model turn. Two
@@ -1019,8 +1055,71 @@ _MUTATION_HISTORY_WINDOW = 8
 _MUTATION_CYCLE_ABORT = 3
 
 
+# Serialises the cycle bookkeeping. LangGraph's ToolNode runs a model's tool
+# calls CONCURRENTLY (16 at once observed), so without this the read-modify-write
+# of the shared history races.
+_MUTATION_HISTORY_LOCK = threading.Lock()
+
+# Mutations currently executing. Cycle detection compares a GLOBAL state
+# fingerprint, so it is only meaningful when one mutation runs at a time: with a
+# batch in flight each thread sees its siblings' writes, and "the state is
+# somewhere it just was" becomes true for reasons that have nothing to do with
+# the caller. Oscillation is inherently sequential — the model writes, reads the
+# result, writes again — so a concurrent batch is never the thing we are hunting.
+_MUTATIONS_IN_FLIGHT = "_mutations_in_flight"
+
+# Consecutive no-op mutations per target, so writing nothing over and over
+# escalates the same way cycling and re-validating do.
+_NO_OP_STRIKE_FLAG = "_no_op_mutation_strikes"
+
+
+def _reset_turn_guards(engine: AgentEngine) -> None:
+    """Give a new user turn a fresh strike budget for every loop guard.
+
+    The counters are per-engine, i.e. per SESSION, but their purpose is to stop
+    one runaway turn — not to hold a grudge. Left standing at the limit, the
+    turn after an abort died on its first offending call, so "continue" produced
+    an immediate "I was repeating the same step" and the user could never get
+    moving again.
+
+    What is deliberately NOT cleared: the memoised state fingerprints. Those
+    encode a fact about the crate ("this scope has already been validated
+    against this exact state"), which a new user turn does not change — the call
+    is still suppressed and still answered with a corrective, it just no longer
+    counts toward ending the turn.
+    """
+    seen = getattr(engine, _BUILD_VALIDATE_SEEN_FLAG, None) or {}
+    setattr(
+        engine,
+        _BUILD_VALIDATE_SEEN_FLAG,
+        {sig: (fingerprint, 0) for sig, (fingerprint, _strikes) in seen.items()},
+    )
+    setattr(engine, _NO_OP_STRIKE_FLAG, {})
+    setattr(engine, _STATE_QUERY_SEEN_FLAG, {})
+    setattr(engine, _MUTATION_CYCLE_COUNT_FLAG, 0)
+    setattr(engine, _MUTATION_HISTORY_FLAG, {})
+    setattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, None)
+    setattr(engine, _LOOP_BREAKER_COUNT_FLAG, 0)
+
+
+def _mutation_target(tool_name: str, kwargs: dict[str, Any]) -> str:
+    """What a mutation is acting ON, for per-target cycle bookkeeping.
+
+    Oscillation is always a fight over ONE thing — the same field on the same
+    entity, rewritten a different way. Keying the history by target keeps
+    unrelated concurrent mutations out of each other's history: a batch of 16
+    ``resolve_compound`` calls landing together would otherwise see each other's
+    fingerprints and report cycles none of them made.
+    """
+    for key in ("entity_id", "name", "from_id", "assay_id", "path"):
+        value = kwargs.get(key)
+        if isinstance(value, str) and value.strip():
+            return f"{tool_name}:{value.strip()[:80]}"
+    return tool_name
+
+
 def _record_mutation_cycle(
-    engine: AgentEngine, tool_name: str, kwargs: dict[str, Any]
+    engine: AgentEngine, tool_name: str, kwargs: dict[str, Any], *, concurrent: bool = False
 ) -> str | None:
     """Detect a mutation that returned the crate to a recent state.
 
@@ -1035,20 +1134,32 @@ def _record_mutation_cycle(
     the turn — the same escalation the validation guard uses, for the same
     reason: only handing control back reliably stops it.
     """
+    if concurrent:
+        return None  # see _MUTATIONS_IN_FLIGHT — the comparison is meaningless here
     try:
         fingerprint = engine.state.validation_fingerprint()
     except Exception:  # noqa: BLE001 — best-effort bookkeeping
         return None
-    history: list[str] = list(getattr(engine, _MUTATION_HISTORY_FLAG, None) or [])
-    revisited = fingerprint in history
-    history.append(fingerprint)
-    setattr(engine, _MUTATION_HISTORY_FLAG, history[-_MUTATION_HISTORY_WINDOW:])
-    if not revisited:
-        setattr(engine, _MUTATION_CYCLE_COUNT_FLAG, 0)
-        return None
 
-    cycles = int(getattr(engine, _MUTATION_CYCLE_COUNT_FLAG, 0)) + 1
-    setattr(engine, _MUTATION_CYCLE_COUNT_FLAG, cycles)
+    # Per TARGET, under a lock. A model's tool calls run concurrently, so one
+    # global history mixed unrelated mutations together and a batch of parallel
+    # resolve_compound calls reported cycles none of them made — each thread saw
+    # the fingerprints its siblings had just written.
+    target = _mutation_target(tool_name, kwargs)
+    with _MUTATION_HISTORY_LOCK:
+        histories: dict[str, list[str]] = dict(
+            getattr(engine, _MUTATION_HISTORY_FLAG, None) or {}
+        )
+        history = list(histories.get(target, []))
+        revisited = fingerprint in history
+        history.append(fingerprint)
+        histories[target] = history[-_MUTATION_HISTORY_WINDOW:]
+        setattr(engine, _MUTATION_HISTORY_FLAG, histories)
+        if not revisited:
+            setattr(engine, _MUTATION_CYCLE_COUNT_FLAG, 0)
+            return None
+        cycles = int(getattr(engine, _MUTATION_CYCLE_COUNT_FLAG, 0)) + 1
+        setattr(engine, _MUTATION_CYCLE_COUNT_FLAG, cycles)
     logger.warning(
         "Mutation cycle detected: %s returned the crate to a recent state (cycle %d/%d)",
         tool_name,
@@ -1067,6 +1178,117 @@ def _record_mutation_cycle(
         "If a validation issue persists after you set a field, the field is not the "
         "problem — re-read the issue and fix what it actually names, or ask the user. "
         "Do NOT write this field again."
+    )
+
+
+def _track_progress(
+    engine: AgentEngine, tool_name: str, before: str | None, result: Any
+) -> Any:
+    """Count consecutive calls that changed nothing, and intervene on a run.
+
+    The single rule the per-tool guards are special cases of: a call that leaves
+    the crate fingerprint untouched made no progress, whether it was a read, a
+    write that wrote nothing, or a retry that got suppressed. Because it ignores
+    the tool and its arguments, rotating between queries — the trick that walked
+    past every earlier guard — cannot hide a run.
+
+    A run is allowed to reach :data:`_IDLE_STREAK_WARN` before the result is
+    annotated (short read bursts are how planning legitimately looks), and ends
+    the turn at :data:`_IDLE_STREAK_ABORT`. Any call that changes the crate
+    resets the count to zero.
+    """
+    if before is None:
+        return result
+    try:
+        changed = engine.state.validation_fingerprint() != before
+    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+        return result
+    if changed:
+        setattr(engine, _IDLE_STREAK_FLAG, 0)
+        return result
+
+    streak = int(getattr(engine, _IDLE_STREAK_FLAG, 0)) + 1
+    setattr(engine, _IDLE_STREAK_FLAG, streak)
+    if streak < _IDLE_STREAK_WARN:
+        return result
+
+    _log_suppressed(engine, tool_name, f"no_progress_streak_{streak}", {})
+    if streak >= _IDLE_STREAK_ABORT:
+        logger.warning(
+            "Ending turn: %d consecutive tool calls changed nothing (last: %s)",
+            streak,
+            tool_name,
+        )
+        raise _InvocationCancelled("no progress across consecutive tool calls")
+    logger.info("No-progress run: %d calls, last %s", streak, tool_name)
+    # The answer is still handed back — a late call in a run can carry genuinely
+    # new information — with the run stated so the model can see what it is
+    # doing. Withholding it would just prompt another read.
+    body = result if isinstance(result, str) else str(result)[:1200]
+    return (
+        f"{body}\n\n[{streak} tool calls in a row have changed nothing about the crate. "
+        "Reading more will not move it forward — draft, link, attach or set a field, "
+        "or answer the user. The turn ends if this continues.]"
+    )
+
+
+def _guard_state_query(
+    engine: AgentEngine,
+    tool_name: str,
+    kwargs: dict[str, Any],
+    # The call site passes `_call_signature(...)`, which is a (name, args) tuple
+    # — not a string. It is only ever stored and compared for equality, so the
+    # tuple worked; the annotation just described the wrong thing.
+    signature: tuple[str, tuple[Any, ...]],
+) -> str | None:
+    """Stop a read-only query being re-asked of a state that has not changed.
+
+    Returns a corrective to hand back instead of running the query, or ``None``
+    when the query is new (or the state has moved on) and should run normally.
+    Raises :class:`_InvocationCancelled` once the same question has been asked
+    :data:`_STATE_QUERY_ABORT` times of one unchanged crate.
+
+    Keyed on (query, state fingerprint) rather than on consecutive repeats,
+    because the observed loop rotated between three entity types and so never
+    repeated itself twice in a row.
+    """
+    try:
+        fingerprint = engine.state.validation_fingerprint()
+    except Exception:  # noqa: BLE001 — a guard must never block a call
+        return None
+
+    # Keyed by the (name, args) call signature, matching what the caller passes.
+    seen: dict[tuple[str, tuple[Any, ...]], tuple[str, int]] = dict(
+        getattr(engine, _STATE_QUERY_SEEN_FLAG, None) or {}
+    )
+    previous = seen.get(signature)
+    if previous is None or previous[0] != fingerprint:
+        seen[signature] = (fingerprint, 0)
+        setattr(engine, _STATE_QUERY_SEEN_FLAG, seen)
+        return None
+
+    strikes = previous[1] + 1
+    seen[signature] = (fingerprint, strikes)
+    setattr(engine, _STATE_QUERY_SEEN_FLAG, seen)
+    _log_suppressed(engine, tool_name, f"unchanged_state_query_{strikes}", kwargs)
+    logger.info(
+        "Suppressed repeated %s against unchanged state (strike %d/%d)",
+        signature,
+        strikes,
+        _STATE_QUERY_ABORT,
+    )
+    if strikes >= _STATE_QUERY_ABORT:
+        logger.warning(
+            "Ending turn: %s asked %d times of an unchanged crate", signature, strikes
+        )
+        raise _InvocationCancelled("repeated read-only query with no state change")
+    return (
+        f"{tool_name} has already been answered for this exact crate state, and nothing "
+        "has changed since — reading it again cannot return anything new.\n\n"
+        f"{_format_compact_state_summary(engine)}\n\n"
+        "Use the state summary above (it is included in every message) instead of "
+        "re-querying. Your next call must CHANGE something — draft, link, attach, "
+        "set a field — or answer the user."
     )
 
 
@@ -1318,6 +1540,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # a weak model stops looping (it ignored #281's directory message
                 # and looped ~36×). Distinct calls / a single retry never trip this.
                 signature = _call_signature(tool_name, kwargs)
+                if tool_name in _STATE_QUERY_TOOLS:
+                    query_answer = _guard_state_query(engine, tool_name, kwargs, signature)
+                    if query_answer is not None:
+                        return query_answer
                 if tool_name == "list_entities":
                     list_last = getattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
                     list_count = getattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
@@ -1459,11 +1685,16 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # field) — all of which otherwise read as progress and reset the
                 # loop guards.
                 mutation_fingerprint: str | None = None
+                ran_concurrently = False
+                try:
+                    mutation_fingerprint = engine.state.validation_fingerprint()
+                except Exception:  # noqa: BLE001 — best-effort bookkeeping
+                    logger.debug("progress guard: fingerprint failed", exc_info=True)
                 if tool_name in _MUTATION_TOOLS:
-                    try:
-                        mutation_fingerprint = engine.state.validation_fingerprint()
-                    except Exception:  # noqa: BLE001 — best-effort bookkeeping
-                        logger.debug("no-op guard: fingerprint failed", exc_info=True)
+                    with _MUTATION_HISTORY_LOCK:
+                        in_flight = int(getattr(engine, _MUTATIONS_IN_FLIGHT, 0)) + 1
+                        setattr(engine, _MUTATIONS_IN_FLIGHT, in_flight)
+                        ran_concurrently = in_flight > 1
 
                 try:
                     result = engine.run_tool(tool_name, **kwargs)
@@ -1481,7 +1712,16 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # Genuinely fatal errors (SystemExit, KeyboardInterrupt) are
                     # intentionally NOT caught so they propagate normally.
                     result = {"error": str(exc), "tool": tool_name}
-                else:
+                finally:
+                    if tool_name in _MUTATION_TOOLS:
+                        with _MUTATION_HISTORY_LOCK:
+                            still_running = int(getattr(engine, _MUTATIONS_IN_FLIGHT, 1))
+                            setattr(engine, _MUTATIONS_IN_FLIGHT, max(0, still_running - 1))
+                        # A sibling that STARTED while this call was running makes
+                        # this one concurrent too — the fingerprint it is about to
+                        # compare already contains that sibling's write.
+                        ran_concurrently = ran_concurrently or still_running > 1
+                if True:
                     # scan_files returns the full list[FileClassification] (already
                     # stored in state); hand the LLM a compact summary instead of
                     # the raw blob so it gets a clear success signal and does not
@@ -1539,8 +1779,15 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # corrective before the bookkeeping below, so it neither counts
                 # as a mutation (which would reset every guard) nor escapes the
                 # loop-breaker (_is_non_progress_result recognises the marker).
-                if mutation_fingerprint is not None and not (
-                    isinstance(result, dict) and result.get("error")
+                # MUTATION tools only. The fingerprint is now captured for every
+                # call (the general no-progress run below needs it), so this must
+                # say so explicitly — without the check, a read that changes
+                # nothing by definition was being reported as a write that wrote
+                # nothing, and three reads ended the turn.
+                if (
+                    tool_name in _MUTATION_TOOLS
+                    and mutation_fingerprint is not None
+                    and not (isinstance(result, dict) and result.get("error"))
                 ):
                     try:
                         unchanged = engine.state.validation_fingerprint() == mutation_fingerprint
@@ -1548,11 +1795,44 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         unchanged = False
                     if unchanged:
                         logger.info("No-op mutation suppressed: %s(%s)", tool_name, signature)
+                        # Escalate like every other guard. Normalising reference
+                        # values turned the A-B-A thrash into repeated NO-OPS,
+                        # which the loop-breaker misses because it only counts
+                        # IDENTICAL signatures — and the thrash's whole nature is
+                        # that the arguments keep changing. Without a strike count
+                        # here a model can bounce off "changed nothing" forever at
+                        # a full model turn each time.
+                        target = _mutation_target(tool_name, kwargs)
+                        with _MUTATION_HISTORY_LOCK:
+                            noops: dict[str, int] = dict(
+                                getattr(engine, _NO_OP_STRIKE_FLAG, None) or {}
+                            )
+                            strikes = noops.get(target, 0) + 1
+                            noops[target] = strikes
+                            setattr(engine, _NO_OP_STRIKE_FLAG, noops)
+                        if not ran_concurrently and strikes >= _MUTATION_CYCLE_ABORT:
+                            logger.warning(
+                                "Ending turn: %s wrote nothing %d times running",
+                                target,
+                                strikes,
+                            )
+                            _log_suppressed(engine, tool_name, f"no_op_strike_{strikes}", kwargs)
+                            raise _InvocationCancelled("repeated no-op mutation")
                         result = _no_op_mutation_message(tool_name, kwargs, engine)
                     else:
-                        cycle = _record_mutation_cycle(engine, tool_name, kwargs)
+                        with _MUTATION_HISTORY_LOCK:
+                            noops = dict(getattr(engine, _NO_OP_STRIKE_FLAG, None) or {})
+                            noops.pop(_mutation_target(tool_name, kwargs), None)
+                            setattr(engine, _NO_OP_STRIKE_FLAG, noops)
+                        cycle = _record_mutation_cycle(
+                            engine, tool_name, kwargs, concurrent=ran_concurrently
+                        )
                         if cycle is not None:
                             result = cycle
+
+                # The general no-progress rule, applied to EVERY tool: if the
+                # crate looks exactly as it did before the call, nothing moved.
+                result = _track_progress(engine, tool_name, mutation_fingerprint, result)
 
                 # Track repeated list queries independently: this never stores or
                 # reuses their result, and mutations always reset the streak.
@@ -1823,6 +2103,10 @@ def _completeness_nudge(state: CrateState) -> str:
     # "complete" naming six publication authors and no owner at all.
     meta = state.metadata
     has_attribution = bool(meta.publisher or meta.creator or meta.contact)
+    # No licence means the crate ships the "ALL RIGHTS RESERVED" fallback the
+    # BASE shape requires — legally the most restrictive option, chosen by
+    # nobody. That silence is worth one question.
+    has_license = bool(meta.license)
     orphans = _unreferenced_entities(state)
 
     present: list[str] = []
@@ -1832,6 +2116,8 @@ def _completeness_nudge(state: CrateState) -> str:
         present.append("person ✓")
     if has_attribution:
         present.append("crate owner ✓")
+    if has_license:
+        present.append("licence ✓")
     if n_compounds:
         present.append(f"{n_compounds} compounds ✓")
     if n_cells:
@@ -1850,6 +2136,8 @@ def _completeness_nudge(state: CrateState) -> str:
         missing.append("file attachments")
     if not has_attribution:
         missing.append("crate owner (publisher/creator/contact)")
+    if not has_license:
+        missing.append("licence (defaulting to ALL RIGHTS RESERVED)")
     if orphans:
         detail = ", ".join(f"{len(ids)} {t}" for t, ids in sorted(orphans.items()))
         missing.append(f"links for {detail}")
@@ -1882,6 +2170,13 @@ def _completeness_nudge(state: CrateState) -> str:
             "FIRST; if which entity it belongs to is genuinely ambiguous, ask the "
             "user with present_to_human instead of guessing or re-writing the "
             "same field another way"
+        )
+    elif not has_license:
+        next_action = (
+            "ask the user which licence to record — present_to_human with the "
+            "options and their trade-offs (CC0 / CC-BY-4.0 / CC-BY-NC-4.0 / keep "
+            "all rights reserved), then set_crate_metadata(license=<URL>). Never "
+            "choose one for them: it is a legal decision about their data"
         )
     elif not has_attribution:
         next_action = (
@@ -2038,6 +2333,28 @@ def _prune_state_backed_outputs(messages: list) -> list:
         else:
             pruned.append(msg)
     return pruned
+
+
+def _format_user_answers(engine: AgentEngine, *, limit: int = 8) -> str:
+    """The questions the user has already answered, for the state brief.
+
+    A HITL answer is a tool result, so it lives only in the graph checkpoint —
+    and a turn cut short by a guard or a timeout rotates that thread away. The
+    answer vanishes while the crate state survives, and the agent asks again.
+    Replaying the recent answers from state means a rotated thread still knows
+    what it was told, whatever happened to the transcript.
+    """
+    answers = getattr(engine.state, "user_answers", None) or []
+    if not answers:
+        return ""
+    lines = [
+        f"- asked: {item.get('question', '')[:160]}\n  answered: {item.get('answer', '')[:160]}"
+        for item in answers[-limit:]
+    ]
+    return (
+        "\n[Already answered by the user — do NOT ask these again; act on them]\n"
+        + "\n".join(lines)
+    )
 
 
 def _format_document_evidence(engine: AgentEngine, *, limit: int = 12000) -> str:
@@ -2347,6 +2664,7 @@ def _build_agent_graph(
             nudge=nudge,
             state_summary=(
                 _format_compact_state_summary(engine)
+                + _format_user_answers(engine)
                 + "\n"
                 + _format_document_evidence(engine)
             ),
@@ -2361,7 +2679,9 @@ def _build_agent_graph(
         )
         model = llm.bind_tools(active_tools) if active_tools else llm
         _raise_if_invocation_cancelled()
+        _call_started = perf_counter()
         response = model.invoke(model_messages)
+        _call_seconds = perf_counter() - _call_started
         # Accumulate this call's token usage onto the crate's generator record so
         # the exported crate carries what the run cost. Done HERE rather than in
         # the profiler wrapper because that wrapper is skipped entirely when
@@ -2369,7 +2689,11 @@ def _build_agent_graph(
         try:
             call_in, call_out = _extract_token_usage(response)
             engine.state.record_llm_usage(
-                {"input_tokens": call_in or 0, "output_tokens": call_out or 0}
+                {"input_tokens": call_in or 0, "output_tokens": call_out or 0},
+                # Time spent waiting on the model, which is the run's real
+                # machine cost — the wall clock beside it also counts the user
+                # thinking, and is a different (much larger) number.
+                seconds=_call_seconds,
             )
         except Exception:  # noqa: BLE001 — accounting never breaks the loop
             logger.debug("Could not record LLM usage for this call", exc_info=True)
@@ -2982,16 +3306,6 @@ def run_interactive_agent(
                 "is saved.[/dim]"
             )
             console.print()
-        elif outcome == "stopped":
-            console.print(
-                "[yellow]I was repeating the same step without making progress[/yellow], "
-                "so I stopped. Your work so far is saved."
-            )
-            console.print(
-                "  [dim]Tell me what to do next — e.g.[/dim] [bold]export the crate[/bold] "
-                "[dim]or[/dim] [bold]what is still missing?[/bold]"
-            )
-            console.print()
         elif outcome == "recursion":
             console.print(
                 "[dim]Over to you — this request hit its step limit "
@@ -3107,6 +3421,13 @@ def run_interactive_agent(
             try:
                 message = user_input
                 empty_streak = 0
+                # A new user turn gets a fresh strike budget. The counters live on
+                # the engine, so once a guard had ended a turn they were already at
+                # the limit — and the next "continue" was killed by its FIRST
+                # offending call, before the agent could try anything. The memoised
+                # fingerprints stay (a redundant call is still suppressed and still
+                # answered with a corrective); only the escalation resets.
+                _reset_turn_guards(engine)
                 for _autonomous_turn in range(_MAX_AUTONOMOUS_TURNS + 1):
                     reply, outcome = _run_turn(message)
                     # Land the turn's work in the footer immediately rather than

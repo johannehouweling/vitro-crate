@@ -111,8 +111,19 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
     # INFO, burying each guidance question). Only do this for the bump -- never
     # when the user explicitly requested verbosity via -v / -vv.
     if interactive_bump:
-        for noisy in ("httpx", "httpcore", "openai", "urllib3"):
+        for noisy in ("httpx", "httpcore", "openai"):
             logging.getLogger(noisy).setLevel(logging.WARNING)
+        # urllib3 goes further, to ERROR. It logs a WARNING per retry ATTEMPT,
+        # and a lookup service having a bad afternoon then prints one line per
+        # attempt per chemical — 22 compounds resolving in parallel produced
+        # ~60 lines that tore through the prompt box and the pinned footer.
+        # Those retries are an implementation detail we already handle: the
+        # request is retried, and a genuine failure is reported by our own
+        # lookup layer with the chemical's name attached, which is the message
+        # actually worth reading. An explicit level here also OVERRIDES the
+        # root-logger mute the ReAct loop applies during a turn, so without
+        # this the noise arrives at exactly the wrong moment.
+        logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

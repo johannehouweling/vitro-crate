@@ -440,30 +440,45 @@ class TestBuildLangchainTools:
 
         assert result == []  # type: ignore[comparison-overlap]
 
-    def test_repeated_list_entities_is_bounded_without_caching(self):
-        """Identical list reads eventually stop, while state remains live."""
+    def test_repeated_list_entities_ends_the_turn(self):
+        """Identical list reads warn twice, then END THE TURN.
+
+        This used to hand back a corrective string. The state-query guard escalates
+        instead — a corrective the model can bounce off is not a stop, and the
+        rotation it was meant to break survived it. The result is never cached:
+        the first read after a mutation runs for real against live state.
+        """
+        from builder.agents.react.agent_loop import _InvocationCancelled
+
         _, tool_map, engine = self._build()
         list_tool = tool_map["list_entities"]
 
         assert list_tool.invoke({"entity_type": "Study"}) == []
-        list_tool.invoke({"entity_type": "Study"})
-        list_tool.invoke({"entity_type": "Study"})
-        stopped = list_tool.invoke({"entity_type": "Study"})
-        assert isinstance(stopped, str)
-        assert "repeated the same list_entities query" in stopped
-        assert "Live state" in stopped
+        list_tool.invoke({"entity_type": "Study"})  # strike 1
+        list_tool.invoke({"entity_type": "Study"})  # strike 2
+        with pytest.raises(_InvocationCancelled):
+            list_tool.invoke({"entity_type": "Study"})  # strike 3 — turn ends
 
+        # A mutation moves the fingerprint, so the same query is live again.
         draft = tool_map["draft_investigation"].invoke({"hints": {"name": "Inv"}})
         assert draft is not None
         assert list_tool.invoke({"entity_type": "Study"}) == []
 
     def test_different_list_entity_filters_remain_allowed(self):
-        """The guard applies only to identical normalized arguments."""
+        """The guard keys on the normalized arguments, not on the tool name.
+
+        A DIFFERENT filter is a different question and runs for real. Re-asking
+        the SAME one still gets the corrective, because interleaving another
+        query does not change the crate — only a mutation does.
+        """
         _, tool_map, _ = self._build()
         list_tool = tool_map["list_entities"]
+
         assert list_tool.invoke({"entity_type": "Study"}) == []
         assert list_tool.invoke({"entity_type": "Assay"}) == []
-        assert list_tool.invoke({"entity_type": "Study"}) == []
+        repeated = list_tool.invoke({"entity_type": "Study"})
+        assert isinstance(repeated, str)
+        assert "already been answered" in repeated
 
     def test_draft_investigation_adds_entity(self):
         """Invoking draft_investigation adds an entity to the state."""

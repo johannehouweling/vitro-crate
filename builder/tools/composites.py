@@ -1601,3 +1601,98 @@ TOOL_REGISTRY.register(
     takes_state=True,
     takes_human=True,
 )
+
+
+# ---------------------------------------------------------------------------
+# Deterministic wiring backstop (#438 / #273)
+# ---------------------------------------------------------------------------
+# A MolecularEntity or CellLineSample is minted by whichever path resolved it,
+# but it stays an ORPHAN until something references it: ISA forbids a compound as
+# a process object, so a compound reaches the experiment only through the
+# Exposure's `chemicals` field (which the build turns into the condition table's
+# schema:about + the compound column's valueUrl). The pipeline arm wires this at
+# one moment, conditional on holding the ids then; the ReAct arm relies on the
+# model remembering to pass `hints={'chemicals': ...}`. Neither is a backstop, and
+# a real 22-compound crate shipped with `chemicals=None` on every process.
+#
+# This is the OBVIOUS half of that problem, so it is done without asking: one
+# Exposure and N compounds that nothing references have exactly one sensible
+# wiring. Anything genuinely ambiguous — two Exposures, so which compound went
+# where — is refused and reported for a human, never guessed.
+
+_DOMAIN_WIRING: tuple[tuple[str, str, str, bool], ...] = (
+    # (entity type, target process type, reference field, multi-valued)
+    ("MolecularEntity", "Exposure", "chemicals", True),
+    ("CellLineSample", "CellCulture", "cell_line", False),
+)
+
+
+def _is_referenced(state: CrateState, target_id: str) -> bool:
+    """True when any OTHER entity references *target_id* in any of its fields."""
+    for ent in state.list_entities():
+        if ent.entity_id == target_id:
+            continue
+        for value in ent.fields.values():
+            items = value if isinstance(value, list) else [value]
+            for item in items:
+                ref = item.get("@id") if isinstance(item, dict) else item
+                if isinstance(ref, str) and ref.lstrip("#") == target_id.lstrip("#"):
+                    return True
+    return False
+
+
+def wire_unreferenced_domain_entities(state: CrateState) -> dict[str, Any]:
+    """Attach domain entities that nothing references to the process that used them.
+
+    Idempotent and deterministic: it only ever ADDS references for entities that
+    are currently referenced by nothing, and unions with whatever the field
+    already holds, so re-running changes nothing.
+
+    Returns:
+        ``{"wired": {field: [entity_id, ...]}, "ambiguous": [reason, ...]}`` —
+        ``ambiguous`` names each case a human has to settle (no process of the
+        required type, or more than one, so the pairing cannot be derived).
+    """
+    from builder.tools.management import set_fields
+
+    wired: dict[str, list[str]] = {}
+    ambiguous: list[str] = []
+
+    processes = state.list_entities("LabProcess")
+    for entity_type, process_type, field, multi in _DOMAIN_WIRING:
+        loose = [
+            e.entity_id
+            for e in state.list_entities(entity_type)
+            if not _is_referenced(state, e.entity_id)
+        ]
+        if not loose:
+            continue
+        targets = [
+            p
+            for p in processes
+            if str(p.fields.get("process_type") or p.fields.get("additionalType") or "")
+            == process_type
+        ]
+        if len(targets) != 1:
+            ambiguous.append(
+                f"{len(loose)} unreferenced {entity_type} but {len(targets)} "
+                f"{process_type} process(es) — cannot derive which belongs to which"
+            )
+            continue
+        target = targets[0]
+        existing = target.fields.get(field)
+        current = [
+            (v.get("@id") if isinstance(v, dict) else v)
+            for v in (existing if isinstance(existing, list) else [existing])
+            if v
+        ]
+        merged = [*current, *[c for c in loose if c not in current]]
+        value: Any = merged if multi else merged[0]
+        try:
+            set_fields(state, target.entity_id, {field: value})
+        except Exception as exc:  # noqa: BLE001 — wiring never breaks an export
+            logger.warning("wiring %s onto %s failed: %s", field, target.entity_id, exc)
+            continue
+        wired.setdefault(field, []).extend(loose)
+
+    return {"wired": wired, "ambiguous": ambiguous}

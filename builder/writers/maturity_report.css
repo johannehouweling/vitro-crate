@@ -8,6 +8,7 @@
   --cov:#0e7c86; --track:#e6ebeb;
   --cat-process:#2a78d6; --cat-material:#008300; --cat-data:#c0407a; --cat-chemical:#9a5b00;
   --cat-agent:#7a3fc4; --cat-org:#4b5a94; --cat-container:#3f51a8;
+  --cat-protocol:#0a7f8c; --cat-annotation:#8a6fb0; --cat-publication:#b03a5b;
   --edge-object:#8a9698; --edge-result:#0e7c86;
   color-scheme: light;
   background:var(--page); color:var(--ink);
@@ -194,6 +195,7 @@
   background:var(--surface-2); border-radius:999px; padding:.02rem .38rem; }
 .mat .panel { display:none; }
 .mat .panel > .panel-h { display:none; }
+.mat #mv-all:checked ~ .tabbar .tab[for="mv-all"],
 .mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"],
 .mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"],
 .mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"],
@@ -201,18 +203,21 @@
 .mat #mv-people:checked ~ .tabbar .tab[for="mv-people"] {
   background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 34%,transparent);
   color:var(--accent); }
+.mat #mv-all:checked ~ .tabbar .tab[for="mv-all"] .tb-c,
 .mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"] .tb-c,
 .mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"] .tb-c,
 .mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"] .tb-c,
 .mat #mv-cell:checked ~ .tabbar .tab[for="mv-cell"] .tb-c,
 .mat #mv-people:checked ~ .tabbar .tab[for="mv-people"] .tb-c {
   background:var(--surface); color:var(--accent); }
+.mat #mv-all:focus-visible ~ .tabbar .tab[for="mv-all"],
 .mat #mv-isa:focus-visible ~ .tabbar .tab[for="mv-isa"],
 .mat #mv-prov:focus-visible ~ .tabbar .tab[for="mv-prov"],
 .mat #mv-chem:focus-visible ~ .tabbar .tab[for="mv-chem"],
 .mat #mv-cell:focus-visible ~ .tabbar .tab[for="mv-cell"],
 .mat #mv-people:focus-visible ~ .tabbar .tab[for="mv-people"] {
   outline:2px solid var(--accent); outline-offset:2px; }
+.mat #mv-all:checked ~ #p-all,
 .mat #mv-isa:checked ~ #p-isa,
 .mat #mv-prov:checked ~ #p-prov,
 .mat #mv-chem:checked ~ #p-chem,
@@ -288,6 +293,47 @@
   border-radius:999px; padding:.05rem .42rem; white-space:nowrap; }
 .mat .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
   overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+
+/* all-entities overview: one tile per entity, category = fill, unreachable =
+   alarm outline. Sized to the content, not stretched like the derivation chain. */
+.mat svg.overview { width:auto; min-width:0; max-width:100%; height:auto; }
+.mat .ov-band { fill:var(--ink); font-size:11px; font-weight:660; }
+.mat .ov-cat { fill:var(--muted); font-size:8.5px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.06em; }
+.mat .ov-t { stroke-width:1; }
+.mat .ov-t.orphan, .mat .ov-key.orphan { stroke:var(--low); stroke-width:1.6;
+  stroke-dasharray:2.5 1.5; }
+.mat .ov-key { display:inline-block; width:.8rem; height:.8rem; border-radius:2px;
+  border:1px solid; }
+.mat .prov-legend .lg .ov-key.orphan { background:color-mix(in srgb,var(--low) 14%,transparent);
+  border-color:var(--low); border-style:dashed; }
+.mat .cat-container { fill:color-mix(in srgb,var(--cat-container) 26%,var(--surface));
+  stroke:var(--cat-container); background:color-mix(in srgb,var(--cat-container) 26%,#fff);
+  border-color:var(--cat-container); }
+.mat .cat-process { fill:color-mix(in srgb,var(--cat-process) 26%,var(--surface));
+  stroke:var(--cat-process); background:color-mix(in srgb,var(--cat-process) 26%,#fff);
+  border-color:var(--cat-process); }
+.mat .cat-protocol { fill:color-mix(in srgb,var(--cat-protocol) 26%,var(--surface));
+  stroke:var(--cat-protocol); background:color-mix(in srgb,var(--cat-protocol) 26%,#fff);
+  border-color:var(--cat-protocol); }
+.mat .cat-material { fill:color-mix(in srgb,var(--cat-material) 26%,var(--surface));
+  stroke:var(--cat-material); background:color-mix(in srgb,var(--cat-material) 26%,#fff);
+  border-color:var(--cat-material); }
+.mat .cat-chemical { fill:color-mix(in srgb,var(--cat-chemical) 26%,var(--surface));
+  stroke:var(--cat-chemical); background:color-mix(in srgb,var(--cat-chemical) 26%,#fff);
+  border-color:var(--cat-chemical); }
+.mat .cat-data { fill:color-mix(in srgb,var(--cat-data) 26%,var(--surface));
+  stroke:var(--cat-data); background:color-mix(in srgb,var(--cat-data) 26%,#fff);
+  border-color:var(--cat-data); }
+.mat .cat-agent { fill:color-mix(in srgb,var(--cat-agent) 26%,var(--surface));
+  stroke:var(--cat-agent); background:color-mix(in srgb,var(--cat-agent) 26%,#fff);
+  border-color:var(--cat-agent); }
+.mat .cat-publication { fill:color-mix(in srgb,var(--cat-publication) 26%,var(--surface));
+  stroke:var(--cat-publication); background:color-mix(in srgb,var(--cat-publication) 26%,#fff);
+  border-color:var(--cat-publication); }
+.mat .cat-annotation { fill:color-mix(in srgb,var(--cat-annotation) 22%,var(--surface));
+  stroke:var(--cat-annotation); background:color-mix(in srgb,var(--cat-annotation) 22%,#fff);
+  border-color:var(--cat-annotation); }
 
 /* graph-topology strip (relocated here from the header) */
 .mat .comp { display:flex; flex-wrap:wrap; gap:.5rem .9rem; align-items:center;

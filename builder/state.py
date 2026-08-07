@@ -415,6 +415,11 @@ class GeneratorInfo:
     output_tokens: int = 0
     llm_calls: int = 0
     cost_usd: float | None = None
+    # Seconds spent INSIDE model calls. ``duration_seconds`` is wall clock from
+    # session start to export, so it counts the user reading, thinking, going to
+    # lunch — one real session recorded 54,589s (15.2h) for ~30 min of work.
+    # This is the machine's effort, and the number worth optimising against.
+    model_seconds: float = 0.0
 
     # Run settings safe to publish. Anything not named here is dropped rather
     # than filtered by pattern — an allowlist cannot be defeated by a new secret
@@ -487,7 +492,7 @@ class GeneratorInfo:
             value = getattr(self, key)
             if value:
                 d[key] = value
-        for key in ("input_tokens", "output_tokens", "llm_calls"):
+        for key in ("input_tokens", "output_tokens", "llm_calls", "model_seconds"):
             if getattr(self, key):
                 d[key] = getattr(self, key)
         if self.duration_seconds is not None:
@@ -517,6 +522,7 @@ class GeneratorInfo:
             ended_at=data.get("ended_at", ""),
             duration_seconds=data.get("duration_seconds"),
             input_tokens=int(data.get("input_tokens") or 0),
+            model_seconds=float(data.get("model_seconds") or 0.0),
             output_tokens=int(data.get("output_tokens") or 0),
             llm_calls=int(data.get("llm_calls") or 0),
             cost_usd=data.get("cost_usd"),
@@ -1108,6 +1114,7 @@ class CrateState:
         usage: dict[str, Any] | None,
         *,
         calls: int = 1,
+        seconds: float = 0.0,
     ) -> None:
         """Accumulate one LLM call's token usage onto the generator record.
 
@@ -1128,6 +1135,8 @@ class CrateState:
         self.generator.input_tokens += inp
         self.generator.output_tokens += out
         self.generator.llm_calls += calls
+        if seconds > 0:
+            self.generator.model_seconds = round(self.generator.model_seconds + seconds, 3)
 
     def record_user_answer(self, question: str, answer: str, *, limit: int = 20) -> None:
         """Remember something the user told us, durably and in order.
@@ -1165,6 +1174,7 @@ class CrateState:
             else None,
         )
         info.input_tokens = prior.input_tokens
+        info.model_seconds = prior.model_seconds
         info.output_tokens = prior.output_tokens
         info.llm_calls = prior.llm_calls
         info.started_at = prior.started_at or self.created_at or ""
