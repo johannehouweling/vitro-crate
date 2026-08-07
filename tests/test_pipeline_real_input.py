@@ -478,15 +478,30 @@ class TestRealInputPipeline:
     def test_pipeline_builds_conformant_crate_from_real_input(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The deterministic spine, over the real scanned crate, reaches
-        ``{base, isa, tox}`` REQUIRED conformance."""
+        """The deterministic spine, over the real scanned crate, reaches BASE and
+        ISA REQUIRED conformance, and states every tox parameter it can source.
+
+        Exposure and EndpointReadout carry real values read out of the SOP body.
+        DataAnalysis does not, and cannot: the SOP describes its statistics
+        (GraphPad/Prism, regression) only past offset ~17,000, far outside the
+        2,000-char slice that tier receives — so the value never reaches the
+        extraction leaf, and `_pv` will not invent one (D5). Its
+        additionalProperty MUST is therefore the ONE outstanding issue; any other
+        issue here is a real regression.
+        """
         from builder.agents.pipeline.pipeline import run_pipeline
 
         _install_offline_seams(monkeypatch)
         result = run_pipeline(_scanning_engine(FIXTURE_DIR))
 
-        assert result["ok"] is True, result["issues"]
-        assert result["conformance"] == {"base": True, "isa": True, "tox": True}
+        assert result["conformance"]["base"] is True, result["issues"]
+        assert result["conformance"]["isa"] is True, result["issues"]
+        outstanding = result.get("issues") or []
+        assert all(
+            str(i.get("property", "")).endswith("additionalProperty")
+            and "DataAnalysis" in str(i.get("message", ""))
+            for i in outstanding
+        ), outstanding
 
     def test_backbone_compound_and_protocol_materialized_from_real_input(
         self, monkeypatch: pytest.MonkeyPatch
@@ -635,9 +650,14 @@ class TestRealSopParametersReachTheCrate:
         run_pipeline(engine)
 
         values = self._parameter_values(engine.state)
-        # Asserted as the exact placeholder, not "absent or unknown": the standard
-        # chain is drafted unconditionally (the #262 never-hollow guarantee), so
-        # these ParameterValues always exist and a slack `in (None, ...)` would
-        # pass even if the chain vanished.
-        assert values["Exposure Duration"] == "unknown"
-        assert values["Detection Instrument"] == "unknown"
+        # The parameters are now OMITTED rather than published as "unknown":
+        # `_pv` will not emit a placeholder a reader cannot tell from a real
+        # answer (D5). Absence alone would also pass if the whole chain vanished,
+        # so the #262 never-hollow guarantee is asserted directly instead of
+        # being inferred from the placeholder's presence.
+        assert "Exposure Duration" not in values
+        assert "Detection Instrument" not in values
+        chain = {
+            p.fields.get("process_type") for p in engine.state.list_entities("LabProcess")
+        }
+        assert {"Exposure", "EndpointReadout"} <= chain, chain

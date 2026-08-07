@@ -2142,10 +2142,21 @@ class TestReferenceFieldNeverCommittedAsLiteral:
             and str(g.property or "").endswith("measurementMethod"),
         )
 
-    def test_measurement_method_prose_is_refused(self):
+    def test_measurement_method_prose_is_refused(self, monkeypatch):
         """The builder drops a non-resolvable literal on a reference property
-        (``_scalar_props`` / ``_wire_reference``), so reporting success is a lie."""
+        (``_scalar_props`` / ``_wire_reference``), so reporting success is a lie.
+
+        ``measurementMethod`` prose is first offered to BAO — resolving it into a
+        verified DefinedTerm is a real answer, not a fabricated one. What must
+        never happen is committing the prose when the lookup CANNOT vouch for it,
+        so the lookup is stubbed empty here. That also makes this hermetic: it
+        previously reached the live BAO service and its verdict depended on
+        whether the network (and the ontology) happened to agree.
+        """
+        import builder.tools.lookups as lookups_mod
         from builder.agents.pipeline.guidance import _apply_value
+
+        monkeypatch.setattr(lookups_mod, "lookup_bao_term", lambda *a, **k: {})
 
         engine = AgentEngine(state=_honest_backbone())
         gap = self._measurement_method_gap(engine.state)
