@@ -916,6 +916,7 @@ verify_identifier(entity_id: str, field: str) → VerificationResult
 ### Crate Assembly & Validation Tools
 ```
 build_and_validate(severity="required", profile="all") → {ok, conformance, issues}
+set_validation_preference(recommended: bool | None = None, optional: bool | None = None) → {validation_preferences, tiers_that_will_run}
 fix_required_issues(severity="required", profile="all") → {ok, fixed:[{issue, rule, action}], remaining:[{issue, reason}]}
 export_crate(output_path: str) → CrateBuildResult
 build_crate(output_path: str) → CrateBuildResult     # back-compat alias of export_crate

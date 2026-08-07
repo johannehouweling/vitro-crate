@@ -137,7 +137,16 @@ _PLAN: dict[str, Any] = {
                 "technical_replicate": "3",
             },
         },
-        {"process_type": "DataAnalysis", "name": "Dose-response IC50 analysis"},
+        {
+            "process_type": "DataAnalysis",
+            "name": "Dose-response IC50 analysis",
+            # DataAnalysis MUST carry at least one schema:additionalProperty too;
+            # the step named itself after this calculation but never stated it.
+            "parameters": {
+                "data_processing": "Four-parameter logistic dose-response fit (IC50)",
+                "software": "GraphPad Prism",
+            },
+        },
     ],
     "aops": [{"aop_id": "610"}],
     "people": [
@@ -548,12 +557,20 @@ class TestPipelineE2ENoProviderSafety:
     def test_no_provider_reaches_conformance_via_scaffold(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """No provider ⇒ leaves are strict no-ops, scaffold path still conforms.
+        """No provider ⇒ leaves are strict no-ops and the scaffold path still runs.
 
         The materialize-plan and drafter-leaf steps short-circuit when
         ``get_provider()`` returns ``None``; the deterministic scaffold + fix path
-        alone must still build a {base, isa, tox}-conformant crate without crashing.
-        The leaves are wired to raise if ever called, proving the no-op gate holds.
+        alone must still build the full backbone without crashing. The leaves are
+        wired to raise if ever called, proving the no-op gate holds.
+
+        BASE and ISA conform. TOX does NOT, and that is the correct outcome: with
+        no provider and no source documents there is nothing to say about exposure
+        duration or detection instrument, and ``_pv`` will not publish "unknown"
+        as though it were a measurement (D5). The tox shape's "MUST have at least
+        one additionalProperty" firing IS the prompt to go and supply it — see
+        ``TestProcessParametersReachTheGraph`` for the same crate once a plan
+        carries real values.
         """
         import builder.agents.pipeline.pipeline as pipeline_mod
         from builder.agents.pipeline.pipeline import run_pipeline
@@ -573,8 +590,14 @@ class TestPipelineE2ENoProviderSafety:
         engine = _engine(_titled_state())
         result = run_pipeline(engine)
 
-        assert result["conformance"] == {"base": True, "isa": True, "tox": True}
-        assert result["ok"] is True
+        assert result["conformance"] == {"base": True, "isa": True, "tox": False}
+        # The ONLY thing missing is the unassertable parameters — a structural
+        # regression in the scaffold would surface as some OTHER issue here.
+        assert result["issues"], "tox must report why it did not conform"
+        assert all(
+            str(issue.get("property", "")).endswith("additionalProperty")
+            for issue in result["issues"]
+        ), result["issues"]
         # The scaffold path still laid the ISA backbone.
         assert {"Investigation", "Study", "Assay"} <= {
             e.type for e in engine.state.list_entities()
@@ -739,13 +762,16 @@ class TestProcessParametersReachTheGraph:
 
         assert self._parameter_values(engine.state)["Exposure Duration"] == "30 minutes"
 
-    def test_exposure_duration_is_unknown_without_a_plan_parameter(
+    def test_exposure_duration_is_absent_without_a_plan_parameter(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """HONESTY CONTROL — the value travelled, it was not coincidentally present.
 
-        Identical run with the ``parameters`` key stripped from the plan: the
-        placeholder returns. If this stayed "30 minutes" the test above would be
+        Identical run with the ``parameters`` key stripped from the plan. The
+        parameter is now OMITTED rather than published as ``"unknown"``: ``_pv``
+        refuses to emit a placeholder that a reader cannot distinguish from a
+        real answer (D5). Absence proves the same point more strongly than a
+        placeholder did — if this key were still present the test above would be
         asserting something the fixture supplied by another route.
         """
         import copy
@@ -764,7 +790,7 @@ class TestProcessParametersReachTheGraph:
         engine = _engine(_titled_state())
         run_pipeline(engine)
 
-        assert self._parameter_values(engine.state)["Exposure Duration"] == "unknown"
+        assert "Exposure Duration" not in self._parameter_values(engine.state)
 
     def test_endpoint_readout_parameters_carry_plan_values(
         self, monkeypatch: pytest.MonkeyPatch

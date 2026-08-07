@@ -410,6 +410,10 @@ class ValidationReport:
         required_issues: REQUIRED-severity issue descriptions.
         should_issues: SHOULD-severity issue descriptions.
         may_issues: MAY-severity (informational) issue descriptions.
+        input_fingerprint: :meth:`CrateState.validation_fingerprint` as it was
+            when this verdict was recorded — the answer to "does this verdict
+            still describe the crate?". Empty means unknown (a report restored
+            from an older checkpoint, or one built by hand).
     """
 
     base_passed: bool = False
@@ -419,6 +423,18 @@ class ValidationReport:
     should_issues: list[str] = field(default_factory=list)
     may_issues: list[str] = field(default_factory=list)
     assessed_tiers: set[str] = field(default_factory=set)
+    input_fingerprint: str = ""
+
+    def is_stale_for(self, state: CrateState) -> bool:
+        """True when *state* has changed since this verdict was recorded.
+
+        A verdict with no fingerprint is NOT reported stale: it predates the
+        stamp, and downgrading every restored checkpoint to "stale" would be a
+        false alarm. Freshness is only ever asserted on a positive match.
+        """
+        return bool(self.input_fingerprint) and (
+            self.input_fingerprint != state.validation_fingerprint()
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -429,6 +445,7 @@ class ValidationReport:
             "should_issues": list(self.should_issues),
             "may_issues": list(self.may_issues),
             "assessed_tiers": sorted(self.assessed_tiers),
+            "input_fingerprint": self.input_fingerprint,
         }
 
     @classmethod
@@ -441,6 +458,7 @@ class ValidationReport:
             should_issues=data.get("should_issues", []),
             may_issues=data.get("may_issues", []),
             assessed_tiers=set(data.get("assessed_tiers", [])),
+            input_fingerprint=data.get("input_fingerprint", ""),
         )
 
 
@@ -1095,8 +1113,12 @@ class StateSerializer:
             checkpoint=checkpoint,
             # Read back, not just written: without this the standing "don't ask
             # me again" answers reset to {} on every --resume, which is the one
-            # thing persisting them was meant to prevent.
-            validation_preferences=dict(data.get("validation_preferences") or {}),
+            # thing persisting them was meant to prevent. Coerced so a
+            # hand-edited session file cannot inject non-bool values.
+            validation_preferences={
+                str(k): bool(v)
+                for k, v in (data.get("validation_preferences") or {}).items()
+            },
         )
 
     @classmethod

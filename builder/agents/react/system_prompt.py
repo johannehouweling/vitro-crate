@@ -53,6 +53,7 @@ Entity drafting:
 Entity management & provenance:
 - set_fields: Set one or more fields on an existing entity (the single mutation tool)
 - set_crate_metadata: Set top-level crate metadata on the Root Data Entity — title/description/accession + the root dates release_date (schema:releaseDate) and date_modified (schema:dateModified); only the fields you pass are written, and you must pass at least one (it writes, it does not read — use get_status to read)
+- set_validation_preference: Record whether the user wants the broader RECOMMENDED/OPTIONAL validation tiers run from now on — call it only when they change their mind (e.g. "stop the recommended checks"); turning recommended off turns optional off too
 - remove_entity: Remove an entity (refuses if still referenced unless cascade=true)
 - list_entities: List entities, optionally filtered by type. Mutation results are authoritative; use this only to search for an entity not returned by the preceding tool. Do not repeat an identical list_entities call when no mutation occurred; use the live state summary and prior result instead.
 - list_scanned_files: Retrieve the full scanned-file inventory (path/filename/size/mime) — scan_files only shows a sample, so use this to browse the inventory and decide which files to place/annotate (paginated/filterable)

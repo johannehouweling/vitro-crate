@@ -267,6 +267,11 @@ def _drafting_state() -> CrateState:
             samples="cell",
             chemicals="compound",
             protocol_id="protocol",
+            # The tox profile requires each of Exposure / EndpointReadout /
+            # DataAnalysis to carry at least one schema:additionalProperty, and
+            # `_pv` no longer publishes "unknown" to satisfy it. A corpus case
+            # that stands in for a GOOD agent therefore has to state real values.
+            duration="24 hours",
         )
     )
 
@@ -418,6 +423,11 @@ def _arbitrary_tox_folder_state() -> CrateState:
             samples="cell",
             chemicals="compound",
             protocol_id="protocol",
+            # The tox profile requires each of Exposure / EndpointReadout /
+            # DataAnalysis to carry at least one schema:additionalProperty, and
+            # `_pv` no longer publishes "unknown" to satisfy it. A corpus case
+            # that stands in for a GOOD agent therefore has to state real values.
+            duration="24 hours",
         )
     )
     state.add_entity(
@@ -430,6 +440,7 @@ def _arbitrary_tox_folder_state() -> CrateState:
             samples="cell",
             output="raw",  # the raw measurement File (schema:result MUST)
             protocol_id="protocol",
+            detection_instrument="Amplex Red fluorescence plate reader",
         )
     )
     state.add_entity(
@@ -442,6 +453,7 @@ def _arbitrary_tox_folder_state() -> CrateState:
             input="raw",  # raw data consumed (schema:object MUST)
             output="proc",  # processed-data File produced (schema:result MUST)
             protocol_id="protocol",
+            data_processing="Four-parameter logistic dose-response fit (IC50)",
         )
     )
     return state

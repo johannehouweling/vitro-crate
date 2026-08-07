@@ -264,6 +264,129 @@ def build_and_validate(
 
 
 # ---------------------------------------------------------------------------
+# Verdict write-back + freshness (#153, #155)
+# ---------------------------------------------------------------------------
+# A ValidationReport is only meaningful next to the crate it judged. The agent
+# keeps editing after validating, so a verdict recorded five tool calls ago can
+# describe a crate that no longer exists — and the maturity report embedded in
+# the export would then ship a green "Conformant" for a state nobody checked.
+# Every write-back therefore stamps the report with the validation fingerprint of
+# the state it was computed from, and `is_stale_for` answers the question later.
+
+_VALIDATION_LAYER_ORDER: dict[str, int] = {"base": 0, "isa": 1, "tox": 2}
+
+
+def order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
+    """Return one severity tier as stable, layer-ordered display strings."""
+    selected = [i for i in issues if i.get("severity") == severity]
+    selected.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
+    return [
+        (
+            f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: "
+            f"{i.get('message') or ''}"
+        ).rstrip()
+        for i in selected
+    ]
+
+
+def apply_validation_result(
+    state: CrateState,
+    tool_name: str,
+    result: Any,
+    *,
+    severity: str | None = None,
+) -> None:
+    """Fold a validation result into ``state.validation`` and stamp its freshness.
+
+    ``validate`` returns a fully-formed :class:`ValidationReport` (disk,
+    three-pass) — adopt it wholesale. ``build_and_validate`` returns the
+    in-memory routable dict (``{"ok", "conformance", "issues"}``); map its
+    per-layer ``conformance`` onto the report and record the issues for the tier
+    that was gated. Layers absent from ``conformance`` (a scoped ``profile=``
+    call) keep their prior value, and an errored result is left untouched so a
+    transient failure never wipes known issues.
+
+    Shared by the engine's tool write-back and by ``export_crate``, so a verdict
+    reached either way carries the same shape and the same freshness stamp.
+    """
+    if tool_name == "validate" and isinstance(result, ValidationReport):
+        result.input_fingerprint = state.validation_fingerprint()
+        state.validation = result
+        return
+    if tool_name != "build_and_validate" or not isinstance(result, dict):
+        return
+    if "error" in result:
+        return
+    conformance = result.get("conformance") or {}
+    if not conformance:
+        return
+    report = state.validation
+    for layer, attr in (("base", "base_passed"), ("isa", "isa_passed"), ("tox", "tox_passed")):
+        if layer in conformance:
+            setattr(report, attr, bool(conformance[layer]))
+    issues = result.get("issues") or []
+    # The caller's kwarg wins; fall back to the severity the validator stamped on
+    # its own result before assuming "required", so a recommended/optional result
+    # can never be filed as REQUIRED issues.
+    severity = str(severity or result.get("severity") or "required")
+    tier_field = {
+        "required": "required_issues",
+        "recommended": "should_issues",
+        "optional": "may_issues",
+    }.get(severity)
+    if tier_field:
+        setattr(report, tier_field, order_issues(issues, severity))
+        report.assessed_tiers.add(severity)
+    report.input_fingerprint = state.validation_fingerprint()
+
+
+def ensure_validated(
+    state: CrateState,
+    *,
+    severity: str = "required",
+    profile: str = "all",
+) -> dict[str, Any]:
+    """Validate *state* unless its recorded verdict is already current.
+
+    Export embeds the maturity report, and that report is only worth shipping if
+    its verdict describes the crate being written. This runs
+    :func:`build_and_validate` when the recorded verdict is missing or stale and
+    folds the outcome into ``state.validation``; when the fingerprint already
+    matches, it does nothing — re-validating an unchanged crate would burn the
+    dominant tox pass for a verdict we already hold.
+
+    Never raises: a validator failure is reported in the return value so the
+    caller (``export_crate``) can still write the crate and say so.
+
+    Returns:
+        ``{"ran": bool, "reason": str, "ok": bool | None, "error": str | None}``
+        where ``reason`` is ``"fresh"`` / ``"never-validated"`` / ``"stale"``.
+    """
+    report = state.validation
+    has_verdict = bool(
+        report.input_fingerprint
+        or report.base_passed
+        or report.isa_passed
+        or report.tox_passed
+        or report.assessed_tiers
+    )
+    if has_verdict and not report.is_stale_for(state):
+        return {"ran": False, "reason": "fresh", "ok": None, "error": None}
+
+    reason = "stale" if has_verdict else "never-validated"
+    try:
+        result = build_and_validate(state, severity=severity, profile=profile)
+    except Exception as exc:  # noqa: BLE001 — export must still write the crate
+        logger.warning("Export-time validation failed: %s", exc)
+        return {"ran": False, "reason": reason, "ok": None, "error": str(exc)}
+    if "error" in result:
+        return {"ran": False, "reason": reason, "ok": None, "error": result["error"]}
+
+    apply_validation_result(state, "build_and_validate", result, severity=severity)
+    return {"ran": True, "reason": reason, "ok": bool(result.get("ok")), "error": None}
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402

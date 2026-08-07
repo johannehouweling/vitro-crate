@@ -35,6 +35,11 @@ class VhpsStudySpec:
     assay_name: str
     cell_line: str
     compound: str
+    # The Exposure's duration, taken from the study's own protocol text. The tox
+    # profile requires an Exposure to carry at least one schema:additionalProperty,
+    # and `_pv` refuses to publish a placeholder like "unknown" as a measurement —
+    # so a golden crate has to state a real, sourced parameter to be REQUIRED-clean.
+    exposure_duration: str
 
 
 def _ent(entity_id: str, type_: EntityType, **fields: object) -> Entity:
@@ -111,6 +116,7 @@ def build_state(spec: VhpsStudySpec) -> CrateState:
             assay_id="assay",
             samples="cell",
             chemicals="compound",
+            duration=spec.exposure_duration,
         )
     )
     return state
@@ -138,6 +144,9 @@ VHPS_STUDIES: dict[str, VhpsStudySpec] = {
         assay_name="MCT8-MDCK1 cellular uptake assay",
         cell_line="MDCK1 MCT8-overexpressing cells",
         compound="Triiodothyronine",
+        # "After exposure to 10 µM of T3 for 30 minutes, cells are washed to
+        # remove extracellular T3" — the study's own assay description.
+        exposure_duration="30 minutes",
     ),
 }
 

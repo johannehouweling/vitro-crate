@@ -346,6 +346,11 @@ class TestHeadlessGapSummary:
             engine,
             pipeline_runner=lambda eng: dict(self._PIPELINE_WITH_GAPS),
             guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            # The EXPORT path deliberately validates (`export_crate` ->
+            # `ensure_validated`), so a real exporter would trip this spy for a
+            # reason that has nothing to do with the summary. Stub it out to keep
+            # the guard aimed at what #296 is about.
+            exporter=_stub_export,
             output=[].append,
         )
 
