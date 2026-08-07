@@ -13,10 +13,20 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
+import pytest
+
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.builder import build_crate
 from profiles.validator import validate_crate
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+# This module writes a real crate to disk and runs the uncached, owlrl-heavy
+# on-disk validator over all three passes — ~23s locally, and the 2-vCPU CI
+# runner is slower still, so it sat just under the CI-wide `--timeout=30` and
+# eventually tipped over it. Same headroom every other SHACL/export-heavy module
+# already takes (test_pipeline_e2e, test_e2e_agent_eval, test_csvw_payload, …).
+# The budget is headroom, not a licence to grow: the test is unchanged.
+pytestmark = pytest.mark.timeout(120)
 
 
 class TestGoldenCrateExport:
