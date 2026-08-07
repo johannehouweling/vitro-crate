@@ -656,7 +656,7 @@ TOOL_SPECS = [
     },
     {
         "name": "export_crate",
-        "description": "Write the finished RO-Crate to disk (the only step that touches disk). Use build_and_validate while iterating; call export_crate once the crate is conformant. Returns crate_path. Auto-embeds the browsable preview and the entity-graph diagram (ro-crate-graph.mmd, a CreativeWork about ./) so the crate is self-describing. When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
+        "description": "Write the finished RO-Crate to disk (the only step that touches disk). Use build_and_validate while iterating; call export_crate once the crate is conformant. Returns crate_path. Auto-embeds the browsable preview and the entity-graph diagram (ro-crate-graph.mmd, a CreativeWork about ./) so the crate is self-describing. Before writing, it validates at the FULL gate (REQUIRED + RECOMMENDED + OPTIONAL) so the embedded maturity report covers every tier, and returns 'validation' with per-tier issue_counts; 'ok' there is REQUIRED conformance only, so RECOMMENDED/OPTIONAL counts are findings to report, not a failed export. When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
         "parameters": {
             "type": "object",
             "properties": {
