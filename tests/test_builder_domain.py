@@ -11,9 +11,21 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.builder import build_crate
 
+
+
+# Every test here exports a crate, and each export now runs the uncached,
+# owlrl-heavy validator over all three profiles at the full severity gate (#446)
+# — ~10s per export locally, and the 2-vCPU CI runner is ~2-3x slower, which puts
+# the whole module against the CI-wide `--timeout=30`. Same headroom, for the
+# same reason, that the other export-heavy modules already take
+# (test_export_smoke, test_readers, test_path_traversal, test_html_xss).
+# Headroom, not a licence to grow: no test in this module is changed.
+pytestmark = pytest.mark.timeout(120)
 
 def _ent(entity_id, type_, **fields):
     return Entity(

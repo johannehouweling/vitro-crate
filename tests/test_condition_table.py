@@ -22,6 +22,16 @@ from builder.tools.data_content import (
     validate_table,
 )
 
+
+# Every test here exports a crate, and each export now runs the uncached,
+# owlrl-heavy validator over all three profiles at the full severity gate (#446)
+# — ~10s per export locally, and the 2-vCPU CI runner is ~2-3x slower, which puts
+# the whole module against the CI-wide `--timeout=30`. Same headroom, for the
+# same reason, that the other export-heavy modules already take
+# (test_export_smoke, test_readers, test_path_traversal, test_html_xss).
+# Headroom, not a licence to grow: no test in this module is changed.
+pytestmark = pytest.mark.timeout(120)
+
 # The committed per-well fixture the pipeline actually meets in the corpus. Anchored
 # to this file, not the CWD — a test below deliberately chdirs. The fixture is owned
 # by the eval corpus, so ``test_the_corpus_fixture_still_requires_aliasing`` guards

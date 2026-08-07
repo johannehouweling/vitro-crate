@@ -26,6 +26,16 @@ from builder.tools.drafters import draft_investigation, draft_study
 from builder.tools.validation import build_and_validate
 from lookups import _http, aopwiki
 
+
+# Every test here exports a crate, and each export now runs the uncached,
+# owlrl-heavy validator over all three profiles at the full severity gate (#446)
+# — ~10s per export locally, and the 2-vCPU CI runner is ~2-3x slower, which puts
+# the whole module against the CI-wide `--timeout=30`. Same headroom, for the
+# same reason, that the other export-heavy modules already take
+# (test_export_smoke, test_readers, test_path_traversal, test_html_xss).
+# Headroom, not a licence to grow: no test in this module is changed.
+pytestmark = pytest.mark.timeout(120)
+
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
