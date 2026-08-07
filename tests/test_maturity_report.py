@@ -197,7 +197,10 @@ class TestExportCoupledToValidation:
         assert res["success"]
         assert res["validation"]["ran"] is True
         assert res["validation"]["reason"] == "never-validated"
-        assert calls == ["required"]
+        # The export gates on EVERY tier: the report it embeds describes
+        # RECOMMENDED and OPTIONAL too, so a REQUIRED-only sweep would leave it
+        # claiming tiers nobody checked.
+        assert calls == ["optional"]
 
     def test_skips_when_the_verdict_is_already_current(self, monkeypatch, tmp_path: Path) -> None:
         calls: list = []
@@ -205,13 +208,11 @@ class TestExportCoupledToValidation:
         state = vhps_fixture_state("S-VHPS21")
         export_crate(state, str(tmp_path / "c1"))
         res = export_crate(state, str(tmp_path / "c2"))
-        assert res["validation"] == {
-            "ran": False,
-            "reason": "fresh",
-            "ok": None,
-            "error": None,
-        }
-        assert calls == ["required"], "re-validated an unchanged crate"
+        assert res["validation"]["ran"] is False
+        assert res["validation"]["reason"] == "fresh"
+        assert res["validation"]["ok"] is None
+        assert res["validation"]["error"] is None
+        assert calls == ["optional"], "re-validated an unchanged crate"
 
     def test_revalidates_after_the_crate_changes(self, monkeypatch, tmp_path: Path) -> None:
         calls: list = []
@@ -221,7 +222,7 @@ class TestExportCoupledToValidation:
         state.metadata.title = "Edited after export"
         res = export_crate(state, str(tmp_path / "c2"))
         assert res["validation"]["reason"] == "stale"
-        assert calls == ["required", "required"]
+        assert calls == ["optional", "optional"]
 
     def test_embedded_report_reflects_the_fresh_verdict(self, monkeypatch, tmp_path: Path) -> None:
         calls: list = []

@@ -4,11 +4,23 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from builder.readers.directory import read_directory
 from builder.readers.existing_crate import read_existing_crate
 from builder.readers.metadata_files import read_metadata_files
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.builder import build_crate
+
+# TestRoundTrip exports twice per test, and every export runs the uncached,
+# owlrl-heavy validator over all three profiles — ~9s per sweep locally at
+# REQUIRED alone, and the 2-vCPU CI runner is slower still. Widening the export
+# gate to the full tier sweep added ~20% on top, which tipped the two-export
+# tests over the CI-wide `--timeout=30`. Same headroom, for the same reason, as
+# the other export-heavy modules already take (test_export_smoke,
+# test_pipeline_e2e, test_csvw_payload, …). Headroom, not a licence to grow:
+# the tests themselves are unchanged.
+pytestmark = pytest.mark.timeout(120)
 
 
 def _ent(entity_id, type_, **fields):

@@ -218,8 +218,18 @@ class TestEnsureValidated:
         calls: list = []
         self._stub(monkeypatch, calls)
         info = ensure_validated(self._state())
-        assert info == {"ran": True, "reason": "never-validated", "ok": True, "error": None}
-        assert calls == ["required"]
+        # The gate is inclusive now: the default runs every tier, and the result
+        # says which one it gated at plus what each tier found, so a caller
+        # embedding a report knows what was actually assessed.
+        assert info == {
+            "ran": True,
+            "reason": "never-validated",
+            "ok": True,
+            "error": None,
+            "severity": "optional",
+            "issue_counts": {"required": 0, "recommended": 0, "optional": 0},
+        }
+        assert calls == ["optional"]
 
     def test_skips_when_the_verdict_is_current(self, monkeypatch) -> None:
         from builder.tools.validation import ensure_validated
@@ -230,7 +240,7 @@ class TestEnsureValidated:
         ensure_validated(state)
         info = ensure_validated(state)
         assert info["ran"] is False and info["reason"] == "fresh"
-        assert calls == ["required"], "re-validated an unchanged crate"
+        assert calls == ["optional"], "re-validated an unchanged crate"
 
     def test_runs_again_once_the_crate_changes(self, monkeypatch) -> None:
         from builder.tools.validation import ensure_validated
@@ -242,7 +252,7 @@ class TestEnsureValidated:
         state.metadata.title = "Edited"
         info = ensure_validated(state)
         assert info["ran"] is True and info["reason"] == "stale"
-        assert calls == ["required", "required"]
+        assert calls == ["optional", "optional"]
 
     def test_validator_failure_is_reported_not_raised(self, monkeypatch) -> None:
         # export_crate must still write the crate; the report says the verdict

@@ -5,7 +5,9 @@ assets) covering the four axes from the issue:
 
 * **Profile adherence** — base / ISA / ISA-Tox conformance, reported across the
   three SHACL severity tiers Required / Recommended / Optional (#306), with the
-  REQUIRED/RECOMMENDED issues surfaced as actionable suggestions;
+  findings from every assessed tier surfaced as actionable suggestions — an author
+  who can see what is merely recommended is far likelier to add it than one told
+  only that the crate clears the required bar;
 * **FAIR** — the RDA-style indicators rolled up into F/A/I/R pillars plus the Data
   Stewardship Maturity (DSM) level;
 * **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
@@ -23,7 +25,10 @@ Severity-tier nuance (#306): the fast in-loop path (``build_and_validate``) gate
 at REQUIRED severity and never populates ``should_issues`` / ``may_issues``, so an
 empty list at those tiers means the tier was *never evaluated*, not that it is
 clean. The report models an explicit "not assessed" state for such tiers and never
-renders an unevaluated tier as a green zero.
+renders an unevaluated tier as a green zero. Export closes that gap for the written
+crate: ``export_crate`` validates at the OPTIONAL gate, which assesses all three
+tiers, so a report embedded on the export path normally has a real verdict in every
+row — the "not assessed" state remains for reports rendered from a partial verdict.
 """
 
 from __future__ import annotations
@@ -397,6 +402,62 @@ def _render_kpis(
     return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{chem_tile}{repro_tile}</div>\n'
 
 
+# How many findings of each tier the suggestion list shows before it summarises
+# the rest. REQUIRED is uncapped: those block conformance, so every one is named.
+_SUGGESTION_CAPS: dict[str, int | None] = {
+    "required": None,
+    "recommended": 10,
+    "optional": 5,
+}
+
+
+def _suggestion_items(val: ValidationReport) -> list[str]:
+    """Render the improvement list: what to fix, across every assessed tier.
+
+    The export assesses all three tiers, so the report shows all three. Naming a
+    RECOMMENDED or OPTIONAL finding is the point of assessing it — a crate whose
+    author can see the twelve things that would make it better is more likely to
+    get them than one told only that it clears the bar. REQUIRED findings stay
+    first and uncapped; the advisory tiers are capped, and a cap that bites says
+    how many it hid rather than trailing off silently.
+    """
+    esc = html.escape
+    tiers: list[tuple[str, list[str], str]] = [
+        ("required", val.required_issues, '<li class="must"><strong>Must fix:</strong> {msg}</li>'),
+        ("recommended", val.should_issues, "<li>Recommended: {msg}</li>"),
+        ("optional", val.may_issues, '<li class="opt">Optional: {msg}</li>'),
+    ]
+    items: list[str] = []
+    for tier, issues, template in tiers:
+        if not issues:
+            continue
+        cap = _SUGGESTION_CAPS[tier]
+        shown = issues if cap is None else issues[:cap]
+        items.extend(template.format(msg=esc(msg)) for msg in shown)
+        hidden = len(issues) - len(shown)
+        if hidden:
+            items.append(
+                f'<li class="more">+{hidden} further {tier} '
+                f"{'finding' if hidden == 1 else 'findings'} not listed here</li>"
+            )
+    return items
+
+
+def _clean_note(val: ValidationReport) -> str:
+    """The empty-state line, honest about how much was actually checked."""
+    assessed = val.assessed_tiers
+    if {"required", "recommended", "optional"} <= assessed:
+        return "Clean at every severity tier — nothing outstanding to improve."
+    unassessed = [t for t in ("recommended", "optional") if t not in assessed]
+    if unassessed:
+        return (
+            "No outstanding REQUIRED issues. "
+            f"The {' and '.join(unassessed).upper()} tier"
+            f"{'s were' if len(unassessed) > 1 else ' was'} not assessed."
+        )
+    return "No outstanding REQUIRED issues."
+
+
 def _render_profile_section(
     val: ValidationReport, tiers: list[dict[str, str]] | None, *, stale: bool = False
 ) -> str:
@@ -435,14 +496,11 @@ def _render_profile_section(
         f'<span class="sc">{t["summary"]}</span><span class="sn">{t["note"]}</span></div>'
         for t in tiers
     )
-    sugg_items = [
-        f'<li class="must"><strong>Must fix:</strong> {esc(msg)}</li>'
-        for msg in val.required_issues
-    ] + [f"<li>Recommended: {esc(msg)}</li>" for msg in val.should_issues[:10]]
+    sugg_items = _suggestion_items(val)
     if sugg_items:
         sugg = f'<ul class="sugg">{"".join(sugg_items)}</ul>'
     else:
-        sugg = '<p class="good-note">No outstanding REQUIRED issues.</p>'
+        sugg = f'<p class="good-note">{_clean_note(val)}</p>'
 
     return (
         "<section>\n"

@@ -128,6 +128,8 @@
   font-style:normal; font-size:.62rem; letter-spacing:.05em; color:var(--muted); }
 .mat .good-note { color:var(--good-ink); font-size:.86rem; margin:.8rem 0 0; font-weight:550; }
 .mat ul.sugg { margin:.8rem 0 0; padding-left:1.1rem; font-size:.85rem; } .mat ul.sugg li.must { color:var(--low-ink); }
+.mat ul.sugg li.opt { color:var(--muted); } .mat ul.sugg li.more { color:var(--muted); font-style:italic;
+  list-style:none; margin-left:-1.1rem; }
 
 /* profile adherence — severity tiers (#306) */
 .mat .sev { display:flex; flex-direction:column; gap:.32rem; }

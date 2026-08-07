@@ -119,7 +119,14 @@ def test_unchanged_content_is_not_prompted_twice():
     assert len(human.present_calls) == 1
 
 
-def test_writeback_routes_each_severity_to_its_state_field():
+def test_writeback_files_every_tier_the_gate_covered():
+    """A gate is a FLOOR, not a filter — it files every tier it evaluated.
+
+    ``severity="recommended"`` runs the REQUIRED checks too, so its result
+    carries both tiers and both are filed. Filing only the named tier left the
+    REQUIRED list describing an older crate while the fingerprint said the
+    verdict was current.
+    """
     engine = _engine(_HeadlessHuman())
     # The tier comes from the CALL's `severity=` kwarg, not from the result dict:
     # `build_and_validate` returns only {"ok", "conformance", "issues"}, so
@@ -136,10 +143,12 @@ def test_writeback_routes_each_severity_to_its_state_field():
         },
         severity="recommended",
     )
-    assert engine.state.validation.required_issues == []
+    # REQUIRED is covered by a RECOMMENDED gate, so it is filed, not dropped.
+    assert "required" in engine.state.validation.required_issues[0]
     assert "should" in engine.state.validation.should_issues[0]
+    # OPTIONAL is ABOVE the gate — never evaluated, so never filed.
     assert engine.state.validation.may_issues == []
-    assert engine.state.validation.assessed_tiers == {"recommended"}
+    assert engine.state.validation.assessed_tiers == {"required", "recommended"}
 
     engine._writeback_validation(
         "build_and_validate",
@@ -152,4 +161,4 @@ def test_writeback_routes_each_severity_to_its_state_field():
         severity="optional",
     )
     assert "may" in engine.state.validation.may_issues[0]
-    assert engine.state.validation.assessed_tiers == {"recommended", "optional"}
+    assert engine.state.validation.assessed_tiers == {"required", "recommended", "optional"}
