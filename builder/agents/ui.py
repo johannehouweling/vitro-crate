@@ -73,6 +73,82 @@ def get_console() -> Console:
 
 
 # ---------------------------------------------------------------------------
+# Log notices — quiet, deduplicated, styled like the rest of the transcript
+# ---------------------------------------------------------------------------
+
+
+class NoticeHandler(logging.Handler):
+    """Render log records as dim one-line notices, each shown at most once.
+
+    The default stderr handler prints
+    ``2026-08-07 15:05:59 [WARNING] builder.tools._crate_mapping: …`` in plain
+    white, at full width, every time the record fires. Two things make that
+    hostile in an interactive session: the timestamp and dotted logger path are
+    noise a user cannot act on, and the same record repeats on every build — one
+    observed session printed the same four "not a term in the context" warnings
+    forty-four times, tearing through the reply text and the input box.
+
+    So: strip the machinery, dim the line so it reads as chrome rather than as
+    the assistant talking, and collapse repeats. A repeat is *counted*, not
+    shown; :attr:`suppressed` reports the total for anyone who wants to say so.
+    The full, timestamped records are still available with ``-v``, which turns
+    this handler off in favour of the standard stream handler.
+    """
+
+    _STYLE = {
+        logging.CRITICAL: "bold red",
+        logging.ERROR: "red",
+        logging.WARNING: "dim yellow",
+    }
+    _DEFAULT_STYLE = "dim"
+
+    def __init__(self, console: Console, level: int = logging.WARNING) -> None:
+        super().__init__(level=level)
+        self._console = console
+        self._seen: dict[str, int] = {}
+        self._lock_seen = threading.Lock()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = record.getMessage()
+            key = f"{record.name}\x00{message}"
+            with self._lock_seen:
+                seen = self._seen.get(key, 0)
+                self._seen[key] = seen + 1
+            if seen:
+                return  # said once already; saying it again helps nobody
+            style = self._STYLE.get(record.levelno, self._DEFAULT_STYLE)
+            self._console.print(Text(f"· {message}", style=style), soft_wrap=False)
+        except Exception:  # noqa: BLE001 — logging must never break the session
+            self.handleError(record)
+
+    @property
+    def suppressed(self) -> int:
+        """How many repeat records were counted but not printed."""
+        with self._lock_seen:
+            return sum(count - 1 for count in self._seen.values() if count > 1)
+
+
+def install_notice_handler(
+    console: Console | None = None, *, level: int = logging.WARNING
+) -> NoticeHandler:
+    """Route root logging through a :class:`NoticeHandler`, replacing stream output.
+
+    Existing ``StreamHandler``s on the root logger are removed: leaving them
+    attached would print every record twice, once raw and once quiet.
+    """
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, logging.StreamHandler) and not isinstance(
+            handler, NoticeHandler
+        ):
+            root.removeHandler(handler)
+    handler = NoticeHandler(console or get_console(), level=level)
+    root.addHandler(handler)
+    return handler
+
+
+# ---------------------------------------------------------------------------
 # Message flattening — the #341 raw-message-leak fix
 # ---------------------------------------------------------------------------
 

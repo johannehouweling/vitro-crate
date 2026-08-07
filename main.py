@@ -125,6 +125,24 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
         # this the noise arrives at exactly the wrong moment.
         logging.getLogger("urllib3").setLevel(logging.ERROR)
 
+        # Records that DO get through are rendered as quiet, deduplicated
+        # notices instead of raw stderr lines. The timestamp and dotted logger
+        # path are noise to a user mid-session, plain white reads as the
+        # assistant speaking, and an unchanging warning re-fired on every build
+        # buries the conversation — one session printed the same four records
+        # forty-four times. `-v` / `-vv` keeps the standard stream handler, on
+        # the assumption that someone asking for verbosity wants the machinery.
+        try:
+            from builder.agents.ui import install_notice_handler
+
+            # INFO, not WARNING: the interactive bump above already promoted the
+            # root logger to INFO, so this shows exactly the records that print
+            # today — just quietly, and once each — rather than hiding pipeline
+            # progress that the bump exists to surface.
+            install_notice_handler(level=logging.INFO)
+        except Exception:  # noqa: BLE001 — never let chrome stop the session
+            logger.debug("Could not install the notice handler", exc_info=True)
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
