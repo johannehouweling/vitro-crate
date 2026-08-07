@@ -120,6 +120,99 @@ def _normalize_reference_value(
     return out[0] if out else None
 
 
+# Reference fields whose members are PropertyValues, so an inline
+# ``{"name": …, "value": …}`` can be turned into a real entity instead of dropped.
+_PROPERTY_VALUE_REF_FIELDS: frozenset[str] = frozenset({"additionalProperty"})
+
+
+def _materialize_property_values(state: CrateState, field: str, value: Any) -> Any:
+    """Turn inline ``{"name": …, "value": …}`` members into PropertyValue entities.
+
+    A PropertyValue written inline is the most natural encoding there is — it is
+    exactly how the thing appears in the finished JSON-LD, and it is what the tox
+    profile's own message ("MUST have at least one schema:additionalProperty
+    (e.g. Computational Tool …)") suggests. But ``additionalProperty`` is a
+    reference-only field, so an inline dict resolved to nothing and the whole
+    list was stored as ``[]``: the value vanished, the field was marked filled,
+    and the caller was told the write succeeded. Creating the entity the caller
+    described is faithful to what they supplied — the name and the value are
+    both theirs, nothing is invented — and it leaves a reference that the build
+    can actually wire.
+    """
+    if field not in _PROPERTY_VALUE_REF_FIELDS:
+        return value
+    is_list = isinstance(value, (list, tuple))
+    items = list(value) if is_list else [value]
+    out: list[Any] = []
+    for item in items:
+        if isinstance(item, dict) and item.get("name") and not item.get("@id"):
+            from builder.tools.drafters import draft_property_value
+
+            hints = {k: v for k, v in item.items() if k != "name"}
+            out.append(draft_property_value(state, str(item["name"]), hints).entity_id)
+        else:
+            out.append(item)
+    return out if is_list else out[0]
+
+
+def _reject_unresolvable_property_values(
+    state: CrateState, entity_id: str, field: str, value: Any
+) -> None:
+    """Raise when an ``additionalProperty`` member names no entity.
+
+    Narrower than the general reference check on purpose. Most reference fields
+    tolerate a forward reference — the agent may wire a result before drafting
+    the file — but a PropertyValue is never external and never arrives later:
+    either it exists or the member is a display string that the build silently
+    discards. ``"Computational Tool: GraphPad Prism"`` survived normalisation
+    verbatim, looked stored, and then vanished at build time with the process
+    still failing its MUST. Refuse it while the caller can still act.
+    """
+    if field not in _PROPERTY_VALUE_REF_FIELDS:
+        return
+    for item in value if isinstance(value, (list, tuple)) else [value]:
+        key = item.get("@id") if isinstance(item, dict) else item
+        if not isinstance(key, str) or "://" in key:
+            continue
+        if state.get_entity(key.lstrip("./").lstrip("#")) is None:
+            raise ValueError(
+                f"{key!r} is not an entity, so {field!r} on {entity_id!r} would be "
+                f"dropped when the crate is built. {field!r} holds references to "
+                f"PropertyValue entities: call draft_property_value(name=…, "
+                f"hints={{'value': …}}) first and pass the entity_id it returns, or "
+                f"pass the name/value inline as {{'name': …, 'value': …}} and it "
+                f"will be created for you."
+            )
+
+
+def _reject_fully_dropped_references(
+    entity_id: str, supplied: dict[str, Any], normalized: dict[str, Any]
+) -> None:
+    """Raise when a reference field was given values and kept none of them.
+
+    Normalisation drops what it cannot resolve, which is right — the build would
+    drop it anyway. Storing the empty remainder as if it were the caller's intent
+    is not: it overwrites whatever was there, records the field as ``filled``,
+    and hands back an entity that looks successfully updated. A model reading
+    that result has no way to learn its encoding was wrong, so it tries another
+    one, and another. Failing loudly turns three silent rounds into one clear
+    correction.
+    """
+    for field, value in supplied.items():
+        if not is_reference_field(field) or not value:
+            continue
+        kept = normalized.get(field)
+        if kept:
+            continue
+        raise ValueError(
+            f"None of the values given for {field!r} on {entity_id!r} resolve to an "
+            f"entity, so nothing would be stored: {value!r}. This property holds "
+            f"REFERENCES to entities that already exist. Create the entity first "
+            f"(e.g. draft_property_value for an additionalProperty) and pass its "
+            f"entity_id, or pass an existing id — not a display string."
+        )
+
+
 def set_fields(
     state: CrateState,
     entity_id: str,
@@ -149,11 +242,16 @@ def set_fields(
     if entity is None:
         raise ValueError(f"Entity not found: {entity_id}")
 
+    supplied = dict(fields)
     fields = {
-        name: (_normalize_reference_value(state, entity_id, value, name)
+        name: (_normalize_reference_value(
+                   state, entity_id, _materialize_property_values(state, name, value), name)
                if is_reference_field(name) else value)
         for name, value in fields.items()
     }
+    _reject_fully_dropped_references(entity_id, supplied, fields)
+    for field, value in fields.items():
+        _reject_unresolvable_property_values(state, entity_id, field, value)
 
     for field, value in fields.items():
         # (#375) A reference-only property whose value is not a resolvable
