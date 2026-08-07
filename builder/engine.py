@@ -478,10 +478,29 @@ class AgentEngine:
 
         if not isinstance(path, str) or not path.strip():
             return None
-        name = Path(path).name
-        # Only a BARE name is resolved. A path with directories in it was a real
-        # (wrong) location, not a filename the model read off the inventory.
-        if not name or name != path.strip():
+        raw = path.strip()
+        name = Path(raw).name
+        if not name:
+            return None
+
+        # A path RELATIVE to the input root ("Assay_OATP1C1/Assay-metadata.xlsx")
+        # is the other shape a model naturally emits: it is how the file appears
+        # in the crate and in the inventory's relative listings. Resolved against
+        # the CWD it lands outside every approved root and was refused — one
+        # weak-model session lost 11 of 20 failed tool calls this way, retrying
+        # the same workbook six times. Joining it to an approved root can only
+        # reach files the sandbox already allows, and containment is re-checked.
+        if name != raw and not Path(raw).is_absolute():
+            for root in self.state.approved_scan_roots:
+                try:
+                    candidate = Path(root) / raw
+                    if not candidate.is_file():
+                        continue
+                    resolved = str(candidate.resolve())
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                if _contain(resolved, self.state.approved_scan_roots) is not None:
+                    return resolved
             return None
 
         matches: list[str] = []
@@ -840,12 +859,21 @@ class AgentEngine:
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)
             result = self.human_interface.present(kwargs.get("context", ""), kwargs.get("options"))
+            # Persist the answer: it is otherwise only a tool result inside the
+            # graph checkpoint, which a rotated thread discards (#user_answers).
+            if isinstance(result, dict):
+                spoken = result.get("comments") or result.get("action") or ""
+                self.state.record_user_answer(kwargs.get("context", ""), str(spoken))
         elif tool_name == "request_input":
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)
             result = self.human_interface.request_input(
                 kwargs.get("prompt", ""), kwargs.get("field_type", "text")
             )
+            if isinstance(result, dict) and not result.get("skipped"):
+                self.state.record_user_answer(
+                    kwargs.get("prompt", ""), str(result.get("value") or "")
+                )
         elif tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
             # Prompt-once, children-only approval for a user-submitted folder

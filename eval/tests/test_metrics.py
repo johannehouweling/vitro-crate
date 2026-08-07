@@ -129,6 +129,38 @@ class TestCrateGraphHash:
         b = crate_graph_hash(_state_with("Stable"))
         assert a == b
 
+    def test_hash_ignores_the_generator_run_record(self) -> None:
+        """Two runs differing ONLY in run cost/timing must hash identically.
+
+        ``stamp_generator`` records how the crate was produced — start/end times
+        and PropertyValues whose ``@id``s embed the token counts and cost. Those
+        differ on every run by construction, so without scrubbing them the
+        determinism signal calls even the deterministic pipeline arm stochastic
+        and the scoring memoisation keyed on this hash never hits again.
+        """
+        a = _state_with("Stable")
+        a.stamp_generator()
+        a.generator.model = "gpt-5.6"
+        a.generator.input_tokens = 1000
+        a.generator.output_tokens = 200
+        a.generator.cost_usd = 0.25
+        a.generator.started_at = "2029-01-01T00:00:00Z"
+        a.generator.ended_at = "2029-01-01T00:01:00Z"
+
+        b = _state_with("Stable")
+        b.stamp_generator()
+        b.generator.model = "gpt-5.6"
+        # Same crate, genuinely different run: more tokens, more cost, later.
+        b.generator.input_tokens = 5321
+        b.generator.output_tokens = 999
+        b.generator.cost_usd = 1.50
+        b.generator.started_at = "2030-06-01T12:00:00Z"
+        b.generator.ended_at = "2030-06-01T12:07:00Z"
+
+        assert crate_graph_hash(a) == crate_graph_hash(b)
+        # Control: real content still moves the hash, so the scrub is not blanket.
+        assert crate_graph_hash(a) != crate_graph_hash(_state_with("Different"))
+
     def test_hash_is_a_hex_string(self) -> None:
         h = crate_graph_hash(_state_with("X"))
         assert isinstance(h, str)

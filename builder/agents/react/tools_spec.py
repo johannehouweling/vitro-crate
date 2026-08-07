@@ -395,7 +395,7 @@ TOOL_SPECS = [
     },
     {
         "name": "set_crate_metadata",
-        "description": "WRITE-ONLY setter for top-level crate metadata on the Root Data Entity (./): title/description/accession plus the root dates release_date (schema:releaseDate) and date_modified (schema:dateModified). You MUST pass at least one value to write — a call with all fields null writes nothing, is REJECTED with an error, and does not read anything back; use get_status to READ the current crate metadata. Pass ISO-8601 strings for the dates, e.g. release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z'. Only the fields you pass are written — never fabricate a date. datePublished is auto-set at build time and is not controlled here. Example: set_crate_metadata(accession='S-VHPS21', release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z').",
+        "description": "WRITE-ONLY setter for top-level crate metadata on the Root Data Entity (./): title/description/accession, the root dates release_date/date_modified, and crate-level ATTRIBUTION (publisher/creator/contact/license) — who is responsible for this dataset, which is NOT the same as the publication's authors. You MUST pass at least one value to write — a call with all fields null writes nothing, is REJECTED with an error, and does not read anything back; use get_status to READ the current crate metadata. Pass ISO-8601 strings for the dates, e.g. release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z'. Only the fields you pass are written — never fabricate a date. datePublished is auto-set at build time and is not controlled here. Example: set_crate_metadata(accession='S-VHPS21', release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -418,6 +418,22 @@ TOOL_SPECS = [
                 "date_modified": {
                     "type": "string",
                     "description": "ISO-8601 date/datetime for schema:dateModified, e.g. '2026-06-14T19:37:30Z'.",
+                },
+                "publisher": {
+                    "type": "string",
+                    "description": "WHO PUBLISHES this dataset: an entity id of a drafted Person/Organization, or a verified ORCID/ROR IRI. Rejected if it does not resolve — a bare name is not attribution.",
+                },
+                "creator": {
+                    "type": "string",
+                    "description": "WHO MADE this dataset (entity id or verified ORCID/ROR IRI). Distinct from the publication's authors, which describe the paper.",
+                },
+                "contact": {
+                    "type": "string",
+                    "description": "WHO TO CONTACT about this dataset (entity id or verified ORCID IRI) — typically the corresponding person named in the assay metadata.",
+                },
+                "license": {
+                    "type": "string",
+                    "description": "Licence for the dataset, ideally a URL (e.g. 'https://creativecommons.org/licenses/by/4.0/'). Ask the user; never guess.",
                 },
             },
         },

@@ -74,7 +74,11 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
         processes,
         ("detection_instrument", "instrument_manufacturer", "software", "data_processing"),
     )
-    data_ok = bool(state.list_entities("File"))
+    # A provisional placeholder now materialises as a real (header-only) file so
+    # the crate stops claiming files it does not contain (#438) — but it holds no
+    # measurements, so counting it here would turn "data files included" green for
+    # a crate whose data is still entirely absent.
+    data_ok = any(not f.fields.get("provisional") for f in state.list_entities("File"))
     investigations = state.list_entities("Investigation")
     attribution_ok = (
         bool(state.metadata.title)
@@ -101,7 +105,8 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
         (
             "Data files included",
             data_ok,
-            "Attach the raw/processed data files referenced by the assays.",
+            "Attach the raw/processed data files referenced by the assays — the "
+            "synthesized placeholder tables are empty templates, not data.",
         ),
         (
             "Attribution & identity",

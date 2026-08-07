@@ -315,6 +315,33 @@ def get_model_provider() -> str | None:
     return None
 
 
+def get_active_model() -> str | None:
+    """Return the primary (orchestrator) model name that a turn would use.
+
+    Mirrors the resolution in :func:`builder.agents.llm._build_chat_model` so
+    the UI can name the model BEFORE the first call — the session profile only
+    learns it once a response comes back, and "which model am I about to spend
+    money with?" is a question worth answering up front.
+
+    Returns *None* when no API family is configured.
+    """
+    load_config()  # env vars are populated from the config file here
+    family = get_provider()
+    if family == "openai":
+        return (
+            os.environ.get("VITRO_OPENAI_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or "gpt-4o"
+        )
+    if family == "anthropic":
+        return (
+            os.environ.get("VITRO_ANTHROPIC_MODEL")
+            or os.environ.get("ANTHROPIC_MODEL")
+            or "claude-sonnet-4-20250514"
+        )
+    return None
+
+
 def get_drafter_model() -> str | None:
     """Return the configured *drafter* model name, or ``None`` if unset.
 

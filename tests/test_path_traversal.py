@@ -247,10 +247,15 @@ class TestReaderEvidenceSuppressesRereads:
         read_file = {t.name: t for t in _build_langchain_tools(engine)}["read_file"]
 
         assert read_file.invoke({"path": "notes.txt"}) == "REAL CONTENT"
-        # Both spellings must normalise to the stored key, or the guard misses
-        # and the model re-reads the same document indefinitely.
+        # Both spellings must normalise to the SAME stored key, or the guard
+        # misses and the model re-reads the same document indefinitely. The
+        # repeat is served from the loaded copy — the content still comes back,
+        # flagged as already-loaded, so the model is not left without it.
         for spelling in ("notes.txt", str(target)):
-            assert "Already loaded" in str(read_file.invoke({"path": spelling}))
+            served = str(read_file.invoke({"path": spelling}))
+            assert "already loaded this session" in served, served
+            assert "nested/notes.txt" in served, served
+            assert "REAL CONTENT" in served, served
 
 
 class TestSymlinkEscapeRefused:

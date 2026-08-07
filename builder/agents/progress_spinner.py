@@ -52,6 +52,10 @@ _DELEGATED_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 # terminal; the footer truncates anything wider anyway.
 _PREVIEW_WIDTH = 40
 
+# Never shrink the tail below this, however narrow the row: a handful of
+# characters would flicker without being readable.
+_PREVIEW_MIN_WIDTH = 24
+
 # Minimum seconds an op stays on the line before a newer one may replace it.
 # Most tools return in milliseconds, so without this the line was a stream of
 # unreadable flashes; long enough to read a tool name, short enough that the
@@ -126,6 +130,7 @@ class ProgressSpinner:
         *,
         tick_interval: float = 0.5,
         activity_sink: Callable[[str | None], None] | None = None,
+        width_provider: Callable[[], int] | None = None,
     ) -> None:
         """Build a spinner.
 
@@ -170,6 +175,7 @@ class ProgressSpinner:
         self._preview_buffer = ""
         self._tick_interval = tick_interval
         self._sink = activity_sink
+        self._width_provider = width_provider
         self._frame = 0
         self._start = monotonic()
         self._stop = threading.Event()
@@ -218,12 +224,46 @@ class ProgressSpinner:
             style = "grey62" if self._item_done else "cyan"
             if self._item_kind == "writing":
                 label = "[dim]wrote:[/dim] " if self._item_done else "[dim]writing:[/dim] "
-                line += f'  [dim]·[/dim] {label}[{style}]"{self._item_text}"[/{style}]'
+                tail = self._preview_tail(
+                    plain_prefix_len=len(f"{self._phrase}… ({elapsed}s)  · ")
+                    + len("wrote: " if self._item_done else "writing: ")
+                )
+                if tail:
+                    line += f'  [dim]·[/dim] {label}[{style}]"{tail}"[/{style}]'
             else:
                 line += f"  [dim]·[/dim] [{style}]{self._item_text}[/{style}]"
                 if self._shown_skipped:
                     line += f" [dim](+{self._shown_skipped} more)[/dim]"
         return line
+
+    def _preview_tail(self, *, plain_prefix_len: int) -> str:
+        """The streamed reply tail, sized to the row it will be painted on.
+
+        The window follows the END of the text (that is what makes it read as
+        live), so it must be cut to fit BEFORE painting: the footer truncates
+        an over-long line from the right, which would leave the stale head of
+        the reply on screen and never advance. Falls back to a fixed width when
+        no row width is available (no footer, or a non-terminal).
+        """
+        text = (self._preview_buffer or self._item_text or "").replace("\n", " ")
+        width = 0
+        if self._width_provider is not None:
+            try:
+                width = int(self._width_provider())
+            except Exception:  # noqa: BLE001 — sizing is advisory
+                width = 0
+        if not width:
+            return text[-_PREVIEW_WIDTH:].lstrip()
+        # 2 for the spinner glyph + space, 2 for the surrounding quotes, 1 spare
+        # so the write can never reach the final column and wrap the row.
+        available = width - plain_prefix_len - 5
+        if available < _PREVIEW_MIN_WIDTH:
+            # A narrow row cannot show a useful amount of text. Drop the tail
+            # rather than overflow: the phrase and the running tool matter more,
+            # and an over-long line would be cut from the right — taking the
+            # newest characters, which are the ones worth seeing.
+            return ""
+        return text[-available:].lstrip()
 
     def _render_delegated(self) -> str:
         """The delegated line — the animation frame Rich would otherwise draw.
@@ -272,7 +312,11 @@ class ProgressSpinner:
     def _offer(self, text: str, kind: str) -> None:
         """Display *text* now, or hold it until the current item has had its dwell."""
         now = monotonic()
-        if self._item_text is None or (now - self._item_at) >= _MIN_DWELL:
+        # "thinking…" is a placeholder for text that has not arrived yet, so the
+        # first token replaces it immediately — the dwell exists to let the user
+        # READ something, and there is nothing to read here.
+        placeholder = self._item_kind == "thinking"
+        if placeholder or self._item_text is None or (now - self._item_at) >= _MIN_DWELL:
             self._item_text, self._item_kind, self._item_done = text, kind, False
             self._item_at = now
             self._pending = None

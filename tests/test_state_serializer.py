@@ -60,6 +60,8 @@ class TestStateSerializerOutput:
             "fair_assessment",
             "checkpoint",
             "validation_preferences",
+            "user_answers",
+            "generator",
             "iteration_count",
             "max_iterations",
             "stuck",

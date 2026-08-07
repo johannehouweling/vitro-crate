@@ -375,7 +375,10 @@ def _run_validation_escalation(
         prefs[tier] = response.get("action") == "approved"
         return prefs[tier]
 
-    if not approved("recommended", "Required validation passed. Run recommended checks?"):
+    if not approved(
+        "recommended",
+        "Required validation passed. Shall we now also work on the recommended checks?",
+    ):
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
         return {
             "recommended": {"status": "declined_by_user"},
@@ -426,7 +429,9 @@ def _run_validation_escalation(
         summary["optional"] = {"status": "blocked_by_recommended_findings"}
     elif approved(
         "optional",
-        "Recommended validation completed (" + recommended_status + "). Run optional checks?",
+        "Recommended checks completed ("
+        + recommended_status
+        + "). Shall we now also work on the optional checks?",
     ):
         # As above, this call is synchronous and completes before the escalation
         # fingerprint is recorded or control returns to the model loop.
@@ -675,6 +680,32 @@ def _crate_is_complete(engine: AgentEngine) -> bool:
         return False
 
 
+# Longest a reply can be and still count as running commentary rather than
+# content. "Let me fix the two issues: the supplier key in the JSON-LD context,
+# and the missing additionalProperty on the DataAnalysis process" is 137.
+_COMMENTARY_MAX_CHARS = 240
+
+
+def _reply_is_running_commentary(reply: str | None) -> bool:
+    """Whether *reply* is a throwaway "here is what I'll do next" line.
+
+    Only these are printed transiently, because only these are worthless once
+    the next step starts. The bar is deliberately high: a reply with any
+    structure — more than one line, a heading, a bullet list, a table — is an
+    ANSWER (the issue list the user just asked for, a summary of what was
+    built), and erasing it to make room for the next "Let me…" would destroy
+    the thing the user is reading.
+    """
+    text = (reply or "").strip()
+    if not text or len(text) > _COMMENTARY_MAX_CHARS:
+        return False
+    if "\n" in text:
+        return False  # multi-line means structure, which means content
+    if text.lstrip()[:1] in {"#", "-", "*", "|", ">", "`"}:
+        return False
+    return not _reply_is_question(text)
+
+
 def _reply_is_empty_completion(reply: str | None) -> bool:
     """Return True when a turn produced no meaningful text (the stall symptom).
 
@@ -771,12 +802,42 @@ def _invoke_with_timeout(
         if isinstance(outcome["error"], _InvocationCancelled) and not cancel_event.is_set():
             logger.info("Model invoke stopped by a loop guard: %s", outcome["error"])
             return (None, "stopped", None) if include_error else (None, "stopped")
+        if _is_timeout_error(outcome["error"]):
+            # The provider's own request timeout is wired to the SAME duration as
+            # the wall-clock guard above, so in practice it raises first and the
+            # guard never sees a live worker. Reporting that as a generic error
+            # told the user something broke when the run simply ran out of time.
+            logger.info("Model invoke timed out: %s", outcome["error"])
+            return (None, "timeout", None) if include_error else (None, "timeout")
         logger.warning("Model invoke raised: %s", outcome["error"])
         if include_error:
             error = outcome["error"]
             return None, "error", _error_diagnostic(error, outcome["traceback"])
         return None, "error"
     return (outcome["result"], "ok", None) if include_error else (outcome["result"], "ok")
+
+
+def _is_timeout_error(exc: BaseException | None) -> bool:
+    """Whether *exc* is a request/connection timeout rather than a real failure.
+
+    Every provider SDK spells this differently (``APITimeoutError``,
+    ``ReadTimeout``, ``TimeoutException``, …) and importing them all here would
+    couple the loop to each vendor, so the class name and its module are matched
+    instead. ``TimeoutError`` is caught outright.
+    """
+    if exc is None:
+        return False
+    if isinstance(exc, TimeoutError):
+        return True
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        name = type(current).__name__.casefold()
+        if "timeout" in name or "timedout" in name:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> str:
@@ -943,6 +1004,70 @@ def _no_op_mutation_message(tool_name: str, kwargs: dict[str, Any], engine: Agen
         "missing entities, wire the process chain, then build_and_validate)."
     )
     return "\n".join(lines)
+
+
+# Recent post-mutation state fingerprints, newest last. A mutation landing on
+# one of these has undone itself — the crate is back somewhere it just was.
+_MUTATION_HISTORY_FLAG = "_mutation_fingerprint_history"
+_MUTATION_CYCLE_COUNT_FLAG = "_mutation_cycle_count"
+
+# How far back a revisit still counts as a cycle, and how many cycles end the
+# turn. A model rewriting one field in alternating encodings produces a tight
+# A-B-A-B, so a short window catches it while leaving honest edit-and-revert
+# sequences (which a user drives, spaced by their own turns) alone.
+_MUTATION_HISTORY_WINDOW = 8
+_MUTATION_CYCLE_ABORT = 3
+
+
+def _record_mutation_cycle(
+    engine: AgentEngine, tool_name: str, kwargs: dict[str, Any]
+) -> str | None:
+    """Detect a mutation that returned the crate to a recent state.
+
+    The no-op guard catches "this call changed nothing". It cannot catch
+    "this call changed something back": writing ``hasPart`` as a string, then as
+    a list, then as a string again alters the stored value every time, so every
+    write looks like progress while the crate oscillates between two states.
+
+    Returns a corrective to hand the model instead of the result, or ``None``
+    when the mutation is genuinely new. Raises :class:`_InvocationCancelled`
+    once the cycling has continued past :data:`_MUTATION_CYCLE_ABORT`, ending
+    the turn — the same escalation the validation guard uses, for the same
+    reason: only handing control back reliably stops it.
+    """
+    try:
+        fingerprint = engine.state.validation_fingerprint()
+    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+        return None
+    history: list[str] = list(getattr(engine, _MUTATION_HISTORY_FLAG, None) or [])
+    revisited = fingerprint in history
+    history.append(fingerprint)
+    setattr(engine, _MUTATION_HISTORY_FLAG, history[-_MUTATION_HISTORY_WINDOW:])
+    if not revisited:
+        setattr(engine, _MUTATION_CYCLE_COUNT_FLAG, 0)
+        return None
+
+    cycles = int(getattr(engine, _MUTATION_CYCLE_COUNT_FLAG, 0)) + 1
+    setattr(engine, _MUTATION_CYCLE_COUNT_FLAG, cycles)
+    logger.warning(
+        "Mutation cycle detected: %s returned the crate to a recent state (cycle %d/%d)",
+        tool_name,
+        cycles,
+        _MUTATION_CYCLE_ABORT,
+    )
+    _log_suppressed(engine, tool_name, f"mutation_cycle_{cycles}", kwargs)
+    if cycles >= _MUTATION_CYCLE_ABORT:
+        raise _InvocationCancelled("mutation cycle with no progress")
+    return (
+        f"{tool_name} put the crate back into a state it was in a moment ago — you are "
+        "cycling, not progressing. This usually means the same fact is being rewritten "
+        "in different encodings (a bare id, then a list, then an {'@id': …} object). "
+        "All of those are accepted and stored identically, so rewriting it a third way "
+        "changes nothing.\n\n"
+        "If a validation issue persists after you set a field, the field is not the "
+        "problem — re-read the issue and fix what it actually names, or ask the user. "
+        "Do NOT write this field again."
+    )
 
 
 def _log_suppressed(
@@ -1178,6 +1303,13 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     kwargs = {
                         k: v for k, v in kwargs.items() if k not in ("args", "kwargs")
                     }
+                # An explicit null is the model saying "not specified", but it
+                # reaches the tool as a real None and overwrites the parameter's
+                # default: `list_scanned_files(offset=None)` raised
+                # "'>' not supported between NoneType and int". Weak models fill
+                # in EVERY optional parameter this way, so drop the nulls and let
+                # the defaults apply — omitted and null mean the same thing here.
+                kwargs = {k: v for k, v in kwargs.items() if v is not None}
                 _raise_if_invocation_cancelled()
                 # Loop-breaker (#287 Fix B): if this is the Nth consecutive
                 # IDENTICAL call that has been returning a non-progress result
@@ -1204,11 +1336,31 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     evidence = getattr(engine.state, "document_evidence", {})
                     path = _reader_evidence_key(engine, str(kwargs.get("path", "")))
                     read_args = {k: v for k, v in kwargs.items() if k != "path"}
-                    if path and any(
-                        item.get("path") == path and item.get("args", {}) == read_args
-                        for item in evidence.values()
-                    ):
+                    cached = next(
+                        (
+                            item
+                            for item in evidence.values()
+                            if item.get("path") == path and item.get("args", {}) == read_args
+                        ),
+                        None,
+                    )
+                    if path and cached is not None:
                         _log_suppressed(engine, tool_name, "already_in_evidence", kwargs)
+                        # HAND BACK THE CONTENT, do not just refuse. The evidence
+                        # block in the state brief is capped, so a second document
+                        # is silently replaced by "[omitted for context budget]" —
+                        # and telling the model "it is already in your context"
+                        # when it demonstrably is not sent one session round this
+                        # loop 90 times (47 read_docx + 43 read_excel, ~1M input
+                        # tokens) asking for a file we were holding all along.
+                        # Serving the stored copy is cheaper than the re-read it
+                        # replaces and is the honest answer to the question asked.
+                        content = str(cached.get("content", "")).strip()
+                        if content:
+                            return (
+                                f"[Serving the copy of {path} already loaded this session "
+                                "— identical to re-reading it.]\n\n" + content
+                            )
                         return (
                             "Already loaded this document into bounded session evidence. "
                             "Use the loaded evidence in the state context; request a specific "
@@ -1397,6 +1549,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     if unchanged:
                         logger.info("No-op mutation suppressed: %s(%s)", tool_name, signature)
                         result = _no_op_mutation_message(tool_name, kwargs, engine)
+                    else:
+                        cycle = _record_mutation_cycle(engine, tool_name, kwargs)
+                        if cycle is not None:
+                            result = cycle
 
                 # Track repeated list queries independently: this never stores or
                 # reuses their result, and mutations always reset the streak.
@@ -1588,6 +1744,51 @@ def _wrap_tools_node(tool_node: Any, profiler: Any, iteration_getter: Any) -> An
     return timed_tools_node
 
 
+# Entity types that are meaningless unless something points at them. A compound
+# nobody exposed, a cell line nobody cultured, a file nobody produced: each is
+# extraction that never became structure. Deliberately excludes the backbone
+# (Investigation/Study/Assay) and processes, which are wired by the mapper from
+# their parent links rather than by an inbound reference.
+_MUST_BE_LINKED_TYPES: frozenset[str] = frozenset(
+    {"MolecularEntity", "CellLineSample", "Sample", "File", "Person", "Organization"}
+)
+
+
+def _unreferenced_entities(state: CrateState) -> dict[str, list[str]]:
+    """Entities of a linkable type that nothing in the crate points at.
+
+    One pass: collect every id mentioned by any reference field, then report the
+    linkable entities missing from that set. Extraction is the easy half — a
+    session resolved 22 compounds and wired NONE of them, and the crate still
+    reported itself "complete" because counting entities cannot see that.
+
+    Returns ``{entity type: [ids]}``, empty when everything is connected.
+    """
+    from builder.tools._crate_mapping import _REF_FIELDS
+
+    referenced: set[str] = set()
+    for ent in state.list_entities():
+        for field in _REF_FIELDS:
+            value = ent.fields.get(field)
+            if value is None:
+                continue
+            items = value if isinstance(value, (list, tuple)) else [value]
+            for item in items:
+                key = item.get("@id") if isinstance(item, dict) else item
+                if isinstance(key, str) and key.strip():
+                    referenced.add(key.strip().lstrip("./").lstrip("#"))
+
+    orphans: dict[str, list[str]] = {}
+    for ent in state.list_entities():
+        etype = getattr(ent, "type", "")
+        if etype not in _MUST_BE_LINKED_TYPES:
+            continue
+        if ent.entity_id in referenced:
+            continue
+        orphans.setdefault(etype, []).append(ent.entity_id)
+    return orphans
+
+
 def _completeness_nudge(state: CrateState) -> str:
     """Compute a short deterministic present/missing/next-action steering line.
 
@@ -1617,12 +1818,20 @@ def _completeness_nudge(state: CrateState) -> str:
     n_cells = counts.get("CellLineSample", 0)
     has_process = any(counts.get(t) for t in ("LabProcess", "LabProtocol"))
     has_files = bool(counts.get("File"))
+    # Crate-level attribution: who is responsible for the DATASET. Tracked here
+    # because nothing else ever prompts for it — a crate can otherwise reach
+    # "complete" naming six publication authors and no owner at all.
+    meta = state.metadata
+    has_attribution = bool(meta.publisher or meta.creator or meta.contact)
+    orphans = _unreferenced_entities(state)
 
     present: list[str] = []
     if has_backbone:
         present.append("backbone ✓")
     if has_person:
         present.append("person ✓")
+    if has_attribution:
+        present.append("crate owner ✓")
     if n_compounds:
         present.append(f"{n_compounds} compounds ✓")
     if n_cells:
@@ -1639,6 +1848,11 @@ def _completeness_nudge(state: CrateState) -> str:
         missing.append("process chain")
     if not has_files:
         missing.append("file attachments")
+    if not has_attribution:
+        missing.append("crate owner (publisher/creator/contact)")
+    if orphans:
+        detail = ", ".join(f"{len(ids)} {t}" for t, ids in sorted(orphans.items()))
+        missing.append(f"links for {detail}")
     # Validation + export are always the closing steps until the crate lands.
     missing.append("validation")
     missing.append("export")
@@ -1655,6 +1869,26 @@ def _completeness_nudge(state: CrateState) -> str:
         next_action = "draft_process_chain"
     elif not has_files:
         next_action = "attach_files"
+    elif orphans:
+        # Extraction outran wiring. Name the actual ids so the next step is a
+        # concrete link call, and say plainly that guessing is not the fallback:
+        # an unresolvable connection is a question for the user, not a fifth
+        # encoding of the same failed write.
+        first_type, first_ids = sorted(orphans.items())[0]
+        sample = ", ".join(first_ids[:3]) + ("…" if len(first_ids) > 3 else "")
+        next_action = (
+            f"link the unconnected {first_type}(s) ({sample}) into the chain — "
+            "attach_files / link / populate_condition_table. Try it yourself "
+            "FIRST; if which entity it belongs to is genuinely ambiguous, ask the "
+            "user with present_to_human instead of guessing or re-writing the "
+            "same field another way"
+        )
+    elif not has_attribution:
+        next_action = (
+            "set_crate_metadata(publisher=…/creator=…/contact=…) — take the "
+            "corresponding person/affiliation from the assay metadata and CONFIRM "
+            "with the user; never invent it"
+        )
     else:
         # The crate looks complete — close it out.
         next_action = "build_and_validate then export_crate"
@@ -2128,6 +2362,17 @@ def _build_agent_graph(
         model = llm.bind_tools(active_tools) if active_tools else llm
         _raise_if_invocation_cancelled()
         response = model.invoke(model_messages)
+        # Accumulate this call's token usage onto the crate's generator record so
+        # the exported crate carries what the run cost. Done HERE rather than in
+        # the profiler wrapper because that wrapper is skipped entirely when
+        # profiling is off — cost accounting must not depend on instrumentation.
+        try:
+            call_in, call_out = _extract_token_usage(response)
+            engine.state.record_llm_usage(
+                {"input_tokens": call_in or 0, "output_tokens": call_out or 0}
+            )
+        except Exception:  # noqa: BLE001 — accounting never breaks the loop
+            logger.debug("Could not record LLM usage for this call", exc_info=True)
         # Return only the new response; the add_messages reducer appends it
         return {"messages": [response]}
 
@@ -2380,7 +2625,13 @@ def run_interactive_agent(
         checkpoint_thread_id = (
             f"{engine.state.session_id}:recovered-{checkpoint_generation}"
         )
-        logger.warning(
+        # INFO, not WARNING: rotating is the designed response to a turn that
+        # did not finish cleanly, and most non-ok outcomes are themselves
+        # deliberate (a loop guard stopping the turn, a time or step limit). The
+        # severity belongs to the CAUSE, which is already logged at its own
+        # level by whatever produced it — warning here too made routine
+        # housekeeping look like something had gone wrong.
+        logger.info(
             "Rotated LangGraph checkpoint after %s; continuing with fresh thread %s",
             outcome,
             checkpoint_thread_id,
@@ -2405,11 +2656,20 @@ def run_interactive_agent(
                     return ui.flatten_message_content(msg.content)
         return ""
 
-    def _print_reply(content: str) -> None:
-        """Print an agent reply through the shared renderer (empty → skip)."""
-        if not content:
+    replies = ui.TransientReplies(console)
+
+    def _print_reply(content: str, *, transient: bool = False) -> None:
+        """Print an agent reply through the shared renderer (empty → skip).
+
+        Running commentary from an autonomous run is printed *transient*: the
+        next one overwrites it, because "Let me build and validate" is obsolete
+        the moment the next step starts and scrolling twenty of them buries the
+        output that matters. A question or a final answer is printed normally
+        and stays.
+        """
+        if not content or not content.strip():
             return
-        console.print(ui.render_reply(content))
+        replies.print(content, transient=transient)
 
     # ── Session banner + greeting ───────────────────────────────────────
     # `resumed` is the caller's fact (--resume), never a guess from how populated
@@ -2471,27 +2731,42 @@ def run_interactive_agent(
     else:
         greeting_prompt = "Greet the user and tell them what you can help build."
 
-    def _print_resume_fallback() -> None:
-        """Print a resume fallback with next-step suggestions."""
-        suggestions = (
-            "Try asking to:\n"
-            "  • [cyan]list entities[/cyan] — see all drafted items\n"
-            "  • [cyan]run validation[/cyan] — check for missing fields\n"
-            "  • [cyan]assess MIT[/cyan] — check Minimum Information coverage\n"
-            "  • [cyan]draft[/cyan] <entity type> — add more entities\n"
-            "  • [cyan]build crate[/cyan] — assemble the RO-Crate"
-        )
+    def _print_resume_panel() -> None:
+        """Print the resume welcome: where the crate stands and what to do next.
+
+        Shown on EVERY resume, not only when the model fails to greet. The
+        suggestions are derived from the crate's actual state — blocking issues
+        first, then the next unmet step of the BASE -> ISA -> TOX climb, then
+        export — so they are correct regardless of what the model says, and they
+        are still there when it says nothing at all (a reasoning-heavy model
+        answering "welcome them back" with 18 tokens of thought and no text).
+        """
+        lines: list[str] = []
         if val.required_issues:
-            suggestions = (
-                f"There are [red]{len(val.required_issues)} REQUIRED validation issues[/red].\n"
-                "Try asking to [cyan]validate[/cyan] to see them."
+            blocking = f"[red]{len(val.required_issues)} REQUIRED issue(s)[/red]"
+            lines.append(
+                f"  • [cyan]what is still missing?[/cyan] — {blocking} block conformance"
             )
+            lines.append("  • [cyan]fix the required issues[/cyan] — I'll work through them")
+        elif not (val.base_passed and val.isa_passed and val.tox_passed):
+            nxt = (
+                "base" if not val.base_passed else "ISA" if not val.isa_passed else "ISA-Tox"
+            )
+            lines.append(f"  • [cyan]validate[/cyan] — {nxt} does not pass yet")
+        else:
+            lines.append("  • [cyan]export the crate[/cyan] — all three profiles pass")
+        if not any(e.type == "File" for e in engine.state.list_entities()) and file_count:
+            lines.append(
+                f"  • [cyan]attach the data files[/cyan] — {file_count} scanned, none placed yet"
+            )
+        lines.append("  • [cyan]list entities[/cyan] — see everything drafted so far")
+
         console.print(
             Panel(
-                f"[bold]Welcome back![/bold]\n"
-                f"You have [bold cyan]{entity_count}[/bold cyan] entities drafted "
-                f"across {len(counts)} types.\n"
-                f"[dim]{suggestions}[/dim]",
+                f"[bold]Welcome back![/bold] "
+                f"[bold cyan]{entity_count}[/bold cyan] entities across "
+                f"{len(counts)} types, {file_count} scanned files.\n"
+                "[dim]Where to pick up:[/dim]\n" + "\n".join(lines),
                 border_style="green",
             )
         )
@@ -2532,11 +2807,22 @@ def run_interactive_agent(
             )
         root_logger.setLevel(old_root_level)
         _rotate_checkpoint(outcome)
-        reply = _extract_reply(result) if (outcome == "ok" and result) else ""
-        if reply:
+        # .strip(): a greeting of pure whitespace (a model that spent its turn on
+        # reasoning blocks and emitted a bare newline) is NOT a greeting. Left
+        # untrimmed it was truthy, so the user got an empty green bullet and the
+        # fallback panel — the thing that actually says what to do next — was
+        # skipped precisely when it was needed most.
+        reply = (_extract_reply(result) or "").strip() if (outcome == "ok" and result) else ""
+        if resumed:
+            # ALWAYS on a resume: where the crate stands and what to do next is
+            # derived from state, so it is correct whatever the model says (or
+            # fails to say). Any greeting it does produce prints underneath as
+            # commentary, not as the only orientation the user gets.
+            _print_resume_panel()
+            if reply:
+                _print_reply(reply)
+        elif reply:
             _print_reply(reply)
-        elif resumed:
-            _print_resume_fallback()
         else:
             _print_fresh_fallback()
         if verbose and outcome == "error" and greeting_diagnostic:
@@ -2570,7 +2856,7 @@ def run_interactive_agent(
             )
         )
         if resumed:
-            _print_resume_fallback()
+            _print_resume_panel()
         else:
             _print_fresh_fallback()
 
@@ -2584,8 +2870,32 @@ def run_interactive_agent(
         ALWAYS lands when the session ends with un-exported entities. It is
         idempotent (never double-exports) and never raises (the goodbye must
         always print).
+
+        Runs under the same spinner the rest of the session uses: the build here
+        is a full SHACL pass plus a disk write — tens of seconds on a real crate
+        — and a bare "Finalizing…" line with nothing moving reads as a hang at
+        the exact moment the user is waiting to leave.
         """
-        _finish_backstop(engine, emit=console.print)
+        delegated = footer.active
+        spinner = ProgressSpinner(
+            console,
+            "finalizing the crate",
+            tick_interval=0.12 if delegated else 0.5,
+            activity_sink=footer.set_activity if delegated else None,
+            width_provider=footer.line_width if delegated else None,
+        )
+        # The backstop drives tools through engine.run_tool (not the LangChain
+        # callbacks the turn spinner listens to), so name the running step from
+        # the engine's own event hook.
+        prior_tool_event = engine.on_tool_event
+        engine.on_tool_event = lambda tool, phase, args_str: (
+            spinner.set_current(tool) if phase == "start" else spinner.set_current(None)
+        )
+        try:
+            with spinner:
+                _finish_backstop(engine, emit=console.print)
+        finally:
+            engine.on_tool_event = prior_tool_event
 
     def _run_turn(message_content: str) -> tuple[str, str]:
         """Run ONE model invocation and return ``(reply, outcome)`` (#263).
@@ -2611,6 +2921,9 @@ def run_interactive_agent(
             console,
             tick_interval=0.12 if delegated else 0.5,
             activity_sink=footer.set_activity if delegated else None,
+            # Lets the streamed reply tail fill the footer row exactly rather
+            # than sitting at a fixed width and being cut from the wrong end.
+            width_provider=footer.line_width if delegated else None,
         )
         main_config = {
             **_thread_config(),
@@ -2640,21 +2953,33 @@ def run_interactive_agent(
         # Flush any in-loop auto-export status lines buffered during the invoke
         # (#287 Fix A) now the spinner's Live region is gone, so "Crate written
         # to: <abs path>" lands cleanly in the transcript.
+        if auto_export_lines:
+            replies.invalidate()  # this output must not be erased with the reply
         while auto_export_lines:
             console.print(auto_export_lines.pop(0))
 
         if outcome == "ok" and result:
             reply = _extract_reply(result)
             if reply:
-                _print_reply(reply)
+                # Only throwaway commentary is transient. Anything with
+                # structure — the issue list just asked for, a summary — is the
+                # turn's result and must survive the next step.
+                _print_reply(reply, transient=_reply_is_running_commentary(reply))
         elif outcome == "timeout":
+            # Not a failure: a built-in limit was reached and the turn is being
+            # handed back. Saying "error" here sent people hunting for a bug
+            # that did not exist.
             console.print(
-                "[yellow]A tool timed out[/yellow] and I ended this step "
-                "to avoid hanging. Your work so far is saved."
+                f"[dim]Over to you — that step passed the {request_timeout:.0f}s time "
+                "limit, so I stopped it. Nothing is lost; the session is saved. "
+                "Say [/dim][bold]continue[/bold][dim] to pick it back up.[/dim]"
             )
+            console.print()
+        elif outcome == "stopped":
             console.print(
-                "  [dim]You can continue by typing[/dim] "
-                "[bold]continue[/bold]"
+                "[dim]Over to you — I was repeating the same step without getting "
+                "anywhere, so I stopped rather than keep spending on it. The session "
+                "is saved.[/dim]"
             )
             console.print()
         elif outcome == "stopped":
@@ -2669,9 +2994,10 @@ def run_interactive_agent(
             console.print()
         elif outcome == "recursion":
             console.print(
-                "[yellow]I reached the step limit for this request[/yellow] and "
-                "stopped to avoid an endless loop. Your session is saved — try a "
-                "smaller or more specific request, or ask me to continue."
+                "[dim]Over to you — this request hit its step limit "
+                f"([bold]{max_iterations}[/bold] tool iterations), so I stopped. The "
+                "session is saved; a smaller or more specific request usually gets "
+                "further.[/dim]"
             )
             console.print()
         elif outcome == "error":
@@ -2694,9 +3020,12 @@ def run_interactive_agent(
                     console.print(f"[dim]Traceback tail: {diagnostic['traceback_tail']}[/dim]")
                 console.print("Your work so far is saved.")
             else:
+                # Reserved for a GENUINE failure now that timeouts, loop guards
+                # and the step limit each report themselves.
                 console.print(
-                    "[yellow]I hit an error on that step[/yellow] and stopped. Your "
-                    "work so far is saved."
+                    "[yellow]Something actually went wrong on that step[/yellow] and I "
+                    "stopped. The session is saved. Re-run with [bold]-v[/bold] to see "
+                    "the underlying error."
                 )
             console.print()
 
@@ -2727,6 +3056,10 @@ def run_interactive_agent(
     try:
         while True:
             try:
+                # Back at the prompt: whatever narration is on screen is now the
+                # last thing the agent said, so it stays. Anything printed from
+                # here on must not be erased by the next turn's reply.
+                replies.invalidate()
                 # Status before each prompt: a repaint of the pinned footer when
                 # it owns the bottom rows, otherwise the scrolling header (counts
                 # live there, so the prompt line stays clean).
