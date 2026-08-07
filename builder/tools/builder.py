@@ -428,6 +428,7 @@ def export_crate(
         # crate went, so the goodbye summary (and a later re-export) had to guess
         # the default even when the caller named a different destination.
         state.metadata.output_path = output_path
+        state.metadata.exported_at = _config.now().isoformat()
 
         logger.info("Crate exported to %s", output_path)
         out: dict[str, Any] = {"success": True, "crate_path": output_path, "error": None}

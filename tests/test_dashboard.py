@@ -713,3 +713,56 @@ class TestCrateStatePanelMit:
         assert "0.0%" not in out
         assert "0%" not in out
 
+
+
+class TestLastExportRow:
+    """The CrateState panel reports where the crate was written, and when.
+
+    NOTE: CI passes ``--ignore=tests/test_dashboard.py``, so these do not gate.
+    The state-level behaviour they depend on is covered by
+    ``tests/test_state_serializer.py::TestExportStamp``, which does run.
+    """
+
+    @staticmethod
+    def _render(metadata: dict) -> str:
+        import io
+
+        from rich.console import Console
+
+        from builder.tools.dashboard import _build_cratestate_panel
+
+        buf = io.StringIO()
+        Console(file=buf, width=120, color_system=None).print(
+            _build_cratestate_panel({"metadata": metadata, "entities": {}, "validation": {}})
+        )
+        return buf.getvalue()
+
+    def test_never_exported_says_so(self) -> None:
+        out = self._render({})
+        assert "Last export: never" in out
+
+    def test_shows_path_and_formatted_time(self) -> None:
+        out = self._render(
+            {
+                "output_path": "/data/S-VHPS21-ro-crate",
+                "exported_at": "2026-08-07T11:42:31.123456+02:00",
+            }
+        )
+        assert "/data/S-VHPS21-ro-crate" in out
+        assert "2026-08-07 11:42" in out
+        assert "never" not in out
+
+    def test_path_without_a_stamp_is_not_reported_as_never(self) -> None:
+        """A session saved before exports were stamped DID export.
+
+        Calling that "never" would misreport work that happened — the whole
+        reason this row exists is to tell someone their crate is on disk.
+        """
+        out = self._render({"output_path": "/data/old-crate"})
+        assert "/data/old-crate" in out
+        assert "time not recorded" in out
+        assert "Last export: never" not in out
+
+    def test_unparseable_stamp_falls_back_to_the_raw_value(self) -> None:
+        out = self._render({"output_path": "/data/x", "exported_at": "not-a-date"})
+        assert "not-a-date" in out

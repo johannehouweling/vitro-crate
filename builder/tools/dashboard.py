@@ -252,6 +252,47 @@ def format_mit_coverage(
     return f"{pct}%", color
 
 
+def _format_export_timestamp(raw: str) -> str:
+    """Render an ISO export stamp as ``YYYY-MM-DD HH:MM``.
+
+    Falls back to the raw string when it does not parse: a session file written
+    by an older build, or hand-edited, should still show SOMETHING rather than
+    make the dashboard the place where a bad timestamp first surfaces.
+    """
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(raw).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return raw
+
+
+def _last_export_span(metadata: dict[str, Any]) -> Any:
+    """The 'Last export' row: where the crate was written, and when.
+
+    Three states worth telling apart, because they mean different things to
+    someone deciding whether their work is safely on disk:
+
+    * never exported — nothing has been written;
+    * exported, path and time known — the normal case;
+    * a path with no timestamp — a session saved before exports were stamped.
+      Reporting that as "never" would be a lie about work that DID happen.
+    """
+    from rich.text import Text
+
+    path = (metadata or {}).get("output_path")
+    stamp = (metadata or {}).get("exported_at")
+    if not path:
+        return Text.assemble(("Last export: ", HEADER_STYLE), ("never", LABEL_STYLE))
+    when = _format_export_timestamp(stamp) if stamp else "time not recorded"
+    return Text.assemble(
+        ("Last export: ", HEADER_STYLE),
+        (str(path), OK_STYLE),
+        ("  │  ", HEADER_STYLE),
+        (when, "" if stamp else LABEL_STYLE),
+    )
+
+
 def _build_cratestate_panel(
     state: dict[str, Any] | None,
     status: str = STATUS_IDLE,
@@ -337,6 +378,11 @@ def _build_cratestate_panel(
     iteration = state.get("iteration_count", 0)
     stuck = state.get("stuck", False)
 
+    # Last export — where the crate was written and when. On its own row rather
+    # than appended to the summary line, which is already at the width a narrow
+    # terminal can show; a path is long and would push the rest off-screen.
+    export_span = _last_export_span(state.get("metadata", {}))
+
     # One-line summary — all on a single rich Text
     text = Text.assemble(
         ("Phase: ", HEADER_STYLE),
@@ -350,6 +396,8 @@ def _build_cratestate_panel(
         ("  │  Iteration: ", HEADER_STYLE),
         (f"{iteration}{' ⚠ STUCK' if stuck else ''}", ERR_STYLE if stuck else "white"),
     )
+    text.append("\n")
+    text.append_text(export_span)
 
     return Panel(text, title=title, border_style=BORDER_STYLE)
 
