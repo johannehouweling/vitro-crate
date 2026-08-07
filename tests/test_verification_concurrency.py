@@ -12,7 +12,6 @@ bounded ThreadPoolExecutor. This module asserts:
 from __future__ import annotations
 
 import threading
-import time
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools import verification
@@ -70,34 +69,66 @@ class TestVerifyAllConcurrency:
             assert _field_status(state, f"chem_{i:03d}", "identifier") == "verified"
 
     def test_verifications_run_concurrently(self, monkeypatch):
-        """The independent per-field lookups overlap in time."""
-        state = _make_state(6)
-        active = 0
+        """The independent per-field lookups genuinely overlap.
+
+        Proved by *rendezvous*, not by elapsed wall-clock (#406). A barrier of
+        ``k`` parties cannot be crossed unless ``k`` lookups are in flight at the
+        same moment, so crossing it IS the concurrency claim — and it holds no
+        matter how the scheduler treats these threads.
+
+        The old version asserted ``elapsed < 0.9`` against ``time.sleep(0.2)``
+        per lookup. That is an *upper* bound on wall-clock, which a loaded
+        machine violates while the code under test is perfectly correct; it made
+        this one of the four tests that failed under full-suite ``-n auto``.
+        Loosening the threshold would have been the tempting fix and the wrong
+        one — it weakens the test without making it deterministic.
+
+        Sizing the barrier from ``_VERIFY_WORKERS`` also strengthens the claim:
+        the old assertion settled for ``max_active >= 2``, this one pins the
+        full configured pool width, and it self-adjusts if that width changes.
+        """
+        n = 6
+        state = _make_state(n)
+        parties = min(verification._VERIFY_WORKERS, n)
+        # Guard the guard: sizing the barrier from the value under test would go
+        # vacuous if that value ever became 1 — a one-party barrier is crossed by
+        # serial code. Verified by mutation: without this line, setting
+        # _VERIFY_WORKERS = 1 makes a serial pool pass this test.
+        assert parties >= 2, (
+            f"_VERIFY_WORKERS={verification._VERIFY_WORKERS} configures a serial "
+            f"pool, so verify_all_identifiers cannot be concurrent at all"
+        )
+        # A generous timeout: it is never waited out on success (the barrier
+        # releases the instant the last party arrives), and on failure it is a
+        # definite BrokenBarrierError rather than a flaky threshold.
+        barrier = threading.Barrier(parties, timeout=20)
         max_active = 0
+        active = 0
         lock = threading.Lock()
 
-        def slow_lookup(query):
+        def rendezvous_lookup(query):
             nonlocal active, max_active
             with lock:
                 active += 1
                 max_active = max(max_active, active)
             try:
-                time.sleep(0.2)
-                return {"found": True, "data": {"pubchem_cid": "712"}, "error": None}
+                barrier.wait()
+            except threading.BrokenBarrierError:  # pragma: no cover - failure path
+                raise AssertionError(
+                    f"only {max_active} lookup(s) ever ran at once; "
+                    f"{parties} must overlap for the pool to be concurrent"
+                ) from None
             finally:
                 with lock:
                     active -= 1
+            return {"found": True, "data": {"pubchem_cid": "712"}, "error": None}
 
-        monkeypatch.setattr(verification, "lookup_compound", slow_lookup)
+        monkeypatch.setattr(verification, "lookup_compound", rendezvous_lookup)
 
-        start = time.monotonic()
         results = verification.verify_all_identifiers(state)
-        elapsed = time.monotonic() - start
 
-        assert len(results) == 6
-        # Serial would be 6 * 0.2 = 1.2s; concurrent must be well under that.
-        assert elapsed < 0.9, f"verifications not concurrent, elapsed={elapsed:.3f}s"
-        assert max_active >= 2, f"expected overlapping lookups, max_active={max_active}"
+        assert len(results) == n
+        assert max_active >= parties, f"expected {parties} overlapping lookups, saw {max_active}"
 
     def test_matches_serial_outcome_for_mixed_results(self, monkeypatch):
         """A mix of verified/cleared fields matches what the serial path would do."""
