@@ -22,6 +22,7 @@ import os
 import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -549,17 +550,39 @@ def _build_identifier_pvs(
     return out
 
 
+@lru_cache(maxsize=1)
+def _context_terms() -> frozenset[str]:
+    """Every term name the ISA-Tox ``@context`` defines.
+
+    The authority for "is this a real property?" — checked instead of guessing
+    from the key's shape, so the snake_case AOP-Wiki vocabulary survives while a
+    caller's invented ``release_date`` still does not.
+    """
+    from profiles.context import ISA_TOX_CONTEXT
+
+    blocks = ISA_TOX_CONTEXT if isinstance(ISA_TOX_CONTEXT, list) else [ISA_TOX_CONTEXT]
+    return frozenset(
+        key for block in blocks if isinstance(block, dict) for key in block
+    )
+
+
 def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     """Plain-value properties of an entity (references/discriminators removed).
 
-    Snake_case survivors are DROPPED. Every term in the RO-Crate and ISA-Tox
-    contexts is camelCase, so a key with an underscore that reached this point is
-    not a vocabulary term — it is a field a caller invented (``release_date``
-    instead of ``releaseDate``, ``measurement_method`` instead of
-    ``measurementMethod``). Emitting it produced a bare JSON-LD key absent from
-    the ``@context``, which fails BASE with "not allowed in the compacted
+    Snake_case survivors are DROPPED **unless the context defines them**. Almost
+    every term in the RO-Crate and ISA-Tox contexts is camelCase, so an
+    underscored key that reached this point is usually a field a caller invented
+    (``release_date`` instead of ``releaseDate``, ``measurement_method`` instead
+    of ``measurementMethod``). Emitting one produced a bare JSON-LD key absent
+    from the ``@context``, which fails BASE with "not allowed in the compacted
     JSON-LD context" — a failure the agent cannot fix by editing the crate,
     because the invalid key is regenerated from state on every build.
+
+    The exception is real: the AOP-Wiki vocabulary is snake_case
+    (``has_molecular_initiating_event``, ``has_key_event_relationship``,
+    ``upstream_event``, …). Those ARE context terms, so the test is membership in
+    the context, not the presence of an underscore — a purely syntactic rule
+    silently emptied every materialised AOP subgraph.
 
     The mapper's OWN snake_case inputs (``pubchem_cid``, ``dest_path``,
     ``process_type``, ``cell_seeding_density``, …) never reach here: they are
@@ -571,11 +594,12 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     for key, value in entity.fields.items():
         if key in drop or key.startswith("@"):
             continue
-        if "_" in key:
+        if "_" in key and key not in _context_terms():
             logger.warning(
-                "Dropping %r from %s: snake_case is never a JSON-LD term, and "
-                "emitting it fails BASE conformance. Use the camelCase property "
-                "(e.g. releaseDate, measurementMethod) if this was meant to be one.",
+                "Dropping %r from %s: it is not a term in the crate's @context, "
+                "and emitting it fails BASE conformance. Use the camelCase "
+                "property (e.g. releaseDate, measurementMethod) if this was "
+                "meant to be one.",
                 key,
                 entity.entity_id,
             )

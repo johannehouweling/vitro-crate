@@ -155,3 +155,34 @@ class TestMintedIdNamespace:
             assert len(set(ids_with_cell)) == 2, (
                 f"@ids are not distinct: {ids_with_cell}"
             )
+
+class TestSnakeCaseFieldsAreCheckedAgainstTheContext:
+    """``_scalar_props`` drops invented keys, never real vocabulary (#context).
+
+    The rule started as "any key with an underscore is not a JSON-LD term". That
+    is nearly true — but the AOP-Wiki vocabulary in the ISA-Tox context IS
+    snake_case, so the syntactic version silently emptied every materialised AOP
+    subgraph. Membership in the ``@context`` is the authority, not the key shape.
+    """
+
+    def test_context_defined_snake_case_terms_survive(self) -> None:
+        from builder.tools._crate_mapping import _context_terms, _scalar_props
+
+        # Pinned so this cannot pass vacuously if the context stops defining them.
+        assert {"has_molecular_initiating_event", "upstream_event"} <= _context_terms()
+
+        entity = _entity(
+            "aop610", "AOP", has_molecular_initiating_event="ke1", short_name="MIE"
+        )
+        props = _scalar_props(entity)
+        assert props.get("short_name") == "MIE"
+
+    def test_invented_snake_case_keys_are_still_dropped(self) -> None:
+        from builder.tools._crate_mapping import _context_terms, _scalar_props
+
+        assert "release_date" not in _context_terms()
+
+        entity = _entity("inv1", "Investigation", release_date="2025-11-10", name="Study")
+        props = _scalar_props(entity)
+        assert "release_date" not in props, "an invented key must not reach the crate"
+        assert props.get("name") == "Study"
