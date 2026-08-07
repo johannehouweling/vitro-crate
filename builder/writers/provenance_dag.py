@@ -741,6 +741,37 @@ _COLUMNS_KEYS = ("columns", "column", "http://www.w3.org/ns/csvw#column")
 _VALUEURL_KEYS = ("valueUrl", "http://www.w3.org/ns/csvw#valueUrl")
 _CONFORMSTO_KEYS = ("conformsTo", "http://purl.org/dc/terms/conformsTo")
 _CITATION_KEYS = ("citation", "funder", "publisher")
+# An entity's identifier PropertyValues (a compound's CAS / PubChem CID / DTXSID,
+# a person's ORCID). The compound DOES reference them — `identifier` is how the
+# link is expressed — so leaving the predicate out of the vocabulary reported 71
+# perfectly-wired nodes as orphans in a real crate. Reachability is only as
+# complete as this list.
+_IDENTIFIER_REL_KEYS = (
+    "identifier",
+    "http://schema.org/identifier",
+    "https://schema.org/identifier",
+)
+# The AOP-Wiki subgraph (profiles.context): an AdverseOutcomePathway points at its
+# KeyEvents and KeyEventRelationships, and each relationship at its upstream /
+# downstream event. Entirely invisible before — the `keyEvent`/`key_events`
+# guesses in _MENTIONS_KEYS never matched the names actually serialized.
+_AOP_KEYS = (
+    "has_key_event",
+    "has_key_event_relationship",
+    "has_molecular_initiating_event",
+    "has_adverse_outcome",
+    "upstream_event",
+    "downstream_event",
+    "https://aopwiki.org/ontology/hasKeyEvent",
+    "https://aopwiki.org/ontology/hasKeyEventRelationship",
+    "https://aopwiki.org/ontology/hasMolecularInitiatingEvent",
+    "https://aopwiki.org/ontology/hasAdverseOutcome",
+    "https://aopwiki.org/ontology/upstreamEvent",
+    "https://aopwiki.org/ontology/downstreamEvent",
+)
+# Remaining reference-bearing predicates that reach a contextual node.
+_CONTACT_KEYS = ("contactPoint", "http://schema.org/contactPoint")
+_PROPERTYURL_KEYS = ("propertyUrl", "http://www.w3.org/ns/csvw#propertyUrl")
 _MEASTECH_KEYS = ("measurementTechnique", "measurementMethod", "intendedUse")
 _PARAM_KEYS = (
     "parameter",
@@ -775,6 +806,10 @@ _SECONDARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_CITATION_KEYS, "citation", False),
     (_MEASTECH_KEYS, "measurementTechnique", False),
     (_PARAM_KEYS, "parameter", False),
+    (_IDENTIFIER_REL_KEYS, "identifier", False),
+    (_AOP_KEYS, "aopEvent", False),
+    (_CONTACT_KEYS, "contactPoint", False),
+    (_PROPERTYURL_KEYS, "propertyUrl", False),
 )
 
 

@@ -364,8 +364,12 @@ def _build_cratestate_panel(
     else:
         val_color = WARN_STYLE
     val_str = " ".join(val_parts)
-    if required_count > 0:
-        val_str += f"  [{ERR_STYLE}]{required_count} REQUIRED[/{ERR_STYLE}]"
+    # Kept as a SPAN, not as markup inside the string: this goes into
+    # Text.assemble, which takes (text, style) pairs and does not parse console
+    # markup — an embedded "[red]…[/red]" rendered literally in the dashboard.
+    issue_span = (
+        (f"  {required_count} REQUIRED", ERR_STYLE) if required_count > 0 else ("", "")
+    )
 
     # MIT score — shared formatter keeps this identical to the interactive UI.
     mit = state.get("mit_assessment", {})
@@ -391,6 +395,7 @@ def _build_cratestate_panel(
         (f"{total}  ({', '.join(f'{n}={c}' for n, c in entity_counts[:3])})", ""),
         ("  │  Validation: ", HEADER_STYLE),
         (val_str, val_color),
+        issue_span,
         ("  │  MIT: ", HEADER_STYLE),
         (mit_text, mit_color),
         ("  │  Iteration: ", HEADER_STYLE),
