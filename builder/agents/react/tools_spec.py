@@ -456,23 +456,6 @@ TOOL_SPECS = [
         },
     },
     {
-        "name": "set_validation_preference",
-        "description": "Record whether the user wants the broader RECOMMENDED / OPTIONAL validation tiers run from now on. The loop asks about each tier ONCE and then honours the answer silently — call this only when the user changes their mind mid-session, e.g. 'stop running the recommended checks' (recommended=false) or 'let's look at the optional findings too' (optional=true). The tiers are a hierarchy: turning recommended off turns optional off with it, and turning optional on turns recommended on. Never call this to re-ask a question the user has already answered.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "recommended": {
-                    "type": "boolean",
-                    "description": "Run the RECOMMENDED (SHOULD) tier from now on. Omit to leave unchanged.",
-                },
-                "optional": {
-                    "type": "boolean",
-                    "description": "Run the OPTIONAL (MAY) tier from now on. Omit to leave unchanged.",
-                },
-            },
-        },
-    },
-    {
         "name": "remove_entity",
         "description": "Remove an entity by id. Refuses (with an error naming the referrers) if other entities still reference it, so no dangling reference is left behind. Pass cascade=true to clear those references and remove anyway.",
         "parameters": {

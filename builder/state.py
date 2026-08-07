@@ -1206,13 +1206,22 @@ class CrateState:
         validator could observe busts the cache, while a change to a pure output
         (a verdict, a score) does not.
         """
+        metadata = (
+            self.metadata.to_dict() if hasattr(self.metadata, "to_dict") else None
+        )
+        if metadata is not None:
+            # ``output_path`` is WHERE the crate gets written, not anything the
+            # validator can observe — two exports of an identical crate to
+            # different directories produce the same verdict. Leaving it in made
+            # `export_crate` (which sets it) look like a content change, so the
+            # recorded verdict read as stale and `ensure_validated` re-ran a full
+            # 3-pass SHACL sweep on every export to a new path.
+            metadata = {k: v for k, v in metadata.items() if k != "output_path"}
         content = {
             "entities": self.entities.to_dict()
             if hasattr(self.entities, "to_dict")
             else str(self.entities),
-            "metadata": self.metadata.to_dict()
-            if hasattr(self.metadata, "to_dict")
-            else str(self.metadata),
+            "metadata": metadata if metadata is not None else str(self.metadata),
         }
         return hashlib.sha256(
             json.dumps(content, sort_keys=True, default=str).encode("utf-8")

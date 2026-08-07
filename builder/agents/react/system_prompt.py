@@ -174,7 +174,7 @@ as soon as the backbone exists — do **not** leave it to the end:
 
 The publication's authors are NOT this. They describe the paper; publisher /
 creator / contact describe the dataset. A crate can list six authors and still
-have no owner. `license` belongs here too — ask for it, never assume one.
+have no owner. The license belongs here too — ask for it, never assume one.
 
 ### Once BASE Passes
 - Add the ISA structural layer: LabProcesses, Samples, data Files linked to Assays. Wire the derivation chain explicitly — create data files with `draft_file`, connect each process to what it consumes and produces with `link` (e.g. `link(process, 'result', file)`), and run `check_provenance` to confirm no process output dangles and no file is orphaned (Sample → CellCulture → Exposure → EndpointReadout → DataAnalysis).
