@@ -427,8 +427,17 @@ class TestLiveRefresh:
         self, tmp_path, monkeypatch
     ) -> None:
         """With no explicit ``session_id``, the loop re-resolves the newest
-        session on EVERY wake via ``list_sessions_available`` and renders it —
-        so a fresh ``--interactive`` run is followed live, no restart (#267)."""
+        session on EVERY wake and renders it — so a fresh ``--interactive`` run
+        is followed live, no restart (#267).
+
+        Asserted through what the dashboard *renders*, not through which helper
+        it calls to get there. This test used to spy on
+        ``list_sessions_available``; e6f394c replaced that call with a cheap
+        newest-dir mtime scan precisely because the helper reparses every
+        historical ``profile.ndjson`` and froze the TUI at a 2s refresh. The
+        #267 guarantee survived that change untouched — only the spy broke — so
+        the assertions now pin the guarantee and leave the resolver free.
+        """
         import rich.live
         import watchfiles
 
@@ -442,15 +451,7 @@ class TestLiveRefresh:
         monkeypatch.setattr(d, "SESSION_DIR", tmp_path)
 
         live = _DummyLive()
-        consults: list = []
         formatted: list = []
-
-        real_list = d.list_sessions_available
-
-        def spy_list(*a, **k):
-            result = real_list(*a, **k)
-            consults.append([s["session_id"] for s in result])
-            return result
 
         def fake_format(session_id, records):
             formatted.append(session_id)
@@ -473,17 +474,17 @@ class TestLiveRefresh:
             os.utime(new, (t, t))
             yield set()
 
-        monkeypatch.setattr(d, "list_sessions_available", spy_list)
         monkeypatch.setattr(d, "format_session_summary", fake_format)
         monkeypatch.setattr(watchfiles, "watch", fake_watch)
         monkeypatch.setattr(rich.live, "Live", lambda *a, **k: live)
 
         d._run_live_dashboard(session_id=None, refresh_interval=2.0)
 
-        # list_sessions_available consulted on every wake (not just startup).
-        assert len(consults) >= 2
-        # The newest session was rendered after it appeared.
-        assert "20260627_new" in formatted
+        # Re-resolved per wake, not pinned at startup: the render switches to the
+        # new session on the wake after it appears. A startup-pinned loop would
+        # render "20260626_old" every time and never mention the new one.
+        assert len(formatted) >= 2, f"rendered fewer times than wakes: {formatted}"
+        assert formatted[0] == "20260626_old"
         assert formatted[-1] == "20260627_new"
 
     def test_explicit_session_id_stays_pinned(self, tmp_path, monkeypatch) -> None:
