@@ -180,7 +180,22 @@ def _validation_input_hash(state: CrateState) -> str:
 # names the path(s): a single string for the per-file readers, ``"paths"`` (a
 # list) for ``read_multiple_files``.
 _DOCUMENT_EVIDENCE_MAX_CHARS = 12000
-_DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 30000
+# The store must hold a whole working set, not most of one. A typical assay
+# submission is three documents — workbook, SOP, study JSON — which cap to
+# 8.7k + 12k + 12k = 32.7k chars. At the old 30k ceiling that set did not fit,
+# so every read evicted the document the model was about to ask for next: one
+# observed session re-read the same three files sixteen times across fifteen
+# turns, never once hitting the cache. Sized for four capped documents. This
+# budget is storage only — the prompt-side render (`_format_document_evidence`)
+# has its own independent 12k cap, so raising it costs session state, not context.
+_DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 48000
+
+# Readers whose successful output is kept as bounded session evidence, so the
+# "already loaded this document" guard can suppress an identical re-read. These
+# take a single ``path`` kwarg and return text.
+_DOCUMENT_EVIDENCE_TOOLS = frozenset(
+    {"read_file", "read_excel", "read_docx", "read_file_sample"}
+)
 
 # Readers whose successful output is kept as bounded session evidence, so the
 # "already loaded this document" guard can suppress an identical re-read. These
@@ -447,6 +462,11 @@ class AgentEngine:
             return
         content = result[:_DOCUMENT_EVIDENCE_MAX_CHARS]
         evidence = dict(self.state.document_evidence)
+        # Re-insert rather than overwrite: assigning to an existing key keeps its
+        # original position, and eviction below pops from the front. Deleting
+        # first moves the entry to the back, so the front stays "least recently
+        # used" (`touch_document_evidence` does the same on a cache hit).
+        evidence.pop(relative, None)
         evidence[relative] = {
             "tool": tool_name,
             "path": relative,
@@ -454,12 +474,37 @@ class AgentEngine:
             "truncated": len(result) > len(content),
             "args": {k: v for k, v in kwargs.items() if k != "path"},
         }
+        # Never evict down to nothing: a single document larger than the whole
+        # budget would otherwise drop itself and cache nothing at all.
         while (
-            sum(len(str(item.get("content", ""))) for item in evidence.values())
+            len(evidence) > 1
+            and sum(len(str(item.get("content", ""))) for item in evidence.values())
             > _DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS
         ):
-            evidence.pop(next(iter(evidence)))
+            dropped = next(iter(evidence))
+            evidence.pop(dropped)
+            # Not silent: an eviction means the next read of that document pays a
+            # full re-read, and a run of these is the signature of a working set
+            # that does not fit the budget.
+            logger.info(
+                "Evidence budget full — dropped %s to make room for %s", dropped, relative
+            )
         self.state.document_evidence = evidence
+
+    def touch_document_evidence(self, key: str) -> None:
+        """Mark stored evidence as most recently used, so eviction skips it.
+
+        Called when the reader guard serves a document from evidence instead of
+        re-reading it. Without it the store ages by insertion time alone, and the
+        document the model keeps asking for is exactly the one evicted next.
+        """
+        evidence = self.state.document_evidence
+        item = evidence.get(key)
+        if item is None:
+            return
+        reordered = {k: v for k, v in evidence.items() if k != key}
+        reordered[key] = item
+        self.state.document_evidence = reordered
 
     def _resolve_within_roots(self, path: Any) -> str | None:
         """Resolve a bare filename to an absolute path inside an approved root.
@@ -567,6 +612,49 @@ class AgentEngine:
         path_kwarg = _FILE_READ_TOOLS[tool_name]
         path = kwargs.get(path_kwarg)
         if path is not None and _contain(path, roots) is not None:
+            # Contained, but does it exist? A model that guesses the right root and
+            # the wrong subfolder ("<root>/workbook.xlsx" for
+            # "<root>/Assay_OATP1C1/workbook.xlsx") produced a path that passes
+            # containment, so it skipped the basename rescue below and died as an
+            # "unreadable file" — telling the model the workbook was missing or
+            # corrupt when it was neither. One session then spent fifteen turns
+            # hunting for a file it had named correctly all along. Fall through to
+            # the same unambiguous-basename resolution used for outside-root paths.
+            try:
+                exists = Path(path).is_file()
+            except (OSError, RuntimeError, ValueError):
+                exists = False
+            if exists or tool_name in ("scan_files", "preview_archive", "unzip_file"):
+                return _GATE_OK
+            relocated = self._resolve_within_roots(path)
+            if relocated is None:
+                return _GATE_OK  # let the reader report it as unreadable
+            kwargs[path_kwarg] = relocated
+            logger.info(
+                "Path %r is inside an approved root but does not exist — reading the "
+                "one file of that name that does: %s",
+                path,
+                relocated,
+            )
+            return _GATE_OK
+
+        # A bare filename ("OATP1C1 SOP TH 250425.docx") is what the model
+        # naturally emits — it sees filenames in the scanned-file inventory, not
+        # absolute paths. Resolving it relative to the CWD puts it outside every
+        # approved root, so the read was refused, and because a refusal is never
+        # recorded as evidence the model simply tried again: one session spent 226
+        # of 235 reader calls re-reading three files it could never open this way.
+        # Resolve the basename inside the approved roots instead. Only an
+        # UNAMBIGUOUS match is accepted — several files sharing a name give no
+        # basis to pick one, so that still refuses rather than guessing.
+        resolved_path = self._resolve_within_roots(path)
+        if resolved_path is not None:
+            kwargs[path_kwarg] = resolved_path
+            logger.info(
+                "Resolved bare filename %r to %s inside an approved scan root",
+                path,
+                resolved_path,
+            )
             return _GATE_OK
 
         # A bare filename ("OATP1C1 SOP TH 250425.docx") is what the model

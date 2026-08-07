@@ -1600,6 +1600,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         None,
                     )
                     if path and cached is not None:
+                        # Serving counts as use: keep this document at the young
+                        # end of the store so the next eviction takes something
+                        # the model has stopped asking for.
+                        engine.touch_document_evidence(path)
                         _log_suppressed(engine, tool_name, "already_in_evidence", kwargs)
                         # HAND BACK THE CONTENT, do not just refuse. The evidence
                         # block in the state brief is capped, so a second document
