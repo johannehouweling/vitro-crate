@@ -6,6 +6,8 @@ and lets the LLM decide which tools to call based on user requests.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import threading
@@ -1181,6 +1183,33 @@ def _record_mutation_cycle(
     )
 
 
+def _progress_fingerprint(engine: AgentEngine) -> str | None:
+    """What "the session moved forward" means — wider than the crate's contents.
+
+    ``validation_fingerprint`` covers entities + metadata, which is exactly right
+    for "did this write change the crate" and exactly wrong for "did this call
+    achieve anything". Reading a document, scanning files, learning the user's
+    answer and running the first validation all leave it untouched, so measuring
+    progress with it declared the entire evidence-gathering phase to be a loop —
+    a fresh session aborted before drafting a single entity.
+
+    Progress therefore also counts: documents loaded into evidence, files
+    scanned, answers received, and the validation verdict itself.
+    """
+    state = engine.state
+    try:
+        parts = [
+            state.validation_fingerprint(),
+            ",".join(sorted(getattr(state, "document_evidence", {}) or {})),
+            str(len(getattr(state, "scanned_files", []) or [])),
+            str(len(getattr(state, "user_answers", []) or [])),
+            json.dumps(state.validation.to_dict(), sort_keys=True, default=str),
+        ]
+    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+        return None
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
 def _track_progress(
     engine: AgentEngine, tool_name: str, before: str | None, result: Any
 ) -> Any:
@@ -1199,10 +1228,10 @@ def _track_progress(
     """
     if before is None:
         return result
-    try:
-        changed = engine.state.validation_fingerprint() != before
-    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+    after = _progress_fingerprint(engine)
+    if after is None:
         return result
+    changed = after != before
     if changed:
         setattr(engine, _IDLE_STREAK_FLAG, 0)
         return result
@@ -1690,6 +1719,9 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     mutation_fingerprint = engine.state.validation_fingerprint()
                 except Exception:  # noqa: BLE001 — best-effort bookkeeping
                     logger.debug("progress guard: fingerprint failed", exc_info=True)
+                # Wider than the crate contents: reading a document or receiving
+                # an answer is progress even though neither changes an entity.
+                progress_before = _progress_fingerprint(engine)
                 if tool_name in _MUTATION_TOOLS:
                     with _MUTATION_HISTORY_LOCK:
                         in_flight = int(getattr(engine, _MUTATIONS_IN_FLIGHT, 0)) + 1
@@ -1832,7 +1864,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
                 # The general no-progress rule, applied to EVERY tool: if the
                 # crate looks exactly as it did before the call, nothing moved.
-                result = _track_progress(engine, tool_name, mutation_fingerprint, result)
+                result = _track_progress(engine, tool_name, progress_before, result)
 
                 # Track repeated list queries independently: this never stores or
                 # reuses their result, and mutations always reset the streak.
