@@ -1041,3 +1041,132 @@ class TestScientificMimeRegistry:
         p = tmp_path / "notes.unknownext"
         p.write_bytes(b"just some plain readable text\n")
         assert _detect_mime_type(p) == "text/plain"
+
+
+class TestSelfIngestionGuard:
+    """A scan never ingests the tool's own prior output (#416).
+
+    Pointing a run at a folder that holds previous sessions used to scan ~9.5k
+    files, including every prior session's payload, and feed them to the drafter
+    as billed context. That is not merely slow — it is circular: the builder
+    ingests crates it produced as if they were source research data, so a second
+    run over a folder is contaminated by the first.
+    """
+
+    def _crate(self, directory: Path) -> None:
+        """Write a minimal but real crate marker plus some payload."""
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "ro-crate-metadata.json").write_text('{"@graph": []}', encoding="utf-8")
+        (directory / "ro-crate-preview.html").write_text("<html></html>", encoding="utf-8")
+        payload = directory / "data"
+        payload.mkdir(exist_ok=True)
+        (payload / "copied_measurements.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+
+    def test_nested_session_crate_is_not_scanned(self, tmp_path):
+        """Nothing under sessions/<id>/working_crate/ reaches the inventory."""
+        (tmp_path / "real_data.csv").write_text("x,y\n1,2\n", encoding="utf-8")
+        self._crate(tmp_path / "sessions" / "20260721_115953" / "working_crate")
+
+        names = {r.path for r in _scan(str(tmp_path))}
+
+        assert any(n.endswith("real_data.csv") for n in names), (
+            "the genuine source file must still be scanned"
+        )
+        assert not [n for n in names if "working_crate" in n], (
+            f"prior session output was ingested: {sorted(names)}"
+        )
+
+    def test_nested_output_crate_is_not_scanned(self, tmp_path):
+        """Same for an export sitting under output/<name>_crate/."""
+        (tmp_path / "protocol.txt").write_text("method\n", encoding="utf-8")
+        self._crate(tmp_path / "output" / "vhps_crate")
+
+        names = {r.path for r in _scan(str(tmp_path))}
+
+        assert any(n.endswith("protocol.txt") for n in names)
+        assert not [n for n in names if "vhps_crate" in n]
+
+    def test_scanning_a_crate_directly_still_works(self, tmp_path):
+        """The walk root is exempt — pointing at a crate is an explicit request.
+
+        Without this exemption the guard would break reading an existing crate
+        back in, which is a supported entry point, not self-ingestion.
+        """
+        crate = tmp_path / "some_crate"
+        self._crate(crate)
+
+        names = {r.path for r in _scan(str(crate))}
+
+        assert any(n.endswith("ro-crate-metadata.json") for n in names), (
+            "scanning a crate root directly must still see the manifest"
+        )
+        assert any(n.endswith("copied_measurements.csv") for n in names)
+
+    def test_a_filename_mentioning_output_is_unaffected(self, tmp_path):
+        """The guard keys on the manifest, not on directory or file names.
+
+        A name list (`sessions`, `output`, …) would drift and would also punish
+        legitimate input that happens to use those words.
+        """
+        data = tmp_path / "output_from_instrument"
+        data.mkdir()
+        (data / "sessions_summary_output.csv").write_text("a\n1\n", encoding="utf-8")
+
+        names = {r.path for r in _scan(str(tmp_path))}
+
+        assert any(n.endswith("sessions_summary_output.csv") for n in names), (
+            f"legitimate input was pruned by name: {sorted(names)}"
+        )
+
+
+class TestDefaultFileCap:
+    """The #68 cap actually engages on the production path (#416)."""
+
+    def test_cap_has_a_non_zero_default(self, tmp_path):
+        """Every production caller passed nothing, so the valve never engaged."""
+        import inspect
+
+        from builder.tools.scanner import _DEFAULT_MAX_FILES
+
+        default = inspect.signature(scan_files).parameters["max_files"].default
+        assert default == _DEFAULT_MAX_FILES
+        assert default > 0, "a 0 default is what let ~9.5k files through"
+
+    def test_default_cap_truncates_and_says_so(self, tmp_path, caplog):
+        """A truncated scan is loud — a silent one reads as a complete inventory."""
+        import logging
+
+        from builder.tools import scanner
+
+        for i in range(12):
+            (tmp_path / f"f{i}.csv").write_text("a\n1\n", encoding="utf-8")
+
+        with mock.patch.object(scanner, "_DEFAULT_MAX_FILES", 5):
+            # Re-read the module default through an explicit pass, mirroring what
+            # the production caller now gets implicitly.
+            with caplog.at_level(logging.WARNING):
+                result = scan_files(
+                    str(tmp_path), approved_roots={str(tmp_path.resolve())}, max_files=5
+                )
+
+        assert len(result) == 5
+        assert any("max_files" in r.getMessage() for r in caplog.records), (
+            "truncation must be logged"
+        )
+
+    def test_engine_initialize_inherits_the_cap(self):
+        """The engine passes no max_files, so it must inherit the default.
+
+        This is the gap #68 left open: the cap was plumbed and enforced, but the
+        only production call site left it at 'unlimited'.
+        """
+        import inspect
+
+        from builder import engine as engine_mod
+
+        src = inspect.getsource(engine_mod)
+        assert "scan_files(" in src
+        assert "max_files" not in src.split("scan_files(")[1].split(")")[0], (
+            "engine now passes max_files explicitly — update this test to assert "
+            "the value it passes instead of the inherited default"
+        )

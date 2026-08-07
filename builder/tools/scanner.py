@@ -38,6 +38,19 @@ _MAX_UNCOMPRESSED_BYTES = 2 * 1024**3  # 2 GiB
 # the parity is guarded by tests/test_file_readers.py.
 _MAX_FILE_BYTES = 100 * 1024 * 1024  # 100 MB
 
+# The RO-Crate manifest. A directory holding one IS a crate, which is how the
+# scanner recognises its own prior output without maintaining a list of
+# directory names that would drift (#416).
+_CRATE_MANIFEST = "ro-crate-metadata.json"
+
+# Default ceiling on files returned by one scan (#68 / #416). The #68 cap has
+# existed since the scanner did, but every production caller left it at 0
+# ("unlimited"), so the safety valve never engaged: pointing a run at a folder
+# holding previous sessions scanned ~9.5k files and fed them to the drafter as
+# billed context. Generous enough that a real deposit is never truncated, low
+# enough to bound a runaway; a scan that hits it says so loudly.
+_DEFAULT_MAX_FILES = 5000
+
 
 class _UnsafeArchiveError(Exception):
     """An archive member would escape the destination (Zip-Slip) or blow the
@@ -480,8 +493,20 @@ def _safe_walk(root: Path) -> list[Path]:
 
     Hidden and special directories (``.git``, ``__MACOSX``, dot-prefixed)
     are pruned in-place during the walk so they are never descended.
+
+    **Nested RO-Crates are pruned too (#416).** A directory holding an
+    ``ro-crate-metadata.json`` is a crate — in practice one this tool produced,
+    under ``sessions/<id>/working_crate/`` or ``output/<name>_crate/``. Walking
+    into it makes the builder ingest its own prior output as if it were source
+    research data, so a second run over a folder is contaminated by the first.
+    Stating the invariant ("do not descend into a crate") rather than listing
+    directory names avoids a list that drifts.
+
+    The walk *root* is deliberately exempt: pointing the scanner straight at a
+    crate is an explicit request to read that crate, not self-ingestion.
     """
     results: list[Path] = []
+    root = root.resolve()
 
     def _onerror(err: OSError) -> None:
         logger.warning("Skipping unreadable directory: %s", err.filename or err)
@@ -497,6 +522,13 @@ def _safe_walk(root: Path) -> list[Path]:
             dirnames[:] = [d for d in dirnames if not _should_prune(d)]
 
             dirpath = Path(dirpath_str)
+            # Self-ingestion guard (#416): skip a nested crate entirely — its
+            # manifest, its CSVW tables and its copied payload.
+            if _CRATE_MANIFEST in filenames and dirpath.resolve() != root:
+                logger.info("Skipping nested RO-Crate (not source data): %s", dirpath)
+                dirnames[:] = []
+                continue
+
             for name in filenames:
                 results.append(dirpath / name)
     except PermissionError:
@@ -509,7 +541,7 @@ def _safe_walk(root: Path) -> list[Path]:
 def scan_files(
     path: str,
     approved_roots: set[str] | None = None,
-    max_files: int = 0,
+    max_files: int = _DEFAULT_MAX_FILES,
     max_line_length: int = 0,
 ) -> list[FileClassification]:
     """Scan a directory or zip archive and return a file inventory.
@@ -535,8 +567,11 @@ def scan_files(
         approved_roots: Set of resolved absolute directory paths that are
             allowed for scanning. ``None`` or an empty set means *nothing is
             approved* and the scan is refused.
-        max_files: Maximum number of files to return. 0 means unlimited.
-            When exceeded, the list is truncated and a warning is logged.
+        max_files: Maximum number of files to return; 0 means unlimited.
+            Defaults to :data:`_DEFAULT_MAX_FILES` rather than 0 so the #68 cap
+            actually engages on the production path, which passed nothing and
+            therefore never capped anything. When exceeded, the list is
+            truncated and a warning is logged.
         max_line_length: Maximum length for each ``first_rows`` line.
             0 means unlimited. Longer lines are truncated.
 
