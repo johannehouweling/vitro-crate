@@ -2279,6 +2279,16 @@ def _build_process(
         )
 
     if ptype == "DataAnalysis":
+        # Accept the parameter names the agent is TOLD to use. The
+        # draft_process_chain tool spec advertises `computational_tool` and
+        # `data_calculation_and_statistics` — the labels the tox profile itself
+        # names in its violation message — while this branch only ever read
+        # `software` and `data_processing`. Values written under the advertised
+        # names landed in state and were read by nobody, so the process built
+        # with an empty parameter list and failed "DataAnalysis process MUST have
+        # at least one schema:additionalProperty" no matter how correctly the
+        # agent filled it in. One session spent four attempts and fourteen
+        # minutes on that. Both spellings now feed the same PropertyValue.
         return LabProcessDataAnalysis(
             crate,
             identifier=pid,
@@ -2286,8 +2296,10 @@ def _build_process(
             object=(obj or samples),
             result=result,
             labprotocol=protocol,
-            data_processing=f.get("data_processing", ""),
-            software=f.get("software", ""),
+            data_processing=(
+                f.get("data_processing") or f.get("data_calculation_and_statistics") or ""
+            ),
+            software=(f.get("software") or f.get("computational_tool") or ""),
             acceptance_criteria=f.get("acceptance_criteria"),
             evaluation_criteria=f.get("evaluation_criteria"),
             units=f.get("units"),

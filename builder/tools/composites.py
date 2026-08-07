@@ -1620,11 +1620,24 @@ TOOL_REGISTRY.register(
 # wiring. Anything genuinely ambiguous — two Exposures, so which compound went
 # where — is refused and reported for a human, never guessed.
 
-_DOMAIN_WIRING: tuple[tuple[str, str, str, bool], ...] = (
-    # (entity type, target process type, reference field, multi-valued)
-    ("MolecularEntity", "Exposure", "chemicals", True),
-    ("CellLineSample", "CellCulture", "cell_line", False),
+# (entity type, process type, field on the process, multi-valued, field on the
+# ISA container to fall back to). The process is the RICHER link — it says the
+# compound was actually dosed — but it is not the only valid one: a compound
+# belongs to the Study via schema:mentions whether or not an experiment was ever
+# recorded. A crate with no process chain still has 21 compounds that must be
+# reachable, so falling back to the container is not a consolation prize, it is
+# the correct statement when there is no process to point at.
+_DOMAIN_WIRING: tuple[tuple[str, str, str, bool, str], ...] = (
+    ("MolecularEntity", "Exposure", "chemicals", True, "chemicals"),
+    ("CellLineSample", "CellCulture", "cell_line", False, "cell_lines"),
 )
+
+# Where a domain entity attaches when no suitable process exists. The STUDY,
+# specifically: only `_crate_mapping._STUDY_MENTION_FIELDS` maps `chemicals` /
+# `cell_lines` onto schema:mentions / biologicalModels. The Assay's mention map
+# carries key-event fields only, so setting `chemicals` there is silently dropped
+# at build time — the state looks wired and the exported crate is not.
+_CONTAINER_FALLBACK: tuple[str, ...] = ("Study",)
 
 
 def _is_referenced(state: CrateState, target_id: str) -> bool:
@@ -1659,7 +1672,7 @@ def wire_unreferenced_domain_entities(state: CrateState) -> dict[str, Any]:
     ambiguous: list[str] = []
 
     processes = state.list_entities("LabProcess")
-    for entity_type, process_type, field, multi in _DOMAIN_WIRING:
+    for entity_type, process_type, field, multi, container_field in _DOMAIN_WIRING:
         loose = [
             e.entity_id
             for e in state.list_entities(entity_type)
@@ -1673,13 +1686,33 @@ def wire_unreferenced_domain_entities(state: CrateState) -> dict[str, Any]:
             if str(p.fields.get("process_type") or p.fields.get("additionalType") or "")
             == process_type
         ]
-        if len(targets) != 1:
+        if len(targets) > 1:
+            # Two Exposures and N loose compounds: which went where is a real
+            # question, not a derivable fact. Refuse and report for a human.
             ambiguous.append(
                 f"{len(loose)} unreferenced {entity_type} but {len(targets)} "
                 f"{process_type} process(es) — cannot derive which belongs to which"
             )
             continue
-        target = targets[0]
+        if targets:
+            target, field = targets[0], field
+        else:
+            # No process to attach to — say what IS true: the Study mentions it.
+            container = next(
+                (
+                    c
+                    for kind in _CONTAINER_FALLBACK
+                    for c in state.list_entities(kind)
+                ),
+                None,
+            )
+            if container is None:
+                ambiguous.append(
+                    f"{len(loose)} unreferenced {entity_type} and no {process_type} "
+                    "process or Study to attach them to"
+                )
+                continue
+            target, field, multi = container, container_field, True
         existing = target.fields.get(field)
         current = [
             (v.get("@id") if isinstance(v, dict) else v)
