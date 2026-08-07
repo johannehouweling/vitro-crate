@@ -22,6 +22,7 @@ stale failure.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any
@@ -30,6 +31,8 @@ from urllib.parse import urlsplit
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 10
 _TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
@@ -134,6 +137,60 @@ def reset_host_throttle() -> None:
     _host_throttle.reset()
 
 
+# Connection-pool size. Matches the parallel tool execution above it, so a batch
+# of lookups reuses connections instead of thrashing the pool.
+_POOL_SIZE = 24
+
+# --- per-host circuit breaker -------------------------------------------------
+# A host that has failed transiently several times in a row is down, not busy.
+# Without this, every remaining lookup pays the full retry budget against it:
+# one observed outage cost 84 seconds across 22 compounds (3 attempts x 10s
+# timeout each), all to learn what the first call already established. After
+# _BREAKER_THRESHOLD consecutive failures the host is skipped for
+# _BREAKER_COOLDOWN seconds — callers get the same TransientLookupError they
+# would have got anyway, just immediately, and one probe after the cooldown
+# re-opens it if the service came back.
+_BREAKER_THRESHOLD = 3
+_BREAKER_COOLDOWN = 60.0
+_breaker_state: dict[str, tuple[int, float]] = {}
+_breaker_lock = threading.Lock()
+
+
+def _breaker_open_for(host: str) -> float:
+    """Seconds remaining on *host*'s cooldown, or 0.0 when it may be called."""
+    with _breaker_lock:
+        _failures, open_until = _breaker_state.get(host, (0, 0.0))
+    return max(0.0, open_until - time.monotonic())
+
+
+def _breaker_record(host: str, *, ok: bool) -> None:
+    """Note a success (closes the breaker) or a transient failure (may open it)."""
+    with _breaker_lock:
+        if ok:
+            _breaker_state.pop(host, None)
+            return
+        failures, _open_until = _breaker_state.get(host, (0, 0.0))
+        failures += 1
+        open_until = (
+            time.monotonic() + _BREAKER_COOLDOWN if failures >= _BREAKER_THRESHOLD else 0.0
+        )
+        _breaker_state[host] = (failures, open_until)
+        if open_until:
+            logger.warning(
+                "%s failed %d times running — skipping it for %.0fs "
+                "(lookups against it will report unavailable immediately)",
+                host,
+                failures,
+                _BREAKER_COOLDOWN,
+            )
+
+
+def reset_circuit_breaker() -> None:
+    """Forget all breaker state (used by tests)."""
+    with _breaker_lock:
+        _breaker_state.clear()
+
+
 _session: requests.Session | None = None
 
 
@@ -147,7 +204,12 @@ def _build_session() -> requests.Session:
         respect_retry_after_header=True,
         raise_on_status=False,
     )
-    adapter = HTTPAdapter(max_retries=retry)
+    # Sized for the tool layer's concurrency: a model that resolves 22 compounds
+    # emits them as one parallel batch (16 at a time observed), and urllib3's
+    # default pool of 10 then spends the run discarding and re-opening
+    # connections ("Connection pool is full") against the very host that is
+    # already struggling.
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=_POOL_SIZE, pool_maxsize=_POOL_SIZE)
     session = requests.Session()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
@@ -187,19 +249,34 @@ def http_get_json(
     """
     # Politeness: space requests to the same host (replaces the per-client
     # ``time.sleep(0.1)`` calls). Honoured even under concurrent callers (#62).
+    host = _host_of(url)
+    cooling = _breaker_open_for(host)
+    if cooling:
+        # Same error the call would have raised, without the wait.
+        raise TransientLookupError(
+            f"{host} is unavailable (failed repeatedly; retrying in {cooling:.0f}s)"
+        )
     throttle_for_url(url)
     try:
         resp = get_session().get(url, params=params, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
+        _breaker_record(host, ok=False)
         raise TransientLookupError(f"request error for {url}: {exc}") from exc
 
     code = resp.status_code
     if code == 200:
         try:
-            return resp.json()
+            payload = resp.json()
         except ValueError as exc:
+            _breaker_record(host, ok=False)
             raise TransientLookupError(f"invalid JSON body from {url}: {exc}") from exc
+        _breaker_record(host, ok=True)
+        return payload
     if code in _TRANSIENT_STATUS:
+        _breaker_record(host, ok=False)
         raise TransientLookupError(f"HTTP {code} from {url} after retries")
-    # 404 and any other non-retryable client/redirect status → definitive.
+    # 404 and any other non-retryable client/redirect status → definitive. The
+    # host ANSWERED, so it is healthy: a run of "no such chemical" must never
+    # trip the breaker.
+    _breaker_record(host, ok=True)
     return NOT_FOUND

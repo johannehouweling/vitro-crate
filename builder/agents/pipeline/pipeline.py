@@ -1278,6 +1278,49 @@ def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
     return _scanned_path_for_name(engine, title, suffix=".pdf")
 
 
+def _propose_condition_table(engine: AgentEngine, exposure_id: str) -> dict[str, Any]:
+    """Write a best-effort design table for an Exposure with no supplied plate map.
+
+    Writes only the rows the crate can justify and returns the questions a human
+    must settle, so the caller can surface them. Never raises: a proposal failure
+    leaves the header-only table exactly as before.
+    """
+    from builder.tools.data_content import propose_condition_rows
+
+    try:
+        proposal = propose_condition_rows(engine.state, exposure_id)
+    except Exception as exc:  # noqa: BLE001 — a proposal must not break the spine
+        logger.warning("condition-table proposal failed for %s: %s", exposure_id, exc)
+        return {"populated": False, "reason": f"proposal raised: {exc}"}
+    if not proposal.get("ok"):
+        return {"populated": False, "reason": str(proposal.get("error") or "declined")}
+
+    rows = proposal.get("rows") or []
+    if not rows:
+        return {"populated": False, "reason": "nothing known to propose"}
+    try:
+        outcome = engine.run_tool(
+            "populate_condition_table", exposure_id=exposure_id, rows_or_csv_path=rows
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("populate_condition_table failed for a proposal: %s", exc)
+        return {"populated": False, "reason": f"populate_condition_table raised: {exc}"}
+
+    outcome = outcome if isinstance(outcome, dict) else {}
+    if not outcome.get("ok"):
+        return {"populated": False, "reason": str(outcome.get("error") or "declined")}
+    return {
+        "populated": True,
+        "proposed": True,
+        "reason": "proposed from crate entities — awaiting confirmation",
+        "rows": outcome.get("rows"),
+        "path": outcome.get("path"),
+        "known_columns": proposal.get("known"),
+        "blank_columns": proposal.get("blank"),
+        "questions": proposal.get("questions"),
+    }
+
+
 def _populate_condition_table_from_plan(
     engine: AgentEngine, plan: dict[str, Any], exposure_id: str
 ) -> dict[str, Any]:
@@ -1314,7 +1357,13 @@ def _populate_condition_table_from_plan(
     entries = [f for f in (plan.get("files") or []) if isinstance(f, dict)]
     candidates = [e for e in entries if str(e.get("role") or "").strip() == "condition_table"]
     if not candidates:
-        return {"populated": False, "reason": "no plan file is classified as condition_table"}
+        # The user supplied no plate map. Rather than shipping a header-only
+        # table beside compounds it should have named, PROPOSE the design from
+        # what the crate already knows (#438) — compound identity, cell line and
+        # assay are entities, so restating them asserts nothing new. Anything the
+        # crate never states stays blank and comes back as a question for the
+        # human; no concentration is ever invented.
+        return _propose_condition_table(engine, exposure_id)
     if len(candidates) > 1:
         names = ", ".join(sorted(str(c.get("path") or "?") for c in candidates))
         return {

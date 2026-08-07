@@ -579,3 +579,200 @@ from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
 TOOL_REGISTRY.register("validate_table", validate_table, takes_state=False)
 TOOL_REGISTRY.register("populate_condition_table", populate_condition_table, takes_state=True)
+
+
+# ---------------------------------------------------------------------------
+# Best-effort condition-table proposal (#438)
+# ---------------------------------------------------------------------------
+# `populate_condition_table` above writes rows the user SUPPLIED. When no plate
+# map was supplied the table shipped header-only, and the compounds it should
+# have named stayed orphaned — the crate described 22 substances and connected
+# none of them to the experiment.
+#
+# This proposes the rows instead, under one rule: restate what the crate already
+# knows, never invent what it does not. Compound identity, the cell line and the
+# assay are facts already sitting in the graph as entities, so writing them into
+# a design table asserts nothing new. A CONCENTRATION is different — if the crate
+# never mentions a dose, generating a dilution series would be fabricating the
+# experiment (D5), so the cell is left blank and ONE question is raised for the
+# human at the screen rather than 22 invented numbers.
+#
+# The split is deliberate: fill what is obvious without asking, ask about what is
+# genuinely ambiguous, and never do the third thing — guess quietly.
+
+_DOSE_FIELD_HINTS: tuple[str, ...] = (
+    "concentration",
+    "concentration_value",
+    "dose",
+    "dose_value",
+    "test_concentration",
+)
+_DOSE_UNIT_HINTS: tuple[str, ...] = (
+    "concentration_unit",
+    "dose_unit",
+    "units",
+    "unit",
+)
+
+
+def _first_field(entity: Any, names: Iterable[str]) -> str | None:
+    """First non-empty value among *names* on *entity*'s fields."""
+    fields = getattr(entity, "fields", {}) or {}
+    for name in names:
+        value = fields.get(name)
+        if value not in (None, "", []):
+            return str(value)
+    return None
+
+
+def _ref_id(value: Any) -> str | None:
+    """The entity id a reference field points at (handles str / {"@id"} / list)."""
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if isinstance(value, dict):
+        value = value.get("@id")
+    return str(value).lstrip("#") if value else None
+
+
+def propose_condition_rows(state: Any, exposure_id: str) -> dict[str, Any]:
+    """Propose per-well design rows for an Exposure from what the crate knows.
+
+    Deterministic and side-effect-free: it reads state and returns a proposal —
+    the caller decides whether to write it (``populate_condition_table``) after
+    the human has confirmed.
+
+    Fills, without asking, what is already an entity in the crate: one row per
+    compound wired to the Exposure, the cell line consumed by the CellCulture,
+    the parent Assay's name, and the Exposure's duration when it carries one.
+    Leaves a cell BLANK whenever the crate does not state its value.
+
+    Raises no questions for a blank the crate simply never mentions in any form;
+    raises a specific, answerable question when the crate states a value for SOME
+    compounds and not others, because applying one compound's dose to another is
+    extrapolation rather than capture.
+
+    Args:
+        state: The crate state to read.
+        exposure_id: ``entity_id`` of the Exposure LabProcess.
+
+    Returns:
+        ``{"ok": bool, "rows": [...], "known": [...], "blank": [...],
+        "questions": [...]}``. Each question is
+        ``{"id", "column", "question", "options"}`` — specific enough to answer
+        without re-reading the crate. ``{"ok": False, "error": ...}`` when the
+        Exposure cannot be resolved.
+    """
+    exposure = state.get_entity(exposure_id)
+    if exposure is None:
+        return {"ok": False, "error": f"Exposure not found: {exposure_id!r}"}
+
+    compound_ids = exposure.fields.get("chemicals")
+    compound_ids = compound_ids if isinstance(compound_ids, list) else [compound_ids]
+    compounds = [
+        c for c in (state.get_entity(_ref_id(cid)) for cid in compound_ids if cid) if c
+    ]
+    if not compounds:
+        return {
+            "ok": False,
+            "error": (
+                "the Exposure references no compounds — wire them with "
+                "`chemicals` before proposing a design table"
+            ),
+        }
+
+    # Cell line: whatever the CellCulture consumed, else the single declared one.
+    cell_line_name: str | None = None
+    for proc in state.list_entities("LabProcess"):
+        if str(proc.fields.get("process_type") or "") != "CellCulture":
+            continue
+        target = state.get_entity(_ref_id(proc.fields.get("cell_line")) or "")
+        if target is not None:
+            cell_line_name = _first_field(target, ("name",))
+            break
+    if cell_line_name is None:
+        lines = state.list_entities("CellLineSample")
+        if len(lines) == 1:
+            cell_line_name = _first_field(lines[0], ("name",))
+
+    assay_name: str | None = None
+    assays = state.list_entities("Assay")
+    if len(assays) == 1:
+        assay_name = _first_field(assays[0], ("name",))
+
+    duration = _first_field(exposure, ("duration", "exposure_duration"))
+
+    # Doses, per compound — captured only where the crate states one.
+    doses: dict[str, tuple[str, str | None]] = {}
+    for compound in compounds:
+        value = _first_field(compound, _DOSE_FIELD_HINTS)
+        if value:
+            doses[compound.entity_id] = (
+                value,
+                _first_field(compound, _DOSE_UNIT_HINTS)
+                or _first_field(exposure, _DOSE_UNIT_HINTS),
+            )
+
+    rows: list[dict[str, str]] = []
+    for index, compound in enumerate(compounds, start=1):
+        dose_value, dose_unit = doses.get(compound.entity_id, ("", None))
+        rows.append(
+            {
+                "well_id": str(index),
+                "assay": assay_name or "",
+                "cell_line": cell_line_name or "",
+                "compound": _first_field(compound, ("name",)) or compound.entity_id,
+                "concentration_value": dose_value,
+                "concentration_unit": dose_unit or "",
+                "exposure_duration": duration or "",
+                "experiment": "",
+                "technical_replicate": "",
+                "control": "",
+            }
+        )
+
+    known = [
+        column
+        for column in ("compound", "assay", "cell_line", "exposure_duration")
+        if any(row[column] for row in rows)
+    ]
+    blank = [c for c in rows[0] if not any(row[c] for row in rows)] if rows else []
+
+    questions: list[dict[str, Any]] = []
+    if doses and len(doses) < len(compounds):
+        # The sharp case: a dose is stated for some compounds and not others.
+        # Copying it across would assert a concentration the crate never claimed.
+        # Name the compounds that DO carry a dose — the question is about them,
+        # and listing three arbitrary others makes it unanswerable.
+        dosed = sorted(
+            _first_field(c, ("name",)) or c.entity_id
+            for c in compounds
+            if c.entity_id in doses
+        )
+        named = ", ".join(dosed[:3]) + ("…" if len(dosed) > 3 else "")
+        questions.append(
+            {
+                "id": "partial_dose",
+                "column": "concentration_value",
+                "question": (
+                    f"The crate states a concentration for {len(doses)} of "
+                    f"{len(compounds)} compounds ({named}). Apply the same "
+                    "concentration to the rest, or leave theirs blank?"
+                ),
+                "options": ["apply to all", "leave the rest blank", "let me supply them"],
+            }
+        )
+    elif not doses:
+        questions.append(
+            {
+                "id": "no_dose",
+                "column": "concentration_value",
+                "question": (
+                    f"No concentration appears anywhere in this crate, so the "
+                    f"{len(compounds)} rows are proposed without one. Supply the "
+                    "concentrations, or leave the column blank?"
+                ),
+                "options": ["leave blank", "let me supply them"],
+            }
+        )
+
+    return {"ok": True, "rows": rows, "known": known, "blank": blank, "questions": questions}

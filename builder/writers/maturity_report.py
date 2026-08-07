@@ -717,6 +717,59 @@ _ISA_LEVEL_NOTE = {
 }
 
 
+def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
+    """The All-entities view: the whole crate as one composition map.
+
+    The other views draw edges to answer a question. This one answers "what is in
+    here, and how much of it is connected?", for which a node-link diagram is the
+    wrong instrument at this scale — the crate's own graph is 188 nodes and
+    renders as a hairball. One tile per entity, clustered by category inside its
+    paper layer, unreachable ones outlined in alarm colour.
+
+    Returns:
+        ``(panel html, tab badge)`` — ``("", "")`` for an empty crate.
+    """
+    from builder.writers.provenance_dag import render_overview_svg
+
+    nodes = [n for n in (model.get("nodes") or []) if n.get("layer") is not None]
+    if not nodes:
+        return "", ""
+    svg = render_overview_svg(model)
+    if not svg:
+        return "", ""
+    counts = model.get("counts", {})
+    orphans = counts.get("orphan", 0)
+    reachable = len(nodes) - orphans
+
+    swatches = "".join(
+        f'<span class="lg"><span class="ov-key cat-{cat}"></span> {cat}</span>'
+        for cat in ("container", "process", "protocol", "material", "chemical",
+                    "data", "agent", "publication", "annotation")
+    )
+    legend = _legend(
+        swatches, '<span class="lg"><span class="ov-key orphan"></span> unreachable</span>'
+    )
+
+    note = (
+        f'<p class="chem-warn">{_mk("no")}<span><b>{orphans} of {len(nodes)} entities '
+        "are unreachable from the crate root.</b> They are described in the metadata "
+        "and connected to nothing — a reader walking the crate never arrives at "
+        "them. The other views show which links are missing.</span></p>"
+        if orphans
+        else '<p class="good-note">Every entity is reachable from the crate root.</p>'
+    )
+
+    panel = (
+        '<p class="prov-cap">Every entity in the crate, one tile each, grouped by '
+        "functional category inside its paper layer — the crate's shape and its "
+        f"health on one screen. <b>{len(nodes)}</b> entities · <b>{reachable}</b> "
+        f"reachable · <b>{orphans}</b> not.</p>\n"
+        f'  <div class="prov-scroll">{svg}</div>\n  {legend}\n'
+        f"  {note}"
+    )
+    return panel, str(len(nodes))
+
+
 def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
     """The ISA structure view: the Investigation / Study / Assay backbone.
 
@@ -850,6 +903,7 @@ def _render_provenance_panel(graph: dict[str, Any] | list[dict[str, Any]]) -> st
 
 # The graph views, in tab order: (radio id, panel id, tab label).
 _VIEWS: tuple[tuple[str, str, str], ...] = (
+    ("mv-all", "p-all", "All entities"),
     ("mv-isa", "p-isa", "ISA structure"),
     ("mv-prov", "p-prov", "Provenance"),
     ("mv-chem", "p-chem", "Chemicals"),
@@ -885,7 +939,9 @@ def _render_graph_views_section(
         build_people_inventory,
     )
 
+    model = build_crate_graph(graph, all_edges=True)
     panels = {
+        "p-all": _render_overview_panel(model),
         "p-isa": _render_isa_panel(build_isa_inventory(graph)),
         "p-prov": (_render_provenance_panel(graph), ""),
         "p-chem": _render_chemicals_panel(chem_inv),
@@ -911,10 +967,6 @@ def _render_graph_views_section(
         for _rid, pid, label in live
     )
 
-    # all_edges=True so every dangling stub (incl. those referenced only via
-    # secondary relations) is present in the node list — the counts are identical
-    # either way, but this lets the actionable disclosure name each one (#310).
-    model = build_crate_graph(graph, all_edges=True)
     return (
         "<section>\n"
         '  <div class="sec-h"><h2>Graph views</h2>'

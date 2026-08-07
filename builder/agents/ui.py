@@ -147,6 +147,9 @@ class UiSnapshot:
     # context bloat, which the session total (a sum over every re-send) hides.
     turn_tokens_in: int = 0
     turn_tokens_out: int = 0
+    # Seconds spent inside model calls — the run's machine effort, as opposed to
+    # the wall clock, which also counts the user reading and thinking.
+    model_seconds: float = 0.0
     # The model actually answering. Read from the session profile once a reply
     # has come back, else the configured model — so a fresh session still names
     # what it is about to run.
@@ -276,6 +279,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
     mit_score = getattr(mit, "overall_score", None) if mit is not None else None
     mit_assessed = bool(getattr(mit, "module_scores", None))
 
+    generator = getattr(state, "generator", None)
     tokens_in, tokens_out, last_model = _read_token_totals(state.session_id)
     turn_in, turn_out = _read_turn_tokens(state.session_id)
     model_name = last_model
@@ -316,6 +320,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
         turn_tokens_in=turn_in,
         turn_tokens_out=turn_out,
         model=model_name,
+        model_seconds=float(getattr(generator, "model_seconds", 0.0) or 0.0),
         crate_path=getattr(state.metadata, "output_path", "") or "",
         should_issue_count=len(val.should_issues),
         may_issue_count=len(val.may_issues),
@@ -345,6 +350,16 @@ def _compact_model(name: str) -> str:
     if len(parts) > 1 and parts[-1].isdigit() and len(parts[-1]) == 8:
         short = "-".join(parts[:-1])
     return short
+
+
+def _compact_seconds(seconds: float) -> str:
+    """Model time as ``42s`` / ``7m12s`` / ``1h04m`` — short enough for the row."""
+    total = int(round(seconds or 0))
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m{total % 60:02d}s"
+    return f"{total // 3600}h{(total % 3600) // 60:02d}m"
 
 
 def _compact_tokens(count: int) -> str:
@@ -397,10 +412,13 @@ def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None =
         model_prefix = (
             f"{field('model', _compact_model(snap.model))}  {_SEP}  " if snap.model else ""
         )
+        # Model time, not wall clock: the clock beside it counts the user
+        # thinking, which is not what the run cost.
+        time_str = f"  {_compact_seconds(snap.model_seconds)}" if snap.model_seconds else ""
         token_str = "  " + _SEP + "  " + model_prefix + field(
             "tokens",
             f"↑{_compact_tokens(turn_in)} ↓{_compact_tokens(turn_out)}"
-            f"  {_compact_tokens(total)} tok{cost_str}",
+            f"  {_compact_tokens(total)} tok{cost_str}{time_str}",
         )
 
     return (
@@ -665,7 +683,15 @@ def render_goodbye(
             total = _compact_tokens(snap.tokens_in + snap.tokens_out)
             cost = format_cost(snap.cost_usd) if snap.cost_usd is not None else "cost unknown"
             model = f" [dim]on {_compact_model(snap.model)}[/dim]" if snap.model else ""
-            t.add_row("This run:", f"[cyan]{cost}[/cyan] [dim]({total} tokens)[/dim]{model}")
+            # Model time, not wall clock — the elapsed clock includes every pause
+            # the user took and says nothing about what the run cost.
+            spent = (
+                f" [dim]·[/dim] [cyan]{_compact_seconds(snap.model_seconds)}[/cyan] "
+                "[dim]model time[/dim]"
+                if snap.model_seconds
+                else ""
+            )
+            t.add_row("This run:", f"[cyan]{cost}[/cyan] [dim]({total} tokens)[/dim]{model}{spent}")
 
     if resumable:
         t.add_row(

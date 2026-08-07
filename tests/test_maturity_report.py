@@ -679,10 +679,10 @@ class TestGraphViewTabs:
     def test_all_three_views_are_tabbed(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         assert "<h2>Graph views</h2>" in page
-        for label in ("ISA structure", "Provenance", "Chemicals", "Cell lines",
-                      "People &amp; orgs"):
+        for label in ("All entities", "ISA structure", "Provenance", "Chemicals",
+                      "Cell lines", "People &amp; orgs"):
             assert f'<span class="tb-n">{label}</span>' in page, f"missing tab: {label}"
-        for pid in ("p-isa", "p-prov", "p-chem", "p-cell", "p-people"):
+        for pid in ("p-all", "p-isa", "p-prov", "p-chem", "p-cell", "p-people"):
             assert f'<div class="panel" id="{pid}">' in page, f"missing panel: {pid}"
 
     def test_inputs_precede_the_tabbar_and_panels(self) -> None:
@@ -695,10 +695,10 @@ class TestGraphViewTabs:
 
     def test_exactly_one_tab_starts_selected(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert body.count('name="mat-view"') == 5
+        assert body.count('name="mat-view"') == 6
         assert body.count(" checked>") == 1
         # ISA is first: the structural backbone every other view hangs off.
-        assert 'id="mv-isa" checked>' in body
+        assert 'id="mv-all" checked>' in body
 
     def test_tabs_carry_no_script(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
@@ -727,7 +727,7 @@ class TestGraphViewTabs:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
         for absent in ("mv-chem", "p-chem", "mv-cell", "p-cell", "mv-people", "p-people"):
             assert f'"{absent}"' not in body, f"{absent} should have been dropped"
-        assert 'id="mv-isa" checked>' in body
+        assert 'id="mv-all" checked>' in body
         assert body.count(" checked>") == 1
 
     def test_every_element_id_in_the_page_is_unique(self) -> None:
@@ -1053,3 +1053,112 @@ class TestSeverityTiers:
         # Required tier shows a sub-3 profile count; the failing profile is not a pass.
         assert "Required" in page
         assert "3 / 3 profiles" not in page
+
+
+class TestOverviewPanel:
+    """The All-entities view: the whole crate as one composition map (#85).
+
+    Every other view answers its question by drawing edges. At crate scale (188
+    nodes, 79 edges) that renders as a hairball which hides the very composition
+    this view exists to show — so it is one tile per entity, clustered by
+    category inside its paper layer, with unreachable entities outlined.
+    """
+
+    def _graph(self, *, orphan: bool = True) -> dict:
+        graph: dict = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "additionalType": "Investigation",
+                    "name": "Inv",
+                    "hasPart": [{"@id": "#f"}],
+                },
+                {"@id": "#f", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        if orphan:
+            graph["@graph"].append(
+                {"@id": "#loose", "@type": "MolecularEntity", "name": "Unwired compound"}
+            )
+        return graph
+
+    def test_one_tile_per_entity(self) -> None:
+        import re
+
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        svg = re.search(r'<svg [^>]*class="prov view overview".*?</svg>', body, re.S)
+        assert svg, "overview SVG missing"
+        from builder.writers.provenance_dag import build_crate_graph
+
+        entities = [
+            n
+            for n in build_crate_graph(self._graph(), all_edges=True)["nodes"]
+            if n["layer"] is not None
+        ]
+        assert len(re.findall(r'<rect class="ov-t', svg.group(0))) == len(entities)
+
+    def test_unreachable_entities_are_outlined(self) -> None:
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert 'class="ov-t cat-chemical orphan"' in page
+        assert "are unreachable from the crate root" in page
+
+    def test_clean_crate_reports_no_unreachable(self) -> None:
+        page = build_maturity_html(
+            vhps_fixture_state("S-VHPS21"), graph=self._graph(orphan=False)
+        )
+        assert "Every entity is reachable from the crate root." in page
+        assert "unreachable from the crate root.</b>" not in page
+
+    def test_every_tile_names_its_entity(self) -> None:
+        # The map summarises; it must not anonymise. Each tile carries the
+        # entity's name and type in a tooltip.
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert "<title>Unwired compound — MolecularEntity" in page
+        assert "unreachable from the crate root</title>" in page
+
+    def test_overview_is_the_first_tab_and_selected(self) -> None:
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        assert body.index('for="mv-all"') < body.index('for="mv-isa"')
+        assert 'id="mv-all" checked>' in body
+
+    def test_geometry_stays_inside_the_viewbox(self) -> None:
+        import re
+        import xml.etree.ElementTree as ET
+
+        def attr(el: ET.Element, name: str) -> str:
+            """A geometry attribute the renderer must always emit.
+
+            ``Element.get`` is optional-typed, so a missing coordinate would
+            otherwise surface as a bare ``AttributeError: 'NoneType'`` instead of
+            naming the element that lost it.
+            """
+            value = el.get(name)
+            assert value is not None, f"<{el.tag}> is missing {name!r}"
+            return value
+
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        found = re.search(r'<svg [^>]*class="prov view overview".*?</svg>', body, re.S)
+        assert found is not None, "the overview SVG is not in the report"
+        root = ET.fromstring(found.group(0))
+        _, _, width, height = (float(v) for v in attr(root, "viewBox").split())
+        xs: list[float] = []
+        ys: list[float] = []
+        for el in root.iter():
+            if el.tag == "rect":
+                x, y = float(attr(el, "x")), float(attr(el, "y"))
+                xs += [x, x + float(attr(el, "width"))]
+                ys += [y, y + float(attr(el, "height"))]
+            elif el.tag == "text":
+                xs.append(float(attr(el, "x")))
+                ys.append(float(attr(el, "y")))
+        assert xs and 0 <= min(xs) and max(xs) <= width
+        assert 0 <= min(ys) and max(ys) <= height
+
+    def test_escapes_entity_names(self) -> None:
+        graph = self._graph()
+        graph["@graph"][-1]["name"] = "<script>alert(1)</script>"
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>alert(1)</script>" not in page
+        assert "&lt;script&gt;" in page
