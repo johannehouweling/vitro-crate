@@ -730,6 +730,10 @@ _AFFILIATION_KEYS = (
     "https://schema.org/affiliation",
 )
 _PROTOCOL_KEYS = ("executesLabProtocol", "https://bioschemas.org/executesLabProtocol")
+# A CreateAction's tool/model. Nothing else references the generator's
+# SoftwareApplication nodes, so omitting this would report the crate's own
+# provenance record as orphaned.
+_INSTRUMENT_KEYS = ("instrument", "http://schema.org/instrument")
 _ABOUT_GRAPH_KEYS = _ABOUT_KEYS + ("labProcesses",)
 _SAMPLETYPE_KEYS = ("sampleType",)
 _TABLESCHEMA_KEYS = ("tableSchema", "http://www.w3.org/ns/csvw#tableSchema")
@@ -760,6 +764,7 @@ _PRIMARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_CONTRIBUTOR_KEYS, "contributor", False),
     (_AFFILIATION_KEYS, "affiliation", False),
     (_PROTOCOL_KEYS, "executes", False),
+    (_INSTRUMENT_KEYS, "instrument", False),
     (_SAMPLETYPE_KEYS, "sampleType", False),
 )
 _SECONDARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (

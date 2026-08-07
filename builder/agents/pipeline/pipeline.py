@@ -183,6 +183,13 @@ def _make_usage_logger(engine: AgentEngine, totals: dict[str, int]) -> UsageSink
         out_t = _as_int(output_tokens)
         totals["input_tokens"] += in_t
         totals["output_tokens"] += out_t
+        # Also accumulate onto the crate's generator record so the exported crate
+        # carries what the run cost. Independent of the profiler below: cost
+        # accounting must not depend on instrumentation being enabled.
+        try:
+            engine.state.record_llm_usage({"input_tokens": in_t, "output_tokens": out_t})
+        except Exception:  # noqa: BLE001 — accounting never breaks a leaf call
+            logger.debug("Could not record leaf LLM usage", exc_info=True)
         profiler = getattr(engine, "profiler", None)
         if profiler is not None:
             profiler.log_event(

@@ -380,6 +380,10 @@ _STRUCT_FIELDS = frozenset(
         "dest_path",
         "path",
         "contentUrl",
+        # Provisional-placeholder markers (#438) — consumed to materialise a
+        # minimal typed table, never emitted as stray literals on the File node.
+        "provisional",
+        "table_kind",
         # LabProcess kwargs threaded into the typed subtype constructors (#143)
         # rather than emitted as stray literals on the process node.
         "units",
@@ -433,11 +437,16 @@ def populate_crate(
         state,
         crate,
         idx,
+        output_dir,
         materialize_payload=materialize_payload,
         include_all_scanned=include_all_scanned,
     )
     _add_structural(state, crate, idx)
     _add_processes(state, crate, idx, output_dir, materialize_payload=materialize_payload)
+    # After the index is complete, so publisher/creator/contact can point at any
+    # Person or Organization in the crate (or at a bare ORCID/ROR IRI).
+    _wire_root_attribution(state, crate, idx)
+    _add_generator_provenance(state, crate)
     _wire_mentions(state, idx)
     _wire_dataset_aliases(state, crate, idx)
 
@@ -797,9 +806,11 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     if m.date_modified:
         crate.root_dataset["dateModified"] = m.date_modified
     crate.root_dataset["additionalType"] = "Investigation"
-    # Base RO-Crate MUST: the Root Data Entity has a license. The ISA-Tox shape
-    # endorses this exact placeholder when none is available.
-    if not crate.root_dataset.get("license"):
+    # Base RO-Crate MUST: the Root Data Entity has a license. A license the user
+    # gave wins; the ISA-Tox shape endorses this placeholder when none is known.
+    if m.license:
+        crate.root_dataset["license"] = m.license
+    elif not crate.root_dataset.get("license"):
         crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
 
     # Conformance placement follows RO-Crate 1.2 (ro-crate-1.2.0.md §Profiles,
@@ -918,6 +929,7 @@ def _add_leaves(
     state: CrateState,
     crate: ROCrate,
     idx: dict[str, Any],
+    output_dir: Path | None = None,
     *,
     materialize_payload: bool = True,
     include_all_scanned: bool = True,
@@ -1036,6 +1048,15 @@ def _add_leaves(
         # payload at write() time (#128). Skip on the in-memory build_and_validate
         # path (materialize_payload=False) — nothing is written there.
         source = _file_source(fe, state.metadata.input_path) if materialize_payload else None
+        # A synthesized placeholder has no file on disk, so `_file_source`
+        # correctly returns None and the crate would claim a file it does not
+        # contain (#438). Materialise a minimal typed table for it instead.
+        provisional_rel: str | None = None
+        if source is None and materialize_payload and fe.fields.get("provisional"):
+            provisional_rel = _file_dest(fe)
+            source = _materialize_provisional_table(fe, output_dir, provisional_rel)
+            if source is None:
+                provisional_rel = None
         # Co-type a source-code (or otherwise extra-typed) File as a @type list,
         # e.g. ["File", "SoftwareSourceCode"] for an analysis script (#180, gold
         # plot.py). A plain File keeps its scalar @type. additional_types is
@@ -1049,18 +1070,28 @@ def _add_leaves(
                 if t and t not in seen:
                     seen.add(t)
                     file_type.append(t)
+        # A materialised provisional table is co-typed csvw:Table and carries an
+        # explicit note that it holds no rows, so a consumer can never mistake
+        # the template for data.
+        props: dict[str, Any] = {"@type": file_type, **_scalar_props(fe)}
+        if provisional_rel is not None:
+            types = file_type if isinstance(file_type, list) else [file_type]
+            props["@type"] = [*types, "csvw:Table"]
+            props["description"] = _PROVISIONAL_NOTE
         _idx_add(
             idx,
             fe,
-            crate.add(
+            node := crate.add(
                 File(
                     crate,
                     source,
                     dest_path=_file_dest(fe),
-                    properties={"@type": file_type, **_scalar_props(fe)},
+                    properties=props,
                 )
             ),
         )
+        if provisional_rel is not None:
+            _attach_provisional_schema(crate, node, fe)
 
     for proto in state.list_entities("LabProtocol"):
         _idx_add(
@@ -1437,6 +1468,216 @@ _RAW_MEASUREMENTS_COLUMNS: tuple[dict[str, str], ...] = (
 )
 
 _RAW_MEASUREMENTS_HEADER = ",".join(c["titles"] for c in _RAW_MEASUREMENTS_COLUMNS) + "\n"
+
+
+# --- provisional placeholder tables (#438) ---------------------------------
+# `draft_process_chain` synthesizes a result File for an EndpointReadout /
+# DataAnalysis that has no explicit output, because a missing result fires a tox
+# REQUIRED Violation. Those entities used to be metadata only: the exported crate
+# listed a file in `hasPart` that no byte of the payload contained, and ro-crate-py
+# warned "No source for …" on every export.
+#
+# They are now materialised the same way the condition and raw-measurements
+# tables already are — a header-only CSV with a typed CSVW schema — so the
+# reference resolves and the column contract tells a human exactly what to fill
+# in. No measurement row is ever fabricated (D5): the file ships EMPTY below its
+# header, and the node says so in `description` so a consumer cannot mistake a
+# template for data.
+_ANALYSIS_RESULT_COLUMNS: tuple[dict[str, str], ...] = (
+    {
+        "titles": "group",
+        "datatype": "string",
+        "propertyUrl": iri("NCIT:C43359"),
+    },
+    {
+        "titles": "endpoint",
+        "datatype": "string",
+        "propertyUrl": iri("IAO:0000109"),
+    },
+    {
+        "titles": "value",
+        "datatype": "double",
+        "propertyUrl": iri("IAO:0000109"),
+    },
+    {
+        "titles": "unit",
+        "datatype": "string",
+        "propertyUrl": iri("IAO:0000039"),
+    },
+)
+
+_PROVISIONAL_TABLES: dict[str, tuple[str, tuple[dict[str, str], ...]]] = {
+    "measurements": ("Provisional measurements", _RAW_MEASUREMENTS_COLUMNS),
+    "analysis": ("Provisional analysis results", _ANALYSIS_RESULT_COLUMNS),
+}
+
+_PROVISIONAL_NOTE = (
+    "Provisional template generated to keep the derivation chain complete: the "
+    "column headers below are a suggested minimal shape and the table contains NO "
+    "rows. Replace it with the real output of this step, or fill in the rows."
+)
+
+
+def _materialize_provisional_table(
+    fe: Entity, output_dir: Path | None, rel: str
+) -> str | None:
+    """Write a provisional placeholder's header-only CSV and return its path.
+
+    Returns ``None`` when there is nothing to write (not a provisional entity, or
+    the in-memory validate path where no payload is materialised), leaving the
+    caller's existing source resolution untouched.
+    """
+    if not fe.fields.get("provisional") or output_dir is None:
+        return None
+    kind = str(fe.fields.get("table_kind") or "measurements")
+    spec = _PROVISIONAL_TABLES.get(kind)
+    if spec is None:
+        return None
+    _name, columns = spec
+    dest = output_dir / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        dest.write_text(",".join(c["titles"] for c in columns) + "\n", encoding="utf-8")
+    return str(dest)
+
+
+def _attach_provisional_schema(crate: ROCrate, node: Any, fe: Entity) -> None:
+    """Give a materialised provisional table the same typed CSVW schema the
+    condition / raw-measurements tables carry, so its columns are machine-readable
+    rather than a bare header line."""
+    kind = str(fe.fields.get("table_kind") or "measurements")
+    spec = _PROVISIONAL_TABLES.get(kind)
+    if spec is None:
+        return
+    name, columns = spec
+    slug = _slug(fe.entity_id)
+    schema = _build_csvw_schema(
+        crate,
+        schema_id=f"#{slug}_schema",
+        schema_name=f"{name} schema",
+        id_prefix=f"#{slug}",
+        columns=columns,
+    )
+    node["tableSchema"] = {"@id": schema.id}
+    node.append_to("conformsTo", schema)
+
+
+# --- generator provenance -------------------------------------------------
+# Every export records what produced the crate: the application and version, the
+# model that drove it, and what the run cost in tokens, money and wall-clock.
+# LLM-assisted metadata cannot be judged without knowing what assisted it, and
+# the cost/time figures are the ones nobody can reconstruct once the session is
+# gone — so they travel with the crate rather than living only in a log.
+#
+# Modelled the RO-Crate way: a `SoftwareApplication` for the tool, a second one
+# for the model, and a `CreateAction` whose `instrument` is the tool, whose
+# `result` is the Root Data Entity, and whose run metrics hang off it as
+# `PropertyValue`s. The root `mentions` the action so it is reachable.
+_GENERATOR_METRICS: tuple[tuple[str, str, str | None], ...] = (
+    ("input_tokens", "Input tokens", None),
+    ("output_tokens", "Output tokens", None),
+    ("llm_calls", "LLM calls", None),
+    ("duration_seconds", "Run duration", "s"),
+    ("cost_usd", "Estimated cost", "USD"),
+)
+
+
+def _wire_root_attribution(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
+    """Put crate-level attribution on the Root Data Entity.
+
+    ``author`` on the root is populated from every drafted ``Person``, which
+    answers "who is named in this crate" — not "who is responsible for this
+    dataset". ``publisher`` / ``creator`` / ``contactPoint`` answer the second
+    question, and a crate without them credits nobody a registry can resolve.
+
+    Each value is an entity id or a resolvable IRI (ORCID / ROR), wired through
+    the shared resolver so a bare identifier still emits a proper reference.
+    """
+    m = state.metadata
+    for prop, value in (
+        ("publisher", m.publisher),
+        ("creator", m.creator),
+        ("contactPoint", m.contact),
+    ):
+        if value:
+            _wire_reference(crate.root_dataset, prop, value, idx)
+
+
+def _add_generator_provenance(state: CrateState, crate: ROCrate) -> None:
+    """Record the generating application, model and run cost on the crate."""
+    gen = state.generator
+    if not gen or not gen.name:
+        return
+
+    app = crate.add(
+        ContextEntity(
+            crate,
+            gen.url or f"#{_slug(gen.name)}",
+            properties={
+                "@type": "SoftwareApplication",
+                "name": gen.name,
+                **({"version": gen.version} if gen.version else {}),
+                **({"url": gen.url} if gen.url else {}),
+            },
+        )
+    )
+
+    action_props: dict[str, Any] = {
+        "@type": "CreateAction",
+        "name": f"{gen.name} build",
+    }
+    if gen.started_at:
+        action_props["startTime"] = gen.started_at
+    if gen.ended_at:
+        action_props["endTime"] = gen.ended_at
+    action = crate.add(
+        ContextEntity(crate, f"#{_slug(gen.name)}_run", properties=action_props)
+    )
+    action.append_to("instrument", app)
+    action["result"] = {"@id": "./"}
+
+    # The model is an instrument of the run too — naming it is the point of the
+    # record, and its settings ride along as PropertyValues.
+    if gen.model:
+        model_props: dict[str, Any] = {"@type": "SoftwareApplication", "name": gen.model}
+        if gen.provider:
+            model_props["provider"] = gen.provider
+        model_node = crate.add(
+            ContextEntity(crate, f"#model_{_slug(gen.model)}", properties=model_props)
+        )
+        action.append_to("instrument", model_node)
+
+    for key, label, unit in _GENERATOR_METRICS:
+        value = getattr(gen, key, None)
+        if not value:
+            continue
+        pv_props: dict[str, Any] = {
+            "@type": "PropertyValue",
+            "name": label,
+            "value": str(value),
+        }
+        if unit:
+            pv_props["unitText"] = unit
+        action.append_to(
+            "additionalProperty",
+            crate.add(ContextEntity(crate, param_id(label, str(value)), properties=pv_props)),
+        )
+    for key, value in (gen.settings or {}).items():
+        action.append_to(
+            "additionalProperty",
+            crate.add(
+                ContextEntity(
+                    crate,
+                    param_id(key, str(value)),
+                    properties={
+                        "@type": "PropertyValue",
+                        "name": key,
+                        "value": str(value),
+                    },
+                )
+            ),
+        )
+    crate.root_dataset.append_to("mentions", action)
 
 
 def _condition_table_rel(exp_pid: str) -> str:

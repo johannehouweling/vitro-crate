@@ -392,6 +392,16 @@ def draft_process_chain(
     return result
 
 
+# Which minimal table a synthesized placeholder should carry (#438). An
+# EndpointReadout emits per-well measurements; a DataAnalysis emits summarised
+# results. The columns themselves live in ``_crate_mapping`` next to the existing
+# CSVW table contracts, so every table the crate ships is typed the same way.
+_PROVISIONAL_TABLE_KIND: dict[str, str] = {
+    "EndpointReadout": "measurements",
+    "DataAnalysis": "analysis",
+}
+
+
 def _synthesize_output(
     state: CrateState,
     proc: Entity,
@@ -416,18 +426,23 @@ def _synthesize_output(
         if upstream is not None:
             sample_hints["derives_from"] = upstream
         return draft_sample_fn(state, sample_hints)
-    # Data producer: a placeholder result File.
+    # Data producer: a placeholder result File. It is marked PROVISIONAL so the
+    # build materialises a minimal typed table for it (#438) — an entity alone
+    # left the exported crate claiming a file that was never written.
     name = f"{proc.entity_id}_result.csv"
     file_id = f"file_{_slug(name)}"
     existing = state.get_entity(file_id)
     if existing is not None:
         return existing
-    return draft_file_fn(
+    placeholder = draft_file_fn(
         state,
         name=name,
         path=f"data/{name}",
         role="processed_data",
     )
+    placeholder.fields["provisional"] = True
+    placeholder.fields["table_kind"] = _PROVISIONAL_TABLE_KIND.get(ptype, "measurements")
+    return placeholder
 
 
 def _synthesize_input(state: CrateState, proc: Entity, draft_file_fn: Any) -> Entity:
@@ -441,7 +456,12 @@ def _synthesize_input(state: CrateState, proc: Entity, draft_file_fn: Any) -> En
     existing = state.get_entity(file_id)
     if existing is not None:
         return existing
-    return draft_file_fn(state, name=name, path=f"data/{name}", role="raw_data")
+    placeholder = draft_file_fn(state, name=name, path=f"data/{name}", role="raw_data")
+    # A DataAnalysis consumes measurements, so its provisional input carries the
+    # per-well measurement shape rather than the analysis-result shape.
+    placeholder.fields["provisional"] = True
+    placeholder.fields["table_kind"] = "measurements"
+    return placeholder
 
 
 def _input_ref(proc: Entity) -> Any:

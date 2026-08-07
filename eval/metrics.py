@@ -31,6 +31,64 @@ logger = logging.getLogger(__name__)
 _VOLATILE_NODE_KEYS: frozenset[str] = frozenset({"datePublished", "dateModified"})
 
 
+def _drop_run_provenance(graph: list[Any]) -> list[Any]:
+    """Remove the generator's run record from a ``@graph`` before hashing.
+
+    ``_add_generator_provenance`` records HOW a crate was produced — a
+    ``CreateAction`` carrying start/end times plus ``PropertyValue`` nodes for the
+    run's tokens and cost, whose ``@id``s embed the values themselves. Every one
+    of those differs between two runs by construction, so leaving them in makes
+    each build hash uniquely: the determinism signal would report even the
+    deterministic pipeline arm as stochastic, and the scoring memoisation keyed on
+    this hash would never hit again (3x the SHACL cost at ``--repeats 3``).
+
+    This is the same reasoning that already strips ``datePublished`` — provenance
+    about the run is not content of the crate. The record still ships in every
+    exported crate; it just does not participate in the fingerprint. The
+    SoftwareApplication / model nodes are KEPT: they are stable for a given
+    configuration and describe what built the crate, not when.
+    """
+    actions = {
+        node.get("@id")
+        for node in graph
+        if isinstance(node, dict) and "CreateAction" in str(node.get("@type", ""))
+    }
+    if not actions:
+        return graph
+
+    # The volatile PropertyValues hang off the action's additionalProperty.
+    volatile_ids: set[Any] = set(actions)
+    for node in graph:
+        if not isinstance(node, dict) or node.get("@id") not in actions:
+            continue
+        prop = node.get("additionalProperty")
+        for ref in prop if isinstance(prop, list) else [prop]:
+            if isinstance(ref, dict) and ref.get("@id"):
+                volatile_ids.add(ref["@id"])
+
+    cleaned: list[Any] = []
+    for node in graph:
+        if not isinstance(node, dict):
+            cleaned.append(node)
+            continue
+        if node.get("@id") in volatile_ids:
+            continue
+        # Drop the root's `mentions` back-reference to the dropped action, or the
+        # root itself would still carry a pointer to a node that is no longer here.
+        mentions = node.get("mentions")
+        if mentions is not None:
+            kept = [
+                ref
+                for ref in (mentions if isinstance(mentions, list) else [mentions])
+                if not (isinstance(ref, dict) and ref.get("@id") in volatile_ids)
+            ]
+            node = {k: v for k, v in node.items() if k != "mentions"}
+            if kept:
+                node["mentions"] = kept
+        cleaned.append(node)
+    return cleaned
+
+
 @dataclass(frozen=True)
 class ProfileMetrics:
     """Token / iteration / tool-call counts mined from ``profile.ndjson``.
@@ -204,13 +262,14 @@ def crate_graph_hash(state: CrateState) -> str:
         metadata_doc = crate.metadata.generate()
         graph = metadata_doc.get("@graph", metadata_doc)
         if isinstance(graph, list):
-            # Drop volatile build-time stamps, then sort nodes by @id so neither
-            # the build clock nor insertion order can perturb the hash.
+            # Drop volatile build-time stamps and the generator's run record,
+            # then sort nodes by @id so neither the build clock, the run's cost,
+            # nor insertion order can perturb the hash.
             scrubbed = [
                 {k: v for k, v in node.items() if k not in _VOLATILE_NODE_KEYS}
                 if isinstance(node, dict)
                 else node
-                for node in graph
+                for node in _drop_run_provenance(graph)
             ]
             canonical: Any = sorted(
                 scrubbed,

@@ -128,6 +128,54 @@ A `build_and_validate` result may carry an **escalation** field: the user was as
 - At least one Assay (linked to Study)
 - Optionally: a Person, Organization, or File — but the Investigation+Study+Assay backbone is the quickest path to a passing crate
 
+### Connecting Entities: Try Yourself, Then Ask
+
+Extracting entities is the easy half. A crate with 22 compounds and no links
+between them is a list, not a graph — and it is the half that goes wrong. So:
+
+1. **Always attempt the connection yourself first.** Use the evidence you have:
+   the assay workbook names which chemicals were dosed in which exposure, the
+   SOP names the instrument, the file names carry plate/timepoint. Wire with
+   `link`, `attach_files`, `populate_condition_table`, `draft_process_chain`.
+2. **If a write does not take effect, STOP and re-read the error.** Do not
+   rewrite the same field in another encoding — a bare id, a list, an
+   `{"@id": …}` object and a `./#Type_id` are all accepted and stored
+   identically, so a second spelling changes nothing. If validation still
+   complains after a successful write, the field was not the problem.
+3. **When it is genuinely ambiguous, ASK.** Which of three assays a data file
+   belongs to; whether a compound is the test item or the reference; whether a
+   person is an author or the crate's publisher — these are not inferable from
+   the file names, and a wrong link is worse than an absent one because it
+   validates. Use `present_to_human` with the specific options you are choosing
+   between, and say what evidence you have for each.
+
+The bar for asking: you have tried, and the evidence genuinely does not decide
+it. Do not ask before trying; do not guess after failing.
+
+### Establish Who Owns the Crate (early, once)
+
+A crate that does not say who is responsible for it credits nobody. Settle this
+as soon as the backbone exists — do **not** leave it to the end:
+
+1. **Look first.** The assay metadata workbook usually names it outright:
+   `Corresponding person`, `Corresponding person_ORCID`,
+   `Corresponding person_Affiliation`, `Funding Agency`, `Grant_id`. Read those
+   fields before asking.
+2. **Draft and verify.** `draft_person` / `draft_organization` (or
+   `lookup_orcid` / `lookup_ror`) so the value is a resolvable identifier.
+3. **Record it** with `set_crate_metadata(publisher=…, creator=…, contact=…)`.
+   These take an entity id or a verified ORCID/ROR IRI and are REJECTED if they
+   do not resolve — a bare name is not attribution.
+4. **Confirm with the user.** State what you found and ask them to confirm or
+   correct it: "The metadata names Dr. X (ORCID …, Universiteit Utrecht) as the
+   corresponding person — should they be the crate's contact and publisher?"
+   The corresponding person of an assay is evidence, not proof, of who publishes
+   the dataset. If nothing names them, ASK rather than guess.
+
+The publication's authors are NOT this. They describe the paper; publisher /
+creator / contact describe the dataset. A crate can list six authors and still
+have no owner. `license` belongs here too — ask for it, never assume one.
+
 ### Once BASE Passes
 - Add the ISA structural layer: LabProcesses, Samples, data Files linked to Assays. Wire the derivation chain explicitly — create data files with `draft_file`, connect each process to what it consumes and produces with `link` (e.g. `link(process, 'result', file)`), and run `check_provenance` to confirm no process output dangles and no file is orphaned (Sample → CellCulture → Exposure → EndpointReadout → DataAnalysis).
 - Then the TOX domain layer: MolecularEntity lookups, Cellosaurus queries, AOP refs, BAO terms

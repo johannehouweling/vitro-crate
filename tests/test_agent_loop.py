@@ -1074,8 +1074,12 @@ class TestCompletenessNudge:
             "File",
         )
         nudge = _completeness_nudge(state)
-        assert "export_crate" in nudge or "export" in nudge.lower()
-        assert "build_and_validate" in nudge or "validate" in nudge.lower()
+        low = nudge.lower()
+        assert "export_crate" in nudge or "export" in low
+        # "validation" as well as "validate": the nudge names the missing STEP
+        # ("… validation, export"), not the tool, so matching only the verb form
+        # made this assertion sensitive to wording rather than to behaviour.
+        assert "build_and_validate" in nudge or "validat" in low, nudge
 
     def test_empty_state_nudge_does_not_crash(self):
         """An empty crate still yields a (short, non-crashing) nudge."""

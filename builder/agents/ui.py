@@ -147,6 +147,17 @@ class UiSnapshot:
     # context bloat, which the session total (a sum over every re-send) hides.
     turn_tokens_in: int = 0
     turn_tokens_out: int = 0
+    # The model actually answering. Read from the session profile once a reply
+    # has come back, else the configured model — so a fresh session still names
+    # what it is about to run.
+    model: str = ""
+    # Where the crate was written, and what is still open on it. Both belong in
+    # the goodbye summary: "where did my crate go" and "is it finished" are the
+    # two questions a user has when the session ends.
+    crate_path: str = ""
+    should_issue_count: int = 0
+    may_issue_count: int = 0
+    assessed_tiers: tuple[str, ...] = ()
 
 
 @dataclass
@@ -267,6 +278,14 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
 
     tokens_in, tokens_out, last_model = _read_token_totals(state.session_id)
     turn_in, turn_out = _read_turn_tokens(state.session_id)
+    model_name = last_model
+    if not model_name:
+        try:
+            from builder.config import get_active_model
+
+            model_name = get_active_model() or ""
+        except Exception:  # noqa: BLE001 — naming the model is advisory
+            logger.debug("active model unavailable", exc_info=True)
     cost_usd: float | None = None
     if tokens_in + tokens_out > 0:
         try:
@@ -296,6 +315,11 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
         cost_usd=cost_usd,
         turn_tokens_in=turn_in,
         turn_tokens_out=turn_out,
+        model=model_name,
+        crate_path=getattr(state.metadata, "output_path", "") or "",
+        should_issue_count=len(val.should_issues),
+        may_issue_count=len(val.may_issues),
+        assessed_tiers=tuple(sorted(getattr(val, "assessed_tiers", ()) or ())),
     )
 
 
@@ -306,6 +330,21 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
 
 def _dot(ok: bool) -> str:
     return _PASS_DOT if ok else _PENDING_DOT
+
+
+def _compact_model(name: str) -> str:
+    """A model name short enough for the pinned line, still recognisable.
+
+    Drops a provider prefix and a trailing release date — ``claude-sonnet-4``
+    identifies the model as well as ``anthropic/claude-sonnet-4-20250514`` and
+    leaves room for the counts that share the row. The header panel shows the
+    full name, so nothing is lost.
+    """
+    short = (name or "").rsplit("/", 1)[-1]
+    parts = short.split("-")
+    if len(parts) > 1 and parts[-1].isdigit() and len(parts[-1]) == 8:
+        short = "-".join(parts[:-1])
+    return short
 
 
 def _compact_tokens(count: int) -> str:
@@ -353,7 +392,12 @@ def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None =
         # rather than showing a misleading pair of zeros.
         turn_in = snap.turn_tokens_in or snap.tokens_in
         turn_out = snap.turn_tokens_out or snap.tokens_out
-        token_str = "  " + _SEP + "  " + field(
+        # The model sits at the head of the spend segment: it is what the tokens
+        # and the cost are being spent ON, so the three read as one fact.
+        model_prefix = (
+            f"{field('model', _compact_model(snap.model))}  {_SEP}  " if snap.model else ""
+        )
+        token_str = "  " + _SEP + "  " + model_prefix + field(
             "tokens",
             f"↑{_compact_tokens(turn_in)} ↓{_compact_tokens(turn_out)}"
             f"  {_compact_tokens(total)} tok{cost_str}",
@@ -374,6 +418,7 @@ def status_field_values(snap: UiSnapshot) -> dict[str, Any]:
     """The comparable value behind each status field, keyed as in *highlight*."""
     return {
         "session": snap.session_id,
+        "model": snap.model,
         "entities": snap.entity_count,
         "files": snap.file_count,
         "base": snap.base_passed,
@@ -521,6 +566,8 @@ def render_resume_summary(snap: UiSnapshot, *, resumed: bool) -> RenderableType:
     summary.add_column(style="white")
 
     summary.add_row("Session:", f"[cyan]{snap.session_id}[/cyan]")
+    if snap.model:
+        summary.add_row("Model:", f"[cyan]{snap.model}[/cyan]")
     summary.add_row("Entities:", f"[green]{snap.entity_count}[/green]")
     summary.add_row("Files:", f"[green]{snap.file_count}[/green]")
 
@@ -551,15 +598,26 @@ def render_resume_summary(snap: UiSnapshot, *, resumed: bool) -> RenderableType:
 
 
 def render_goodbye(
-    session_id: str, entity_counts: dict[str, int], *, resumable: bool
+    session_id: str,
+    entity_counts: dict[str, int],
+    *,
+    resumable: bool,
+    snap: UiSnapshot | None = None,
 ) -> RenderableType:
-    """The goodbye panel — session id, entity breakdown, and a resume hint.
+    """The goodbye panel — what was built, where it went, and what it cost.
+
+    A session ends with three unanswered questions: where is my crate, is it
+    finished, and what did that cost me? The entity breakdown alone answers
+    none of them. When *snap* is supplied, the panel adds the export path, the
+    outstanding issues per assessed tier, and the run's token spend.
 
     Args:
         session_id: The session identifier to echo.
         entity_counts: Per-type entity counts (``{}`` renders "0").
         resumable: When true, include the ``--resume`` command line (the
             caller decides this, e.g. only when a ``sessions/`` dir exists).
+        snap: Optional session snapshot supplying crate path, issues and cost.
+            Omitted (the default) renders the original three-row panel.
     """
     t = Table.grid(padding=(0, 1))
     t.add_column(style="yellow bold", width=14)
@@ -571,6 +629,43 @@ def render_goodbye(
         t.add_row("Entities:", parts)
     else:
         t.add_row("Entities:", "0")
+
+    if snap is not None:
+        t.add_row(
+            "Crate:",
+            f"[cyan]{snap.crate_path}[/cyan]"
+            if snap.crate_path
+            else "[yellow]not exported[/yellow] [dim]— ask me to export next time[/dim]",
+        )
+
+        # Only report a tier that actually ran: "0 recommended issues" would
+        # otherwise claim a clean bill of health for checks nobody performed.
+        conformance = "  ".join(
+            f"[{'green' if ok else 'red'}]{label}[/{'green' if ok else 'red'}]"
+            for label, ok in (
+                ("base", snap.base_passed),
+                ("ISA", snap.isa_passed),
+                ("Tox", snap.tox_passed),
+            )
+        )
+        open_counts: list[str] = [
+            f"[red]{snap.required_issue_count} required[/red]"
+            if snap.required_issue_count
+            else "[green]0 required[/green]"
+        ]
+        if "recommended" in snap.assessed_tiers:
+            open_counts.append(f"{snap.should_issue_count} recommended")
+        if "optional" in snap.assessed_tiers:
+            open_counts.append(f"{snap.may_issue_count} optional")
+        t.add_row("Validation:", f"{conformance}  [dim]·[/dim]  " + ", ".join(open_counts))
+
+        if snap.tokens_in + snap.tokens_out:
+            from builder.pricing import format_cost
+
+            total = _compact_tokens(snap.tokens_in + snap.tokens_out)
+            cost = format_cost(snap.cost_usd) if snap.cost_usd is not None else "cost unknown"
+            model = f" [dim]on {_compact_model(snap.model)}[/dim]" if snap.model else ""
+            t.add_row("This run:", f"[cyan]{cost}[/cyan] [dim]({total} tokens)[/dim]{model}")
 
     if resumable:
         t.add_row(
@@ -791,6 +886,18 @@ class PinnedFooter:
             f"[grey35]─[/grey35]"
         )
 
+    def line_width(self) -> int:
+        """Columns a footer row can paint into (0 when the footer is inactive).
+
+        Handed to the spinner so a streamed reply tail can fill the row exactly
+        — the footer truncates the HEAD of an over-long line, which for a
+        moving tail would show the wrong end of the text.
+        """
+        if not self._active:
+            return 0
+        width, _height = self._terminal_size()
+        return max(0, width - 1)
+
     def set_activity(self, markup: str | None) -> None:
         """Show (``None`` clears) the working line on the footer's middle row.
 
@@ -894,6 +1001,57 @@ class PinnedFooter:
                 self.refresh()
 
 
+class TransientReplies:
+    """Prints agent replies so that running commentary overwrites itself.
+
+    An autonomous run narrates every step — "Let me fix the two issues", "Let me
+    build and validate" — and each line is superseded by the next one seconds
+    later. Scrolled into the transcript they bury the output that matters; kept
+    transient, the newest one simply replaces the last.
+
+    A transient reply is erased only when it is still the last thing on screen.
+    Anything else printing in between (an export path, a tool result, the user's
+    own line) calls :meth:`invalidate`, and the reply then stays put rather than
+    having its lines cut out from under whatever followed it.
+
+    Off a terminal this is a plain passthrough, so piped output and CI logs keep
+    the full transcript.
+    """
+
+    def __init__(self, console: Console) -> None:
+        self._console = console
+        self._height = 0
+
+    def invalidate(self) -> None:
+        """Forget the last reply — something else has been printed since."""
+        self._height = 0
+
+    def print(self, content: Any, *, transient: bool = False) -> None:
+        """Print *content* as an agent reply, optionally as overwritable narration."""
+        if not content:
+            return
+        renderable = render_reply(content)
+        erasable = bool(getattr(self._console, "is_terminal", False))
+        if erasable and self._height:
+            # Walk up over the previous reply, clearing each line. Deliberately
+            # NOT "erase to end of screen": that would also wipe the pinned
+            # footer on the bottom rows.
+            try:
+                self._console.file.write("\x1b[1A\x1b[2K" * self._height)
+                self._console.file.flush()
+            except Exception:  # noqa: BLE001 — chrome must never break a turn
+                logger.debug("transient reply erase failed", exc_info=True)
+        self._height = 0
+        self._console.print(renderable)
+        if erasable and transient:
+            try:
+                self._height = len(
+                    self._console.render_lines(renderable, pad=False)
+                )
+            except Exception:  # noqa: BLE001 — fall back to leaving it on screen
+                logger.debug("transient reply height failed", exc_info=True)
+
+
 def make_status_footer(engine: AgentEngine, console: Console | None = None) -> PinnedFooter:
     """A :class:`PinnedFooter` showing *engine*'s live status line (both arms).
 
@@ -952,9 +1110,17 @@ def print_resume_summary(engine: AgentEngine, *, resumed: bool) -> None:
     fresh ``--input`` run a resume.
     """
     snap = snapshot_from_engine(engine)
+    console = get_console()
     if snap.entity_count or snap.file_count:
-        console = get_console()
         console.print(render_resume_summary(snap, resumed=resumed))
+        console.print()
+    elif snap.model:
+        # Nothing built yet, so the panel would be an empty box — but the model
+        # about to spend the user's money is still worth stating up front.
+        console.print(
+            f"[dim]session[/dim] [cyan]{snap.session_id}[/cyan]  {_SEP}  "
+            f"[dim]model[/dim] [cyan]{snap.model}[/cyan]"
+        )
         console.print()
 
 
@@ -972,7 +1138,9 @@ def print_goodbye(engine: AgentEngine, *, resumable: bool | None = None) -> None
     snap = snapshot_from_engine(engine)
     console = get_console()
     console.print()
-    console.print(render_goodbye(snap.session_id, snap.entity_counts, resumable=resumable))
+    console.print(
+        render_goodbye(snap.session_id, snap.entity_counts, resumable=resumable, snap=snap)
+    )
     console.print()
 
 

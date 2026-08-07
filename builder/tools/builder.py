@@ -19,7 +19,7 @@ from rocrate.rocrate import ROCrate
 
 import builder.config as _config
 from builder.state import CrateState
-from builder.tools._crate_mapping import populate_crate
+from builder.tools._crate_mapping import _file_dest, populate_crate
 from profiles.context import ISA_TOX_CONTEXT
 
 logger = logging.getLogger(__name__)
@@ -367,6 +367,14 @@ def export_crate(
                     validation_info["error"],
                 )
 
+        # Stamp what produced this crate — application, version, model, and the
+        # run's tokens/cost/wall-clock — immediately before assembly, so the
+        # figures cover the whole session up to this write (#generator).
+        try:
+            state.stamp_generator()
+        except Exception as gen_err:  # noqa: BLE001 — provenance never fails an export
+            logger.warning("Could not record generator provenance: %s", gen_err)
+
         crate = assemble_crate(state, output_dir, materialize_payload=True)
         # Embed the standard ro-crate-py preview (ro-crate-preview.html, a
         # CreativeWork about ./) so the written crate is browsable without
@@ -393,10 +401,25 @@ def export_crate(
 
         crate.write(str(output_dir))
 
+        # Remember where it landed: without this the state cannot say where the
+        # crate went, so the goodbye summary (and a later re-export) had to guess
+        # the default even when the caller named a different destination.
+        state.metadata.output_path = output_path
+
         logger.info("Crate exported to %s", output_path)
         out: dict[str, Any] = {"success": True, "crate_path": output_path, "error": None}
         if validation_info is not None:
             out["validation"] = validation_info
+        # Empty templates written to keep the derivation chain complete (#438).
+        # Returned so the caller can ask the user to confirm or replace them —
+        # they are the one part of the payload that carries no real data.
+        provisional = sorted(
+            _file_dest(fe)
+            for fe in state.list_entities("File")
+            if fe.fields.get("provisional")
+        )
+        if provisional:
+            out["provisional_tables"] = provisional
         return out
 
     except OSError as e:
