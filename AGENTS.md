@@ -1774,6 +1774,12 @@ not a validity blocker, since `datePublished` is auto-set by ro-crate-py).
 > a schema advertising a tool the engine cannot run, fails fast in either direction, so
 > the A/B always compares the *same* toolbox. A genuinely engine-routed tool (present
 > to the LLM but not in the registry) is declared once, in `_LLM_TOOLS_OUTSIDE_REGISTRY`.
+> That parity assert is also ReAct's *reachability* guard — an advertised tool is one the
+> model can always reach. The pipeline half is `PIPELINE_UNREACHED` +
+> `assert_pipeline_reachability()` in `builder/tools/reachability.py`, checked in CI by
+> `tests/test_tool_reachability.py` (#386): a registered tool with no call site reachable
+> from the deterministic arm fails unless it carries a waiver stating why, and a waiver
+> naming a tool that has since been wired fails too.
 
 ### 14.5 The pipeline spine (`builder/agents/pipeline/pipeline.py`)
 
