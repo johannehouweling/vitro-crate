@@ -563,6 +563,10 @@ class CrateMetadata:
     input_type: InputType = "directory"
     input_path: str | None = None
     output_path: str | None = None
+    # When the crate was last written to ``output_path`` (ISO-8601, local tz).
+    # A session that has never exported leaves this None — distinguishable from
+    # "exported but the path is unknown", which the dashboard reports differently.
+    exported_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"input_type": self.input_type}
@@ -584,6 +588,8 @@ class CrateMetadata:
             d["input_path"] = self.input_path
         if self.output_path is not None:
             d["output_path"] = self.output_path
+        if self.exported_at is not None:
+            d["exported_at"] = self.exported_at
         return d
 
     @classmethod
@@ -603,6 +609,7 @@ class CrateMetadata:
             input_type=data.get("input_type", "directory"),  # type: ignore[arg-type]
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
+            exported_at=data.get("exported_at"),
         )
 
 
@@ -1220,13 +1227,15 @@ class CrateState:
             self.metadata.to_dict() if hasattr(self.metadata, "to_dict") else None
         )
         if metadata is not None:
-            # ``output_path`` is WHERE the crate gets written, not anything the
-            # validator can observe — two exports of an identical crate to
-            # different directories produce the same verdict. Leaving it in made
-            # `export_crate` (which sets it) look like a content change, so the
-            # recorded verdict read as stale and `ensure_validated` re-ran a full
-            # 3-pass SHACL sweep on every export to a new path.
-            metadata = {k: v for k, v in metadata.items() if k != "output_path"}
+            # WHERE the crate was written and WHEN — neither is anything the
+            # validator can observe. Two exports of an identical crate to
+            # different directories, or at different times, produce the same
+            # verdict. Leaving them in made `export_crate` (which sets both) look
+            # like a content change, so the recorded verdict read as stale and
+            # `ensure_validated` re-ran a full 3-pass SHACL sweep on every export.
+            metadata = {
+                k: v for k, v in metadata.items() if k not in ("output_path", "exported_at")
+            }
         content = {
             "entities": self.entities.to_dict()
             if hasattr(self.entities, "to_dict")

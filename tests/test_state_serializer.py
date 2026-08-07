@@ -169,3 +169,46 @@ class TestCrateStateDelegation:
         state = _populated_state()
         restored = CrateState.from_json(state.to_json())
         assert restored.to_dict() == state.to_dict()
+
+
+class TestExportStamp:
+    """``export_crate`` records WHERE and WHEN, and neither disturbs validation."""
+
+    def test_exported_at_round_trips(self):
+        state = CrateState()
+        state.metadata.output_path = "/data/crate"
+        state.metadata.exported_at = "2026-08-07T11:42:31+02:00"
+        restored = StateSerializer.from_dict(StateSerializer.to_dict(state))
+        assert restored.metadata.exported_at == "2026-08-07T11:42:31+02:00"
+        assert restored.metadata.output_path == "/data/crate"
+
+    def test_absent_stamp_stays_absent(self):
+        """A session that never exported must not gain a spurious key.
+
+        The dashboard tells "never exported" from "exported before stamping"
+        by presence, so an empty string or a default would erase that.
+        """
+        data = StateSerializer.to_dict(CrateState())
+        assert "exported_at" not in data["metadata"]
+        assert StateSerializer.from_dict(data).metadata.exported_at is None
+
+    def test_stamp_does_not_move_the_validation_fingerprint(self):
+        """Exporting must not invalidate a recorded verdict.
+
+        ``exported_at`` lives in metadata, which the fingerprint hashes — and
+        `export_crate` sets it on every write. Left in, the recorded verdict
+        would read as stale immediately after every export and `ensure_validated`
+        would re-run a full 3-pass SHACL sweep. Same reason `output_path` is
+        excluded.
+        """
+        state = CrateState()
+        state.metadata.title = "Crate"
+        before = state.validation_fingerprint()
+
+        state.metadata.output_path = "/data/crate"
+        state.metadata.exported_at = "2026-08-07T11:42:31+02:00"
+        assert state.validation_fingerprint() == before
+
+        # Control: real metadata still moves it, so the exclusion is not blanket.
+        state.metadata.title = "Renamed"
+        assert state.validation_fingerprint() != before
