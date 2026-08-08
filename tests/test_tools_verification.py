@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
-from builder.state import Entity, EntityProvenance
+from builder.state import Entity, EntityProvenance, FieldCompletion
 from builder.tools.verification import (
     _IDENTIFIER_FIELDS,
     _get_verifiable_fields,
     verify_all_identifiers,
     verify_identifier,
 )
+
+
+def _status(entity: Entity, field: str) -> FieldCompletion:
+    """The field's completion record, asserted present.
+
+    `get_field_status` is Optional-typed, so a field that was never tracked
+    would otherwise surface as `AttributeError: 'NoneType'` instead of naming
+    the field whose status the test expected to exist.
+    """
+    fc = entity.get_field_status(field)
+    assert fc is not None, f"no completion status recorded for {field!r}"
+    return fc
 
 
 class TestVerifyIdentifier:
@@ -355,3 +367,163 @@ class TestVerifiableFieldSet:
                 f"{field} is in _IDENTIFIER_FIELDS but NOT in derived "
                 f"verifiable fields — they must be kept in sync"
             )
+
+
+class TestCellLineAccessionIdentityCheck:
+    """A cell-line accession must resolve to *this* cell line, not merely resolve.
+
+    Regression cover for #383: `lookup_cell_line` answers "is this a real
+    Cellosaurus record?", which a transposed-but-real accession passes. Before
+    this gate, `CVCL_0027` (HepG2) attached to a CHO-K1 sample was stamped
+    `verified`/`lookup` and exported with that provenance.
+    """
+
+    @staticmethod
+    def _cell_line(name: str, accession: str = "CVCL_0027") -> Entity:
+        entity = Entity(
+            entity_id="cell_001",
+            type="CellLineSample",
+            fields={"name": name, "accession": accession},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        entity.set_field_status("accession", "filled", "llm")
+        return entity
+
+    @staticmethod
+    def _resolves_to(monkeypatch, name: str, alternates: list[str] | None = None) -> None:
+        data: dict = {"name": name, "identifier": f"https://www.cellosaurus.org/{name}"}
+        if alternates:
+            data["alternateName"] = alternates
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_cell_line",
+            lambda _q: {"found": True, "data": data, "error": None},
+        )
+
+    def test_transposed_accession_is_not_marked_verified(self, minimal_state, monkeypatch):
+        """The issue's exact failure: a real accession for the wrong cell line."""
+        state = minimal_state
+        state.add_entity(self._cell_line("CHO-K1 hOATP1C1"))
+        self._resolves_to(monkeypatch, "HepG2")
+
+        result = verify_identifier(state, "cell_001", "accession")
+
+        assert result["verified"] is False
+        assert result["mismatch"] is True
+        assert result["resolved_name"] == "HepG2"
+        # Both names must appear so the verdict is actionable without a re-lookup.
+        assert "HepG2" in result["message"]
+        assert "CHO-K1 hOATP1C1" in result["message"]
+
+    def test_transposed_accession_does_not_gain_verified_provenance(
+        self, minimal_state, monkeypatch
+    ):
+        """The D5 violation is the *claim*, not just the return value.
+
+        Asserted on the entity itself: an exported crate reads the field status
+        and `lookups_used`, not verify_identifier's dict.
+        """
+        state = minimal_state
+        entity = self._cell_line("CHO-K1 hOATP1C1")
+        state.add_entity(entity)
+        self._resolves_to(monkeypatch, "HepG2")
+
+        verify_identifier(state, "cell_001", "accession")
+
+        assert _status(entity, "accession").status == "filled"
+        assert _status(entity, "accession").source == "llm"
+        assert "cellosaurus" not in entity._provenance.lookups_used
+
+    def test_mismatch_keeps_the_value(self, minimal_state, monkeypatch):
+        """Non-destructive by design — contrast with the not-found branch.
+
+        An engineered derivative legitimately fails a name match against its
+        parent record, so clearing would delete correctly-looked-up accessions.
+        """
+        state = minimal_state
+        entity = self._cell_line("CHO-K1 hOATP1C1")
+        state.add_entity(entity)
+        self._resolves_to(monkeypatch, "CHO-K1")
+
+        verify_identifier(state, "cell_001", "accession")
+
+        assert entity.fields["accession"] == "CVCL_0027"
+
+    def test_matching_name_still_verifies(self, minimal_state, monkeypatch):
+        """The gate must not break the legitimate path it guards."""
+        state = minimal_state
+        entity = self._cell_line("HepG2")
+        state.add_entity(entity)
+        self._resolves_to(monkeypatch, "HepG2")
+
+        result = verify_identifier(state, "cell_001", "accession")
+
+        assert result["verified"] is True
+        assert _status(entity, "accession").status == "verified"
+        assert "cellosaurus" in entity._provenance.lookups_used
+
+    def test_synonym_match_verifies(self, minimal_state, monkeypatch):
+        """Cellosaurus records carry synonyms; a synonym is still this record."""
+        state = minimal_state
+        state.add_entity(self._cell_line("Hep G2"))
+        self._resolves_to(monkeypatch, "HepG2", alternates=["Hep-G2", "Hep G2"])
+
+        assert verify_identifier(state, "cell_001", "accession")["verified"] is True
+
+    def test_name_match_ignores_case_and_whitespace(self, minimal_state, monkeypatch):
+        """Depositor spreadsheets are not normalized; casing must not be a mismatch."""
+        state = minimal_state
+        state.add_entity(self._cell_line("  hepg2 "))
+        self._resolves_to(monkeypatch, "HepG2")
+
+        assert verify_identifier(state, "cell_001", "accession")["verified"] is True
+
+    def test_unnamed_entity_falls_back_to_existence_only(self, minimal_state, monkeypatch):
+        """With no name in hand there is nothing to cross-check against.
+
+        Withholding verification here would be a false negative, not caution.
+        """
+        state = minimal_state
+        entity = Entity(
+            entity_id="cell_001",
+            type="CellLineSample",
+            fields={"accession": "CVCL_0027"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        entity.set_field_status("accession", "filled", "llm")
+        state.add_entity(entity)
+        self._resolves_to(monkeypatch, "HepG2")
+
+        assert verify_identifier(state, "cell_001", "accession")["verified"] is True
+
+    def test_gate_also_covers_the_identifier_field(self, minimal_state, monkeypatch):
+        """Both `accession` and `identifier` route to Cellosaurus (#383 §4)."""
+        state = minimal_state
+        entity = Entity(
+            entity_id="cell_001",
+            type="CellLineSample",
+            fields={"name": "CHO-K1 hOATP1C1", "identifier": "CVCL_0027"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        entity.set_field_status("identifier", "filled", "llm")
+        state.add_entity(entity)
+        self._resolves_to(monkeypatch, "HepG2")
+
+        assert verify_identifier(state, "cell_001", "identifier")["mismatch"] is True
+
+    def test_other_entity_types_are_unaffected(self, minimal_state, monkeypatch):
+        """The gate is cell-line-specific: a compound name need not equal PubChem's."""
+        state = minimal_state
+        chem = Entity(
+            entity_id="chem_001",
+            type="MolecularEntity",
+            fields={"name": "T4", "identifier": "51-48-9"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        chem.set_field_status("identifier", "filled", "llm")
+        state.add_entity(chem)
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_compound",
+            lambda _q: {"found": True, "data": {"name": "Levothyroxine"}, "error": None},
+        )
+
+        assert verify_identifier(state, "chem_001", "identifier")["verified"] is True
