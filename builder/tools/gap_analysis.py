@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Literal
 
 from builder.state import CrateState, Entity
@@ -40,6 +39,8 @@ from builder.tools.field_kinds import (
 )
 from builder.tools.mit_assessment import (
     graph_nodes,
+    iter_scorable_params,
+    load_mit_yaml,
     slot_matcher,
     slot_type_present,
 )
@@ -49,8 +50,10 @@ logger = logging.getLogger(__name__)
 Tier = Literal["MUST", "SHOULD", "MAY"]
 Source = Literal["shacl", "mit", "fair"]
 
-# Path to the MIT YAML (shared with builder.tools.mit_assessment).
-MIT_YAML_PATH = Path(__file__).resolve().parent.parent.parent / "mit" / "invitro_tox.yaml"
+# The MIT checklist path, loader and parameter traversal all live in
+# builder.tools.mit_assessment (#357). This module had its own copy of each, with
+# its own dedup, and its own comment saying it "mirrors mit_assessment" — three
+# readers of one checklist, free to drift.
 
 
 @dataclass(frozen=True)
@@ -364,28 +367,6 @@ def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str
 # ---------------------------------------------------------------------------
 
 
-def _load_mit_yaml() -> dict[str, Any] | None:
-    """Load and parse the MIT YAML (mirrors mit_assessment._load_mit_yaml)."""
-    try:
-        import yaml
-
-        with open(MIT_YAML_PATH) as f:
-            return yaml.safe_load(f)
-    except Exception as e:  # noqa: BLE001 — best-effort, never crash the engine
-        logger.warning("gap engine: failed to load MIT YAML from %s: %s", MIT_YAML_PATH, e)
-        return None
-
-
-
-
-def _parse_crate_slots(slot_str: str) -> list[tuple[str, str]]:
-    """Parse ``"A:x;B:y"`` into ``[(A, x), (B, y)]`` (mirrors mit_assessment)."""
-    slots: list[tuple[str, str]] = []
-    for part in (p.strip() for p in slot_str.split(";")):
-        if ":" in part:
-            entity_type, field_name = part.split(":", 1)
-            slots.append((entity_type.strip(), field_name.strip()))
-    return slots
 
 
 def _mit_suggestion(param: dict[str, Any]) -> str | None:
@@ -424,7 +405,7 @@ def _mit_gaps(state: CrateState, *, graph: Any | None = None) -> tuple[list[Gap]
     ``report-only`` gap (#257, fix B) so the guidance loop never phrases it as a
     specific "this chemical / this protocol" that does not exist.
     """
-    mit_data = _load_mit_yaml()
+    mit_data = load_mit_yaml()
     if mit_data is None:
         return [], 0.0
 
@@ -436,92 +417,76 @@ def _mit_gaps(state: CrateState, *, graph: Any | None = None) -> tuple[list[Gap]
     matcher = slot_matcher(state, graph=graph)
     nodes = graph_nodes(graph) if graph is not None else None
     present_types = _present_entity_types(state)
-    modules = mit_data.get("modules", [])
     gaps: list[Gap] = []
     total_completed = 0
     total_required = 0
 
-    for module in modules:
-        all_params: list[dict[str, Any]] = []
-        for section in module.get("sections", []):
-            all_params.extend(section.get("parameters", []))
-        all_params.extend(module.get("parameters", []))
+    # ONE traversal, shared with the scorer (#357): section walk, dedup by id and
+    # the skip rule all live in `iter_scorable_params`, so "the gap engine emits a
+    # gap" and "the scorer counts the slot unfilled" range over the same
+    # parameters by construction rather than by two copies staying in step.
+    for _module, param, slots in iter_scorable_params(mit_data):
+        crate_slot = param.get("crate_slot", "")
+        total_required += 1
+        if any(matcher(et, f) for et, f in slots):
+            total_completed += 1
+            continue
 
-        # Deduplicate by parameter id (mirrors mit_assessment).
-        seen: set[str] = set()
-        unique_params: list[dict[str, Any]] = []
-        for param in all_params:
-            pid = param.get("id", "")
-            if pid and pid not in seen:
-                seen.add(pid)
-                unique_params.append(param)
-
-        for param in unique_params:
-            crate_slot = param.get("crate_slot", "")
-            if not crate_slot:
-                continue
-            slots = _parse_crate_slots(crate_slot)
-            total_required += 1
-            is_filled = any(matcher(et, f) for et, f in slots)
-            if is_filled:
-                total_completed += 1
-                continue
-
-            # Unfilled -> a gap. Tier from the `additional` flag.
-            additional = bool(param.get("additional", False))
-            tier: Tier = "MAY" if additional else "SHOULD"
-            # The first slot drives the routed property/entity_type (the canonical
-            # crate field the parameter maps to); the rest are alternatives.
-            slot_entity_type, slot_field = slots[0] if slots else (None, None)
-            param_name = param.get("name") or param.get("id") or slot_field or "parameter"
-            # (#257, fix B) Does ANY slot reference an entity type that actually has
-            # an instance? If not, the parameter is type-level only — there is no
-            # concrete entity to ask about, so phrasing it as a specific entity is
-            # exactly the bug (asking for "this chemical"'s CAS with zero chemicals).
-            has_instance = any(
-                slot_type_present(et, nodes) if nodes is not None else et in present_types
-                for et, _ in slots
-                if et
+        # Unfilled -> a gap. Tier from the `additional` flag.
+        additional = bool(param.get("additional", False))
+        tier: Tier = "MAY" if additional else "SHOULD"
+        # The first slot drives the routed property/entity_type (the canonical
+        # crate field the parameter maps to); the rest are alternatives.
+        slot_entity_type, slot_field = slots[0] if slots else (None, None)
+        param_name = param.get("name") or param.get("id") or slot_field or "parameter"
+        # (#257, fix B) Does ANY slot reference an entity type that actually has
+        # an instance? If not, the parameter is type-level only — there is no
+        # concrete entity to ask about, so phrasing it as a specific entity is
+        # exactly the bug (asking for "this chemical"'s CAS with zero chemicals).
+        has_instance = any(
+            slot_type_present(et, nodes) if nodes is not None else et in present_types
+            for et, _ in slots
+            if et
+        )
+        if not has_instance:
+            # No instance of any of the parameter's entity types: surface a
+            # creation-prompt, report-only gap (never a per-field ask on a
+            # non-existent entity).
+            message = (
+                f"No {slot_entity_type or 'matching'} recorded yet; the MIT "
+                f"profile expects '{param_name}' (crate_slot {crate_slot}). "
+                "Add one to capture it."
             )
-            if not has_instance:
-                # No instance of any of the parameter's entity types: surface a
-                # creation-prompt, report-only gap (never a per-field ask on a
-                # non-existent entity).
-                message = (
-                    f"No {slot_entity_type or 'matching'} recorded yet; the MIT "
-                    f"profile expects '{param_name}' (crate_slot {crate_slot}). "
-                    "Add one to capture it."
-                )
-                fix_hint = REPORT_ONLY
-            # MIT gaps are emitted crate-level (entity_id None). They are only
-            # committable when their field maps to a Root Data Entity slot; the
-            # rest have no deterministic settable target and are report-only, so
-            # the guidance loop surfaces them for context without burning a turn.
-            elif not _is_committable(state, None, slot_field, slot_entity_type):
-                message = (
-                    f"MIT parameter '{param_name}' is not yet captured (crate_slot {crate_slot})."
-                )
-                fix_hint = REPORT_ONLY
-            else:
-                message = (
-                    f"MIT parameter '{param_name}' is not yet captured (crate_slot {crate_slot})."
-                )
-                # MIT enrichment needs content the user provides or a drafter
-                # synthesizes; it is never a deterministic auto-fix (D5).
-                fix_hint = "ask-user" if not additional else "draft"
-            gaps.append(
-                Gap(
-                    tier=tier,
-                    source="mit",
-                    entity_id=None,
-                    entity_type=slot_entity_type,
-                    property=slot_field,
-                    message=message,
-                    suggestion=_mit_suggestion(param),
-                    fix_hint=fix_hint,
-                    auto_fixable=False,
-                )
+            fix_hint = REPORT_ONLY
+        # MIT gaps are emitted crate-level (entity_id None). They are only
+        # committable when their field maps to a Root Data Entity slot; the
+        # rest have no deterministic settable target and are report-only, so
+        # the guidance loop surfaces them for context without burning a turn.
+        elif not _is_committable(state, None, slot_field, slot_entity_type):
+            message = (
+                f"MIT parameter '{param_name}' is not yet captured (crate_slot {crate_slot})."
             )
+            fix_hint = REPORT_ONLY
+        else:
+            message = (
+                f"MIT parameter '{param_name}' is not yet captured (crate_slot {crate_slot})."
+            )
+            # MIT enrichment needs content the user provides or a drafter
+            # synthesizes; it is never a deterministic auto-fix (D5).
+            fix_hint = "ask-user" if not additional else "draft"
+        gaps.append(
+            Gap(
+                tier=tier,
+                source="mit",
+                entity_id=None,
+                entity_type=slot_entity_type,
+                property=slot_field,
+                message=message,
+                suggestion=_mit_suggestion(param),
+                fix_hint=fix_hint,
+                auto_fixable=False,
+            )
+        )
 
     overall = total_completed / total_required if total_required > 0 else 0.0
     return gaps, overall
