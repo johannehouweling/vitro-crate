@@ -6,13 +6,14 @@ It coordinates tool calls, validation, HITL checkpoints, and session persistence
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import builder.config as _config
-from builder.state import CrateState, ValidationReport
+from builder.state import CrateState
 from builder.tools.profiler import ProfilingLogger
 
 if TYPE_CHECKING:
@@ -139,16 +140,16 @@ _VALIDATION_LAYER_ORDER = {"base": 0, "isa": 1, "tox": 2}
 
 
 def _order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
-    """Return one severity tier as stable, layer-ordered display strings."""
-    selected = [i for i in issues if i.get("severity") == severity]
-    selected.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
-    return [
-        (
-            f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: "
-            f"{i.get('message') or ''}"
-        ).rstrip()
-        for i in selected
-    ]
+    """Return one severity tier as stable, layer-ordered display strings.
+
+    Thin delegation to :func:`builder.tools.validation.order_issues`, which is
+    where the definition lives so the engine write-back and ``export_crate``'s
+    own validation produce byte-identical reports. Kept as a module-level name
+    because ``tests/test_validation_writeback.py`` imports it from here.
+    """
+    from builder.tools.validation import order_issues
+
+    return order_issues(issues, severity)
 
 
 def _order_required_issues(issues: list[dict[str, Any]]) -> list[str]:
@@ -179,8 +180,65 @@ def _validation_input_hash(state: CrateState) -> str:
 # are gated by :meth:`AgentEngine._gate_file_read`. The value is the kwarg that
 # names the path(s): a single string for the per-file readers, ``"paths"`` (a
 # list) for ``read_multiple_files``.
-_DOCUMENT_EVIDENCE_MAX_CHARS = 12000
-_DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 30000
+# Per-document cap. Sized so ordinary submission documents are stored WHOLE: a
+# 22.8k-char SOP and a 32.5k-char study JSON were both cut to 12k, and the guard
+# then served those fragments back under the claim that they were "identical to
+# re-reading it". The model was missing half of one document and two-thirds of
+# the other, was told nothing was missing, and has no offset parameter to ask
+# for the rest — so it asked again, and again. A partial copy is no longer
+# served at all (see the reader guard), which makes this cap the line between
+# "answered from memory" and "re-read from disk" rather than a silent edit.
+_DOCUMENT_EVIDENCE_MAX_CHARS = 40000
+# The store must hold a whole working set, not most of one. A typical assay
+# submission is three documents — workbook, SOP, study JSON — which at full
+# length come to 8.7k + 22.8k + 32.5k = 64k chars. At the old 30k ceiling that
+# set did not fit, so every read evicted the document the model was about to ask
+# for next: one observed session re-read the same three files sixteen times
+# across fifteen turns, never once hitting the cache. Sized for four whole
+# documents at the per-document cap. This budget is storage only — the
+# prompt-side render (`_format_document_evidence`) has its own independent 12k
+# cap, so raising it costs session state, not context.
+_DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 160000
+
+# Readers whose successful output is kept as bounded session evidence, so the
+# "already loaded this document" guard can suppress an identical re-read. These
+# take a single ``path`` kwarg and return text.
+_DOCUMENT_EVIDENCE_TOOLS = frozenset(
+    {"read_file", "read_excel", "read_docx", "read_file_sample"}
+)
+
+# Reader outputs that can be losslessly squeezed before they reach the model.
+_JSON_SUFFIXES = (".json", ".jsonld")
+
+
+def _compact_reader_text(tool_name: str, path: Any, result: Any) -> Any:
+    """Strip formatting-only bulk from a reader result. Never drops content.
+
+    A pretty-printed study record is half indentation: the session's
+    ``S-VHPS26.json`` reads as 32,485 characters (~7,981 tokens) and re-serialises
+    to 15,350 (~4,372) with the identical object inside. Whitespace is the one
+    thing in a document that costs context and carries nothing, so it goes —
+    every key, every value and every ordering is preserved, which is what makes
+    this safe to do without being asked.
+
+    Compaction is the STARTING point, not a ceiling: the full text is still what
+    is stored and served, and anything that will not round-trip is returned
+    untouched rather than guessed at.
+    """
+    if tool_name not in _DOCUMENT_EVIDENCE_TOOLS or not isinstance(result, str):
+        return result
+    if not isinstance(path, str) or not path.lower().endswith(_JSON_SUFFIXES):
+        return result
+    try:
+        parsed = json.loads(result)
+    except (ValueError, TypeError):
+        return result  # not valid JSON (a sample/slice?) — leave it exactly as read
+    try:
+        compacted = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
+    except (TypeError, ValueError):  # pragma: no cover — json.loads output is dumpable
+        return result
+    return compacted if len(compacted) < len(result) else result
+
 
 _FILE_READ_TOOLS: dict[str, str] = {
     "read_file": "path",
@@ -440,6 +498,11 @@ class AgentEngine:
             return
         content = result[:_DOCUMENT_EVIDENCE_MAX_CHARS]
         evidence = dict(self.state.document_evidence)
+        # Re-insert rather than overwrite: assigning to an existing key keeps its
+        # original position, and eviction below pops from the front. Deleting
+        # first moves the entry to the back, so the front stays "least recently
+        # used" (`touch_document_evidence` does the same on a cache hit).
+        evidence.pop(relative, None)
         evidence[relative] = {
             "tool": tool_name,
             "path": relative,
@@ -447,12 +510,110 @@ class AgentEngine:
             "truncated": len(result) > len(content),
             "args": {k: v for k, v in kwargs.items() if k != "path"},
         }
+        # Never evict down to nothing: a single document larger than the whole
+        # budget would otherwise drop itself and cache nothing at all.
         while (
-            sum(len(str(item.get("content", ""))) for item in evidence.values())
+            len(evidence) > 1
+            and sum(len(str(item.get("content", ""))) for item in evidence.values())
             > _DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS
         ):
-            evidence.pop(next(iter(evidence)))
+            dropped = next(iter(evidence))
+            evidence.pop(dropped)
+            # Not silent: an eviction means the next read of that document pays a
+            # full re-read, and a run of these is the signature of a working set
+            # that does not fit the budget.
+            logger.info(
+                "Evidence budget full — dropped %s to make room for %s", dropped, relative
+            )
         self.state.document_evidence = evidence
+
+    def touch_document_evidence(self, key: str) -> None:
+        """Mark stored evidence as most recently used, so eviction skips it.
+
+        Called when the reader guard serves a document from evidence instead of
+        re-reading it. Without it the store ages by insertion time alone, and the
+        document the model keeps asking for is exactly the one evicted next.
+        """
+        evidence = self.state.document_evidence
+        item = evidence.get(key)
+        if item is None:
+            return
+        reordered = {k: v for k, v in evidence.items() if k != key}
+        reordered[key] = item
+        self.state.document_evidence = reordered
+
+    def _resolve_within_roots(self, path: Any) -> str | None:
+        """Resolve a bare filename to an absolute path inside an approved root.
+
+        Returns ``None`` unless *path* has no directory component and exactly one
+        file with that name exists under the approved roots — an ambiguous name
+        (the same basename in two subfolders) is left for the caller to refuse,
+        because picking one would silently read a file the agent did not ask for.
+
+        Prefers the scanned-file inventory (already built, no disk walk) and falls
+        back to a bounded ``rglob`` when the inventory is empty or predates the
+        file. Containment is re-checked on the result, so this can only ever widen
+        the agent's reach to files the sandbox would already have allowed.
+        """
+        from builder.tools.scanner import _contain
+
+        if not isinstance(path, str) or not path.strip():
+            return None
+        raw = path.strip()
+        name = Path(raw).name
+        if not name:
+            return None
+
+        # A path RELATIVE to the input root ("Assay_OATP1C1/Assay-metadata.xlsx")
+        # is the other shape a model naturally emits: it is how the file appears
+        # in the crate and in the inventory's relative listings. Resolved against
+        # the CWD it lands outside every approved root and was refused — one
+        # weak-model session lost 11 of 20 failed tool calls this way, retrying
+        # the same workbook six times. Joining it to an approved root can only
+        # reach files the sandbox already allows, and containment is re-checked.
+        if name != raw and not Path(raw).is_absolute():
+            for root in self.state.approved_scan_roots:
+                try:
+                    candidate = Path(root) / raw
+                    if not candidate.is_file():
+                        continue
+                    resolved = str(candidate.resolve())
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                if _contain(resolved, self.state.approved_scan_roots) is not None:
+                    return resolved
+            # FALL THROUGH to the basename match rather than refusing. A model
+            # that gets the folder wrong writes "Assay_OATP1C1/S-VHPS26.json"
+            # for a file sitting at the root, and returning None here refused it
+            # outright — while the identical mistake in ABSOLUTE form was already
+            # being repaired below. One session spent its whole budget retrying
+            # that path until the loop-breaker fired. The filename is the part
+            # the model got right; containment is re-checked on whatever matches,
+            # and an ambiguous name still refuses rather than guessing.
+
+        matches: list[str] = []
+        for scanned in self.state.scanned_files:
+            candidate = getattr(scanned, "path", None)
+            if candidate and Path(candidate).name == name:
+                matches.append(str(candidate))
+
+        if not matches:
+            for root in self.state.approved_scan_roots:
+                try:
+                    matches.extend(str(p) for p in Path(root).rglob(name) if p.is_file())
+                except (OSError, RuntimeError, ValueError):
+                    continue
+
+        unique = sorted({str(Path(m).resolve()) for m in matches})
+        if len(unique) != 1:
+            if len(unique) > 1:
+                logger.info(
+                    "Not resolving bare filename %r — %d files share that name",
+                    path,
+                    len(unique),
+                )
+            return None
+        return unique[0] if _contain(unique[0], self.state.approved_scan_roots) else None
 
     def _gate_file_read(self, tool_name: str, kwargs: dict[str, Any]) -> Any:
         """Sandbox a file-reading tool to ``approved_scan_roots`` (#167).
@@ -491,8 +652,52 @@ class AgentEngine:
                 kwargs["paths"] = allowed
             return _GATE_OK
 
-        path = kwargs.get(_FILE_READ_TOOLS[tool_name])
+        path_kwarg = _FILE_READ_TOOLS[tool_name]
+        path = kwargs.get(path_kwarg)
         if path is not None and _contain(path, roots) is not None:
+            # Contained, but does it exist? A model that guesses the right root and
+            # the wrong subfolder ("<root>/workbook.xlsx" for
+            # "<root>/Assay_OATP1C1/workbook.xlsx") produced a path that passes
+            # containment, so it skipped the basename rescue below and died as an
+            # "unreadable file" — telling the model the workbook was missing or
+            # corrupt when it was neither. One session then spent fifteen turns
+            # hunting for a file it had named correctly all along. Fall through to
+            # the same unambiguous-basename resolution used for outside-root paths.
+            try:
+                exists = Path(path).is_file()
+            except (OSError, RuntimeError, ValueError):
+                exists = False
+            if exists or tool_name in ("scan_files", "preview_archive", "unzip_file"):
+                return _GATE_OK
+            relocated = self._resolve_within_roots(path)
+            if relocated is None:
+                return _GATE_OK  # let the reader report it as unreadable
+            kwargs[path_kwarg] = relocated
+            logger.info(
+                "Path %r is inside an approved root but does not exist — reading the "
+                "one file of that name that does: %s",
+                path,
+                relocated,
+            )
+            return _GATE_OK
+
+        # A bare filename ("OATP1C1 SOP TH 250425.docx") is what the model
+        # naturally emits — it sees filenames in the scanned-file inventory, not
+        # absolute paths. Resolving it relative to the CWD puts it outside every
+        # approved root, so the read was refused, and because a refusal is never
+        # recorded as evidence the model simply tried again: one session spent 226
+        # of 235 reader calls re-reading three files it could never open this way.
+        # Resolve the basename inside the approved roots instead. Only an
+        # UNAMBIGUOUS match is accepted — several files sharing a name give no
+        # basis to pick one, so that still refuses rather than guessing.
+        resolved_path = self._resolve_within_roots(path)
+        if resolved_path is not None:
+            kwargs[path_kwarg] = resolved_path
+            logger.info(
+                "Resolved bare filename %r to %s inside an approved scan root",
+                path,
+                resolved_path,
+            )
             return _GATE_OK
 
         logger.warning(
@@ -740,6 +945,21 @@ class AgentEngine:
                 )
                 return refused
 
+        # Compact by DEFAULT, not on request. On the session's own workbook
+        # `compact` strips the repeated header row, the authoring-instructions
+        # Comments column and the empty cells for a 75% reduction (34,137 ->
+        # 8,675 chars; 12,016 -> 3,710 tokens) with the same values in it. Left
+        # opt-in, the saving depends on the model remembering a flag, and the one
+        # that forgets is exactly the one that can least afford the context. An
+        # explicit compact=False still wins — the raw sheet is one argument away.
+        #
+        # Applied HERE, before the dispatch splits: `read_excel` resolves through
+        # the generic registry, not `scanner_tools`, so setting this inside the
+        # scanner branch (where it first went) meant it never fired for the very
+        # tool it names. The evidence store learned the same lesson below.
+        if tool_name == "read_excel":
+            kwargs.setdefault("compact", True)
+
         # build_and_validate debounce (#155): when the validation inputs
         # (entities + crate metadata) and the requested scope are unchanged since
         # the last call, reuse the cached result and skip the ~3.7s SHACL re-run.
@@ -766,12 +986,21 @@ class AgentEngine:
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)
             result = self.human_interface.present(kwargs.get("context", ""), kwargs.get("options"))
+            # Persist the answer: it is otherwise only a tool result inside the
+            # graph checkpoint, which a rotated thread discards (#user_answers).
+            if isinstance(result, dict):
+                spoken = result.get("comments") or result.get("action") or ""
+                self.state.record_user_answer(kwargs.get("context", ""), str(spoken))
         elif tool_name == "request_input":
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)
             result = self.human_interface.request_input(
                 kwargs.get("prompt", ""), kwargs.get("field_type", "text")
             )
+            if isinstance(result, dict) and not result.get("skipped"):
+                self.state.record_user_answer(
+                    kwargs.get("prompt", ""), str(result.get("value") or "")
+                )
         elif tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
             # Prompt-once, children-only approval for a user-submitted folder
@@ -798,8 +1027,6 @@ class AgentEngine:
             if tool_name == "scan_files":
                 tool_kwargs["approved_roots"] = self.state.approved_scan_roots.copy()
             result = tool_fn(**tool_kwargs)
-            if tool_name in {"read_file", "read_excel", "read_docx", "read_file_sample"}:
-                self._store_document_evidence(tool_name, kwargs.get("path", ""), result, kwargs)
             # Fold sandbox-refused paths back into read_multiple_files' own
             # ``skipped`` list so the agent sees them as unread (#167).
             if (
@@ -844,6 +1071,25 @@ class AgentEngine:
                 result = spec.fn(self.state, **call_kwargs)
             else:
                 result = spec.fn(**call_kwargs)
+
+        # Record successful reader output as bounded session evidence. This sits
+        # AFTER every dispatch branch on purpose: `read_file`/`read_excel`/
+        # `read_docx` resolve through the generic registry below, not through
+        # `scanner_tools`, so hooking this inside the scanner branch (where it
+        # used to live) meant it only ever fired for `read_file_sample` and the
+        # evidence store stayed permanently empty — taking the "already loaded
+        # this document" de-duplication down with it.
+        # Squeeze formatting-only bulk out of reader output. Same placement
+        # lesson as the evidence store directly below: this must sit AFTER every
+        # dispatch branch, because the readers it targets do not go through
+        # `scanner_tools`. Hooked inside that branch it silently did nothing —
+        # a session stored its 32,484-char study record whole when 15,335 chars
+        # of identical JSON would have done.
+        if tool_name in _DOCUMENT_EVIDENCE_TOOLS:
+            result = _compact_reader_text(tool_name, kwargs.get("path"), result)
+            self._store_document_evidence(
+                tool_name, str(kwargs.get("path", "")), result, kwargs
+            )
 
         # Memoize a fresh, non-error build_and_validate result for the debounce
         # above (#155). Bounded so a long session cannot grow the cache without
@@ -930,36 +1176,9 @@ class AgentEngine:
         ``profile=`` call) keep their prior value, and an errored result is left
         untouched so a transient failure never wipes known issues.
         """
-        if tool_name == "validate" and isinstance(result, ValidationReport):
-            self.state.validation = result
-            return
-        if tool_name == "build_and_validate" and isinstance(result, dict):
-            if "error" in result:
-                return
-            conformance = result.get("conformance") or {}
-            if not conformance:
-                return
-            report = self.state.validation
-            if "base" in conformance:
-                report.base_passed = bool(conformance["base"])
-            if "isa" in conformance:
-                report.isa_passed = bool(conformance["isa"])
-            if "tox" in conformance:
-                report.tox_passed = bool(conformance["tox"])
-            issues = result.get("issues") or []
-            # The caller's kwarg wins; fall back to the severity the validator
-            # stamped on its own result before assuming "required", so a
-            # recommended/optional result can never be filed as REQUIRED issues.
-            severity = str(severity or result.get("severity") or "required")
-            if severity == "required":
-                report.required_issues = _order_issues(issues, "required")
-                report.assessed_tiers.add("required")
-            elif severity == "recommended":
-                report.should_issues = _order_issues(issues, "recommended")
-                report.assessed_tiers.add("recommended")
-            elif severity == "optional":
-                report.may_issues = _order_issues(issues, "optional")
-                report.assessed_tiers.add("optional")
+        from builder.tools.validation import apply_validation_result
+
+        apply_validation_result(self.state, tool_name, result, severity=severity)
 
     def close_profiler(self) -> None:
         """Close the profiling log file, if open.

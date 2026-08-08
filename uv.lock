@@ -6129,6 +6129,7 @@ dependencies = [
     { name = "roc-validator" },
     { name = "rocrate" },
     { name = "watchfiles" },
+    { name = "xlrd" },
 ]
 
 [package.optional-dependencies]
@@ -6175,6 +6176,7 @@ requires-dist = [
     { name = "roc-validator", specifier = ">=0.11.0" },
     { name = "rocrate", specifier = ">=0.15.0" },
     { name = "watchfiles", specifier = ">=1.0.0" },
+    { name = "xlrd", specifier = ">=2.0.1" },
 ]
 provides-extras = ["langchain"]
 

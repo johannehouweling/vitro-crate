@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from builder.tools.lookups import (
+    cell_line_names_match,
     lookup_aop,
     lookup_bao_term,
     lookup_cell_line,
@@ -876,3 +877,47 @@ class TestNoRedundantSleeps:
         assert offenders == [], (
             f"time.sleep must live only in _HostRateLimiter, found in: {offenders}"
         )
+
+
+class TestCellLineNamesMatch:
+    """The single definition of "this name matches this record" (#383).
+
+    Both `lookup_cell_line_by_name` (commit an accession?) and
+    `verify_identifier` (does this accession belong here?) route through this
+    helper so the two answers cannot drift apart.
+    """
+
+    def test_exact_name_matches(self):
+        assert cell_line_names_match("HepG2", "HepG2") is True
+
+    def test_case_and_whitespace_are_normalized(self):
+        assert cell_line_names_match("  hep g2 ", "Hep  G2") is True
+
+    def test_synonym_matches(self):
+        assert cell_line_names_match("Hep-G2", "HepG2", ["Hep-G2", "HEPG2"]) is True
+
+    def test_different_cell_line_does_not_match(self):
+        assert cell_line_names_match("CHO-K1", "HepG2") is False
+
+    def test_derivative_does_not_match_its_parent(self):
+        """Deliberately exact, not fuzzy.
+
+        An engineered derivative is a *different* sample from its parent record,
+        so this returns False. Callers must read that as "cannot vouch for it",
+        not "wrong" — which is why the verifier keeps the value on a mismatch.
+        """
+        assert cell_line_names_match("CHO-K1 hOATP1C1", "CHO-K1") is False
+
+    def test_substring_is_not_a_match(self):
+        """Prefix/token overlap is exactly what the D5 gate exists to reject."""
+        assert cell_line_names_match("HepG2/C3A", "HepG2") is False
+        assert cell_line_names_match("Hep", "HepG2") is False
+
+    def test_empty_query_never_matches(self):
+        """An absent name must not match an absent record field into a false yes."""
+        assert cell_line_names_match("", "HepG2") is False
+        assert cell_line_names_match("", "") is False
+
+    def test_synonyms_argument_is_optional(self):
+        assert cell_line_names_match("HepG2", "HepG2", []) is True
+        assert cell_line_names_match("HepG2", "HepG2", None) is True

@@ -543,3 +543,290 @@ class TestValueUrlDropsOnMultivaluedColumn:
         body = self._HEADER + "A1,uptake,CHO-K1,Thyroxine\nA2,uptake,CHO-K1,Triiodothyronine\n"
         self._export_value_urls(out, body, ["chem_t4", "chem_t3"])
         assert (out / self._REL).read_text(encoding="utf-8") == body
+
+
+class TestPlateMapIntakeByFormat:
+    """``populate_condition_table`` dispatches on the file's format (#422).
+
+    The spine classifies a plan file as ``condition_table`` by ROLE, not by
+    extension, so the real deposit's ``.xlsx`` plate map reached a UTF-8
+    ``csv.DictReader`` and raised ``UnicodeDecodeError`` on the first ZIP byte.
+    The spine swallowed that into a ``reason:`` string and the crate shipped a
+    header-only table with nothing said about why.
+    """
+
+    def _exposure(self, tmp_path):
+        from builder.state import CrateState
+        from builder.tools.composites import draft_process_chain, scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "Plate map intake"
+        state.metadata.output_path = str(tmp_path / "crate")
+        scaffold = scaffold_isa_backbone(
+            state, investigation={"name": "I"}, study={"name": "S"}, assay={"name": "A"}
+        )
+        draft_process_chain(state, scaffold["assay_id"], chain=[{"process_type": "Exposure"}])
+        exposure = next(
+            p
+            for p in state.list_entities("LabProcess")
+            if p.fields.get("process_type") == "Exposure"
+        )
+        return state, exposure.entity_id
+
+    def _workbook(self, path) -> None:
+        import openpyxl
+
+        book = openpyxl.Workbook()
+        cover = book.active
+        cover.title = "Cover"
+        cover.append(["Depositor", "Notes"])
+        cover.append(["Lab X", "read me first"])
+        plate = book.create_sheet("Plate map")
+        plate.append(["well_id", "compound", "concentration_value", "concentration_unit"])
+        for index, compound in enumerate(["BPA", "Lesinurad", "Quercetin"], start=1):
+            plate.append([index, compound, 10.0, "uM"])
+        book.save(path)
+
+    def test_xlsx_plate_map_is_read(self, tmp_path) -> None:
+        from builder.tools.data_content import populate_condition_table
+
+        state, exposure_id = self._exposure(tmp_path)
+        book = tmp_path / "platemap.xlsx"
+        self._workbook(book)
+        out = populate_condition_table(state, exposure_id, str(book))
+        assert out["ok"], out
+        assert out["rows"] == 3
+
+    def test_the_data_sheet_is_chosen_not_the_first(self, tmp_path) -> None:
+        # A depositor workbook opens on a cover page; "first sheet" would read it.
+        from builder.tools.data_content import populate_condition_table
+
+        state, exposure_id = self._exposure(tmp_path)
+        book = tmp_path / "platemap.xlsx"
+        self._workbook(book)
+        assert populate_condition_table(state, exposure_id, str(book))["sheet"] == "Plate map"
+
+    def test_integral_floats_do_not_become_1_point_0(self, tmp_path) -> None:
+        # openpyxl types every numeric cell as float; a well_id of "1.0" breaks
+        # the downstream valueUrl/multivalued string comparisons.
+        from pathlib import Path
+
+        from builder.tools.data_content import populate_condition_table
+
+        state, exposure_id = self._exposure(tmp_path)
+        book = tmp_path / "platemap.xlsx"
+        self._workbook(book)
+        out = populate_condition_table(state, exposure_id, str(book))
+        first = Path(out["path"]).read_text(encoding="utf-8").splitlines()[1]
+        assert first.startswith("1,"), first
+
+    def test_tsv_is_not_parsed_as_one_fat_column(self, tmp_path) -> None:
+        from builder.tools.data_content import populate_condition_table
+
+        state, exposure_id = self._exposure(tmp_path)
+        tsv = tmp_path / "plate.tsv"
+        tsv.write_text("well_id\tcompound\nA1\tBPA\n", encoding="utf-8")
+        assert populate_condition_table(state, exposure_id, str(tsv))["ok"]
+
+    def test_unreadable_format_is_refused_by_name(self, tmp_path) -> None:
+        # Previously a UnicodeDecodeError escaped into the spine's generic
+        # handler; now it names the file and the reader that could not take it.
+        from builder.tools.data_content import populate_condition_table
+
+        state, exposure_id = self._exposure(tmp_path)
+        sop = tmp_path / "sop.docx"
+        sop.write_bytes(b"PK\x03\x04binary")
+        out = populate_condition_table(state, exposure_id, str(sop))
+        assert out["ok"] is False
+        assert out["read_failed"] is True
+        assert "sop.docx" in out["error"]
+        assert ".docx" in out["reader"]
+
+    def test_workbook_with_no_usable_sheet_says_what_it_tried(self, tmp_path) -> None:
+        import openpyxl
+
+        from builder.tools.data_content import populate_condition_table
+
+        state, exposure_id = self._exposure(tmp_path)
+        book = openpyxl.Workbook()
+        sheet = book.active
+        sheet.title = "Notes"
+        sheet.append(["comment"])
+        sheet.append(["nothing tabular here"])
+        path = tmp_path / "notes.xlsx"
+        book.save(path)
+        out = populate_condition_table(state, exposure_id, str(path))
+        assert out["ok"] is False
+        assert "no sheet" in out["error"]
+        assert "Notes" in out["error"]
+
+
+class TestPayloadLayerRunsOnThePipelineArm:
+    """The Frictionless data-content layer is REQUIRED and used to never run (#409).
+
+    AGENTS.md lists it as REQUIRED, but the spine only ever called
+    `build_and_validate(profile="all")`, and `DATA_CONTENT_PROFILE = "data"` sits
+    deliberately outside the `all|base|isa|tox` set (#95). A crate could ship a
+    CSV contradicting its own declared `tableSchema` and every pass reported
+    clean. These cover the invocation, not the primitive — `validate_table`
+    itself is already exercised above.
+    """
+
+    @staticmethod
+    def _state_with(tmp_path, compounds=("Thyroxine",), cell_lines=("CHO-K1",)):
+        state = CrateState()
+        state.metadata.output_path = str(tmp_path)
+        for i, name in enumerate(compounds, 1):
+            state.add_entity(
+                Entity(
+                    entity_id=f"chem_{i:03d}",
+                    type="MolecularEntity",
+                    fields={"name": name},
+                    _provenance=EntityProvenance(created_by="llm"),
+                )
+            )
+        for i, name in enumerate(cell_lines, 1):
+            state.add_entity(
+                Entity(
+                    entity_id=f"cell_{i:03d}",
+                    type="CellLineSample",
+                    fields={"name": name},
+                    _provenance=EntityProvenance(created_by="llm"),
+                )
+            )
+        return state
+
+    @staticmethod
+    def _engine(state):
+        class _Engine:
+            def __init__(self, s):
+                self.state = s
+
+        return _Engine(state)
+
+    @staticmethod
+    def _write(tmp_path, rows: list[str]) -> str:
+        path = tmp_path / "condition_table.csv"
+        header = ",".join(c["titles"] for c in _CONDITION_TABLE_COLUMNS)
+        path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+        return str(path)
+
+    def test_a_bad_cell_is_reported(self, tmp_path):
+        """The exact defect the missing layer let through: a non-numeric dose."""
+        from builder.agents.pipeline.pipeline import _validate_populated_tables
+
+        path = self._write(tmp_path, ["1,Uptake,CHO-K1,Thyroxine,not-a-number,uM,24h,,,"])
+        issues = _validate_populated_tables(
+            self._engine(self._state_with(tmp_path)),
+            {"condition_table": {"populated": True, "rows": 1, "path": path}},
+        )
+
+        assert issues, "a non-numeric concentration_value must be reported"
+        assert any("concentration_value" in str(i.get("property") or "") for i in issues)
+        assert all(i["profile"] == "data" for i in issues)
+
+    def test_an_unknown_compound_is_reported(self, tmp_path):
+        """A cell naming no entity in the crate — the foreign-key half of the layer."""
+        from builder.agents.pipeline.pipeline import _validate_populated_tables
+
+        path = self._write(tmp_path, ["1,Uptake,CHO-K1,Mystery Compound,10,uM,24h,,,"])
+        issues = _validate_populated_tables(
+            self._engine(self._state_with(tmp_path)),
+            {"condition_table": {"populated": True, "rows": 1, "path": path}},
+        )
+
+        assert any("Mystery Compound" in i["message"] for i in issues), issues
+
+    def test_a_correct_table_is_clean(self, tmp_path):
+        """Guards the failure mode that makes a checker worthless: firing on good data.
+
+        The `compound`/`cell_line` cells carry entity NAMES, so an id-only
+        allow-list would flag every row of a perfectly correct table.
+        """
+        from builder.agents.pipeline.pipeline import _validate_populated_tables
+
+        path = self._write(
+            tmp_path,
+            [
+                "1,Uptake,CHO-K1,Thyroxine,10,uM,24h,,,",
+                "2,Uptake,CHO-K1,Silychristin,2.5,uM,24h,,,",
+            ],
+        )
+        issues = _validate_populated_tables(
+            self._engine(self._state_with(tmp_path, compounds=("Thyroxine", "Silychristin"))),
+            {"condition_table": {"populated": True, "rows": 2, "path": path}},
+        )
+
+        assert issues == [], issues
+
+    def test_a_blank_optional_cell_is_not_an_issue(self, tmp_path):
+        """`propose_condition_rows` leaves a cell blank when the crate never states it.
+
+        D5 requires that blank; flagging it would punish the honest behaviour.
+        """
+        from builder.agents.pipeline.pipeline import _validate_populated_tables
+
+        path = self._write(tmp_path, ["1,Uptake,,Thyroxine,,,,,,"])
+        issues = _validate_populated_tables(
+            self._engine(self._state_with(tmp_path)),
+            {"condition_table": {"populated": True, "rows": 1, "path": path}},
+        )
+
+        assert issues == [], issues
+
+    def test_an_entity_id_is_accepted_as_well_as_a_name(self, tmp_path):
+        """`propose_condition_rows` falls back to entity_id for an unnamed compound."""
+        from builder.agents.pipeline.pipeline import _validate_populated_tables
+
+        path = self._write(tmp_path, ["1,Uptake,CHO-K1,chem_001,10,uM,24h,,,"])
+        issues = _validate_populated_tables(
+            self._engine(self._state_with(tmp_path)),
+            {"condition_table": {"populated": True, "rows": 1, "path": path}},
+        )
+
+        assert issues == [], issues
+
+    @pytest.mark.parametrize(
+        "materialized",
+        [
+            {},
+            {"condition_table": {"populated": False, "reason": "no plate map"}},
+            {"condition_table": {"populated": True, "rows": 0, "path": "x.csv"}},
+            {"condition_table": {"populated": True, "rows": 3, "path": ""}},
+        ],
+        ids=["absent", "not-populated", "zero-rows", "no-path"],
+    )
+    def test_it_stays_silent_when_no_rows_landed(self, materialized):
+        """The header-only placeholder is valid by construction; validating it is cost."""
+        from builder.agents.pipeline.pipeline import _validate_populated_tables
+
+        assert _validate_populated_tables(self._engine(CrateState()), materialized) == []
+
+    def test_a_missing_table_never_breaks_the_build(self, tmp_path):
+        """The payload layer is additive — it must not fail a build whose metadata is fine."""
+        from builder.agents.pipeline.pipeline import _validate_populated_tables
+
+        issues = _validate_populated_tables(
+            self._engine(self._state_with(tmp_path)),
+            {"condition_table": {"populated": True, "rows": 2, "path": str(tmp_path / "gone.csv")}},
+        )
+
+        assert issues == []
+
+    def test_data_issues_are_not_folded_into_conformance(self, tmp_path):
+        """A data-cell defect is not a SHACL failure; the two keys must stay apart.
+
+        Collapsing them would make `success` in the eval harness mean two
+        different things (#409, AGENTS.md §6).
+        """
+        from builder.agents.pipeline import pipeline as mod
+
+        path = self._write(tmp_path, ["1,Uptake,CHO-K1,Thyroxine,not-a-number,uM,24h,,,"])
+        issues = mod._validate_populated_tables(
+            self._engine(self._state_with(tmp_path)),
+            {"condition_table": {"populated": True, "rows": 1, "path": path}},
+        )
+
+        assert issues
+        assert all(i["profile"] == "data" for i in issues)
+        assert all(i["profile"] not in {"base", "isa", "tox"} for i in issues)

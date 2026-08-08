@@ -151,6 +151,108 @@ class TestArbitraryReadRefused:
         assert "a,b,c" in result
 
 
+class TestBareFilenameResolution:
+    """A bare filename resolves inside the approved roots — without widening them.
+
+    The model reads filenames off the scanned-file inventory, so it naturally
+    calls ``read_docx("SOP.docx")`` rather than passing an absolute path. That
+    resolved against the CWD, landed outside every approved root, and was
+    refused with a bare ``None`` that taught it nothing — one real session burnt
+    226 of 235 reader calls retrying three files it could never open that way.
+    """
+
+    def test_bare_filename_inside_approved_root_is_read(self, tmp_path):
+        approved = tmp_path / "approved"
+        (approved / "nested").mkdir(parents=True)
+        target = approved / "nested" / "notes.txt"
+        target.write_text("REAL CONTENT", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        assert engine.run_tool("read_file", path="notes.txt") == "REAL CONTENT"
+
+    def test_bare_filename_outside_approved_roots_is_still_refused(self, tmp_path):
+        approved = tmp_path / "approved"
+        approved.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("TOP SECRET", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        # Resolution searches the approved roots only — a name that exists solely
+        # outside them stays unreadable.
+        assert engine.run_tool("read_file", path="secret.txt") is None
+
+    def test_ambiguous_bare_filename_is_refused_rather_than_guessed(self, tmp_path):
+        approved = tmp_path / "approved"
+        (approved / "a").mkdir(parents=True)
+        (approved / "b").mkdir(parents=True)
+        (approved / "a" / "dup.txt").write_text("FROM A", encoding="utf-8")
+        (approved / "b" / "dup.txt").write_text("FROM B", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        # Two files share the name, so there is no basis to pick one. Reading
+        # either would silently return a document the agent did not ask for.
+        assert engine.run_tool("read_file", path="dup.txt") is None
+
+    def test_a_path_with_directories_is_not_treated_as_a_bare_name(self, tmp_path):
+        approved = tmp_path / "approved"
+        approved.mkdir()
+        (approved / "notes.txt").write_text("REAL CONTENT", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        # A wrong LOCATION is a genuine miss, not a filename off the inventory —
+        # resolving it by basename would mask the error.
+        assert engine.run_tool("read_file", path="../elsewhere/notes.txt") is None
+
+
+class TestReaderEvidenceSuppressesRereads:
+    """Successful reads are recorded, so an identical re-read is short-circuited.
+
+    The storage hook used to live inside the ``scanner_tools`` dispatch branch,
+    which does not carry ``read_file``/``read_excel``/``read_docx`` — they route
+    through the generic registry. So it only ever fired for ``read_file_sample``,
+    the evidence store stayed permanently empty, and the "already loaded" guard
+    it backs could never match.
+    """
+
+    def test_successful_read_is_recorded_as_evidence(self, tmp_path):
+        approved = tmp_path / "approved"
+        approved.mkdir()
+        (approved / "notes.txt").write_text("REAL CONTENT", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        engine.run_tool("read_file", path=str(approved / "notes.txt"))
+        assert list(engine.state.document_evidence) == ["notes.txt"]
+
+    def test_refused_read_is_not_recorded(self, tmp_path):
+        approved = tmp_path / "approved"
+        approved.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("TOP SECRET", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        engine.run_tool("read_file", path=str(outside / "secret.txt"))
+        assert engine.state.document_evidence == {}
+
+    def test_bare_and_absolute_paths_share_one_evidence_key(self, tmp_path):
+        from builder.agents.react.agent_loop import _build_langchain_tools
+
+        approved = tmp_path / "approved"
+        (approved / "nested").mkdir(parents=True)
+        target = approved / "nested" / "notes.txt"
+        target.write_text("REAL CONTENT", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        read_file = {t.name: t for t in _build_langchain_tools(engine)}["read_file"]
+
+        assert read_file.invoke({"path": "notes.txt"}) == "REAL CONTENT"
+        # Both spellings must normalise to the stored key, or the guard misses
+        # and the model re-reads the same document indefinitely.
+        for spelling in ("notes.txt", str(target)):
+            assert "Already loaded" in str(read_file.invoke({"path": spelling}))
+
+
 class TestSymlinkEscapeRefused:
     """Vector 3: a symlink whose realpath escapes the approved tree is refused
     for reads (its resolved target is what gets matched)."""

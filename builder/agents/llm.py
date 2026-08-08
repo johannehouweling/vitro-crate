@@ -26,7 +26,9 @@ __all__ = [
     "_extract_model_name",
     "_extract_token_usage",
     "_get_request_timeout",
+    "_apply_temperature",
     "_is_openai_reasoning_model",
+    "_resolve_temperature",
     "_recursion_limit",
 ]
 
@@ -139,6 +141,41 @@ def _is_openai_reasoning_model(model_name: str | None) -> bool:
     return m.startswith(_OPENAI_REASONING_PREFIXES)
 
 
+_DEFAULT_TEMPERATURE = 0.0
+
+
+def _resolve_temperature() -> float:
+    """The single parse point for ``VITRO_TEMPERATURE``, shared by every provider.
+
+    It lived inline on the OpenAI branch while the Anthropic branch hard-coded
+    ``temperature: 0``, so a temperature experiment on Anthropic silently did
+    nothing — and the two build arms this repo A/B-compares were not actually
+    running the same configuration (#402).
+
+    Blank/whitespace reads as unset rather than raising, matching the convention
+    ``VITRO_OPENAI_REASONING_EFFORT`` already uses. A non-numeric value still
+    raises, naming the variable: a control that is silently ignored is the very
+    defect being fixed here, so a typo must fail loudly rather than resolve to 0.
+    """
+    raw = (os.environ.get("VITRO_TEMPERATURE") or "").strip()
+    if not raw:
+        return _DEFAULT_TEMPERATURE
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"VITRO_TEMPERATURE must be a number, got {raw!r}") from exc
+
+
+def _apply_temperature(kwargs: dict[str, Any], *, supported: bool = True) -> None:
+    """Set the resolved temperature on *kwargs*, or omit it entirely.
+
+    ``supported=False`` leaves the key off rather than sending a default: a
+    Responses-API reasoning model accepts only the provider default and 400s on
+    an explicit value, so "no opinion" must be expressed as absence.
+    """
+    if supported:
+        kwargs["temperature"] = _resolve_temperature()
+
 def _build_chat_model(
     provider: str | None = None,
     model: str | None = None,
@@ -146,6 +183,7 @@ def _build_chat_model(
     max_retries: int | None = None,
     role: str = "orchestrator",
     timeout: float | None = None,
+    streaming: bool = False,
 ) -> Any:
     """Build a LangChain chat model for the given or detected provider.
 
@@ -175,6 +213,15 @@ def _build_chat_model(
             (Issue #263). Falls back to ``VITRO_REQUEST_TIMEOUT`` then a finite
             built-in default so the model is never built without one — a silent
             provider stall can never hang a turn forever.
+        streaming: Stream the response token-by-token so a
+            ``on_llm_new_token`` callback can show the reply as it is written
+            (the interactive footer's live tail). ``invoke`` still returns one
+            aggregated message, so callers are unaffected. Set only by the
+            interactive ReAct loop; the pipeline's bounded leaves have nothing
+            to display and stay non-streaming. Off by default, and
+            ``VITRO_NO_STREAM=1`` forces it off everywhere — a provider that
+            mishandles streamed tool calls must be recoverable without a code
+            change.
 
     Returns:
         A LangChain ``BaseChatModel`` instance.
@@ -185,6 +232,9 @@ def _build_chat_model(
     if max_retries is None:
         env_val = os.environ.get("VITRO_MAX_RETRIES")
         max_retries = int(env_val) if env_val is not None else 3
+
+    if (os.environ.get("VITRO_NO_STREAM") or "").strip().lower() in ("1", "true", "yes", "on"):
+        streaming = False
 
     if timeout is None:
         timeout = _get_request_timeout()
@@ -253,6 +303,13 @@ def _build_chat_model(
             # "timeout" is the public alias of ChatOpenAI.request_timeout (#263).
             "timeout": timeout,
         }
+        if streaming:
+            kwargs["streaming"] = True
+            # OpenAI omits usage from a streamed response unless it is asked for.
+            # Without this the token counts silently become zero — and the status
+            # footer's tokens/cost, the profiler's accounting and the session
+            # cost report all read from that same usage metadata.
+            kwargs["stream_usage"] = True
         if use_responses:
             kwargs["use_responses_api"] = True
         if reasoning_effort:
@@ -261,9 +318,7 @@ def _build_chat_model(
         # (VITRO_TEMPERATURE overrides it), but never force a temperature on a
         # Responses-API-routed reasoning model — it only accepts the provider
         # default (the API 400s on "temperature does not support 0").
-        if not use_responses:
-            temp_override = os.environ.get("VITRO_TEMPERATURE")
-            kwargs["temperature"] = float(temp_override) if temp_override is not None else 0
+        _apply_temperature(kwargs, supported=not use_responses)
         if api_key:
             kwargs["api_key"] = api_key
         if resolved_base:
@@ -303,12 +358,20 @@ def _build_chat_model(
         )
         kwargs: dict[str, Any] = {
             "model": resolved_model,
-            "temperature": 0,
             "max_retries": max_retries,
             # "timeout" is the public alias of ChatAnthropic
             # .default_request_timeout (#263).
             "timeout": timeout,
         }
+        # #402: this was a hard-coded `"temperature": 0` in the literal above, so
+        # VITRO_TEMPERATURE was inert on this provider entirely — an A/B asked to
+        # compare two architectures at one temperature silently compared two
+        # temperatures. Same resolution as the OpenAI branch.
+        _apply_temperature(kwargs)
+        if streaming:
+            # Anthropic reports usage on the streamed message_start /
+            # message_delta events, so no extra opt-in is needed here.
+            kwargs["streaming"] = True
         if api_key:
             kwargs["api_key"] = api_key
         return ChatAnthropic(**kwargs)

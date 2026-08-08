@@ -205,7 +205,25 @@ def run_interactive_build(
     #     engine.run_tool, not LangChain, so this is the only per-tool signal), and
     #   * receives the existing #253 phase-progress strings via set_current.
     # The prior engine.on_tool_event hook is restored afterwards.
-    spinner: ProgressSpinner | None = ProgressSpinner() if interactive else None
+    # The pinned status footer is started BEFORE the spinner so the spinner can
+    # delegate its line to the footer's activity row (one painter owns the bottom
+    # of the terminal). Bound here so the finally can always tear it down.
+    from builder.agents import ui
+
+    footer: Any | None = None
+    if interactive:
+        footer = ui.make_status_footer(engine)
+        footer.start()
+    delegated = bool(footer is not None and footer.active)
+
+    spinner: ProgressSpinner | None = (
+        ProgressSpinner(
+            tick_interval=0.12 if delegated else 0.5,
+            activity_sink=footer.set_activity if delegated else None,
+        )
+        if interactive
+        else None
+    )
     emit = _spinner_emit(base_emit, spinner)
     prior_tool_event = engine.on_tool_event
     if spinner is not None:
@@ -223,8 +241,6 @@ def run_interactive_build(
         # — one implementation, no per-arm copy. The per-prompt status bar the
         # ReAct loop shows before every input is added to the guidance tail by
         # wrapping the human (see _run_build_body / _StatusBarHuman).
-        from builder.agents import ui
-
         if interactive:
             ui.print_resume_summary(engine, resumed=resumed)
         with spinner_ctx:
@@ -239,12 +255,14 @@ def run_interactive_build(
                 overrides=overrides,
             )
         if interactive:
-            ui.print_status_bar(engine)
+            ui.print_status_bar(engine, footer)
             ui.print_goodbye(engine)
         return result
     finally:
         # Restore the prior tool-event hook even if the build raised (#266).
         engine.on_tool_event = prior_tool_event
+        if footer is not None:
+            footer.stop()
 
 
 def run_build(

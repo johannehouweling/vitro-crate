@@ -111,8 +111,37 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
     # INFO, burying each guidance question). Only do this for the bump -- never
     # when the user explicitly requested verbosity via -v / -vv.
     if interactive_bump:
-        for noisy in ("httpx", "httpcore", "openai", "urllib3"):
+        for noisy in ("httpx", "httpcore", "openai"):
             logging.getLogger(noisy).setLevel(logging.WARNING)
+        # urllib3 goes further, to ERROR. It logs a WARNING per retry ATTEMPT,
+        # and a lookup service having a bad afternoon then prints one line per
+        # attempt per chemical — 22 compounds resolving in parallel produced
+        # ~60 lines that tore through the prompt box and the pinned footer.
+        # Those retries are an implementation detail we already handle: the
+        # request is retried, and a genuine failure is reported by our own
+        # lookup layer with the chemical's name attached, which is the message
+        # actually worth reading. An explicit level here also OVERRIDES the
+        # root-logger mute the ReAct loop applies during a turn, so without
+        # this the noise arrives at exactly the wrong moment.
+        logging.getLogger("urllib3").setLevel(logging.ERROR)
+
+        # Records that DO get through are rendered as quiet, deduplicated
+        # notices instead of raw stderr lines. The timestamp and dotted logger
+        # path are noise to a user mid-session, plain white reads as the
+        # assistant speaking, and an unchanging warning re-fired on every build
+        # buries the conversation — one session printed the same four records
+        # forty-four times. `-v` / `-vv` keeps the standard stream handler, on
+        # the assumption that someone asking for verbosity wants the machinery.
+        try:
+            from builder.agents.ui import install_notice_handler
+
+            # INFO, not WARNING: the interactive bump above already promoted the
+            # root logger to INFO, so this shows exactly the records that print
+            # today — just quietly, and once each — rather than hiding pipeline
+            # progress that the bump exists to surface.
+            install_notice_handler(level=logging.INFO)
+        except Exception:  # noqa: BLE001 — never let chrome stop the session
+            logger.debug("Could not install the notice handler", exc_info=True)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -477,6 +506,11 @@ def main(argv: list[str] | None = None) -> int:
             human_interface=ConsoleHumanInterface(
                 prompt_func=lambda _field_type: ui.boxed_input(ui.get_console()),
                 show_func=lambda text: ui.get_console().print(ui.render_reply(text)),
+                # Decisions render as the same rounded box as free text, with the
+                # expected answer pre-selected and arrow keys to change it.
+                select_func=lambda choices, default: ui.select_option(
+                    ui.get_console(), choices, default=default
+                ),
             )
         )
     else:

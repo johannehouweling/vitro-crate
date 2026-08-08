@@ -6,7 +6,9 @@
   --good:#0ca30c; --good-ink:#0a7d0a; --warn:#fab219; --warn-ink:#8a6500;
   --low:#d03b3b; --low-ink:#b3261e; --na-a:#e6ebeb; --na-b:#f3f6f6; --na-ink:#7a8688;
   --cov:#0e7c86; --track:#e6ebeb;
-  --cat-process:#2a78d6; --cat-material:#008300; --cat-data:#c0407a;
+  --cat-process:#2a78d6; --cat-material:#008300; --cat-data:#c0407a; --cat-chemical:#9a5b00;
+  --cat-agent:#7a3fc4; --cat-org:#4b5a94; --cat-container:#3f51a8;
+  --cat-protocol:#0a7f8c; --cat-annotation:#8a6fb0; --cat-publication:#b03a5b;
   --edge-object:#8a9698; --edge-result:#0e7c86;
   color-scheme: light;
   background:var(--page); color:var(--ink);
@@ -126,6 +128,8 @@
   font-style:normal; font-size:.62rem; letter-spacing:.05em; color:var(--muted); }
 .mat .good-note { color:var(--good-ink); font-size:.86rem; margin:.8rem 0 0; font-weight:550; }
 .mat ul.sugg { margin:.8rem 0 0; padding-left:1.1rem; font-size:.85rem; } .mat ul.sugg li.must { color:var(--low-ink); }
+.mat ul.sugg li.opt { color:var(--muted); } .mat ul.sugg li.more { color:var(--muted); font-style:italic;
+  list-style:none; margin-left:-1.1rem; }
 
 /* profile adherence — severity tiers (#306) */
 .mat .sev { display:flex; flex-direction:column; gap:.32rem; }
@@ -179,6 +183,160 @@
 .mat .prov-legend .gl { width:1.5rem; height:0; border-top:2px solid var(--edge-result); }
 .mat .prov-legend .gl.obj { border-top:2px dashed var(--edge-object); }
 
+/* graph views — CSS-only tabs. The report is a self-contained offline artifact
+   with no script, so the tabs are radio inputs plus `:checked ~` sibling rules;
+   that keeps them keyboard-operable for free. Print expands every panel. */
+.mat .tab-in { position:absolute; width:1px; height:1px; opacity:0; margin:0; }
+.mat .tabbar { display:flex; flex-wrap:wrap; gap:.25rem; margin:0 0 1rem;
+  padding-bottom:.55rem; border-bottom:1px solid var(--hairline); }
+.mat .tabbar .tab { display:inline-flex; align-items:center; gap:.4rem; cursor:pointer;
+  font-size:.85rem; font-weight:580; color:var(--ink-2); padding:.34rem .75rem;
+  border-radius:999px; border:1px solid transparent; white-space:nowrap; }
+.mat .tabbar .tab:hover { background:var(--surface-2); color:var(--ink); }
+.mat .tabbar .tb-c { font-size:.7rem; color:var(--muted); font-variant-numeric:tabular-nums;
+  background:var(--surface-2); border-radius:999px; padding:.02rem .38rem; }
+.mat .panel { display:none; }
+.mat .panel > .panel-h { display:none; }
+.mat #mv-all:checked ~ .tabbar .tab[for="mv-all"],
+.mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"],
+.mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"],
+.mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"],
+.mat #mv-cell:checked ~ .tabbar .tab[for="mv-cell"],
+.mat #mv-people:checked ~ .tabbar .tab[for="mv-people"] {
+  background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 34%,transparent);
+  color:var(--accent); }
+.mat #mv-all:checked ~ .tabbar .tab[for="mv-all"] .tb-c,
+.mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"] .tb-c,
+.mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"] .tb-c,
+.mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"] .tb-c,
+.mat #mv-cell:checked ~ .tabbar .tab[for="mv-cell"] .tb-c,
+.mat #mv-people:checked ~ .tabbar .tab[for="mv-people"] .tb-c {
+  background:var(--surface); color:var(--accent); }
+.mat #mv-all:focus-visible ~ .tabbar .tab[for="mv-all"],
+.mat #mv-isa:focus-visible ~ .tabbar .tab[for="mv-isa"],
+.mat #mv-prov:focus-visible ~ .tabbar .tab[for="mv-prov"],
+.mat #mv-chem:focus-visible ~ .tabbar .tab[for="mv-chem"],
+.mat #mv-cell:focus-visible ~ .tabbar .tab[for="mv-cell"],
+.mat #mv-people:focus-visible ~ .tabbar .tab[for="mv-people"] {
+  outline:2px solid var(--accent); outline-offset:2px; }
+.mat #mv-all:checked ~ #p-all,
+.mat #mv-isa:checked ~ #p-isa,
+.mat #mv-prov:checked ~ #p-prov,
+.mat #mv-chem:checked ~ #p-chem,
+.mat #mv-cell:checked ~ #p-cell,
+.mat #mv-people:checked ~ #p-people { display:block; }
+
+/* chemicals — route diagram + identification matrix (#85) */
+/* The derivation chain is wide and fixed, so it stretches and scrolls. The
+   routed views (chemicals / cell lines / people) size themselves to their
+   content — from ~210 to ~540 units — so they render at natural size and
+   only shrink when the page is narrower. Stretching them to the chain's
+   44rem floor would upscale a small diagram several times over. */
+.mat svg.prov.view { width:auto; min-width:0; max-width:100%; height:auto; }
+.mat .prov .n-chem { fill:color-mix(in srgb,var(--cat-chemical) 9%,var(--surface-2));
+  stroke:var(--cat-chemical); }
+.mat .prov .tag-chem { fill:var(--cat-chemical); }
+/* A compound the crate never links to a process: dashed outline + alarm colour,
+   so "described but unreachable" never reads like a wired one. */
+.mat .prov .n-chem.unwired { fill:color-mix(in srgb,var(--low) 7%,var(--surface-2));
+  stroke:var(--low); stroke-dasharray:5 3; }
+.mat .prov .tag-chem.unwired { fill:var(--low-ink); }
+.mat .prov .e-link { stroke:var(--edge-result); }
+.mat .prov .mk-link { fill:var(--edge-result); }
+.mat .prov .e-break { stroke:var(--low); stroke-dasharray:4 3; }
+.mat .prov .brk { fill:var(--low-ink); font-size:11px; font-weight:700; text-anchor:end; }
+.mat .prov .brk.start { text-anchor:start; }
+/* people & organisations */
+.mat .prov .n-agent { fill:color-mix(in srgb,var(--cat-agent) 9%,var(--surface-2));
+  stroke:var(--cat-agent); }
+.mat .prov .tag-agent { fill:var(--cat-agent); }
+.mat .prov .n-org { fill:color-mix(in srgb,var(--cat-org) 9%,var(--surface-2));
+  stroke:var(--cat-org); }
+.mat .prov .tag-org { fill:var(--cat-org); }
+.mat .prov .n-container { fill:color-mix(in srgb,var(--cat-container) 9%,var(--surface-2));
+  stroke:var(--cat-container); }
+.mat .prov .tag-container { fill:var(--cat-container); }
+.mat .prov .bars { stroke:var(--cat-container); stroke-width:1.2; fill:none; opacity:.75; }
+/* Every node shape needs its own unwired state, or an unreachable entity renders
+   identically to a correctly linked one. */
+.mat .prov .n-material.unwired, .mat .prov .n-container.unwired,
+.mat .prov .n-agent.unwired, .mat .prov .n-org.unwired {
+  fill:color-mix(in srgb,var(--low) 7%,var(--surface-2)); stroke:var(--low);
+  stroke-dasharray:5 3; }
+.mat .prov .tag-material.unwired, .mat .prov .tag-container.unwired,
+.mat .prov .tag-agent.unwired, .mat .prov .tag-org.unwired { fill:var(--low-ink); }
+.mat .chem-tbl th[scope="row"] .ty { font-size:.68rem; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.05em; }
+.mat .prov .elabel { fill:var(--muted); font-size:8.5px; text-anchor:middle;
+  font-weight:600; letter-spacing:.03em; }
+.mat .prov-legend .gl.brk { border-top:2px dashed var(--low); }
+.mat .chem-warn { display:flex; gap:.55rem; align-items:flex-start; margin:.9rem 0 0;
+  font-size:.84rem; color:var(--ink-2); max-width:72ch; }
+.mat .chem-warn b { color:var(--low-ink); font-weight:640; }
+.mat .chem-warn code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.78rem;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
+  padding:.02rem .3rem; color:var(--ink); }
+.mat .chem-tbl-scroll { overflow-x:auto; margin-top:.95rem; }
+.mat table.chem-tbl { border-collapse:collapse; width:100%; min-width:32rem; font-size:.82rem; }
+.mat .chem-tbl th, .mat .chem-tbl td { text-align:center; padding:.34rem .3rem;
+  border-bottom:1px solid var(--hairline); }
+.mat .chem-tbl thead th { font-size:.66rem; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--muted); font-weight:650; white-space:nowrap; vertical-align:bottom; }
+.mat .chem-tbl th[scope="row"] { text-align:left; font-weight:550; color:var(--ink-2);
+  display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; padding-right:.7rem; }
+.mat .chem-tbl thead th:first-child { text-align:left; }
+.mat .chem-tbl .cn { font-weight:580; color:var(--ink); }
+.mat .chem-tbl tbody tr:last-child th, .mat .chem-tbl tbody tr:last-child td { border-bottom:none; }
+.mat .chem-tbl tr.more th { color:var(--muted); font-style:italic; font-weight:500; }
+.mat .chem-flag.muted { color:var(--muted); background:var(--surface-2);
+  border:1px solid var(--border); font-weight:600; }
+.mat .chem-flag { font-size:.66rem; text-transform:uppercase; letter-spacing:.05em;
+  font-weight:650; color:var(--low-ink); background:color-mix(in srgb,var(--low) 11%,transparent);
+  border-radius:999px; padding:.05rem .42rem; white-space:nowrap; }
+.mat .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+
+/* all-entities overview: one tile per entity, category = fill, unreachable =
+   alarm outline. Sized to the content, not stretched like the derivation chain. */
+.mat svg.overview { width:auto; min-width:0; max-width:100%; height:auto; }
+.mat .ov-band { fill:var(--ink); font-size:11px; font-weight:660; }
+.mat .ov-cat { fill:var(--muted); font-size:8.5px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.06em; }
+.mat .ov-t { stroke-width:1; }
+.mat .ov-t.orphan, .mat .ov-key.orphan { stroke:var(--low); stroke-width:1.6;
+  stroke-dasharray:2.5 1.5; }
+.mat .ov-key { display:inline-block; width:.8rem; height:.8rem; border-radius:2px;
+  border:1px solid; }
+.mat .prov-legend .lg .ov-key.orphan { background:color-mix(in srgb,var(--low) 14%,transparent);
+  border-color:var(--low); border-style:dashed; }
+.mat .cat-container { fill:color-mix(in srgb,var(--cat-container) 26%,var(--surface));
+  stroke:var(--cat-container); background:color-mix(in srgb,var(--cat-container) 26%,#fff);
+  border-color:var(--cat-container); }
+.mat .cat-process { fill:color-mix(in srgb,var(--cat-process) 26%,var(--surface));
+  stroke:var(--cat-process); background:color-mix(in srgb,var(--cat-process) 26%,#fff);
+  border-color:var(--cat-process); }
+.mat .cat-protocol { fill:color-mix(in srgb,var(--cat-protocol) 26%,var(--surface));
+  stroke:var(--cat-protocol); background:color-mix(in srgb,var(--cat-protocol) 26%,#fff);
+  border-color:var(--cat-protocol); }
+.mat .cat-material { fill:color-mix(in srgb,var(--cat-material) 26%,var(--surface));
+  stroke:var(--cat-material); background:color-mix(in srgb,var(--cat-material) 26%,#fff);
+  border-color:var(--cat-material); }
+.mat .cat-chemical { fill:color-mix(in srgb,var(--cat-chemical) 26%,var(--surface));
+  stroke:var(--cat-chemical); background:color-mix(in srgb,var(--cat-chemical) 26%,#fff);
+  border-color:var(--cat-chemical); }
+.mat .cat-data { fill:color-mix(in srgb,var(--cat-data) 26%,var(--surface));
+  stroke:var(--cat-data); background:color-mix(in srgb,var(--cat-data) 26%,#fff);
+  border-color:var(--cat-data); }
+.mat .cat-agent { fill:color-mix(in srgb,var(--cat-agent) 26%,var(--surface));
+  stroke:var(--cat-agent); background:color-mix(in srgb,var(--cat-agent) 26%,#fff);
+  border-color:var(--cat-agent); }
+.mat .cat-publication { fill:color-mix(in srgb,var(--cat-publication) 26%,var(--surface));
+  stroke:var(--cat-publication); background:color-mix(in srgb,var(--cat-publication) 26%,#fff);
+  border-color:var(--cat-publication); }
+.mat .cat-annotation { fill:color-mix(in srgb,var(--cat-annotation) 22%,var(--surface));
+  stroke:var(--cat-annotation); background:color-mix(in srgb,var(--cat-annotation) 22%,#fff);
+  border-color:var(--cat-annotation); }
+
 /* graph-topology strip (relocated here from the header) */
 .mat .comp { display:flex; flex-wrap:wrap; gap:.5rem .9rem; align-items:center;
   font-size:.82rem; color:var(--ink-2); }
@@ -201,4 +359,10 @@
   .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
   .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}
   .mat details{display:block;} .mat .disc[open] summary{display:none;}
+  /* Tabs are an on-screen affordance: print every view, each under its own
+     heading, so a printed report never silently loses two of the three. */
+  .mat .tabbar{display:none;}
+  .mat .panel{display:block !important; break-inside:avoid;}
+  .mat .panel + .panel{margin-top:1.2rem; padding-top:1rem; border-top:1px solid #ccc;}
+  .mat .panel > .panel-h{display:block; font-size:.95rem; font-weight:660; margin:0 0 .6rem;}
 }

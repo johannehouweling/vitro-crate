@@ -10,6 +10,10 @@ from profiles.models.isa import (
 )
 from profiles.ontology_iris import iri
 
+# Values that state nothing. A parameter carrying one of these is not a
+# measurement, it is the absence of one dressed up as data — see :func:`_pv`.
+_PLACEHOLDER_VALUES = {"", "unknown", "n/a", "na", "none", "not applicable", "not recorded"}
+
 
 def _pv(crate, name, value, property_id=None, unit=None):
     """ParameterValue with a unique @id, optionally the key's ontology IRI as
@@ -17,13 +21,31 @@ def _pv(crate, name, value, property_id=None, unit=None):
 
     ``property_id`` is optional: parameters without an authoritative ontology
     term for their key are emitted without a propertyID rather than carrying a
-    fabricated IRI (the ISA shape treats propertyID as SHOULD, not MUST)."""
+    fabricated IRI (the ISA shape treats propertyID as SHOULD, not MUST).
+
+    Returns ``None`` when *value* says nothing (missing, or a placeholder like
+    ``"unknown"``), so callers can drop the parameter instead of publishing it.
+    A crate that states ``Detection Instrument: unknown`` makes a claim it cannot
+    support and that a reader cannot distinguish from a real answer — while the
+    instrument may well be sitting unread in the source workbook. Omitting the
+    parameter is both truthful and louder: the ISA shape's "MUST have at least
+    one additionalProperty" then fires, which is exactly the prompt to go and
+    fill it in (D5 — never fabricate)."""
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().casefold() in _PLACEHOLDER_VALUES:
+        return None
     props: dict = {}
     if property_id:
         props["propertyID"] = {"@id": property_id}
     if unit:
         props["unitText"] = unit
     return ParameterValue(crate, param_id(name, value), name, value, properties=props)
+
+
+def _pvs(*candidates):
+    """Drop the parameters :func:`_pv` declined to emit."""
+    return [p for p in candidates if p is not None]
 
 
 class LabProcessExposure(LabProcess):
@@ -60,7 +82,7 @@ class LabProcessExposure(LabProcess):
         u = units or {}
         base_properties: dict = {
             "additionalType": "Exposure",
-            "parameter": [
+            "parameter": _pvs(
                 _pv(
                     crate,
                     "Exposure Duration",
@@ -82,7 +104,7 @@ class LabProcessExposure(LabProcess):
                     iri("NCIT:C43377"),
                     u.get("Microplate"),
                 ),
-            ],
+            ),
             "input": samples,
         }
         if result is not None:
@@ -119,7 +141,7 @@ class LabProcessEndpointReadout(LabProcess):
         add: bool = True,
     ):
         u = units or {}
-        parameter_values = [
+        parameter_values = _pvs(
             _pv(
                 crate,
                 "Detection Instrument",
@@ -155,7 +177,7 @@ class LabProcessEndpointReadout(LabProcess):
                 iri("BAO:0000179"),
                 u.get("Endpoint"),
             ),
-        ]
+        )
         if assay_kit is not None:
             parameter_values.append(
                 _pv(
@@ -179,7 +201,7 @@ class LabProcessEndpointReadout(LabProcess):
 
         merged_properties = {
             "additionalType": "EndpointReadout",
-            "parameter": parameter_values,
+            "parameter": _pvs(*parameter_values),
             "input": samples,
             "name": name,
             "output": result,
@@ -280,7 +302,7 @@ class LabProcessDataAnalysis(LabProcess):
 
         merged_properties = {
             "additionalType": "DataAnalysis",
-            "parameter": parameter_values,
+            "parameter": _pvs(*parameter_values),
             "input": object,
             "output": result,
             "name": name,

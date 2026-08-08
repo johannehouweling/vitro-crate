@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from builder.state import CrateState
 from builder.tools.lookups import (
+    cell_line_names_match,
     lookup_cell_line,
     lookup_compound,
     lookup_doi,
@@ -84,6 +85,64 @@ def _get_verifiable_fields() -> frozenset[tuple[str, str]]:
     return _VERIFIABLE_FIELDS
 
 
+def _cell_line_mismatch(entity, field: str, result: dict, lookup_name: str | None) -> dict | None:
+    """Reject a resolving accession that names a *different* cell line (#383).
+
+    Existence is not identity. ``lookup_cell_line`` answers "is this a real
+    Cellosaurus record?", but the D5 question is "is it *this* entity's record?"
+    — and a model that could not resolve a name has every incentive to reach for
+    the nearest concrete accession in its context. Since the resolved record
+    already carries its own name, the cross-check costs no extra call.
+
+    Returns a verdict dict when the record demonstrably names something else, or
+    ``None`` to let verification proceed (matched, or nothing to compare
+    against).
+
+    The value is deliberately **kept** on a mismatch. An engineered derivative
+    (``"CHO-K1 hOATP1C1"`` against parent record ``"CHO-K1"``) is a correct
+    accession that simply cannot be name-matched, so clearing would destroy good
+    data. Withholding the false ``verified`` claim is what fixes the D5
+    violation; deleting the value would only trade it for a worse one.
+    """
+    if entity.type != "CellLineSample":
+        return None
+    own_name = str(entity.fields.get("name") or "").strip()
+    if not own_name:
+        # Nothing to compare against — existence is all we can assert.
+        return None
+
+    data = result.get("data") or {}
+    resolved_name = str(data.get("name") or "").strip()
+    if not resolved_name:
+        return None
+
+    synonyms = data.get("alternateName") or []
+    if isinstance(synonyms, str):
+        synonyms = [synonyms]
+    if cell_line_names_match(own_name, resolved_name, synonyms):
+        return None
+
+    return {
+        "verified": False,
+        "mismatch": True,
+        "entity_id": entity.entity_id,
+        "field": field,
+        "resolved_name": resolved_name,
+        "message": (
+            f"{field} '{entity.fields.get(field)}' resolves at "
+            f"{lookup_name or 'the source'} to '{resolved_name}', which does not "
+            f"match this entity's name '{own_name}'; value kept but NOT marked "
+            "verified."
+        ),
+        "suggested_fix": (
+            f"Confirm the accession belongs to '{own_name}' — resolve it with "
+            "lookup_cell_line_by_name, or, if this is an engineered derivative of "
+            f"'{resolved_name}', record that relationship explicitly rather than "
+            "reusing the parent's accession as this sample's identifier."
+        ),
+    }
+
+
 def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     """Check that an identifier resolves at its source.
 
@@ -129,6 +188,11 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     query = f"CID {value}" if field.lower() == "pubchem_cid" else str(value)
     result = verifier(query)
     if result.get("found"):
+        # Resolving is necessary but not sufficient: the record must also be
+        # this entity's record (#383).
+        mismatch = _cell_line_mismatch(entity, field, result, lookup_name)
+        if mismatch is not None:
+            return mismatch
         entity.set_field_status(field, "verified", "lookup")
         if lookup_name and lookup_name not in entity._provenance.lookups_used:
             entity._provenance.lookups_used.append(lookup_name)

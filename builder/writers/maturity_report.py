@@ -5,7 +5,9 @@ assets) covering the four axes from the issue:
 
 * **Profile adherence** — base / ISA / ISA-Tox conformance, reported across the
   three SHACL severity tiers Required / Recommended / Optional (#306), with the
-  REQUIRED/RECOMMENDED issues surfaced as actionable suggestions;
+  findings from every assessed tier surfaced as actionable suggestions — an author
+  who can see what is merely recommended is far likelier to add it than one told
+  only that the crate clears the required bar;
 * **FAIR** — the RDA-style indicators rolled up into F/A/I/R pillars plus the Data
   Stewardship Maturity (DSM) level;
 * **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
@@ -23,7 +25,10 @@ Severity-tier nuance (#306): the fast in-loop path (``build_and_validate``) gate
 at REQUIRED severity and never populates ``should_issues`` / ``may_issues``, so an
 empty list at those tiers means the tier was *never evaluated*, not that it is
 clean. The report models an explicit "not assessed" state for such tiers and never
-renders an unevaluated tier as a green zero.
+renders an unevaluated tier as a green zero. Export closes that gap for the written
+crate: ``export_crate`` validates at the OPTIONAL gate, which assesses all three
+tiers, so a report embedded on the export path normally has a real verdict in every
+row — the "not assessed" state remains for reports rendered from a partial verdict.
 """
 
 from __future__ import annotations
@@ -74,7 +79,11 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
         processes,
         ("detection_instrument", "instrument_manufacturer", "software", "data_processing"),
     )
-    data_ok = bool(state.list_entities("File"))
+    # A provisional placeholder now materialises as a real (header-only) file so
+    # the crate stops claiming files it does not contain (#438) — but it holds no
+    # measurements, so counting it here would turn "data files included" green for
+    # a crate whose data is still entirely absent.
+    data_ok = any(not f.fields.get("provisional") for f in state.list_entities("File"))
     investigations = state.list_entities("Investigation")
     attribution_ok = (
         bool(state.metadata.title)
@@ -101,7 +110,8 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
         (
             "Data files included",
             data_ok,
-            "Attach the raw/processed data files referenced by the assays.",
+            "Attach the raw/processed data files referenced by the assays — the "
+            "synthesized placeholder tables are empty templates, not data.",
         ),
         (
             "Attribution & identity",
@@ -244,13 +254,28 @@ def _load_shell() -> str:
     return _SHELL_PATH.read_text(encoding="utf-8")
 
 
-def _render_header(title: str, accession: str, tiers: list[dict[str, str]] | None) -> str:
+def _render_header(
+    title: str,
+    accession: str,
+    tiers: list[dict[str, str]] | None,
+    *,
+    stale: bool = False,
+) -> str:
     esc = html.escape
     chip = f'<span class="chip mono">{esc(accession)}</span>' if accession else ""
     if tiers is None:
         verdict = (
             '<span class="vpill warning"><span class="glyph"></span>Not yet validated</span>'
             '<span class="vsub">Run validation to populate profile adherence.</span>'
+        )
+    elif stale:
+        # A verdict recorded against a DIFFERENT state. Reporting the old pass
+        # would ship a green "Conformant" for a crate nobody checked — strictly
+        # worse than admitting the gap, because it looks verified.
+        verdict = (
+            '<span class="vpill warning"><span class="glyph"></span>Validation out of date</span>'
+            '<span class="vsub">The crate changed after this verdict was recorded — '
+            "re-validate before trusting it.</span>"
         )
     elif tiers[0]["state"] == "ok":
         verdict = (
@@ -280,6 +305,7 @@ def _render_kpis(
     mit: MITReport,
     repro_ready: int,
     repro_total: int,
+    chem: dict[str, Any] | None = None,
 ) -> str:
     # Profile-adherence tile: severity mini-rows, or an "awaiting validation" row.
     if tiers is None:
@@ -353,11 +379,99 @@ def _render_kpis(
         "</article>"
     )
 
-    return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{repro_tile}</div>\n'
+    # Chemicals tile — only when the crate actually declares compounds, so a
+    # non-chemical crate isn't given a tile reading "0".
+    chem_tile = ""
+    if chem:
+        c = chem["counts"]
+        wired, total = c["wired"], c["total"]
+        id_pct = round(c["fields_met"] / c["fields_total"] * 100) if c["fields_total"] else 0
+        chem_tile = (
+            '<article class="kpi">'
+            '<div class="kpi-h"><span class="eyebrow">Chemicals</span>'
+            f'{_mk("ok" if wired == total else "no")}</div>'
+            f'<div class="kpi-v"><b>{wired}</b><span class="den">/ {total}</span> '
+            '<span class="tag-inline">wired</span></div>'
+            f'<div class="kpi-sub">{id_pct}% of identification fields filled</div>'
+            f'<div class="meter" role="img" aria-label="identification {id_pct}%">'
+            f'<i class="{_fill_class(c["fields_met"], c["fields_total"])}" '
+            f'style="width:{id_pct}%"></i></div>'
+            "</article>"
+        )
+
+    return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{chem_tile}{repro_tile}</div>\n'
 
 
-def _render_profile_section(val: ValidationReport, tiers: list[dict[str, str]] | None) -> str:
+# How many findings of each tier the suggestion list shows before it summarises
+# the rest. REQUIRED is uncapped: those block conformance, so every one is named.
+_SUGGESTION_CAPS: dict[str, int | None] = {
+    "required": None,
+    "recommended": 10,
+    "optional": 5,
+}
+
+
+def _suggestion_items(val: ValidationReport) -> list[str]:
+    """Render the improvement list: what to fix, across every assessed tier.
+
+    The export assesses all three tiers, so the report shows all three. Naming a
+    RECOMMENDED or OPTIONAL finding is the point of assessing it — a crate whose
+    author can see the twelve things that would make it better is more likely to
+    get them than one told only that it clears the bar. REQUIRED findings stay
+    first and uncapped; the advisory tiers are capped, and a cap that bites says
+    how many it hid rather than trailing off silently.
+    """
     esc = html.escape
+    tiers: list[tuple[str, list[str], str]] = [
+        ("required", val.required_issues, '<li class="must"><strong>Must fix:</strong> {msg}</li>'),
+        ("recommended", val.should_issues, "<li>Recommended: {msg}</li>"),
+        ("optional", val.may_issues, '<li class="opt">Optional: {msg}</li>'),
+    ]
+    items: list[str] = []
+    for tier, issues, template in tiers:
+        if not issues:
+            continue
+        cap = _SUGGESTION_CAPS[tier]
+        shown = issues if cap is None else issues[:cap]
+        items.extend(template.format(msg=esc(msg)) for msg in shown)
+        hidden = len(issues) - len(shown)
+        if hidden:
+            items.append(
+                f'<li class="more">+{hidden} further {tier} '
+                f"{'finding' if hidden == 1 else 'findings'} not listed here</li>"
+            )
+    return items
+
+
+def _clean_note(val: ValidationReport) -> str:
+    """The empty-state line, honest about how much was actually checked."""
+    assessed = val.assessed_tiers
+    if {"required", "recommended", "optional"} <= assessed:
+        return "Clean at every severity tier — nothing outstanding to improve."
+    unassessed = [t for t in ("recommended", "optional") if t not in assessed]
+    if unassessed:
+        return (
+            "No outstanding REQUIRED issues. "
+            f"The {' and '.join(unassessed).upper()} tier"
+            f"{'s were' if len(unassessed) > 1 else ' was'} not assessed."
+        )
+    return "No outstanding REQUIRED issues."
+
+
+def _render_profile_section(
+    val: ValidationReport, tiers: list[dict[str, str]] | None, *, stale: bool = False
+) -> str:
+    esc = html.escape
+    if stale:
+        return (
+            "<section>\n"
+            '  <div class="sec-h"><h2>Profile adherence</h2>'
+            '<span class="sec-meta">out of date</span></div>\n'
+            '  <p class="lead">The last recorded verdict was computed against an earlier '
+            "version of this crate, so it is not reported here. Re-run validation to "
+            "restore profile adherence.</p>\n"
+            "</section>\n"
+        )
     if tiers is None:
         return (
             "<section>\n"
@@ -382,14 +496,11 @@ def _render_profile_section(val: ValidationReport, tiers: list[dict[str, str]] |
         f'<span class="sc">{t["summary"]}</span><span class="sn">{t["note"]}</span></div>'
         for t in tiers
     )
-    sugg_items = [
-        f'<li class="must"><strong>Must fix:</strong> {esc(msg)}</li>'
-        for msg in val.required_issues
-    ] + [f"<li>Recommended: {esc(msg)}</li>" for msg in val.should_issues[:10]]
+    sugg_items = _suggestion_items(val)
     if sugg_items:
         sugg = f'<ul class="sugg">{"".join(sugg_items)}</ul>'
     else:
-        sugg = '<p class="good-note">No outstanding REQUIRED issues.</p>'
+        sugg = f'<p class="good-note">{_clean_note(val)}</p>'
 
     return (
         "<section>\n"
@@ -606,57 +717,659 @@ def _render_topology_strip(counts: dict[str, int]) -> str:
     return f'<div class="comp topo">{"".join(parts)}</div>'
 
 
-def _render_provenance_section(graph: dict[str, Any] | list[dict[str, Any]]) -> str:
-    """Fold the provenance chain + graph topology into the report (#85).
+def _legend(*items: str) -> str:
+    return f'<div class="prov-legend">{"".join(items)}</div>'
 
-    Draws the LabProcess derivation chain as a self-contained inline SVG (offline,
-    no script) with a shape legend, and appends the graph-topology strip. When the
-    crate records no derivation chain, the SVG is replaced by a note but the
-    topology strip still renders. Called only when a crate ``@graph`` is supplied.
+
+# Legend swatches, drawn with the same outline the diagrams use.
+_LG_PROCESS = (
+    '<span class="lg"><svg width="20" height="14" aria-hidden="true">'
+    '<polygon points="4,1 14,1 18,7 14,13 4,13 1,7" fill="var(--accent-soft)" '
+    'stroke="var(--cat-process)" stroke-width="1.6"/></svg> Process</span>'
+)
+_LG_SAMPLE = (
+    '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+    '<rect x="1" y="2" width="20" height="10" rx="5" fill="var(--surface-2)" '
+    'stroke="var(--cat-material)" stroke-width="1.6"/></svg> Sample / material</span>'
+)
+_LG_FILE = (
+    '<span class="lg"><svg width="18" height="14" aria-hidden="true">'
+    '<rect x="1" y="1" width="15" height="12" rx="2" fill="var(--surface-2)" '
+    'stroke="var(--cat-data)" stroke-width="1.6"/></svg> File / table</span>'
+)
+_LG_COMPOUND = (
+    '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+    '<polygon points="4,1 18,1 21,4 21,10 18,13 4,13 1,10 1,4" fill="var(--surface-2)" '
+    'stroke="var(--cat-chemical)" stroke-width="1.6"/></svg> Compound</span>'
+)
+_LG_CONTAINER = (
+    '<span class="lg"><svg width="24" height="14" aria-hidden="true">'
+    '<rect x="1" y="2" width="22" height="10" rx="2" fill="var(--surface-2)" '
+    'stroke="var(--cat-container)" stroke-width="1.6"/>'
+    '<path d="M5,2 V12 M19,2 V12" stroke="var(--cat-container)" stroke-width="1.2"/>'
+    '</svg> Investigation / Study / Assay</span>'
+)
+_LG_CELLLINE = (
+    '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+    '<rect x="1" y="2" width="20" height="10" rx="5" fill="var(--surface-2)" '
+    'stroke="var(--cat-material)" stroke-width="1.6"/></svg> Cell line / sample</span>'
+)
+_LG_PERSON = (
+    '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+    '<rect x="1" y="2" width="20" height="10" rx="5" fill="var(--surface-2)" '
+    'stroke="var(--cat-agent)" stroke-width="1.6"/></svg> Person</span>'
+)
+_LG_ORG = (
+    '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+    '<rect x="1" y="2" width="20" height="10" rx="2" fill="var(--surface-2)" '
+    'stroke="var(--cat-org)" stroke-width="1.6"/></svg> Organisation</span>'
+)
+_LG_LINK = '<span class="lg"><span class="gl"></span> links to</span>'
+_LG_BREAK = '<span class="lg"><span class="gl brk"></span> ✗ link missing</span>'
+
+
+_ISA_LEVEL_NOTE = {
+    "Investigation": "the question the crate answers",
+    "Study": "a coherent body of work toward it",
+    "Assay": "one measurement campaign",
+}
+
+
+def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
+    """The All-entities view: the whole crate as one composition map.
+
+    The other views draw edges to answer a question. This one answers "what is in
+    here, and how much of it is connected?", for which a node-link diagram is the
+    wrong instrument at this scale — the crate's own graph is 188 nodes and
+    renders as a hairball. One tile per entity, clustered by category inside its
+    paper layer, unreachable ones outlined in alarm colour.
+
+    Returns:
+        ``(panel html, tab badge)`` — ``("", "")`` for an empty crate.
     """
-    from builder.writers.provenance_dag import build_crate_graph, render_provenance_svg
+    from builder.writers.provenance_dag import render_overview_svg
+
+    nodes = [n for n in (model.get("nodes") or []) if n.get("layer") is not None]
+    if not nodes:
+        return "", ""
+    svg = render_overview_svg(model)
+    if not svg:
+        return "", ""
+    counts = model.get("counts", {})
+    orphans = counts.get("orphan", 0)
+    reachable = len(nodes) - orphans
+
+    swatches = "".join(
+        f'<span class="lg"><span class="ov-key cat-{cat}"></span> {cat}</span>'
+        for cat in ("container", "process", "protocol", "material", "chemical",
+                    "data", "agent", "publication", "annotation")
+    )
+    legend = _legend(
+        swatches, '<span class="lg"><span class="ov-key orphan"></span> unreachable</span>'
+    )
+
+    note = (
+        f'<p class="chem-warn">{_mk("no")}<span><b>{orphans} of {len(nodes)} entities '
+        "are unreachable from the crate root.</b> They are described in the metadata "
+        "and connected to nothing — a reader walking the crate never arrives at "
+        "them. The other views show which links are missing.</span></p>"
+        if orphans
+        else '<p class="good-note">Every entity is reachable from the crate root.</p>'
+    )
+
+    panel = (
+        '<p class="prov-cap">Every entity in the crate, one tile each, grouped by '
+        "functional category inside its paper layer — the crate's shape and its "
+        f"health on one screen. <b>{len(nodes)}</b> entities · <b>{reachable}</b> "
+        f"reachable · <b>{orphans}</b> not.</p>\n"
+        f'  <div class="prov-scroll">{svg}</div>\n  {legend}\n'
+        f"  {note}"
+    )
+    return panel, str(len(nodes))
+
+
+def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
+    """The ISA structure view: the Investigation / Study / Assay backbone.
+
+    ISA is the skeleton the other views hang off, and it is expressed purely as
+    ``hasPart`` between Datasets that differ only by ``additionalType`` — so it is
+    invisible in the JSON and breaks in ways that still validate: a Study nobody
+    lists as a part, an Assay with no process attached, a level with no
+    ``identifier`` (which is what makes an ISA node citable at all).
+
+    Returns:
+        ``(panel html, tab badge)`` — ``("", "")`` when the crate has no ISA nodes.
+    """
+    from builder.writers.provenance_dag import ISA_COVERAGE_FIELDS, render_isa_svg
+
+    nodes = inv["nodes"]
+    if not nodes:
+        return "", ""
+    counts = inv["counts"]
+    detached = counts["detached"]
+    pct = (
+        round(counts["fields_met"] / counts["fields_total"] * 100)
+        if counts["fields_total"]
+        else 0
+    )
+
+    svg = render_isa_svg(inv)
+    diagram = (
+        f'<div class="prov-scroll">{svg}</div>\n  '
+        + _legend(_LG_CONTAINER, _LG_LINK, _LG_BREAK)
+        if svg
+        else ""
+    )
+
+    notes = []
+    if detached:
+        loose = [n["label"] for n in nodes if n["state"] == "detached"]
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{detached} ISA container'
+            f'{"" if detached == 1 else "s"} sit outside the hierarchy</b> '
+            f'({", ".join(loose[:4])}{"&hellip;" if len(loose) > 4 else ""}). '
+            "Nothing lists them under <code>hasPart</code>, so a reader walking the "
+            "Investigation never reaches them.</span></p>"
+        )
+    hollow = [n for n in nodes if n["fields"]["Contains the next level"] is False]
+    if hollow:
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{len(hollow)} container'
+            f'{"" if len(hollow) == 1 else "s"} contain nothing below them</b> '
+            f'({", ".join(n["label"] for n in hollow[:4])}). An Assay needs a '
+            "<code>LabProcess</code>, a Study an Assay, an Investigation a Study — "
+            "otherwise the level is a label with no work under it.</span></p>"
+        )
+    if not notes:
+        notes.append(
+            '<p class="good-note">The Investigation / Study / Assay hierarchy is complete.</p>'
+        )
+
+    head = "".join(
+        f'<th scope="col" title="{html.escape(full)}">{html.escape(short)}</th>'
+        for full, short in ISA_COVERAGE_FIELDS
+    )
+    rows = []
+    for n in sorted(nodes, key=lambda n: (n["state"] == "linked", n["met"], n["id"])):
+        flag = (
+            ""
+            if n["state"] == "linked"
+            else '<span class="chem-flag" title="nothing lists this container under '
+            'hasPart">detached</span>'
+        )
+        extra = (
+            f'<span class="ty">{len(n["processes"])} process'
+            f'{"" if len(n["processes"]) == 1 else "es"}</span>'
+            if n["level"] == "Assay"
+            else ""
+        )
+        cells = "".join(
+            f"<td>{_mk(_kind(n['fields'].get(full)))}</td>" for full, _short in ISA_COVERAGE_FIELDS
+        )
+        rows.append(
+            f'<tr><th scope="row">{_mk("ok" if n["state"] == "linked" else "no")}'
+            f'<span class="cn">{n["label"]}</span>'
+            f'<span class="ty" title="{html.escape(_ISA_LEVEL_NOTE[n["level"]])}">'
+            f'{n["level"]}</span>{extra}{flag}</th>{cells}</tr>'
+        )
+    matrix = (
+        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+        '<caption class="sr-only">Structural fields carried by each ISA container</caption>'
+        f'<thead><tr><th scope="col">Container</th>{head}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>'
+    )
+
+    panel = (
+        '<p class="prov-cap">The ISA backbone every other view hangs off — the '
+        "Investigation that states the question, the Studies under it, and the Assays "
+        f"whose processes the Provenance view traces. <b>{counts['investigations']}</b> "
+        f"investigation · <b>{counts['studies']}</b> stud"
+        f"{'y' if counts['studies'] == 1 else 'ies'} · <b>{counts['assays']}</b> assay"
+        f"{'' if counts['assays'] == 1 else 's'} · <b>{counts['processes']}</b> process"
+        f"{'' if counts['processes'] == 1 else 'es'} · <b>{pct}%</b> complete.</p>\n"
+        f"  {diagram}\n"
+        f"  {''.join(notes)}\n"
+        f"  {matrix}"
+    )
+    return panel, str(counts["total"])
+
+
+def _render_provenance_panel(graph: dict[str, Any] | list[dict[str, Any]]) -> str:
+    """The derivation-chain view: materials, processes, and the files produced."""
+    from builder.writers.provenance_dag import render_provenance_svg
 
     svg = render_provenance_svg(graph)
-    # all_edges=True so every dangling stub (incl. those referenced only via
-    # secondary relations) is present in the node list — the counts are identical
-    # either way, but this lets the actionable disclosure name each one (#310).
-    model = build_crate_graph(graph, all_edges=True)
-    counts = model.get("counts", {})
-    nodes = model.get("nodes", [])
-    if svg:
-        body = (
-            '<p class="prov-cap">The derivation chain a receiving lab follows to trace an '
-            "output back to its inputs — materials, the processes applied, and the files "
-            "each step produced.</p>\n"
-            f'  <div class="prov-scroll">{svg}</div>\n'
-            '  <div class="prov-legend">'
-            '<span class="lg"><svg width="20" height="14" aria-hidden="true">'
-            '<polygon points="4,1 14,1 18,7 14,13 4,13 1,7" fill="var(--accent-soft)" '
-            'stroke="var(--cat-process)" stroke-width="1.6"/></svg> Process</span>'
-            '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
-            '<rect x="1" y="2" width="20" height="10" rx="5" fill="var(--surface-2)" '
-            'stroke="var(--cat-material)" stroke-width="1.6"/></svg> Sample / material</span>'
-            '<span class="lg"><svg width="18" height="14" aria-hidden="true">'
-            '<rect x="1" y="1" width="15" height="12" rx="2" fill="var(--surface-2)" '
-            'stroke="var(--cat-data)" stroke-width="1.6"/></svg> File / table</span>'
-            '<span class="lg"><span class="gl obj"></span> consumes (object)</span>'
-            '<span class="lg"><span class="gl"></span> produces (result)</span>'
-            "</div>"
-        )
-    else:
-        body = (
+    if not svg:
+        return (
             '<p class="lead">No derivation chain recorded — this crate has no LabProcess '
             "input/output edges to trace.</p>"
         )
     return (
+        '<p class="prov-cap">The derivation chain a receiving lab follows to trace an '
+        "output back to its inputs — materials, the processes applied, and the files "
+        "each step produced.</p>\n"
+        f'  <div class="prov-scroll">{svg}</div>\n  '
+        + _legend(
+            _LG_PROCESS,
+            _LG_SAMPLE,
+            _LG_FILE,
+            '<span class="lg"><span class="gl obj"></span> consumes (object)</span>',
+            '<span class="lg"><span class="gl"></span> produces (result)</span>',
+        )
+    )
+
+
+# The graph views, in tab order: (radio id, panel id, tab label).
+_VIEWS: tuple[tuple[str, str, str], ...] = (
+    ("mv-all", "p-all", "All entities"),
+    ("mv-isa", "p-isa", "ISA structure"),
+    ("mv-prov", "p-prov", "Provenance"),
+    ("mv-chem", "p-chem", "Chemicals"),
+    ("mv-cell", "p-cell", "Cell lines"),
+    ("mv-people", "p-people", "People &amp; orgs"),
+)
+
+
+def _render_graph_views_section(
+    graph: dict[str, Any] | list[dict[str, Any]], chem_inv: dict[str, Any]
+) -> str:
+    """The graph-views section: one diagram per tab, over a shared topology strip.
+
+    The three views answer different questions about the same ``@graph`` —
+    *how was the result produced* (provenance), *what was tested* (chemicals),
+    *who is credited* (people) — and a reader wants one at a time, not three
+    stacked diagrams. They are therefore tabbed.
+
+    The tabs are pure CSS (radio inputs + ``:checked ~`` sibling rules), because
+    the report is a self-contained offline artifact embedded in the crate and
+    carries no script; the radios keep them keyboard-operable, and print styles
+    expand every panel so a printed report loses nothing. A view whose diagram
+    has no content (a crate with no compounds, or one that credits nobody) drops
+    its tab entirely rather than showing an empty panel, and the first surviving
+    tab is the one selected.
+
+    Called only when a crate ``@graph`` is supplied.
+    """
+    from builder.writers.provenance_dag import (
+        build_cellline_inventory,
+        build_crate_graph,
+        build_isa_inventory,
+        build_people_inventory,
+    )
+
+    model = build_crate_graph(graph, all_edges=True)
+    panels = {
+        "p-all": _render_overview_panel(model),
+        "p-isa": _render_isa_panel(build_isa_inventory(graph)),
+        "p-prov": (_render_provenance_panel(graph), ""),
+        "p-chem": _render_chemicals_panel(chem_inv),
+        "p-cell": _render_celllines_panel(build_cellline_inventory(graph)),
+        "p-people": _render_people_panel(build_people_inventory(graph)),
+    }
+    live = [(rid, pid, label) for rid, pid, label in _VIEWS if panels[pid][0]]
+
+    inputs = "".join(
+        f'<input class="tab-in" type="radio" name="mat-view" id="{rid}"'
+        f'{" checked" if i == 0 else ""}>'
+        for i, (rid, _pid, _label) in enumerate(live)
+    )
+    tabs = "".join(
+        f'<label class="tab" for="{rid}"><span class="tb-n">{label}</span>'
+        + (f'<span class="tb-c">{panels[pid][1]}</span>' if panels[pid][1] else "")
+        + "</label>"
+        for rid, pid, label in live
+    )
+    bodies = "".join(
+        f'<div class="panel" id="{pid}">'
+        f'<h3 class="panel-h">{label}</h3>{panels[pid][0]}</div>'
+        for _rid, pid, label in live
+    )
+
+    return (
         "<section>\n"
-        '  <div class="sec-h"><h2>Provenance &amp; graph</h2>'
-        '<span class="sec-meta">how the result was produced</span></div>\n'
-        f"  {body}\n"
-        f"  {_render_topology_strip(counts)}\n"
-        f"  {_render_topology_detail(nodes)}\n"
+        '  <div class="sec-h"><h2>Graph views</h2>'
+        f'<span class="sec-meta">{len(live)} view{"" if len(live) == 1 else "s"} '
+        "of the same crate</span></div>\n"
+        f"  {inputs}\n"
+        f'  <div class="tabbar">{tabs}</div>\n'
+        f"  {bodies}\n"
+        f"  {_render_topology_strip(model.get('counts', {}))}\n"
+        f"  {_render_topology_detail(model.get('nodes', []))}\n"
         "</section>\n"
     )
+
+
+_CHEM_STATE_MARK = {"wired": "ok", "mentioned": "na", "unlinked": "no"}
+_CHEM_STATE_NOTE = {
+    "wired": "reachable from a process",
+    "mentioned": "named in the crate, but produced by no process",
+    "unlinked": "nothing in the crate references this compound",
+}
+
+
+def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
+    """The Chemicals view: how each compound reaches the experiment, and how
+    completely it is identified.
+
+    Two views of the same inventory, because either alone misleads. The diagram
+    answers *can a reader get from a process to this compound* — the chain ISA
+    forces to run through the condition table rather than the process object, and
+    the one that quietly breaks. The matrix answers *could a reader obtain this
+    substance* — CAS / PubChem CID / DTXSID plus the structure fields. A crate can
+    score perfectly on one and fail the other, so the section never collapses them
+    into a single number.
+
+    Returns ``("", "")`` when the crate declares no compounds — the view drops
+    its tab entirely, because an empty chemicals panel on a non-chemical crate
+    would read as a failure rather than as "not applicable".
+
+    Returns:
+        ``(panel html, tab badge)``.
+    """
+    from builder.writers.provenance_dag import CHEM_COVERAGE_FIELDS, render_chemicals_svg
+
+    chems = inv["chemicals"]
+    if not chems:
+        return "", ""
+    counts = inv["counts"]
+    total, wired = counts["total"], counts["wired"]
+    id_pct = (
+        round(counts["fields_met"] / counts["fields_total"] * 100)
+        if counts["fields_total"]
+        else 0
+    )
+
+    svg = render_chemicals_svg(inv)
+    unreached = total - wired
+    if unreached:
+        route_note = (
+            f'<p class="chem-warn">{_mk("no")}<span><b>{unreached} of {total} compounds '
+            "cannot be reached from any process.</b> ISA forbids a MolecularEntity as a "
+            "LabProcess <code>object</code>, so a compound is linked <em>through</em> the "
+            "Exposure&rsquo;s condition table — give the table an <code>about</code> "
+            "pointing at the compound (and the <code>compound</code> column a "
+            "<code>valueUrl</code>), or the substance stays described but unused.</span></p>"
+        )
+    else:
+        route_note = (
+            '<p class="good-note">Every compound is reachable from the process that used it.</p>'
+        )
+
+    # Per-compound identification matrix. Unwired first, then worst-covered, so
+    # the rows that survive the cap are the ones worth acting on.
+    ordered = sorted(
+        chems, key=lambda c: (c["state"] == "wired", c["met"], c["name"].casefold(), c["id"])
+    )
+    head = "".join(
+        f'<th scope="col" title="{html.escape(full)}">{html.escape(short)}</th>'
+        for full, short in CHEM_COVERAGE_FIELDS
+    )
+    # Every compound is listed, matching the diagram: this is a metadata-checking
+    # view, and a truncated tail hides the rows worth acting on.
+    rows = []
+    for c in ordered:
+        link = " 🔗" if c["resolvable"] else ""
+        flag = (
+            ""
+            if c["state"] == "wired"
+            else f'<span class="chem-flag" title="{html.escape(_CHEM_STATE_NOTE[c["state"]])}">'
+            f"{'not linked' if c['state'] == 'unlinked' else 'no process'}</span>"
+        )
+        cells = "".join(
+            f'<td>{_mk("ok" if c["fields"].get(full) else "no")}</td>'
+            for full, _short in CHEM_COVERAGE_FIELDS
+        )
+        rows.append(
+            f'<tr><th scope="row">{_mk(_CHEM_STATE_MARK[c["state"]])}'
+            f'<span class="cn">{c["label"]}{link}</span>{flag}</th>{cells}</tr>'
+        )
+    matrix = (
+        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+        f'<caption class="sr-only">Identification fields carried by each compound</caption>'
+        f'<thead><tr><th scope="col">Compound</th>{head}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>'
+    )
+
+    diagram = (
+        f'<div class="prov-scroll">{svg}</div>\n  '
+        + _legend(_LG_PROCESS, _LG_FILE, _LG_COMPOUND, _LG_LINK, _LG_BREAK)
+        if svg
+        else ""
+    )
+
+    panel = (
+        '<p class="prov-cap">The substances under test — whether each one is actually '
+        "connected to the experiment that used it, and whether a reader could obtain the "
+        f"same material. <b>{total}</b> compound{'' if total == 1 else 's'} · "
+        f"<b>{wired}</b> wired · <b>{id_pct}%</b> identified.</p>\n"
+        f"  {diagram}\n"
+        f"  {route_note}\n"
+        f"  {matrix}"
+    )
+    return panel, str(total)
+
+
+# An organisation reached through a person's affiliation is CORRECTLY linked —
+# that is the normal shape — so it reads as met, with a muted chip naming the
+# route. Only "unattached" is a defect.
+_CELL_STATE_NOTE = {
+    "wired": "consumed by a process",
+    "mentioned": "named in the crate, but consumed by no process",
+    "unlinked": "nothing in the crate references this cell line",
+}
+
+
+def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
+    """The Cell lines view: the biological test system, and whether it is pinned down.
+
+    The same two questions the compound view asks, because a cell line fails the
+    same two ways. It is *unreachable* when the ``CellCulture`` consumes a freshly
+    minted generic ``Sample`` instead of the declared ``CellLineSample`` — the
+    line is then described and used by nothing. It is *unidentified* when it
+    carries a name but no Cellosaurus RRID: "CHO-K1" names a family of divergent
+    stocks, ``CVCL_0214`` names one, and organ / tissue / passage are what let
+    another lab reproduce the culture rather than merely recognise it.
+
+    Returns:
+        ``(panel html, tab badge)`` — ``("", "")`` when the crate declares none.
+    """
+    from builder.writers.provenance_dag import CELLLINE_COVERAGE_FIELDS, render_celllines_svg
+
+    lines = inv["celllines"]
+    if not lines:
+        return "", ""
+    counts = inv["counts"]
+    total, wired = counts["total"], counts["wired"]
+    rrid_backed = sum(1 for c in lines if c["rrid"])
+    pct = (
+        round(counts["fields_met"] / counts["fields_total"] * 100)
+        if counts["fields_total"]
+        else 0
+    )
+
+    svg = render_celllines_svg(inv)
+    diagram = (
+        f'<div class="prov-scroll">{svg}</div>\n  '
+        + _legend(_LG_PROCESS, _LG_CELLLINE, _LG_FILE, _LG_LINK, _LG_BREAK)
+        if svg
+        else ""
+    )
+
+    notes = []
+    unreached = total - wired
+    if unreached:
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{unreached} of {total} cell lines are '
+            "not consumed by any process.</b> The <code>CellCulture</code> should take the "
+            "declared cell line as its <code>input</code> — when it takes a freshly minted "
+            "generic <code>Sample</code> instead, the line is described in the crate and used "
+            "by nothing.</span></p>"
+        )
+    if total - rrid_backed:
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{total - rrid_backed} of {total} cell '
+            "lines carry no Cellosaurus RRID.</b> A name identifies a family of divergent "
+            "stocks; <code>CVCL_…</code> identifies the one that was used.</span></p>"
+        )
+    if not notes:
+        notes.append(
+            '<p class="good-note">Every cell line is consumed by a process and RRID-backed.</p>'
+        )
+
+    ordered = sorted(
+        lines, key=lambda c: (c["state"] == "wired", c["met"], c["name"].casefold(), c["id"])
+    )
+    head = "".join(
+        f'<th scope="col" title="{html.escape(full)}">{html.escape(short)}</th>'
+        for full, short in CELLLINE_COVERAGE_FIELDS
+    )
+    rows = []
+    for c in ordered:
+        link = " 🔗" if c["resolvable"] else ""
+        rrid = f'<span class="ty">{html.escape(c["rrid"])}</span>' if c["rrid"] else ""
+        flag = (
+            ""
+            if c["state"] == "wired"
+            else f'<span class="chem-flag" title="{html.escape(_CELL_STATE_NOTE[c["state"]])}">'
+            f"{'not linked' if c['state'] == 'unlinked' else 'no process'}</span>"
+        )
+        cells = "".join(
+            f'<td>{_mk("ok" if c["fields"].get(full) else "no")}</td>'
+            for full, _short in CELLLINE_COVERAGE_FIELDS
+        )
+        rows.append(
+            f'<tr><th scope="row">{_mk(_CHEM_STATE_MARK[c["state"]])}'
+            f'<span class="cn">{c["label"]}{link}</span>{rrid}{flag}</th>{cells}</tr>'
+        )
+    matrix = (
+        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+        '<caption class="sr-only">Identification fields carried by each cell line</caption>'
+        f'<thead><tr><th scope="col">Cell line</th>{head}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>'
+    )
+
+    panel = (
+        '<p class="prov-cap">The biological test system — whether the declared line is the '
+        "one the culture actually consumed, and whether another lab could obtain the same "
+        f"stock. <b>{total}</b> cell line{'' if total == 1 else 's'} · <b>{wired}</b> "
+        f"consumed by a process · <b>{pct}%</b> characterised.</p>\n"
+        f"  {diagram}\n"
+        f"  {''.join(notes)}\n"
+        f"  {matrix}"
+    )
+    return panel, str(total)
+
+
+_AGENT_STATE_MARK = {"credited": "ok", "affiliated": "ok", "unattached": "no"}
+_AGENT_STATE_NOTE = {
+    "credited": "credited directly by an entity in the crate",
+    "affiliated": "linked through a person's affiliation",
+    "unattached": "nothing in the crate references this agent",
+}
+_AGENT_STATE_CHIP = {"affiliated": ("muted", "via affiliation"), "unattached": ("", "unattached")}
+def _render_people_panel(inv: dict[str, Any]) -> tuple[str, str]:
+    """The People & organisations view: who the crate credits, how resolvably.
+
+    Attribution is where a crate quietly stops being machine-actionable. A bare
+    ``name`` satisfies every profile while crediting nobody a registry can
+    resolve, and the diagram makes the two failure shapes visible: a person with
+    no ``affiliation`` (the institution behind the work is unrecorded) and an
+    agent nothing references at all — which is what a duplicated institution
+    looks like, one copy ROR-backed and carrying edges, the other locally minted
+    and carrying none.
+
+    Returns ``("", "")`` when the crate names no people or organisations.
+
+    Returns:
+        ``(panel html, tab badge)``.
+    """
+    from builder.writers.provenance_dag import AGENT_COVERAGE_FIELDS, render_people_svg
+
+    agents = inv["agents"]
+    if not agents:
+        return "", ""
+    counts = inv["counts"]
+    total, pid_backed, unattached = counts["total"], counts["pid_backed"], counts["unattached"]
+
+    svg = render_people_svg(inv)
+    diagram = (
+        f'<div class="prov-scroll">{svg}</div>\n  '
+        + _legend(_LG_PERSON, _LG_ORG, _LG_LINK, _LG_BREAK)
+        if svg
+        else ""
+    )
+
+    notes = []
+    if unattached:
+        loose = [a["label"] for a in agents if a["state"] == "unattached"]
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{unattached} of {total} agents are '
+            "referenced by nothing in the crate</b> "
+            f"({', '.join(loose[:4])}{'…' if len(loose) > 4 else ''}). An agent no entity "
+            "credits is usually a duplicate of one that is — the same institution minted "
+            "twice, once with its ROR and once locally. Point the crediting entity at the "
+            "identifier-backed copy and drop the other.</span></p>"
+        )
+    missing_pid = total - pid_backed
+    if missing_pid:
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{missing_pid} of {total} agents carry '
+            "no persistent identifier.</b> Give each person an ORCID and each organisation a "
+            "ROR — a name string credits nobody a machine can resolve.</span></p>"
+        )
+    if not notes:
+        notes.append(
+            '<p class="good-note">Every agent is credited and identifier-backed.</p>'
+        )
+
+    ordered = sorted(
+        agents, key=lambda a: (a["state"] == "credited", a["met"], a["name"].casefold(), a["id"])
+    )
+    head = "".join(
+        f'<th scope="col" title="{html.escape(full)}">{html.escape(short)}</th>'
+        for full, short in AGENT_COVERAGE_FIELDS
+    )
+    # Every agent is listed — no cap. This view exists so a person can CHECK the
+    # attribution entity by entity, and a truncated tail is exactly where a
+    # duplicated institution or a missing-ORCID author would hide.
+    rows = []
+    for a in ordered:
+        link = " 🔗" if a["resolvable"] else ""
+        chip = _AGENT_STATE_CHIP.get(a["state"])
+        flag = (
+            ""
+            if chip is None
+            else f'<span class="chem-flag{" " + chip[0] if chip[0] else ""}" '
+            f'title="{html.escape(_AGENT_STATE_NOTE[a["state"]])}">{chip[1]}</span>'
+        )
+        kind = "Person" if a["kind"] == "person" else "Organisation"
+        cells = "".join(
+            f"<td>{_mk(_kind(a['fields'].get(full)))}</td>"
+            for full, _short in AGENT_COVERAGE_FIELDS
+        )
+        rows.append(
+            f'<tr><th scope="row">{_mk(_AGENT_STATE_MARK[a["state"]])}'
+            f'<span class="cn">{a["label"]}{link}</span>'
+            f'<span class="ty">{kind}</span>{flag}</th>{cells}</tr>'
+        )
+    matrix = (
+        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+        '<caption class="sr-only">Attribution fields carried by each agent</caption>'
+        f'<thead><tr><th scope="col">Agent</th>{head}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>'
+    )
+
+    panel = (
+        '<p class="prov-cap">Who the crate credits, and whether that credit resolves — '
+        f"an ORCID for a person, a ROR for an institution. <b>{counts['people']}</b> "
+        f"{'person' if counts['people'] == 1 else 'people'} · <b>{counts['orgs']}</b> "
+        f"organisation{'' if counts['orgs'] == 1 else 's'} · <b>{pid_backed}</b> "
+        "identifier-backed.</p>\n"
+        f"  {diagram}\n"
+        f"  {''.join(notes)}\n"
+        f"  {matrix}"
+    )
+    return panel, str(total)
 
 
 def build_maturity_html(
@@ -705,13 +1418,39 @@ def build_maturity_html(
     val = validation if validation is not None else state.validation
 
     tiers = _severity_tiers(val) if _validation_has_signal(val) else None
+    # Does the recorded verdict still describe THIS state? `export_crate`
+    # re-validates when it does not, so a stale banner here means the report was
+    # built directly from a state that outran its last validation.
+    stale = tiers is not None and val.is_stale_for(state)
+    if stale:
+        for tier in tiers:
+            tier["state"] = "na"
+            # The summary goes too: "3 / 3 profiles" asserts a pass just as
+            # loudly as a green tick, and it was measured on a different crate.
+            tier["summary"] = "out of date"
+            tier["note"] = "Recorded before the crate's latest changes."
     checks = _reproducibility_checks(state)
     repro_ready = sum(1 for _, ok, _ in checks if ok)
 
-    header = _render_header(title, accession, tiers)
-    kpis = _render_kpis(tiers, fair, mit, repro_ready, len(checks))
-    prov_section = _render_provenance_section(graph) if graph is not None else ""
-    prof_section = _render_profile_section(val, tiers)
+    header = _render_header(title, accession, tiers, stale=stale)
+    # The chemicals inventory is shared: it feeds the KPI tile and the Chemicals
+    # graph view, and is a single cheap pass over the graph — build it once.
+    chem_inv: dict[str, Any] | None = None
+    views_section = ""
+    if graph is not None:
+        from builder.writers.provenance_dag import build_chemical_inventory
+
+        chem_inv = build_chemical_inventory(graph)
+        views_section = _render_graph_views_section(graph, chem_inv)
+    kpis = _render_kpis(
+        tiers,
+        fair,
+        mit,
+        repro_ready,
+        len(checks),
+        chem_inv if chem_inv and chem_inv["chemicals"] else None,
+    )
+    prof_section = _render_profile_section(val, tiers, stale=stale)
     fair_section = _render_fair_section(fair)
     mit_section = _render_mit_section(mit)
     repro_section = _render_repro_section(checks)
@@ -723,7 +1462,7 @@ def build_maturity_html(
     body = (
         header
         + kpis
-        + prov_section
+        + views_section
         + prof_section
         + fair_section
         + mit_section
