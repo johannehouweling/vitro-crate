@@ -88,6 +88,163 @@ def _directory_message(path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def read_excel_rows(
+    path: str,
+    *,
+    max_rows: int | None = None,
+    max_bytes: int = _MAX_BYTES,
+) -> dict[str, list[dict[str, Any]]] | None:
+    """Read an ``.xlsx`` workbook as TYPED rows, one list of dicts per sheet.
+
+    Distinct from :func:`read_excel`, which renders pipe-delimited *text* for a
+    model to read: re-parsing that as CSV loses cell types and breaks on any
+    value containing a pipe. A plate map has to round-trip as data, so this
+    returns the cells.
+
+    ``max_rows`` defaults to **no cap** deliberately. The 500-row default that
+    suits an LLM preview would silently drop wells from a 384- or 1536-well
+    plate — the same silent-data-loss class as the bug this exists to fix. A
+    caller that does pass a cap gets a ``__truncated__`` key so it can say so.
+
+    Values are normalised at this boundary: ``None`` becomes ``""`` and an
+    integral float becomes an ``int``, so a ``well_id`` reads ``1`` rather than
+    ``1.0`` — openpyxl types every numeric cell as float, and the downstream
+    valueUrl/multivalued reasoning compares strings.
+
+    Returns ``None`` when the file is missing, too large, or unreadable.
+    """
+    src = Path(path)
+    if not src.is_file():
+        logger.warning("read_excel_rows: not a file: %s", path)
+        return None
+    if src.stat().st_size > max_bytes:
+        logger.warning("read_excel_rows: %s exceeds %d bytes — skipped", path, max_bytes)
+        return None
+    try:
+        import openpyxl
+    except ImportError:
+        logger.error("read_excel_rows: openpyxl is not installed")
+        return None
+    try:
+        book = openpyxl.load_workbook(
+            src, read_only=True, data_only=True, keep_links=False
+        )
+    except Exception:
+        logger.exception("read_excel_rows: could not open %s", path)
+        return None
+
+    def _cell(value: Any) -> Any:
+        if value is None:
+            return ""
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return value if isinstance(value, (int, str)) else str(value)
+
+    sheets: dict[str, list[dict[str, Any]]] = {}
+    try:
+        for sheet in book.worksheets:
+            header: list[str] | None = None
+            rows: list[dict[str, Any]] = []
+            for raw in sheet.iter_rows(values_only=True):
+                cells = [_cell(v) for v in raw]
+                if not any(str(c).strip() for c in cells):
+                    continue
+                if header is None:
+                    header = [str(c).strip() for c in cells]
+                    continue
+                row = {
+                    key: cells[i] if i < len(cells) else ""
+                    for i, key in enumerate(header)
+                    if key
+                }
+                rows.append(row)
+                if max_rows is not None and len(rows) >= max_rows:
+                    rows.append({"__truncated__": True})
+                    break
+            sheets[sheet.title] = rows
+    finally:
+        book.close()
+    return sheets
+
+
+# openpyxl reads OOXML only, so every pre-2007 ``.xls`` raised
+# InvalidFileException and was logged as a full ERROR traceback — once per file,
+# and the real deposit corpus is full of them (#417). BIFF needs its own reader.
+_OOXML_SUFFIXES: frozenset[str] = frozenset({".xlsx", ".xlsm", ".xltx", ".xltm"})
+
+
+def _read_xls_biff(file_path: Path, max_rows: int) -> str | None:
+    """Read a legacy BIFF ``.xls`` workbook into the same pipe-delimited text.
+
+    Byte-identical formatting to the openpyxl branch so a caller cannot tell
+    which reader ran.
+    """
+    try:
+        import xlrd
+    except ImportError:
+        logger.warning(
+            "Cannot read legacy .xls %s: xlrd is not installed "
+            "(pip install xlrd) — the file contributes nothing to the crate",
+            file_path.name,
+        )
+        return None
+
+    import io
+
+    try:
+        # logfile is REQUIRED: xlrd defaults to sys.stdout and prints codepage
+        # notices straight into the terminal. Replacing a traceback with stdout
+        # spew is not a fix.
+        book = xlrd.open_workbook(str(file_path), logfile=io.StringIO(), on_demand=True)
+    except Exception as exc:  # noqa: BLE001 — an unreadable file is not fatal
+        logger.warning(
+            "Cannot read legacy .xls %s: %s — the file contributes nothing to the crate",
+            file_path.name,
+            exc,
+        )
+        logger.debug("Legacy .xls read failed for %s", file_path, exc_info=True)
+        return None
+
+    def _cell(cell: Any, datemode: int) -> str:
+        if cell.ctype == xlrd.XL_CELL_EMPTY or cell.value is None:
+            return ""
+        if cell.ctype == xlrd.XL_CELL_DATE:
+            # xlrd hands back a raw serial float; without this the drafter reads
+            # 44637.0 where the sheet says 2022-03-17 — corrupted data in the
+            # crate, which D5 forbids.
+            try:
+                return str(xlrd.xldate.xldate_as_datetime(cell.value, datemode))
+            except Exception:  # noqa: BLE001 — a bad serial is not worth failing on
+                return str(cell.value)
+        value = cell.value
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))  # 7, not 7.0 — matches the openpyxl branch
+        return str(value)
+
+    parts: list[str] = []
+    try:
+        for sheet in book.sheets():
+            parts.append(f"[Sheet: {sheet.name}]")
+            row_count = 0
+            for index in range(sheet.nrows):
+                cells = [_cell(c, book.datemode) for c in sheet.row(index)]
+                if not any(c for c in cells):
+                    continue
+                parts.append("| " + " | ".join(cells) + " |")
+                row_count += 1
+                if row_count >= max_rows:
+                    parts.append(f"[... truncated at {max_rows} rows]")
+                    break
+            parts.append("")
+    except Exception:  # noqa: BLE001 — keep whatever rows were already read
+        logger.warning("Legacy .xls %s ended early (corrupt sheet)", file_path.name)
+        logger.debug("Row extraction failed for %s", file_path, exc_info=True)
+    finally:
+        book.release_resources()
+
+    return "\n".join(parts).rstrip("\n")
+
+
 def read_excel(
     path: str,
     *,
@@ -125,6 +282,13 @@ def read_excel(
     except OSError:
         return None
 
+    # Legacy BIFF is a different container entirely — openpyxl cannot open it.
+    if file_path.suffix.lower() not in _OOXML_SUFFIXES:
+        text = _read_xls_biff(file_path, max_rows)
+        if text is None:
+            return None
+        return compact_grid_text(text) if compact else text
+
     try:
         import openpyxl
     except ImportError:
@@ -133,8 +297,16 @@ def read_excel(
 
     try:
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True, keep_links=False)
-    except Exception:
-        logger.exception("Error opening Excel file: %s", path)
+    except Exception as exc:  # noqa: BLE001
+        # One warning naming the reason, not a traceback per file (#417): a
+        # corpus of legacy workbooks produced pages of stack traces that read
+        # like a crash while the scan was in fact fine.
+        logger.warning(
+            "Cannot read Excel file %s: %s — the file contributes nothing to the crate",
+            file_path.name,
+            exc,
+        )
+        logger.debug("Excel open failed for %s", path, exc_info=True)
         return None
 
     parts: list[str] = []
@@ -314,57 +486,119 @@ def _read_text_file(
     return content + marker
 
 
-def compact_grid_text(text: str) -> str:
-    """Densify ``[Sheet: …]`` + pipe-row output, keeping every signal cell (#378).
+# Header words that name an *authoring-guidance* column rather than a data one.
+# Matched against the header cell only, never a value (#421). English and Dutch
+# both appear in the real corpus: S-VHPS22's top-level file is an RIVM template
+# whose six columns are Veldnaam | Optionaliteit | Hoe vaak in te vullen |
+# Beschrijving | Tips | Hier invullen — four of those six are instructions to
+# the depositor, carrying 9,913 chars to deliver 610 chars of actual metadata.
+_GUIDANCE_HEADERS: frozenset[str] = frozenset(
+    {
+        "comments",
+        "commentaar",
+        "tips",
+        "beschrijving",
+        "toelichting",
+        "description",
+        "instructions",
+        "instructie",
+        "example",
+        "voorbeeld",
+        "optionaliteit",
+        "hoe vaak in te vullen",
+    }
+)
 
-    A depositor-filled metadata workbook is mostly boilerplate: a ``Parameter |
-    Standard or ontology reference | Value | Comments`` header repeated per
-    sheet, a Comments column of authoring instructions, and empty cells. On the
-    real S-VHPS26 workbook that noise pushes the cell line, RRID, author and
-    chemicals 2-5 past any affordable context slice.
 
-    Four rules, in order: drop the repeated header row; drop the trailing
-    Comments column **only when that sheet's own header names it** ``Comments``;
-    drop empty cells, then drop rows left with fewer than two non-empty cells;
-    finally fold a numbered series into one row (see
-    :func:`_collapse_numbered_series`).
+def _normalize_header(cell: str) -> str:
+    """Fold a header cell for guidance-vocabulary matching."""
+    return " ".join((cell or "").split()).casefold().rstrip(":*")
 
-    **Rows are never dropped on the emptiness of one named column.** That rule
-    looks right and destroys the General information sheet, because this
-    depositor filled column 2 rather than the ``Value`` column — so ``Dr. Fabian
-    Wagenaars``, the ORCID, the DOI and the assay name all sit on rows whose
-    ``Value`` cell is blank. Text carrying no pipe rows is returned unchanged.
+
+def _guidance_columns(header: list[str]) -> set[int]:
+    """Indices of the header's authoring-guidance columns."""
+    return {i for i, cell in enumerate(header) if _normalize_header(cell) in _GUIDANCE_HEADERS}
+
+
+def _is_guidance_cell(index: int, guidance: set[int], overflow_from: int | None) -> bool:
+    """True when cell *index* belongs to a guidance column, including overflow.
+
+    Rows are ragged in the real corpus: the S-VHPS26 sheets declare a four-column
+    ``Parameter | Standard or ontology reference | Value | Comments`` header but
+    emit five cells, because a long Comments entry spills into an unheadered
+    column (``"AOP title and ID, e.g., …"`` then ``"URL: https://aopwiki.org/…"``
+    — one instruction split in two). When the guidance column is the header's
+    last, everything at or past it is that same guidance, so the tail goes too.
+    A guidance column in the *middle* gets no such treatment: there, a trailing
+    unheadered cell sits beyond a real data column and is not ours to judge.
     """
-    lines = text.split("\n")
-    out: list[str] = []
-    drop_last_column = False
-    seen_header = False
-    seen_iris: set[str] = set()
+    return index in guidance or (overflow_from is not None and index >= overflow_from)
 
-    for line in lines:
+
+def _guidance_is_droppable(
+    rows: list[list[str]], guidance: set[int], overflow_from: int | None
+) -> bool:
+    """True when the sheet still says something without its guidance columns.
+
+    The header vocabulary alone is not safe to act on: ``Description`` names
+    scaffolding in a fill-in-the-blanks template but real content in a workbook
+    that simply has a description column. The two are distinguishable at the
+    *sheet* level — a template has a separate answer column that the depositor
+    actually filled, so at least one row stands on its own with two non-empty
+    non-guidance cells. A workbook whose only content lives in ``Description``
+    has none, and keeps every column.
+
+    Deciding once per sheet rather than per row matters: a per-row test would
+    keep the full instruction text on exactly the unfilled rows that carry no
+    data at all, which is most of the noise being removed.
+    """
+    return any(
+        sum(
+            1
+            for i, cell in enumerate(cells)
+            if cell and not _is_guidance_cell(i, guidance, overflow_from)
+        )
+        >= 2
+        for cells in rows
+    )
+
+
+def _compact_sheet(lines: list[str]) -> list[str]:
+    """Apply the row/column rules to one sheet's worth of lines."""
+    rows: dict[int, list[str]] = {}
+    for idx, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.startswith("[Sheet:"):
-            # A new sheet re-arms header detection; the Comments column is a
-            # per-sheet property, not a workbook-wide one.
-            seen_header = False
-            drop_last_column = False
-            seen_iris = set()
+        if stripped.startswith("|"):
+            rows[idx] = [c.strip() for c in stripped.strip("|").split("|")]
+    if not rows:
+        return list(lines)
+
+    header_idx, header_cells = next(iter(rows.items()))
+    guidance = _guidance_columns(header_cells)
+    last = len(header_cells) - 1
+    overflow_from = last if last in guidance else None
+    if guidance and not _guidance_is_droppable(
+        [cells for idx, cells in rows.items() if idx != header_idx], guidance, overflow_from
+    ):
+        guidance, overflow_from = set(), None
+    drop_header = bool(guidance) or bool(header_cells) and header_cells[0].lower() == "parameter"
+
+    out: list[str] = []
+    seen_iris: set[str] = set()
+    for idx, line in enumerate(lines):
+        cells = rows.get(idx)
+        if cells is None:
             out.append(line)
             continue
-        if not stripped.startswith("|"):
-            out.append(line)
+        if idx == header_idx and drop_header:
             continue
-
-        cells = [c.strip() for c in stripped.strip("|").split("|")]
-        if not seen_header:
-            seen_header = True
-            drop_last_column = bool(cells) and cells[-1].lower() == "comments"
-            if drop_last_column or (cells and cells[0].lower() == "parameter"):
-                continue
-
-        if drop_last_column and len(cells) > 1:
-            cells = cells[:-1]
-        kept = [c for c in cells if c]
+        # Dropped by index, not by position: a ragged row shorter than the
+        # header would otherwise lose whichever column happened to be last.
+        kept = [
+            c
+            for i, c in enumerate(cells)
+            if c and not _is_guidance_cell(i, guidance, overflow_from)
+        ]
         if len(kept) < 2:
             continue
         # An ontology IRI annotating a column repeats verbatim on every row it
@@ -377,6 +611,49 @@ def compact_grid_text(text: str) -> str:
             kept = deduped
         seen_iris.update(c for c in kept if _IRI_CELL.match(c))
         out.append("| " + " | ".join(kept) + " |")
+
+    return out
+
+
+def compact_grid_text(text: str) -> str:
+    """Densify ``[Sheet: …]`` + pipe-row output, keeping every signal cell (#378).
+
+    A depositor-filled metadata workbook is mostly boilerplate: a ``Parameter |
+    Standard or ontology reference | Value | Comments`` header repeated per
+    sheet, columns of authoring instructions, and empty cells. On the real
+    S-VHPS26 workbook that noise pushes the cell line, RRID, author and
+    chemicals 2-5 past any affordable context slice.
+
+    Four rules, in order: drop the repeated header row; drop the sheet's
+    authoring-guidance columns **only when that sheet's own header names them**
+    (:data:`_GUIDANCE_HEADERS`) *and* the sheet survives without them
+    (:func:`_guidance_is_droppable`); drop empty cells, then drop rows left with
+    fewer than two non-empty cells; finally fold a numbered series into one row
+    (see :func:`_collapse_numbered_series`).
+
+    **Rows are never dropped on the emptiness of one named column.** That rule
+    looks right and destroys the General information sheet, because this
+    depositor filled column 2 rather than the ``Value`` column — so ``Dr. Fabian
+    Wagenaars``, the ORCID, the DOI and the assay name all sit on rows whose
+    ``Value`` cell is blank. Text carrying no pipe rows is returned unchanged.
+
+    Header detection, guidance columns and IRI dedup are all **per sheet**, not
+    per workbook: a five-sheet template mixes layouts, and a decision taken on
+    sheet 1 has no authority over sheet 4.
+    """
+    lines = text.split("\n")
+
+    # Split on sheet boundaries first — the column rules need to see a whole
+    # sheet before deciding, which a single streaming pass cannot do.
+    blocks: list[list[str]] = [[]]
+    for line in lines:
+        if line.strip().startswith("[Sheet:"):
+            blocks.append([])
+        blocks[-1].append(line)
+
+    out: list[str] = []
+    for block in blocks:
+        out.extend(_compact_sheet(block))
 
     return "\n".join(_collapse_numbered_series(out)).strip()
 
@@ -581,7 +858,7 @@ def read_file(
     - ``.txt``, ``.csv``, ``.tsv``, ``.json``, ``.yml``, ``.yaml``,
       ``.xml``, ``.md``, ``.log``, ``.ini``, ``.cfg``, ``.toml``,
       ``.py``, ``.r``, ``.sh`` — plain text, read as UTF-8
-    - ``.xlsx`` — Excel via :func:`read_excel`
+    - ``.xlsx`` / ``.xlsm`` / legacy ``.xls`` — Excel via :func:`read_excel`
     - ``.docx`` — Word via :func:`read_docx`
     - ``.pdf`` — via :func:`~builder.tools.scanner.extract_pdf_text`
 
@@ -616,7 +893,7 @@ def read_file(
 
     suffix = file_path.suffix.lower()
 
-    if suffix == ".xlsx":
+    if suffix in (".xlsx", ".xlsm", ".xls"):
         return read_excel(path, max_rows=max_lines, max_bytes=max_bytes, compact=compact)
 
     if suffix == ".docx":
