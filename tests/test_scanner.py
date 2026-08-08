@@ -1170,3 +1170,83 @@ class TestDefaultFileCap:
             "engine now passes max_files explicitly — update this test to assert "
             "the value it passes instead of the inherited default"
         )
+
+
+class TestSelfProducedArtifactsArePruned:
+    """The scanner must not re-ingest the tool's own output (#416).
+
+    A scan root that already holds previous runs fed the builder's own crates and
+    session state back in as source research data — and because
+    ``ro-crate-metadata.json`` / ``crate_state.json`` match the metadata/JSON
+    priority rules, that self-produced material OUTRANKED the real assay files in
+    the drafter's limited context budget.
+
+    Both prunes key off structure, not directory names: a folder legitimately
+    called ``output/`` full of real measurements must survive.
+    """
+
+    def _tree(self, root):
+        (root / "assays").mkdir()
+        (root / "assays" / "plate.xlsx").write_text("x", encoding="utf-8")
+        (root / "assays" / "sop.docx").write_text("y", encoding="utf-8")
+        crate = root / "output" / "crate_v9"
+        crate.mkdir(parents=True)
+        (crate / "ro-crate-metadata.json").write_text("{}", encoding="utf-8")
+        (crate / "ro-crate-preview.html").write_text("h", encoding="utf-8")
+        (crate / "data").mkdir()
+        (crate / "data" / "table.csv").write_text("a,b", encoding="utf-8")
+        real = root / "output" / "raw_measurements"
+        real.mkdir(parents=True, exist_ok=True)
+        (real / "run1.csv").write_text("1", encoding="utf-8")
+        return crate
+
+    def _walk(self, root):
+        from builder.tools.scanner import _safe_walk
+
+        return sorted(str(p.relative_to(root)) for p in _safe_walk(root))
+
+    def test_nested_ro_crate_root_is_skipped_wholesale(self, tmp_path) -> None:
+        self._tree(tmp_path)
+        found = self._walk(tmp_path)
+        assert not any("crate_v9" in f for f in found), found
+
+    def test_real_research_data_is_untouched(self, tmp_path) -> None:
+        self._tree(tmp_path)
+        found = self._walk(tmp_path)
+        assert any(f.endswith("assays/plate.xlsx") for f in found), found
+
+    def test_a_folder_merely_named_output_is_not_pruned(self, tmp_path) -> None:
+        # The prune keys off the ro-crate-metadata.json sentinel, not a name
+        # list, so it cannot misfire on legitimate data under output/.
+        self._tree(tmp_path)
+        found = self._walk(tmp_path)
+        assert any(f.endswith("raw_measurements/run1.csv") for f in found), found
+
+    def test_pointing_directly_at_a_crate_still_scans_it(self, tmp_path) -> None:
+        # The scan target itself is exempt — "explicitly point at a crate" must
+        # keep working.
+        crate = self._tree(tmp_path)
+        found = self._walk(crate)
+        assert "ro-crate-metadata.json" in found
+        assert "data/table.csv" in found
+
+    def test_session_root_is_skipped(self, tmp_path, monkeypatch) -> None:
+        # sessions/<id>/crate_state.json lives OUTSIDE any crate root and is a
+        # complete serialization of the previous run — the single most
+        # contaminating file, which the crate-sentinel prune alone misses.
+        import importlib
+
+        import builder.config as config
+
+        self._tree(tmp_path)
+        sessions = tmp_path / "sessions" / "20260101"
+        sessions.mkdir(parents=True)
+        (sessions / "crate_state.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("VITRO_SESSION_DIR", str(tmp_path / "sessions"))
+        importlib.reload(config)
+        try:
+            found = self._walk(tmp_path)
+            assert not any("sessions" in f for f in found), found
+        finally:
+            monkeypatch.delenv("VITRO_SESSION_DIR", raising=False)
+            importlib.reload(config)
