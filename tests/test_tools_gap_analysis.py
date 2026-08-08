@@ -731,8 +731,8 @@ class TestMitGapsUseTheGraphMatcher:
         """
         from builder.tools.mit_assessment import (
             _assemble_graph,
-            _load_mit_yaml,
-            _parse_crate_slots,
+            load_mit_yaml,
+            parse_crate_slots,
             slot_matcher,
         )
 
@@ -740,7 +740,7 @@ class TestMitGapsUseTheGraphMatcher:
         matcher = slot_matcher(state, graph={"@graph": _assemble_graph(state)})
 
         scorer_unfilled: set[str] = set()
-        for module in (_load_mit_yaml() or {}).get("modules", []):
+        for module in (load_mit_yaml() or {}).get("modules", []):
             # The YAML nests most parameters under `sections`; walk both, exactly
             # as the gap engine and the scorer do.
             params = [
@@ -749,7 +749,7 @@ class TestMitGapsUseTheGraphMatcher:
             ]
             for param in params:
                 crate_slot = param.get("crate_slot", "")
-                slots = _parse_crate_slots(crate_slot)
+                slots = parse_crate_slots(crate_slot)
                 if not slots:
                     continue
                 if not any(matcher(et, f) for et, f in slots):
@@ -790,3 +790,159 @@ class TestMitGapsUseTheGraphMatcher:
         scorer = assess_mit_coverage(state, graph={"@graph": _assemble_graph(state)})
 
         assert report.mit_overall == pytest.approx(scorer.overall_score, abs=1e-6)
+
+
+class TestMitSingleOwner:
+    """The scorer and the gap engine read ONE checklist, ONE way (#357).
+
+    Module/param iteration and dedup used to be implemented twice — in
+    ``mit_assessment._score_modules`` and again inside ``gap_analysis._mit_gaps``,
+    whose own comment said it "mirrors mit_assessment" — with the checklist path
+    hardcoded in both. Three readers of the same YAML, free to drift.
+
+    These tests pin the collapse. The traversal test deliberately re-derives the
+    expected count from the raw YAML rather than from the shared helper, so it
+    still fails if the shared traversal itself is wrong.
+    """
+
+    @staticmethod
+    def _state():
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        return vhps_fixture_state("S-VHPS21")
+
+    def test_one_checklist_path_constant(self):
+        """``gap_analysis`` no longer derives its own path to the MIT YAML."""
+        from builder.tools import gap_analysis, mit_assessment
+
+        assert mit_assessment.MIT_YAML_PATH.is_file()
+        assert not hasattr(gap_analysis, "MIT_YAML_PATH"), (
+            "gap_analysis re-introduced its own MIT_YAML_PATH; import the one in "
+            "mit_assessment so the two readers cannot point at different checklists"
+        )
+
+    def test_scorer_and_gap_engine_report_the_same_score(self):
+        """THE acceptance: both assessors agree on the same state, graph or not."""
+        from builder.tools.gap_analysis import _mit_gaps
+        from builder.tools.mit_assessment import _assemble_graph, assess_mit_coverage
+
+        state = self._state()
+        for graph in (None, {"@graph": _assemble_graph(state)}):
+            scored = assess_mit_coverage(state, graph=graph).overall_score
+            _gaps, gap_score = _mit_gaps(state, graph=graph)
+            assert scored == pytest.approx(gap_score), (
+                f"scorer says {scored}, gap engine says {gap_score} "
+                f"(graph={'yes' if graph else 'no'})"
+            )
+
+    def test_every_scored_param_is_either_covered_or_a_gap(self):
+        """Gaps and covered params partition the denominator — no param is lost.
+
+        A divergence in the two traversals shows up here as a partition that does
+        not add up, which a bare score comparison could hide (both sides could
+        skip the same parameter and still agree on the ratio).
+        """
+        from builder.tools.gap_analysis import _mit_gaps
+        from builder.tools.mit_assessment import (
+            _assemble_graph,
+            assess_mit_coverage,
+            iter_scorable_params,
+            load_mit_yaml,
+        )
+
+        state = self._state()
+        graph = {"@graph": _assemble_graph(state)}
+        report = assess_mit_coverage(state, graph=graph)
+        gaps, _score = _mit_gaps(state, graph=graph)
+
+        denominator = sum(m["total"] for m in report.module_scores.values())
+        covered = sum(m["completed"] for m in report.module_scores.values())
+        assert len(gaps) + covered == denominator
+        assert denominator == len(list(iter_scorable_params(load_mit_yaml() or {})))
+
+    def test_traversal_matches_the_raw_checklist(self):
+        """The shared traversal is pinned to the YAML, not to itself.
+
+        Re-derived here straight from the file — section params plus top-level
+        params, deduplicated by id, keeping those whose ``crate_slot`` parses.
+        If ``iter_scorable_params`` silently dropped a module or stopped
+        deduplicating, every self-consistent test above would still pass.
+        """
+        import yaml
+
+        from builder.tools.mit_assessment import (
+            MIT_YAML_PATH,
+            iter_scorable_params,
+            parse_crate_slots,
+        )
+
+        data = yaml.safe_load(MIT_YAML_PATH.read_text(encoding="utf-8"))
+        expected: list[str] = []
+        for module in data.get("modules", []):
+            seen: set[str] = set()
+            for param in [
+                *(p for sec in module.get("sections", []) for p in sec.get("parameters", [])),
+                *module.get("parameters", []),
+            ]:
+                pid = param.get("id", "")
+                if not pid or pid in seen:
+                    continue
+                seen.add(pid)
+                if parse_crate_slots(param.get("crate_slot", "")):
+                    expected.append(pid)
+
+        actual = [p.get("id", "") for _m, p, _s in iter_scorable_params(data)]
+        assert actual == expected
+        assert len(actual) == len(set(actual)), "traversal yielded a duplicate id"
+
+    def test_a_param_with_an_unparseable_slot_is_skipped_not_counted(self):
+        """The one rule the two copies disagreed on, now settled in one place.
+
+        The scorer skipped a parameter whose ``crate_slot`` is non-empty but
+        parses to no ``(EntityType, field)`` pair; the gap engine counted it in
+        its denominator, marking it permanently uncoverable. No parameter in the
+        shipped checklist triggers this — which is exactly why it needed pinning
+        before one did.
+        """
+        from builder.tools.mit_assessment import iter_scorable_params
+
+        data = {
+            "modules": [
+                {
+                    "name": "M",
+                    "parameters": [
+                        {"id": "good", "crate_slot": "Investigation:name"},
+                        {"id": "unparseable", "crate_slot": "no-colon-here"},
+                        {"id": "empty", "crate_slot": ""},
+                    ],
+                }
+            ]
+        }
+        assert [p.get("id") for _m, p, _s in iter_scorable_params(data)] == ["good"]
+
+    def test_a_param_repeated_across_sections_is_yielded_once(self):
+        """Dedup by id is pinned on synthetic data, not on the shipped checklist.
+
+        The shipped YAML currently contains **zero** duplicate ids, so a test that
+        re-derives from the real file cannot tell whether dedup still happens —
+        verified by mutation: deleting the dedup left every checklist-derived
+        assertion green. Hand-built data is the only thing that holds this rule.
+        """
+        from builder.tools.mit_assessment import iter_scorable_params
+
+        data = {
+            "modules": [
+                {
+                    "name": "M",
+                    "sections": [
+                        {"parameters": [{"id": "dup", "crate_slot": "Investigation:name"}]},
+                        {"parameters": [{"id": "dup", "crate_slot": "Study:name"}]},
+                    ],
+                    "parameters": [{"id": "dup", "crate_slot": "Assay:name"}],
+                }
+            ]
+        }
+        yielded = list(iter_scorable_params(data))
+        assert [p.get("id") for _m, p, _s in yielded] == ["dup"]
+        # First occurrence wins, so the denominator counts it once.
+        assert yielded[0][2] == [("Investigation", "name")]

@@ -16,7 +16,7 @@ is only synthesized at assembly, so the graph path is the accurate one.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +24,13 @@ from builder.state import CrateState, MITReport
 
 logger = logging.getLogger(__name__)
 
-# Path to the MIT YAML file
+# Path to the MIT YAML file. THE one constant (#357): `gap_analysis` imports it
+# rather than deriving its own, so the two readers can never point at different
+# checklists.
 MIT_YAML_PATH = Path(__file__).resolve().parent.parent.parent / "mit" / "invitro_tox.yaml"
 
 
-def _load_mit_yaml() -> dict[str, Any] | None:
+def load_mit_yaml() -> dict[str, Any] | None:
     """Load and parse the MIT YAML file.
 
     Returns:
@@ -44,7 +46,7 @@ def _load_mit_yaml() -> dict[str, Any] | None:
         return None
 
 
-def _parse_crate_slots(slot_str: str) -> list[tuple[str, str]]:
+def parse_crate_slots(slot_str: str) -> list[tuple[str, str]]:
     """Parse a crate_slot string into a list of (EntityType, field) tuples.
 
     Crate slots are formatted like "Investigation:name;Study:name;Assay:name"
@@ -252,7 +254,7 @@ def _count_filled_fields(state: CrateState) -> dict[tuple[str, str], bool]:
 # ---------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------
-def _unique_module_params(module: dict[str, Any]) -> list[dict[str, Any]]:
+def unique_module_params(module: dict[str, Any]) -> list[dict[str, Any]]:
     """The module's parameters (sections + top-level), deduplicated by id."""
     all_params: list[dict[str, Any]] = []
     for section in module.get("sections", []):
@@ -269,6 +271,33 @@ def _unique_module_params(module: dict[str, Any]) -> list[dict[str, Any]]:
     return unique
 
 
+def iter_scorable_params(
+    mit_data: dict[str, Any],
+) -> Iterator[tuple[dict[str, Any], dict[str, Any], list[tuple[str, str]]]]:
+    """Yield ``(module, param, slots)`` for every scorable MIT parameter.
+
+    THE single traversal of the checklist (#357): the walk over
+    ``sections`` + top-level parameters, the dedup by id, and the skip rule all
+    live here, so the scorer (:func:`_score_modules`) and the gap engine
+    (``gap_analysis._mit_gaps``) cannot drift into disagreeing about which
+    parameters exist or how many there are.
+
+    A parameter is *scorable* when its ``crate_slot`` parses to at least one
+    ``(EntityType, field)`` pair. A parameter with no parseable slot has nothing
+    the matcher could ever match, so counting it in the denominator would mark it
+    permanently uncoverable and silently depress every score. The two callers
+    previously disagreed on exactly this: the scorer skipped such a parameter,
+    the gap engine counted it. No parameter in the shipped checklist triggers it
+    today, which is precisely why it was worth removing before one did.
+    """
+    for module in mit_data.get("modules", []):
+        for param in unique_module_params(module):
+            slots = parse_crate_slots(param.get("crate_slot", ""))
+            if not slots:
+                continue
+            yield module, param, slots
+
+
 def _score_modules(
     mit_data: dict[str, Any],
     slot_filled: Callable[[str, str], bool],
@@ -279,26 +308,16 @@ def _score_modules(
     total_completed = 0
     total_required = 0
 
-    for module in mit_data.get("modules", []):
+    # A module with no scorable parameter never gets a row, as before: it is
+    # created on first yield, so an all-unscorable module is simply never keyed.
+    for module, _param, slots in iter_scorable_params(mit_data):
         module_name = module.get("name", module.get("id", "unknown"))
-        module_completed = 0
-        module_total = 0
-
-        for param in _unique_module_params(module):
-            slots = _parse_crate_slots(param.get("crate_slot", ""))
-            if not slots:
-                continue
-            module_total += 1
-            if any(slot_filled(et, field) for et, field in slots):
-                module_completed += 1
-
-        if module_total > 0:
-            module_scores[module_name] = {
-                "completed": module_completed,
-                "total": module_total,
-            }
-            total_completed += module_completed
-            total_required += module_total
+        bucket = module_scores.setdefault(module_name, {"completed": 0, "total": 0})
+        bucket["total"] += 1
+        total_required += 1
+        if any(slot_filled(et, field) for et, field in slots):
+            bucket["completed"] += 1
+            total_completed += 1
 
     overall_score = total_completed / total_required if total_required > 0 else 0.0
     return MITReport(module_scores=module_scores, overall_score=overall_score)
@@ -323,7 +342,7 @@ def assess_mit_coverage(
     Returns:
         An MITReport with per-module scores and an overall score.
     """
-    mit_data = _load_mit_yaml()
+    mit_data = load_mit_yaml()
     if mit_data is None:
         return MITReport(module_scores={}, overall_score=0.0)
 
