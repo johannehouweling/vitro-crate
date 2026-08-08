@@ -273,20 +273,22 @@ class TestCompactGridText:
             # A sheet compacted to nothing keeps an empty block, which is a real
             # answer (every row was label-only); missing entirely is not.
             compact_block = compact_sheets.get(sheet, "")
+            guidance = self._guidance_indices(raw_block)
             for line in raw_block.split("\n"):
                 if not line.startswith("|"):
                     continue
                 cells = [c.strip() for c in line.strip("|").split("|")]
             # Scoped to rows that actually CARRY data — two or more non-empty
-            # cells outside Comments. A label-only row (`| Accession |  |  | … |`,
-            # a field the depositor left blank) is legitimately compacted away,
-            # and the repeated header row is dropped by design. Neither weakens
-            # what this control exists to catch: `| Corresponding person | Dr.
-            # Fabian Wagenaars |  | … |` has a blank *Value* cell and two
-            # non-empty ones, so the trap rule still reddens this assertion.
+            # cells outside the sheet's guidance columns. A label-only row
+            # (`| Accession |  |  | … |`, a field the depositor left blank) is
+            # legitimately compacted away, and the repeated header row is dropped
+            # by design. Neither weakens what this control exists to catch:
+            # `| Corresponding person | Dr. Fabian Wagenaars |  | … |` has a
+            # blank *Value* cell and two non-empty ones, so the trap rule still
+            # reddens this assertion.
                 if cells and cells[0] == "Parameter":
                     continue
-                payload = [c for c in cells[:-1] if c]
+                payload = [c for i, c in enumerate(cells) if c and i not in guidance]
                 if len(payload) < 2:
                     continue
                 for cell in payload:
@@ -297,6 +299,20 @@ class TestCompactGridText:
                     dropped.append(f"{sheet} {cell}")
         assert not dropped, f"compaction dropped non-empty cells at {max_rows} rows: {dropped[:5]}"
 
+        # Independent of any column rule: these are the values a human deposited,
+        # and no compaction rule may cost us one. Derived by reading the workbook,
+        # not by re-running the implementation — this is what keeps the control
+        # from merely agreeing with whatever the code currently does.
+        for value in (
+            "Dr. Fabian Wagenaars",           # corresponding person
+            "F.M.A.Wagenaars@uu.nl",          # contact e-mail
+            "0000-0003-4766-7358",            # ORCID
+            "CVCL_0214",                      # cell-line RRID
+            "OATP1C1; AOP wiki ID: 2376",     # key event, in a guidance-bearing row
+            "T4 uptake",                      # endpoint
+        ):
+            assert value in compacted, f"compaction lost depositor data {value!r}"
+
         # The exemption must be EARNED, not assumed: prove the fixture actually
         # exercises folding, or a future change could start dropping cells into
         # an exemption nobody is testing.
@@ -305,7 +321,28 @@ class TestCompactGridText:
             "the repeated CAS IRI should be stated exactly once per sheet"
         )
 
-    _IRI = "http://nmrML.org/nmrCV#NMR:1000095"
+    @staticmethod
+    def _guidance_indices(raw_block: str) -> set[int]:
+        """Guidance-column indices for a sheet, read off its own header row.
+
+        Computed here from the raw text rather than imported, so this control
+        keeps its own opinion about which columns are scaffolding. A guidance
+        column that is the header's last also claims the unheadered overflow
+        cells past it — the S-VHPS26 sheets split one long Comments entry across
+        two cells.
+        """
+        for line in raw_block.split("\n"):
+            if not line.startswith("|"):
+                continue
+            header = [c.strip().casefold() for c in line.strip("|").split("|")]
+            names = {"comments", "tips", "beschrijving", "description", "toelichting"}
+            found = {i for i, c in enumerate(header) if c in names}
+            if found and max(found) == len(header) - 1:
+                found |= set(range(max(found), 64))
+            return found
+        return set()
+
+    _IRI ="http://nmrML.org/nmrCV#NMR:1000095"
 
     def _series(self, values: list[str], iri: str | None = None) -> str:
         """A `[Sheet:]` + header + one `Chemical_1_Concentration_N` row per value."""
@@ -428,3 +465,312 @@ class TestCompactAttributeJson:
 
         plain = json.dumps({"hello": "world"})
         assert compact_attribute_json(plain) == plain
+
+
+class TestLegacyXlsReader:
+    """Legacy BIFF ``.xls`` is a different container from OOXML (#417).
+
+    ``read_excel`` was openpyxl-only, so every pre-2007 workbook raised
+    ``InvalidFileException`` and was logged as a full ERROR traceback — once per
+    file, on a corpus full of them, which read like a crash while the scan was in
+    fact fine. ``read_file`` never routed ``.xls`` at all, so those files
+    contributed nothing to the crate.
+    """
+
+    def _fake_xlrd(self, monkeypatch, rows):
+        """A stand-in for xlrd exercising the conversion logic.
+
+        Authoring a valid BIFF8 workbook byte-by-byte is not worth it, and xlwt
+        is not a dependency — but the parts that can be WRONG are ours: the date
+        conversion, the integral-float rendering and the empty-row skip.
+        """
+        import datetime
+        import sys
+        import types
+
+        class Cell:
+            def __init__(self, ctype, value):
+                self.ctype, self.value = ctype, value
+
+        class Sheet:
+            name = "Plate"
+
+            def __init__(self, data):
+                self._rows = data
+                self.nrows = len(data)
+
+            def row(self, index):
+                return self._rows[index]
+
+        class Book:
+            datemode = 0
+
+            def sheets(self):
+                return [Sheet(rows)]
+
+            def release_resources(self):
+                return None
+
+        module = types.ModuleType("xlrd")
+        # setattr, not attribute assignment: a bare ModuleType declares no such
+        # attributes, so the checker rejects `module.XL_CELL_EMPTY = ...` even
+        # though building a stub module this way is the point of the fixture.
+        setattr(module, "XL_CELL_EMPTY", 0)
+        setattr(module, "XL_CELL_DATE", 3)
+        setattr(
+            module,
+            "xldate",
+            types.SimpleNamespace(
+                xldate_as_datetime=lambda value, mode: datetime.datetime(2022, 3, 17)
+            ),
+        )
+        setattr(module, "open_workbook", lambda path, **kwargs: Book())
+        monkeypatch.setitem(sys.modules, "xlrd", module)
+        return Cell
+
+    def test_corrupt_xls_warns_once_without_a_traceback(self, tmp_path, caplog) -> None:
+        import logging
+
+        from builder.tools.file_readers import read_excel
+
+        bad = tmp_path / "legacy.xls"
+        bad.write_bytes(b"\xd0\xcf\x11\xe0 not really a workbook")
+        with caplog.at_level(logging.DEBUG):
+            assert read_excel(str(bad)) is None
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1, [r.getMessage() for r in warnings]
+        assert "legacy.xls" in warnings[0].getMessage()
+        # The traceback survives at DEBUG for anyone who wants it, but never
+        # lands at WARNING/ERROR where a corpus of these looks like a crash.
+        assert warnings[0].exc_info is None
+
+    def test_biff_rows_render_like_the_ooxml_branch(self, monkeypatch, tmp_path) -> None:
+        from builder.tools.file_readers import read_excel
+
+        Cell = self._fake_xlrd(monkeypatch, [])
+        rows = [
+            [Cell(1, "well_id"), Cell(1, "value")],
+            [Cell(2, 7.0), Cell(2, 4.5)],
+            [Cell(0, None), Cell(0, None)],
+            [Cell(2, 8.0), Cell(1, "")],
+        ]
+        Cell = self._fake_xlrd(monkeypatch, rows)
+        path = tmp_path / "legacy.xls"
+        path.write_bytes(b"\xd0\xcf\x11\xe0")
+        text = read_excel(str(path))
+        assert text is not None
+        assert "[Sheet: Plate]" in text
+        # Integral floats render as ints — openpyxl does, and a well_id of "7.0"
+        # breaks the downstream string comparisons.
+        assert "| 7 | 4.5 |" in text
+        # The all-empty row is skipped, exactly like the OOXML branch.
+        assert text.count("\n|") == 3
+
+    def test_date_serials_are_converted_not_leaked(self, monkeypatch, tmp_path) -> None:
+        # xlrd hands back a raw serial float; leaking 44637.0 where the sheet
+        # says 2022-03-17 would put corrupted data in the crate (D5).
+        from builder.tools.file_readers import read_excel
+
+        Cell = self._fake_xlrd(monkeypatch, [])
+        rows = [[Cell(1, "run_date")], [Cell(3, 44637.0)]]
+        self._fake_xlrd(monkeypatch, rows)
+        path = tmp_path / "legacy.xls"
+        path.write_bytes(b"\xd0\xcf\x11\xe0")
+        text = read_excel(str(path))
+        assert text is not None
+        assert "2022-03-17" in text
+        assert "44637" not in text
+
+    def test_read_file_routes_legacy_xls(self, monkeypatch, tmp_path) -> None:
+        from builder.tools.file_readers import read_file
+
+        Cell = self._fake_xlrd(monkeypatch, [])
+        self._fake_xlrd(monkeypatch, [[Cell(1, "a")], [Cell(2, 1.0)]])
+        path = tmp_path / "legacy.xls"
+        path.write_bytes(b"\xd0\xcf\x11\xe0")
+        assert read_file(str(path)) is not None
+
+    def test_missing_xlrd_says_so_without_crashing(self, monkeypatch, tmp_path) -> None:
+        import builtins
+
+        from builder.tools.file_readers import read_excel
+
+        real_import = builtins.__import__
+
+        def _no_xlrd(name, *args, **kwargs):
+            if name == "xlrd":
+                raise ImportError("no xlrd")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _no_xlrd)
+        path = tmp_path / "legacy.xls"
+        path.write_bytes(b"\xd0\xcf\x11\xe0")
+        assert read_excel(str(path)) is None
+
+
+class TestGuidanceColumnCompaction:
+    """Authoring-guidance columns are scaffolding, not metadata (#421).
+
+    The rule these cover generalises the #419 one beyond the VHP assay-metadata
+    template family. S-VHPS22's top-level file is an RIVM template
+    (`Metadataveldenlijst_1.2.0.xlsx`) whose six columns are
+    `Veldnaam | Optionaliteit | Hoe vaak in te vullen | Beschrijving | Tips |
+    Hier invullen`: 17 of 38 rows are filled, carrying 610 characters of real
+    metadata behind 9,913 characters of Dutch instructions. Under the old
+    trailing-`Comments` rule none of it was removable, so the file burned the
+    whole tier-0 budget and still got cut before Licentie, Versie and the rest.
+    """
+
+    _RIVM = "\n".join(
+        [
+            "[Sheet: Metadata]",
+            "| Veldnaam | Optionaliteit | Hoe vaak in te vullen | Beschrijving | Tips "
+            "| Hier invullen |",
+            "| Titel | Verplicht | Eenmalig | De titel van de dataset zoals getoond in de "
+            "catalogus | Bijv. 'Effect van X op Y' | Thyroid hormone transport in CHO-K1 |",
+            "| Auteur | Verplicht | Per auteur | De volledige naam van de auteur "
+            "| Voornaam Achternaam | Fabian Wagenaars |",
+            "| ORCID | Aanbevolen | Per auteur | Persistent identifier voor de auteur "
+            "| Zie orcid.org | 0009-0000-5074-6239 |",
+            "| Licentie | Verplicht | Eenmalig | De licentie waaronder de dataset "
+            "beschikbaar is | Bijv. CC-BY-4.0 | |",
+        ]
+    )
+
+    def test_dutch_guidance_columns_are_dropped(self):
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(self._RIVM)
+
+        assert "De titel van de dataset" not in out
+        assert "Voornaam Achternaam" not in out
+        assert "Verplicht" not in out
+        assert "Eenmalig" not in out
+
+    def test_the_depositor_values_all_survive(self):
+        """The 610 characters that are the entire point of the file."""
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(self._RIVM)
+
+        assert "Thyroid hormone transport in CHO-K1" in out
+        assert "Fabian Wagenaars" in out
+        assert "0009-0000-5074-6239" in out
+        # …still paired with the field they answer, not orphaned into a bare list.
+        assert "| ORCID | 0009-0000-5074-6239 |" in out
+
+    def test_it_fits_the_budget_it_used_to_blow(self):
+        from builder.tools.file_readers import compact_grid_text
+
+        assert len(compact_grid_text(self._RIVM)) < len(self._RIVM) / 2
+
+    def test_middle_columns_are_dropped_by_index_not_position(self):
+        """The RIVM guidance columns are 1-4 of 6; a trailing-column rule cannot reach them."""
+        from builder.tools.file_readers import compact_grid_text
+
+        rows = [ln for ln in compact_grid_text(self._RIVM).split("\n") if ln.startswith("|")]
+
+        assert all(ln.count("|") == 3 for ln in rows), rows
+
+    def test_an_unfilled_template_row_is_dropped_whole(self):
+        """No answer means no row — keeping its instructions is the noise being removed."""
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(self._RIVM)
+
+        assert "Licentie" not in out
+        assert "CC-BY-4.0" not in out
+
+    def test_a_description_column_holding_real_content_is_untouched(self):
+        """The risk the header vocabulary creates, and the guard against it.
+
+        `Description` names scaffolding in a fill-in-the-blanks template and real
+        content in a workbook that simply has a description column. Here the
+        answer column is empty and `Description` carries the study, so nothing is
+        droppable and every column stays.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Study]",
+                    "| Parameter | Description | Value |",
+                    "| Study title | Thyroid hormone disruption screen in CHO-K1 |  |",
+                    "| Study aim | Identify inhibitors of OATP1C1-mediated uptake |  |",
+                ]
+            )
+        )
+
+        assert "Thyroid hormone disruption screen in CHO-K1" in out
+        assert "Identify inhibitors of OATP1C1-mediated uptake" in out
+
+    def test_the_same_header_is_dropped_when_the_answer_column_is_filled(self):
+        """Same header, opposite verdict — the sheet's content decides, not the word."""
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Study]",
+                    "| Parameter | Description | Value |",
+                    "| Study title | The title of the study | Thyroid screen |",
+                    "| Study aim | The aim of the study | Find OATP1C1 inhibitors |",
+                ]
+            )
+        )
+
+        assert "The title of the study" not in out
+        assert "Thyroid screen" in out
+        assert "Find OATP1C1 inhibitors" in out
+
+    def test_the_decision_is_per_sheet(self):
+        """A five-sheet template mixes layouts; sheet 1 has no authority over sheet 2."""
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Guided]",
+                    "| Parameter | Description | Value |",
+                    "| Endpoint | The endpoint measured | T4 uptake |",
+                    "[Sheet: Freeform]",
+                    "| Parameter | Description | Value |",
+                    "| Study aim | Identify OATP1C1 inhibitors |  |",
+                ]
+            )
+        )
+
+        assert "The endpoint measured" not in out, "sheet 1's guidance should go"
+        assert "Identify OATP1C1 inhibitors" in out, "sheet 2's content should stay"
+
+    def test_guidance_matching_ignores_case_and_spacing(self):
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Metadata]",
+                    "| Veldnaam |  Hoe vaak in te vullen  | TIPS | Hier invullen |",
+                    "| Titel | Eenmalig | Bijv. een korte titel | Thyroid screen |",
+                ]
+            )
+        )
+
+        assert out.endswith("| Titel | Thyroid screen |"), out
+
+    def test_a_value_is_never_matched_against_the_vocabulary(self):
+        """Header-scoped only: a cell whose *text* is a guidance word is still data."""
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Metadata]",
+                    "| Veldnaam | Hier invullen |",
+                    "| Documenttype | Beschrijving |",
+                ]
+            )
+        )
+
+        assert "| Documenttype | Beschrijving |" in out
