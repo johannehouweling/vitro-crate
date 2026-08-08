@@ -74,6 +74,62 @@ def test_explicit_temperature_override_for_standard_model(monkeypatch: pytest.Mo
     assert _build_chat_model(provider="openai").temperature == pytest.approx(0.7)
 
 
+def _anthropic_env(monkeypatch: pytest.MonkeyPatch, model: str) -> None:
+    monkeypatch.setenv("VITRO_ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("VITRO_ANTHROPIC_MODEL", model)
+    monkeypatch.delenv("VITRO_TEMPERATURE", raising=False)
+
+
+def test_temperature_override_applies_to_anthropic_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """VITRO_TEMPERATURE reaches BOTH providers (#402).
+
+    The Anthropic branch hard-coded ``temperature: 0`` and never read the
+    variable, so a temperature experiment on Anthropic silently did nothing — and
+    an A/B asked to compare two architectures at one temperature was in fact
+    comparing two temperatures.
+    """
+    _anthropic_env(monkeypatch, "claude-sonnet-4-20250514")
+    monkeypatch.setenv("VITRO_TEMPERATURE", "0.7")
+    assert _build_chat_model(provider="anthropic").temperature == pytest.approx(0.7)
+
+
+def test_anthropic_keeps_the_deterministic_default_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _anthropic_env(monkeypatch, "claude-sonnet-4-20250514")
+    assert _build_chat_model(provider="anthropic").temperature == pytest.approx(0.0)
+
+
+def test_blank_temperature_reads_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Matches the convention VITRO_OPENAI_REASONING_EFFORT already uses; before
+    # the fix this raised "could not convert string to float: ''".
+    _openai_env(monkeypatch, "gpt-4o")
+    monkeypatch.setenv("VITRO_TEMPERATURE", "   ")
+    assert _build_chat_model(provider="openai").temperature == pytest.approx(0.0)
+
+
+def test_non_numeric_temperature_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A silently-ignored control is the defect being fixed, so a typo must not
+    # quietly resolve to 0.
+    _openai_env(monkeypatch, "gpt-4o")
+    monkeypatch.setenv("VITRO_TEMPERATURE", "hot")
+    with pytest.raises(ValueError, match="VITRO_TEMPERATURE"):
+        _build_chat_model(provider="openai")
+
+
+def test_reasoning_model_never_receives_a_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even with an explicit override: the Responses API 400s on any value."""
+    _openai_env(monkeypatch, "gpt-5.1")
+    monkeypatch.setenv("VITRO_TEMPERATURE", "0.7")
+    model = _build_chat_model(provider="openai")
+    assert model.use_responses_api is True
+    assert model.temperature is None
+
+
 def test_optional_ca_bundle_is_passed_to_openai_clients(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
