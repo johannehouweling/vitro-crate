@@ -518,6 +518,72 @@ class TestRenderChemicalsSvg:
         assert svg.count('class="n n-process"') == 1
         assert "about · valueUrl" in svg
 
+    def test_large_band_tiles_into_a_grid_not_a_column(self) -> None:
+        # Every member drawn, but stacked one-per-row a 22-compound band rendered
+        # as a 210x1476 ribbon — narrower than a phone, taller than the page.
+        import xml.etree.ElementTree as ET
+
+        graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
+        for i in range(22):
+            graph["@graph"].append(
+                {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i:02d}"}
+            )
+        svg = render_chemicals_svg(build_chemical_inventory(graph))
+        root = ET.fromstring(svg)
+        _, _, width, height = (float(v) for v in _attr(root, "viewBox").split())
+        assert width > height, f"band is still a vertical ribbon ({width}x{height})"
+        # Distinct x positions prove a grid rather than a single column.
+        xs = {
+            _attr(e, "points").split()[0].split(",")[0]
+            for e in root.iter()
+            if e.tag == "polygon" and (e.get("class") or "").startswith("n ")
+        }
+        assert len(xs) > 1, "all members share one x — still one column"
+
+    def test_one_connector_per_band_not_per_member(self) -> None:
+        # Every member of a band reaches the experiment the same way — that is
+        # what defines the band — so N parallel edges restate one fact N times.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#t"}]},
+                {"@id": "#s", "@type": "Sample", "name": "cells"},
+                {
+                    "@id": "#p",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "name": "Exposure",
+                    "object": {"@id": "#s"},
+                    "result": {"@id": "#t"},
+                },
+                {
+                    "@id": "#t",
+                    "@type": ["File", "csvw:Table"],
+                    "name": "Condition table",
+                    "about": [{"@id": f"#c{i}"} for i in range(9)],
+                },
+                *[
+                    {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i}"}
+                    for i in range(9)
+                ],
+            ]
+        }
+        svg = render_chemicals_svg(build_chemical_inventory(graph))
+        # One edge per HOP (process→table, table→group), not one per compound.
+        assert svg.count('class="e e-link"') == 2
+        assert "about" in svg  # the grouped connector still carries its label
+        for i in range(9):
+            assert f"Compound {i}" in svg
+
+    def test_unlinked_band_gets_one_break_stub(self) -> None:
+        graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
+        for i in range(12):
+            graph["@graph"].append(
+                {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i}"}
+            )
+        svg = render_chemicals_svg(build_chemical_inventory(graph))
+        assert svg.count('class="e e-break"') == 1, "one broken route, one marker"
+
     def test_every_member_of_a_large_band_is_named(self) -> None:
         # No "+N more" aggregate: the picture exists so a reader can see WHICH
         # compounds are unwired, and an elided tail hides exactly that.
@@ -1260,3 +1326,150 @@ class TestDeterministicOrdering:
             )
             outputs.add(res.stdout.strip())
         assert len(outputs) == 1, f"ordering varies with the hash seed: {outputs}"
+
+
+class TestRelationVocabularyIsComplete:
+    """Every predicate that carries an in-crate reference must be traversable.
+
+    Reachability — and therefore the orphan count the maturity report shows — is
+    only as complete as ``_PRIMARY_RELATIONS`` + ``_SECONDARY_RELATIONS``. A
+    reference predicate missing from those sets is invisible to the walk, so
+    perfectly-wired entities get reported as orphans and a reader is sent hunting
+    for a defect that does not exist.
+
+    This has now happened four times (``affiliation``, ``instrument``,
+    ``identifier``, and the whole AOP subgraph — 121 of ~250 references in a real
+    crate). The pattern is always the same: a predicate is added to the context or
+    a model, and nothing tells the graph writer about it. So instead of a fifth
+    fix, this asserts the invariant directly.
+    """
+
+    def _covered(self) -> set[str]:
+        from builder.writers.provenance_dag import _all_relations
+
+        return {key for keys, _label, _rev in _all_relations(all_edges=True) for key in keys}
+
+    def _invisible(self, graph: list[dict]) -> dict[str, int]:
+        """Predicates carrying an in-crate reference the walk cannot follow."""
+        from builder.writers.provenance_dag import _graph_nodes
+
+        nodes = _graph_nodes(graph)
+        covered = self._covered()
+        missed: dict[str, int] = {}
+        for node in nodes.values():
+            for key, value in node.items():
+                if key.startswith("@") or key in covered:
+                    continue
+                for item in value if isinstance(value, list) else [value]:
+                    target = (
+                        item.get("@id")
+                        if isinstance(item, dict)
+                        else (item if isinstance(item, str) and item.startswith("#") else None)
+                    )
+                    if target and target in nodes:
+                        missed[key] = missed.get(key, 0) + 1
+        return missed
+
+    def test_assembled_crate_has_no_invisible_reference(self, tmp_path) -> None:
+        # Built through the real mapper, so any predicate the builder can emit is
+        # exercised — this is what would have caught `identifier` and the AOP keys.
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from profiles.context import ISA_TOX_CONTEXT
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(vhps_fixture_state("S-VHPS21"), crate, tmp_path, materialize_payload=False)
+        missed = self._invisible(crate.metadata.generate()["@graph"])
+        assert not missed, (
+            "reference predicates invisible to the reachability walk "
+            f"(add them to _PRIMARY_RELATIONS/_SECONDARY_RELATIONS): {missed}"
+        )
+
+    def test_known_reference_predicates_are_all_covered(self) -> None:
+        # The specific ones that have bitten, named so a regression is legible
+        # rather than surfacing as a mystery orphan count.
+        covered = self._covered()
+        for predicate in (
+            "affiliation",
+            "instrument",
+            "identifier",
+            "has_key_event",
+            "has_key_event_relationship",
+            "has_molecular_initiating_event",
+            "has_adverse_outcome",
+            "upstream_event",
+            "downstream_event",
+            "contributor",
+            "contactPoint",
+        ):
+            assert predicate in covered, f"{predicate!r} is not a traversable relation"
+
+    def test_aop_subgraph_is_reachable_end_to_end(self) -> None:
+        # AOP -> KeyEventRelationship -> upstream/downstream KeyEvent. Every hop
+        # used to be invisible, so the entire subgraph read as orphaned.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#study"}]},
+                {
+                    "@id": "#study",
+                    "@type": "Dataset",
+                    "additionalType": "Study",
+                    "aop": [{"@id": "#aop"}],
+                },
+                {
+                    "@id": "#aop",
+                    "@type": "AdverseOutcomePathway",
+                    "has_key_event_relationship": [{"@id": "#ker"}],
+                    "has_molecular_initiating_event": [{"@id": "#mie"}],
+                },
+                {
+                    "@id": "#ker",
+                    "@type": "KeyEventRelationship",
+                    "upstream_event": {"@id": "#mie"},
+                    "downstream_event": {"@id": "#ao"},
+                },
+                {"@id": "#mie", "@type": "KeyEvent", "name": "MIE"},
+                {"@id": "#ao", "@type": "KeyEvent", "name": "Adverse outcome"},
+            ]
+        }
+        orphans = [
+            n["id"] for n in build_crate_graph(graph, all_edges=True)["nodes"] if n["orphan"]
+        ]
+        assert orphans == [], f"AOP subgraph reported as orphaned: {orphans}"
+
+    def test_identifier_property_values_are_reachable(self) -> None:
+        # A compound's CAS / PubChem CID nodes are referenced via `identifier`;
+        # they must ride along with the compound, not read as dangling.
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "additionalType": "Investigation",
+                    "hasPart": [{"@id": "#study"}],
+                },
+                {
+                    "@id": "#study",
+                    "@type": "Dataset",
+                    "additionalType": "Study",
+                    "chemicals": [{"@id": "#c"}],
+                },
+                {
+                    "@id": "#c",
+                    "@type": "MolecularEntity",
+                    "name": "Aflatoxin B1",
+                    "identifier": [{"@id": "#cas"}, {"@id": "#cid"}],
+                },
+                {"@id": "#cas", "@type": "PropertyValue", "name": "CAS", "value": "1162-65-8"},
+                {"@id": "#cid", "@type": "PropertyValue", "name": "PubChem CID", "value": "186907"},
+            ]
+        }
+        orphans = [
+            n["id"] for n in build_crate_graph(graph, all_edges=True)["nodes"] if n["orphan"]
+        ]
+        assert orphans == [], f"identifier PropertyValues reported as orphaned: {orphans}"

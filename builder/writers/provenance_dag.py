@@ -27,6 +27,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -1759,6 +1760,22 @@ _CHEM_BREAK_DX = 30
 # Every compound in a band is drawn by name (see _band_nodes). The former
 # 3-named-plus-aggregate cap is gone: it hid exactly the detail the band exists
 # to show.
+#
+# With nothing elided, a band must tile into a GRID rather than one tall column:
+# 22 compounds stacked one per row rendered as a 210x1476 ribbon — narrower than
+# a phone and twice the height of the page holding it. Columns are chosen to keep
+# each block roughly square, capped so the diagram never outgrows a comfortable
+# horizontal scroll.
+_CHEM_GRID_DX = _SVG_NODE_W + 18
+_CHEM_GRID_MAX_COLS = 4
+
+
+def _grid_columns(count: int) -> int:
+    """Columns for a band of *count* members — roughly square, capped."""
+    if count <= 1:
+        return 1
+    return max(1, min(_CHEM_GRID_MAX_COLS, math.ceil(math.sqrt(count))))
+
 
 # Arrowhead element ids — one per diagram (see _svg_link).
 _CHEM_MARKER = "chem-ar-link"
@@ -1970,16 +1987,21 @@ def _render_routed_svg(
     nodes_svg: list[str] = []
     mid = _SVG_NODE_H // 2
     band_y = _CHEM_Y0
+    widest_grid = 1
 
     for group in groups:
         members = group["members"]
         drawn = _band_nodes(members)
-        span = (len(drawn) - 1) * _CHEM_ROW_DY
+        cols = _grid_columns(len(drawn))
+        widest_grid = max(widest_grid, cols)
+        rows = (len(drawn) - 1) // cols + 1
+        span = (rows - 1) * _CHEM_ROW_DY
         centre_y = band_y + span // 2
         variant = "" if group["state"] == "wired" else "unwired"
 
         for i, member in enumerate(drawn):
-            y = band_y + i * _CHEM_ROW_DY
+            x = col_x[2] + (i % cols) * _CHEM_GRID_DX
+            y = band_y + (i // cols) * _CHEM_ROW_DY
             # ``None`` (the old "and N more" aggregate) is no longer produced by
             # _band_nodes; the branch stays so a caller that reintroduces a cap
             # still renders rather than crashing on a missing key.
@@ -1988,19 +2010,24 @@ def _render_routed_svg(
                 if member is None
                 else {"id": member["id"], "name": member["name"], "tag": member["tag"]}
             )
-            _svg_place(nodes_svg, brief, node_cls, col_x[2], y, variant)
-            if group["via"] is not None:
-                _svg_link(
-                    edges,
-                    col_x[1] + _SVG_NODE_W,
-                    centre_y + mid,
-                    col_x[2],
-                    y + mid,
-                    group["edge"] if i == 0 else "",
-                    marker=marker,
-                )
-            else:  # nothing in the crate points at these entities at all
-                _svg_break(edges, col_x[2], y + mid)
+            _svg_place(nodes_svg, brief, node_cls, x, y, variant)
+
+        # ONE connector into the group, not one per member. Every member of a band
+        # reaches the experiment the same way — that is what defines the band — so
+        # 22 parallel edges restate one fact 22 times while forcing the band into a
+        # 22-row ribbon taller than the page.
+        if group["via"] is not None:
+            _svg_link(
+                edges,
+                col_x[1] + _SVG_NODE_W,
+                centre_y + mid,
+                col_x[2],
+                centre_y + mid,
+                group["edge"],
+                marker=marker,
+            )
+        else:  # nothing in the crate points at these entities at all
+            _svg_break(edges, col_x[2], centre_y + mid)
 
         hops = _hops(group)
         for offset, hop in enumerate(reversed(hops)):  # rightmost hop first
@@ -2021,7 +2048,7 @@ def _render_routed_svg(
     return _svg_document(
         edges,
         nodes_svg,
-        col_x[2] + _SVG_NODE_W + 16,
+        col_x[2] + (widest_grid - 1) * _CHEM_GRID_DX + _SVG_NODE_W + 16,
         band_y - _CHEM_BAND_GAP + 18,
         f"Routes: {counts.get('wired', 0)} of {counts.get('total', 0)} {noun} "
         "reachable from a process",
