@@ -31,7 +31,7 @@ the wiring is unit-testable in isolation.
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 from builder.agents.llm import ModelOverrides
 from builder.engine import AgentEngine
@@ -122,12 +122,18 @@ class PipelineBuildAgent:
 
         error: str | None = None
         stop_reason = "completed"
+        report: dict[str, Any] | None = None
         try:
             runner = self._runner()
             if self._overrides is not None and _accepts_overrides(runner):
-                runner(engine, overrides=self._overrides)
+                raw = runner(engine, overrides=self._overrides)
             else:
-                runner(engine)
+                raw = runner(engine)
+            # run_pipeline's structured report (conformance, issues, the
+            # materialization outcomes incl. condition_table, data_issues) used
+            # to be discarded here, hiding every domain-level failure that does
+            # not raise (#422). Keep it whenever the runner returns one.
+            report = raw if isinstance(raw, dict) else None
         except Exception as exc:  # noqa: BLE001 — a failed build is a measured result
             logger.warning("Pipeline build failed for case %s: %s", case.case_id, exc)
             error = str(exc)
@@ -140,6 +146,7 @@ class PipelineBuildAgent:
             session_id=engine.state.session_id,
             error=error,
             stop_reason=stop_reason,
+            pipeline_result=report,
         )
 
 

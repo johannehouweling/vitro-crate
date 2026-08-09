@@ -16,7 +16,7 @@ tool-call metrics). A failed build sets ``error`` and may return a partial state
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from builder.state import CrateState
 from eval.corpus import EvalCase
@@ -38,12 +38,17 @@ class BuildOutcome:
             classify termination (e.g. a mock). A ``"cap_hit"`` preserves the
             partial crate and leaves ``error`` unset, so the conformance predicate
             still measures what the run produced at the cap.
+        pipeline_result: The deterministic spine's structured report — the dict
+            ``run_pipeline`` returns (conformance, issues, materialization
+            outcomes incl. ``condition_table``, ``data_issues``). ``None`` for
+            producers that do not report one (the ReAct arm, mocks) — see #422.
     """
 
     state: CrateState
     session_id: str | None = None
     error: str | None = None
     stop_reason: str | None = None
+    pipeline_result: dict[str, Any] | None = None
 
 
 @runtime_checkable
