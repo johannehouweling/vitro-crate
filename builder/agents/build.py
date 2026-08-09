@@ -650,6 +650,21 @@ def format_gap_summary(pipeline_result: dict[str, Any] | None) -> str:
         f"  open gaps: {must_open} MUST (SHOULD/MAY not assessed on the fast build)",
         (f"  conformance: base={_mark('base')} isa={_mark('isa')} tox={_mark('tox')}"),
     ]
+
+    # Condition-table posture (#422): the central domain table staying empty used
+    # to live only in a discarded reason string while this summary read clean.
+    table = (result.get("materialized") or {}).get("condition_table")
+    if isinstance(table, dict) and table:
+        if not table.get("populated"):
+            reason = str(table.get("reason") or "no reason recorded")
+            lines.append(f"  condition table: not populated — {reason}")
+        elif table.get("proposed"):
+            lines.append(
+                f"  condition table: proposed from crate entities "
+                f"({table.get('rows')} row(s), awaiting confirmation)"
+            )
+        else:
+            lines.append(f"  condition table: {table.get('rows')} row(s)")
     return "\n".join(lines)
 
 

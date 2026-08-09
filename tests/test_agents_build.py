@@ -141,8 +141,9 @@ class TestInteractiveGating:
         result = run_interactive_build(
             engine,
             pipeline_runner=lambda eng: dict(_PIPELINE_RESULT),
-            guidance_runner=lambda eng, human, **kw: guidance_calls.append(human)
-            or dict(_GUIDANCE_RESULT),
+            guidance_runner=lambda eng, human, **kw: (
+                guidance_calls.append(human) or dict(_GUIDANCE_RESULT)
+            ),
         )
 
         assert guidance_calls == []
@@ -286,8 +287,9 @@ class TestHeadlessGapSummary:
         run_interactive_build(
             engine,
             pipeline_runner=lambda eng: dict(self._PIPELINE_WITH_GAPS),
-            guidance_runner=lambda eng, human, **kw: guidance_calls.append(human)
-            or dict(_GUIDANCE_RESULT),
+            guidance_runner=lambda eng, human, **kw: (
+                guidance_calls.append(human) or dict(_GUIDANCE_RESULT)
+            ),
             output=lines.append,
         )
 
@@ -423,6 +425,51 @@ class TestHeadlessGapSummary:
 
         text = format_gap_summary({})
         assert isinstance(text, str)
+
+    def test_format_gap_summary_reports_an_unpopulated_condition_table(self) -> None:
+        """#422: the central domain table staying empty must be SAID, with the
+        reason — it used to live only in a discarded reason string while the
+        summary reported a clean build."""
+        from builder.agents.build import format_gap_summary
+
+        result = {
+            "issues": [],
+            "conformance": {"base": True, "isa": True, "tox": True},
+            "materialized": {
+                "condition_table": {
+                    "populated": False,
+                    "reason": "populate_condition_table declined",
+                }
+            },
+        }
+        text = format_gap_summary(result).lower()
+        assert "condition table" in text
+        assert "not populated" in text
+        assert "declined" in text, "the reason must ride along"
+
+    def test_format_gap_summary_marks_a_proposed_condition_table(self) -> None:
+        """A #438-proposed table is populated but unconfirmed — say which."""
+        from builder.agents.build import format_gap_summary
+
+        result = {
+            "issues": [],
+            "conformance": {},
+            "materialized": {"condition_table": {"populated": True, "proposed": True, "rows": 6}},
+        }
+        text = format_gap_summary(result).lower()
+        assert "condition table" in text
+        assert "proposed" in text
+
+    def test_format_gap_summary_stays_calm_when_the_table_is_populated(self) -> None:
+        from builder.agents.build import format_gap_summary
+
+        result = {
+            "issues": [],
+            "conformance": {},
+            "materialized": {"condition_table": {"populated": True, "rows": 12}},
+        }
+        text = format_gap_summary(result).lower()
+        assert "not populated" not in text
         assert text  # non-empty, no crash
 
 
