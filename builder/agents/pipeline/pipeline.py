@@ -1087,7 +1087,12 @@ _PROCESSED_NAME_HINTS: tuple[str, ...] = (
     "ic50",
     "summary",
 )
-_PROCESSED_EXT_HINTS: tuple[str, ...] = (".prism", ".pzfx")
+# GraphPad Prism writes the same project — fitted curves and analyses — under
+# three interchangeable extensions. `.pzf` is the legacy binary spelling of
+# `.pzfx`; deposits built with older tooling (S-VHPS21) use it throughout their
+# study-wide analysis folder, and omitting it exported that analysis into the
+# crate's raw_data tree.
+_PROCESSED_EXT_HINTS: tuple[str, ...] = (".prism", ".pzfx", ".pzf")
 
 
 def _file_role(filename: str, mime: str) -> str:
