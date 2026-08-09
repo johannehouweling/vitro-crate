@@ -47,6 +47,7 @@ from builder.agents.pipeline.pipeline import (
 )
 from builder.engine import AgentEngine
 from builder.state import CrateState
+from builder.tools.file_readers import read_file
 from builder.tools.hitl import SimulatedHumanInterface
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -103,6 +104,12 @@ _S21_XLS_TOKENS = (
     "31.03.2022 17:03:40",
 )
 _S21_RUN = "220331_SK_MCT8_MDCK1_P3_BSP+Desipramide"
+
+# Extensions that carry measurements rather than description, so a role
+# assertion is about data placement and not about a README's classification.
+_DATA_SUFFIXES = frozenset(
+    {".csv", ".xls", ".xlsx", ".pzfx", ".pzf", ".prism", ".eds", ".pdf", ".png"}
+)
 
 _S22_ASSAYS = (
     "assay_01_TH_uptake",
@@ -423,11 +430,10 @@ class TestSvhps22ContextFidelity:
 class TestLegacyXlsMeasurements:
     """S-VHPS21's raw measurement layer is legacy binary ``.xls``, all 27 files.
 
-    ``read_excel`` loads workbooks through openpyxl, which supports only the
-    zipped OOXML formats and raises ``InvalidFileException`` on an OLE2 ``.xls``
-    — telling the caller, in the exception text, to use xlrd instead. The
-    exception is swallowed by a blanket handler, so the read returns ``None``
-    and the file contributes nothing but its filename. Nothing warns.
+    openpyxl supports only the zipped OOXML formats and cannot open an OLE2
+    ``.xls``, so until ``read_excel`` gained its xlrd fallback every one of
+    them contributed its filename and nothing else — silently, because the
+    exception naming xlrd as the remedy was swallowed by a blanket handler.
     """
 
     def test_the_fixture_pairs_raw_and_processed_from_one_run(self) -> None:
@@ -470,20 +476,38 @@ class TestLegacyXlsMeasurements:
         for token in _S21_XLS_TOKENS:
             assert token in text, f"{token} not recoverable even with xlrd"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "read_excel goes through openpyxl only, which cannot open OLE2 "
-            ".xls; the InvalidFileException is swallowed and the read returns "
-            "None. xlrd is already installed and reads the file. Remove this "
-            "marker when read_excel falls back to it."
-        ),
-    )
+    @staticmethod
+    def _xls_path() -> Path:
+        return (
+            SVHPS21
+            / "Assay_MCT8-MDCK1"
+            / "Raw data + individual processed data"
+            / _S21_RUN
+            / f"{_S21_RUN}.xls"
+        )
+
     @pytest.mark.parametrize("token", _S21_XLS_TOKENS)
-    def test_legacy_xls_content_reaches_the_leaf(self, token: str) -> None:
-        """A deposit whose whole raw layer is ``.xls`` must not read as empty."""
-        context = _gather_context(_scanning_engine(SVHPS21)).lower()
-        assert token in context, f"legacy .xls body never reached the leaf: {token}"
+    def test_the_pipeline_reader_extracts_the_legacy_workbook(self, token: str) -> None:
+        """``read_file`` is the entry point ``_gather_context`` reads bodies through.
+
+        Asserted here rather than on the gathered context because the tokens sit
+        around offset 5,000 and a ``.xls`` ranks priority 3, whose per-file slice
+        is 500 chars — widening that is the budget question, not this one.
+        """
+        text = read_file(str(self._xls_path()), compact=False, max_lines=100)
+        assert text, "read_file returned nothing for a legacy .xls"
+        assert token in text.lower(), f"{token} missing from the extracted body"
+
+    def test_the_legacy_workbook_is_more_than_a_filename_in_the_digest(self) -> None:
+        """What the leaf actually receives: a body, not a bare name.
+
+        Before the xlrd fallback this entry was 45 characters — the filename and
+        nothing else — indistinguishable from a file the scanner had refused.
+        """
+        context = _gather_context(_scanning_engine(SVHPS21))
+        name = f"{_S21_RUN}.xls"
+        emitted = _emitted_chars(context, name)
+        assert emitted > len(name) + 8, f"the .xls emitted {emitted} chars"
 
 
 class TestGraphPadRoleClassification:
@@ -500,4 +524,87 @@ class TestGraphPadRoleClassification:
     def test_every_graphpad_project_is_processed_data(self, suffix: str) -> None:
         assert _file_role(f"All compounds including best-fit{suffix}", "") == (
             "processed_data"
+        )
+
+
+class TestRoleFromTheContainingFolder:
+    """These deposits declare raw-vs-processed in the FOLDER, not the filename.
+
+    S-VHPS22 files its qPCR exports into ``assay4_EDCs_raw data/`` beside
+    ``assay4_EDCs_processed data/``; neither member's own name says which it is.
+    Classifying on the filename alone put every one of them in ``raw_data``,
+    and exported the processed half into the crate's ``raw_data/`` tree.
+    """
+
+    @pytest.mark.parametrize(
+        ("relpath", "expected"),
+        [
+            (
+                "assay_01_TH_uptake/characterisation uptake/assay1_rawdata/004043.csv",
+                "raw_data",
+            ),
+            (
+                "assay_01_TH_uptake/characterisation uptake/assay1_processeddata/"
+                "Combined uptake data 0-60 min.xlsx",
+                "processed_data",
+            ),
+            (
+                "assay_04_TRactivation/EDCs/assay4_EDCs_raw data/"
+                "2024-10-30 SK sily n3 Raw data.eds",
+                "raw_data",
+            ),
+            (
+                "assay_04_TRactivation/EDCs/assay4_EDCs_processed data/"
+                "Silychristin SK redo combined.xlsx",
+                "processed_data",
+            ),
+        ],
+    )
+    def test_the_folder_decides_when_the_filename_is_silent(
+        self, relpath: str, expected: str
+    ) -> None:
+        path = SVHPS22 / relpath
+        assert path.is_file(), f"fixture is missing {relpath}"
+        assert _file_role(path.name, "", str(path)) == expected
+
+    def test_a_folder_naming_both_roles_decides_nothing(self) -> None:
+        """The trap: S-VHPS21 deposits every run into one shared folder.
+
+        ``Raw data + individual processed data/`` holds each run's raw ``.xls``
+        beside its processed ``.prism``, so reading the folder for either word
+        would mislabel one of them. The pair must still split on their own
+        evidence — the ``.prism`` extension — not on the folder.
+        """
+        run = (
+            SVHPS21
+            / "Assay_MCT8-MDCK1"
+            / "Raw data + individual processed data"
+            / _S21_RUN
+        )
+        raw, processed = run / f"{_S21_RUN}.xls", run / f"{_S21_RUN}.prism"
+        assert _file_role(raw.name, "", str(raw)) == "raw_data"
+        assert _file_role(processed.name, "", str(processed)) == "processed_data"
+
+    def test_a_bare_filename_keeps_the_old_behaviour(self) -> None:
+        """Callers holding no path must be unaffected."""
+        assert _file_role("Combined uptake data 0-60 min.xlsx", "") == "raw_data"
+
+
+class TestEveryAssayHasBothDataRoles:
+    """Each S-VHPS22 assay must carry a raw AND a processed exemplar (#pairing).
+
+    An assay represented by only one half is a shape the exporter never sees:
+    the raw/processed split is what ``arc_writer`` projects onto the crate's
+    ``dataset/raw_data`` and ``dataset/processed_data`` trees.
+    """
+
+    @pytest.mark.parametrize("assay", _S22_ASSAYS)
+    def test_assay_carries_both_roles(self, assay: str) -> None:
+        roles = {
+            _file_role(p.name, "", str(p))
+            for p in (SVHPS22 / assay).rglob("*")
+            if p.is_file() and p.suffix.lower() in _DATA_SUFFIXES
+        }
+        assert {"raw_data", "processed_data"} <= roles, (
+            f"{assay} carries only {roles or 'no data files'}"
         )
