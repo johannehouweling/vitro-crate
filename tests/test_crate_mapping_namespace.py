@@ -142,7 +142,9 @@ class TestMintedIdNamespace:
         state.metadata.title = "Reference Test"
 
         sample = _entity("cell_01", "Sample", name="Sample A")
-        cell_line = _entity("cell_01", "CellLineSample", name="HepG2", accession="CVCL_0027")
+        # No accession: an accession-backed CellLineSample takes its Cellosaurus
+        # IRI as @id and never enters the minted-id scheme this test guards.
+        cell_line = _entity("cell_01", "CellLineSample", name="HepG2")
         person = _entity("p_001", "Person", name="Researcher")
 
         state.add_entity(sample)

@@ -185,8 +185,10 @@ class TestLabProcessSubtypes:
         proc = by_id["#LabProcess_proc_1"]
         assert proc["additionalType"] == "CellCulture"
         assert proc.get("executesLabProtocol")  # SHOULD, always synthesized
-        # input → schema:object, output → schema:result (via the @context)
-        assert "#CellLineSample_cell_1" in _ids(proc.get("input"))
+        # input → schema:object, output → schema:result (via the @context).
+        # An accession-backed CellLineSample carries its Cellosaurus IRI as @id,
+        # and the process wiring must follow it.
+        assert "https://www.cellosaurus.org/CVCL_0027" in _ids(proc.get("input"))
         assert "#Sample_sample_out" in _ids(proc.get("output"))
 
     def test_exposure_object_is_cells_result_is_condition_table(self, tmp_path):
