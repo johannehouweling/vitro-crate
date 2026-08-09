@@ -127,9 +127,7 @@ class TestDrafterTier:
             "the leaf must build the chat model on the drafter tier (role='drafter')"
         )
 
-    def test_explicit_model_is_forwarded(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_explicit_model_is_forwarded(self, _patch_build_chat_model: dict[str, Any]) -> None:
         rec = _patch_build_chat_model
         rec["model"] = FakeChatModel({"name": "Acetaminophen"})
 
@@ -140,12 +138,33 @@ class TestDrafterTier:
         assert rec["calls"][0].get("model") == "gpt-4o-mini"
 
 
+class TestConditionTableRoleGuidance:
+    """#422: the plan schema must define what a ``condition_table`` IS.
+
+    The real S-VHPS26 mislabel: with the role described only as "What kind of
+    data file this is.", the leaf labelled a Parameter|Value assay-metadata
+    template ``condition_table``, and the populator was handed a file that can
+    never map. The enum description is the leaf's ONLY definition of the term —
+    it must say per-well design/plate map and steer templates to ``other``.
+    """
+
+    def test_role_description_defines_condition_table_and_steers_templates(self) -> None:
+        from builder.agents.pipeline.leaves import _plan_schema
+
+        role = _plan_schema()["properties"]["files"]["items"]["properties"]["role"]
+        desc = str(role.get("description") or "").lower()
+        assert "per-well" in desc or "per well" in desc, (
+            "the description must define condition_table as a per-well design table"
+        )
+        assert "template" in desc and "other" in desc, (
+            "metadata/parameter templates must be steered to the `other` role"
+        )
+
+
 class TestStructuredOutput:
     """The leaf must use structured output bound once to the hints schema."""
 
-    def test_uses_structured_output_once(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_uses_structured_output_once(self, _patch_build_chat_model: dict[str, Any]) -> None:
         fake = FakeChatModel({"name": "Acetaminophen"})
         _patch_build_chat_model["model"] = fake
 
@@ -181,9 +200,7 @@ class TestOutputValidatesAgainstSchema:
         jsonschema.validate(out, draft_hints_schema("MolecularEntity"))
         assert out["name"] == "Acetaminophen"
 
-    def test_study_output_validates(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_study_output_validates(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"name": "Liver tox study", "description": "Hepatotoxicity assays."}
         )
@@ -224,9 +241,7 @@ class TestD5NoFabricatedIdentifiers:
                 f"D5 violated: fabricated identifier field {ident!r} leaked through"
             )
 
-    def test_person_strips_fabricated_orcid(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_person_strips_fabricated_orcid(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"name": "Jane Doe", "orcid": "0000-0002-1825-0097"}
         )
@@ -295,9 +310,7 @@ class TestSchemaExclusion:
 class TestUnknownEntityType:
     """An unknown entity type still returns a dict (open schema fallback)."""
 
-    def test_unknown_type_returns_dict(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_unknown_type_returns_dict(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel({"name": "x"})
 
         out = leaves.draft_entity_fields("NotAType", "context")
@@ -338,9 +351,7 @@ Files: plate_raw.csv (raw), results.xlsx (processed), conditions.csv.
 class TestExtractPlanDrafterTier:
     """The plan extractor must run on the cheap drafter tier (mirrors the leaf)."""
 
-    def test_requests_drafter_role(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_requests_drafter_role(self, _patch_build_chat_model: dict[str, Any]) -> None:
         rec = _patch_build_chat_model
         rec["model"] = FakeChatModel({"study": {"name": "x"}})
 
@@ -351,9 +362,7 @@ class TestExtractPlanDrafterTier:
             "extract_plan must build the chat model on the drafter tier"
         )
 
-    def test_explicit_model_is_forwarded(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_explicit_model_is_forwarded(self, _patch_build_chat_model: dict[str, Any]) -> None:
         rec = _patch_build_chat_model
         rec["model"] = FakeChatModel({})
 
@@ -365,9 +374,7 @@ class TestExtractPlanDrafterTier:
 class TestExtractPlanStructuredOutput:
     """One bounded structured-output bind + one invocation (a leaf)."""
 
-    def test_single_structured_output_call(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_single_structured_output_call(self, _patch_build_chat_model: dict[str, Any]) -> None:
         fake = FakeChatModel({"study": {"name": "x"}})
         _patch_build_chat_model["model"] = fake
 
@@ -380,9 +387,7 @@ class TestExtractPlanStructuredOutput:
 class TestExtractPlanShape:
     """A doc-like context yields a populated plan with the right shape."""
 
-    def test_populated_plan_round_trips(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_populated_plan_round_trips(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {
                 "study": {"name": "AAP renal tox", "description": "Hepatotox study."},
@@ -500,8 +505,10 @@ class TestExtractPlanMinesCompoundsFromFilenames:
         text = _prompt_text(fake)
         # The names-only / no-identifier discipline is still asserted in the prompt.
         assert "name" in text
-        assert ("no identifier" in text) or ("never include identifiers" in text) or (
-            "identifiers of any kind" in text
+        assert (
+            ("no identifier" in text)
+            or ("never include identifiers" in text)
+            or ("identifiers of any kind" in text)
         ), "the filename-mining prompt must still forbid identifiers (D5)"
 
     def test_filename_derived_compound_plan_round_trips(
@@ -595,9 +602,7 @@ class TestExtractPlanD5NoIdentifiersInSchema:
         # The schema must be usable as a function-calling tool (carries a title).
         assert schema.get("title"), "plan schema must carry a title"
 
-    def test_schema_is_convertible_to_a_tool(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_schema_is_convertible_to_a_tool(self, _patch_build_chat_model: dict[str, Any]) -> None:
         from langchain_core.utils.function_calling import convert_to_openai_tool
 
         fake = FakeChatModel({})
@@ -631,9 +636,7 @@ class TestExtractPlanD5StripsFabricatedIdentifiers:
                     }
                 ],
                 "cell_lines": [{"name": "MDCK", "accession": "CVCL_0027"}],
-                "people": [
-                    {"name": "Jane Doe", "orcid": "0000-0002-1825-0097"}
-                ],
+                "people": [{"name": "Jane Doe", "orcid": "0000-0002-1825-0097"}],
                 "publications": [{"title": "P", "doi": "10.1234/fake"}],
             }
         )
@@ -674,9 +677,7 @@ class TestExtractPlanD5StripsFabricatedIdentifiers:
 
 
 class TestDraftEntityFieldsUsageCapture:
-    def test_usage_sink_receives_token_usage(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_usage_sink_receives_token_usage(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"name": "Acetaminophen"},
             usage_metadata={"input_tokens": 120, "output_tokens": 35, "total_tokens": 155},
@@ -721,9 +722,7 @@ class TestDraftEntityFieldsUsageCapture:
 
 
 class TestExtractPlanUsageCapture:
-    def test_usage_sink_receives_token_usage(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_usage_sink_receives_token_usage(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"study": {"name": "S"}},
             usage_metadata={"input_tokens": 500, "output_tokens": 80, "total_tokens": 580},
@@ -777,9 +776,7 @@ _GAP_CONTEXT = {
 class TestPhraseGapQuestionDrafterTier:
     """Phrasing runs on the cheap drafter tier and is a single bounded call."""
 
-    def test_requests_drafter_role(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_requests_drafter_role(self, _patch_build_chat_model: dict[str, Any]) -> None:
         rec = _patch_build_chat_model
         rec["model"] = FakeChatModel({"question": "What does this study examine?"})
 
@@ -790,9 +787,7 @@ class TestPhraseGapQuestionDrafterTier:
             "phrase_gap_question must build the chat model on the drafter tier"
         )
 
-    def test_single_structured_output_call(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_single_structured_output_call(self, _patch_build_chat_model: dict[str, Any]) -> None:
         fake = FakeChatModel({"question": "What does this study examine?"})
         _patch_build_chat_model["model"] = fake
 
@@ -805,9 +800,7 @@ class TestPhraseGapQuestionDrafterTier:
 class TestPhraseGapQuestionShape:
     """The leaf returns one human question string."""
 
-    def test_returns_the_question_string(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_returns_the_question_string(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"question": "In one sentence, what does this study examine?"}
         )
@@ -832,9 +825,7 @@ class TestPhraseGapQuestionShape:
 class TestInterpretGapReplyDrafterTier:
     """Interpretation runs on the cheap drafter tier and is a single call."""
 
-    def test_requests_drafter_role(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_requests_drafter_role(self, _patch_build_chat_model: dict[str, Any]) -> None:
         rec = _patch_build_chat_model
         rec["model"] = FakeChatModel({"action": "skip"})
 
@@ -845,9 +836,7 @@ class TestInterpretGapReplyDrafterTier:
             "interpret_gap_reply must build the chat model on the drafter tier"
         )
 
-    def test_single_structured_output_call(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_single_structured_output_call(self, _patch_build_chat_model: dict[str, Any]) -> None:
         fake = FakeChatModel({"action": "commit", "value": "x"})
         _patch_build_chat_model["model"] = fake
 
@@ -860,9 +849,7 @@ class TestInterpretGapReplyDrafterTier:
 class TestInterpretGapReplyDecision:
     """The leaf returns a STRUCTURED decision, not free text."""
 
-    def test_commit_returns_clean_value(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_commit_returns_clean_value(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"action": "commit", "value": "A hepatotoxicity dose-response study."}
         )
@@ -876,9 +863,7 @@ class TestInterpretGapReplyDecision:
         assert decision["action"] == "commit"
         assert decision["value"] == "A hepatotoxicity dose-response study."
 
-    def test_idk_reply_returns_skip(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_idk_reply_returns_skip(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel({"action": "skip"})
 
         decision = leaves.interpret_gap_reply(
@@ -891,9 +876,7 @@ class TestInterpretGapReplyDecision:
         # A musing must NEVER carry a value.
         assert not decision.get("value")
 
-    def test_clarify_returns_one_follow_up(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_clarify_returns_one_follow_up(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"action": "clarify", "question": "Do you mean the in-vitro assay?"}
         )
@@ -905,9 +888,7 @@ class TestInterpretGapReplyDecision:
         assert decision["action"] == "clarify"
         assert decision["question"] == "Do you mean the in-vitro assay?"
 
-    def test_from_file_returns_filename_hint(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_from_file_returns_filename_hint(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"action": "from_file", "filename": "README.txt"}
         )
@@ -928,9 +909,7 @@ class TestInterpretGapReplyDecision:
     ) -> None:
         # An adversarial / malformed action must be coerced to the safe default
         # (skip) so it can never become a field value.
-        _patch_build_chat_model["model"] = FakeChatModel(
-            {"action": "nonsense", "value": "garbage"}
-        )
+        _patch_build_chat_model["model"] = FakeChatModel({"action": "nonsense", "value": "garbage"})
 
         decision = leaves.interpret_gap_reply("Q?", "whatever", _GAP_CONTEXT)
 
@@ -942,9 +921,7 @@ class TestInterpretGapReplyDecision:
     ) -> None:
         # A "commit" with no usable value is not a commit — coerce to skip so the
         # loop never writes an empty/whitespace value.
-        _patch_build_chat_model["model"] = FakeChatModel(
-            {"action": "commit", "value": "   "}
-        )
+        _patch_build_chat_model["model"] = FakeChatModel({"action": "commit", "value": "   "})
 
         decision = leaves.interpret_gap_reply("Q?", "...", _GAP_CONTEXT)
 
@@ -961,9 +938,7 @@ class TestGuidanceLeavesD5:
     def test_identifier_gap_commit_is_refused(
         self, _patch_build_chat_model: dict[str, Any]
     ) -> None:
-        _patch_build_chat_model["model"] = FakeChatModel(
-            {"action": "commit", "value": "103-90-2"}
-        )
+        _patch_build_chat_model["model"] = FakeChatModel({"action": "commit", "value": "103-90-2"})
 
         decision = leaves.interpret_gap_reply(
             "What is the CAS number?",
@@ -992,9 +967,7 @@ class TestPhraseGapQuestionNamesEntity:
     def test_entity_name_reaches_the_model_prompt(
         self, _patch_build_chat_model: dict[str, Any]
     ) -> None:
-        fake = FakeChatModel(
-            {"question": "What is the CAS Registry Number for Silychristin A?"}
-        )
+        fake = FakeChatModel({"question": "What is the CAS Registry Number for Silychristin A?"})
         _patch_build_chat_model["model"] = fake
 
         leaves.phrase_gap_question(
@@ -1057,9 +1030,9 @@ class TestPhraseGapQuestionForbidsFabricatedName:
         # and explicitly forbid fabricating a specific name / identifier / example.
         assert "no" in prompt and "name" in prompt, prompt
         # It must forbid INVENTING / FABRICATING / MAKING UP a specific value.
-        assert any(
-            word in prompt for word in ("invent", "fabricat", "make up", "made-up")
-        ), "the phrase prompt must forbid fabricating a name/identifier (D5)"
+        assert any(word in prompt for word in ("invent", "fabricat", "make up", "made-up")), (
+            "the phrase prompt must forbid fabricating a name/identifier (D5)"
+        )
 
     def test_no_name_prompt_does_not_seed_a_specific_example_name(self) -> None:
         # D5 regression: the prompt must not seed a concrete entity NAME the model
@@ -1099,9 +1072,7 @@ class TestExtractFieldFromFile:
         assert len(fake.structured_schemas) == 1, "exactly one structured-output bind"
         assert len(fake.invoke_calls) == 1, "exactly one model invocation (a leaf)"
 
-    def test_extracts_a_clean_value(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_extracts_a_clean_value(self, _patch_build_chat_model: dict[str, Any]) -> None:
         _patch_build_chat_model["model"] = FakeChatModel(
             {"value": "A dose-response viability assay in CHO-K1 cells."}
         )
@@ -1129,9 +1100,7 @@ class TestExtractFieldFromFile:
         human_msg = fake.invoke_calls[0][-1].content
         assert "UNIQUE-FILE-MARKER-12345" in human_msg
 
-    def test_no_value_returns_empty_string(
-        self, _patch_build_chat_model: dict[str, Any]
-    ) -> None:
+    def test_no_value_returns_empty_string(self, _patch_build_chat_model: dict[str, Any]) -> None:
         # The file does not contain the field -> the model returns nothing usable.
         _patch_build_chat_model["model"] = FakeChatModel({})
 
@@ -1156,9 +1125,7 @@ class TestExtractFieldFromFile:
             {"property": "cas", "entity_type": "MolecularEntity"},
         )
 
-        assert value == "", (
-            "D5: an identifier value must come from a lookup, not file text"
-        )
+        assert value == "", "D5: an identifier value must come from a lookup, not file text"
 
 
 def _flatten_keys(schema: Any) -> set[str]:
@@ -1247,9 +1214,7 @@ class TestPlanSchemaProcessParameters:
         """
         from builder.agents.pipeline.leaves import _plan_schema
 
-        params = _plan_schema()["properties"]["process_chain"]["items"]["properties"][
-            "parameters"
-        ]
+        params = _plan_schema()["properties"]["process_chain"]["items"]["properties"]["parameters"]
         assert params.get("additionalProperties") is False
 
 
