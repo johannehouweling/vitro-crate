@@ -438,9 +438,7 @@ class TestRealInputPipeline:
         bulk = _emitted_for("220825_RA_CHO-K1_hOATP1C1_P1_Timecourse.pzfx")
         assert metadata > bulk, f"metadata {metadata} chars vs bulk {bulk} chars"
 
-    def test_a_second_metadata_file_does_not_starve_the_tiers_below(
-        self, tmp_path: Path
-    ) -> None:
+    def test_a_second_metadata_file_does_not_starve_the_tiers_below(self, tmp_path: Path) -> None:
         """STARVATION CONTROL for the tier-0 raise (#419).
 
         A tier's share is granted PER FILE, so raising tier 0 to 9,000 let two
@@ -536,6 +534,44 @@ class TestRealInputPipeline:
         assert any(p.fields.get("labprotocol") for p in procs), (
             "the LabProtocol must be linked to a LabProcess"
         )
+
+    def test_a_mislabelled_metadata_workbook_still_yields_a_populated_table(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#422 acceptance, on the genuine fixture: the real leaf labels the
+        assay-metadata workbook ``condition_table``. The tool reads it (#469's
+        Excel intake) and correctly refuses — it is a Parameter|Value template
+        with no per-well rows — and the spine must then fall back to the #438
+        proposal built from the entities the SAME plan materialized, landing
+        real rows: ``condition_table.populated is True`` on the real deposit."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        _install_offline_seams(monkeypatch)
+        base = pipeline_mod.extract_plan
+
+        def plan_with_the_real_mislabel(
+            context: str, *, overrides: Any = None, usage_sink: Any = None
+        ) -> dict[str, Any]:
+            plan = base(context, overrides=overrides, usage_sink=usage_sink)
+            plan.setdefault("files", []).append(
+                {"path": _METADATA_XLSX_NAME, "role": "condition_table"}
+            )
+            return plan
+
+        monkeypatch.setattr(pipeline_mod, "extract_plan", plan_with_the_real_mislabel)
+        engine = _scanning_engine(FIXTURE_DIR)
+        result = run_pipeline(engine)
+
+        table = (result.get("materialized") or {}).get("condition_table") or {}
+        assert table.get("populated") is True, f"header-only table shipped: {table}"
+        assert table.get("proposed") is True
+        assert table.get("fallback_from"), "the original refusal must be recorded"
+        path = table.get("path")
+        assert path and Path(path).is_file()
+        body = Path(path).read_text(encoding="utf-8")
+        assert len(body.strip().splitlines()) > 1, "the table is header-only"
+        assert "Thyroxine" in body, "the proposed rows must carry the real compound"
 
     def test_raw_and_processed_data_files_attached_to_crate(
         self, monkeypatch: pytest.MonkeyPatch
@@ -657,7 +693,5 @@ class TestRealSopParametersReachTheCrate:
         # being inferred from the placeholder's presence.
         assert "Exposure Duration" not in values
         assert "Detection Instrument" not in values
-        chain = {
-            p.fields.get("process_type") for p in engine.state.list_entities("LabProcess")
-        }
+        chain = {p.fields.get("process_type") for p in engine.state.list_entities("LabProcess")}
         assert {"Exposure", "EndpointReadout"} <= chain, chain

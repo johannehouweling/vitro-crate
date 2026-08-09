@@ -1369,6 +1369,26 @@ def _propose_condition_table(engine: AgentEngine, exposure_id: str) -> dict[str,
     }
 
 
+def _fall_back_to_proposal(
+    engine: AgentEngine, exposure_id: str, primary: dict[str, Any]
+) -> dict[str, Any]:
+    """An unusable plate-map candidate must not beat having none at all (#422).
+
+    The #438 proposal used to fire only at ZERO candidates, so a single
+    unreadable or unmappable candidate left the crate with strictly less table
+    content than an absent plate map. On proposal success the result carries
+    ``fallback_from`` — the primary failure — so the rows' provenance stays
+    visible; on proposal failure the PRIMARY reason survives as ``reason`` with
+    the proposal's own failure alongside as ``proposal_reason``, never swapped.
+    """
+    proposed = _propose_condition_table(engine, exposure_id)
+    if proposed.get("populated"):
+        proposed["fallback_from"] = str(primary.get("reason") or "")
+        return proposed
+    primary["proposal_reason"] = str(proposed.get("reason") or "")
+    return primary
+
+
 def _populate_condition_table_from_plan(
     engine: AgentEngine, plan: dict[str, Any], exposure_id: str
 ) -> dict[str, Any]:
@@ -1395,11 +1415,15 @@ def _populate_condition_table_from_plan(
       to the tool, which resolves it the same way ``export_crate`` does (#381).
 
     Never raises: a tool failure is logged and reported as a reason, so one bad
-    plate map cannot break the spine.
+    plate map cannot break the spine. A single candidate that cannot be used —
+    no path, outside the scan roots, unreadable, or read-but-unmappable — falls
+    back to the #438 proposal via :func:`_fall_back_to_proposal` (#422); only
+    the several-candidates ambiguity refuses without fallback.
 
     Returns:
         ``{"populated": bool, "reason": str}`` plus, on success, the tool's
-        ``rows`` / ``path`` / ``unmapped_source_columns``. Surfaced in
+        ``rows`` / ``path`` / ``unmapped_source_columns`` — or the proposal's
+        result carrying ``proposed`` / ``fallback_from``. Surfaced in
         :func:`_materialize_plan`'s result so it reaches ``run_pipeline``.
     """
     entries = [f for f in (plan.get("files") or []) if isinstance(f, dict)]
@@ -1413,6 +1437,9 @@ def _populate_condition_table_from_plan(
         # human; no concentration is ever invented.
         return _propose_condition_table(engine, exposure_id)
     if len(candidates) > 1:
+        # Deliberately NO proposal fallback here (#422): several claimed plate
+        # maps is genuine ambiguity a human must settle — synthesizing rows
+        # while real design tables sit unread would paper over the question.
         names = ", ".join(sorted(str(c.get("path") or "?") for c in candidates))
         return {
             "populated": False,
@@ -1421,14 +1448,22 @@ def _populate_condition_table_from_plan(
 
     named = str(candidates[0].get("path") or "").strip()
     if not named:
-        return {"populated": False, "reason": "the condition_table entry carries no path"}
+        return _fall_back_to_proposal(
+            engine,
+            exposure_id,
+            {"populated": False, "reason": "the condition_table entry carries no path"},
+        )
 
     path = _scanned_path_for_name(engine, named)
     if path is None:
-        return {
-            "populated": False,
-            "reason": f"{named!r} matches no scanned file inside the approved scan roots",
-        }
+        return _fall_back_to_proposal(
+            engine,
+            exposure_id,
+            {
+                "populated": False,
+                "reason": f"{named!r} matches no scanned file inside the approved scan roots",
+            },
+        )
 
     try:
         outcome = engine.run_tool(
@@ -1438,7 +1473,11 @@ def _populate_condition_table_from_plan(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("populate_condition_table failed for %s: %s", path, exc)
-        return {"populated": False, "reason": f"populate_condition_table raised: {exc}"}
+        return _fall_back_to_proposal(
+            engine,
+            exposure_id,
+            {"populated": False, "reason": f"populate_condition_table raised: {exc}"},
+        )
 
     outcome = outcome if isinstance(outcome, dict) else {}
     if not outcome.get("ok"):
@@ -1456,11 +1495,15 @@ def _populate_condition_table_from_plan(
             )
         else:
             logger.info("Condition table not populated from %s: %s", named, reason)
-        return {
-            "populated": False,
-            "reason": reason,
-            "read_failed": bool(outcome.get("read_failed")),
-        }
+        return _fall_back_to_proposal(
+            engine,
+            exposure_id,
+            {
+                "populated": False,
+                "reason": reason,
+                "read_failed": bool(outcome.get("read_failed")),
+            },
+        )
 
     logger.info(
         "Populated condition table from %s: %s row(s) (#408).", named, outcome.get("rows")
