@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import PurePath
 from typing import TYPE_CHECKING, Any, Callable
 
 from builder.agents.llm import ModelOverrides
@@ -1095,13 +1096,55 @@ _PROCESSED_NAME_HINTS: tuple[str, ...] = (
 _PROCESSED_EXT_HINTS: tuple[str, ...] = (".prism", ".pzfx", ".pzf")
 
 
-def _file_role(filename: str, mime: str) -> str:
-    """Deterministic raw-vs-processed role for a scanned file (descriptive only)."""
+# Directory names that declare a role for everything inside them. Real deposits
+# carry this distinction in the FOLDER at least as often as in the filename —
+# S-VHPS22 files its qPCR exports under `assay4_EDCs_raw data/` beside
+# `assay4_EDCs_processed data/`, and neither the raw nor the processed member is
+# distinguishable by its own name.
+_PROCESSED_DIR_HINTS: tuple[str, ...] = ("processed", "analysis", "results")
+_RAW_DIR_HINTS: tuple[str, ...] = ("raw",)
+
+
+def _directory_role(path: str) -> str | None:
+    """Role declared by the closest containing directory, or ``None``.
+
+    Walks outward from the file so the most specific directory wins. A folder
+    naming BOTH roles declares nothing and stops the walk: S-VHPS21 deposits
+    every run into ``Raw data + individual processed data/``, which holds that
+    run's raw ``.xls`` beside its processed ``.prism``, so it says nothing about
+    either and no outer folder is more qualified to.
+    """
+    for part in reversed(PurePath(path).parent.parts):
+        lowered = part.lower()
+        processed = any(hint in lowered for hint in _PROCESSED_DIR_HINTS)
+        raw = any(hint in lowered for hint in _RAW_DIR_HINTS)
+        if processed and raw:
+            return None
+        if processed:
+            return "processed_data"
+        if raw:
+            return "raw_data"
+    return None
+
+
+def _file_role(filename: str, mime: str, path: str = "") -> str:
+    """Deterministic raw-vs-processed role for a scanned file (descriptive only).
+
+    The file's own name decides when it can: a GraphPad project is processed
+    whatever folder it sits in. Otherwise the containing directory decides, and
+    only when neither speaks does this fall back to ``raw_data``. *path* is
+    optional so callers holding just a basename keep the filename-only
+    behaviour.
+    """
     lowered = (filename or "").lower()
     if lowered.endswith(_PROCESSED_EXT_HINTS):
         return "processed_data"
     if any(hint in lowered for hint in _PROCESSED_NAME_HINTS):
         return "processed_data"
+    if path:
+        by_directory = _directory_role(path)
+        if by_directory is not None:
+            return by_directory
     return "raw_data"
 
 
@@ -1131,7 +1174,7 @@ def _attach_scanned_files(engine: AgentEngine) -> int:
     # same for every role, so a role misclassification never drops a file.
     by_role: dict[str, list[str]] = {}
     for fc in engine.state.scanned_files:
-        role = _file_role(fc.filename or "", fc.mime_type or "")
+        role = _file_role(fc.filename or "", fc.mime_type or "", fc.path or "")
         by_role.setdefault(role, []).append(fc.path)
 
     attached_ids: set[str] = set()
