@@ -6,6 +6,7 @@ It coordinates tool calls, validation, HITL checkpoints, and session persistence
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -179,16 +180,25 @@ def _validation_input_hash(state: CrateState) -> str:
 # are gated by :meth:`AgentEngine._gate_file_read`. The value is the kwarg that
 # names the path(s): a single string for the per-file readers, ``"paths"`` (a
 # list) for ``read_multiple_files``.
-_DOCUMENT_EVIDENCE_MAX_CHARS = 12000
+# Per-document cap. Sized so ordinary submission documents are stored WHOLE: a
+# 22.8k-char SOP and a 32.5k-char study JSON were both cut to 12k, and the guard
+# then served those fragments back under the claim that they were "identical to
+# re-reading it". The model was missing half of one document and two-thirds of
+# the other, was told nothing was missing, and has no offset parameter to ask
+# for the rest — so it asked again, and again. A partial copy is no longer
+# served at all (see the reader guard), which makes this cap the line between
+# "answered from memory" and "re-read from disk" rather than a silent edit.
+_DOCUMENT_EVIDENCE_MAX_CHARS = 40000
 # The store must hold a whole working set, not most of one. A typical assay
-# submission is three documents — workbook, SOP, study JSON — which cap to
-# 8.7k + 12k + 12k = 32.7k chars. At the old 30k ceiling that set did not fit,
-# so every read evicted the document the model was about to ask for next: one
-# observed session re-read the same three files sixteen times across fifteen
-# turns, never once hitting the cache. Sized for four capped documents. This
-# budget is storage only — the prompt-side render (`_format_document_evidence`)
-# has its own independent 12k cap, so raising it costs session state, not context.
-_DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 48000
+# submission is three documents — workbook, SOP, study JSON — which at full
+# length come to 8.7k + 22.8k + 32.5k = 64k chars. At the old 30k ceiling that
+# set did not fit, so every read evicted the document the model was about to ask
+# for next: one observed session re-read the same three files sixteen times
+# across fifteen turns, never once hitting the cache. Sized for four whole
+# documents at the per-document cap. This budget is storage only — the
+# prompt-side render (`_format_document_evidence`) has its own independent 12k
+# cap, so raising it costs session state, not context.
+_DOCUMENT_EVIDENCE_MAX_TOTAL_CHARS = 160000
 
 # Readers whose successful output is kept as bounded session evidence, so the
 # "already loaded this document" guard can suppress an identical re-read. These
@@ -197,12 +207,38 @@ _DOCUMENT_EVIDENCE_TOOLS = frozenset(
     {"read_file", "read_excel", "read_docx", "read_file_sample"}
 )
 
-# Readers whose successful output is kept as bounded session evidence, so the
-# "already loaded this document" guard can suppress an identical re-read. These
-# take a single ``path`` kwarg and return text.
-_DOCUMENT_EVIDENCE_TOOLS = frozenset(
-    {"read_file", "read_excel", "read_docx", "read_file_sample"}
-)
+# Reader outputs that can be losslessly squeezed before they reach the model.
+_JSON_SUFFIXES = (".json", ".jsonld")
+
+
+def _compact_reader_text(tool_name: str, path: Any, result: Any) -> Any:
+    """Strip formatting-only bulk from a reader result. Never drops content.
+
+    A pretty-printed study record is half indentation: the session's
+    ``S-VHPS26.json`` reads as 32,485 characters (~7,981 tokens) and re-serialises
+    to 15,350 (~4,372) with the identical object inside. Whitespace is the one
+    thing in a document that costs context and carries nothing, so it goes —
+    every key, every value and every ordering is preserved, which is what makes
+    this safe to do without being asked.
+
+    Compaction is the STARTING point, not a ceiling: the full text is still what
+    is stored and served, and anything that will not round-trip is returned
+    untouched rather than guessed at.
+    """
+    if tool_name not in _DOCUMENT_EVIDENCE_TOOLS or not isinstance(result, str):
+        return result
+    if not isinstance(path, str) or not path.lower().endswith(_JSON_SUFFIXES):
+        return result
+    try:
+        parsed = json.loads(result)
+    except (ValueError, TypeError):
+        return result  # not valid JSON (a sample/slice?) — leave it exactly as read
+    try:
+        compacted = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
+    except (TypeError, ValueError):  # pragma: no cover — json.loads output is dumpable
+        return result
+    return compacted if len(compacted) < len(result) else result
+
 
 _FILE_READ_TOOLS: dict[str, str] = {
     "read_file": "path",
@@ -546,7 +582,22 @@ class AgentEngine:
                     continue
                 if _contain(resolved, self.state.approved_scan_roots) is not None:
                     return resolved
-            return None
+            # FALL THROUGH to the basename match rather than refusing. A model
+            # that gets the folder wrong writes "Assay_OATP1C1/S-VHPS26.json"
+            # for a file sitting at the root, and returning None here refused it
+            # outright — while the identical mistake in ABSOLUTE form was already
+            # being repaired below. One session spent its whole budget retrying
+            # that path until the loop-breaker fired. The filename is the part
+            # the model got right; containment is re-checked on whatever matches,
+            # and an ambiguous name still refuses rather than guessing.
+            #
+            # NOT for a path that tries to climb out, though. A wrong subfolder is
+            # a typo worth helping past; `..` is an escape attempt, and answering
+            # one with the contents of a same-named file that happens to sit
+            # inside the sandbox is exactly what the traversal guard exists to
+            # stop. The observed weak-model mistake never contains `..`.
+            if ".." in Path(raw).parts:
+                return None
 
         matches: list[str] = []
         for scanned in self.state.scanned_files:
@@ -635,25 +686,6 @@ class AgentEngine:
                 "one file of that name that does: %s",
                 path,
                 relocated,
-            )
-            return _GATE_OK
-
-        # A bare filename ("OATP1C1 SOP TH 250425.docx") is what the model
-        # naturally emits — it sees filenames in the scanned-file inventory, not
-        # absolute paths. Resolving it relative to the CWD puts it outside every
-        # approved root, so the read was refused, and because a refusal is never
-        # recorded as evidence the model simply tried again: one session spent 226
-        # of 235 reader calls re-reading three files it could never open this way.
-        # Resolve the basename inside the approved roots instead. Only an
-        # UNAMBIGUOUS match is accepted — several files sharing a name give no
-        # basis to pick one, so that still refuses rather than guessing.
-        resolved_path = self._resolve_within_roots(path)
-        if resolved_path is not None:
-            kwargs[path_kwarg] = resolved_path
-            logger.info(
-                "Resolved bare filename %r to %s inside an approved scan root",
-                path,
-                resolved_path,
             )
             return _GATE_OK
 
@@ -921,6 +953,21 @@ class AgentEngine:
                 )
                 return refused
 
+        # Compact by DEFAULT, not on request. On the session's own workbook
+        # `compact` strips the repeated header row, the authoring-instructions
+        # Comments column and the empty cells for a 75% reduction (34,137 ->
+        # 8,675 chars; 12,016 -> 3,710 tokens) with the same values in it. Left
+        # opt-in, the saving depends on the model remembering a flag, and the one
+        # that forgets is exactly the one that can least afford the context. An
+        # explicit compact=False still wins — the raw sheet is one argument away.
+        #
+        # Applied HERE, before the dispatch splits: `read_excel` resolves through
+        # the generic registry, not `scanner_tools`, so setting this inside the
+        # scanner branch (where it first went) meant it never fired for the very
+        # tool it names. The evidence store learned the same lesson below.
+        if tool_name == "read_excel":
+            kwargs.setdefault("compact", True)
+
         # build_and_validate debounce (#155): when the validation inputs
         # (entities + crate metadata) and the requested scope are unchanged since
         # the last call, reuse the cached result and skip the ~3.7s SHACL re-run.
@@ -1040,7 +1087,14 @@ class AgentEngine:
         # used to live) meant it only ever fired for `read_file_sample` and the
         # evidence store stayed permanently empty — taking the "already loaded
         # this document" de-duplication down with it.
+        # Squeeze formatting-only bulk out of reader output. Same placement
+        # lesson as the evidence store directly below: this must sit AFTER every
+        # dispatch branch, because the readers it targets do not go through
+        # `scanner_tools`. Hooked inside that branch it silently did nothing —
+        # a session stored its 32,484-char study record whole when 15,335 chars
+        # of identical JSON would have done.
         if tool_name in _DOCUMENT_EVIDENCE_TOOLS:
+            result = _compact_reader_text(tool_name, kwargs.get("path"), result)
             self._store_document_evidence(
                 tool_name, str(kwargs.get("path", "")), result, kwargs
             )
