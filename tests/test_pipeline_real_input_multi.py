@@ -8,10 +8,12 @@ from older tooling. These two fixtures cover the shapes it cannot:
 
 ``tests/fixtures/svhps21_real_input/`` — the MCT8-MDCK1 transporter deposit
     (BioStudies S-VHPS21). Same single-assay shape as S-VHPS26, but written with
-    OLDER GraphPad/Excel tooling: measurements are ``.prism`` rather than
-    ``.pzfx``. It also has NO procedure document at all — its own README promises
-    an SOP that was never deposited — so it is the real-world control for a
-    deposit whose protocol layer is missing rather than merely unread.
+    OLDER tooling throughout: raw measurements are legacy OLE2 ``.xls`` rather
+    than ``.xlsx``, and analyses are ``.prism``/``.pzf`` rather than ``.pzfx``.
+    Neither older format is readable by the libraries S-VHPS26 exercises, which
+    is the point. It also has NO procedure document at all — its own README
+    promises an SOP that was never deposited — so it is the real-world control
+    for a deposit whose protocol layer is missing rather than merely unread.
 
 ``tests/fixtures/svhps22_real_input/`` — the TH-DNT neural-cell screening study
     (BioStudies S-VHPS22): FOUR assays under one study, each with its own
@@ -92,6 +94,15 @@ _S21_CHEMICAL_TOKENS = (
     "indocyanine green",
     "pentachlorophenol",
 )
+# From the legacy .xls plate-reader export only: the instrument model as the
+# machine wrote it, and the run's execution timestamp. `multiskan` on its own
+# also appears in the workbook and the descriptor; the full model string does
+# not, so only a genuine .xls read matches it.
+_S21_XLS_TOKENS = (
+    "multiskan fc with incubator",
+    "31.03.2022 17:03:40",
+)
+_S21_RUN = "220331_SK_MCT8_MDCK1_P3_BSP+Desipramide"
 
 _S22_ASSAYS = (
     "assay_01_TH_uptake",
@@ -407,6 +418,72 @@ class TestSvhps22ContextFidelity:
 # ---------------------------------------------------------------------------
 # Role classification for the older GraphPad formats S-VHPS21 introduced.
 # ---------------------------------------------------------------------------
+
+
+class TestLegacyXlsMeasurements:
+    """S-VHPS21's raw measurement layer is legacy binary ``.xls``, all 27 files.
+
+    ``read_excel`` loads workbooks through openpyxl, which supports only the
+    zipped OOXML formats and raises ``InvalidFileException`` on an OLE2 ``.xls``
+    — telling the caller, in the exception text, to use xlrd instead. The
+    exception is swallowed by a blanket handler, so the read returns ``None``
+    and the file contributes nothing but its filename. Nothing warns.
+    """
+
+    def test_the_fixture_pairs_raw_and_processed_from_one_run(self) -> None:
+        """The deposit's real shape: each run folder holds both formats.
+
+        Guards the ``.xls`` half against being dropped again as 'just bulk
+        data' — it is the only legacy-format measurement file in the suite.
+        """
+        run = (
+            SVHPS21
+            / "Assay_MCT8-MDCK1"
+            / "Raw data + individual processed data"
+            / _S21_RUN
+        )
+        assert (run / f"{_S21_RUN}.xls").is_file(), "the raw .xls must be committed"
+        assert (run / f"{_S21_RUN}.prism").is_file(), "its processed sibling too"
+        assert _file_role(f"{_S21_RUN}.xls", "") == "raw_data"
+        assert _file_role(f"{_S21_RUN}.prism", "") == "processed_data"
+
+    def test_the_legacy_workbook_is_not_silently_empty(self) -> None:
+        """xlrd — already an installed dependency — recovers the whole sheet.
+
+        Stated as the control: the bytes are readable, so the gap below is a
+        reader-selection choice rather than an unreadable file.
+        """
+        xlrd = pytest.importorskip("xlrd")
+        path = (
+            SVHPS21
+            / "Assay_MCT8-MDCK1"
+            / "Raw data + individual processed data"
+            / _S21_RUN
+            / f"{_S21_RUN}.xls"
+        )
+        book = xlrd.open_workbook(path)
+        assert "General_Info" in book.sheet_names()
+        sheet = book.sheet_by_name("General_Info")
+        text = " ".join(
+            str(v) for r in range(sheet.nrows) for v in sheet.row_values(r)
+        ).lower()
+        for token in _S21_XLS_TOKENS:
+            assert token in text, f"{token} not recoverable even with xlrd"
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "read_excel goes through openpyxl only, which cannot open OLE2 "
+            ".xls; the InvalidFileException is swallowed and the read returns "
+            "None. xlrd is already installed and reads the file. Remove this "
+            "marker when read_excel falls back to it."
+        ),
+    )
+    @pytest.mark.parametrize("token", _S21_XLS_TOKENS)
+    def test_legacy_xls_content_reaches_the_leaf(self, token: str) -> None:
+        """A deposit whose whole raw layer is ``.xls`` must not read as empty."""
+        context = _gather_context(_scanning_engine(SVHPS21)).lower()
+        assert token in context, f"legacy .xls body never reached the leaf: {token}"
 
 
 class TestGraphPadRoleClassification:
