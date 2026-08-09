@@ -595,11 +595,15 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
         if key in drop or key.startswith("@"):
             continue
         if "_" in key and key not in _context_terms():
+            # One line, and only the part that varies. The generic advice that
+            # used to trail every one of these ("Use the context's property
+            # instead (e.g. releaseDate, measurementMethod)") wrapped each
+            # notice onto a second row and was identical every time; it belongs
+            # in this comment, not repeated in the user's transcript. A field is
+            # dropped because emitting a non-context term fails BASE conformance
+            # — the fix is to write the context's own property name instead.
             logger.warning(
-                "Dropping %r from %s: it is not a term in the crate's @context, "
-                "and emitting it fails BASE conformance. Use the camelCase "
-                "property (e.g. releaseDate, measurementMethod) if this was "
-                "meant to be one.",
+                "Dropped %r from %s (not a term in the crate's JSON-LD context)",
                 key,
                 entity.entity_id,
             )
@@ -672,6 +676,20 @@ def _mint_id(entity: Entity) -> str:
         chebi_purl = _chebi_purl(entity)
         if chebi_purl:
             return chebi_purl
+    if t == "CellLineSample":
+        # A Cellosaurus accession IS the cell line's identifier, and it
+        # dereferences. Minting `#CellLineSample_cell_cho_k1` next to a field
+        # holding CVCL_0214 published a private handle for something the world
+        # already has a public name for — the same crate would not merge with
+        # anyone else's, and a reader could not follow it. Person/ORCID,
+        # Organization/ROR, MolecularEntity/PubChem and Publication/DOI already
+        # work this way; the cell line was the gap.
+        accession = str(f.get("accession") or f.get("rrid") or "").strip()
+        accession = accession.removeprefix("RRID:").removeprefix("CVCL:").strip()
+        if accession.startswith("http"):
+            return accession
+        if accession.upper().startswith("CVCL_"):
+            return f"https://www.cellosaurus.org/{accession}"
     if t == "Publication":
         # Recognise a DOI on either `doi` or `identifier` in URL, CURIE, or bare
         # form. The real pipeline never sets a `doi` field — Crossref returns the
