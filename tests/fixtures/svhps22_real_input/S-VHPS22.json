@@ -1,0 +1,1517 @@
+{
+  "accno" : "S-VHPS22",
+  "attributes" : [
+    {
+      "name" : "Template",
+      "value" : "VHP4Safety"
+    },
+    {
+      "name" : "Title",
+      "value" : "Neural cell screening models for endocrine disruption of thyroid hormone signaling"
+    },
+    {
+      "name" : "DOI",
+      "value" : "10.6019/S-VHPS22"
+    },
+    {
+      "name" : "ReleaseDate",
+      "value" : "2026-05-27"
+    },
+    {
+      "name" : "AttachTo",
+      "value" : "VHP4Safety"
+    }
+  ],
+  "section" : {
+    "type" : "Study",
+    "attributes" : [
+      {
+        "name" : "Title",
+        "value" : "Neural cell screening models for endocrine disruption of thyroid hormone signaling"
+      },
+      {
+        "name" : "ReleaseDate",
+        "value" : "2026-05-27"
+      },
+      {
+        "name" : "Description",
+        "value" : "Thyroid hormone is crucial for proper brain development. Transmembrane thyroid hormone transport, intracellular deiodination and binding of T3 to the thyroid hormone receptor determine thyroid hormone action in target tissues. Chemical exposure can disrupt these intracellular mechanisms, thereby negatively influencing thyroid hormone homeostasis in the brain. To understand how chemicals affect thyroid hormone homeostasis and brain development, new screening methods are needed. We used different human-based in vitro assays to screen endocrine disrupting chemicals (EDCs) for their capacity to disrupt thyroid hormone homeostasis in the brain. Human cell lines representing astrocytes (H4), oligodendrocytes (MO3.13) and neurons (SK-N-AS) were used. Thyroid hormone transport and deiodinase-mediated metabolism were tested using 1 nM radiolabeled thyroid hormone; thyroid hormone receptor activation was measured using qPCR of the T3-responsive gene KLF9. Twelve EDCs were tested, of which six were reference compounds used for validation and six were test compounds."
+      },
+      {
+        "name" : "Organism",
+        "value" : "Homo sapiens",
+        "valqual" : [
+          {
+            "name" : "Ontology",
+            "value" : "NCBITaxon"
+          },
+          {
+            "name" : "TermId",
+            "value" : "NCBITaxon_9606"
+          }
+        ]
+      },
+      {
+        "name" : "Organ",
+        "value" : "Brain",
+        "valqual" : [
+          {
+            "name" : "Ontology",
+            "value" : "UBERON"
+          },
+          {
+            "name" : "TermId",
+            "value" : "UBERON_0000955"
+          }
+        ]
+      },
+      {
+        "name" : "Tissue",
+        "value" : "Neural tissue",
+        "valqual" : [
+          {
+            "name" : "Ontology",
+            "value" : "UBERON"
+          },
+          {
+            "name" : "TermId",
+            "value" : "UBERON_0003714"
+          }
+        ]
+      },
+      {
+        "name" : "Case study",
+        "value" : "Thyroid",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://platform.vhp4safety.nl/casestudies/thyroid"
+          }
+        ]
+      },
+      {
+        "name" : "Regulatory Question",
+        "value" : "reg_q_3b",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://platform.vhp4safety.nl/casestudies/thyroid/Q2"
+          }
+        ]
+      },
+      {
+        "name" : "Process Flow Step",
+        "value" : "Toxicodynamics",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://glossary.vhp4safety.nl/#VHP0000156"
+          }
+        ]
+      },
+      {
+        "name" : "License",
+        "value" : "CC-BY",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://creativecommons.org/licenses/by/4.0/legalcode"
+          }
+        ]
+      },
+      {
+        "name" : "Bioassay",
+        "value" : "Thyroid hormone uptake",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : ""
+          },
+          {
+            "name" : "Ontology",
+            "value" : "BAO"
+          },
+          {
+            "name" : "TermId",
+            "value" : "BAO_0010196"
+          }
+        ]
+      },
+      {
+        "name" : "Bioassay",
+        "value" : "Deiodinase activity (D3)",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : ""
+          },
+          {
+            "name" : "Ontology",
+            "value" : "BAO"
+          },
+          {
+            "name" : "TermId",
+            "value" : "BAO_0010157"
+          }
+        ]
+      },
+      {
+        "name" : "Bioassay",
+        "value" : "Whole-cell thyroid hormone metabolism",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : ""
+          },
+          {
+            "name" : "Ontology",
+            "value" : "BAO"
+          },
+          {
+            "name" : "TermId",
+            "value" : "BAO_0010095"
+          }
+        ]
+      },
+      {
+        "name" : "Bioassay",
+        "value" : "T3-responsive gene expression (KLF9)",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://platform.vhp4safety.nl/methods/real_time_polymerase_chain_reaction"
+          },
+          {
+            "name" : "Ontology",
+            "value" : "MESH"
+          },
+          {
+            "name" : "TermId",
+            "value" : "MESH_D060888"
+          }
+        ]
+      },
+      {
+        "name" : "AOP",
+        "value" : "Decreased thyroid hormone levels in the brain regulated via transport, metabolism and TR activation leading to decreased cognition and motor function",
+        "valqual" : [
+          {
+            "name" : "URL",
+            "value" : "https://aopwiki.org/aops/610"
+          }
+        ]
+      }
+    ],
+    "links" : [
+      {
+        "url" : "https://platform.vhp4safety.nl/casestudies/thyroid",
+        "attributes" : [
+          {
+            "name" : "Description",
+            "value" : "VHP4Safety Case Studies"
+          }
+        ]
+      }
+    ],
+    "subsections" : [
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Nathalie Dierichs"
+          },
+          {
+            "name" : "E-mail",
+            "value" : "nathalie.dierichs@rivm.nl"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0009-0000-5074-6239"
+          },
+          {
+            "name" : "Role",
+            "value" : "Data producer"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o1",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "W. Edward Visser"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0000-0002-5248-863X"
+          },
+          {
+            "name" : "Role",
+            "value" : "Author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o2",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Max Tio"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0009-0001-9438-5508"
+          },
+          {
+            "name" : "Role",
+            "value" : "Author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o2",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Daniëlle Westerbeek"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0000-0001-6004-8653"
+          },
+          {
+            "name" : "Role",
+            "value" : "Author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o2",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Aldert Piersma"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0000-0002-1943-7793"
+          },
+          {
+            "name" : "Role",
+            "value" : "Author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o1",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Ellen Hessel"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0000-0003-3960-7523"
+          },
+          {
+            "name" : "Role",
+            "value" : "Author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o1",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Robin Peeters"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0000-0001-7732-9371"
+          },
+          {
+            "name" : "Role",
+            "value" : "Author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o2",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "type" : "author",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Marcel Erwin Meima"
+          },
+          {
+            "name" : "ORCID",
+            "value" : "0000-0002-5392-0519"
+          },
+          {
+            "name" : "Role",
+            "value" : "Author"
+          },
+          {
+            "name" : "affiliation",
+            "value" : "o2",
+            "reference" : true
+          }
+        ]
+      },
+      {
+        "accno" : "o1",
+        "type" : "organisation",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "National Institute for Public Health and the Environment (RIVM), Centre for Health Protection, Bilthoven"
+          },
+          {
+            "name" : "RORID",
+            "value" : "https://ror.org/01cesdt21"
+          },
+          {
+            "name" : "Country",
+            "value" : "Netherlands"
+          }
+        ]
+      },
+      {
+        "accno" : "o2",
+        "type" : "organisation",
+        "attributes" : [
+          {
+            "name" : "Name",
+            "value" : "Erasmus MC University Medical Centre, Rotterdam"
+          },
+          {
+            "name" : "RORID",
+            "value" : "https://ror.org/018906e22"
+          },
+          {
+            "name" : "Country",
+            "value" : "Netherlands"
+          }
+        ]
+      },
+      {
+        "type" : "Funding",
+        "attributes" : [
+          {
+            "name" : "Agency",
+            "value" : "Dutch Research Agenda (NWA)"
+          },
+          {
+            "name" : "Grant_id",
+            "value" : "1292.19.272"
+          }
+        ]
+      },
+      {
+        "type" : "Biological model information",
+        "attributes" : [
+          {
+            "name" : "Cell line",
+            "value" : "SK-N-AS"
+          },
+          {
+            "name" : "RRID",
+            "value" : "CVCL_1700",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://www.cellosaurus.org/CVCL_1700"
+              }
+            ]
+          },
+          {
+            "name" : "Cell type",
+            "value" : "Neuron",
+            "valqual" : [
+              {
+                "name" : "Ontology",
+                "value" : "CL"
+              },
+              {
+                "name" : "TermId",
+                "value" : "CL_0000540"
+              }
+            ]
+          },
+          {
+            "name" : "Supplier",
+            "value" : "ATCC"
+          },
+          {
+            "name" : "Description",
+            "value" : "Human neuroblastoma cell line used as a neuronal model."
+          }
+        ]
+      },
+      {
+        "type" : "Biological model information",
+        "attributes" : [
+          {
+            "name" : "Cell line",
+            "value" : "H4"
+          },
+          {
+            "name" : "RRID",
+            "value" : "CVCL_1239",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://www.cellosaurus.org/CVCL_1239"
+              }
+            ]
+          },
+          {
+            "name" : "Cell type",
+            "value" : "Astrocyte",
+            "valqual" : [
+              {
+                "name" : "Ontology",
+                "value" : "CL"
+              },
+              {
+                "name" : "TermId",
+                "value" : "CL_0000127"
+              }
+            ]
+          },
+          {
+            "name" : "Supplier",
+            "value" : "ATCC"
+          },
+          {
+            "name" : "Description",
+            "value" : "Human neuroglioma cell line used as an astrocyte model."
+          }
+        ]
+      },
+      {
+        "type" : "Biological model information",
+        "attributes" : [
+          {
+            "name" : "Cell line",
+            "value" : "MO3.13"
+          },
+          {
+            "name" : "RRID",
+            "value" : "CVCL_D357",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://www.cellosaurus.org/CVCL_D357"
+              }
+            ]
+          },
+          {
+            "name" : "Cell type",
+            "value" : "Oligodendrocyte",
+            "valqual" : [
+              {
+                "name" : "Ontology",
+                "value" : "CL"
+              },
+              {
+                "name" : "TermId",
+                "value" : "CL_0000128"
+              }
+            ]
+          },
+          {
+            "name" : "Supplier",
+            "value" : "Cedarlane Laboratories"
+          },
+          {
+            "name" : "Description",
+            "value" : "Human oligodendrocyte cell line."
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Amiodarone"
+          },
+          {
+            "name" : "CID",
+            "value" : "441325",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/441325"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "19774-82-4"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q17",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q17"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Cefuroxime"
+          },
+          {
+            "name" : "CID",
+            "value" : "5479529",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/5479529"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "55268-75-2"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4751",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4751"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Chlorpyrifos"
+          },
+          {
+            "name" : "CID",
+            "value" : "2730",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/2730"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "2921-88-2"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4722",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4722"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Mono-butyl phthalate (MBP)"
+          },
+          {
+            "name" : "CID",
+            "value" : "8575",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/8575"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "131-70-4"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4752",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4752"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "PBDE-99"
+          },
+          {
+            "name" : "CID",
+            "value" : "36159",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/36159"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "60348-60-9"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4757",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4757"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Tetrabromobisphenol A (TBBPA)"
+          },
+          {
+            "name" : "CID",
+            "value" : "6618",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/6618"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "79-94-7"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q82",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q82"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Sulfobromophthalein sodium (BSP)"
+          },
+          {
+            "name" : "CID",
+            "value" : "119077304",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/119077304"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "123359-42-2"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4744",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4744"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Iopanoic acid"
+          },
+          {
+            "name" : "CID",
+            "value" : "3735",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/3735"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "96-83-3"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q1879",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q1879"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Lesinurad"
+          },
+          {
+            "name" : "CID",
+            "value" : "53465279",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/53465279"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "878672-00-5"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q1880",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q1880"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "NH-3"
+          },
+          {
+            "name" : "CID",
+            "value" : "10027822",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/10027822"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "447415-26-1"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q1882",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q1882"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Silychristin (mixture)"
+          },
+          {
+            "name" : "CID",
+            "value" : "441764",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/441764"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "33889-69-9"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q5049",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q5049"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Chemical information",
+        "attributes" : [
+          {
+            "name" : "Chemical",
+            "value" : "Xanthohumol"
+          },
+          {
+            "name" : "CID",
+            "value" : "639665",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://pubchem.ncbi.nlm.nih.gov/compound/639665"
+              }
+            ]
+          },
+          {
+            "name" : "CAS",
+            "value" : "6754-58-1"
+          },
+          {
+            "name" : "CompoundCloudID",
+            "value" : "Q4753",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://compoundcloud.wikibase.cloud/wiki/Item:Q4753"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type" : "Exposure information",
+        "attributes" : [
+          {
+            "name" : "Exposure concentration",
+            "value" : ""
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Exposure regimen",
+              "attributes" : [
+                {
+                  "name" : "Exposure type",
+                  "value" : "single"
+                },
+                {
+                  "name" : "Exposure duration",
+                  "value" : "10",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "minutes"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Exposure-measurement interval",
+                  "value" : "0",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "minutes"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Bioassay",
+                  "value" : "Thyroid hormone uptake"
+                }
+              ]
+            },
+            {
+              "type" : "Exposure regimen",
+              "attributes" : [
+                {
+                  "name" : "Exposure type",
+                  "value" : "single"
+                },
+                {
+                  "name" : "Exposure duration",
+                  "value" : "120",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "minutes"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Exposure-measurement interval",
+                  "value" : "0",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "minutes"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Bioassay",
+                  "value" : "Deiodinase activity (D3)"
+                }
+              ]
+            },
+            {
+              "type" : "Exposure regimen",
+              "attributes" : [
+                {
+                  "name" : "Exposure type",
+                  "value" : "single"
+                },
+                {
+                  "name" : "Exposure duration",
+                  "value" : "24",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "hours"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Exposure-measurement interval",
+                  "value" : "0",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "hours"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Bioassay",
+                  "value" : "Whole-cell thyroid hormone metabolism"
+                }
+              ]
+            },
+            {
+              "type" : "Exposure regimen",
+              "attributes" : [
+                {
+                  "name" : "Exposure type",
+                  "value" : "single"
+                },
+                {
+                  "name" : "Exposure duration",
+                  "value" : "24",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "hours"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Exposure-measurement interval",
+                  "value" : "0",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "hours"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Bioassay",
+                  "value" : "T3-responsive gene expression (KLF9)"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type" : "Endpoint readout information",
+        "attributes" : [
+          {
+            "name" : "Bioassay",
+            "value" : "Thyroid hormone uptake"
+          },
+          {
+            "name" : "AOP event",
+            "value" : "Inhibition, monocarboxylate transporter 8 (MCT8)",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://aopwiki.org/events/2258"
+              }
+            ]
+          },
+          {
+            "name" : "AOP event",
+            "value" : "Inhibition, organic anion-transporting polypeptide 1C1 (OATP1C1)",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://aopwiki.org/events/2376"
+              }
+            ]
+          },
+          {
+            "name" : "Description",
+            "value" : "Thyroid hormone uptake assessed in all three cell lines using radiolabeled [125I]T3 or [125I]T4 co-incubated with test compounds for 10 minutes; radioactivity in cell lysates measured by gamma counter. Reports reduction of T3/T4 uptake (transporter inhibition)."
+          },
+          {
+            "name" : "Replicates",
+            "value" : "2"
+          },
+          {
+            "name" : "Measured entity",
+            "value" : "Radioactivity (I-125)",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "counts per minute"
+              }
+            ]
+          },
+          {
+            "name" : "Endpoint readout",
+            "value" : "T3 and T4 uptake",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "% of control"
+              }
+            ]
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "Gamma counter"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "PerkinElmer"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type" : "Substrate",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "3,3',5-triiodo-L-thyronine (T3)"
+                },
+                {
+                  "name" : "CAS",
+                  "value" : "6893-02-3"
+                },
+                {
+                  "name" : "Concentration",
+                  "value" : "1",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "nM"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Radiolabel",
+                  "value" : "125I"
+                }
+              ]
+            },
+            {
+              "type" : "Substrate",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "Thyroxine (T4)"
+                },
+                {
+                  "name" : "CAS",
+                  "value" : "51-48-9"
+                },
+                {
+                  "name" : "Concentration",
+                  "value" : "1",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "nM"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Radiolabel",
+                  "value" : "125I"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type" : "Endpoint readout information",
+        "attributes" : [
+          {
+            "name" : "Bioassay",
+            "value" : "Deiodinase activity (D3)"
+          },
+          {
+            "name" : "AOP event",
+            "value" : "Inhibition, Deiodinase 2",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://aopwiki.org/events/1002"
+              }
+            ]
+          },
+          {
+            "name" : "Description",
+            "value" : "Type 3 deiodinase (D3) activity measured in cell lysates of MO3.13 and SK-N-AS cells incubated with 1 nM T3 + 200,000 cpm [125I]T3 and test compounds in PED10 buffer for 120 minutes; products separated by UPLC with online radio-detection. D3 activity expressed as fmol/min/mg protein. (Cell lines: MO3.13, SK-N-AS.)"
+          },
+          {
+            "name" : "Replicates",
+            "value" : "2"
+          },
+          {
+            "name" : "Measured entity",
+            "value" : "Radioactivity (I-125)",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "counts per minute"
+              }
+            ]
+          },
+          {
+            "name" : "Endpoint readout",
+            "value" : "Deiodinase 3 (D3) activity",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "fmol/min/mg protein"
+              }
+            ]
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "Acquity Premier UPLC"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "Waters"
+                }
+              ]
+            },
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "RAMONA star radio-flow detector"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "Elysia-Raytest"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type" : "Substrate",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "3,3',5-triiodo-L-thyronine (T3)"
+                },
+                {
+                  "name" : "CAS",
+                  "value" : "6893-02-3"
+                },
+                {
+                  "name" : "Concentration",
+                  "value" : "1",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "nM"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Radiolabel",
+                  "value" : "125I"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type" : "Endpoint readout information",
+        "attributes" : [
+          {
+            "name" : "Bioassay",
+            "value" : "Whole-cell thyroid hormone metabolism"
+          },
+          {
+            "name" : "AOP event",
+            "value" : "Inhibition, Deiodinase 2",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://aopwiki.org/events/1002"
+              }
+            ]
+          },
+          {
+            "name" : "Description",
+            "value" : "Cellular thyroid hormone metabolism (intracellular D3) in intact MO3.13 and SK-N-AS cells exposed for 24 h to 1 nM T3 + 2,000,000 cpm/mL [125I]T3 and test compounds; products separated by UPLC with online radio-detection. Reported as % conversion (%T1 counted double + %T2) relative to solvent control. (Cell lines: MO3.13, SK-N-AS.)"
+          },
+          {
+            "name" : "Replicates",
+            "value" : "2"
+          },
+          {
+            "name" : "Measured entity",
+            "value" : "Radioactivity (I-125)",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "counts per minute"
+              }
+            ]
+          },
+          {
+            "name" : "Endpoint readout",
+            "value" : "Thyroid hormone conversion",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "% of solvent control"
+              }
+            ]
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "Acquity Premier UPLC"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "Waters"
+                }
+              ]
+            },
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "RAMONA star radio-flow detector"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "Elysia-Raytest"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type" : "Substrate",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "3,3',5-triiodo-L-thyronine (T3)"
+                },
+                {
+                  "name" : "CAS",
+                  "value" : "6893-02-3"
+                },
+                {
+                  "name" : "Concentration",
+                  "value" : "1",
+                  "valqual" : [
+                    {
+                      "name" : "Unit",
+                      "value" : "nM"
+                    }
+                  ]
+                },
+                {
+                  "name" : "Radiolabel",
+                  "value" : "125I"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type" : "Endpoint readout information",
+        "attributes" : [
+          {
+            "name" : "Bioassay",
+            "value" : "T3-responsive gene expression (KLF9)"
+          },
+          {
+            "name" : "AOP event",
+            "value" : "Antagonism, Thyroid Receptor",
+            "valqual" : [
+              {
+                "name" : "URL",
+                "value" : "https://aopwiki.org/events/1656"
+              }
+            ]
+          },
+          {
+            "name" : "Description",
+            "value" : "Thyroid hormone receptor activation measured as KLF9 expression by RT-qPCR in SK-N-AS cells; relative expression calculated with the 2^-ddCt method, normalized to GAPDH and expressed as fold change vs solvent control. (Cell line: SK-N-AS.)"
+          },
+          {
+            "name" : "Replicates",
+            "value" : "3"
+          },
+          {
+            "name" : "Measured entity",
+            "value" : "mRNA (Cq)"
+          },
+          {
+            "name" : "Endpoint readout",
+            "value" : "KLF9 relative gene expression",
+            "valqual" : [
+              {
+                "name" : "Unit",
+                "value" : "fold change vs solvent control"
+              }
+            ]
+          },
+          {
+            "name" : "Reference gene",
+            "value" : "GAPDH"
+          }
+        ],
+        "subsections" : [
+          [
+            {
+              "type" : "Detection instrument",
+              "attributes" : [
+                {
+                  "name" : "Name",
+                  "value" : "QuantStudio 7 Flex"
+                },
+                {
+                  "name" : "Manufacturer",
+                  "value" : "Applied Biosystems"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  "type" : "submission"
+}
