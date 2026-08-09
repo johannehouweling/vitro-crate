@@ -18,8 +18,11 @@ from older tooling. These two fixtures cover the shapes it cannot:
 ``tests/fixtures/svhps22_real_input/`` — the TH-DNT neural-cell screening study
     (BioStudies S-VHPS22): FOUR assays under one study, each with its own
     ``*_assay_metadata.xlsx`` and its own protocol documents, plus a study-wide
-    field-definition workbook. Five priority-0 files and nineteen priority-2
-    documents in one scan.
+    field-definition workbook and a ``cell_line_protocols/`` folder shared by
+    every assay — the only study-level protocol layer in the suite, and the
+    distinction ARC draws between ``studies/<study>/protocols/`` and
+    ``assays/<assay>/protocols/``. Five priority-0 files and more than twenty
+    priority-2 documents in one scan.
 
 Both are committed verbatim from the depositors' raw submission folders, in the
 real nested layout (paths carrying spaces, ``+``, ``&``, commas and Dutch
@@ -47,7 +50,7 @@ from builder.agents.pipeline.pipeline import (
 )
 from builder.engine import AgentEngine
 from builder.state import CrateState
-from builder.tools.file_readers import read_file
+from builder.tools.file_readers import read_docx, read_file
 from builder.tools.hitl import SimulatedHumanInterface
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -588,6 +591,46 @@ class TestRoleFromTheContainingFolder:
     def test_a_bare_filename_keeps_the_old_behaviour(self) -> None:
         """Callers holding no path must be unaffected."""
         assert _file_role("Combined uptake data 0-60 min.xlsx", "") == "raw_data"
+
+
+class TestStudyWideProtocols:
+    """S-VHPS22 carries protocols at the STUDY level, not only per assay.
+
+    ``cell_line_protocols/`` holds one culture protocol per cell line, shared by
+    all four assays — the distinction ARC draws between
+    ``studies/<study>/protocols/`` and ``assays/<assay>/protocols/``
+    (AGENTS.md §9). Neither S-VHPS26 nor S-VHPS21 has a study-level protocol
+    layer at all, so nothing else in the suite exercises it.
+    """
+
+    #: Each shared protocol and the cell line it governs, as its body names it.
+    _PROTOCOLS = (
+        ("20251114_cell culture protocol SK-N-AS.docx", "sk-n-as"),
+        ("20251114_cell culture protocol H4.docx", "h4"),
+        ("20251114_cell culture protocol MO3.13.docx", "mo3.13"),
+    )
+
+    def test_a_shared_protocol_exists_for_every_cell_line(self) -> None:
+        folder = SVHPS22 / "cell_line_protocols"
+        assert folder.is_dir(), "the study-level protocol folder must be committed"
+        committed = {p.name for p in folder.glob("*.docx")}
+        assert committed == {name for name, _ in self._PROTOCOLS}, committed
+
+    @pytest.mark.parametrize(("filename", "cell_line"), _PROTOCOLS)
+    def test_each_shared_protocol_has_extractable_body_text(
+        self, filename: str, cell_line: str
+    ) -> None:
+        """Guards against the wrapper case seen elsewhere in this deposit.
+
+        ``assay_02_deiodinase/4.1 Deiodinase activity assay.docx`` is 260 KB of
+        Word wrapping a single embedded image and yields zero characters through
+        python-docx. A protocol that extracts to nothing is indistinguishable
+        from one that was never read, so each of these is pinned as genuinely
+        readable and as naming the cell line it governs.
+        """
+        text = read_docx(str(SVHPS22 / "cell_line_protocols" / filename))
+        assert text and text.strip(), f"{filename} yielded no body text"
+        assert cell_line in text.lower(), f"{filename} never names {cell_line}"
 
 
 class TestEveryAssayHasBothDataRoles:
