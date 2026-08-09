@@ -443,6 +443,82 @@ def condition_table_multivalued_columns(csv_path: str) -> set[str]:
     return {column for column, values in seen.items() if len(values) > 1}
 
 
+# --- plate-map intake (#422) ------------------------------------------------
+# `populate_condition_table` accepted any string path and opened it as UTF-8
+# text. The pipeline classifies a plan file as `condition_table` by ROLE, not by
+# extension, so the real deposit's `.xlsx` plate map hit `csv.DictReader` and
+# raised UnicodeDecodeError on the first ZIP byte. Dispatch on the suffix so a
+# binary never reaches a text decode, and refuse formats there is no reader for
+# rather than failing in a way that reads like "the plate map was unusable".
+
+_TEXT_TABLE_SUFFIXES: dict[str, str] = {".csv": ",", ".tsv": "\t", ".tab": "\t"}
+_EXCEL_SUFFIXES: frozenset[str] = frozenset({".xlsx", ".xlsm"})
+
+
+def _rows_from_file(
+    src: Path,
+) -> tuple[list[Mapping[str, Any]], str, str | None, str | None]:
+    """Read a plate map into rows. Returns ``(rows, reader, error, sheet)``."""
+    suffix = src.suffix.lower()
+
+    if suffix in _TEXT_TABLE_SUFFIXES:
+        reader_name = "csv.DictReader"
+        try:
+            with src.open(newline="", encoding="utf-8") as fh:
+                return (
+                    list(csv.DictReader(fh, delimiter=_TEXT_TABLE_SUFFIXES[suffix])),
+                    reader_name,
+                    None,
+                    None,
+                )
+        except (UnicodeDecodeError, OSError, csv.Error) as exc:
+            return [], reader_name, str(exc), None
+
+    if suffix in _EXCEL_SUFFIXES:
+        from builder.tools.file_readers import read_excel_rows
+
+        reader_name = "read_excel_rows (openpyxl)"
+        sheets = read_excel_rows(str(src))
+        if sheets is None:
+            return [], reader_name, "workbook could not be opened", None
+        # Pick the sheet DETERMINISTICALLY by scoring each against the very
+        # projection that decides whether a table is usable — never "the first
+        # sheet", which in a depositor workbook is usually a cover page.
+        # `rows` is a list of dicts and `list` is invariant, so the Mapping
+        # spelling never actually accepted the value assigned below.
+        best: tuple[int, int, str, list[dict[str, Any]]] | None = None
+        tried: list[str] = []
+        for name, rows in sheets.items():
+            rows = [r for r in rows if not r.get("__truncated__")]
+            tried.append(f"{name} ({', '.join(list(rows[0])[:6]) if rows else 'empty'})")
+            if not rows:
+                continue
+            projection = project_condition_rows(rows)
+            wells = sum(1 for r in projection["rows"] if _has_value(r.get("well_id")))
+            mapped = len(projection["mapped_columns"])
+            if not mapped or not wells:
+                continue
+            score = (wells, mapped)
+            if best is None or score > (best[0], best[1]):
+                best = (wells, mapped, name, rows)
+        if best is None:
+            return (
+                [],
+                reader_name,
+                "no sheet has both a mapped condition-table column and a well_id; "
+                "tried " + "; ".join(tried),
+                None,
+            )
+        return list(best[3]), reader_name, None, best[2]
+
+    return (
+        [],
+        f"no reader for {suffix or 'a file with no suffix'}",
+        "populate_condition_table reads .csv / .tsv / .xlsx plate maps",
+        None,
+    )
+
+
 def populate_condition_table(
     state: Any,
     exposure_id: str,
@@ -513,13 +589,30 @@ def populate_condition_table(
 
     header_cols = _CONDITION_TABLE_HEADER.strip("\n").split(",")
 
+    sheet_used: str | None = None
     if isinstance(rows_or_csv_path, str):
         src = Path(rows_or_csv_path)
         if not src.is_file():
-            return {"ok": False, "error": f"Plate-map CSV not found: {rows_or_csv_path}"}
-        with src.open(newline="", encoding="utf-8") as fh:
-            reader = list(csv.DictReader(fh))
-        rows: Sequence[Mapping[str, Any]] = reader
+            return {"ok": False, "error": f"Plate map not found: {rows_or_csv_path}"}
+        read_rows, reader_name, read_error, sheet_used = _rows_from_file(src)
+        if read_error is not None:
+            # #422: this used to be an unguarded UTF-8 text decode, so a real
+            # .xlsx plate map raised UnicodeDecodeError, the spine swallowed it
+            # into a `reason:` string, and the crate shipped a header-only table
+            # with nothing said about why. Name the file AND the reader.
+            logger.warning(
+                "condition table: %s could not be read by %s: %s",
+                src.name,
+                reader_name,
+                read_error,
+            )
+            return {
+                "ok": False,
+                "error": f"{src.name} could not be read by {reader_name}: {read_error}",
+                "read_failed": True,
+                "reader": reader_name,
+            }
+        rows: Sequence[Mapping[str, Any]] = read_rows
     else:
         rows = rows_or_csv_path
 
@@ -551,6 +644,8 @@ def populate_condition_table(
             "unmapped_source_columns": unmapped,
         }
 
+    # The workbook sheet the rows came from, so a wrong-sheet pick is visible
+    # rather than silently baked into the table.
     rel = _condition_table_rel(_mint_id(proc))
     dest = base_dir / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -564,12 +659,17 @@ def populate_condition_table(
     logger.debug("Wrote %d condition-table rows to %s", len(projected), dest)
     if unmapped:
         logger.info("Condition table: skipped unmapped source columns %s", unmapped)
-    return {
+    result: dict[str, Any] = {
         "ok": True,
         "path": str(dest),
         "rows": len(projected),
         "unmapped_source_columns": unmapped,
     }
+    if sheet_used is not None:
+        # Which worksheet the rows came from — a depositor workbook has several,
+        # and a wrong pick should be visible rather than silently baked in.
+        result["sheet"] = sheet_used
+    return result
 
 
 # ---------------------------------------------------------------------------
