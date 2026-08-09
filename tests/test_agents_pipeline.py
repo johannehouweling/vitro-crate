@@ -202,9 +202,7 @@ class TestDraftEntitiesWiring:
 
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
 
-    def test_stub_leaf_applies_non_identifier_fields(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_stub_leaf_applies_non_identifier_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
@@ -253,9 +251,7 @@ class TestDraftEntitiesWiring:
         assert isinstance(result.get("fields_applied"), int)
         assert result["fields_applied"] >= 1
 
-    def test_does_not_overwrite_existing_fields(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_does_not_overwrite_existing_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
@@ -275,9 +271,7 @@ class TestDraftEntitiesWiring:
         # …but the missing `description` is filled.
         assert study.fields.get("description") == "leaf desc"
 
-    def test_no_provider_is_strict_noop(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_provider_is_strict_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         # No provider configured.
@@ -299,9 +293,7 @@ class TestDraftEntitiesWiring:
         assert result.get("drafted") == []
         assert result.get("fields_applied") == 0
 
-    def test_no_context_is_strict_noop(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_context_is_strict_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
@@ -842,15 +834,26 @@ class TestMaterializePlan:
                         "has_key_event_relationship": [{"@id": ker}],
                     },
                     "events": [
-                        {"@id": mie, "@type": "KeyEvent", "name": "MIE",
-                         "eventType": "Molecular Initiating Event"},
-                        {"@id": ao, "@type": "KeyEvent", "name": "AO",
-                         "eventType": "Adverse Outcome"},
+                        {
+                            "@id": mie,
+                            "@type": "KeyEvent",
+                            "name": "MIE",
+                            "eventType": "Molecular Initiating Event",
+                        },
+                        {
+                            "@id": ao,
+                            "@type": "KeyEvent",
+                            "name": "AO",
+                            "eventType": "Adverse Outcome",
+                        },
                     ],
                     "relationships": [
-                        {"@id": ker, "@type": "KeyEventRelationship",
-                         "upstream_event": {"@id": mie},
-                         "downstream_event": {"@id": ao}},
+                        {
+                            "@id": ker,
+                            "@type": "KeyEventRelationship",
+                            "upstream_event": {"@id": mie},
+                            "downstream_event": {"@id": ao},
+                        },
                     ],
                 },
                 "error": None,
@@ -864,9 +867,7 @@ class TestMaterializePlan:
 
         monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
         monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
-        monkeypatch.setattr(
-            composites_mod, "search_works_by_title", fake_search_works_by_title
-        )
+        monkeypatch.setattr(composites_mod, "search_works_by_title", fake_search_works_by_title)
         monkeypatch.setattr(tool_lookups, "lookup_aop", fake_lookup_aop)
 
     def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
@@ -903,18 +904,12 @@ class TestMaterializePlan:
         # Protocol → LabProtocol minted from the name/description (D5: no id), and
         # linked to the EndpointReadout process it governs (executesLabProtocol).
         protos = self._by_type(engine, "LabProtocol")
-        assert [p.fields.get("name") for p in protos] == [
-            "Amplex Red TPO activity readout"
-        ]
+        assert [p.fields.get("name") for p in protos] == ["Amplex Red TPO activity readout"]
         proto_id = protos[0].entity_id
-        readout = next(
-            p for p in procs if p.fields.get("process_type") == "EndpointReadout"
-        )
+        readout = next(p for p in procs if p.fields.get("process_type") == "EndpointReadout")
         labprotocol_ref = readout.fields.get("labprotocol")
         ref_id = (
-            labprotocol_ref.get("@id")
-            if isinstance(labprotocol_ref, dict)
-            else labprotocol_ref
+            labprotocol_ref.get("@id") if isinstance(labprotocol_ref, dict) else labprotocol_ref
         )
         assert str(ref_id).lstrip("#") == proto_id
         assert result["protocols"] >= 1
@@ -945,9 +940,7 @@ class TestMaterializePlan:
         assert result["aops"] >= 1
         assert result["people"] >= 1
 
-    def test_protocol_minted_and_linked_to_process(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_protocol_minted_and_linked_to_process(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """#222: a plan protocol mints a LabProtocol linked to a process (D5).
 
         A plan carries a protocol NAME/description only (no identifier). The spine
@@ -958,9 +951,7 @@ class TestMaterializePlan:
 
         self._enable_provider(monkeypatch)
         plan = {
-            "protocols": [
-                {"name": "MTT viability protocol", "description": "MTT assay."}
-            ],
+            "protocols": [{"name": "MTT viability protocol", "description": "MTT assay."}],
             "process_chain": [
                 {"process_type": "Exposure", "name": "Dose"},
                 {"process_type": "EndpointReadout", "name": "Read viability"},
@@ -1016,9 +1007,7 @@ class TestMaterializePlan:
                 "error": None,
             }
 
-        monkeypatch.setattr(
-            composites_mod, "search_works_by_title", fake_search_works_by_title
-        )
+        monkeypatch.setattr(composites_mod, "search_works_by_title", fake_search_works_by_title)
         monkeypatch.setattr(composites_mod, "lookup_doi", fake_lookup_doi)
 
         engine = _engine(self._titled_state())
@@ -1051,9 +1040,7 @@ class TestMaterializePlan:
         def boom_lookup_doi(doi):  # pragma: no cover - must not be reached
             raise AssertionError("lookup_doi must not run without a confident match")
 
-        monkeypatch.setattr(
-            composites_mod, "search_works_by_title", fake_search_works_by_title
-        )
+        monkeypatch.setattr(composites_mod, "search_works_by_title", fake_search_works_by_title)
         monkeypatch.setattr(composites_mod, "lookup_doi", boom_lookup_doi)
 
         engine = _engine(self._titled_state())
@@ -1064,9 +1051,7 @@ class TestMaterializePlan:
         assert result["publications"] == 0
         assert title in result["publications_deferred"]
 
-    def test_d5_no_fabricated_identifiers_from_plan(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_d5_no_fabricated_identifiers_from_plan(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """D5: identifiers come from the composites' lookups, never the plan.
 
         The plan carries only names. A MolecularEntity's `cas`/`pubchem_cid` must
@@ -1171,15 +1156,29 @@ class TestMaterializePlan:
         pipeline_mod._materialize_plan(engine)
         counts_1 = {
             t: len(self._by_type(engine, t))
-            for t in ("MolecularEntity", "CellLineSample", "LabProcess",
-                      "AdverseOutcomePathway", "KeyEvent", "Person", "Publication")
+            for t in (
+                "MolecularEntity",
+                "CellLineSample",
+                "LabProcess",
+                "AdverseOutcomePathway",
+                "KeyEvent",
+                "Person",
+                "Publication",
+            )
         }
         # Re-run on the SAME engine — composites are idempotent, so no dups.
         pipeline_mod._materialize_plan(engine)
         counts_2 = {
             t: len(self._by_type(engine, t))
-            for t in ("MolecularEntity", "CellLineSample", "LabProcess",
-                      "AdverseOutcomePathway", "KeyEvent", "Person", "Publication")
+            for t in (
+                "MolecularEntity",
+                "CellLineSample",
+                "LabProcess",
+                "AdverseOutcomePathway",
+                "KeyEvent",
+                "Person",
+                "Publication",
+            )
         }
         assert counts_1 == counts_2
 
@@ -1216,22 +1215,16 @@ class TestMaterializePlan:
 
         # (a) an Organization named after the plan affiliation exists in state.
         orgs = self._by_type(engine, "Organization")
-        analytical = [
-            o for o in orgs if o.fields.get("name") == "Analytical Engine"
-        ]
+        analytical = [o for o in orgs if o.fields.get("name") == "Analytical Engine"]
         assert len(analytical) == 1, "exactly one Organization should be minted"
 
         # (b) the Person's affiliation references that Organization's id.
         ada = next(
-            p
-            for p in self._by_type(engine, "Person")
-            if p.fields.get("name") == "Ada Lovelace"
+            p for p in self._by_type(engine, "Person") if p.fields.get("name") == "Ada Lovelace"
         )
         assert self._affiliation_ref_id(ada) == analytical[0].entity_id
 
-    def test_shared_affiliation_is_deduplicated(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_shared_affiliation_is_deduplicated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Two people with the SAME affiliation_name produce ONE Organization,
         both referencing it (no duplicate orgs)."""
         import builder.agents.pipeline.pipeline as pipeline_mod
@@ -1258,9 +1251,7 @@ class TestMaterializePlan:
         assert len(orgs) == 1, "shared affiliation must mint exactly one Organization"
 
         org_id = orgs[0].entity_id
-        people = {
-            p.fields.get("name"): p for p in self._by_type(engine, "Person")
-        }
+        people = {p.fields.get("name"): p for p in self._by_type(engine, "Person")}
         assert self._affiliation_ref_id(people["Ada Lovelace"]) == org_id
         assert self._affiliation_ref_id(people["Charles Babbage"]) == org_id
 
@@ -1284,9 +1275,7 @@ class TestMaterializePlan:
 
         assert self._by_type(engine, "Organization") == []
         ada = next(
-            p
-            for p in self._by_type(engine, "Person")
-            if p.fields.get("name") == "Ada Lovelace"
+            p for p in self._by_type(engine, "Person") if p.fields.get("name") == "Ada Lovelace"
         )
         assert not ada.fields.get("affiliation")
 
@@ -1302,9 +1291,7 @@ class TestMaterializePlan:
         # test isolates materialization + the existing build/fix path.
         import builder.agents.pipeline.pipeline as pipeline_mod
 
-        monkeypatch.setattr(
-            pipeline_mod, "draft_entity_fields", lambda *a, **k: {}
-        )
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", lambda *a, **k: {})
 
         engine = _engine(self._titled_state())
         result = run_pipeline(engine)
@@ -1423,15 +1410,11 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
 
         # The CellCulture references the actual cell-line Sample via `cell_line`
         # (not a synthesized generic `_input`).
-        cell_culture = next(
-            p for p in procs if p.fields.get("process_type") == "CellCulture"
-        )
+        cell_culture = next(p for p in procs if p.fields.get("process_type") == "CellCulture")
         cell_ids = {c.entity_id for c in self._by_type(engine, "CellLineSample")}
         assert cell_ids, "no CellLineSample resolved — test setup is wrong"
         wired_cell = cell_culture.fields.get("cell_line")
-        wired_cell_id = (
-            wired_cell.get("@id") if isinstance(wired_cell, dict) else wired_cell
-        )
+        wired_cell_id = wired_cell.get("@id") if isinstance(wired_cell, dict) else wired_cell
         assert str(wired_cell_id).lstrip("#") in {c.lstrip("#") for c in cell_ids}
 
         # No resolved MolecularEntity / CellLineSample is an orphan in the BUILT
@@ -1461,9 +1444,7 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
         # The Study surfaces every compound + the cell line via schema:mentions
         # (emitted under the context-aliased `chemicals` / `biologicalModels`
         # keys), so each is reachable from the backbone at a glance (#273).
-        study_node = next(
-            n for n in graph if str(n.get("@id", "")).startswith("#Study_")
-        )
+        study_node = next(n for n in graph if str(n.get("@id", "")).startswith("#Study_"))
 
         def _ref_ids(prop: object) -> set[str]:
             items = prop if isinstance(prop, list) else [prop]
@@ -1494,7 +1475,6 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
 
         assert result["conformance"] == {"base": True, "isa": True, "tox": True}
         assert result["ok"] is True
-
 
 
 class TestMaterializeCompoundsFromFilenames:
@@ -1539,10 +1519,7 @@ class TestMaterializeCompoundsFromFilenames:
                     path=str(path),
                     filename=name,
                     size=path.stat().st_size,
-                    mime_type=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    ),
+                    mime_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
                     # A tabular preview so _gather_context lists the filename
                     # WITHOUT a disk read (the filename carries the compound names).
                     first_rows=["well,value", "A1,1.0"],
@@ -1551,9 +1528,7 @@ class TestMaterializeCompoundsFromFilenames:
         state.scanned_files = files
         return state
 
-    def _fake_extract_plan_chat_model(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> list[str]:
+    def _fake_extract_plan_chat_model(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
         """Fake the REAL leaf's chat model so the genuine ``extract_plan`` code
         path runs (its enriched prompt is built and fed the gathered context),
         but the model deterministically returns the filename-derived compounds a
@@ -1572,19 +1547,13 @@ class TestMaterializeCompoundsFromFilenames:
                         seen_prompts.append(content)
                 # A steered model proposes the compound NAMES it read off the
                 # filenames — names only (D5: no identifiers).
-                return {
-                    "compounds": [
-                        {"name": n, "role": "test"} for n in sorted(expected)
-                    ]
-                }
+                return {"compounds": [{"name": n, "role": "test"} for n in sorted(expected)]}
 
         class _Model:
             def with_structured_output(self, schema, *, include_raw=False, **k):
                 return _Runnable()
 
-        monkeypatch.setattr(
-            leaves_mod, "_build_chat_model", lambda *a, **k: _Model()
-        )
+        monkeypatch.setattr(leaves_mod, "_build_chat_model", lambda *a, **k: _Model())
         return seen_prompts
 
     # Per-name LOOKED-UP identifiers (offline) — the verified ids PubChem would
@@ -1672,7 +1641,6 @@ class TestMaterializeCompoundsFromFilenames:
             assert chems[name].fields.get("cas") == expected["cas"]
 
 
-
 class TestPublicationFromPDF:
     """Issue #245 — when a plan publication's "title" is actually a PDF FILENAME,
     `_materialize_plan` must recover the real DOI/title from the PDF *text* and
@@ -1754,9 +1722,7 @@ class TestPublicationFromPDF:
 
         # resolve_publication (title path) must NOT be called with the filename.
         def boom_search(query):  # pragma: no cover - must not run
-            raise AssertionError(
-                f"Crossref title search must not be called with {query!r}"
-            )
+            raise AssertionError(f"Crossref title search must not be called with {query!r}")
 
         monkeypatch.setattr(composites_mod, "search_works_by_title", boom_search)
 
@@ -1805,11 +1771,7 @@ class TestPublicationFromPDF:
 
         def fake_extract_pdf_text(path):
             # First non-trivial line is the article title; no DOI anywhere.
-            return (
-                "[Page 1]\n"
-                f"[Text] {real_title}\n"
-                "[Text] Fabian Wagenaars, et al. 2025\n"
-            )
+            return f"[Page 1]\n[Text] {real_title}\n[Text] Fabian Wagenaars, et al. 2025\n"
 
         monkeypatch.setattr(scanner_mod, "extract_pdf_text", fake_extract_pdf_text)
 
@@ -1861,9 +1823,7 @@ class TestPublicationFromPDF:
         monkeypatch.setattr(scanner_mod, "extract_pdf_text", lambda path: None)
 
         def boom_search(query):  # pragma: no cover - must not run
-            raise AssertionError(
-                f"Crossref title search must not be called with {query!r}"
-            )
+            raise AssertionError(f"Crossref title search must not be called with {query!r}")
 
         def boom_lookup_doi(doi):  # pragma: no cover - must not run
             raise AssertionError("DOI lookup must not run without a recovered DOI")
@@ -1967,9 +1927,7 @@ class TestTokenAccounting:
         assert pm.output_tokens == 20 * n_calls
         assert pm.total_tokens == 120 * n_calls
 
-    def test_no_provider_records_clean_zero(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_provider_records_clean_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         # No provider → the leaf is never called and no model events are written.
@@ -1988,9 +1946,7 @@ class TestTokenAccounting:
         assert pm.output_tokens == 0
         assert pm.total_tokens == 0
 
-    def test_run_pipeline_returns_usage_dict(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_run_pipeline_returns_usage_dict(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``run_pipeline``'s result additively surfaces the accumulated usage."""
         import builder.agents.pipeline.pipeline as pipeline_mod
         from builder.agents.pipeline.pipeline import run_pipeline
@@ -2016,9 +1972,7 @@ class TestTokenAccounting:
             result = run_pipeline(engine)
         finally:
             engine.close_profiler()
-            shutil.rmtree(
-                Path(SESSION_DIR) / engine.state.session_id, ignore_errors=True
-            )
+            shutil.rmtree(Path(SESSION_DIR) / engine.state.session_id, ignore_errors=True)
 
         assert "usage" in result
         usage = result["usage"]
@@ -2333,9 +2287,7 @@ class TestDraftPersonSplit:
         from builder.tools.drafters import draft_person
 
         state = CrateState()
-        person = draft_person(
-            state, "Ada Lovelace", {"givenName": "A.", "familyName": "Lovelace"}
-        )
+        person = draft_person(state, "Ada Lovelace", {"givenName": "A.", "familyName": "Lovelace"})
         # The caller's explicit split is preserved, not recomputed from name.
         assert person.fields.get("givenName") == "A."
         assert person.fields.get("familyName") == "Lovelace"
@@ -2428,9 +2380,7 @@ class TestMaterializeBackboneNaming:
         assert study.fields.get("description") == "A TPO assay."
         assert result["study"] == 1
 
-    def test_no_plan_name_keeps_default_nonempty(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_plan_name_keeps_default_nonempty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Regression: with no plan study (and no title) the Study keeps a
         non-empty default name — ISA REQUIRES a non-empty Study name."""
         import builder.agents.pipeline.pipeline as pipeline_mod
@@ -2445,9 +2395,7 @@ class TestMaterializeBackboneNaming:
         name = self._study(engine).fields.get("name")
         assert isinstance(name, str) and name.strip(), "Study name must stay non-empty"
 
-    def test_existing_specific_name_is_not_clobbered(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_existing_specific_name_is_not_clobbered(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Fill-don't-clobber: a Study that already carries a real (non-default)
         name must NOT be overwritten by the plan."""
         import builder.agents.pipeline.pipeline as pipeline_mod
@@ -2651,9 +2599,7 @@ class TestMaterializeStandardProcessChain:
             "DataAnalysis",
         }
         # Every process belongs to the scaffolded Assay.
-        assay_id = next(
-            e.entity_id for e in engine.state.list_entities() if e.type == "Assay"
-        )
+        assay_id = next(e.entity_id for e in engine.state.list_entities() if e.type == "Assay")
         for proc in procs:
             assay_ref = proc.fields.get("assay") or proc.fields.get("partOf")
             ref = assay_ref.get("@id") if isinstance(assay_ref, dict) else assay_ref
@@ -2662,9 +2608,7 @@ class TestMaterializeStandardProcessChain:
         # The result trace reflects the materialized chain.
         assert result["processes"] >= 4
 
-    def test_endpoint_and_analysis_carry_outputs(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_endpoint_and_analysis_carry_outputs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """§14.3: EndpointReadout/DataAnalysis must carry a result (no Violation trap).
 
         ``draft_process_chain`` synthesizes placeholder File outputs for the two
@@ -2684,9 +2628,7 @@ class TestMaterializeStandardProcessChain:
                 f"{ptype} must carry a result output (the §14.3 no-output trap)"
             )
 
-    def test_chain_is_idempotent_across_repeats(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_chain_is_idempotent_across_repeats(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Re-running the spine mints no duplicate processes (deterministic ids)."""
         import builder.agents.pipeline.pipeline as pipeline_mod
 
@@ -2753,9 +2695,7 @@ class TestMaterializeAttachScannedFiles:
         ]
         return state
 
-    def test_no_provider_attaches_every_scanned_file(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_provider_attaches_every_scanned_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """With NO provider, each scanned file becomes a File entity in the crate."""
         import builder.agents.pipeline.pipeline as pipeline_mod
 
@@ -2808,9 +2748,7 @@ class TestMaterializeAttachScannedFiles:
             "SOP.pdf",
         }
         scanned_files = [
-            f
-            for f in self._by_type(engine, "File")
-            if f.fields.get("name") in scanned_basenames
+            f for f in self._by_type(engine, "File") if f.fields.get("name") in scanned_basenames
         ]
         assert scanned_files, "the scanned data files must be added as File entities"
         for fe in scanned_files:
@@ -2819,9 +2757,7 @@ class TestMaterializeAttachScannedFiles:
                 f"process/assay (hasPart/result/object)"
             )
 
-    def test_no_scanned_files_attaches_nothing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_scanned_files_attaches_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """With no scanned files the attach step attaches nothing (no crash).
 
         The chain composite still synthesizes its §14.3 placeholder File outputs,
@@ -2839,9 +2775,7 @@ class TestMaterializeAttachScannedFiles:
 
         assert result["files"] == 0
 
-    def test_attachment_is_idempotent(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_attachment_is_idempotent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Re-running mints no duplicate File entities (deduped by on-disk source)."""
         import builder.agents.pipeline.pipeline as pipeline_mod
 
@@ -2870,9 +2804,7 @@ class TestGatherContextPreviewedFilesGetABudget:
 
     _SENTINEL = "ROW{:03d}-marker"
 
-    def _state(
-        self, tmp_path: Path, spec: list[tuple[str, int]], row_pad: int = 0
-    ) -> CrateState:
+    def _state(self, tmp_path: Path, spec: list[tuple[str, int]], row_pad: int = 0) -> CrateState:
         """Build a state whose files carry *n* sentinel preview rows each.
 
         ``row_pad`` widens each row, so a test can breach the total budget with
@@ -2888,9 +2820,7 @@ class TestGatherContextPreviewedFilesGetABudget:
                     filename=filename,
                     size=1,
                     mime_type="text/csv",
-                    first_rows=[
-                        self._SENTINEL.format(i) + "x" * row_pad for i in range(n_rows)
-                    ],
+                    first_rows=[self._SENTINEL.format(i) + "x" * row_pad for i in range(n_rows)],
                 )
             )
         return state
@@ -3113,12 +3043,14 @@ class TestConditionTableFromPlan:
         ]
         return state, plate
 
-    def _run(self, monkeypatch, state, plan_files):
+    def _run(self, monkeypatch, state, plan_files, plan_extra=None):
         """Drive `_materialize_plan` with a stubbed leaf returning *plan_files*.
 
         The backbone is scaffolded first exactly as the spine's step 1 does, so the
         standard chain (#262) lays down the Exposure the table hangs off — without
-        it there is no Exposure and the test would pass vacuously.
+        it there is no Exposure and the test would pass vacuously. ``plan_extra``
+        merges further plan keys (e.g. ``compounds``) for tests that need the
+        Exposure wired the way a real extraction would leave it.
         """
         import builder.agents.pipeline.pipeline as pipeline_mod
 
@@ -3126,6 +3058,7 @@ class TestConditionTableFromPlan:
             "study": {"name": "OATP1C1 uptake", "description": "An uptake assay."},
             "files": plan_files,
         }
+        plan.update(plan_extra or {})
         monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
         monkeypatch.setattr(
             pipeline_mod,
@@ -3202,8 +3135,10 @@ class TestConditionTableFromPlan:
             monkeypatch, state, [{"path": self._PLATE, "role": "condition_table"}]
         )
         table = self._table_path(engine)
-        assert table is None or not table.is_file() or (
-            len(table.read_text(encoding="utf-8").strip().splitlines()) == 1
+        assert (
+            table is None
+            or not table.is_file()
+            or (len(table.read_text(encoding="utf-8").strip().splitlines()) == 1)
         ), "a file outside the approved roots must never be read"
         assert not (result.get("condition_table") or {}).get("populated")
 
@@ -3234,14 +3169,113 @@ class TestConditionTableFromPlan:
         assert not outcome.get("populated"), "two candidates — the spine must not guess"
         assert outcome.get("reason"), "the refusal must be recorded, not silent"
 
-    def test_no_condition_table_role_records_a_reason(
-        self, monkeypatch, tmp_path: Path
-    ) -> None:
+    def test_no_condition_table_role_records_a_reason(self, monkeypatch, tmp_path: Path) -> None:
         state, _ = self._state(tmp_path)
         state.metadata.output_path = str(tmp_path / "crate")
-        engine, result = self._run(
-            monkeypatch, state, [{"path": self._PLATE, "role": "raw"}]
-        )
+        engine, result = self._run(monkeypatch, state, [{"path": self._PLATE, "role": "raw"}])
         outcome = result.get("condition_table") or {}
         assert not outcome.get("populated")
         assert outcome.get("reason")
+
+    # -- #422: an unusable candidate must not beat having no candidate at all --
+
+    def _offline_compound_seams(self, monkeypatch) -> None:
+        """Canned offline lookup hit: a MISS mints no MolecularEntity at all, and
+        the proposal needs the compound wired to the Exposure to have anything
+        to propose. The CAS is the canned lookup value, never plan-fabricated (D5)."""
+        import builder.tools.composites as composites_mod
+
+        monkeypatch.setattr(
+            composites_mod,
+            "lookup_compound",
+            lambda name: {
+                "found": True,
+                "data": {"cas": "51-48-9", "pubchem_cid": 5819, "source": "pubchem"},
+                "error": None,
+            },
+        )
+
+        def _fake_verify(state, entity_id, field):
+            ent = state.get_entity(entity_id)
+            if ent is not None:
+                ent.set_field_status(field, "verified", "lookup")
+            return {"verified": True, "entity_id": entity_id, "field": field}
+
+        monkeypatch.setattr(composites_mod, "verify_identifier", _fake_verify)
+
+    _COMPOUND_PLAN = {"compounds": [{"name": "Thyroxine", "role": "substrate"}]}
+
+    def test_a_declined_candidate_falls_back_to_the_proposal(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """#422 — the S-VHPS26 shape in miniature: the plan labels a
+        Parameter|Value metadata sheet ``condition_table``; the tool reads it and
+        correctly refuses (no canonical column maps). Refusing must then fall
+        back to the #438 proposal — a readable-but-unmappable candidate must not
+        leave the crate with LESS than no candidate at all."""
+        self._offline_compound_seams(monkeypatch)
+        state, _ = self._state(
+            tmp_path,
+            name="assay_metadata.csv",
+            body="Parameter,Value\nExposure duration_1,30\nTime unit_1,minutes\n",
+        )
+        state.metadata.output_path = str(tmp_path / "crate")
+        engine, result = self._run(
+            monkeypatch,
+            state,
+            [{"path": "assay_metadata.csv", "role": "condition_table"}],
+            plan_extra=dict(self._COMPOUND_PLAN),
+        )
+        outcome = result.get("condition_table") or {}
+        assert outcome.get("populated") is True, f"no fallback fired: {outcome}"
+        assert outcome.get("proposed") is True
+        assert outcome.get("fallback_from"), "the original refusal must be preserved"
+        table = self._table_path(engine)
+        assert table is not None and table.is_file()
+        assert "Thyroxine" in table.read_text(encoding="utf-8")
+
+    def test_an_unreadable_candidate_falls_back_to_the_proposal(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """#422 — a candidate no reader can open (here: a text file wearing an
+        ``.xlsx`` suffix) must likewise fall back rather than ship header-only."""
+        self._offline_compound_seams(monkeypatch)
+        state, _ = self._state(tmp_path, name="plate_map.xlsx", body="this is not a workbook")
+        state.metadata.output_path = str(tmp_path / "crate")
+        engine, result = self._run(
+            monkeypatch,
+            state,
+            [{"path": "plate_map.xlsx", "role": "condition_table"}],
+            plan_extra=dict(self._COMPOUND_PLAN),
+        )
+        outcome = result.get("condition_table") or {}
+        assert outcome.get("populated") is True, f"no fallback fired: {outcome}"
+        assert outcome.get("proposed") is True
+        assert outcome.get("fallback_from")
+        table = self._table_path(engine)
+        assert table is not None and table.is_file()
+        assert "Thyroxine" in table.read_text(encoding="utf-8")
+
+    def test_when_the_proposal_also_fails_the_primary_reason_survives(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """#422 — with nothing to propose (no compounds wired), the recorded
+        reason must stay the PRIMARY failure (the decline), with the proposal's
+        own failure alongside it — never silently swapped."""
+        state, _ = self._state(
+            tmp_path, name="assay_metadata.csv", body="Parameter,Value\nfoo,bar\n"
+        )
+        state.metadata.output_path = str(tmp_path / "crate")
+        engine, result = self._run(
+            monkeypatch,
+            state,
+            [{"path": "assay_metadata.csv", "role": "condition_table"}],
+        )
+        outcome = result.get("condition_table") or {}
+        assert not outcome.get("populated")
+        assert "column" in str(outcome.get("reason") or "").lower(), (
+            f"the primary decline must survive as the reason: {outcome}"
+        )
+        assert outcome.get("proposal_reason"), (
+            "the proposal's own failure must be recorded alongside"
+        )

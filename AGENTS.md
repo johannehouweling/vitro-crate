@@ -1726,7 +1726,11 @@ re-implementation. Its parts:
   a bug, not a spare field — the plan is not paid for in drafter tokens to be
   discarded. Plan-named files resolve through `_scanned_path_for_name`: matched by
   **basename** (the leaf only ever sees `f.filename`, never `f.path`) and fail-closed
-  to `approved_scan_roots`, since plan paths are LLM free text.
+  to `approved_scan_roots`, since plan paths are LLM free text. An unusable single
+  candidate — no path, outside the roots, unreadable, or read-but-unmappable — falls
+  back to the propose-from-entities path (#422), so it never yields less table
+  content than having no candidate at all; only the several-candidates ambiguity
+  refuses without fallback, because choosing among real plate maps is a human call.
 - **The spine** — `run_pipeline` (`builder/agents/pipeline/pipeline.py`, §14.5), the
   code-driven orchestrator and the default `main.py --interactive` build (via
   `run_interactive_build`, §14.6.1); also selectable in the eval harness
