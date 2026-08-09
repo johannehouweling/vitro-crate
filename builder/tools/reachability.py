@@ -98,10 +98,6 @@ PIPELINE_UNREACHED: Mapping[str, str] = {
         "materialises cell lines through draft_cell_line_sample, which does no "
         "lookup; default-arm CellLineSamples therefore carry no accession."
     ),
-    "validate_table": (
-        "The Frictionless payload layer (#409) is documented REQUIRED but never "
-        "runs on the default arm, so populated tables are never validated."
-    ),
     "lookup_ror": (
         "No caller. composites._find_or_draft_organization sets `ror` only when "
         "a caller supplies one, and nothing on the arm does, so default-arm "
