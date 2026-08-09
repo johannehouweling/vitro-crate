@@ -351,7 +351,14 @@ def _plan_schema() -> dict[str, Any]:
                     "role": {
                         "type": "string",
                         "enum": ["raw", "processed", "condition_table", "other"],
-                        "description": "What kind of data file this is.",
+                        "description": (
+                            "What kind of data file this is. `condition_table` "
+                            "means a per-well experimental DESIGN table or plate "
+                            "map — rows or grid cells per well giving compound, "
+                            "concentration, duration. A metadata or parameter "
+                            "template (Parameter/Value sheets) is `other`, never "
+                            "`condition_table`."
+                        ),
                     },
                 },
                 required=["path"],
