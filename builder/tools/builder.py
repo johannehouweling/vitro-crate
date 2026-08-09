@@ -159,7 +159,99 @@ def assemble_crate(
     # (fallback Study, then a default) so ro-crate-py's preview header isn't
     # "Untitled Investigation" (#272).
     _apply_root_name(crate, state)
+    # Describe the ontology terms the crate points at. Must run LAST: it reads
+    # the finished graph to find which IRIs are referenced.
+    describe_external_references(crate)
     return crate
+
+
+# Properties whose value is an ontology term the crate points AT rather than
+# describes. Each is a place where a bare {"@id": <IRI>} is emitted today.
+_TERM_REFERENCE_PROPERTIES: tuple[str, ...] = (
+    "propertyID",
+    "propertyUrl",
+    "inDefinedTermSet",
+    "conformsTo",
+)
+
+# IRIs whose name must NOT be taken from whatever referenced them: a term set,
+# a spec, or a generic vocabulary property that many different columns reuse.
+# `dcterms:identifier` referenced by a "well_id" column is not called "well_id".
+_TERM_SET_NAMES: dict[str, str] = {
+    "http://purl.obolibrary.org/obo/ncit.owl": "NCI Thesaurus",
+    "https://w3id.org/ro/crate/1.2": "RO-Crate 1.2",
+    "http://purl.org/dc/terms/identifier": "identifier",
+    "http://purl.org/dc/terms/title": "title",
+    "http://purl.org/dc/terms/description": "description",
+}
+
+
+def describe_external_references(crate: ROCrate) -> int:
+    """Give every externally-referenced ontology IRI a node that names it.
+
+    An IRI referenced as a bare ``{"@id": …}`` and described nowhere trips three
+    RECOMMENDED checks at once — no name, no schema.org type, not present in the
+    ``@graph`` — and one real crate collected 143 findings from 22 such IRIs.
+
+    No lookup is needed, which is the point: the label is always sitting on the
+    node doing the referencing. ``#param_Culture_Medium`` carries
+    ``propertyID: BAO_0000114`` and the name "Culture Medium"; a CSVW column
+    carries ``propertyUrl`` and its own ``name``. The term set is what we assert
+    the parameter MEANS, so the parameter's own label is the honest name for it
+    — this states a relationship the crate already claims, it does not invent
+    one. Where no label is in reach the IRI is left alone rather than named
+    after its opaque local part ("IAO_0000039" is not a name).
+
+    Idempotent: an IRI that already has an entity is skipped, so re-running over
+    an assembled crate changes nothing.
+
+    Returns:
+        How many describing entities were added.
+    """
+    from rocrate.model.contextentity import ContextEntity
+
+    candidates: dict[str, set[str]] = {}
+    for entity in list(crate.get_entities()):
+        try:
+            properties = entity.properties()
+        except Exception:  # noqa: BLE001 — a description pass never fails a build
+            continue
+        label = properties.get("name") or properties.get("titles")
+        if isinstance(label, list):
+            label = next((x for x in label if isinstance(x, str) and x.strip()), None)
+        if not isinstance(label, str) or not label.strip():
+            continue
+        for prop in _TERM_REFERENCE_PROPERTIES:
+            value = properties.get(prop)
+            for item in value if isinstance(value, list) else [value]:
+                iri = item.get("@id") if isinstance(item, dict) else item
+                if isinstance(iri, str) and "://" in iri:
+                    candidates.setdefault(iri, set()).add(label.strip())
+
+    labels: dict[str, str] = {}
+    for iri, found in candidates.items():
+        known = _TERM_SET_NAMES.get(iri)
+        if known:
+            labels[iri] = known
+        elif len(found) == 1:
+            labels[iri] = next(iter(found))
+        # Disagreement means the referrers are naming their own column, not the
+        # term: 'concentration_unit' and 'measured_unit' both point at IAO_0000039
+        # (unit of measurement) and neither is its name. Say nothing rather than
+        # pick one — an undescribed term is a lesser fault than a mislabelled one.
+    labels.update({k: v for k, v in _TERM_SET_NAMES.items() if k in candidates})
+
+    added = 0
+    for iri, name in labels.items():
+        if crate.dereference(iri) is not None:
+            continue
+        crate.add(
+            ContextEntity(crate, iri, properties={"@type": "DefinedTerm", "name": name})
+        )
+        added += 1
+    if added:
+        logger.info("Described %d externally-referenced ontology term(s)", added)
+    return added
 
 
 _GRAPH_FILENAME = "ro-crate-graph.mmd"

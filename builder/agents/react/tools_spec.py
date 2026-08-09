@@ -167,6 +167,24 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "link_assay_to_key_event",
+        "description": "Link an Assay to the AOP Key Event it MEASURES, by the event's name (schema:mentions via the Assay's keyEvent field). Run materialize_aop_subgraph first so the KeyEvents exist in the crate — the reference committed is always the in-state AOP-Wiki id for the matched event, never one built from the name. Matching ignores case and punctuation. If the name matches zero or several events it writes NOTHING and returns the candidates for you to choose from, because which Key Event an assay measures is a scientific claim rather than a string match. Example: link_assay_to_key_event(assay_id='assay_oatp1c1_transport', event_name='Thyroperoxidase, Inhibition').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assay_id": {
+                    "type": "string",
+                    "description": "entity_id of the Assay that performs the measurement.",
+                },
+                "event_name": {
+                    "type": "string",
+                    "description": "Name of the Key Event as written in the source, e.g. 'mitochondrial dysfunction'.",
+                },
+            },
+            "required": ["assay_id", "event_name"],
+        },
+    },
+    {
         "name": "draft_publication_with_authors",
         "description": "Create a publication (from a DOI) AND wire every author as a Person in ONE call, harmonizing each author's @id to their ORCID when it can be determined. Resolution cascade per author (first hit wins): (1) the Crossref ORCID on the author (verified before use); (2) an in-crate Person with a verified ORCID matching the author's family + given/initial (e.g. citation 'Fabian Wagenaars' -> root 'F.M.A. Wagenaars'); (3) a public ORCID search — a single strong (family + full given) match is auto-used, anything ambiguous (multiple candidates or an initial-only match) asks YOU via present_to_human/request_input; (4) fallback to a synthesized #CitationAuthor_<Given>_<Family> Person. NEVER attaches an unverified or guessed ORCID (D5). Prefer this over draft_publication when you want the authors resolved too. Example: draft_publication_with_authors(doi='10.1234/example').",
         "parameters": {

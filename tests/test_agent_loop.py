@@ -441,28 +441,50 @@ class TestBuildLangchainTools:
         assert result == []  # type: ignore[comparison-overlap]
 
     def test_repeated_list_entities_ends_the_turn(self):
-        """Identical list reads warn twice, then END THE TURN.
+        """Identical list reads are suppressed, and the turn still ends.
 
-        This used to hand back a corrective string. The state-query guard escalates
-        instead — a corrective the model can bounce off is not a stop, and the
-        rotation it was meant to break survived it. The result is never cached:
-        the first read after a mutation runs for real against live state.
+        The stop moved owner. This guard used to raise on its third strike; two
+        guards racing to end a session meant whichever counted fastest won, and
+        this one pre-empted the escalating idle nudges before the model had been
+        told anything useful. The idle ladder is the single authority now — every
+        guarded return is routed through it — so it warns with a concrete next
+        action first and ends the turn a few strikes later.
+
+        Asserted as the guarantee, not the mechanism: repeating one dead query
+        cannot continue forever, and each suppression says why. Bounded well
+        above `_IDLE_STREAK_ABORT` so it fails rather than hangs if the ladder
+        ever stops counting.
         """
-        from builder.agents.react.agent_loop import _InvocationCancelled
+        from builder.agents.react.agent_loop import (
+            _IDLE_STREAK_ABORT,
+            _begin_decision,
+            _InvocationCancelled,
+        )
 
         _, tool_map, engine = self._build()
         list_tool = tool_map["list_entities"]
 
         assert list_tool.invoke({"entity_type": "Study"}) == []
-        list_tool.invoke({"entity_type": "Study"})  # strike 1
-        list_tool.invoke({"entity_type": "Study"})  # strike 2
+
+        # `_begin_decision` per iteration because the ladder counts DECISIONS,
+        # not calls — a parallel batch of reads from one model generation is one
+        # strike, by design. The live loop fires this from the model callback;
+        # a test that invokes tools directly has to stand in for it, or the
+        # streak never advances and the abort legitimately never comes.
+        suppressed = 0
         with pytest.raises(_InvocationCancelled):
-            list_tool.invoke({"entity_type": "Study"})  # strike 3 — turn ends
+            for _ in range(_IDLE_STREAK_ABORT + 5):
+                _begin_decision()
+                served = list_tool.invoke({"entity_type": "Study"})
+                if "already been answered" in str(served):
+                    suppressed += 1
+        assert suppressed, "repeats were served as if they were fresh reads"
 
         # A mutation moves the fingerprint, so the same query is live again.
+        engine_state_before = len(engine.state.list_entities())
         draft = tool_map["draft_investigation"].invoke({"hints": {"name": "Inv"}})
         assert draft is not None
-        assert list_tool.invoke({"entity_type": "Study"}) == []
+        assert len(engine.state.list_entities()) > engine_state_before
 
     def test_different_list_entity_filters_remain_allowed(self):
         """The guard keys on the normalized arguments, not on the tool name.
@@ -1165,7 +1187,12 @@ class TestCompletenessNudge:
         assert _format_document_context(None) == ""
 
     def test_format_document_context_renders_candidates(self):
-        """Ranked documents produce role-labelled lines with score and reasons."""
+        """Ranked documents render as a numbered MARKDOWN list, roles + scores.
+
+        Markdown list items, not plain lines: replies are rendered as markdown,
+        where a single newline is not a line break, so unformatted lines
+        collapsed the whole ranking into one run-on paragraph.
+        """
         from builder.agents.react.agent_loop import _format_document_context
 
         docs = [
@@ -1178,11 +1205,14 @@ class TestCompletenessNudge:
              "score": 0.72, "reasons": ["content signals: 2 metadata term(s)"]},
         ]
         result = _format_document_context(docs)
-        assert "[sop] SOP-001.pdf (score: 0.85)" in result
-        assert "[metadata] sample-sheet.csv (score: 0.72)" in result
-        assert "content signals: 3 sop term(s)" in result
-        # Renders both entries
-        assert result.count("\n") == 1  # one newline between the two lines
+        assert "1. **[SOP]** `SOP-001.pdf` — score 0.85" in result
+        assert "2. **[Metadata]** `sample-sheet.csv` — score 0.72" in result
+        # Both entries, one per line.
+        assert result.count("\n") == 1
+        # `reasons` are deliberately withheld: the score already summarises them,
+        # and everything in this block is shown to the user.
+        assert "content signals" not in result
+        assert "prose-like preview" not in result
 
 
 class TestFinishBackstop:

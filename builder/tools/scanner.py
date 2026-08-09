@@ -494,19 +494,36 @@ def _safe_walk(root: Path) -> list[Path]:
     Hidden and special directories (``.git``, ``__MACOSX``, dot-prefixed)
     are pruned in-place during the walk so they are never descended.
 
-    **Nested RO-Crates are pruned too (#416).** A directory holding an
-    ``ro-crate-metadata.json`` is a crate — in practice one this tool produced,
-    under ``sessions/<id>/working_crate/`` or ``output/<name>_crate/``. Walking
-    into it makes the builder ingest its own prior output as if it were source
-    research data, so a second run over a folder is contaminated by the first.
-    Stating the invariant ("do not descend into a crate") rather than listing
-    directory names avoids a list that drifts.
+    The tool's OWN artifacts are pruned too (#416). Scanning a directory that
+    already holds previous runs re-ingested the builder's own crates and session
+    state as if they were source research data — and because
+    ``ro-crate-metadata.json`` and ``crate_state.json`` match the metadata/JSON
+    priority rules, that self-produced material OUTRANKED the real assay files in
+    the drafter's context budget. Two prunes, both drift-free:
 
-    The walk *root* is deliberately exempt: pointing the scanner straight at a
-    crate is an explicit request to read that crate, not self-ingestion.
+    * a nested directory containing ``ro-crate-metadata.json`` is an RO-Crate
+      root by spec, so it is skipped wholesale. Identifying it by the sentinel
+      rather than by a directory name list also catches a user-chosen output path
+      and cannot misfire on legitimate research data in a folder named
+      ``output/``;
+    * the configured session root (honouring ``VITRO_SESSION_DIR``), because
+      ``sessions/<id>/crate_state.json`` lives outside any crate root and is a
+      complete serialization of the previous run.
+
+    The scan target itself is exempt from both, so explicitly pointing at a crate
+    or a session directory still works.
     """
+    import builder.config as _config
+
     results: list[Path] = []
-    root = root.resolve()
+    try:
+        target = root.resolve()
+    except OSError:
+        target = root
+    try:
+        session_root = Path(_config.session_root()).resolve()
+    except Exception:  # noqa: BLE001 — an unresolvable session root just skips this prune
+        session_root = None
 
     def _onerror(err: OSError) -> None:
         logger.warning("Skipping unreadable directory: %s", err.filename or err)
@@ -522,12 +539,20 @@ def _safe_walk(root: Path) -> list[Path]:
             dirnames[:] = [d for d in dirnames if not _should_prune(d)]
 
             dirpath = Path(dirpath_str)
-            # Self-ingestion guard (#416): skip a nested crate entirely — its
-            # manifest, its CSVW tables and its copied payload.
-            if _CRATE_MANIFEST in filenames and dirpath.resolve() != root:
-                logger.info("Skipping nested RO-Crate (not source data): %s", dirpath)
-                dirnames[:] = []
-                continue
+            try:
+                resolved = dirpath.resolve()
+            except OSError:
+                resolved = dirpath
+
+            if resolved != target:
+                if _CRATE_MANIFEST in filenames:
+                    logger.info("Skipping nested RO-Crate root: %s", dirpath)
+                    dirnames[:] = []
+                    continue
+                if session_root is not None and resolved == session_root:
+                    logger.info("Skipping the tool's session root: %s", dirpath)
+                    dirnames[:] = []
+                    continue
 
             for name in filenames:
                 results.append(dirpath / name)

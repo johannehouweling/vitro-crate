@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 from builder.tools._resolve_cache import compound_cache, normalize_compound_name
@@ -202,6 +203,34 @@ def _normalize_cell_line_name(value: str) -> str:
     return " ".join((value or "").split()).casefold()
 
 
+def cell_line_names_match(
+    query: str, primary: str, synonyms: Iterable[str] | None = ()
+) -> bool:
+    """Return True if *query* names the Cellosaurus record ``primary``/``synonyms``.
+
+    The single definition of "this name matches this record", shared by the two
+    callers that must not drift apart (#383):
+
+    - :func:`lookup_cell_line_by_name`, deciding whether a name-search candidate
+      is a confident enough match to commit its accession, and
+    - :func:`builder.tools.verification.verify_identifier`, deciding whether an
+      accession that *resolves* actually resolves to the entity in hand.
+
+    The comparison is deliberately exact (whitespace-collapsed, case-folded)
+    against the record's primary identifier and every synonym. It is not fuzzy:
+    an engineered derivative such as ``"CHO-K1 hOATP1C1"`` does NOT match its
+    parent record ``"CHO-K1"``, and callers are expected to treat that as
+    "unconfirmed", never as "wrong" — a near-miss here is not evidence the
+    accession is bad, only that this function cannot vouch for it.
+    """
+    target = _normalize_cell_line_name(query)
+    if not target:
+        return False
+    if _normalize_cell_line_name(primary) == target:
+        return True
+    return any(_normalize_cell_line_name(s) == target for s in synonyms or ())
+
+
 @functools.lru_cache(maxsize=256)
 def lookup_cell_line_by_name(name: str) -> dict[str, Any]:
     """Resolve a cell-line *name* to its Cellosaurus accession (confidence-gated).
@@ -238,12 +267,10 @@ def lookup_cell_line_by_name(name: str) -> dict[str, Any]:
         if not candidates:
             return _failure(f"Cell line '{name}' not found in Cellosaurus")
 
-        target = _normalize_cell_line_name(query)
         exact = [
             c
             for c in candidates
-            if _normalize_cell_line_name(c.get("name", "")) == target
-            or any(_normalize_cell_line_name(s) == target for s in c.get("synonyms", []))
+            if cell_line_names_match(query, c.get("name", ""), c.get("synonyms", []))
         ]
         if len(exact) == 1:
             return _success(dict(exact[0]))

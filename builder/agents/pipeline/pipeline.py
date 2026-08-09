@@ -1395,8 +1395,24 @@ def _populate_condition_table_from_plan(
     outcome = outcome if isinstance(outcome, dict) else {}
     if not outcome.get("ok"):
         reason = str(outcome.get("error") or "populate_condition_table declined")
-        logger.info("Condition table not populated from %s: %s", named, reason)
-        return {"populated": False, "reason": reason}
+        if outcome.get("read_failed"):
+            # An UNREADABLE plate map is a different failure from a readable one
+            # that maps nothing, and it used to be indistinguishable: both landed
+            # in an info-level `reason:` string while the crate shipped a
+            # header-only table (#422). Name the file and the reader, loudly.
+            logger.warning(
+                "Condition table: could not READ %s (%s): %s",
+                named,
+                outcome.get("reader") or "unknown reader",
+                reason,
+            )
+        else:
+            logger.info("Condition table not populated from %s: %s", named, reason)
+        return {
+            "populated": False,
+            "reason": reason,
+            "read_failed": bool(outcome.get("read_failed")),
+        }
 
     logger.info(
         "Populated condition table from %s: %s row(s) (#408).", named, outcome.get("rows")
@@ -1913,6 +1929,85 @@ def _materialize_plan(
     return result
 
 
+def _reference_names(engine: AgentEngine, entity_type: str) -> list[str]:
+    """Allowed cell values for a condition-table foreign-key column.
+
+    The table's ``compound`` / ``cell_line`` cells carry entity **names**, not
+    entity ids — :func:`~builder.tools.data_content.propose_condition_rows`
+    writes ``name`` and only falls back to ``entity_id`` for an entity that has
+    none, and a depositor's own plate map names compounds the way a bench
+    scientist writes them. Allowing both is therefore the check working as
+    intended, not a loosening: an id-only allow-list would flag every row of a
+    correct table, and a check that always fires is a check nobody reads.
+    """
+    allowed: list[str] = []
+    for entity in engine.state.list_entities(entity_type):
+        name = str(entity.fields.get("name") or "").strip()
+        if name:
+            allowed.append(name)
+        allowed.append(entity.entity_id)
+    return allowed
+
+
+def _validate_populated_tables(
+    engine: AgentEngine, materialized: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Run the Frictionless payload layer over a condition table that got rows (#409).
+
+    AGENTS.md lists data content as a REQUIRED layer, but it never executed: the
+    spine's only validation calls pass ``profile="all"``, and ``validator.py``
+    accepts ``all|base|isa|tox`` — ``DATA_CONTENT_PROFILE`` is deliberately
+    outside that set (#95), so ``"all"`` neither did nor could include it. A crate
+    could ship a CSV contradicting its own declared ``tableSchema`` and every pass
+    reported clean.
+
+    Called **after** the fix loop and kept out of it on purpose: that loop
+    terminates on ``build_and_validate``'s ``ok`` and repairs SHACL rules, which
+    cannot touch a data cell. The issues come back under their own key for the
+    same reason — a bad cell is not a conformance failure, and merging them would
+    make ``success`` in the eval harness mean two different things.
+
+    Only runs when population actually landed rows: the header-only placeholder
+    #94 materialises is valid-by-construction and validating it is pure cost.
+
+    Never raises — a missing optional dependency or an unreadable table must not
+    fail a build whose metadata is fine.
+    """
+    table = materialized.get("condition_table")
+    if not isinstance(table, dict) or not table.get("populated"):
+        return []
+    if _as_int(table.get("rows")) <= 0:
+        return []
+    path = str(table.get("path") or "").strip()
+    if not path:
+        return []
+
+    try:
+        from builder.tools._crate_mapping import _CONDITION_TABLE_COLUMNS
+        from builder.tools.data_content import csvw_to_frictionless, validate_table
+
+        result = validate_table(
+            path,
+            csvw_to_frictionless(_CONDITION_TABLE_COLUMNS),
+            {
+                "compound": _reference_names(engine, "MolecularEntity"),
+                "cell_line": _reference_names(engine, "CellLineSample"),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - the payload layer is additive
+        logger.warning("Data-content validation failed for %s: %s", path, exc)
+        return []
+
+    if result.get("error"):
+        logger.warning("Data-content validation unavailable: %s", result["error"])
+        return []
+
+    issues = result.get("issues") or []
+    if issues:
+        logger.info("Data-content validation: %d issue(s) in %s (#409).", len(issues), path)
+    return issues
+
+
 def _run_fix_loop(
     engine: AgentEngine,
     *,
@@ -2012,11 +2107,17 @@ def run_pipeline(
             unit-testable with no disk I/O.
 
     Returns:
-        ``{"ok", "conformance", "issues", "scaffold", "materialized", "drafted",
-        "fix_rounds", "usage"}`` — the final ``build_and_validate`` verdict
-        (``ok`` / per-layer ``conformance`` / routed ``issues``) plus a small
-        trace of what each step did. ``conformance`` always carries the ``base`` /
-        ``isa`` / ``tox`` keys. ``usage`` is the accumulated token usage across all
+        ``{"ok", "conformance", "issues", "data_issues", "scaffold",
+        "materialized", "drafted", "fix_rounds", "usage"}`` — the final
+        ``build_and_validate`` verdict (``ok`` / per-layer ``conformance`` /
+        routed ``issues``) plus a small trace of what each step did.
+        ``conformance`` always carries the ``base`` / ``isa`` / ``tox`` keys.
+        ``data_issues`` is the Frictionless payload layer's verdict on a
+        condition table that actually received rows (#409) — deliberately its
+        own key, and deliberately NOT folded into ``ok``: a cell contradicting
+        its ``tableSchema`` is a different kind of defect from a SHACL
+        conformance failure, and the two must not collapse into one meaning of
+        "success". ``usage`` is the accumulated token usage across all
         leaf LLM calls (``{"input_tokens", "output_tokens", "total_tokens"}``,
         all 0 when no provider is configured) — additive (#221), and ALSO written
         to ``profile.ndjson`` as ``node_end``/``node="model"`` events so the eval
@@ -2053,10 +2154,15 @@ def run_pipeline(
 
     validation, fix_rounds = _run_fix_loop(engine, progress=emit, save=_persist)
 
+    data_issues = _validate_populated_tables(engine, materialized)
+    if data_issues:
+        emit(f"Data content: {len(data_issues)} issue(s) in the populated table.")
+
     return {
         "ok": bool(validation.get("ok")),
         "conformance": validation.get("conformance", {}),
         "issues": validation.get("issues", []),
+        "data_issues": data_issues,
         "scaffold": scaffold,
         "materialized": materialized,
         "drafted": drafted,

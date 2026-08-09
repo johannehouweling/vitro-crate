@@ -575,9 +575,21 @@ def materialize_aop_subgraph(
     aop_entity = _materialize_aop_node(state, aop_node)
 
     events = 0
+    events_detail: list[dict[str, Any]] = []
     for ev in data.get("events", []):
-        if _materialize_aop_node(state, ev) is not None:
+        entity = _materialize_aop_node(state, ev)
+        if entity is not None:
             events += 1
+            # Surfaced so a caller can pick the Key Event an Assay measures
+            # WITHOUT a second lookup. Every value is read off the entity just
+            # persisted — the @id is the AOP-Wiki IRI, never minted (D5).
+            events_detail.append(
+                {
+                    "@id": entity.entity_id,
+                    "name": entity.fields.get("name"),
+                    "eventType": entity.fields.get("eventType"),
+                }
+            )
 
     relationships = 0
     for rel in data.get("relationships", []):
@@ -603,10 +615,102 @@ def materialize_aop_subgraph(
         "aop_id": str(aop_id),
         "aop_entity_id": aop_entity.entity_id if aop_entity else None,
         "events": events,
+        # Additive: the int count stays for existing callers/tests.
+        "events_detail": events_detail,
         "relationships": relationships,
         "wired_to_study": wired_to_study,
     }
 
+
+
+# ---------------------------------------------------------------------------
+# Assay -> AOP Key Event (#382)
+# ---------------------------------------------------------------------------
+# `keyEvent` is a fully declared Assay reference field: it is in the draft
+# schema, mapped by `_ASSAY_MENTION_FIELDS`, and consumed by the build — and it
+# has ZERO writers anywhere in builder/. No crate either arm has produced has
+# ever linked an Assay to the Key Event it measures, so the biological meaning of
+# the measurement is absent from every crate while the field sits there looking
+# supported.
+#
+# Matching is by NAME because that is what a depositor writes ("mitochondrial
+# dysfunction"), but the reference committed is always the in-state AOP-Wiki IRI
+# — never an id minted from the name (D5). An ambiguous or absent match writes
+# nothing and returns the candidates, because guessing which Key Event an assay
+# measures is a scientific claim, not a string operation.
+
+
+def _event_tokens(text: str) -> frozenset[str]:
+    """Comparable token set for a Key Event name (case/punctuation-insensitive)."""
+    cleaned = "".join(ch if ch.isalnum() else " " for ch in str(text).casefold())
+    return frozenset(cleaned.split())
+
+
+def link_assay_to_key_event(state: CrateState, assay_id: str, event_name: str) -> dict[str, Any]:
+    """Link an Assay to the AOP Key Event it measures, by Key Event name.
+
+    Args:
+        state: The crate state holding the Assay and the materialized Key Events.
+        assay_id: ``entity_id`` of the Assay.
+        event_name: The Key Event's name as written by the depositor.
+
+    Returns:
+        ``{"ok": True, "assay_id", "key_event_id", "matched_name"}`` on a single
+        unambiguous match, else ``{"ok": False, "error", "candidates"}`` with
+        nothing written.
+    """
+    from builder.tools.management import set_fields
+
+    assay = state.get_entity(assay_id)
+    if assay is None or assay.type != "Assay":
+        return {"ok": False, "error": f"Assay not found: {assay_id!r}", "candidates": []}
+
+    events = state.list_entities("KeyEvent")
+    if not events:
+        return {
+            "ok": False,
+            "error": (
+                "no KeyEvent in the crate — run materialize_aop_subgraph first so "
+                "the event can be referenced by its AOP-Wiki id"
+            ),
+            "candidates": [],
+        }
+
+    wanted = _event_tokens(event_name)
+    matches = [
+        event
+        for event in events
+        if any(
+            _event_tokens(alias) == wanted
+            for alias in (
+                event.fields.get("name"),
+                event.fields.get("short_name"),
+                event.fields.get("alternateName"),
+            )
+            if alias
+        )
+    ]
+    candidates = [
+        {"@id": e.entity_id, "name": e.fields.get("name")} for e in events
+    ]
+    if len(matches) != 1:
+        return {
+            "ok": False,
+            "error": (
+                f"{len(matches)} Key Events match {event_name!r}; refusing to guess "
+                "which one this assay measures"
+            ),
+            "candidates": candidates,
+        }
+
+    event = matches[0]
+    set_fields(state, assay_id, {"keyEvent": {"@id": event.entity_id}}, source="lookup")
+    return {
+        "ok": True,
+        "assay_id": assay_id,
+        "key_event_id": event.entity_id,
+        "matched_name": event.fields.get("name"),
+    }
 
 # ---------------------------------------------------------------------------
 # Publication authors + ORCID harmonization (Issue #180, deferred item)
@@ -1595,6 +1699,7 @@ TOOL_REGISTRY.register("draft_process_chain", draft_process_chain, takes_state=T
 TOOL_REGISTRY.register("resolve_compound", resolve_compound, takes_state=True)
 TOOL_REGISTRY.register("resolve_publication", resolve_publication, takes_state=True)
 TOOL_REGISTRY.register("materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True)
+TOOL_REGISTRY.register("link_assay_to_key_event", link_assay_to_key_event, takes_state=True)
 TOOL_REGISTRY.register(
     "draft_publication_with_authors",
     draft_publication_with_authors,
@@ -1654,6 +1759,44 @@ def _is_referenced(state: CrateState, target_id: str) -> bool:
     return False
 
 
+# The fields through which a process actually CONSUMES or PRODUCES something.
+# Deliberately not every reference field: a Study listing a cell line under
+# `cell_lines` says the study is about it, and a placeholder Sample whose
+# `derives_from` points at it says where it came from. Neither is an experiment
+# using it, and treating them as equivalent is what let a crate ship with its
+# one cell line attached to nothing that ever cultured it.
+_PROCESS_IO_FIELDS: tuple[str, ...] = (
+    "object",
+    "input",
+    "samples",
+    "cell_line",
+    "chemicals",
+    "result",
+    "output",
+)
+
+
+def _is_consumed_by_process(state: CrateState, target_id: str) -> bool:
+    """True when some LabProcess takes *target_id* as an input or output.
+
+    The stricter half of :func:`_is_referenced`. A domain entity earns its place
+    in the provenance graph by being used by a process — mentions and derivation
+    notes describe it, but only a process records that the experiment touched it.
+    """
+    wanted = target_id.lstrip("./").lstrip("#")
+    for proc in state.list_entities("LabProcess"):
+        for field in _PROCESS_IO_FIELDS:
+            value = proc.fields.get(field)
+            if value is None:
+                continue
+            items = value if isinstance(value, (list, tuple)) else [value]
+            for item in items:
+                ref = item.get("@id") if isinstance(item, dict) else item
+                if isinstance(ref, str) and ref.lstrip("./").lstrip("#") == wanted:
+                    return True
+    return False
+
+
 def wire_unreferenced_domain_entities(state: CrateState) -> dict[str, Any]:
     """Attach domain entities that nothing references to the process that used them.
 
@@ -1673,10 +1816,17 @@ def wire_unreferenced_domain_entities(state: CrateState) -> dict[str, Any]:
 
     processes = state.list_entities("LabProcess")
     for entity_type, process_type, field, multi, container_field in _DOMAIN_WIRING:
+        # "Loose" means NO PROCESS USES IT, not "nothing mentions it". A cell
+        # line listed under the Study's `cell_lines` and pointed at by a
+        # placeholder Sample's `derives_from` satisfied the old reference test
+        # while the CellCulture that supposedly grew it consumed neither — so
+        # the backstop skipped exactly the case it exists for. Wiring is
+        # idempotent and unions with what is already there, so re-stating a
+        # container mention costs nothing when there is no process to point at.
         loose = [
             e.entity_id
             for e in state.list_entities(entity_type)
-            if not _is_referenced(state, e.entity_id)
+            if not _is_consumed_by_process(state, e.entity_id)
         ]
         if not loose:
             continue

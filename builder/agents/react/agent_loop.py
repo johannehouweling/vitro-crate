@@ -12,6 +12,7 @@ import logging
 import re
 import threading
 import traceback
+from collections import Counter
 from contextvars import ContextVar
 from pathlib import Path
 from time import perf_counter
@@ -163,18 +164,24 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
         # never shows text from the step before, and say the model has the floor
         # — most calls here emit only tool calls, so there may be no text at all.
         self.spinner.begin_generation()
+        # Also the authoritative "the model is deciding again" signal, which is
+        # what the no-progress guard counts. Every tool call the model emits from
+        # this generation shares one decision id, so a parallel batch of six
+        # reads costs one strike rather than six.
+        _begin_decision()
 
     def on_chat_model_start(
         self, serialized: dict[str, Any], messages: list[list[Any]], **kwargs: Any
     ) -> None:
         # LangChain dispatches chat models here, never to on_llm_start, and the
-        # reset is the same — but this is declared separately rather than
-        # aliased to on_llm_start. The base signature takes `messages`, not
-        # `prompts`, so the alias was an LSP violation: a caller passing
-        # `messages=` by keyword would have hit an unexpected-argument
-        # TypeError. Both bodies ignore their payload, so it only ever mattered
-        # to a keyword caller — but it made the class type-incorrect.
+        # reset is the same — but this is declared separately rather than aliased
+        # to on_llm_start. The base signature takes `messages`, not `prompts`, so
+        # the alias was an LSP violation: a caller passing `messages=` by keyword
+        # would have hit an unexpected-argument TypeError. Both bodies ignore
+        # their payload, so it only ever mattered to a keyword caller — but it
+        # made the class type-incorrect.
         self.spinner.set_preview(None)
+        _begin_decision()
 
     def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:
         # Only fires when the model was built with streaming. The spinner keeps
@@ -523,9 +530,74 @@ _STATE_QUERY_ABORT = 3
 # 1-3 calls (routine planning: entities, then status, then files) and 80% are
 # <=5 — but runs of 6+ account for 1,642 calls, including runs of 187, 215 and
 # 231. So five is free, the sixth earns a warning, and the ninth ends the turn.
+# Set when a guard ends a turn, so the hand-back can say what it was doing
+# rather than only that it stopped.
+_STOP_REASON_FLAG = "_react_stop_reason"
+
 _IDLE_STREAK_FLAG = "_calls_without_progress"
-_IDLE_STREAK_WARN = 6
-_IDLE_STREAK_ABORT = 9
+_IDLE_BATCH_FLAG = "_last_counted_batch"
+_ERRORED_ATTEMPT_FLAG = "_errored_mutation_attempts"
+_ERRORED_ATTEMPT_ALLOWANCE = 3
+
+# How many times one user message may resume itself after a guard stop. Two is
+# enough to clear a bad patch and small enough that a genuinely stuck run still
+# reaches the user quickly, having burned three budgets rather than one.
+_MAX_SELF_CONTINUES = 2
+
+
+def _self_continue_directive(outstanding: list[str]) -> str:
+    """The message a self-continue sends — what "continue" should have meant.
+
+    Resuming with the same words the user typed invites the same approach that
+    just stalled. Naming the outstanding work and forbidding the querying that
+    burned the last budget makes the retry differ from the attempt.
+    """
+    shown = "\n".join(f"  - {item}" for item in outstanding[:6])
+    return (
+        "Continue the work. The last stretch made no changes to the crate, so do "
+        "not re-query status or re-read documents you already have — go straight "
+        "to a mutation.\n\nStill open:\n" + shown + "\n\nPick the FIRST item and do "
+        "it now with draft_*/set_fields/link/attach_files. If an item genuinely "
+        "needs the user (a licence, who owns the crate), ask that one question."
+    )
+
+# --- one strike per model DECISION, not per tool call ------------------------
+# The model emits tool calls in parallel batches — 3 to 6 per decision is normal,
+# 16 has been observed. Counting each call separately meant a single decision
+# could spend the entire idle budget before the model had ANY chance to react to
+# a nudge: two batches of three ended a turn that, from the model's side, was
+# two steps old. The streak is what the model is judged on, so it has to be
+# measured in the unit the model actually controls.
+# The boundary is the model's turn, taken straight from LangChain: the model is
+# invoked, decides, and emits its tool calls, so everything between two
+# generations belongs to ONE decision. Timing heuristics were the alternative
+# and they get this wrong exactly when it matters — a batch whose calls are all
+# suppressed returns so fast that the calls need not overlap at all.
+_decision_lock = threading.Lock()
+_decision_id = 0
+
+
+def _begin_decision() -> None:
+    """Note that the model has been invoked again (called from the callback)."""
+    global _decision_id
+    with _decision_lock:
+        _decision_id += 1
+
+
+def _current_decision() -> int:
+    """The id of the decision whose tool calls are running now."""
+    with _decision_lock:
+        return _decision_id
+# Nudge, then nudge harder, then hand back. The old shape spent SIX calls
+# saying nothing before the first warning and then repeated one generic
+# sentence — a model that has stopped making progress needs a different
+# instruction, not the same one louder. Now the first nudge lands on the third
+# idle call and each one names a concrete next action derived from the crate;
+# after three the model has demonstrably not taken any of them, and the person
+# is better placed to say what should happen than another round of guessing.
+_IDLE_STREAK_WARN = 3
+_IDLE_NUDGE_LIMIT = 3
+_IDLE_STREAK_ABORT = _IDLE_STREAK_WARN + _IDLE_NUDGE_LIMIT
 
 # Bounces off the suppression guard (same scope, same state) that end the turn.
 # Suppression alone does not stop the loop — the model reads the corrective and
@@ -1102,6 +1174,11 @@ def _reset_turn_guards(engine: AgentEngine) -> None:
     setattr(engine, _MUTATION_HISTORY_FLAG, {})
     setattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, None)
     setattr(engine, _LOOP_BREAKER_COUNT_FLAG, 0)
+    setattr(engine, _IDLE_STREAK_FLAG, 0)
+    # Also NOT cleared: which lookups have already been answered. Re-asking a
+    # question across turns still returns the answer already held, so it must
+    # not read as fresh progress just because the user typed "continue".
+    setattr(engine, _STOP_REASON_FLAG, None)
 
 
 def _mutation_target(tool_name: str, kwargs: dict[str, Any]) -> str:
@@ -1210,8 +1287,128 @@ def _progress_fingerprint(engine: AgentEngine) -> str | None:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
+_KNOWLEDGE_TOOL_PREFIXES = ("lookup_", "search_", "fetch_")
+_LOOKUP_SEEN_FLAG = "_react_lookups_seen"
+
+# Asking the user is a real tool and sometimes the only correct move — a licence
+# choice or the crate's owner cannot be derived from the files. But it is also
+# the cheapest thing for a model to do when it is unsure, and a session that
+# asks its way through the work is worse than one that reads the workbook.
+_HITL_TOOLS = frozenset({"present_to_human", "request_input"})
+_HITL_LAST_PROGRESS_FLAG = "_react_hitl_last_progress"
+_HITL_DEFLECTED_FLAG = "_react_hitl_deflected"
+
+
+def _guard_human_question(
+    engine: AgentEngine, tool_name: str, kwargs: dict[str, Any], progress_before: str | None
+) -> str | None:
+    """Deflect ONE question that arrives with nothing done since the last one.
+
+    The rule is about effort, not about the question: ask freely whenever the
+    crate has moved since you last asked. Ask twice in a row having changed
+    nothing in between, and the first attempt comes back with the deterministic
+    next action and the answers already on file — one round to reconsider with
+    that in hand.
+
+    It deflects at most once. A model that still wants the user after reading
+    the corrective gets through, because the failure mode on the other side —
+    an agent that will not ask and instead guesses at a licence or invents an
+    owner — is worse than one that asks twice. Returns the corrective text to
+    send instead of the question, or None to let it through.
+    """
+    if tool_name not in _HITL_TOOLS:
+        return None
+    last = getattr(engine, _HITL_LAST_PROGRESS_FLAG, None)
+    if last is None or last != progress_before:
+        # First question, or real work since the last one — no objection.
+        setattr(engine, _HITL_LAST_PROGRESS_FLAG, progress_before)
+        setattr(engine, _HITL_DEFLECTED_FLAG, 0)
+        return None
+    if int(getattr(engine, _HITL_DEFLECTED_FLAG, 0)) >= 1:
+        setattr(engine, _HITL_DEFLECTED_FLAG, 0)
+        setattr(engine, _HITL_LAST_PROGRESS_FLAG, progress_before)
+        return None  # asked again anyway: it means it, let it through
+    setattr(engine, _HITL_DEFLECTED_FLAG, 1)
+    _log_suppressed(engine, tool_name, "hitl_without_progress", kwargs)
+    try:
+        next_action = _completeness_nudge(engine.state)
+    except Exception:  # noqa: BLE001 — steering must never raise
+        next_action = ""
+    answered = _format_user_answers(engine)
+    asked = str(kwargs.get("context") or kwargs.get("prompt") or "").strip()
+    parts = [
+        "Not sent yet — nothing about the crate has changed since your last question "
+        "to the user, so this is a second ask for the same round of work."
+    ]
+    if asked:
+        parts.append(f'You wanted to ask: "{asked[:200]}"')
+    if next_action:
+        parts.append(f"What the crate still needs: {next_action}")
+    if answered:
+        parts.append(answered.strip())
+    parts.append(
+        "Work out what you can from the documents, the lookups and the state above "
+        "first. If the answer genuinely is not derivable — a licence choice, who owns "
+        "the crate — ask again and it WILL go through to the user."
+    )
+    return "\n\n".join(parts)
+
+
+def _is_new_fact(
+    engine: AgentEngine,
+    tool_name: str,
+    # The (name, args) tuple from `_call_signature`, as everywhere else.
+    signature: tuple[str, tuple[Any, ...]] | None,
+    result: Any,
+) -> bool:
+    """True when this call ACQUIRED a fact the crate does not hold yet.
+
+    A lookup is how the agent earns the values it is about to write: an RRID for
+    a cell line, a CAS number for a compound. None of it touches the crate, so
+    the fingerprint is unchanged and the no-progress guard counted a successful
+    ``lookup_compound`` as idling — while the nudge it had just been given said
+    "next: resolve_compound". The model did as it was told and the guard ended
+    its turn for it.
+
+    Only the FIRST resolution of a given query counts. Asking the same question
+    twice returns the same answer and advances nothing, so a repeated lookup
+    still falls through to the idle counter and cannot hold a turn open forever.
+    """
+    if not tool_name.startswith(_KNOWLEDGE_TOOL_PREFIXES):
+        return False
+    if isinstance(result, dict):
+        if result.get("error") or result.get("found") is False:
+            return False
+        found = bool(result.get("found") or result.get("data") or result.get("entity_id"))
+    else:
+        found = bool(result)
+    if not found:
+        return False
+    # Holds whichever key was used: the (name, args) signature when the caller
+    # has one, else the bare tool name. Annotating it `set[str]` described only
+    # the fallback.
+    seen: set[tuple[str, tuple[Any, ...]] | str] = (
+        getattr(engine, _LOOKUP_SEEN_FLAG, None) or set()
+    )
+    key: tuple[str, tuple[Any, ...]] | str = signature or tool_name
+    if key in seen:
+        return False
+    seen.add(key)
+    setattr(engine, _LOOKUP_SEEN_FLAG, seen)
+    return True
+
+
 def _track_progress(
-    engine: AgentEngine, tool_name: str, before: str | None, result: Any
+    engine: AgentEngine,
+    tool_name: str,
+    before: str | None,
+    result: Any,
+    *,
+    # The call sites pass `_call_signature(...)`, which is a (name, args) tuple
+    # — not a string. It is only stored and compared for equality, so the tuple
+    # always worked; the annotation just described the wrong thing. Same fix as
+    # `_guard_state_query`'s `signature`.
+    signature: tuple[str, tuple[Any, ...]] | None = None,
 ) -> Any:
     """Count consecutive calls that changed nothing, and intervene on a run.
 
@@ -1231,10 +1428,41 @@ def _track_progress(
     after = _progress_fingerprint(engine)
     if after is None:
         return result
-    changed = after != before
+    changed = after != before or _is_new_fact(engine, tool_name, signature, result)
     if changed:
         setattr(engine, _IDLE_STREAK_FLAG, 0)
         return result
+
+    # A mutation that RAISED is a failed attempt, not idling. The model called
+    # draft_process_chain — precisely the outstanding work — with an assay_id it
+    # had not confirmed; the call errored, and the error counted toward the same
+    # budget as an idle status poll. Two such attempts plus four queries ended
+    # the turn while the model was doing the right thing badly. Forgiven a
+    # bounded number of times per turn: the loop-breaker still catches an
+    # identical failing call, and past the allowance these count again so a
+    # model failing in novel ways every time cannot run forever.
+    if tool_name in _MUTATION_TOOLS and isinstance(result, dict) and "error" in result:
+        attempts = int(getattr(engine, _ERRORED_ATTEMPT_FLAG, 0)) + 1
+        setattr(engine, _ERRORED_ATTEMPT_FLAG, attempts)
+        if attempts <= _ERRORED_ATTEMPT_ALLOWANCE:
+            logger.info(
+                "Failed %s attempt %d/%d — not counted as idling",
+                tool_name,
+                attempts,
+                _ERRORED_ATTEMPT_ALLOWANCE,
+            )
+            return result
+
+    # One strike per DECISION. Three parallel reads that all come back
+    # "already_in_evidence" are one unproductive step by the model, not three —
+    # it had no opportunity to react in between, so charging it three times
+    # spends the whole budget on a single step and ends turns that were two
+    # moves old. Later calls in the same batch are answered without comment;
+    # the first one carries the nudge.
+    decision = _current_decision()
+    if getattr(engine, _IDLE_BATCH_FLAG, None) == decision:
+        return result
+    setattr(engine, _IDLE_BATCH_FLAG, decision)
 
     streak = int(getattr(engine, _IDLE_STREAK_FLAG, 0)) + 1
     setattr(engine, _IDLE_STREAK_FLAG, streak)
@@ -1248,16 +1476,56 @@ def _track_progress(
             streak,
             tool_name,
         )
+        setattr(
+            engine,
+            _STOP_REASON_FLAG,
+            f"{streak} calls in a row changed nothing (last: {tool_name})",
+        )
         raise _InvocationCancelled("no progress across consecutive tool calls")
     logger.info("No-progress run: %d calls, last %s", streak, tool_name)
     # The answer is still handed back — a late call in a run can carry genuinely
     # new information — with the run stated so the model can see what it is
     # doing. Withholding it would just prompt another read.
     body = result if isinstance(result, str) else str(result)[:1200]
+    return f"{body}\n\n[{_idle_nudge(engine, streak, tool_name)}]"
+
+
+def _idle_nudge(engine: AgentEngine, streak: int, tool_name: str) -> str:
+    """One of three escalating steers, each naming a concrete next action.
+
+    Repeating "that changed nothing" cannot help a model that has already heard
+    it: if it knew what to do instead it would be doing it. Each nudge therefore
+    carries the deterministic next-action line from :func:`_completeness_nudge`
+    — computed from the crate, not guessed — and gets more specific about what
+    happens if it is ignored. The third says plainly that the turn ends next.
+    """
+    nudge = streak - _IDLE_STREAK_WARN + 1  # 1, 2, 3
+    try:
+        next_action = _completeness_nudge(engine.state)
+    except Exception:  # noqa: BLE001 — steering must never raise
+        logger.debug("idle nudge: completeness line failed", exc_info=True)
+        next_action = ""
+    where = f" Crate now: {next_action}." if next_action else ""
+
+    if nudge <= 1:
+        return (
+            f"{streak} calls in a row have changed nothing about the crate, and "
+            f"{tool_name} is not moving it forward.{where} Do that next action "
+            "instead of querying or re-reading — you already have what you need."
+        )
+    if nudge == 2:
+        return (
+            f"Still nothing changed after {streak} calls. Reading and listing cannot "
+            f"advance the crate — only a mutation can.{where} Your NEXT call must be "
+            "draft_*, set_fields, link, attach_files, or export_crate. If you genuinely "
+            "cannot proceed, say so in a reply and ask the user the specific question "
+            "you need answered."
+        )
     return (
-        f"{body}\n\n[{streak} tool calls in a row have changed nothing about the crate. "
-        "Reading more will not move it forward — draft, link, attach or set a field, "
-        "or answer the user. The turn ends if this continues.]"
+        f"Last warning: {streak} calls without a single change.{where} If the next "
+        "call is not a mutation or a reply, this turn ends and the user is asked to "
+        "decide. If you are stuck, ending with a question is a better outcome than "
+        "another query."
     )
 
 
@@ -1306,11 +1574,19 @@ def _guard_state_query(
         strikes,
         _STATE_QUERY_ABORT,
     )
+    # Deliberately does NOT end the turn any more. Two guards racing to stop a
+    # session meant whichever counted fastest won, and this one — three repeats
+    # of one query — pre-empted the escalating nudges before the model had been
+    # told anything useful. The idle ladder is now the single authority on
+    # ending a turn: it sees this suppression too (every guarded return is
+    # routed through `_track_progress`), it nudges three times with a concrete
+    # next action first, and it counts decisions rather than calls.
     if strikes >= _STATE_QUERY_ABORT:
-        logger.warning(
-            "Ending turn: %s asked %d times of an unchanged crate", signature, strikes
+        logger.info(
+            "%s asked %d times of an unchanged crate — steering, not stopping",
+            signature,
+            strikes,
         )
-        raise _InvocationCancelled("repeated read-only query with no state change")
     return (
         f"{tool_name} has already been answered for this exact crate state, and nothing "
         "has changed since — reading it again cannot return anything new.\n\n"
@@ -1562,6 +1838,18 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # the defaults apply — omitted and null mean the same thing here.
                 kwargs = {k: v for k, v in kwargs.items() if v is not None}
                 _raise_if_invocation_cancelled()
+                # Captured BEFORE the guards, not just before execution. Every
+                # guard below answers the model without running the tool, and
+                # each used to return straight out — past the no-progress
+                # tracker at the end of this function. A suppressed call was
+                # therefore invisible to every counter, so the one path designed
+                # to notice "nothing is changing" could not see the calls most
+                # likely to be going nowhere. With the evidence store now large
+                # enough to hold a whole working set, that gap became a hang:
+                # the guard served the same three documents on demand, forever,
+                # and one session spent fifty turns and seventy-three suppressed
+                # reads asking for files it was handed every single time.
+                progress_before = _progress_fingerprint(engine)
                 # Loop-breaker (#287 Fix B): if this is the Nth consecutive
                 # IDENTICAL call that has been returning a non-progress result
                 # (directory/None/error), REFUSE to repeat it — return a forceful
@@ -1569,23 +1857,38 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # a weak model stops looping (it ignored #281's directory message
                 # and looped ~36×). Distinct calls / a single retry never trip this.
                 signature = _call_signature(tool_name, kwargs)
+                deflected = _guard_human_question(
+                    engine, tool_name, kwargs, progress_before
+                )
+                if deflected is not None:
+                    return _track_progress(
+                        engine, tool_name, progress_before, deflected, signature=signature
+                    )
                 if tool_name in _STATE_QUERY_TOOLS:
                     query_answer = _guard_state_query(engine, tool_name, kwargs, signature)
                     if query_answer is not None:
-                        return query_answer
+                        return _track_progress(
+                            engine, tool_name, progress_before, query_answer,
+                            signature=signature,
+                        )
                 if tool_name == "list_entities":
                     list_last = getattr(engine, _LIST_ENTITIES_LAST_SIG_FLAG, None)
                     list_count = getattr(engine, _LIST_ENTITIES_COUNT_FLAG, 0)
                     if list_last == signature and list_count >= _LIST_ENTITIES_BREAKER_THRESHOLD:
                         _log_suppressed(engine, tool_name, "repeated_list_query", kwargs)
-                        return _list_entities_intervention(engine)
+                        return _track_progress(
+                            engine, tool_name, progress_before, _list_entities_intervention(engine)
+                        )
                 last_sig = getattr(engine, _LOOP_BREAKER_LAST_SIG_FLAG, None)
                 repeat_count = getattr(engine, _LOOP_BREAKER_COUNT_FLAG, 0)
                 if last_sig == signature and repeat_count >= _LOOP_BREAKER_THRESHOLD:
                     # Do NOT run the tool again — the identical non-progress call
                     # is short-circuited and the model is steered elsewhere.
                     _log_suppressed(engine, tool_name, "loop_breaker", kwargs)
-                    return _loop_breaker_intervention(engine, tool_name)
+                    return _track_progress(
+                        engine, tool_name, progress_before,
+                        _loop_breaker_intervention(engine, tool_name),
+                    )
 
                 if tool_name in _FILE_READ_TOOLS:
                     evidence = getattr(engine.state, "document_evidence", {})
@@ -1595,7 +1898,17 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         (
                             item
                             for item in evidence.values()
-                            if item.get("path") == path and item.get("args", {}) == read_args
+                            if item.get("path") == path
+                            and item.get("args", {}) == read_args
+                            # A TRUNCATED copy is not an answer to "read this
+                            # file". Serving one told the model its request was
+                            # already satisfied while withholding two-thirds of
+                            # the document, and left it no way to ask for the
+                            # rest — the readers take no offset. When the stored
+                            # copy is partial, fall through and read for real:
+                            # the full text is what was asked for, and the
+                            # no-progress guard still stops a genuine runaway.
+                            and not item.get("truncated")
                         ),
                         None,
                     )
@@ -1615,16 +1928,41 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         # Serving the stored copy is cheaper than the re-read it
                         # replaces and is the honest answer to the question asked.
                         content = str(cached.get("content", "")).strip()
-                        if content:
-                            return (
-                                f"[Serving the copy of {path} already loaded this session "
-                                "— identical to re-reading it.]\n\n" + content
+                        # Handing the same text back a third time answers the
+                        # call and teaches nothing. What the model is missing is
+                        # not the document — it has it — but what to do with it,
+                        # so the outstanding list rides along with the content.
+                        # A value that is not in the file will not appear on the
+                        # next read, and saying so is the only way out of the
+                        # loop that does not require the guard to end the turn.
+                        outstanding = open_items(engine.state)
+                        steer = ""
+                        if outstanding:
+                            steer = (
+                                "\n\n[You have already read this document. Still "
+                                "outstanding:\n"
+                                + "\n".join(f"  - {i}" for i in outstanding[:6])
+                                + "\nIf a value is in the text above, write it with "
+                                "set_fields now. If it is NOT in the text, re-reading "
+                                "will not produce it — ask the user for that specific "
+                                "value instead.]"
                             )
-                        return (
-                            "Already loaded this document into bounded session evidence. "
-                            "Use the loaded evidence in the state context; request a specific "
-                            "different slice only if needed."
+                        served = (
+                            f"[Serving the copy of {path} already loaded this session "
+                            "— identical to re-reading it.]\n\n" + content + steer
+                            if content
+                            else (
+                                "Already loaded this document into bounded session evidence. "
+                                "Use the loaded evidence in the state context; request a "
+                                "specific different slice only if needed."
+                            )
                         )
+                        # Counted like any other call that changed nothing: being
+                        # able to answer instantly is not the same as getting
+                        # somewhere, and a model re-asking for a document it has
+                        # already been handed is the clearest no-progress signal
+                        # there is.
+                        return _track_progress(engine, tool_name, progress_before, served)
                 if tool_name == "build_and_validate":
                     bv_sig = _build_validate_signature(kwargs)
                     try:
@@ -1660,15 +1998,15 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         # couple of strikes, end the turn instead of answering —
                         # handing control back to the user is the only thing that
                         # reliably stops it.
+                        # Steer, don't stop — same reasoning as the state-query
+                        # guard: the idle ladder ends turns, and it does so after
+                        # three escalating nudges that name what to do instead.
                         if strikes >= _VALIDATE_SUPPRESS_ABORT:
-                            logger.warning(
-                                "Ending turn: build_and_validate%s bounced %d times "
-                                "against unchanged state",
+                            logger.info(
+                                "build_and_validate%s bounced %d times against "
+                                "unchanged state — steering, not stopping",
                                 bv_sig,
                                 strikes,
-                            )
-                            raise _InvocationCancelled(
-                                "repeated validation of an unchanged crate"
                             )
                         issue_text = _format_validation_issues_summary(engine)
                         v = engine.state.validation
@@ -1701,7 +2039,9 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                             "validation. Validation re-runs automatically once the "
                             "state actually changes."
                         )
-                        return corrective
+                        return _track_progress(
+                            engine, tool_name, progress_before, corrective
+                        )
                     if bv_fp is not None:
                         # Record BEFORE running: validation never mutates entities
                         # or metadata (the #153 write-back only touches
@@ -1722,10 +2062,10 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 try:
                     mutation_fingerprint = engine.state.validation_fingerprint()
                 except Exception:  # noqa: BLE001 — best-effort bookkeeping
-                    logger.debug("progress guard: fingerprint failed", exc_info=True)
-                # Wider than the crate contents: reading a document or receiving
-                # an answer is progress even though neither changes an entity.
-                progress_before = _progress_fingerprint(engine)
+                    logger.debug("no-op guard: fingerprint failed", exc_info=True)
+                # `progress_before` is captured at the top of this function (the
+                # guards above need it too); nothing between there and here
+                # mutates the crate, so it still describes the pre-call state.
                 if tool_name in _MUTATION_TOOLS:
                     with _MUTATION_HISTORY_LOCK:
                         in_flight = int(getattr(engine, _MUTATIONS_IN_FLIGHT, 0)) + 1
@@ -1868,7 +2208,9 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
 
                 # The general no-progress rule, applied to EVERY tool: if the
                 # crate looks exactly as it did before the call, nothing moved.
-                result = _track_progress(engine, tool_name, progress_before, result)
+                result = _track_progress(
+                    engine, tool_name, progress_before, result, signature=signature
+                )
 
                 # Track repeated list queries independently: this never stores or
                 # reuses their result, and mutations always reset the streak.
@@ -2105,6 +2447,203 @@ def _unreferenced_entities(state: CrateState) -> dict[str, list[str]]:
     return orphans
 
 
+# What each process type needs before the tox profile will accept it. Each entry
+# is a tuple of accepted spellings for one parameter — the build reads several
+# aliases, and an item is satisfied by any of them.
+_PROCESS_PARAMETERS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "Exposure": (("duration",), ("cell_seeding_density",), ("microplate",)),
+    "EndpointReadout": (
+        ("detection_instrument",),
+        ("instrument_manufacturer",),
+        ("measured_entity",),
+        ("endpoint",),
+        ("technical_replicate",),
+    ),
+    "DataAnalysis": (
+        ("computational_tool", "software"),
+        ("data_calculation_and_statistics", "data_processing"),
+    ),
+    "CellCulture": (("culture_medium",),),
+}
+
+
+def open_items(state: CrateState) -> list[str]:
+    """The outstanding work, DERIVED from the crate rather than remembered.
+
+    A checklist the agent announces in prose is a checklist it can quietly drop:
+    the transcript gets trimmed, a checkpoint rotates, the user answers two of
+    three groups, and the third is never mentioned again. Nothing about that is
+    recoverable from the conversation.
+
+    So the list is computed from state on every turn instead. An item exists
+    because a field is empty and disappears the moment it is filled — it cannot
+    drift out of sync with the crate, it survives any amount of context loss,
+    and "did this get done" is answerable by looking rather than by trusting.
+
+    Returns short, specific lines ("proc_exposure: missing duration, microplate")
+    ordered blocking-first. Empty when there is nothing outstanding.
+    """
+    from builder.tools.composites import _is_consumed_by_process
+
+    items: list[str] = []
+    try:
+        for proc in state.list_entities("LabProcess"):
+            ptype = str(proc.fields.get("process_type") or proc.fields.get("additionalType") or "")
+            expected = _PROCESS_PARAMETERS.get(ptype)
+            if not expected:
+                continue
+            missing = [
+                names[0]
+                for names in expected
+                if not any(str(proc.fields.get(n) or "").strip() for n in names)
+            ]
+            if missing:
+                items.append(f"{proc.entity_id} ({ptype}): missing {', '.join(missing)}")
+
+        meta = state.metadata
+        attribution = [
+            label
+            for label, value in (
+                ("publisher", getattr(meta, "publisher", None)),
+                ("creator", getattr(meta, "creator", None)),
+                ("contact", getattr(meta, "contact", None)),
+            )
+            if not value
+        ]
+        if attribution:
+            items.append(f"crate attribution: {', '.join(attribution)} not set")
+        if not getattr(meta, "license", None):
+            items.append("licence not chosen (the crate will say ALL RIGHTS RESERVED)")
+
+        # A document ranked as the publication, with no publication recorded, is
+        # a whole layer of the crate missing: the article, its authors, and the
+        # compounds it lists. Counting entities cannot see it — a crate with a
+        # backbone and one Person looks populated — so it is derived from the
+        # discovery roles, which is where the fact actually lives.
+        publications = state.list_entities("Publication")
+        if not publications and any(
+            str(d.get("role", "")).lower() == "publication"
+            for d in (getattr(state, "documents", None) or [])
+        ):
+            items.append(
+                "a publication document was found but no Publication entity exists "
+                "— resolve_publication / draft_publication_with_authors records the "
+                "article, its authors and the compounds it reports"
+            )
+        for pub in publications:
+            if not pub.fields.get("author"):
+                items.append(
+                    f"{pub.entity_id}: no authors recorded — "
+                    "draft_publication_with_authors, or link the Person entities"
+                )
+
+        orphans = _unreferenced_entities(state)
+        for etype, ids in sorted(orphans.items()):
+            items.append(
+                f"{len(ids)} {etype} entit{'y' if len(ids) == 1 else 'ies'} "
+                f"nothing references ({', '.join(ids[:3])}{'…' if len(ids) > 3 else ''})"
+            )
+        # Being MENTIONED is not being USED. A cell line the Study lists and a
+        # placeholder Sample derives from still describes an experiment that
+        # never cultured it, and the reference check above cannot see that. The
+        # material a process consumed belongs in that process's inputs.
+        for etype, process_type, field in (
+            ("CellLineSample", "CellCulture", "cell_line"),
+            ("MolecularEntity", "Exposure", "chemicals"),
+        ):
+            unused = [
+                e.entity_id
+                for e in state.list_entities(etype)
+                if not _is_consumed_by_process(state, e.entity_id)
+                and e.entity_id not in orphans.get(etype, [])
+            ]
+            if unused:
+                items.append(
+                    f"{len(unused)} {etype} mentioned but not consumed by any process "
+                    f"({', '.join(unused[:3])}{'…' if len(unused) > 3 else ''}) — set "
+                    f"{field} on the {process_type} process to the entity itself"
+                )
+
+        # RECOMMENDED findings, once the user has opted into them, are work — not
+        # a footnote to read out at export. Reported as a bare count they were
+        # announced once and then dropped ("168 findings… these do not block
+        # export"); grouped and kept on the list, they are a queue with the
+        # biggest class first. Aggregated because 168 individual lines would bury
+        # everything else on this checklist.
+        should = list(getattr(state.validation, "should_issues", None) or [])
+        if should and "recommended" in (state.validation.assessed_tiers or set()):
+            # Split by who can actually act. Roughly half of these are about
+            # nodes the BUILDER emits — external ontology IRIs referenced without
+            # a describing node — which no amount of set_fields will reach.
+            # Telling the model to "fix the 168" sends it after work it cannot
+            # do; naming the fixable subset is the difference between a queue and
+            # a wall. (`fix_required_issues` clears none of them: measured.)
+            owned = [line for line in should if _issue_targets_own_entity(state, line)]
+            groups = Counter(_issue_class(line) for line in owned)
+            top = ", ".join(f"{n}x {label}" for label, n in groups.most_common(3))
+            if owned:
+                items.append(
+                    f"{len(owned)} of {len(should)} RECOMMENDED findings are on entities "
+                    f"you own — {top}. Fix these with set_fields, one entity at a time"
+                )
+            build_side = len(should) - len(owned)
+            if build_side:
+                items.append(
+                    f"{build_side} further RECOMMENDED findings are about nodes the "
+                    "BUILD emits (external ontology IRIs with no describing node) — "
+                    "not fixable from here; report them, do not retry them"
+                )
+    except Exception:  # noqa: BLE001 — a checklist must never break a turn
+        logger.debug("open items: derivation failed", exc_info=True)
+    return items
+
+
+def _issue_targets_own_entity(state: CrateState, line: str) -> bool:
+    """True when a validation line names an entity the agent can actually edit.
+
+    Display lines start ``[profile] <entity id>: message``. An id that resolves
+    to something in ``CrateState`` is the agent's to fix; an absolute IRI (an
+    ontology term, an ORCID, a PubChem compound) is a reference the build emits
+    and no tool call can add a name to.
+    """
+    head = str(line).split(":", 1)[0]
+    entity_id = head.split("]", 1)[-1].strip().lstrip("./").lstrip("#")
+    if not entity_id or "://" in str(line).split(": ", 1)[0]:
+        return False
+    for entity in state.list_entities():
+        if entity_id == entity.entity_id or entity_id.endswith(f"_{entity.entity_id}"):
+            return True
+    return False
+
+
+def _issue_class(line: str) -> str:
+    """Collapse one validation issue line to the class of problem it reports.
+
+    The display lines carry entity ids and quoted values, so counting them raw
+    gives 168 unique strings and no signal. Stripping those leaves the shape of
+    the finding — "Entities SHOULD have a human-readable name" — which is what
+    tells the model whether it is facing one job repeated or many jobs.
+    """
+    message = str(line).split(": ", 1)[-1]
+    return re.sub(r"'[^']*'|`[^`]*`", "…", message).strip()[:60] or "unclassified"
+
+
+def _format_open_items(engine: AgentEngine, *, limit: int = 10) -> str:
+    """Render :func:`open_items` for the per-turn state brief."""
+    items = open_items(engine.state)
+    if not items:
+        return ""
+    shown = items[:limit]
+    more = f"\n  …and {len(items) - len(shown)} more" if len(items) > len(shown) else ""
+    return (
+        "\n[Still open — derived from the crate, not from what was said. Each line "
+        "disappears when the field is filled; fill what you can from the documents "
+        "and ask the user only for what genuinely is not in them]\n"
+        + "\n".join(f"  - {item}" for item in shown)
+        + more
+    )
+
+
 def _completeness_nudge(state: CrateState) -> str:
     """Compute a short deterministic present/missing/next-action steering line.
 
@@ -2221,8 +2760,21 @@ def _completeness_nudge(state: CrateState) -> str:
             "with the user; never invent it"
         )
     else:
-        # The crate looks complete — close it out.
-        next_action = "build_and_validate then export_crate"
+        # The crate looks complete — close it out. Unless the user opted into the
+        # RECOMMENDED tier and it found work: pointing at export while 168
+        # findings sit unaddressed is how they came to be announced once and
+        # never touched. Opting in was a request to improve the crate, not a
+        # request for a longer report.
+        should = list(getattr(state.validation, "should_issues", None) or [])
+        if should and "recommended" in (getattr(state.validation, "assessed_tiers", None) or set()):
+            next_action = (
+                f"work the {len(should)} RECOMMENDED findings the user asked for — "
+                "take the ones naming YOUR entities (see the still-open list) and "
+                "set the missing name/description with set_fields, entity by "
+                "entity; export once they are done or the user says to stop"
+            )
+        else:
+            next_action = "build_and_validate then export_crate"
 
     present_str = ", ".join(present) if present else "nothing yet"
     return f"[Completeness: {present_str}; missing: {', '.join(missing)} → next: {next_action}]"
@@ -2270,7 +2822,17 @@ def _build_system_prompt_with_state(
     if nudge:
         brief += f"\n{nudge}"
     if state_summary:
-        brief += f"\n{state_summary[:1200]}"
+        # NOT truncated to 1200 chars any more. That blanket cut sat downstream
+        # of everything the summary carries — live counts, the outstanding-items
+        # checklist, the user's own answers, and the loaded document text — and
+        # the document text is last, so it was the part that never survived. The
+        # publication record listing 22 test compounds was held in full in
+        # session state, named in the brief, and clipped out of it every single
+        # turn; the model drafted one compound because that is all it could see.
+        # Each section is bounded at its own source (see `_format_open_items`,
+        # `_format_user_answers`, `_EVIDENCE_BRIEF_BUDGET`), which is where the
+        # decision about what is worth its space actually belongs.
+        brief += f"\n{state_summary}"
     return brief
 
 
@@ -2393,47 +2955,189 @@ def _format_user_answers(engine: AgentEngine, *, limit: int = 8) -> str:
     )
 
 
-def _format_document_evidence(engine: AgentEngine, *, limit: int = 12000) -> str:
-    """Format bounded loaded document evidence for the trailing state brief."""
+def _handback_panel(engine: AgentEngine, *, headline: str) -> Any:
+    """Render "here is where we got to, here is what you can do" for a stopped turn.
+
+    A turn that ends on a guard used to print one dim sentence and return the
+    prompt. That tells the user the run stopped without telling them the two
+    things they need: what the crate looks like now, and what to type next.
+    Nobody should have to guess whether their work survived, or invent the
+    vocabulary to resume it.
+
+    Every suggestion is a phrase the loop already understands, and the list
+    adapts to the crate — no "export" prompt before anything is drafted, no
+    "fix the issues" prompt when there are none.
+    """
+    from rich.panel import Panel
+
+    state = engine.state
+    lines: list[str] = [f"[dim]{headline}[/dim]"]
+
+    stopped_doing = getattr(engine, _STOP_REASON_FLAG, None)
+    if stopped_doing:
+        lines.append(f"[dim]Stopped after: {stopped_doing}[/dim]")
+        setattr(engine, _STOP_REASON_FLAG, None)
+
+    try:
+        entities = state.list_entities()
+        counts: dict[str, int] = {}
+        for entity in entities:
+            counts[entity.type] = counts.get(entity.type, 0) + 1
+        # Biggest groups first: "KeyEvent 16, MolecularEntity 22" says more about
+        # where the work got to than the alphabetical head of the list does.
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+        top = ", ".join(f"{k} {n}" for k, n in ranked) or "nothing drafted yet"
+        v = state.validation
+        marks = " ".join(
+            f"{'✓' if ok else '✗'} {name}"
+            for name, ok in (("base", v.base_passed), ("ISA", v.isa_passed), ("Tox", v.tox_passed))
+        )
+        required = len(v.required_issues or [])
+        # An unvalidated crate has no known blockers, which is NOT the same as
+        # having none — reporting "no blockers" for a crate nobody has checked
+        # is the exact false all-clear the maturity report was fixed not to give.
+        validated = bool(
+            v.assessed_tiers or v.input_fingerprint or v.base_passed or v.required_issues
+        )
+        if required:
+            blocking = f"[red]{required} REQUIRED[/red]"
+        elif validated:
+            blocking = "[green]no blockers[/green]"
+        else:
+            blocking = "[dim]not validated yet[/dim]"
+        lines.append(f"\n[bold]Where we got to[/bold]\n  {len(entities)} entities — {top}")
+        lines.append(f"  Validation: {marks} · {blocking}")
+        outstanding = open_items(state)
+        if outstanding:
+            shown = outstanding[:5]
+            lines.append("\n[bold]Still open[/bold]")
+            lines.extend(f"[dim]  - {item}[/dim]" for item in shown)
+            if len(outstanding) > len(shown):
+                lines.append(f"[dim]  …and {len(outstanding) - len(shown)} more[/dim]")
+    except Exception:  # noqa: BLE001 — a hand-back must never raise
+        logger.debug("hand-back: state summary failed", exc_info=True)
+        entities, required = [], 0
+
+    options: list[tuple[str, str]] = [("continue", "pick up from here")]
+    if required:
+        options.append(
+            ("show issues", f"list the {required} blocking issue(s) and fix them one by one")
+        )
+    if entities:
+        options.append(("export", "write the crate as it stands"))
+    options.append(("status", "full summary of the crate so far"))
+    lines.append("\n[bold]What now[/bold] — reply with one of:")
+    lines.extend(f"  [bold]{word}[/bold][dim] — {why}[/dim]" for word, why in options)
+    lines.append("[dim]  …or just tell me what to do differently.[/dim]")
+
+    return Panel("\n".join(lines), border_style="yellow", padding=(0, 1))
+
+
+# How much document text the per-turn brief may carry. Sized so ANY ONE of a
+# typical submission's documents fits whole (the largest here is a 22.8k-char
+# SOP): at 12,000 the 15.3k publication record — the file that lists the tested
+# compounds — could never be shown, so once it aged out of the message history
+# the model could not see the 22 compounds and drafted one. The brief is
+# re-sent every turn, so this is real per-turn cost (~6k tokens worst case
+# against ~3k before); it buys the difference between a 15-entity crate and an
+# 80-entity one, which is the whole job.
+_EVIDENCE_BRIEF_BUDGET = 24000
+
+
+def _format_document_evidence(engine: AgentEngine, *, limit: int = _EVIDENCE_BRIEF_BUDGET) -> str:
+    """Format bounded loaded document evidence for the trailing state brief.
+
+    The brief prints as much document text as the budget allows and then NAMES
+    the rest. It used to announce "[Additional loaded evidence omitted for
+    context budget]", which to a reader means *missing* — and the rational
+    response to missing source material is to go and read it. That single line
+    invited the re-read loop the no-progress guard then had to stop: the model
+    was being told, every turn, that documents it had already read were not
+    available to it. Listing them by name says the opposite, which is also the
+    truth: they are loaded, in full, and nothing was lost.
+    """
     evidence = getattr(engine.state, "document_evidence", {})
     if not evidence:
         return ""
     parts: list[str] = ["[Loaded document evidence]"]
     used = len(parts[0])
-    for path, item in evidence.items():
+    shown = 0
+    # MOST RECENTLY USED FIRST. The store keeps LRU order — newest at the end —
+    # so reading it front-to-back printed the document the model had least
+    # recently asked for and merely NAMED the one it just requested. That closes
+    # a loop: ask for the SOP, get served, the serve marks it most-recent, the
+    # brief keeps showing the workbook instead, ask for the SOP again. The
+    # document the model is working with is the one worth spending the budget on.
+    printed: list[str] = []
+    for path, item in reversed(list(evidence.items())):
         content = str(item.get("content", ""))
         line = f"\n{path} ({item.get('tool', 'reader')}):\n{content}"
         if used + len(line) > limit:
-            parts.append("\n[Additional loaded evidence omitted for context budget]")
-            break
+            # SKIP, don't stop. One document larger than the whole budget used to
+            # end the loop on the first item and print nothing at all — the brief
+            # went from carrying the workbook to carrying no text whatever, which
+            # is the worst of both: the context is spent on nothing and the model
+            # is told only that documents exist somewhere.
+            continue
         parts.append(line)
         used += len(line)
+        printed.append(path)
+        shown += 1
+    held = [path for path in reversed(list(evidence)) if path not in printed]
+    if held:
+        parts.append(
+            "\n[Also read this session and held IN FULL, not reprinted here to save "
+            f"context: {', '.join(held)}. Nothing was lost — re-reading one returns "
+            "the same text you already have.]"
+        )
     return "".join(parts)
+
+
+# Display labels for the discovery roles whose casing is not sentence case.
+_DOCUMENT_ROLE_LABELS: dict[str, str] = {
+    "sop": "SOP",
+    "other_document": "Other document",
+    "readme": "README",
+}
 
 
 def _format_document_context(documents: list[dict[str, Any]] | None) -> str:
     """Format the ranked document discovery results as a bounded context string.
 
-    Produces one line per candidate::
+    Produces a numbered block, one MARKDOWN list item per candidate::
 
-        [role] filename (score: 0.85) — directory: reason, reason
+        1. **[Publication]** `S-VHPS26.json` — score 0.53
+        2. **[Metadata]** `Assay-metadata-CHO-K1_OATP1C1-v1.1.xlsx` — score 0.33
 
-    The result is a single paragraph (no markdown, no multi-line headers) so it
-    slots cleanly into the system brief without busting the cache-friendly layout.
+    This IS the presentation format, not just an internal one, and the header
+    says so. The model was re-rendering the same five documents differently on
+    every run — sometimes a table, sometimes prose, sometimes bracketed roles —
+    because nothing told it what the house style was.
+
+    Markdown, not plain text, and that distinction is the whole point: replies
+    are rendered as markdown, where single newlines are NOT line breaks. Handing
+    over unformatted lines and asking for them verbatim collapsed the whole
+    ranking into one run-on paragraph with no styling. As list items the
+    structure survives reproduction, and the backticked filenames come back
+    coloured — which is what makes the list scannable at a glance.
+
+    Each candidate's ``reasons`` stay out of the block deliberately: the score
+    already summarises them, and anything in here gets shown to the user.
     """
     if not documents:
         return ""
     lines: list[str] = []
-    for doc in documents[:20]:  # safety cap — never exceed 20 entries
-        role = doc.get("role", "document")
+    for number, doc in enumerate(documents[:20], 1):  # safety cap — never exceed 20
+        raw = str(doc.get("role", "document")).strip() or "document"
+        # Acronyms keep their case; everything else is sentence case. Blind
+        # title-casing rendered the standard operating procedure as "[Sop]".
+        role = _DOCUMENT_ROLE_LABELS.get(raw.lower())
+        if role is None:
+            spaced = raw.replace("_", " ")
+            role = spaced[:1].upper() + spaced[1:]
         name = doc.get("filename", doc.get("relative_path", "?"))
         score = doc.get("score", 0.0)
-        reasons = doc.get("reasons", [])
-        reason_str = "; ".join(reasons[:3]) if reasons else ""
-        line = f"[{role}] {name} (score: {score:.2f})"
-        if reason_str:
-            line += f" — {reason_str}"
-        lines.append(line)
+        lines.append(f"{number}. **[{role}]** `{name}` — score {score:.2f}")
     return "\n".join(lines)
 
 
@@ -2563,7 +3267,17 @@ def _assemble_model_messages(
     if document_context:
         parts.append(
             SystemMessage(
-                content=f"[Discovered document evidence]\n{document_context}"
+                content=(
+                    "[Ranked input documents — when you show these to the user, "
+                    "reproduce the markdown list below VERBATIM (it is already "
+                    "formatted: keep the numbering, the **[Role]** and the "
+                    "`backticks`, and keep each item on its OWN line), under the "
+                    "heading 'Ranked input documents:' followed by a blank line. "
+                    "Do not reformat into a table, reflow into a paragraph, "
+                    "reorder, or restyle: the user sees this list most sessions "
+                    "and it should look the same every time.]\n"
+                    f"{document_context}"
+                )
             )
         )
     parts.append(SystemMessage(content=state_brief))
@@ -2700,6 +3414,7 @@ def _build_agent_graph(
             nudge=nudge,
             state_summary=(
                 _format_compact_state_summary(engine)
+                + _format_open_items(engine)
                 + _format_user_answers(engine)
                 + "\n"
                 + _format_document_evidence(engine)
@@ -3330,24 +4045,36 @@ def run_interactive_agent(
             # handed back. Saying "error" here sent people hunting for a bug
             # that did not exist.
             console.print(
-                f"[dim]Over to you — that step passed the {request_timeout:.0f}s time "
-                "limit, so I stopped it. Nothing is lost; the session is saved. "
-                "Say [/dim][bold]continue[/bold][dim] to pick it back up.[/dim]"
+                _handback_panel(
+                    engine,
+                    headline=(
+                        f"That step passed the {request_timeout:.0f}s time limit, so I "
+                        "stopped it. Nothing is lost; the session is saved."
+                    ),
+                )
             )
             console.print()
         elif outcome == "stopped":
             console.print(
-                "[dim]Over to you — I was repeating the same step without getting "
-                "anywhere, so I stopped rather than keep spending on it. The session "
-                "is saved.[/dim]"
+                _handback_panel(
+                    engine,
+                    headline=(
+                        "I was repeating the same step without getting anywhere, so I "
+                        "stopped rather than keep spending on it. The session is saved."
+                    ),
+                )
             )
             console.print()
         elif outcome == "recursion":
             console.print(
-                "[dim]Over to you — this request hit its step limit "
-                f"([bold]{max_iterations}[/bold] tool iterations), so I stopped. The "
-                "session is saved; a smaller or more specific request usually gets "
-                "further.[/dim]"
+                _handback_panel(
+                    engine,
+                    headline=(
+                        f"This request hit its step limit ({max_iterations} tool "
+                        "iterations), so I stopped. A smaller or more specific request "
+                        "usually gets further."
+                    ),
+                )
             )
             console.print()
         elif outcome == "error":
@@ -3457,6 +4184,7 @@ def run_interactive_agent(
             try:
                 message = user_input
                 empty_streak = 0
+                self_continues = 0
                 # A new user turn gets a fresh strike budget. The counters live on
                 # the engine, so once a guard had ended a turn they were already at
                 # the limit — and the next "continue" was killed by its FIRST
@@ -3470,6 +4198,33 @@ def run_interactive_agent(
                     # waiting up to a tick — the reply and the counts it produced
                     # should appear together.
                     footer.refresh()
+
+                    # A guard-stopped turn is the one non-ok outcome we can act
+                    # on ourselves. Typing "continue" does exactly ONE thing —
+                    # `_reset_turn_guards` — so a session that reliably resumes
+                    # on "continue" was never stuck; it ran out of strike budget
+                    # while there was still work on the list. Asking a human to
+                    # refill a counter is not a decision, it is a keystroke, so
+                    # do it here: same reset, same directive, bounded so a
+                    # genuinely stuck model still reaches the user.
+                    if outcome == "stopped" and self_continues < _MAX_SELF_CONTINUES:
+                        outstanding = open_items(engine.state)
+                        if outstanding:
+                            self_continues += 1
+                            logger.info(
+                                "Self-continue %d/%d — %d item(s) still open",
+                                self_continues,
+                                _MAX_SELF_CONTINUES,
+                                len(outstanding),
+                            )
+                            console.print(
+                                f"[dim]· Picking that back up myself "
+                                f"({self_continues}/{_MAX_SELF_CONTINUES}) — "
+                                f"{len(outstanding)} item(s) still open[/dim]"
+                            )
+                            _reset_turn_guards(engine)
+                            message = _self_continue_directive(outstanding)
+                            continue
 
                     # A non-ok outcome (timeout / error / recursion) ends the turn
                     # gracefully; fall back to prompting the user.
