@@ -37,28 +37,32 @@ def _compact_tool_kwargs(tool_name: str, kwargs: dict[str, Any]) -> str:
     if not kwargs:
         return ""
 
-    # Priority keys: pick the single most informative argument per tool.
-    priority_keys = ["name", "query", "path", "entity_type", "id", "entity_id",
+    # Priority keys: pick the single most informative argument per tool. What is
+    # being ACTED ON comes before what is being written: `set_fields(entity_id=…,
+    # fields={"name": "x"})` is a fact about that entity, not about the string
+    # "x", and rendering the payload made a failed call unattributable.
+    priority_keys = ["entity_id", "name", "query", "path", "entity_type", "id",
                      "doi", "aop_id", "title", "process_type", "accession"]
 
-    # Crawl kwargs AND any hints/fields dict values for the first priority key.
     display_value: str | None = None
+    # DIRECT kwargs first, all of them, before reaching into a nested dict. The
+    # single-pass version tried `fields["name"]` before it ever looked at the
+    # top-level `entity_id`, so the label described the value rather than the
+    # target — and every mutation to a differently-named entity looked alike.
     for key in priority_keys:
-        # Direct kwarg hit.
         val = kwargs.get(key)
         if val is not None:
             display_value = str(val)
             break
-        # Nested inside ``hints`` / ``fields`` dict.
-        for container in ("hints", "fields"):
-            inner = kwargs.get(container)
-            if isinstance(inner, dict):
-                val = inner.get(key)
-                if val is not None:
-                    display_value = str(val)
+    if display_value is None:
+        for key in priority_keys:
+            for container in ("hints", "fields"):
+                inner = kwargs.get(container)
+                if isinstance(inner, dict) and inner.get(key) is not None:
+                    display_value = str(inner[key])
                     break
-        if display_value is not None:
-            break
+            if display_value is not None:
+                break
 
     if display_value is not None:
         if len(display_value) > 60:
@@ -904,6 +908,23 @@ class AgentEngine:
             )
         try:
             return self._run_tool_impl(tool_name, **kwargs)
+        except Exception as exc:
+            # A raising tool wrote no `tool_call` record, so the profile showed a
+            # start with no completion and nothing about what went wrong. The
+            # failure is the interesting event — it is what the model reacts to,
+            # and what a session analysis needs to attribute time to.
+            if self.profiler is not None:
+                try:
+                    self.profiler.log_event(
+                        event="tool_failed",
+                        tool=tool_name,
+                        iteration=self.state.iteration_count,
+                        args=kwargs_str or None,
+                        error=f"{type(exc).__name__}: {exc}"[:300],
+                    )
+                except Exception:  # noqa: BLE001 — logging never masks the error
+                    logger.debug("failed-call logging failed", exc_info=True)
+            raise
         finally:
             self._fire_tool_event(tool_name, "end")
 
@@ -1142,9 +1163,14 @@ class AgentEngine:
         # Record timing in the profiling log
         if self.profiler is not None:
             _duration = (_time.perf_counter() - _start) * 1000.0
+            # The SAME rendering `tool_start` uses. They rendered differently —
+            # one compacted, one a raw dict repr — so a start and its completion
+            # could not be paired, and a call that RAISED (which writes no
+            # `tool_call` at all) could only be counted, never identified. "16
+            # set_fields calls failed, cause unknown" is not a diagnosis.
             _args_str: str | None = None
             try:
-                _args_str = str(kwargs)[:500]
+                _args_str = _compact_tool_kwargs(tool_name, kwargs)
             except Exception:
                 pass
             # Truncate result string to avoid bloating profile
