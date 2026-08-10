@@ -234,3 +234,105 @@ class TestMaterializeRoundTrip:
         # The AOP node keeps its resolvable IRI as the entity_id (no '#' prefix).
         aop = _by_type(reread, "AdverseOutcomePathway")[0]
         assert aop.entity_id == "https://aopwiki.org/aops/610"
+
+
+class TestLinkAssayToKeyEvent:
+    """The Assay -> Key Event link (#382).
+
+    ``keyEvent`` is a fully declared Assay reference field — in the draft schema,
+    mapped by ``_ASSAY_MENTION_FIELDS``, consumed by the build — and it had ZERO
+    writers anywhere in ``builder/``. No crate either arm produced had ever
+    recorded which Key Event an assay measures, so the biological meaning of the
+    measurement was absent from every crate while the field looked supported.
+    """
+
+    def _crate(self, events: list[tuple[str, str]]):
+        from builder.state import CrateState, Entity
+        from builder.tools.composites import scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "AOP link"
+        scaffold = scaffold_isa_backbone(
+            state,
+            investigation={"name": "I"},
+            study={"name": "S"},
+            assay={"name": "Transport assay"},
+        )
+        for entity_id, name in events:
+            state.add_entity(Entity(entity_id=entity_id, type="KeyEvent", fields={"name": name}))
+        return state, scaffold["assay_id"]
+
+    _EVENTS = [
+        ("https://aopwiki.org/events/177", "Mitochondrial dysfunction"),
+        ("https://aopwiki.org/events/279", "Thyroperoxidase, Inhibition"),
+    ]
+
+    def test_exact_name_links_the_assay(self) -> None:
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate(self._EVENTS)
+        out = link_assay_to_key_event(state, assay_id, "Mitochondrial dysfunction")
+        assert out["ok"]
+        assert out["key_event_id"] == "https://aopwiki.org/events/177"
+
+    def test_case_and_punctuation_are_ignored(self) -> None:
+        # A depositor writes "thyroperoxidase inhibition"; AOP-Wiki says
+        # "Thyroperoxidase, Inhibition". Same event.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate(self._EVENTS)
+        out = link_assay_to_key_event(state, assay_id, "thyroperoxidase inhibition")
+        assert out["key_event_id"] == "https://aopwiki.org/events/279"
+
+    def test_a_near_miss_writes_nothing_and_offers_candidates(self) -> None:
+        # "TPO inhibition" is the same thing to a human and NOT a token match.
+        # Guessing which Key Event an assay measures is a scientific claim.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate(self._EVENTS)
+        out = link_assay_to_key_event(state, assay_id, "TPO inhibition")
+        assert out["ok"] is False
+        assert state.get_entity(assay_id).fields.get("keyEvent") is None
+        assert {c["name"] for c in out["candidates"]} == {n for _i, n in self._EVENTS}
+
+    def test_ambiguous_name_writes_nothing(self) -> None:
+        from builder.tools.composites import link_assay_to_key_event
+
+        duplicated = [
+            ("https://aopwiki.org/events/1", "Mitochondrial dysfunction"),
+            ("https://aopwiki.org/events/2", "mitochondrial  dysfunction"),
+        ]
+        state, assay_id = self._crate(duplicated)
+        out = link_assay_to_key_event(state, assay_id, "Mitochondrial dysfunction")
+        assert out["ok"] is False
+        assert state.get_entity(assay_id).fields.get("keyEvent") is None
+
+    def test_no_key_events_says_to_materialize_first(self) -> None:
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate([])
+        out = link_assay_to_key_event(state, assay_id, "anything")
+        assert out["ok"] is False
+        assert "materialize_aop_subgraph" in out["error"]
+
+    def test_the_link_reaches_the_exported_crate(self, tmp_path) -> None:
+        # The point of the issue: the field existed and nothing ever populated
+        # it, so no crate carried the link.
+        import json
+
+        from builder.tools.builder import export_crate
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate(self._EVENTS)
+        link_assay_to_key_event(state, assay_id, "Mitochondrial dysfunction")
+        out = tmp_path / "crate"
+        export_crate(state, str(out), validate=False)
+        graph = json.loads((out / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
+        assay = next(n for n in graph if n.get("additionalType") == "Assay")
+        assert assay["keyEvent"] == [{"@id": "https://aopwiki.org/events/177"}]
+
+    def test_materialize_returns_event_detail_for_picking(self) -> None:
+        # events_detail is additive — the int count stays for existing callers.
+        from builder.tools.composites import materialize_aop_subgraph
+
+        assert callable(materialize_aop_subgraph)

@@ -402,6 +402,53 @@ def _apply_measurement_method(
     return True
 
 
+# Root-level agent properties and the ``CrateMetadata`` slot each is wired from.
+# ``author`` is deliberately absent: the builder appends EVERY Person to the root
+# as an author, so that gap closes on minting alone.
+_ROOT_ATTRIBUTION_SLOTS: dict[str, str] = {
+    "publisher": "publisher",
+    "creator": "creator",
+    "contactPoint": "contact",
+}
+
+
+def _record_root_attribution(engine: AgentEngine, gap: Gap, person_id: str) -> bool:
+    """Record an answered root person gap against the property it answered (#337).
+
+    The root Data Entity has no state node, so a root person gap used to be
+    considered satisfied by minting the Person alone — on the assumption that the
+    builder auto-wires every Person onto the root. It does, but only as
+    ``author``. ``publisher`` / ``creator`` / ``contactPoint`` are wired
+    exclusively from ``CrateMetadata`` by
+    :func:`~builder.tools._crate_mapping._wire_root_attribution`, so answering
+    "who should be credited as the publisher?" wrote nothing that could close
+    ``./ schema:publisher``.
+
+    The failure was self-sustaining rather than merely incomplete: ``_apply_value``
+    returned True, so ``run_guidance`` counted it as progress and kept the gap out
+    of ``tried_identities``; the same gap re-emerged the next round and was
+    re-worded by ``phrase_gap_question``, which is why one run asked for the
+    publisher twice in different words. The user's answer was discarded each time.
+
+    Recording the user's own answer against the slot they answered is also why
+    this belongs here rather than in the writer: making the writer promote an
+    arbitrary Person to ``publisher`` would credit someone the user never named,
+    on a crate where publisher is often the institution rather than the
+    researcher. Here nothing is inferred — the value is what was asked for.
+    """
+    # SHACL reports a full IRI (``http://schema.org/publisher``); a CURIE is
+    # accepted too so a differently-shaped gap source degrades to a no-op only
+    # when the property genuinely is not a root attribution slot.
+    local = (_local_name(gap.property) or "").rsplit(":", 1)[-1]
+    slot = _ROOT_ATTRIBUTION_SLOTS.get(local)
+    if slot is None:
+        return True
+    # The freshly answered value wins over any earlier one: this gap being open
+    # is evidence whatever was there did not satisfy it.
+    setattr(engine.state.metadata, slot, person_id)
+    return True
+
+
 def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     """Mint a Person for a person/agent-typed gap and link it by reference (#275).
 
@@ -415,10 +462,9 @@ def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     D5: a supplied ORCID is attached only after :func:`_verified_orcid_for`
     confirms it; an unverified one is dropped (the name still mints a Person).
 
-    A crate-level / root person gap (no resolvable state entity, e.g. the
-    Investigation's ``creator``) is satisfied by minting the Person alone: the
-    crate builder wires every Person onto the Root Data Entity as an author, so
-    no explicit field link is needed (and there is no state field to set).
+    A crate-level / root person gap (no resolvable state entity) has no state
+    field to set, so it is routed to :func:`_record_root_attribution`, which
+    records the answer against the ``CrateMetadata`` slot the gap asked about.
     Returns ``True`` iff a Person was minted, else ``False`` (no usable name).
     """
     name, bare_orcid, affiliation = _parse_person_value(value)
@@ -446,9 +492,7 @@ def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
 
     state_id = _resolve_entity_id(engine, gap)
     if state_id is None:
-        # Root / crate-level person gap: the Person is auto-wired onto the Root
-        # Data Entity as an author by the builder, so minting it suffices.
-        return True
+        return _record_root_attribution(engine, gap, person_id)
 
     # Link the Person as a REFERENCE on the gap entity's field. The reference @id
     # is the builder's MINTED node id (the ORCID URL for a verified ORCID, else a

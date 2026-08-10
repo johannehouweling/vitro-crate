@@ -66,7 +66,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_process_chain",
-        "description": "Create and wire a whole LabProcess derivation chain in ONE idempotent call: Sample ->[CellCulture]-> Sample ->[Exposure]-> table ->[EndpointReadout]-> raw ->[DataAnalysis]-> figures. Pass the parent assay_id and an ordered chain of steps; each step is {process_type, hints?, object?, result?}. Steps are always wired in canonical order (CellCulture->Exposure->EndpointReadout->DataAnalysis) and a subset is fine (partial chains work). CRITICAL: it SYNTHESIZES the missing outputs that EndpointReadout/DataAnalysis require (they have no build-time fallback) so the chain never dangles into a validation error — placeholder File/Sample entities with NO fabricated data. Explicit object/result you pass win over synthesis. Set validate_after=true to also run build_and_validate. Prefer this over draft_process+link for the standard chain. Example: draft_process_chain(assay_id='assay_cell_viability_assay', chain=[{'process_type':'CellCulture','hints':{'name':'Seed MDCK'}},{'process_type':'Exposure','hints':{'duration':'24h'}},{'process_type':'EndpointReadout','hints':{}},{'process_type':'DataAnalysis','hints':{}}]).",
+        "description": "Create and wire a whole LabProcess derivation chain in ONE idempotent call: Sample ->[CellCulture]-> Sample ->[Exposure]-> table ->[EndpointReadout]-> raw ->[DataAnalysis]-> figures. Pass the parent assay_id and an ordered chain of steps; each step is {process_type, hints?, object?, result?}. Steps are always wired in canonical order (CellCulture->Exposure->EndpointReadout->DataAnalysis) and a subset is fine (partial chains work). CRITICAL: it SYNTHESIZES the missing outputs that EndpointReadout/DataAnalysis require (they have no build-time fallback) so the chain never dangles into a validation error — placeholder File/Sample entities with NO fabricated data. Explicit object/result you pass win over synthesis. Set validate_after=true to also run build_and_validate. Prefer this over draft_process+link for the standard chain. ALWAYS fill each step's experimental parameters from the assay metadata workbook / SOP you have read — Exposure: duration, cell_seeding_density, microplate; EndpointReadout: detection_instrument, instrument_manufacturer, measured_entity, endpoint, technical_replicate; DataAnalysis: computational_tool, data_calculation_and_statistics. A parameter you leave out is OMITTED from the crate (never written as 'unknown'), and each process MUST end up with at least one, so an empty hints={} on a step whose values are sitting in the workbook is a validation failure you caused. Never invent a value — if the source is silent, leave it out. Example: draft_process_chain(assay_id='assay_cell_viability_assay', chain=[{'process_type':'CellCulture','hints':{'name':'Seed MDCK'}},{'process_type':'Exposure','hints':{'duration':'24h','microplate':'96-well'}},{'process_type':'EndpointReadout','hints':{'detection_instrument':'Multiskan FC','endpoint':'T4 uptake','measured_entity':'Radioactivity'}},{'process_type':'DataAnalysis','hints':{'computational_tool':'GraphPad Prism'}}]).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -164,6 +164,24 @@ TOOL_SPECS = [
                 },
             },
             "required": ["aop_id"],
+        },
+    },
+    {
+        "name": "link_assay_to_key_event",
+        "description": "Link an Assay to the AOP Key Event it MEASURES, by the event's name (schema:mentions via the Assay's keyEvent field). Run materialize_aop_subgraph first so the KeyEvents exist in the crate — the reference committed is always the in-state AOP-Wiki id for the matched event, never one built from the name. Matching ignores case and punctuation. If the name matches zero or several events it writes NOTHING and returns the candidates for you to choose from, because which Key Event an assay measures is a scientific claim rather than a string match. Example: link_assay_to_key_event(assay_id='assay_oatp1c1_transport', event_name='Thyroperoxidase, Inhibition').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assay_id": {
+                    "type": "string",
+                    "description": "entity_id of the Assay that performs the measurement.",
+                },
+                "event_name": {
+                    "type": "string",
+                    "description": "Name of the Key Event as written in the source, e.g. 'mitochondrial dysfunction'.",
+                },
+            },
+            "required": ["assay_id", "event_name"],
         },
     },
     {
@@ -395,7 +413,7 @@ TOOL_SPECS = [
     },
     {
         "name": "set_crate_metadata",
-        "description": "Set top-level crate metadata on the Root Data Entity (./): title/description/accession plus the root dates release_date (schema:releaseDate) and date_modified (schema:dateModified). Pass ISO-8601 strings for the dates, e.g. release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z'. Only the fields you pass are written — never fabricate a date. datePublished is auto-set at build time and is not controlled here. Example: set_crate_metadata(accession='S-VHPS21', release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z').",
+        "description": "WRITE-ONLY setter for top-level crate metadata on the Root Data Entity (./): title/description/accession, the root dates release_date/date_modified, and crate-level ATTRIBUTION (publisher/creator/contact/license) — who is responsible for this dataset, which is NOT the same as the publication's authors. You MUST pass at least one value to write — a call with all fields null writes nothing, is REJECTED with an error, and does not read anything back; use get_status to READ the current crate metadata. Pass ISO-8601 strings for the dates, e.g. release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z'. Only the fields you pass are written — never fabricate a date. datePublished is auto-set at build time and is not controlled here. Example: set_crate_metadata(accession='S-VHPS21', release_date='2025-11-10', date_modified='2026-06-14T19:37:30Z').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -418,6 +436,39 @@ TOOL_SPECS = [
                 "date_modified": {
                     "type": "string",
                     "description": "ISO-8601 date/datetime for schema:dateModified, e.g. '2026-06-14T19:37:30Z'.",
+                },
+                "publisher": {
+                    "type": "string",
+                    "description": "WHO PUBLISHES this dataset: an entity id of a drafted Person/Organization, or a verified ORCID/ROR IRI. Rejected if it does not resolve — a bare name is not attribution.",
+                },
+                "creator": {
+                    "type": "string",
+                    "description": "WHO MADE this dataset (entity id or verified ORCID/ROR IRI). Distinct from the publication's authors, which describe the paper.",
+                },
+                "contact": {
+                    "type": "string",
+                    "description": "WHO TO CONTACT about this dataset (entity id or verified ORCID IRI) — typically the corresponding person named in the assay metadata.",
+                },
+                "license": {
+                    "type": "string",
+                    "description": "Licence for the dataset, ideally a URL (e.g. 'https://creativecommons.org/licenses/by/4.0/'). Ask the user; never guess.",
+                },
+            },
+        },
+    },
+    {
+        "name": "set_validation_preference",
+        "description": "Record whether the user wants the broader RECOMMENDED / OPTIONAL validation tiers run from now on. The loop asks about each tier ONCE and then honours the answer silently — call this only when the user changes their mind mid-session, e.g. 'stop running the recommended checks' (recommended=false) or 'let's look at the optional findings too' (optional=true). The tiers are a hierarchy: turning recommended off turns optional off with it, and turning optional on turns recommended on. Never call this to re-ask a question the user has already answered.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "recommended": {
+                    "type": "boolean",
+                    "description": "Run the RECOMMENDED (SHOULD) tier from now on. Omit to leave unchanged.",
+                },
+                "optional": {
+                    "type": "boolean",
+                    "description": "Run the OPTIONAL (MAY) tier from now on. Omit to leave unchanged.",
                 },
             },
         },
@@ -623,7 +674,7 @@ TOOL_SPECS = [
     },
     {
         "name": "export_crate",
-        "description": "Write the finished RO-Crate to disk (the only step that touches disk). Use build_and_validate while iterating; call export_crate once the crate is conformant. Returns crate_path. Auto-embeds the browsable preview and the entity-graph diagram (ro-crate-graph.mmd, a CreativeWork about ./) so the crate is self-describing. When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
+        "description": "Write the finished RO-Crate to disk (the only step that touches disk). Use build_and_validate while iterating; call export_crate once the crate is conformant. Returns crate_path. Auto-embeds the browsable preview and the entity-graph diagram (ro-crate-graph.mmd, a CreativeWork about ./) so the crate is self-describing. Before writing, it validates at the FULL gate (REQUIRED + RECOMMENDED + OPTIONAL) so the embedded maturity report covers every tier, and returns 'validation' with per-tier issue_counts; 'ok' there is REQUIRED conformance only, so RECOMMENDED/OPTIONAL counts are findings to report, not a failed export. When output_path is omitted, defaults to sessions/<session_id>/working_crate/",
         "parameters": {
             "type": "object",
             "properties": {

@@ -21,6 +21,198 @@ from builder.tools.field_kinds import is_reference_field, is_resolvable_referenc
 logger = logging.getLogger(__name__)
 
 
+# Reference properties the build resolves as COLLECTIONS (via ``_resolve_many`` /
+# ``_wire_references``). For these a bare value and a one-item list say the same
+# thing, so both are stored as a list — otherwise "assay_y" and ["assay_y"] are
+# two different states and a model alternating between them looks like progress
+# forever (observed: a string/list flip every ~6s for a full minute).
+#
+# Deliberately an allow-list: the single-valued references (``labprotocol``,
+# ``cell_line``, ``study_id``, ``measurementMethod``, …) go through
+# ``_wire_reference``, which resolves ONE value — wrapping those in a list would
+# silently break them. An unrecognised reference field keeps its shape.
+_COLLECTION_REF_FIELDS: frozenset[str] = frozenset(
+    {
+        "hasPart",
+        "has_part",
+        "studies",
+        "assays",
+        "resources",
+        "dataFiles",
+        "author",
+        "mentions",
+        "chemicals",
+        "cell_lines",
+        "biological_models",
+        "biologicalModels",
+        "samples",
+        "result",
+        "output",
+        "input",
+        "object",
+        "about",
+        "funder",
+        "additionalProperty",
+    }
+)
+
+
+def _normalize_reference_one(state: CrateState, value: Any) -> str | None:
+    """One reference value reduced to its bare entity id (or a kept-verbatim IRI).
+
+    Accepts every encoding a caller might reach for — ``"assay_x"``,
+    ``{"@id": "assay_x"}``, ``"#assay_x"``, ``"./#Assay_assay_x"`` — because the
+    build resolves all of them. An external IRI is kept as-is; an unrecognised
+    string is kept verbatim rather than dropped, so nothing is silently lost.
+    """
+    key = value.get("@id") if isinstance(value, dict) else value
+    if not isinstance(key, str):
+        return None
+    key = key.strip()
+    if not key:
+        return None
+    if "://" in key:
+        return key  # external identifier — already canonical
+    bare = key.lstrip("./").lstrip("#")
+    if state.get_entity(bare) is not None:
+        return bare
+    # Crate-style type-qualified id, e.g. "Assay_assay_x" -> "assay_x".
+    if "_" in bare:
+        candidate = bare.split("_", 1)[1]
+        if state.get_entity(candidate) is not None:
+            return candidate
+    return key
+
+
+def _normalize_reference_value(
+    state: CrateState, entity_id: str, value: Any, field: str = ""
+) -> Any:
+    """Canonicalise a reference-valued field before it is stored.
+
+    The same fact can be written six ways — bare id, ``{"@id": …}``, a
+    ``./#Type_id`` crate id, each of those alone or in a list — and every one of
+    them used to be stored verbatim. A model that cannot tell which encoding the
+    validator wants then cycles through them, and because each write genuinely
+    changes the stored value, nothing downstream recognises it as going in
+    circles: one observed session wrote the same Study→Assay link 29 times in
+    six encodings, ~1.7M input tokens.
+
+    Collapsing to one canonical form makes the second write of the same fact a
+    true no-op, which the loop's no-op guard already catches. Self-references
+    and duplicates are dropped — a Study listing itself under ``hasPart`` is
+    never meaningful. List-ness is preserved: some reference properties are
+    single-valued in the build and wrapping them in a list would break them.
+    """
+    if value is None or value == "":
+        return value
+    is_list = isinstance(value, (list, tuple))
+    items = list(value) if is_list else [value]
+    out: list[str] = []
+    for item in items:
+        norm = _normalize_reference_one(state, item)
+        if norm is None or norm == entity_id or norm in out:
+            continue
+        out.append(norm)
+    if field in _COLLECTION_REF_FIELDS:
+        return out  # a collection property is always stored as a list
+    if is_list:
+        return out
+    return out[0] if out else None
+
+
+# Reference fields whose members are PropertyValues, so an inline
+# ``{"name": …, "value": …}`` can be turned into a real entity instead of dropped.
+_PROPERTY_VALUE_REF_FIELDS: frozenset[str] = frozenset({"additionalProperty"})
+
+
+def _materialize_property_values(state: CrateState, field: str, value: Any) -> Any:
+    """Turn inline ``{"name": …, "value": …}`` members into PropertyValue entities.
+
+    A PropertyValue written inline is the most natural encoding there is — it is
+    exactly how the thing appears in the finished JSON-LD, and it is what the tox
+    profile's own message ("MUST have at least one schema:additionalProperty
+    (e.g. Computational Tool …)") suggests. But ``additionalProperty`` is a
+    reference-only field, so an inline dict resolved to nothing and the whole
+    list was stored as ``[]``: the value vanished, the field was marked filled,
+    and the caller was told the write succeeded. Creating the entity the caller
+    described is faithful to what they supplied — the name and the value are
+    both theirs, nothing is invented — and it leaves a reference that the build
+    can actually wire.
+    """
+    if field not in _PROPERTY_VALUE_REF_FIELDS:
+        return value
+    is_list = isinstance(value, (list, tuple))
+    items = list(value) if is_list else [value]
+    out: list[Any] = []
+    for item in items:
+        if isinstance(item, dict) and item.get("name") and not item.get("@id"):
+            from builder.tools.drafters import draft_property_value
+
+            hints = {k: v for k, v in item.items() if k != "name"}
+            out.append(draft_property_value(state, str(item["name"]), hints).entity_id)
+        else:
+            out.append(item)
+    return out if is_list else out[0]
+
+
+def _reject_unresolvable_property_values(
+    state: CrateState, entity_id: str, field: str, value: Any
+) -> None:
+    """Raise when an ``additionalProperty`` member names no entity.
+
+    Narrower than the general reference check on purpose. Most reference fields
+    tolerate a forward reference — the agent may wire a result before drafting
+    the file — but a PropertyValue is never external and never arrives later:
+    either it exists or the member is a display string that the build silently
+    discards. ``"Computational Tool: GraphPad Prism"`` survived normalisation
+    verbatim, looked stored, and then vanished at build time with the process
+    still failing its MUST. Refuse it while the caller can still act.
+    """
+    if field not in _PROPERTY_VALUE_REF_FIELDS:
+        return
+    for item in value if isinstance(value, (list, tuple)) else [value]:
+        key = item.get("@id") if isinstance(item, dict) else item
+        if not isinstance(key, str) or "://" in key:
+            continue
+        if state.get_entity(key.lstrip("./").lstrip("#")) is None:
+            raise ValueError(
+                f"{key!r} is not an entity, so {field!r} on {entity_id!r} would be "
+                f"dropped when the crate is built. {field!r} holds references to "
+                f"PropertyValue entities: call draft_property_value(name=…, "
+                f"hints={{'value': …}}) first and pass the entity_id it returns, or "
+                f"pass the name/value inline as {{'name': …, 'value': …}} and it "
+                f"will be created for you."
+            )
+
+
+def _reject_fully_dropped_references(
+    entity_id: str, supplied: dict[str, Any], normalized: dict[str, Any]
+) -> None:
+    """Raise when a reference field was given values and kept none of them.
+
+    Normalisation drops what it cannot resolve, which is right — the build would
+    drop it anyway. Storing the empty remainder as if it were the caller's intent
+    is not: it overwrites whatever was there, records the field as ``filled``,
+    and hands back an entity that looks successfully updated. A model reading
+    that result has no way to learn its encoding was wrong, so it tries another
+    one, and another. Failing loudly turns three silent rounds into one clear
+    correction.
+    """
+    for field, value in supplied.items():
+        if not is_reference_field(field) or not value:
+            continue
+        kept = normalized.get(field)
+        if kept:
+            continue
+        raise ValueError(
+            f"None of the values given for {field!r} on {entity_id!r} resolve to an "
+            f"entity, so nothing would be stored: {value!r}. This property holds "
+            f"REFERENCES to entities that already exist. Create the entity first "
+            f"(e.g. draft_property_value for an additionalProperty) and pass its "
+            f"entity_id, or pass an existing id — not a display string."
+        )
+
+
 def set_fields(
     state: CrateState,
     entity_id: str,
@@ -49,6 +241,17 @@ def set_fields(
     entity = state.get_entity(entity_id)
     if entity is None:
         raise ValueError(f"Entity not found: {entity_id}")
+
+    supplied = dict(fields)
+    fields = {
+        name: (_normalize_reference_value(
+                   state, entity_id, _materialize_property_values(state, name, value), name)
+               if is_reference_field(name) else value)
+        for name, value in fields.items()
+    }
+    _reject_fully_dropped_references(entity_id, supplied, fields)
+    for field, value in fields.items():
+        _reject_unresolvable_property_values(state, entity_id, field, value)
 
     for field, value in fields.items():
         # (#375) A reference-only property whose value is not a resolvable
@@ -267,6 +470,10 @@ def set_crate_metadata(
     accession: str | None = None,
     release_date: str | None = None,
     date_modified: str | None = None,
+    publisher: str | None = None,
+    creator: str | None = None,
+    contact: str | None = None,
+    license: str | None = None,
 ) -> dict[str, Any]:
     """Set top-level crate metadata on ``state.metadata`` (the Root Data Entity).
 
@@ -293,8 +500,31 @@ def set_crate_metadata(
 
     Returns:
         A token-bounded summary of the metadata values now in effect for the
-        fields this tool manages.
+        fields this tool manages, or an ``{"error": ...}`` dict when the call
+        supplies no value to write.
+
+    A call with every field empty is REFUSED rather than treated as a harmless
+    read. It cannot write anything, so it is always a mistake — and the
+    successful-looking summary it used to return read as progress to the caller,
+    which is how one session issued this call 33 times in a row (~990k input
+    tokens) without anything stopping it. Use ``get_status`` to read the current
+    metadata.
     """
+    supplied = (
+        title, description, accession, release_date, date_modified,
+        publisher, creator, contact, license,
+    )
+    if all(value in (None, "") for value in supplied):
+        return {
+            "error": (
+                "set_crate_metadata needs at least one value to write. Pass the "
+                "field(s) you want to set — title, description, accession, "
+                "release_date or date_modified — or use get_status to read the "
+                "current crate metadata."
+            ),
+            "tool": "set_crate_metadata",
+        }
+
     m = state.metadata
     if title not in (None, ""):
         m.title = title
@@ -306,12 +536,79 @@ def set_crate_metadata(
         m.release_date = release_date
     if date_modified not in (None, ""):
         m.date_modified = date_modified
+    # Attribution: an entity id or a resolvable IRI, never free text — a name
+    # string credits nobody a registry can resolve (D5).
+    for attr, value in (
+        ("publisher", publisher), ("creator", creator), ("contact", contact)
+    ):
+        if value in (None, ""):
+            continue
+        if not is_resolvable_reference(state, value):
+            return {
+                "error": (
+                    f"{attr}={value!r} does not resolve to anyone. Draft the Person or "
+                    "Organization first (draft_person / draft_organization), or pass a "
+                    "verified ORCID/ROR IRI. A bare name is not attribution."
+                ),
+                "tool": "set_crate_metadata",
+            }
+        setattr(m, attr, value)
+    if license not in (None, ""):
+        m.license = license
     return {
         "title": m.title,
         "description": m.description,
         "accession": m.accession,
         "release_date": m.release_date,
         "date_modified": m.date_modified,
+        "publisher": m.publisher,
+        "creator": m.creator,
+        "contact": m.contact,
+        "license": m.license,
+    }
+
+
+def set_validation_preference(
+    state: CrateState,
+    recommended: bool | None = None,
+    optional: bool | None = None,
+) -> dict[str, Any]:
+    """Record whether the user wants the RECOMMENDED / OPTIONAL validation tiers.
+
+    The interactive loop offers each broader tier once and then honours the
+    answer silently. Call this when the user changes their mind mid-session —
+    "stop running the recommended checks", "let's look at the optional findings
+    after all" — so the loop stops asking, or starts running, accordingly.
+
+    The tiers are a hierarchy, and this enforces it: OPTIONAL findings are only
+    meaningful once the SHOULD-tier gaps are being worked, so turning
+    ``recommended`` off turns ``optional`` off with it. Turning ``optional`` on
+    turns ``recommended`` on for the same reason.
+
+    Args:
+        state: The crate state whose preferences are updated.
+        recommended: Run the RECOMMENDED tier from now on. ``None`` leaves it.
+        optional: Run the OPTIONAL tier from now on. ``None`` leaves it.
+
+    Returns:
+        The preferences now in effect, plus the tiers that will run.
+    """
+    prefs = state.validation_preferences
+    if recommended is not None:
+        prefs["recommended"] = bool(recommended)
+        if not recommended:
+            # Optional sits above recommended: keeping it on while its
+            # foundation is off would go back to asking about MAY-level
+            # findings the user has just said they do not want.
+            prefs["optional"] = False
+    if optional is not None:
+        prefs["optional"] = bool(optional)
+        if optional:
+            prefs["recommended"] = True
+    return {
+        "validation_preferences": dict(prefs),
+        "tiers_that_will_run": ["required"]
+        + [tier for tier in ("recommended", "optional") if prefs.get(tier)],
     }
 
 
@@ -331,3 +628,6 @@ TOOL_REGISTRY.register("set_fields", set_fields, takes_state=True)
 # Crate-level (Root Data Entity) metadata setter — title/description/accession
 # plus the root dates releaseDate/dateModified (Issue #180).
 TOOL_REGISTRY.register("set_crate_metadata", set_crate_metadata, takes_state=True)
+# Standing answer to "run the broader validation tiers?" — so the user can
+# revoke it mid-session instead of being asked again (or never again).
+TOOL_REGISTRY.register("set_validation_preference", set_validation_preference, takes_state=True)

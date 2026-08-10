@@ -480,8 +480,37 @@ def _safe_walk(root: Path) -> list[Path]:
 
     Hidden and special directories (``.git``, ``__MACOSX``, dot-prefixed)
     are pruned in-place during the walk so they are never descended.
+
+    The tool's OWN artifacts are pruned too (#416). Scanning a directory that
+    already holds previous runs re-ingested the builder's own crates and session
+    state as if they were source research data — and because
+    ``ro-crate-metadata.json`` and ``crate_state.json`` match the metadata/JSON
+    priority rules, that self-produced material OUTRANKED the real assay files in
+    the drafter's context budget. Two prunes, both drift-free:
+
+    * a nested directory containing ``ro-crate-metadata.json`` is an RO-Crate
+      root by spec, so it is skipped wholesale. Identifying it by the sentinel
+      rather than by a directory name list also catches a user-chosen output path
+      and cannot misfire on legitimate research data in a folder named
+      ``output/``;
+    * the configured session root (honouring ``VITRO_SESSION_DIR``), because
+      ``sessions/<id>/crate_state.json`` lives outside any crate root and is a
+      complete serialization of the previous run.
+
+    The scan target itself is exempt from both, so explicitly pointing at a crate
+    or a session directory still works.
     """
+    import builder.config as _config
+
     results: list[Path] = []
+    try:
+        target = root.resolve()
+    except OSError:
+        target = root
+    try:
+        session_root = Path(_config.session_root()).resolve()
+    except Exception:  # noqa: BLE001 — an unresolvable session root just skips this prune
+        session_root = None
 
     def _onerror(err: OSError) -> None:
         logger.warning("Skipping unreadable directory: %s", err.filename or err)
@@ -497,6 +526,21 @@ def _safe_walk(root: Path) -> list[Path]:
             dirnames[:] = [d for d in dirnames if not _should_prune(d)]
 
             dirpath = Path(dirpath_str)
+            try:
+                resolved = dirpath.resolve()
+            except OSError:
+                resolved = dirpath
+
+            if resolved != target:
+                if "ro-crate-metadata.json" in filenames:
+                    logger.info("Skipping nested RO-Crate root: %s", dirpath)
+                    dirnames[:] = []
+                    continue
+                if session_root is not None and resolved == session_root:
+                    logger.info("Skipping the tool's session root: %s", dirpath)
+                    dirnames[:] = []
+                    continue
+
             for name in filenames:
                 results.append(dirpath / name)
     except PermissionError:

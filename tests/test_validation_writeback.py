@@ -12,6 +12,7 @@ per-turn state brief so the weak model stops re-deriving the plan every turn.
 from __future__ import annotations
 
 from builder.engine import AgentEngine, _order_required_issues
+from builder.state import ValidationReport
 
 
 class TestValidationWriteBack:
@@ -115,3 +116,144 @@ class TestStateBriefNextFix:
             iteration_count=3,
         )
         assert "Next REQUIRED fix" not in brief
+
+
+class TestValidationFreshness:
+    """A verdict is only meaningful next to the crate it judged (#153).
+
+    The agent keeps editing after validating, so a verdict recorded a few tool
+    calls ago can describe a crate that no longer exists. Every write-back stamps
+    the state's ``validation_fingerprint`` so staleness is answerable later —
+    without it the exported maturity report ships a green "Conformant" for a
+    state nobody checked.
+    """
+
+    def _state(self):
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        return vhps_fixture_state("S-VHPS21")
+
+    def test_writeback_stamps_the_fingerprint(self) -> None:
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        assert state.validation.input_fingerprint == ""
+        apply_validation_result(
+            state,
+            "build_and_validate",
+            {"ok": True, "conformance": {"base": True, "isa": True, "tox": True}, "issues": []},
+        )
+        assert state.validation.input_fingerprint == state.validation_fingerprint()
+        assert state.validation.is_stale_for(state) is False
+
+    def test_verdict_goes_stale_when_the_crate_changes(self) -> None:
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        apply_validation_result(
+            state,
+            "build_and_validate",
+            {"ok": True, "conformance": {"base": True, "isa": True, "tox": True}, "issues": []},
+        )
+        state.metadata.title = "Edited after validating"
+        assert state.validation.is_stale_for(state) is True
+
+    def test_unstamped_verdict_is_not_reported_stale(self) -> None:
+        # A report restored from an older checkpoint predates the stamp;
+        # downgrading every one of those to "stale" would be a false alarm.
+        state = self._state()
+        state.validation = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        assert state.validation.input_fingerprint == ""
+        assert state.validation.is_stale_for(state) is False
+
+    def test_fingerprint_round_trips_through_serialisation(self) -> None:
+        state = self._state()
+        report = ValidationReport(base_passed=True, input_fingerprint="abc123")
+        assert ValidationReport.from_dict(report.to_dict()).input_fingerprint == "abc123"
+        # …and a checkpoint written before the field existed still loads.
+        legacy = report.to_dict()
+        del legacy["input_fingerprint"]
+        assert ValidationReport.from_dict(legacy).input_fingerprint == ""
+        assert ValidationReport.from_dict(legacy).is_stale_for(state) is False
+
+    def test_engine_writeback_stamps_too(self) -> None:
+        # The engine delegates to the same mapping, so a verdict reached through
+        # the tool loop and one reached by export_crate carry the same stamp.
+        engine = AgentEngine(state=self._state())
+        engine._writeback_validation(
+            "build_and_validate",
+            {"ok": True, "conformance": {"base": True, "isa": True, "tox": True}, "issues": []},
+            severity="required",
+        )
+        assert engine.state.validation.input_fingerprint == (
+            engine.state.validation_fingerprint()
+        )
+
+
+class TestEnsureValidated:
+    """``ensure_validated`` re-validates only when the recorded verdict is stale."""
+
+    def _state(self):
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        return vhps_fixture_state("S-VHPS21")
+
+    def _stub(self, monkeypatch, calls: list) -> None:
+        """Replace the SHACL pass so the DECISION is tested, not the validator."""
+        import builder.tools.validation as validation
+
+        def _fake(state, severity="required", profile="all"):
+            calls.append(severity)
+            return {
+                "ok": True,
+                "conformance": {"base": True, "isa": True, "tox": True},
+                "issues": [],
+            }
+
+        monkeypatch.setattr(validation, "build_and_validate", _fake)
+
+    def test_runs_when_never_validated(self, monkeypatch) -> None:
+        from builder.tools.validation import ensure_validated
+
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        info = ensure_validated(self._state())
+        assert info == {"ran": True, "reason": "never-validated", "ok": True, "error": None}
+        assert calls == ["required"]
+
+    def test_skips_when_the_verdict_is_current(self, monkeypatch) -> None:
+        from builder.tools.validation import ensure_validated
+
+        state = self._state()
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        ensure_validated(state)
+        info = ensure_validated(state)
+        assert info["ran"] is False and info["reason"] == "fresh"
+        assert calls == ["required"], "re-validated an unchanged crate"
+
+    def test_runs_again_once_the_crate_changes(self, monkeypatch) -> None:
+        from builder.tools.validation import ensure_validated
+
+        state = self._state()
+        calls: list = []
+        self._stub(monkeypatch, calls)
+        ensure_validated(state)
+        state.metadata.title = "Edited"
+        info = ensure_validated(state)
+        assert info["ran"] is True and info["reason"] == "stale"
+        assert calls == ["required", "required"]
+
+    def test_validator_failure_is_reported_not_raised(self, monkeypatch) -> None:
+        # export_crate must still write the crate; the report says the verdict
+        # could not be established.
+        import builder.tools.validation as validation
+        from builder.tools.validation import ensure_validated
+
+        def _boom(state, severity="required", profile="all"):
+            raise RuntimeError("shapes graph unavailable")
+
+        monkeypatch.setattr(validation, "build_and_validate", _boom)
+        info = ensure_validated(self._state())
+        assert info["ran"] is False
+        assert "shapes graph unavailable" in info["error"]

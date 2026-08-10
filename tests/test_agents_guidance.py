@@ -2427,3 +2427,112 @@ class TestGuidanceTokenAccounting:
             "the phrase leaf fell back to the deterministic prompt — the sink was "
             "not accepted by its keyword name"
         )
+
+
+class TestRootPublisherGapClosesOnceAnswered:
+    """A root person gap must record the property it answered (#337).
+
+    The root Data Entity has no state node, so answering "who should be credited
+    as the publisher?" used to mint a Person and stop there — on the assumption
+    that the builder auto-wires every Person onto the root. It does, but only as
+    `author`. `publisher` is wired exclusively from `CrateMetadata`, so the answer
+    wrote nothing that could close `./ schema:publisher`.
+
+    The failure sustained itself: `_apply_value` returned True, `run_guidance`
+    counted progress and kept the gap out of `tried_identities`, the gap
+    re-emerged, and `phrase_gap_question` re-worded it — which is why one live
+    run asked for the publisher twice in different words and discarded both
+    answers.
+    """
+
+    @staticmethod
+    def _root_gap(prop: str) -> Gap:
+        return Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id="./",
+            entity_type=None,
+            property=prop,
+            message=f"The root data entity has no {prop}.",
+            suggestion="",
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+
+    def _answer(self, engine, prop: str, value: str = "Fabian Wagenaars") -> bool:
+        from builder.agents.pipeline.guidance import _apply_person_value
+
+        return _apply_person_value(engine, self._root_gap(prop), value)
+
+    def test_publisher_answer_is_recorded(self):
+        engine = _backbone_with_creator_gap()
+
+        assert self._answer(engine, "schema:publisher") is True
+
+        publisher = engine.state.metadata.publisher
+        assert publisher, "the answered publisher must be recorded, not discarded"
+        person = engine.state.get_entity(publisher)
+        assert person is not None and person.type == "Person", (
+            "publisher must reference the minted Person entity"
+        )
+        assert person.fields.get("familyName") == "Wagenaars"
+
+    def test_the_recorded_publisher_reaches_the_built_crate(self):
+        """The point of recording it — `_wire_root_attribution` must find it."""
+        engine = _backbone_with_creator_gap()
+        self._answer(engine, "schema:publisher")
+
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(
+            engine.state, output_dir=None, materialize_payload=False, include_all_scanned=False
+        )
+        graph = crate.metadata.generate()["@graph"]
+        root = next(n for n in graph if n.get("@id") == "./")
+
+        assert root.get("publisher"), "root publisher stayed empty after the answer"
+        # …and it points at the Person that was minted, not at a literal.
+        assert isinstance(root["publisher"], dict) and root["publisher"].get("@id")
+
+    def test_contact_point_and_creator_route_to_their_own_slots(self):
+        """Each root agent property gets its own answer, not a shared one."""
+        engine = _backbone_with_creator_gap()
+
+        self._answer(engine, "schema:creator", "Ada Lovelace")
+        self._answer(engine, "schema:contactPoint", "Grace Hopper")
+
+        creator = engine.state.get_entity(engine.state.metadata.creator)
+        contact = engine.state.get_entity(engine.state.metadata.contact)
+        assert creator.fields.get("familyName") == "Lovelace"
+        assert contact.fields.get("familyName") == "Hopper"
+        assert engine.state.metadata.publisher is None, "publisher was never asked"
+
+    def test_author_needs_no_slot(self):
+        """`author` is the one root property the builder already wires itself.
+
+        Recording it would be redundant, so it must stay out of the slot map —
+        but the answer still has to count as applied.
+        """
+        engine = _backbone_with_creator_gap()
+
+        assert self._answer(engine, "schema:author") is True
+        assert engine.state.list_entities("Person"), "the Person must still be minted"
+        assert engine.state.metadata.publisher is None
+        assert engine.state.metadata.creator is None
+
+    def test_an_unusable_answer_still_reports_failure(self):
+        """No name means no progress — the guard must not be bypassed."""
+        engine = _backbone_with_creator_gap()
+
+        assert self._answer(engine, "schema:publisher", "   ") is False
+        assert engine.state.metadata.publisher is None
+
+    def test_a_re_answer_replaces_the_earlier_value(self):
+        """The gap being open is evidence the previous value did not satisfy it."""
+        engine = _backbone_with_creator_gap()
+
+        self._answer(engine, "schema:publisher", "Ada Lovelace")
+        self._answer(engine, "schema:publisher", "Grace Hopper")
+
+        recorded = engine.state.get_entity(engine.state.metadata.publisher)
+        assert recorded.fields.get("familyName") == "Hopper"

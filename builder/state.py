@@ -11,11 +11,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import builder.config as _config
 
@@ -338,6 +339,190 @@ class ArchivePreview:
 # ---------------------------------------------------------------------------
 
 
+def _app_version() -> str:
+    """The running vitro-crate version, for the crate's generator record.
+
+    A default rather than something only ``capture()`` fills in: the version is
+    a constant of the running program, and leaving it empty until export made
+    ``build_and_validate`` validate a DIFFERENT crate from the one written —
+    one whose ``SoftwareApplication`` had no ``version``, which trips a BASE
+    check the agent then cannot fix, because the value only ever appears after
+    the export it is trying to reach.
+
+    Prefers the installed distribution metadata so a wheel reports its real
+    version, falling back to the source ``__version__``.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            return version("vitro-crate")
+        except PackageNotFoundError:
+            pass
+    except Exception:  # pragma: no cover - metadata is optional, never fatal
+        logger.debug("distribution version unavailable", exc_info=True)
+    try:
+        from builder import __version__
+
+        return str(__version__)
+    except Exception:  # pragma: no cover - version is cosmetic, never fatal
+        return ""
+
+
+@dataclass
+class GeneratorInfo:
+    """What produced this crate: the application, and the model(s) it drove.
+
+    A receiving lab cannot judge LLM-assisted metadata without knowing what
+    assisted it. This records the tool, its version, and the model behind it so
+    the crate says how it was made rather than presenting itself as hand-curated.
+
+    **Secrets never enter this record.** Only the allowlisted fields below are
+    captured — never an API key, never a raw ``base_url`` (which can carry a
+    token in its path or query), never arbitrary environment. ``api_host`` keeps
+    the hostname alone, which is what identifies a deployment; anything else is
+    dropped. The crate is a shareable artifact, so a leak here is a leak to
+    everyone the crate reaches.
+
+    Attributes:
+        name: Application name.
+        version: Application version.
+        url: Application homepage / source repository.
+        provider: The API family driving the run ("openai" / "anthropic" / …).
+        model: Effective orchestrator model name.
+        drafter_model: Effective drafter model, when it differs.
+        api_host: HOSTNAME of a custom API base, or None for the vendor default.
+        architecture: Which build path ran ("react" / "pipeline").
+        settings: Extra allowlisted, stringified run settings.
+    """
+
+    name: str = "vitro-crate"
+    version: str = field(default_factory=lambda: _app_version())
+    url: str = "https://github.com/johannehouweling/vitro-crate"
+    provider: str | None = None
+    model: str | None = None
+    drafter_model: str | None = None
+    api_host: str | None = None
+    architecture: str | None = None
+    settings: dict[str, str] = field(default_factory=dict)
+    # Run cost/effort. Baked into every export so a crate carries the price and
+    # wall-clock of producing it — the numbers to optimise against, and the ones
+    # nobody can reconstruct after the session is gone.
+    started_at: str = ""
+    ended_at: str = ""
+    duration_seconds: float | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    llm_calls: int = 0
+    cost_usd: float | None = None
+    # Seconds spent INSIDE model calls. ``duration_seconds`` is wall clock from
+    # session start to export, so it counts the user reading, thinking, going to
+    # lunch — one real session recorded 54,589s (15.2h) for ~30 min of work.
+    # This is the machine's effort, and the number worth optimising against.
+    model_seconds: float = 0.0
+
+    # Run settings safe to publish. Anything not named here is dropped rather
+    # than filtered by pattern — an allowlist cannot be defeated by a new secret
+    # whose name nobody thought to blocklist.
+    ALLOWED_SETTINGS: ClassVar[frozenset[str]] = frozenset(
+        {"temperature", "max_iterations", "seed", "reasoning_effort", "max_history_tokens"}
+    )
+
+    @classmethod
+    def capture(
+        cls,
+        *,
+        architecture: str | None = None,
+        settings: dict[str, Any] | None = None,
+    ) -> GeneratorInfo:
+        """Snapshot the running application and its resolved model configuration."""
+        import builder.config as _cfg
+
+        try:
+            from builder import __version__ as app_version
+        except Exception:  # pragma: no cover - version is cosmetic, never fatal
+            app_version = ""
+
+        def _host(raw: str | None) -> str | None:
+            if not raw:
+                return None
+            host = str(raw).split("://", 1)[-1].split("/", 1)[0]
+            return host or None
+
+        safe: dict[str, str] = {}
+        for key, value in (settings or {}).items():
+            if key in cls.ALLOWED_SETTINGS and value is not None:
+                safe[key] = str(value)
+
+        def _quiet(fn: Any) -> Any:
+            try:
+                return fn()
+            except Exception:  # pragma: no cover - config must never fail an export
+                return None
+
+        model = _quiet(_cfg.get_active_model)
+        drafter = _quiet(_cfg.get_drafter_model)
+        return cls(
+            version=str(app_version or ""),
+            provider=_quiet(_cfg.get_provider),
+            model=model,
+            drafter_model=drafter if drafter and drafter != model else None,
+            api_host=_host(os.environ.get("VITRO_OPENAI_API_BASE")
+                           or os.environ.get("OPENAI_API_BASE")),
+            architecture=architecture,
+            settings=safe,
+        )
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"name": self.name, "version": self.version, "url": self.url}
+        for key in (
+            "provider", "model", "drafter_model", "api_host", "architecture",
+            "started_at", "ended_at",
+        ):
+            value = getattr(self, key)
+            if value:
+                d[key] = value
+        for key in ("input_tokens", "output_tokens", "llm_calls", "model_seconds"):
+            if getattr(self, key):
+                d[key] = getattr(self, key)
+        if self.duration_seconds is not None:
+            d["duration_seconds"] = self.duration_seconds
+        if self.cost_usd is not None:
+            d["cost_usd"] = self.cost_usd
+        if self.settings:
+            d["settings"] = dict(self.settings)
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GeneratorInfo:
+        return cls(
+            name=data.get("name", "vitro-crate"),
+            # A session saved before the version was recorded (or by an older
+            # build) restores as empty; fill it from the running app rather than
+            # resuming into a crate that fails BASE for a value we know.
+            version=data.get("version") or _app_version(),
+            url=data.get("url", "https://github.com/johannehouweling/vitro-crate"),
+            provider=data.get("provider"),
+            model=data.get("model"),
+            drafter_model=data.get("drafter_model"),
+            api_host=data.get("api_host"),
+            architecture=data.get("architecture"),
+            settings={k: str(v) for k, v in (data.get("settings") or {}).items()},
+            started_at=data.get("started_at", ""),
+            ended_at=data.get("ended_at", ""),
+            duration_seconds=data.get("duration_seconds"),
+            input_tokens=int(data.get("input_tokens") or 0),
+            model_seconds=float(data.get("model_seconds") or 0.0),
+            output_tokens=int(data.get("output_tokens") or 0),
+            llm_calls=int(data.get("llm_calls") or 0),
+            cost_usd=data.get("cost_usd"),
+        )
+
+
 @dataclass
 class CrateMetadata:
     """Top-level metadata describing the RO-Crate itself.
@@ -361,6 +546,14 @@ class CrateMetadata:
     accession: str | None = None
     release_date: str | None = None
     date_modified: str | None = None
+    # Crate-level attribution. Distinct from the publication's authors, which
+    # describe the PAPER: these say who is responsible for this dataset. Each
+    # holds an entity id (a drafted Person/Organization) or a resolvable IRI
+    # (ORCID / ROR). Without them a crate credits nobody a registry can resolve.
+    publisher: str | None = None
+    creator: str | None = None
+    contact: str | None = None
+    license: str | None = None
     input_type: InputType = "directory"
     input_path: str | None = None
     output_path: str | None = None
@@ -377,6 +570,10 @@ class CrateMetadata:
             d["release_date"] = self.release_date
         if self.date_modified is not None:
             d["date_modified"] = self.date_modified
+        for key in ("publisher", "creator", "contact", "license"):
+            value = getattr(self, key)
+            if value is not None:
+                d[key] = value
         if self.input_path is not None:
             d["input_path"] = self.input_path
         if self.output_path is not None:
@@ -393,6 +590,10 @@ class CrateMetadata:
             accession=data.get("accession"),
             release_date=data.get("release_date"),
             date_modified=data.get("date_modified"),
+            publisher=data.get("publisher"),
+            creator=data.get("creator"),
+            contact=data.get("contact"),
+            license=data.get("license"),
             input_type=data.get("input_type", "directory"),  # type: ignore[arg-type]
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
@@ -410,6 +611,10 @@ class ValidationReport:
         required_issues: REQUIRED-severity issue descriptions.
         should_issues: SHOULD-severity issue descriptions.
         may_issues: MAY-severity (informational) issue descriptions.
+        input_fingerprint: :meth:`CrateState.validation_fingerprint` as it was
+            when this verdict was recorded — the answer to "does this verdict
+            still describe the crate?". Empty means unknown (a report restored
+            from an older checkpoint, or one built by hand).
     """
 
     base_passed: bool = False
@@ -419,6 +624,18 @@ class ValidationReport:
     should_issues: list[str] = field(default_factory=list)
     may_issues: list[str] = field(default_factory=list)
     assessed_tiers: set[str] = field(default_factory=set)
+    input_fingerprint: str = ""
+
+    def is_stale_for(self, state: CrateState) -> bool:
+        """True when *state* has changed since this verdict was recorded.
+
+        A verdict with no fingerprint is NOT reported stale: it predates the
+        stamp, and downgrading every restored checkpoint to "stale" would be a
+        false alarm. Freshness is only ever asserted on a positive match.
+        """
+        return bool(self.input_fingerprint) and (
+            self.input_fingerprint != state.validation_fingerprint()
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -429,6 +646,7 @@ class ValidationReport:
             "should_issues": list(self.should_issues),
             "may_issues": list(self.may_issues),
             "assessed_tiers": sorted(self.assessed_tiers),
+            "input_fingerprint": self.input_fingerprint,
         }
 
     @classmethod
@@ -441,6 +659,7 @@ class ValidationReport:
             should_issues=data.get("should_issues", []),
             may_issues=data.get("may_issues", []),
             assessed_tiers=set(data.get("assessed_tiers", [])),
+            input_fingerprint=data.get("input_fingerprint", ""),
         )
 
 
@@ -799,6 +1018,7 @@ class CrateState:
     created_at: str = ""
     updated_at: str = ""
     metadata: CrateMetadata = field(default_factory=CrateMetadata)
+    generator: GeneratorInfo = field(default_factory=GeneratorInfo)
     entities: EntityStore = field(default_factory=EntityStore)
 
     scanned_files: list[FileClassification] = field(default_factory=list)
@@ -818,6 +1038,21 @@ class CrateState:
     mit_assessment: MITReport = field(default_factory=MITReport)
     fair_assessment: FAIRReport = field(default_factory=FAIRReport)
     checkpoint: ReasoningLog = field(default_factory=ReasoningLog)
+
+    # Standing answers to "run the broader validation tiers?", keyed
+    # ``"recommended"`` / ``"optional"``. Absent means "not asked yet"; a
+    # recorded bool means the user has decided and must not be asked again.
+    # Persisted deliberately: an answer given before a --resume is still the
+    # user's answer afterwards.
+    validation_preferences: dict[str, bool] = field(default_factory=dict)
+
+    # What the user has already told us, in order. A HITL answer arrives as a
+    # tool result and therefore lives ONLY in the graph checkpoint — so a turn
+    # that ends mid-flight (a loop guard, a timeout) rotates the thread and the
+    # answer is gone, and the agent asks the same question again. One session
+    # asked who owns the dataset three times and was answered twice. State is
+    # the durable half of the session, so answers belong here.
+    user_answers: list[dict[str, str]] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # Entity management
@@ -863,6 +1098,106 @@ class CrateState:
     # ------------------------------------------------------------------
     # Content fingerprints (change detection for caching / export gating)
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Generator provenance & run cost
+    # ------------------------------------------------------------------
+
+    def record_llm_usage(
+        self,
+        usage: dict[str, Any] | None,
+        *,
+        calls: int = 1,
+        seconds: float = 0.0,
+    ) -> None:
+        """Accumulate one LLM call's token usage onto the generator record.
+
+        Accepts either naming convention the codebase sees
+        (``input_tokens``/``output_tokens`` or ``prompt_tokens``/``completion_tokens``).
+        A missing or unparseable usage dict is ignored rather than raising — cost
+        accounting must never take down a build.
+        """
+        if not usage:
+            return
+        try:
+            inp = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+            out = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+        except (TypeError, ValueError):
+            return
+        if not (inp or out):
+            return
+        self.generator.input_tokens += inp
+        self.generator.output_tokens += out
+        self.generator.llm_calls += calls
+        if seconds > 0:
+            self.generator.model_seconds = round(self.generator.model_seconds + seconds, 3)
+
+    def record_user_answer(self, question: str, answer: str, *, limit: int = 20) -> None:
+        """Remember something the user told us, durably and in order.
+
+        Bounded to the most recent *limit* exchanges: this is fed back into the
+        model's context every turn, so it must stay small, and the recent
+        answers are the ones still in play. A repeated question overwrites its
+        earlier entry rather than accumulating, so re-asking (which happens) does
+        not push the other answers out.
+        """
+        q = " ".join(str(question).split())[:300]
+        a = " ".join(str(answer).split())[:300]
+        if not q or not a:
+            return
+        self.user_answers = [item for item in self.user_answers if item.get("question") != q]
+        self.user_answers.append({"question": q, "answer": a})
+        del self.user_answers[:-limit]
+
+    def stamp_generator(self, *, architecture: str | None = None) -> GeneratorInfo:
+        """Finalise the generator record for export: identity, timing, cost.
+
+        Called by ``export_crate`` so every written crate carries how it was made.
+        Preserves already-recorded token counts (the accumulator above) and fills
+        in what can only be known at the end: the end time, the elapsed wall-clock
+        since ``created_at``, and the money the run cost.
+
+        Never raises: a pricing lookup needs network on first use, and a crate
+        must still export when it is unavailable.
+        """
+        prior = self.generator
+        info = GeneratorInfo.capture(
+            architecture=architecture or prior.architecture,
+            settings={"max_iterations": self.max_iterations}
+            if getattr(self, "max_iterations", None)
+            else None,
+        )
+        info.input_tokens = prior.input_tokens
+        info.model_seconds = prior.model_seconds
+        info.output_tokens = prior.output_tokens
+        info.llm_calls = prior.llm_calls
+        info.started_at = prior.started_at or self.created_at or ""
+        info.ended_at = _config.now().isoformat()
+        if info.started_at:
+            try:
+                from datetime import datetime
+
+                start = datetime.fromisoformat(info.started_at)
+                end = datetime.fromisoformat(info.ended_at)
+                info.duration_seconds = round((end - start).total_seconds(), 3)
+            except (TypeError, ValueError):
+                info.duration_seconds = None
+        if info.input_tokens or info.output_tokens:
+            try:
+                from builder.pricing import compute_cost
+
+                priced = compute_cost(
+                    info.input_tokens,
+                    info.output_tokens,
+                    info.model or "",
+                    info.provider,
+                )
+                total = priced.get("total_cost")
+                info.cost_usd = round(float(total), 6) if total is not None else None
+            except Exception:  # noqa: BLE001 - pricing is best effort, never fatal
+                info.cost_usd = None
+        self.generator = info
+        return info
 
     def validation_fingerprint(self) -> str:
         """Hash of what ``build_and_validate`` consumes: entities + metadata.
@@ -1032,6 +1367,7 @@ class StateSerializer:
             "created_at": state.created_at,
             "updated_at": state.updated_at,
             "metadata": cls._encode(state.metadata),
+            "generator": cls._encode(state.generator),
             "entities": cls._encode(state.entities),
             "approved_scan_roots": list(state.approved_scan_roots),
             "scanned_files": [cls._encode(f) for f in state.scanned_files],
@@ -1041,6 +1377,8 @@ class StateSerializer:
             "mit_assessment": cls._encode(state.mit_assessment),
             "fair_assessment": cls._encode(state.fair_assessment),
             "checkpoint": cls._encode(state.checkpoint),
+            "validation_preferences": dict(state.validation_preferences),
+            "user_answers": [dict(a) for a in state.user_answers],
             "iteration_count": state.iteration_count,
             "max_iterations": state.max_iterations,
             "stuck": state.stuck,
@@ -1076,6 +1414,7 @@ class StateSerializer:
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
             metadata=CrateMetadata.from_dict(data.get("metadata", {})),
+            generator=GeneratorInfo.from_dict(data.get("generator", {})),
             entities=EntityStore.from_dict(data.get("entities", {})),
             approved_scan_roots=set(data.get("approved_scan_roots", [])),
             scanned_files=[FileClassification.from_dict(f) for f in data.get("scanned_files", [])],
@@ -1085,6 +1424,15 @@ class StateSerializer:
             mit_assessment=MITReport.from_dict(data.get("mit_assessment", {})),
             fair_assessment=FAIRReport.from_dict(data.get("fair_assessment", {})),
             checkpoint=checkpoint,
+            validation_preferences={
+                str(k): bool(v)
+                for k, v in (data.get("validation_preferences") or {}).items()
+            },
+            user_answers=[
+                {"question": str(a.get("question", "")), "answer": str(a.get("answer", ""))}
+                for a in (data.get("user_answers") or [])
+                if isinstance(a, dict)
+            ],
         )
 
     @classmethod

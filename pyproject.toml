@@ -12,6 +12,10 @@ dependencies = [
     "requests>=2.31.0",
     "pyyaml>=6.0",
     "openpyxl>=3.1.0",
+    # Legacy BIFF .xls — openpyxl reads OOXML only, and the real deposit corpus
+    # is full of pre-2007 workbooks (#417). Present transitively in the dev
+    # group today, so it must be declared or a production install loses them.
+    "xlrd>=2.0.1",
     "rich>=13.0.0",
     "prompt-toolkit>=3.0.52",
     "watchfiles>=1.0.0",

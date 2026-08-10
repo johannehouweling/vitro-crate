@@ -567,6 +567,16 @@ deterministic `temperature=0` (override via `VITRO_TEMPERATURE`).
 reasoning-token spend); the explicit value `none` disables reasoning and opts
 back to the standard `temperature=0` path.
 
+`VITRO_TEMPERATURE` applies to **both** providers, resolved once in
+`_resolve_temperature()` (#402). It previously read on the OpenAI path only while
+the Anthropic branch hard-coded `temperature: 0`, so a temperature sweep on
+Anthropic silently did nothing — and an A/B asked to compare two architectures at
+one temperature was comparing two temperatures. Blank/whitespace reads as unset
+(matching `VITRO_OPENAI_REASONING_EFFORT`); a non-numeric value raises rather than
+resolving to 0, because a silently-ignored control is the defect this fixed. A
+Responses-API reasoning model still receives no temperature at all — "no opinion"
+must be absence, since the API 400s on any explicit value.
+
 **Decision gate (future work):** upgrading the *orchestrator* to a stronger
 model is a separate, profiling-gated decision. Instrument `profile.ndjson` for
 iterations-per-task, recursion-limit hits, and REQUIRED-issue fix success;
@@ -1099,6 +1109,26 @@ profile}`), with `profile == "data"` so this layer stays cleanly distinct from
 the SHACL layers — SHACL = metadata, Frictionless = payload, never entangled. It
 never raises into the agent loop: setup errors (missing file, malformed schema)
 return `{"ok": False, "issues": [], "error": ...}`.
+
+**Invocation (Issue #409).** The layer cannot be reached through
+`build_and_validate`: that call takes `profile="all"`, `profiles/validator.py`
+accepts only `all|base|isa|tox`, and `DATA_CONTENT_PROFILE = "data"` sits
+deliberately outside that set. So the pipeline spine calls it directly —
+`_validate_populated_tables`, after `_run_fix_loop`, and **only when population
+actually landed rows** (the header-only placeholder #94 materialises is valid by
+construction). Its verdict is returned by `run_pipeline` under its own
+`data_issues` key and is **not** folded into `ok`: a cell contradicting its
+`tableSchema` is a different defect from a SHACL conformance failure, and merging
+them would make `success` in the eval harness mean two different things. It is
+kept out of the fix loop for the same reason — that loop terminates on
+`build_and_validate`'s `ok`, and `fix_required_issues` is keyed on SHACL rules
+and cannot repair a data cell.
+
+The `compound` / `cell_line` foreign-key allow-lists carry entity **names as well
+as ids**, because that is what the cells hold: `propose_condition_rows` writes
+`name` and falls back to `entity_id` only for an entity that has none, and a
+depositor's plate map names compounds the way a bench scientist writes them. An
+id-only allow-list would flag every row of a correct table.
 
 ### Verification Layer
 Checks that identifiers resolve at their source. Verification failures are REQUIRED — the identifier must be corrected or removed. Leaving a field empty is acceptable (shows up in MIT/FAIR scores but does not block).
