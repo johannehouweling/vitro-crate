@@ -308,6 +308,13 @@
 .mat .ov-t { stroke-width:1; }
 .mat .ov-t.orphan, .mat .ov-key.orphan { stroke:var(--low); stroke-width:1.6;
   stroke-dasharray:2.5 1.5; }
+/* The two unreachable states differ by FILL, not stroke: at a 13px tile a
+   dash pattern is barely a texture, while emptiness reads instantly — and
+   "linked to nothing" is exactly what an empty tile should look like.
+   A stranded tile keeps its category fill because it IS connected; only its
+   route to the root is missing. */
+.mat .ov-t.orphan.isolated { fill:var(--surface); }
+.mat .ov-key.isolated { background:var(--surface) !important; }
 .mat .ov-key { display:inline-block; width:.8rem; height:.8rem; border-radius:2px;
   border:1px solid; }
 .mat .prov-legend .lg .ov-key.orphan { background:color-mix(in srgb,var(--low) 14%,transparent);
