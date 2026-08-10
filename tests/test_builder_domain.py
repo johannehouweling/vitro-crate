@@ -318,7 +318,13 @@ class TestLabProcessSubtypes:
         proto_ref = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
         assert proto_ref
         proto = by_id[proto_ref[0]]
-        assert proto["@type"] == "LabProtocol"
+        # Co-typed with its PUBLISHED schema.org supertype: RO-Crate recommends
+        # every entity also carry a schema.org type, and `LabProtocol
+        # rdfs:subClassOf schema:HowTo` is stated in the Bioschemas spec — read
+        # from profiles/vocabulary, not decided here.
+        types = proto["@type"] if isinstance(proto["@type"], list) else [proto["@type"]]
+        assert "LabProtocol" in types
+        assert "schema:HowTo" in types, types
 
 
 class TestOntologyAnnotations:
