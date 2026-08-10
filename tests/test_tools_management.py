@@ -141,20 +141,26 @@ class TestUpdateEntity:
 class TestRemoveEntity:
     """Tests for the remove_entity function."""
 
-    def test_removes_entity_and_returns_true(self, minimal_state):
-        """remove_entity removes the entity from state and returns True."""
+    def test_removes_entity_and_reports_it(self, minimal_state):
+        """remove_entity removes the entity and REPORTS what it did.
+
+        A bare boolean was the bug, not the interface: removing four Assays
+        detached thirteen processes and the caller was told `True`. The report
+        names what came loose so the caller can re-point it.
+        """
         state = minimal_state
         assert state.get_entity("inv_001") is not None
 
         result = remove_entity(state, "inv_001")
 
-        assert result is True
+        assert result["removed"] is True
+        assert result["entity_id"] == "inv_001"
         assert state.get_entity("inv_001") is None
 
-    def test_returns_false_for_nonexistent_entity(self, minimal_state):
-        """remove_entity returns False when the entity doesn't exist."""
+    def test_reports_not_removed_for_nonexistent_entity(self, minimal_state):
+        """A missing entity is reported, not silently treated as a removal."""
         result = remove_entity(minimal_state, "nonexistent")
-        assert result is False
+        assert result["removed"] is False
 
 
 class TestReferentialIntegrity:
@@ -200,19 +206,26 @@ class TestReferentialIntegrity:
 
     def test_remove_unreferenced_entity_succeeds(self):
         state = self._linked_state()
-        assert remove_entity(state, "proc_1") is True
+        result = remove_entity(state, "proc_1")
+        assert result["removed"] is True
+        # Nothing referenced it, so nothing came loose.
+        assert result["detached"] == []
         assert state.get_entity("proc_1") is None
 
     def test_cascade_clears_scalar_reference(self):
         state = self._linked_state()
-        assert remove_entity(state, "study_1", cascade=True) is True
+        result = remove_entity(state, "study_1", cascade=True)
+        assert result["removed"] is True
+        # THE point of the report: the assay lost its parent and says so.
+        assert any("assay_1" in d for d in result["detached"]), result["detached"]
+        assert result["warning"], "a detaching cascade must warn"
         assert state.get_entity("study_1") is None
         # assay_1's study_id is gone (no dangling ref)
         assert "study_id" not in state.get_entity("assay_1").fields
 
     def test_cascade_prunes_from_list_reference(self):
         state = self._linked_state()
-        assert remove_entity(state, "s1", cascade=True) is True
+        assert remove_entity(state, "s1", cascade=True)["removed"] is True
         # s2 survives in the samples list; s1 is pruned
         assert state.get_entity("proc_1").fields["samples"] == ["s2"]
 

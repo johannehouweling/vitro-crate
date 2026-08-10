@@ -84,6 +84,43 @@ def _normalize_reference_one(state: CrateState, value: Any) -> str | None:
     return key
 
 
+def _split_named_list(state: CrateState, value: Any) -> list[str] | None:
+    """Split ``"Amiodarone; BSP; Cefuroxime"`` into the entity ids those names have.
+
+    A collection reference field copied out of a metadata workbook arrives as one
+    semicolon-separated string of NAMES, and a name is not a reference: stored
+    whole it resolved to nothing, so four Exposures listed eleven compounds and
+    the built crate connected none of them. The compounds were right there, drafted
+    from the same workbook, under the same names.
+
+    Semicolon only. Chemical names are full of commas (``2,4-D``,
+    ``N,N-dimethylformamide``) and splitting on those would invent compounds that
+    were never listed. A name that matches no entity is passed through unchanged,
+    so it still reaches the caller's own unresolvable-reference handling rather
+    than being quietly dropped here.
+
+    Returns the split items, or None when this is not a delimited name list.
+    """
+    if not isinstance(value, str) or ";" not in value:
+        return None
+    names = [part.strip() for part in value.split(";") if part.strip()]
+    if len(names) < 2:
+        return None
+    by_name: dict[str, str] = {}
+    for entity in state.list_entities():
+        label = str(entity.fields.get("name") or "").strip().lower()
+        if label:
+            by_name.setdefault(label, entity.entity_id)
+    resolved = [by_name.get(name.lower(), name) for name in names]
+    matched = sum(1 for name, out in zip(names, resolved, strict=True) if out != name)
+    if not matched:
+        return None  # nothing recognised — leave the original string untouched
+    logger.info(
+        "Split a %d-name list into references (%d matched an entity)", len(names), matched
+    )
+    return resolved
+
+
 def _normalize_reference_value(
     state: CrateState, entity_id: str, value: Any, field: str = ""
 ) -> Any:
@@ -107,6 +144,10 @@ def _normalize_reference_value(
         return value
     is_list = isinstance(value, (list, tuple))
     items = list(value) if is_list else [value]
+    if not is_list and field in _COLLECTION_REF_FIELDS:
+        split = _split_named_list(state, value)
+        if split is not None:
+            items, is_list = split, True
     out: list[str] = []
     for item in items:
         norm = _normalize_reference_one(state, item)
@@ -213,6 +254,42 @@ def _reject_fully_dropped_references(
         )
 
 
+def resolve_entity_id(state: CrateState, raw: str) -> str:
+    """Accept a crate-form ``@id`` wherever a state ``entity_id`` is expected.
+
+    Validation reports an entity by the id the crate gives it
+    (``./#LabProcess_proc_analysis``), and that is the string the agent has in
+    hand when it goes to fix the finding. The mutation tools only knew state ids
+    (``proc_analysis``), so the identifier the crate handed out was rejected by
+    the tool meant to act on it — 16 of one session's 121 ``set_fields`` calls
+    failed this way, and the model had no way to tell a bad id from a bad name.
+
+    Resolution is exact at every step, never fuzzy: the state id itself, then the
+    id with the crate's ``./``/``#`` decoration removed, then the type-qualified
+    form the mapper mints, then a File's destination path. An id that matches
+    nothing is returned unchanged so the caller still raises its own clear error.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return raw
+    candidate = raw.strip()
+    if state.get_entity(candidate) is not None:
+        return candidate
+    bare = candidate.lstrip("./").lstrip("#")
+    if state.get_entity(bare) is not None:
+        return bare
+    try:
+        from builder.tools._crate_mapping import _file_dest, _mint_id
+
+        for entity in state.list_entities():
+            if _mint_id(entity).lstrip("./").lstrip("#") == bare:
+                return entity.entity_id
+            if entity.type == "File" and _file_dest(entity).lstrip("./") == bare:
+                return entity.entity_id
+    except Exception:  # noqa: BLE001 — resolution never blocks the call
+        logger.debug("entity id resolution failed for %r", raw, exc_info=True)
+    return raw
+
+
 def set_fields(
     state: CrateState,
     entity_id: str,
@@ -238,6 +315,7 @@ def set_fields(
     Raises:
         ValueError: If no entity with the given ID exists.
     """
+    entity_id = resolve_entity_id(state, entity_id)
     entity = state.get_entity(entity_id)
     if entity is None:
         raise ValueError(f"Entity not found: {entity_id}")
@@ -328,8 +406,31 @@ def _drop_reference(fields: dict[str, Any], field: str, entity_id: str) -> None:
         del fields[field]
 
 
-def remove_entity(state: CrateState, entity_id: str, cascade: bool = False) -> bool:
+# Reference fields that make the referrer a CHILD of the target. Clearing one of
+# these does not tidy a stray link — it detaches a whole subtree.
+_PARENT_LINK_FIELDS: frozenset[str] = frozenset({"assay_id", "study_id", "investigation_id"})
+
+# Fields every entity has by construction. Anything beyond these is content
+# somebody supplied, and losing it is the part worth reporting.
+_STRUCTURAL_FIELDS: frozenset[str] = frozenset(
+    {"name", "assay_id", "study_id", "investigation_id", "process_type", "additionalType"}
+)
+
+
+def remove_entity(state: CrateState, entity_id: str, cascade: bool = False) -> dict[str, Any]:
     """Remove an entity by id, preserving referential integrity.
+
+    Returns a REPORT, not a bare boolean. ``cascade=True`` clears the target's id
+    out of every referrer so no dangling ``@id`` reaches the graph — correct for
+    a stray reference, and quietly destructive for a parent link: removing four
+    Assays set ``assay_id: None`` on thirteen processes, which detached every
+    experiment in the crate. The caller was told ``True``. The crate then passed
+    all three profiles with zero REQUIRED issues, four empty Assays and thirteen
+    processes belonging to nothing.
+
+    It still removes — refusing would block the legitimate cleanup this tool
+    exists for — but it now says what came loose and what was discarded, so the
+    caller can re-point the children instead of discovering the hole at export.
 
     The builder rebuilds the crate from state on every iteration, so a dangling
     reference left in state surfaces as a dangling ``{"@id": ...}`` in the built
@@ -348,11 +449,15 @@ def remove_entity(state: CrateState, entity_id: str, cascade: bool = False) -> b
         cascade: When True, clear referrers instead of refusing.
 
     Returns:
-        True if the entity was found and removed, False otherwise.
+        ``{"removed", "entity_id", "detached", "discarded_fields", "warning"}``.
+        ``detached`` lists the children left parentless by a cascade;
+        ``discarded_fields`` names the content the removed entity was carrying.
 
     Raises:
         ValueError: If the entity is still referenced and ``cascade`` is False.
     """
+    entity_id = resolve_entity_id(state, entity_id)
+    entity = state.get_entity(entity_id)
     referrers = find_referrers(state, entity_id)
     if referrers and not cascade:
         named = ", ".join(sorted({f"{ent.entity_id} (via {field})" for ent, field in referrers}))
@@ -361,10 +466,45 @@ def remove_entity(state: CrateState, entity_id: str, cascade: bool = False) -> b
             f"Repoint or remove those references first, or pass cascade=True to "
             f"clear them."
         )
+
+    detached: list[str] = []
     if cascade:
         for ent, field in referrers:
             _drop_reference(ent.fields, field, entity_id)
-    return state.remove_entity(entity_id)
+            if field in _PARENT_LINK_FIELDS:
+                detached.append(f"{ent.entity_id} (lost its {field})")
+
+    discarded = sorted(
+        key
+        for key, value in (entity.fields if entity else {}).items()
+        if key not in _STRUCTURAL_FIELDS and value not in (None, "", [], {})
+    )
+    removed = state.remove_entity(entity_id)
+
+    warnings: list[str] = []
+    if detached:
+        warnings.append(
+            f"{len(detached)} entit{'y' if len(detached) == 1 else 'ies'} lost their parent "
+            f"and now belong to nothing: {', '.join(detached[:5])}"
+            f"{'…' if len(detached) > 5 else ''}. Re-point each with set_fields before "
+            "they disappear from the crate."
+        )
+    if discarded:
+        warnings.append(
+            f"discarded the values held on it: {', '.join(discarded[:8])}"
+            f"{'…' if len(discarded) > 8 else ''}. If you meant to RENAME or RE-PARENT "
+            "this entity, set_fields does that without losing them."
+        )
+    if warnings:
+        logger.warning("remove_entity(%s): %s", entity_id, " ".join(warnings))
+
+    return {
+        "removed": removed,
+        "entity_id": entity_id,
+        "detached": detached,
+        "discarded_fields": discarded,
+        "warning": " ".join(warnings) or None,
+    }
 
 
 def list_entities(state: CrateState, entity_type: str | None = None) -> list[Entity]:
