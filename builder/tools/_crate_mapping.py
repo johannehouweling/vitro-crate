@@ -1416,7 +1416,11 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
     investigations = state.list_entities("Investigation")
     if len(investigations) == 1:
         inv = investigations[0]
-        for key, value in _scalar_props(inv).items():
+        # Same skip as the unfolded branch: agent references are resolved later
+        # by `_wire_dataset_aliases`. Folding them on raw put the state id
+        # `org_erasmus_mc` on the ROOT — the most visible node in the crate —
+        # pointing at nothing, while the Organization itself sat under its ROR.
+        for key, value in _scalar_props(inv, skip=_AGENT_REFERENCE_FIELDS).items():
             if key == "identifier":
                 continue
             if root.get(key) in (None, ""):
@@ -1426,7 +1430,14 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         _idx_add(idx, inv, root)
     else:
         for inv in investigations:
-            props = {"@type": "Dataset", "additionalType": "Investigation", **_scalar_props(inv)}
+            props = {
+                "@type": "Dataset",
+                "additionalType": "Investigation",
+                # Agent references are stripped here and re-emitted RESOLVED by
+                # _wire_dataset_aliases; left in, the raw state id ships beside
+                # the resolved one and the crate carries both.
+                **_scalar_props(inv, skip=_AGENT_REFERENCE_FIELDS),
+            }
             props["identifier"] = _isa_identifier(inv, None, "investigation")
             node = crate.add(DataEntity(crate, _mint_id(inv), properties=props))
             _idx_add(idx, inv, node)
@@ -1435,7 +1446,11 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
     root_ident = root.get("identifier") or "./"
 
     for st in state.list_entities("Study"):
-        props = {"@type": "Dataset", "additionalType": "Study", **_scalar_props(st)}
+        props = {
+            "@type": "Dataset",
+            "additionalType": "Study",
+            **_scalar_props(st, skip=_AGENT_REFERENCE_FIELDS),
+        }
         props["identifier"] = _isa_identifier(st, root_ident, "study")
         node = crate.add(DataEntity(crate, _mint_id(st), properties=props))
         _idx_add(idx, st, node)
@@ -1443,7 +1458,11 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         _attach_explicit_parts(node, st, idx, root)
 
     for asy in state.list_entities("Assay"):
-        props = {"@type": "Dataset", "additionalType": "Assay", **_scalar_props(asy)}
+        props = {
+            "@type": "Dataset",
+            "additionalType": "Assay",
+            **_scalar_props(asy, skip=_AGENT_REFERENCE_FIELDS),
+        }
         parent = _resolve_one(idx, asy.fields.get("study_id")) or root
         props["identifier"] = _isa_identifier(asy, parent.get("identifier") or root_ident, "assay")
         node = crate.add(DataEntity(crate, _mint_id(asy), properties=props))
@@ -2490,6 +2509,13 @@ def _append_unique_ref(node: Any, prop: str, ref_id: str) -> None:
         node.append_to(prop, {"@id": ref_id})
 
 
+# People/organisation references an ISA dataset can carry. Held here (not in
+# _REF_FIELDS) because `affiliation` on a Person is wired separately with
+# keep_literal=True — a free-text affiliation is valid schema.org and dropping it
+# would lose data — while on a Dataset it is always meant to be an Organization.
+_AGENT_REFERENCE_FIELDS: tuple[str, ...] = ("contributor", "affiliation", "publisher", "creator")
+
+
 def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
     """Resolve root funder/about + assay measurementMethod/dataFiles/resources.
 
@@ -2506,6 +2532,21 @@ def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]
       schema:hasPart, so reachability and containment are preserved).
     """
     root = crate.root_dataset
+
+    # Agent/organisation references on the ISA datasets. These were emitted
+    # straight out of `_scalar_props`, i.e. as the raw STATE id — which happens
+    # to be right for a Person (keyed by their ORCID, so state id == crate id)
+    # and wrong for an Organization (state `org_utrecht_university`, crate
+    # `https://ror.org/04pp8hn57`). The reference then pointed at nothing: an
+    # undescribed node with no type and no name, tripping three checks each.
+    # Resolving them through the index is what `funder` already does.
+    for kind in ("Investigation", "Study", "Assay"):
+        for entity in state.list_entities(kind):
+            node = _node_for(idx, entity)
+            if node is None:
+                continue
+            for field in _AGENT_REFERENCE_FIELDS:
+                _wire_references(node, field, entity.fields.get(field), idx)
 
     for inv in state.list_entities("Investigation"):
         node = _node_for(idx, inv)
