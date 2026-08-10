@@ -434,6 +434,41 @@ def condition_table_multivalued_columns(csv_path: str) -> set[str]:
     return condition_table_multivalued_columns_from_rows(rows)
 
 
+def condition_table_row_count(csv_path: str) -> int | None:
+    """Number of DATA rows in the condition table at *csv_path* (#473).
+
+    ``None`` when the file cannot be read at all — the in-memory validate path
+    has no CSV on disk, and *we did not look* is a different claim from *there
+    are no rows*. Callers stamp the "contains no rows" note only on a definite
+    zero, so the crate never asserts emptiness it did not verify (D5).
+
+    A row that is entirely blank does not count: a trailing newline, or the
+    empty line a spreadsheet export leaves behind, is not a condition.
+
+    Args:
+        csv_path: Path to the condition-table CSV.
+
+    Returns:
+        The data-row count, or ``None`` if the file is missing or unreadable.
+    """
+    path = Path(csv_path)
+    if not path.is_file():
+        return None
+
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        logger.warning("Could not read condition table %s: %s", path, exc)
+        return None
+
+    return sum(
+        1
+        for row in rows
+        if any((value or "").strip() for value in row.values())
+    )
+
+
 def condition_table_multivalued_columns_from_rows(
     rows: list[dict[str, Any]],
 ) -> set[str]:
