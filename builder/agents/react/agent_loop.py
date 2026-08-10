@@ -285,6 +285,8 @@ _EXPORTED_FLAG = "_crate_exported_this_session"
 # the session (`set_fields`, `set_crate_metadata`, `fix_required_issues`,
 # `link`), so counting silently kept all of that work off disk.
 _AUTO_EXPORT_FINGERPRINT_FLAG = "_crate_auto_export_fingerprint"
+# Where the last successful export landed, so a suppressed repeat can name it.
+_EXPORT_PATH_FLAG = "_crate_last_export_path"
 
 # Attribute holding the optional single-arg console sink the loop installs so an
 # in-loop auto-export can surface the absolute crate path to the user (#287 Fix
@@ -2017,6 +2019,33 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         # already been handed is the clearest no-progress signal
                         # there is.
                         return _track_progress(engine, tool_name, progress_before, served)
+                if tool_name in ("export_crate", "build_crate") and not kwargs.get("output_path"):
+                    # Exporting an unchanged crate rewrites the identical bytes.
+                    # One session called export_crate FIFTEEN times, twice per
+                    # turn around a pair of set_fields — and each export now runs
+                    # a full three-profile, all-tier validation sweep before it
+                    # writes, so the ritual cost more than the work it wrapped.
+                    # An explicit output_path is always honoured: writing the
+                    # same crate to a NEW location is a real request.
+                    try:
+                        export_fp = engine.state.export_fingerprint()
+                    except Exception:  # noqa: BLE001 — the guard never blocks a call
+                        export_fp = None
+                    last_fp = getattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, None)
+                    if export_fp is not None and export_fp == last_fp:
+                        _log_suppressed(engine, tool_name, "export_unchanged", kwargs)
+                        crate_path = getattr(engine, _EXPORT_PATH_FLAG, None) or "the output path"
+                        return _track_progress(
+                            engine,
+                            tool_name,
+                            progress_before,
+                            f"Already exported this exact crate to {crate_path} — nothing "
+                            "has changed since, so re-writing it would produce identical "
+                            "bytes. Change something first (the outstanding list says "
+                            "what), or answer the user. The crate on disk is current.",
+                            signature=signature,
+                        )
+
                 if tool_name == "build_and_validate":
                     bv_sig = _build_validate_signature(kwargs)
                     try:
@@ -2176,6 +2205,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         and result.get("success")
                     ):
                         setattr(engine, _EXPORTED_FLAG, True)
+                        setattr(engine, _EXPORT_PATH_FLAG, result.get("crate_path"))
                         try:
                             setattr(
                                 engine,
