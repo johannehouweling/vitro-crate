@@ -541,6 +541,165 @@ def _svg_trunc(text: str, limit: int = 18) -> str:
     return text if len(text) <= budget else text[: budget - 1].rstrip() + "…"
 
 
+# How many times to re-resolve label collisions. Bounded rather than looped to
+# convergence: a set of names can be genuinely indistinguishable inside the
+# budget, and spinning on it would hang the report rather than admit that.
+_LABEL_PASSES = 4
+
+# Characters of the original opening kept in front of a distinguishing label.
+# Without it two different groups can reduce to the same core — "…deiodinase…"
+# for both the culture step and its input — and each fix would undo the other.
+# The context is what keeps those apart: "Cultur…deiodinase…" vs "Input …".
+_LABEL_CONTEXT = 6
+
+
+def _common_affixes(names: list[str]) -> tuple[int, int]:
+    """Length of the prefix and of the suffix shared by every name in *names*."""
+    first = names[0]
+    prefix = len(first)
+    suffix = len(first)
+    for other in names[1:]:
+        i = 0
+        while i < prefix and i < len(other) and first[i] == other[i]:
+            i += 1
+        prefix = i
+        j = 0
+        while j < suffix and j < len(other) and first[-1 - j] == other[-1 - j]:
+            j += 1
+        suffix = j
+    # A short name can be entirely covered by the two affixes; never let them
+    # overlap, or the "distinguishing" slice would be read backwards.
+    shortest = min(len(n) for n in names)
+    return prefix, max(0, min(suffix, shortest - prefix))
+
+
+def _distinguishing_labels(names: list[str], limit: int = 18) -> dict[str, str]:
+    """Label each of *names* by the part that is NOT shared with the others.
+
+    Truncation collisions in this domain are not accidents of length, they are a
+    naming convention: ``proc_culture_sk_n_as_cells output sample`` sits beside
+    ``proc_culture_sk_n_as_h4_and_mo313_cells output sample``. The two agree for
+    twenty characters at the front *and* twenty at the back, so cutting either
+    end throws away the only part that identifies them.
+
+    So the shared prefix and suffix are computed across the colliding group and
+    what remains — the part that actually differs — is what the label spends its
+    budget on, with ``…`` marking each end that was dropped. Because the same
+    number of characters is removed from every member, two names that differ at
+    all still differ here.
+    """
+    prefix, suffix = _common_affixes(names)
+    head_len = min(prefix, _LABEL_CONTEXT)
+    labels: dict[str, str] = {}
+    for name in names:
+        core = name[prefix : len(name) - suffix] if suffix else name[prefix:]
+        trailing = bool(suffix)
+        if not core:
+            # This name is exactly the shared prefix plus the shared suffix; it
+            # has no distinguishing middle, so its tail is what sets it apart.
+            core, trailing = name[prefix:], False
+        if not core:
+            # And this one IS the shared prefix — a strict prefix of its peers,
+            # like "…metabolism assay" beside "…metabolism assay study". It has
+            # nothing extra to show, so it keeps the plain label; the peers are
+            # the ones that grow a distinguishing tail.
+            labels[name] = _svg_trunc(name, limit)
+            continue
+
+        # The core alone can be a single character — "…run1.csv" against
+        # "…run2.csv" reduces to "1" and "2" — which is unique but tells the
+        # reader nothing. Spend whatever budget is left growing the window back
+        # out into the shared text around it, tail first, since the qualifier
+        # that follows the difference (an extension, a suffix word) reads as
+        # more identifying than more of an opening every peer already shares.
+        head_len = min(head_len, len(name))
+        start, end = max(prefix, head_len), len(name) - (suffix if trailing else 0)
+        end = max(end, start + len(core))
+        window = max(limit - head_len - 2, 2)
+        spare = window - (end - start)
+        if spare > 0:
+            grow = min(spare, len(name) - end)
+            end += grow
+            start = max(head_len, start - (spare - grow))
+        if end - start > window:
+            end = start + window
+
+        left = "…" if start > head_len else ""
+        right = "…" if end < len(name) else ""
+        labels[name] = name[:head_len] + left + name[start:end] + right
+    return labels
+
+
+def _unique_labels(names: Any, limit: int = 18) -> dict[str, str]:
+    """Map each raw name to a label that is unique among *names*.
+
+    A diagram that draws two distinct entities with the same text is worse than
+    one that draws a longer label: the reader cannot tell them apart, and may
+    reasonably conclude the crate contains a duplicate. On the real deposits this
+    was not an edge case — 26 of the exported crates had at least one such pair,
+    117 tiles in total, because process and file names in this domain share long
+    prefixes by convention.
+
+    Only collisions *caused by truncation* are repaired (the label was
+    ellipsised). Two entities that genuinely carry the same name are one entry
+    here and keep one label — that is the crate's own duplication to report, not
+    a rendering artifact to paper over.
+    """
+    unique = sorted({str(n or "") for n in names})
+    labels = {name: _svg_trunc(name, limit) for name in unique}
+
+    # Repeated to a fixed point: resolving one group can land its members on a
+    # label another group already resolved to, and a pass that only looks at the
+    # original collisions would not see that. Each round regroups by the CURRENT
+    # labels, so a cross-group clash is just another group to split.
+    for _ in range(_LABEL_PASSES):
+        collisions: dict[str, list[str]] = {}
+        for name, label in labels.items():
+            collisions.setdefault(label, []).append(name)
+        ambiguous = [
+            sorted(members)
+            for label, members in collisions.items()
+            if len(members) > 1 and "…" in label
+        ]
+        if not ambiguous:
+            break
+        for members in ambiguous:
+            labels.update(_distinguishing_labels(members, limit))
+    return labels
+
+
+def _collect_briefs(obj: Any, out: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Every node-brief reachable inside an inventory, at any nesting depth.
+
+    The inventories nest briefs differently per diagram (``process``/``via``,
+    ``source``, band members, plain lists), so this walks the structure rather
+    than asking each renderer to enumerate its own — one place to keep correct
+    instead of four that must agree.
+    """
+    out = [] if out is None else out
+    if isinstance(obj, dict):
+        if isinstance(obj.get("name"), str) and "tag" in obj:
+            out.append(obj)
+        for value in obj.values():
+            _collect_briefs(value, out)
+    elif isinstance(obj, (list, tuple)):
+        for value in obj:
+            _collect_briefs(value, out)
+    return out
+
+
+def _label_briefs_uniquely(inventory: Any, limit: int = 18) -> None:
+    """Give every brief in *inventory* a ``display`` label unique to the diagram.
+
+    Mutates in place — additive only, and the inventories are built fresh per
+    render — so the HTML matrices that read the same structure are unaffected.
+    """
+    briefs = _collect_briefs(inventory)
+    labels = _unique_labels([b["name"] for b in briefs], limit)
+    for brief in briefs:
+        brief["display"] = labels[brief["name"]]
+
+
 def _svg_node_shape(cls: str, x: int, y: int, variant: str = "") -> str:
     """The node's outline path/polygon for style bucket *cls* at ``(x, y)``.
 
@@ -718,6 +877,10 @@ def render_provenance_svg(
             )
 
     # Nodes: shape + type tag (above) + name (inside). Labels are escaped.
+    # Labels are resolved against the whole drawn set first: process and file
+    # names here share long prefixes by convention, so tail-truncation alone
+    # rendered distinct steps identically.
+    labels = _unique_labels(_display_name(nodes[n]) for n in drawn)
     node_svg: list[str] = []
     for n in sorted(drawn, key=lambda n: (col[n], row[n], n)):
         node = nodes[n]
@@ -725,7 +888,7 @@ def render_provenance_svg(
         node_cls, tag_cls = _SVG_CLASS[cls]
         x, y = pos[n]
         cx = x + _SVG_NODE_W // 2
-        name = _escape(_svg_trunc(_display_name(node)))
+        name = _escape(labels[_display_name(node)])
         tag = _escape(_svg_trunc(_tag(node), 22)).upper()
         node_svg.append(
             # The title keeps the crate's own name verbatim — marker spelled out,
@@ -1958,7 +2121,9 @@ def _svg_place(
         f'<text class="tag {tag_cls}{vcls}" x="{cx}" y="{y - 6}">'
         f"{_escape(_svg_trunc(brief['tag'], 22).upper())}</text>"
         f'<text class="name" x="{cx}" y="{y + 28}">'
-        f"{_escape(_svg_trunc(brief['name']))}</text></g>"
+        # `display` is set by _label_briefs_uniquely when the renderer has run
+        # it; without it the label is still correct, just possibly ambiguous.
+        f"{_escape(brief.get('display') or _svg_trunc(brief['name']))}</text></g>"
     )
 
 
@@ -2047,6 +2212,8 @@ def render_chemicals_svg(inventory: dict[str, Any]) -> str:
         The ``<svg>…</svg>`` markup, or ``""`` when the crate declares no
         compounds.
     """
+    # Peer-aware labels: two entities must never draw as the same text.
+    _label_briefs_uniquely(inventory)
     return _render_routed_svg(
         inventory,
         node_cls="chem",
@@ -2071,6 +2238,8 @@ def render_celllines_svg(inventory: dict[str, Any]) -> str:
     Returns:
         The ``<svg>…</svg>`` markup, or ``""`` when the crate declares no lines.
     """
+    # Peer-aware labels: two entities must never draw as the same text.
+    _label_briefs_uniquely(inventory)
     return _render_routed_svg(
         inventory,
         # A cell line IS a Sample, so it reuses the derivation chain's material
@@ -2508,6 +2677,8 @@ def render_people_svg(inventory: dict[str, Any]) -> str:
     Returns:
         The ``<svg>…</svg>`` markup, or ``""`` when the crate credits nobody.
     """
+    # Peer-aware labels: two entities must never draw as the same text.
+    _label_briefs_uniquely(inventory)
     groups = inventory.get("groups") or []
     if not groups:
         return ""
@@ -2800,6 +2971,8 @@ def render_isa_svg(inventory: dict[str, Any]) -> str:
     Returns:
         The ``<svg>…</svg>`` markup, or ``""`` when the crate has no ISA nodes.
     """
+    # Peer-aware labels: two entities must never draw as the same text.
+    _label_briefs_uniquely(inventory)
     nodes = inventory.get("nodes") or []
     if not nodes:
         return ""
@@ -2843,7 +3016,9 @@ def render_isa_svg(inventory: dict[str, Any]) -> str:
             tag = f"{tag} · {len(n['processes'])} proc"
         _svg_place(
             nodes_svg,
-            {"id": n["id"], "name": n["name"], "tag": tag},
+            # A fresh dict (the tag gains a process count), so the peer-aware
+            # label has to be carried over explicitly or it is silently lost.
+            {"id": n["id"], "name": n["name"], "tag": tag, "display": n.get("display", "")},
             "container",
             col_x[col],
             y,

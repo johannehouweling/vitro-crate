@@ -497,12 +497,16 @@ def _identifier_pv(
     """Build (and add) a schema:PropertyValue identifier node with a stable id.
 
     The id is ``param_id(name, value)`` (the wizard scheme); ``propertyID`` is
-    emitted as ``{"@id": property_id_url}`` when a url is given, else omitted.
+    emitted as a URI STRING when a url is given, else omitted. A string because
+    that is what schema:propertyID takes (range Text|URL) and because the value
+    names WHICH identifier scheme this is — ORCID, PubChem CID, DTXSID — rather
+    than an entity the crate describes. Wrapped as {"@id": …} it became a graph
+    node the validator wanted named and typed.
     Returns the added node so callers can reference it.
     """
     props: dict[str, Any] = {"@type": "PropertyValue", "name": name, "value": str(value)}
     if property_id_url:
-        props["propertyID"] = {"@id": property_id_url}
+        props["propertyID"] = property_id_url
     return crate.add(ContextEntity(crate, param_id(name, str(value)), properties=props))
 
 
@@ -984,7 +988,8 @@ def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
             continue
         props: dict[str, Any] = {}
         if char.property_id:
-            props["propertyID"] = {"@id": char.property_id}
+            # A cited term, as a URI string — see `_identifier_property_value`.
+            props["propertyID"] = char.property_id
         out.append(
             CharacteristicValue(
                 crate,
@@ -1989,13 +1994,15 @@ def _build_csvw_schema(
     for col in columns:
         title = col["titles"]
         props: dict[str, Any] = {"@type": "csvw:Column", **col}
-        # Emit propertyUrl as an {@id} reference rather than a bare string:
-        # RO-Crate 1.2's base profile flags an IRI value used as a string when
-        # that IRI is also a described entity (e.g. the cell-line NCIT_C16403,
-        # which a CellLineSample materialises as a `cell line` DefinedTerm). The
-        # CSVW range of propertyUrl is a URI, so an {@id} is the faithful form.
+        # propertyUrl names WHICH property a column holds — a term the crate
+        # cites, not an entity it describes. It was emitted as {"@id": …} to
+        # avoid RO-Crate flagging "an IRI used as a string when that IRI is ALSO
+        # a described entity"; that condition went away when cited vocabulary
+        # stopped being materialised into the graph, and the wrapping now only
+        # turns each term into a node the validator wants named and described.
+        # CSVW types propertyUrl as a URI, and a URI string is exactly that.
         if col.get("propertyUrl"):
-            props["propertyUrl"] = {"@id": col["propertyUrl"]}
+            props["propertyUrl"] = col["propertyUrl"]
         if value_urls.get(title):
             # Same rule for valueUrl: emit the resolved Sample / MolecularEntity
             # link as an {@id} reference, never a bare string @id.

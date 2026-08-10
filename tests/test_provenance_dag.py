@@ -1738,3 +1738,178 @@ class TestUnreachableIsSplitByShape:
 
         assert "linked to nothing at all" in svg
         assert "one link reconnects them all" in svg
+
+
+class TestLabelsStayDistinct:
+    """Two entities must never draw as the same text.
+
+    A diagram that renders distinct entities identically is worse than one with
+    a clumsier label: the reader cannot tell them apart, and may reasonably read
+    it as the crate containing a duplicate. On the exported deposits this was not
+    an edge case — 26 crates had at least one such pair, 117 tiles in total,
+    because process and file names in this domain share long prefixes AND long
+    suffixes by convention.
+    """
+
+    @staticmethod
+    def _labels(svg: str) -> list[str]:
+        return re.findall(r'<text class="name"[^>]*>([^<]*)</text>', svg)
+
+    @staticmethod
+    def _chain(*names: str) -> list[dict]:
+        """A provenance chain whose files carry *names*."""
+        graph: list[dict] = [{"@id": "./", "@type": "Dataset"}]
+        graph.append(
+            {
+                "@id": "#p1",
+                "@type": "LabProcess",
+                "additionalType": "Exposure",
+                "name": "Exposure",
+                "object": {"@id": "#s1"},
+                "result": [{"@id": f"data/f{i}.csv"} for i in range(len(names))],
+            }
+        )
+        graph.append({"@id": "#s1", "@type": "Sample", "name": "Culture"})
+        for i, name in enumerate(names):
+            graph.append({"@id": f"data/f{i}.csv", "@type": "File", "name": name})
+        return graph
+
+    def test_names_sharing_a_long_prefix_stay_distinct(self) -> None:
+        """The common shape: a run number at the very end of a long filename."""
+        svg = render_provenance_svg(
+            self._chain("220825_RA_CHO-K1_plate_run1.csv", "220825_RA_CHO-K1_plate_run2.csv")
+        )
+        labels = self._labels(svg)
+
+        assert len(set(labels)) == len(labels), labels
+        assert any("run1" in label for label in labels), labels
+        assert any("run2" in label for label in labels), labels
+
+    def test_names_sharing_a_prefix_AND_a_suffix_stay_distinct(self) -> None:
+        """The hard shape: what distinguishes them is in the middle.
+
+        Cutting either end throws away the only identifying part, which is why
+        a plain head- or middle-truncation cannot solve this.
+        """
+        labels = self._labels(
+            render_provenance_svg(
+                self._chain(
+                    "Culture neural cell lines for deiodinase assay output",
+                    "Culture neural cell lines for thyroid transport assay output",
+                )
+            )
+        )
+
+        assert len(set(labels)) == len(labels), labels
+        assert any("deiodinase" in label for label in labels), labels
+
+    def test_a_strict_prefix_keeps_its_plain_label(self) -> None:
+        """`X` beside `X study`: one has nothing extra to show."""
+        labels = self._labels(
+            render_provenance_svg(
+                self._chain("Whole-cell metabolism assay", "Whole-cell metabolism assay study")
+            )
+        )
+
+        assert len(set(labels)) == len(labels), labels
+
+    def test_three_way_collisions_resolve(self) -> None:
+        labels = self._labels(
+            render_provenance_svg(
+                self._chain(
+                    "proc_culture_sk_n_as_cells output sample",
+                    "proc_culture_sk_n_as_and_mo313_cells output sample",
+                    "proc_culture_sk_n_as_h4_and_mo313_cells output sample",
+                )
+            )
+        )
+
+        assert len(set(labels)) == len(labels), labels
+
+    def test_two_groups_resolving_to_the_same_core_are_split(self) -> None:
+        """Fixing one group can land it on another group's label.
+
+        Both families reduce to the same distinguishing core here, so without a
+        second pass — and without keeping a little of the original opening — the
+        two fixes cancel each other out.
+        """
+        labels = self._labels(
+            render_provenance_svg(
+                self._chain(
+                    "Culture neural cell lines for deiodinase assay",
+                    "Culture neural cell lines for transport assay",
+                    "Input (Culture neural cell lines for deiodinase assay)",
+                    "Input (Culture neural cell lines for transport assay)",
+                )
+            )
+        )
+
+        assert len(set(labels)) == len(labels), labels
+
+    def test_identical_names_are_left_alone(self) -> None:
+        """Honesty control: a real duplicate is the crate's fact to report.
+
+        Two entities that genuinely carry one name must keep one label — inventing
+        a difference would hide a duplicate the reader should see.
+        """
+        labels = self._labels(render_provenance_svg(self._chain("plate.csv", "plate.csv")))
+
+        assert labels.count("plate.csv") == 2, labels
+
+    def test_short_names_are_never_mangled(self) -> None:
+        """Nothing that already fits should acquire an ellipsis."""
+        labels = self._labels(render_provenance_svg(self._chain("run1.csv", "run2.csv")))
+
+        assert "run1.csv" in labels and "run2.csv" in labels
+        assert not any("…" in label for label in labels), labels
+
+    def test_labels_stay_within_the_node(self) -> None:
+        """The node is 138px wide; a label that overflows it is not a fix."""
+        labels = self._labels(
+            render_provenance_svg(
+                self._chain(
+                    "Culture neural cell lines for deiodinase assay output sample",
+                    "Culture neural cell lines for thyroid transport assay output sample",
+                )
+            )
+        )
+
+        assert all(len(label) <= 20 for label in labels), labels
+
+    def test_the_title_still_carries_the_full_name(self) -> None:
+        """Whatever the label does, the tooltip stays the unabridged truth."""
+        svg = render_provenance_svg(
+            self._chain("220825_RA_CHO-K1_plate_run1.csv", "220825_RA_CHO-K1_plate_run2.csv")
+        )
+
+        assert "220825_RA_CHO-K1_plate_run1.csv" in svg
+        assert "220825_RA_CHO-K1_plate_run2.csv" in svg
+
+    def test_it_is_deterministic(self) -> None:
+        graph = self._chain("a_long_shared_prefix_x.csv", "a_long_shared_prefix_y.csv")
+
+        assert self._labels(render_provenance_svg(graph)) == self._labels(
+            render_provenance_svg(graph)
+        )
+
+    def test_the_isa_view_resolves_too(self) -> None:
+        """The ISA renderer rebuilds its brief dict, so it can drop the label."""
+        graph = [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {
+                "@id": "./",
+                "@type": "Dataset",
+                "additionalType": "Investigation",
+                "name": "CHO-K1 hOATP1C1 transporter assay",
+                "hasPart": [{"@id": "#st1"}],
+            },
+            {
+                "@id": "#st1",
+                "@type": "Dataset",
+                "additionalType": "Study",
+                "name": "CHO-K1 hOATP1C1 time-course assay",
+            },
+        ]
+        labels = self._labels(render_isa_svg(build_isa_inventory(graph)))
+
+        assert len(set(labels)) == len(labels), labels
