@@ -1,0 +1,32 @@
+{
+  "fetched": "2026-08-10",
+  "types": {
+    "LabProcess": {
+      "supertype": "schema:Action",
+      "source": "https://raw.githubusercontent.com/BioSchemas/specifications/master/LabProcess/jsonld/type/LabProcess_v0.1-DRAFT.jsonld"
+    },
+    "LabProtocol": {
+      "supertype": "schema:HowTo",
+      "source": "https://raw.githubusercontent.com/BioSchemas/specifications/master/LabProtocol/jsonld/type/LabProtocol_v0.6-DRAFT.json"
+    },
+    "Sample": {
+      "supertype": "schema:Thing",
+      "source": "https://raw.githubusercontent.com/BioSchemas/specifications/master/Sample/jsonld/type/Sample_v0.3-DRAFT.json"
+    },
+    "BioChemEntity": {
+      "supertype": "schema:Thing",
+      "source": "https://schema.org/version/latest/schemaorg-current-https.jsonld"
+    },
+    "MolecularEntity": {
+      "supertype": "schema:BioChemEntity",
+      "source": "https://schema.org/version/latest/schemaorg-current-https.jsonld"
+    }
+  },
+  "decisions": {
+    "csvw:Column": {
+      "supertype": "schema:DefinedTerm",
+      "source": "project decision — NOT a published alignment",
+      "rationale": "The CSVW ontology (https://www.w3.org/ns/csvw.ttl) declares csvw:Column with no rdfs:subClassOf and no schema.org alignment, so there is nothing to import. Columns must be graph nodes (ro-crate-py rejects a nested object with no @id, so they cannot be blank nodes), and every one of them therefore fails the RECOMMENDED schema.org-type check: ~49 findings in one crate. DefinedTerm is the closest released schema.org type: a column carries a name, a title and a propertyUrl naming its formal definition, inside a csvw:Schema that acts as the term set. Delete this entry to drop the claim and take the findings back."
+    }
+  }
+}
