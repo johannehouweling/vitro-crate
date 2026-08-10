@@ -25,11 +25,6 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from builder.state import CrateState
-
-# The scorers join against the assembled crate, so the runner reuses the MIT
-# module's own assembly (the graph the registered tool scores) — one notion of
-# "the assembled graph", not a second one.
-from builder.tools.mit_assessment import _assemble_graph
 from eval.agent_api import AgentFactory, BuildOutcome
 from eval.corpus import EvalCase, meets_entity_quota, reaches_isa_tox_conformance
 from eval.metrics import compute_cost, crate_graph_hash, mine_profile_metrics
@@ -106,7 +101,8 @@ class CaseResult:
     AI-readiness score. Headlines are repeat #1's; ``*_per_repeat`` record every
     repeat (#405). ``csvw_air`` is ``None`` — "not assessed" — for an arm with
     no pipeline condition-table report (ReAct, mocks); ``mit_propertyid`` is
-    ``None`` only when the crate graph could not be assembled at all.
+    ``None`` when the crate graph could not be assembled or the MIT YAML
+    offers no joinable parameters — not assessed, never a fabricated zero.
     """
 
     case_id: str
@@ -432,6 +428,31 @@ def _build_with_transient_retries(
         return outcome, latency, transient_retries
 
 
+def _assembled_graph(state: CrateState) -> list[dict[str, Any]] | None:
+    """Assemble *state*'s ``@graph`` once, for the hash AND the #474 scorers.
+
+    The identical assembly :func:`crate_graph_hash` performs internally —
+    sharing it halves the per-repeat assembly cost. ``None`` on failure: the
+    hash then falls back to its own degraded path and the scorer axes read
+    not-assessed; additive axes never fail the harness.
+    """
+    try:
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(
+            state,
+            output_dir=None,
+            materialize_payload=False,
+            include_all_scanned=False,
+        )
+        doc = crate.metadata.generate()
+        graph = doc.get("@graph")
+        return graph if isinstance(graph, list) else None
+    except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
+        logger.warning("Graph assembly for scoring failed: %s", exc)
+        return None
+
+
 def _condition_table_report(outcome: BuildOutcome) -> dict[str, Any] | None:
     """The build's own condition-table record, or ``None`` when the arm has none.
 
@@ -461,6 +482,7 @@ def _run_case(
 ) -> CaseResult:
     """Run a single case ``repeats`` times and aggregate its metrics."""
     hashes: list[str] = []
+    repeat_graphs: list[list[dict[str, Any]] | None] = []
     repeat_runs: list[tuple[BuildOutcome, float]] = []
     error: str | None = None
     transient_retries = 0
@@ -476,7 +498,8 @@ def _run_case(
         repeat_runs.append((outcome, latency))
         if outcome.error and error is None:
             error = outcome.error
-        hashes.append(crate_graph_hash(outcome.state))
+        repeat_graphs.append(_assembled_graph(outcome.state))
+        hashes.append(crate_graph_hash(outcome.state, graph=repeat_graphs[-1]))
 
     first_outcome, first_latency = repeat_runs[0]  # repeats >= 1 guarantees one run
 
@@ -494,17 +517,19 @@ def _run_case(
     scored: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     predicates: list[dict[str, Any]] = []
     quotas: list[dict[str, Any]] = []
-    # The manuscript axes (#474) join against the assembled graph, which is as
-    # costly as the hash's own assembly — so both are memoised on the same
-    # digest. csvw_air additionally depends on the repeat's OWN pipeline report
-    # (the condition-table path is per-session), so it is computed per repeat
-    # over the memoised graph.
-    graphs: dict[str, list[dict[str, Any]] | None] = {}
+    # The manuscript axes (#474) join against the assembled graph the build
+    # loop above already produced for the hash (one assembly per repeat, shared).
+    # The MIT score is memoised on the digest like the conformance predicate;
+    # csvw_air additionally depends on the repeat's OWN pipeline report (the
+    # condition-table path is per-session), so it is computed per repeat. Both
+    # are guarded — one bad crate or CSV must never abort a multi-case run.
     mit_by_digest: dict[str, tuple[float | None, dict[str, Any]]] = {}
     mit_scores: list[float | None] = []
     air_scores: list[float | None] = []
     air_details: list[dict[str, Any]] = []
-    for (outcome_i, _), digest in zip(repeat_runs, hashes, strict=True):
+    for (outcome_i, _), digest, graph_i in zip(
+        repeat_runs, hashes, repeat_graphs, strict=True
+    ):
         verdict = scored.get(digest)
         if verdict is None:
             verdict = (
@@ -512,37 +537,44 @@ def _run_case(
                 meets_entity_quota(outcome_i.state, case.min_entities),
             )
             scored[digest] = verdict
-            try:
-                graph = _assemble_graph(outcome_i.state)
-            except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
-                logger.warning("Scorer graph assembly failed for %s: %s", case.case_id, exc)
-                graph = None
-            graphs[digest] = graph
-            if graph is None:
-                mit_by_digest[digest] = (None, {})
-            else:
-                mit = mit_propertyid_coverage(graph)
-                mit_by_digest[digest] = (
-                    mit["coverage"],
-                    {
-                        "covered": mit["covered"],
-                        "joinable": mit["joinable"],
-                        "covered_ids": [p["id"] for p in mit["per_param"] if p["bound"]],
-                    },
-                )
         predicates.append(verdict[0])
         quotas.append(verdict[1])
+
+        if digest not in mit_by_digest:
+            if graph_i is None:
+                mit_by_digest[digest] = (None, {})
+            else:
+                try:
+                    mit = mit_propertyid_coverage(graph_i)
+                    mit_by_digest[digest] = (
+                        mit["coverage"],
+                        {
+                            "covered": mit["covered"],
+                            "joinable": mit["joinable"],
+                            "covered_ids": [
+                                p["id"] for p in mit["per_param"] if p["bound"]
+                            ],
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
+                    logger.warning("MIT scoring failed for %s: %s", case.case_id, exc)
+                    mit_by_digest[digest] = (None, {})
         mit_scores.append(mit_by_digest[digest][0])
 
-        graph_i = graphs[digest]
-        table_report = _condition_table_report(outcome_i)
         if graph_i is None:
             air_scores.append(None)
             air_details.append({})
         else:
-            air = csvw_air_score(outcome_i.state, graph_i, table_report)
-            air_scores.append(air["score"])
-            air_details.append({"reason": air["reason"], "columns": air["columns"]})
+            try:
+                air = csvw_air_score(
+                    outcome_i.state, graph_i, _condition_table_report(outcome_i)
+                )
+                air_scores.append(air["score"])
+                air_details.append({"reason": air["reason"], "columns": air["columns"]})
+            except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
+                logger.warning("CSVW/AIR scoring failed for %s: %s", case.case_id, exc)
+                air_scores.append(None)
+                air_details.append({})
     predicate = predicates[0]
     quota = quotas[0]
 
