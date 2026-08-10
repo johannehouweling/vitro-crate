@@ -8,7 +8,9 @@ only, generated from real data rather than hand-drawn.
 
 from __future__ import annotations
 
+import itertools
 import json
+import math
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -18,14 +20,26 @@ from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import populate_crate
+from builder.writers.maturity_report import _CSS_PATH as _CSS_SOURCE
+from builder.writers.maturity_report import _load_css
 from builder.writers.provenance_dag import (
+    CATEGORY_STYLES,
+    _crate_legend_lines,
+    _entity_category,
+    _mermaid_style,
+    _node_class,
+    _node_class_for_brief,
+    _svg_node_shape,
     build_cellline_inventory,
     build_chemical_inventory,
     build_crate_graph,
     build_isa_inventory,
     build_people_inventory,
+    category_label,
+    legend_swatch,
     render_celllines_svg,
     render_chemicals_svg,
+    render_crate_graph,
     render_isa_svg,
     render_mermaid_html,
     render_overview_svg,
@@ -34,6 +48,35 @@ from builder.writers.provenance_dag import (
     render_provenance_svg,
 )
 from profiles.context import ISA_TOX_CONTEXT
+
+
+def _srgb_to_lab(colour: str) -> tuple[float, float, float]:
+    """``#rrggbb`` to CIE L*a*b* (D65), so colours can be compared the way an eye
+    compares them rather than by how far apart their hex digits are."""
+    r, g, b = (int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b))
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t: float) -> float:
+        return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+
+    fx, fy, fz = f(x), f(y), f(z)
+    return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+
+def _ciede(a: str, b: str) -> float:
+    """CIE76 colour difference. ~2.3 is the just-noticeable step; 20 is "clearly
+    a different colour" when the two are side by side rather than adjacent."""
+    return math.sqrt(sum((p - q) ** 2 for p, q in zip(_srgb_to_lab(a), _srgb_to_lab(b))))
+
+
+def _contrast_on_white(colour: str) -> float:
+    """WCAG contrast ratio against the report's page background."""
+    r, g, b = (int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b))
+    return 1.05 / (0.2126 * r + 0.7152 * g + 0.0722 * b + 0.05)
 
 
 def _attr(el: ET.Element, name: str) -> str:
@@ -1913,3 +1956,159 @@ class TestLabelsStayDistinct:
         labels = self._labels(render_isa_svg(build_isa_inventory(graph)))
 
         assert len(set(labels)) == len(labels), labels
+
+
+class TestCategoryRegistry:
+    """One entity type, one colour and one shape, in every view.
+
+    Before the registry the same type was drawn three different ways: a File was
+    magenta in the maturity report, yellow in the crate graph and brown in the
+    provenance DAG, and a Dataset was a barred indigo block in the ISA tab and an
+    anonymous grey box in the cell-line and people tabs. Colour that changes
+    between tabs does not merely look untidy — it teaches the reader that colour
+    carries no meaning, which costs them the one channel the overview map has.
+    """
+
+    def test_every_category_has_a_unique_mermaid_shape(self) -> None:
+        """Shape is the channel that survives greyscale, print and colour blindness."""
+        shapes = [style.mermaid for style in CATEGORY_STYLES.values()]
+
+        assert len(set(shapes)) == len(shapes), shapes
+
+    def test_every_category_has_a_unique_svg_outline(self) -> None:
+        """The geometry, not the CSS class — two classes can draw one shape.
+
+        A Person and a Sample were both a stadium in different colours, so the
+        two were indistinguishable to anyone reading without colour.
+        """
+        outlines = {
+            category: re.sub(r'class="[^"]*"', "", _svg_node_shape(category, 0, 0))
+            for category in CATEGORY_STYLES
+        }
+
+        assert len(set(outlines.values())) == len(outlines), sorted(outlines)
+
+    def test_no_view_hardcodes_a_category_colour(self) -> None:
+        """The registry has to be the only place a category colour is written.
+
+        Comparing the generated CSS against the registry would compare the
+        registry with itself and pass no matter what. What can still go wrong is
+        someone writing a colour back into a view by hand — which is exactly how
+        the three palettes diverged — so this asserts the *sources* are free of
+        them: the stylesheet declares no ``--cat-*`` of its own, and every
+        category stroke in rendered Mermaid output is the registry's.
+        """
+        source = _CSS_SOURCE.read_text(encoding="utf-8")
+
+        assert not re.search(r"--cat-[a-z]+\s*:", source), "the stylesheet hardcodes a palette"
+
+        by_colour = {style.colour: name for name, style in CATEGORY_STYLES.items()}
+        graph = _full_chain_graph()
+        for rendered in (
+            render_crate_graph(graph, layer="all"),
+            render_provenance_mermaid(graph),
+        ):
+            for category, stroke in re.findall(
+                r"classDef (?:cat_)?([a-z]+) fill:#[0-9a-f]{6},stroke:(#[0-9a-f]{6})", rendered
+            ):
+                if category in CATEGORY_STYLES:
+                    assert stroke == CATEGORY_STYLES[category].colour, category
+                    assert by_colour[stroke] == category, category
+
+    def test_the_substituted_stylesheet_carries_the_registry_colours(self) -> None:
+        """The wiring check for the placeholder: the values actually arrive."""
+        declared = dict(re.findall(r"--cat-([a-z]+):(#[0-9a-f]{6})", _load_css()))
+
+        for category, style in CATEGORY_STYLES.items():
+            assert declared.get(category) == style.colour, category
+            assert _mermaid_style(category)[1] == style.colour, category
+
+    def test_every_category_is_drawable_in_the_report(self) -> None:
+        """A category with no rules renders as an unstyled black-on-white box.
+
+        This is what the generated CSS buys: the hand-written stylesheet had a
+        colour for protocols in the overview and none anywhere else.
+        """
+        css = _load_css()
+
+        assert "__CATEGORY_STYLES__" not in css
+        for category in CATEGORY_STYLES:
+            for prefix in ("cat", "n", "tag"):
+                rule = rf"\.{prefix}-{category} \{{"
+                assert re.search(rule, css), f"{category}: {rule}"
+
+    def test_colours_are_far_enough_apart_to_tell_apart(self) -> None:
+        """The overview is 13px tiles, where colour is most of the signal.
+
+        CIE76 dE, the same measure used to pick the palette. dE 20 is the floor
+        for "clearly different side by side"; the hand-picked palette this
+        replaced had a closest pair at 14.
+        """
+        pairs = [
+            (_ciede(a.colour, b.colour), name_a, name_b)
+            for (name_a, a), (name_b, b) in itertools.combinations(CATEGORY_STYLES.items(), 2)
+        ]
+        worst = min(pairs)
+
+        assert worst[0] >= 20, f"{worst[1]} vs {worst[2]}: dE {worst[0]:.1f}"
+
+    def test_every_colour_reads_as_an_outline_on_the_page(self) -> None:
+        """A stroke below 3:1 disappears against the report background."""
+        for category, style in CATEGORY_STYLES.items():
+            assert _contrast_on_white(style.colour) >= 3.0, category
+
+    def test_a_dataset_is_a_container_in_every_view_that_draws_one(self) -> None:
+        """The concrete regression: `_node_class_for_brief` had no Dataset arm.
+
+        An Investigation drew as a barred indigo block in the ISA tab and a grey
+        rounded box in the cell-line and people tabs — the same entity, twice.
+        """
+        assert _node_class_for_brief({"tag": "Dataset · Investigation"}) == "container"
+        assert _node_class_for_brief({"tag": "Dataset"}) == "container"
+        assert _node_class({"@type": "Dataset"}) == "container"
+
+    def test_an_organisation_is_not_filed_as_a_person(self) -> None:
+        """The people view has always drawn the two apart; the overview had not.
+
+        `_entity_category` folded Organization into "agent", so one institution
+        was slate-blue in the people tab and purple in the all-entities tab.
+        """
+        assert _entity_category({"@type": "Organization"}) == "org"
+        assert _entity_category({"@type": "Person"}) == "agent"
+        assert _node_class_for_brief({"tag": "Organization"}) == "org"
+
+    def test_legend_swatches_are_the_diagram_s_own_geometry(self) -> None:
+        """A hand-drawn swatch drifts: the "File / table" key was a plain
+        rounded rectangle for as long as the diagram had drawn a folded-corner
+        document. Drawing the swatch through `_svg_node_shape` makes that
+        impossible rather than merely unlikely."""
+        for category in CATEGORY_STYLES:
+            swatch = legend_swatch(category)
+            body = swatch.split(">", 1)[1].rsplit("</svg>", 1)[0]
+
+            assert body == _svg_node_shape(category, 7, 7), category
+            # It must inherit the diagram's rules, or it shows the wrong colour.
+            assert 'class="prov lg-sw"' in swatch
+
+    def test_the_crate_graph_legend_names_every_category(self) -> None:
+        """The hand-written legend had fallen behind the categories it explains:
+        one "Person / Org" key for two differently-drawn categories, and nothing
+        at all for publications or organisations."""
+        legend = "\n".join(_crate_legend_lines())
+
+        for category, style in CATEGORY_STYLES.items():
+            assert f":::cat_{category}" in legend, category
+            assert style.label in legend, category
+
+    def test_the_overview_and_its_legend_use_the_same_words(self) -> None:
+        """A key that names a cluster differently from the map is a key the
+        reader has to translate."""
+        graph = [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "Root", "hasPart": [{"@id": "#o"}]},
+            {"@id": "#o", "@type": "Organization", "name": "Utrecht University"},
+        ]
+        svg = render_overview_svg(build_crate_graph(graph, layer="all", all_edges=True))
+
+        assert f"{category_label('org')} · 1" in svg
+        assert category_label("org") == "Organisation"
