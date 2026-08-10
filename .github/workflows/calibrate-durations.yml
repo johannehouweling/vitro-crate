@@ -6,30 +6,11 @@ name: Calibrate test durations
 # runner scales the eval suite worse than local). Running the suite once ON the
 # runner with --store-durations produces a file that balances the shards evenly.
 #
-# Runs MONTHLY, and on demand from the Actions tab.
-#
-# The schedule exists because this file goes stale silently. It was last
-# regenerated 2026-06-26 with 1092 tests recorded; the suite had grown to 2283,
-# so pytest-split was balancing HALF of it blind. The cost is not a slightly
-# slower run — it is an unpredictable one: measured over random start orders, an
-# unbalanced split runs ~78s slower on average and ~193s slower at p95 than a
-# balanced one. That variance is what makes a shard tip over the tight
-# `--timeout=30` for reasons unrelated to the change under test, which has twice
-# turned a green PR red on merge.
-#
-# The run OPENS A PR rather than uploading an artifact somebody has to remember
-# to download. A scheduled job whose output nobody commits is worse than no
-# scheduled job: it burns a runner and quietly changes nothing. Runners are free
-# on a public repo, so monthly costs nothing but the PR review.
+# Usage: MANUAL only — trigger from the Actions tab ("Run workflow", pick the
+# branch). Download the `test-durations` artifact (test_durations.json) and commit
+# it as `.test_durations`. Re-run whenever the shard balance drifts.
 on:
-  schedule:
-    # 04:00 UTC on the 1st. Off-peak, so it does not compete with CI for runners.
-    - cron: "0 4 1 * *"
   workflow_dispatch:
-
-permissions:
-  contents: write
-  pull-requests: write
 
 jobs:
   measure:
@@ -90,42 +71,3 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 5
-
-      - name: Open a PR with the refreshed durations
-        # Only when the measurement actually moved. A no-op PR every month is
-        # noise, and noise is how a real rebalance gets closed unread.
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          rm -f test_durations.json
-          if git diff --quiet -- .test_durations; then
-            echo "durations unchanged — nothing to propose"
-            exit 0
-          fi
-          recorded=$(python -c "import json;print(len(json.load(open('.test_durations'))))")
-          collected=$(uv run pytest --collect-only -q 2>/dev/null | tail -1 | grep -oE '^[0-9]+' || echo "?")
-          branch="chore/recalibrated-durations-$(date -u +%Y%m%d)"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add .test_durations
-          git commit -m "chore(ci): recalibrate .test_durations from runner timings
-
-          Measured on the runner, serially, so each entry is the true
-          single-process cost the sharded job is balanced against.
-
-          Recorded: ${recorded} tests (suite collects ${collected})."
-          git push -u origin "$branch"
-          gh pr create \
-            --title "chore(ci): recalibrate .test_durations from runner timings" \
-            --body "Scheduled monthly recalibration.
-
-          \`.test_durations\` is what pytest-split balances the 16 shards with, and it goes stale silently as the suite grows — every test with no recorded duration is balanced blind.
-
-          Measured **on the runner, serially**, so each entry is the true single-process cost (a locally-measured file mis-balances the 2-vCPU runner, which scales the eval suite worse than local).
-
-          Recorded **${recorded}** tests; the suite collects **${collected}**.
-
-          Merging keeps shard wall-clock predictable — an unbalanced split costs ~78s on average and ~193s at p95, and that variance is what makes a shard trip the tight \`--timeout=30\` for reasons unrelated to the change under test."
