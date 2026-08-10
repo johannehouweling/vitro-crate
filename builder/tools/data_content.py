@@ -30,7 +30,10 @@ import logging
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from builder.state import CrateState
 
 logger = logging.getLogger(__name__)
 
@@ -417,30 +420,69 @@ def condition_table_multivalued_columns(csv_path: str) -> set[str]:
     Returns:
         The canonical column titles carrying ≥2 distinct non-empty values.
     """
-    from builder.tools._crate_mapping import _CONDITION_TABLE_HEADER
-
     path = Path(csv_path)
     if not path.is_file():
         return set()
+
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        logger.warning("Could not read condition table %s: %s", path, exc)
+        return set()
+
+    return condition_table_multivalued_columns_from_rows(rows)
+
+
+def condition_table_multivalued_columns_from_rows(
+    rows: list[dict[str, Any]],
+) -> set[str]:
+    """The #408 predicate over already-parsed rows.
+
+    The single definition of "this column can no longer carry a column-wide
+    ``valueUrl`` claim"; :func:`condition_table_multivalued_columns` is the
+    file-reading wrapper, and a caller that already holds the rows (the eval
+    scorer, #474) consults this directly instead of re-reading the CSV.
+    """
+    from builder.tools._crate_mapping import _CONDITION_TABLE_HEADER
 
     # Only canonical columns are described by the CSVW schema, so only they can
     # carry (or lose) a valueUrl; a verbatim-copied plate map's extra headers are
     # not the build's to reason about.
     canonical = set(_CONDITION_TABLE_HEADER.strip("\n").split(","))
     seen: dict[str, set[str]] = {}
-    try:
-        with path.open(newline="", encoding="utf-8") as fh:
-            for row in csv.DictReader(fh):
-                for key, value in row.items():
-                    name = str(key).strip() if key is not None else ""
-                    if name not in canonical or not _has_value(value):
-                        continue
-                    seen.setdefault(name, set()).add(str(value).strip())
-    except (OSError, UnicodeDecodeError, csv.Error) as exc:
-        logger.warning("Could not read condition table %s: %s", path, exc)
-        return set()
-
+    for row in rows:
+        for key, value in row.items():
+            name = str(key).strip() if key is not None else ""
+            if name not in canonical or not _has_value(value):
+                continue
+            seen.setdefault(name, set()).add(str(value).strip())
     return {column for column, values in seen.items() if len(values) > 1}
+
+
+def reference_cell_allowlist(state: CrateState, entity_type: str) -> list[str]:
+    """Allowed cell values for a condition-table reference column.
+
+    The table's ``compound`` / ``cell_line`` cells carry entity **names**, not
+    entity ids — :func:`propose_condition_rows` writes ``name`` and only falls
+    back to ``entity_id`` for an entity that has none, and a depositor's own
+    plate map names compounds the way a bench scientist writes them. Allowing
+    both is therefore the check working as intended, not a loosening: an
+    id-only allow-list would flag every row of a correct table, and a check
+    that always fires is a check nobody reads.
+
+    Matching is **exact** (whitespace-stripped, case-preserved) — the same
+    strictness the Frictionless foreign-key validation applies, so the build's
+    payload verdict and the eval scorer (#474) can never disagree about the
+    same cell.
+    """
+    allowed: list[str] = []
+    for entity in state.list_entities(entity_type):
+        name = str(entity.fields.get("name") or "").strip()
+        if name:
+            allowed.append(name)
+        allowed.append(entity.entity_id)
+    return allowed
 
 
 # --- plate-map intake (#422) ------------------------------------------------

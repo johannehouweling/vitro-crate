@@ -232,7 +232,7 @@ def mine_profile_metrics(records: list[dict[str, Any]]) -> ProfileMetrics:
     )
 
 
-def crate_graph_hash(state: CrateState) -> str:
+def crate_graph_hash(state: CrateState, *, graph: list[dict[str, Any]] | None = None) -> str:
     """Return a stable SHA-256 hash of the crate *state* assembles to.
 
     The crate is assembled in memory (no disk write, no payload materialization)
@@ -246,21 +246,25 @@ def crate_graph_hash(state: CrateState) -> str:
 
     Args:
         state: The crate state to fingerprint.
+        graph: An already-assembled ``@graph`` for *state* (the runner assembles
+            once for the #474 scorers and shares it here rather than paying a
+            second identical assembly). ``None`` assembles internally.
 
     Returns:
         A 64-character hex SHA-256 digest.
     """
     try:
-        from builder.tools.builder import assemble_crate
+        if graph is None:
+            from builder.tools.builder import assemble_crate
 
-        crate = assemble_crate(
-            state,
-            output_dir=None,
-            materialize_payload=False,
-            include_all_scanned=False,
-        )
-        metadata_doc = crate.metadata.generate()
-        graph = metadata_doc.get("@graph", metadata_doc)
+            crate = assemble_crate(
+                state,
+                output_dir=None,
+                materialize_payload=False,
+                include_all_scanned=False,
+            )
+            metadata_doc = crate.metadata.generate()
+            graph = metadata_doc.get("@graph", metadata_doc)
         if isinstance(graph, list):
             # Drop volatile build-time stamps and the generator's run record,
             # then sort nodes by @id so neither the build clock, the run's cost,
