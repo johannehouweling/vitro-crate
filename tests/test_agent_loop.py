@@ -1205,7 +1205,7 @@ class TestCompletenessNudge:
              "score": 0.72, "reasons": ["content signals: 2 metadata term(s)"]},
         ]
         result = _format_document_context(docs)
-        assert "1. **[SOP]** `SOP-001.pdf` — score 0.85" in result
+        assert "1. **[SOP]** `docs/SOP-001.pdf` — score 0.85" in result
         assert "2. **[Metadata]** `sample-sheet.csv` — score 0.72" in result
         # Both entries, one per line.
         assert result.count("\n") == 1
@@ -1638,6 +1638,7 @@ class TestReplyIsQuestion:
 class TestCrateIsComplete:
     """Fix B: completeness short-circuits the autonomous loop (#263)."""
 
+
     def _engine(self):
         from builder.engine import AgentEngine
         from builder.state import Entity
@@ -1666,14 +1667,38 @@ class TestCrateIsComplete:
         engine.state.validation.required_issues = ["fix this"]
         assert not _crate_is_complete(engine)
 
-    def test_complete_when_all_pass_and_no_issues(self):
-        from builder.agents.react.agent_loop import _crate_is_complete
-
+    def _passing(self):
         engine = self._engine()
         engine.state.validation.base_passed = True
         engine.state.validation.isa_passed = True
         engine.state.validation.tox_passed = True
         engine.state.validation.required_issues = []
+        return engine
+
+    def test_passing_gates_alone_is_not_complete(self):
+        """Passing REQUIRED is the floor, not the finish.
+
+        This is the regression the outstanding-list check exists for: gates go
+        green early and STAY green, so completeness that meant only "all three
+        profiles pass" ended the autonomous loop after every turn for the rest of
+        the session — leaving the user to hand-crank the remaining descriptions,
+        typing "continue" to answer a question nobody had asked.
+        """
+        from builder.agents.react.agent_loop import _crate_is_complete, open_items
+
+        engine = self._passing()
+        assert open_items(engine.state, actionable_only=True), (
+            "fixture must still have outstanding work for this to discriminate"
+        )
+        assert not _crate_is_complete(engine)
+
+    def test_complete_when_gates_pass_and_nothing_is_outstanding(self, monkeypatch):
+        """Both conditions together: green profiles AND an empty outstanding list."""
+        import builder.agents.react.agent_loop as loop
+        from builder.agents.react.agent_loop import _crate_is_complete
+
+        engine = self._passing()
+        monkeypatch.setattr(loop, "open_items", lambda state, **kw: [])
         assert _crate_is_complete(engine)
 
     def test_empty_crate_is_not_complete(self):
@@ -1761,6 +1786,15 @@ class _LoopHarness:
                     v = harness.engine.state.validation
                     v.base_passed = v.isa_passed = v.tox_passed = True
                     v.required_issues = []
+                    # `complete_after` means "the crate is now COMPLETE", and
+                    # completeness is no longer just green gates: it also needs an
+                    # empty outstanding list, because gates go green early and stay
+                    # green. Without emptying it too, the harness only simulates
+                    # half the condition and the loop it is meant to stop runs to
+                    # the turn cap.
+                    harness.monkeypatch.setattr(
+                        agent_loop, "open_items", lambda state, **kw: []
+                    )
                 return {"messages": [AIMessage(content=text)]}
 
         self.monkeypatch.setattr(

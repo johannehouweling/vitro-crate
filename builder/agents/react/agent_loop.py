@@ -533,6 +533,7 @@ _STATE_QUERY_ABORT = 3
 # Set when a guard ends a turn, so the hand-back can say what it was doing
 # rather than only that it stopped.
 _STOP_REASON_FLAG = "_react_stop_reason"
+_LAST_TOOL_FLAG = "_react_last_tool"
 
 _IDLE_STREAK_FLAG = "_calls_without_progress"
 _IDLE_BATCH_FLAG = "_last_counted_batch"
@@ -769,22 +770,32 @@ def _reply_is_question(reply: str | None) -> bool:
 
 
 def _crate_is_complete(engine: AgentEngine) -> bool:
-    """Return True when the crate has entities AND validation fully passes.
+    """Return True when the crate passes REQUIRED and has nothing left to do.
 
     Issue #263 (Fix B): completion short-circuits the autonomous loop so the
-    agent stops re-invoking once there is nothing left to do. "Complete" means
-    the in-memory crate is non-empty and the last write-back of
-    ``state.validation`` (populated by ``build_and_validate`` via the #153
-    write-back) shows all three profiles passing with no REQUIRED gaps. This is a
-    pure read over engine state and never raises.
+    agent stops re-invoking once there is nothing left to do. It used to mean
+    only "all three profiles pass with no REQUIRED gaps" — which becomes true
+    early and stays true, so the loop ended after EVERY turn for the rest of the
+    session. The user then hand-cranked the remaining work one description at a
+    time, typing "continue" to answer a question nobody had asked.
+
+    Passing REQUIRED is the floor, not the finish. A crate with unwritten
+    descriptions, unassigned protocols and an assay folder nobody modelled is
+    unfinished however green the profiles are, and the outstanding list already
+    knows that. Informational lines are excluded: a count of findings on
+    build-generated nodes can never be worked off, so counting it would leave
+    the agent running until the turn cap on every session.
     """
     try:
         if not engine.state.list_entities():
             return False
         val = engine.state.validation
-        return bool(
+        gates_pass = bool(
             val.base_passed and val.isa_passed and val.tox_passed and not val.required_issues
         )
+        if not gates_pass:
+            return False
+        return not open_items(engine.state, actionable_only=True)
     except Exception:  # noqa: BLE001 — a completeness probe must never raise.
         logger.debug("completeness probe failed", exc_info=True)
         return False
@@ -1657,6 +1668,46 @@ def _is_non_progress_result(result: Any) -> bool:
     return False
 
 
+_REMOVED_IDS_FLAG = "_react_removed_entity_ids"
+
+
+def _flag_remove_then_redraft(engine: AgentEngine, tool_name: str, result: Any) -> Any:
+    """Notice an entity being re-created after it was removed, and say what that costs.
+
+    Removing an entity and drafting it straight back is how a RENAME or a
+    RE-PARENT gets expressed when the drafting tools mint the id from the name:
+    one session removed six processes, re-drafted them under different assays,
+    filled three of them in, and removed them again — losing the values it had
+    just written and detaching thirteen processes on the way through.
+
+    The re-draft itself is legitimate, so it is allowed and annotated rather than
+    blocked; ``set_fields`` renames and re-parents in place, and the model can
+    only choose that if someone tells it the option exists at the moment it
+    matters.
+    """
+    try:
+        removed: set[str] = getattr(engine, _REMOVED_IDS_FLAG, None) or set()
+        if tool_name == "remove_entity" and isinstance(result, dict) and result.get("removed"):
+            removed = removed | {str(result.get("entity_id"))}
+            setattr(engine, _REMOVED_IDS_FLAG, removed)
+            return result
+        if not tool_name.startswith("draft_") and tool_name != "scaffold_isa_backbone":
+            return result
+        entity_id = getattr(result, "entity_id", None)
+        if not entity_id or str(entity_id) not in removed:
+            return result
+        return (
+            f"{result}\n\n[NOTE: '{entity_id}' is an entity you removed earlier this "
+            "session, now re-created EMPTY — any values it held are gone. If the goal "
+            "was to rename it or move it to a different parent, set_fields does both "
+            "in place and keeps the content: "
+            "set_fields(entity_id='<id>', fields={'name': …, 'assay_id': …}).]"
+        )
+    except Exception:  # noqa: BLE001 — annotation never breaks a call
+        logger.debug("remove/redraft check failed", exc_info=True)
+        return result
+
+
 def _record_recent_mutation(engine: AgentEngine, result: Any) -> None:
     """Keep a bounded list of entities returned by successful mutations."""
     entity = result
@@ -1837,6 +1888,9 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # in EVERY optional parameter this way, so drop the nulls and let
                 # the defaults apply — omitted and null mean the same thing here.
                 kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                # What is running right now, so a turn cut short by the wall-clock
+                # guard can say what it was doing rather than only that it stopped.
+                setattr(engine, _LAST_TOOL_FLAG, tool_name)
                 _raise_if_invocation_cancelled()
                 # Captured BEFORE the guards, not just before execution. Every
                 # guard below answers the model without running the tool, and
@@ -2212,6 +2266,8 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     engine, tool_name, progress_before, result, signature=signature
                 )
 
+                result = _flag_remove_then_redraft(engine, tool_name, result)
+
                 # Track repeated list queries independently: this never stores or
                 # reuses their result, and mutations always reset the streak.
                 if tool_name in _MUTATION_TOOLS and not _is_non_progress_result(result):
@@ -2467,8 +2523,14 @@ _PROCESS_PARAMETERS: dict[str, tuple[tuple[str, ...], ...]] = {
 }
 
 
-def open_items(state: CrateState) -> list[str]:
+def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]:
     """The outstanding work, DERIVED from the crate rather than remembered.
+
+    With ``actionable_only`` the list holds just the items someone can actually
+    work off — used to decide whether the crate is finished. The informational
+    lines (a count of findings on nodes the build generates) stay out of that
+    view, because an item that can never be cleared would keep any "is there
+    work left?" question answering yes forever.
 
     A checklist the agent announces in prose is a checklist it can quietly drop:
     the transcript gets trimmed, a checkpoint rotates, the user answers two of
@@ -2514,6 +2576,87 @@ def open_items(state: CrateState) -> list[str]:
             items.append(f"crate attribution: {', '.join(attribution)} not set")
         if not getattr(meta, "license", None):
             items.append("licence not chosen (the crate will say ALL RIGHTS RESERVED)")
+
+        # A submission that ships four assay folders and gets modelled as one
+        # assay validates perfectly and is three-quarters missing. Nothing in the
+        # crate can reveal that — every check reads what IS there — so it is
+        # measured against the INPUT: each directory holding its own metadata
+        # workbook or protocol is an assay the depositor separated out. Compared
+        # by count, not matched by name: which Assay covers which folder is not
+        # derivable, and claiming otherwise would be worse than saying nothing.
+        assay_dirs = {
+            str(doc.get("relative_path", "")).split("/")[0]
+            for doc in (getattr(state, "documents", None) or [])
+            if "/" in str(doc.get("relative_path", ""))
+            and str(doc.get("role", "")).lower() in ("metadata", "assay_protocol")
+        }
+        assays = state.list_entities("Assay")
+        studies = state.list_entities("Study")
+        if len(assay_dirs) > max(len(assays), 1):
+            items.append(
+                f"the input has {len(assay_dirs)} assay folders "
+                f"({', '.join(sorted(assay_dirs)[:4])}) but the crate has "
+                f"{len(assays)} Assay entit{'y' if len(assays) == 1 else 'ies'} — "
+                "draft the missing ASSAYS under the existing Study (a folder per "
+                "assay does not mean a Study per assay), or tell the user which "
+                "folders are out of scope"
+            )
+        # One Study per Assay is the shape you get from reading a folder listing
+        # rather than the science. In ISA a Study is the investigation's unit of
+        # design and material — the assays run on it are its children — so four
+        # sibling assay folders under one submission are four Assays of ONE
+        # Study. Advisory, not a rule: a submission genuinely containing several
+        # studies looks identical from here, and only the depositor knows which.
+        if len(studies) > 1 and len(assays) == len(studies):
+            singles = [
+                st.entity_id
+                for st in studies
+                if sum(1 for a in assays if a.fields.get("study_id") == st.entity_id) == 1
+            ]
+            if len(singles) == len(studies):
+                items.append(
+                    f"{len(studies)} Studies, each holding exactly one Assay "
+                    f"({', '.join(singles[:3])}{'…' if len(singles) > 3 else ''}) — if "
+                    "these are assays OF one study, keep one Study, re-point each "
+                    "Assay's study_id at it and remove the spares; if they really are "
+                    "separate studies, say so and leave them"
+                )
+
+        # Processes with no Assay, and Assays with no processes. `remove_entity(
+        # cascade=True)` on a container does not delete its contents — it clears
+        # the parent reference to keep the graph free of dangling ids — so
+        # removing four Assays and re-creating them left thirteen processes
+        # pointing at nothing and four empty Assays, and the crate still reported
+        # zero REQUIRED issues. Every check reads what IS attached; nothing was
+        # looking at what came loose.
+        assay_ids = {a.entity_id for a in assays}
+        detached = [
+            p.entity_id
+            for p in state.list_entities("LabProcess")
+            if str(p.fields.get("assay_id") or "") not in assay_ids
+        ]
+        if detached:
+            items.append(
+                f"{len(detached)} LabProcess entities belong to no Assay "
+                f"({', '.join(detached[:3])}{'…' if len(detached) > 3 else ''}) — set "
+                "assay_id on each to the Assay it was run for; they are invisible "
+                "to the crate until then"
+            )
+        empty = [
+            a.entity_id
+            for a in assays
+            if not any(
+                str(p.fields.get("assay_id") or "") == a.entity_id
+                for p in state.list_entities("LabProcess")
+            )
+        ]
+        if empty and state.list_entities("LabProcess"):
+            items.append(
+                f"{len(empty)} Assay entities have no process chain "
+                f"({', '.join(empty[:3])}{'…' if len(empty) > 3 else ''}) — an assay "
+                "with no CellCulture/Exposure/EndpointReadout/DataAnalysis records "
+                "no experiment"
+            )
 
         # A document ranked as the publication, with no publication recorded, is
         # a whole layer of the crate missing: the article, its authors, and the
@@ -2587,11 +2730,17 @@ def open_items(state: CrateState) -> list[str]:
                     f"you own — {top}. Fix these with set_fields, one entity at a time"
                 )
             build_side = len(should) - len(owned)
-            if build_side:
+            if build_side and not actionable_only:
+                # Say WHICH nodes, not a guess at why. This line used to blame
+                # "external ontology IRIs with no describing node" — true of six
+                # findings out of two hundred and twenty-four. The rest are the
+                # CSVW columns, packaged files and typed domain nodes the mapper
+                # emits, and a model told the wrong cause cannot tell when the
+                # claim stops being true.
                 items.append(
-                    f"{build_side} further RECOMMENDED findings are about nodes the "
-                    "BUILD emits (external ontology IRIs with no describing node) — "
-                    "not fixable from here; report them, do not retry them"
+                    f"{build_side} further RECOMMENDED findings are on nodes the BUILD "
+                    "generates (CSVW table columns, packaged file entries, profile "
+                    "types) — no tool call can edit those; report the count and move on"
                 )
     except Exception:  # noqa: BLE001 — a checklist must never break a turn
         logger.debug("open items: derivation failed", exc_info=True)
@@ -2606,13 +2755,38 @@ def _issue_targets_own_entity(state: CrateState, line: str) -> bool:
     ontology term, an ORCID, a PubChem compound) is a reference the build emits
     and no tool call can add a name to.
     """
-    head = str(line).split(":", 1)[0]
-    entity_id = head.split("]", 1)[-1].strip().lstrip("./").lstrip("#")
-    if not entity_id or "://" in str(line).split(": ", 1)[0]:
+    # Split on ": " (colon-space), not ":" — an IRI id contains colons, and
+    # splitting on the bare character cut "https" off the front of every one.
+    body = str(line).split("] ", 1)[-1]
+    entity_id = body.split(": ", 1)[0].strip()
+    if not entity_id:
         return False
+    # Membership in state decides it, IRI or not. An entity keyed by its ORCID or
+    # its AOP-Wiki IRI is still the agent's to edit — 44 of them in one crate —
+    # and treating "looks like a URL" as "the build emitted it" told the model to
+    # ignore work it could actually do.
+    bare = entity_id.lstrip("./").lstrip("#")
     for entity in state.list_entities():
-        if entity_id == entity.entity_id or entity_id.endswith(f"_{entity.entity_id}"):
+        if entity_id == entity.entity_id or bare == entity.entity_id:
             return True
+        if bare.endswith(f"_{entity.entity_id}"):
+            return True
+    # Compare against the id the MAPPER would mint, not just the state id. A File
+    # is keyed in the graph by its destination path (`data/uptake.csv`) while
+    # state calls it `file_uptake`, so sixteen findings on the agent's own files
+    # were reported to it as "emitted by the build, not fixable from here" — the
+    # one category it must never get wrong, because the model is told to stop
+    # trying. Asking the mapper is exact and stays right if the id scheme moves.
+    try:
+        from builder.tools._crate_mapping import _file_dest, _mint_id
+
+        for entity in state.list_entities():
+            if _mint_id(entity).lstrip("./").lstrip("#") == bare:
+                return True
+            if entity.type == "File" and _file_dest(entity).lstrip("./") == bare:
+                return True
+    except Exception:  # noqa: BLE001 — classification never breaks a turn
+        logger.debug("issue ownership: mapper id comparison failed", exc_info=True)
     return False
 
 
@@ -2964,6 +3138,13 @@ def _handback_panel(engine: AgentEngine, *, headline: str) -> Any:
     Nobody should have to guess whether their work survived, or invent the
     vocabulary to resume it.
 
+    The framing matters as much as the content. A pause reads as a failure
+    unless it says otherwise, and this one is not: the crate is unfinished by
+    design at this point, the work so far is on disk, and the person now has the
+    thing they rarely get — a look at the half-built crate while it can still be
+    steered. So the panel is titled as a checkpoint, states plainly that the
+    crate is NOT finished, and offers direction rather than a status report.
+
     Every suggestion is a phrase the loop already understands, and the list
     adapts to the crate — no "export" prompt before anything is drafted, no
     "fix the issues" prompt when there are none.
@@ -2972,11 +3153,15 @@ def _handback_panel(engine: AgentEngine, *, headline: str) -> Any:
 
     state = engine.state
     lines: list[str] = [f"[dim]{headline}[/dim]"]
+    outstanding: list[str] = []
 
     stopped_doing = getattr(engine, _STOP_REASON_FLAG, None)
     if stopped_doing:
         lines.append(f"[dim]Stopped after: {stopped_doing}[/dim]")
         setattr(engine, _STOP_REASON_FLAG, None)
+    last_tool = getattr(engine, _LAST_TOOL_FLAG, None)
+    if last_tool and not stopped_doing:
+        lines.append(f"[dim]Last step running: {last_tool}[/dim]")
 
     try:
         entities = state.list_entities()
@@ -3011,26 +3196,52 @@ def _handback_panel(engine: AgentEngine, *, headline: str) -> Any:
         if outstanding:
             shown = outstanding[:5]
             lines.append("\n[bold]Still open[/bold]")
-            lines.extend(f"[dim]  - {item}[/dim]" for item in shown)
+            # One line each. These items carry a "— do X" instruction aimed at the
+            # model, which is what makes them long; wrapped in a panel the
+            # continuation lines run back to the left edge and the list stops
+            # being scannable. The person needs the WHAT here — the how is the
+            # agent's copy, which is untruncated.
+            for item in shown:
+                head = item.split(" — ")[0]
+                if len(head) > 96:
+                    head = head[:95].rstrip() + "…"
+                lines.append(f"[dim]  - {head}[/dim]")
             if len(outstanding) > len(shown):
                 lines.append(f"[dim]  …and {len(outstanding) - len(shown)} more[/dim]")
     except Exception:  # noqa: BLE001 — a hand-back must never raise
         logger.debug("hand-back: state summary failed", exc_info=True)
         entities, required = [], 0
 
-    options: list[tuple[str, str]] = [("continue", "pick up from here")]
+    options: list[tuple[str, str]] = [
+        (
+            "continue",
+            "carry on with the outstanding work" if outstanding else "pick up from here",
+        )
+    ]
     if required:
         options.append(
             ("show issues", f"list the {required} blocking issue(s) and fix them one by one")
         )
     if entities:
-        options.append(("export", "write the crate as it stands"))
+        options.append(("export", "write the crate as it stands, unfinished"))
     options.append(("status", "full summary of the crate so far"))
-    lines.append("\n[bold]What now[/bold] — reply with one of:")
+    lines.append("\n[bold]Your call[/bold] — reply with one of:")
     lines.extend(f"  [bold]{word}[/bold][dim] — {why}[/dim]" for word, why in options)
-    lines.append("[dim]  …or just tell me what to do differently.[/dim]")
+    lines.append(
+        "[dim]  …or redirect me: name what to work on, what to skip, or what I got "
+        "wrong.[/dim]"
+    )
 
-    return Panel("\n".join(lines), border_style="yellow", padding=(0, 1))
+    return Panel(
+        "\n".join(lines),
+        # Titled, because an untitled yellow box after a long wait reads as a
+        # crash. This is a checkpoint in unfinished work, and the crate being
+        # incomplete is the normal state at this point, not the bad news.
+        title="[bold]Paused — the crate is not finished[/bold]",
+        title_align="left",
+        border_style="yellow",
+        padding=(0, 1),
+    )
 
 
 # How much document text the per-turn brief may carry. Sized so ANY ONE of a
@@ -3135,7 +3346,14 @@ def _format_document_context(documents: list[dict[str, Any]] | None) -> str:
         if role is None:
             spaced = raw.replace("_", " ")
             role = spaced[:1].upper() + spaced[1:]
-        name = doc.get("filename", doc.get("relative_path", "?"))
+        # The RELATIVE PATH, not the bare filename. A nested submission has five
+        # different README.txt files, and a list of five identical names is both
+        # unreadable and unusable: the reader gate refuses a basename that
+        # matches more than one file ("Not resolving bare filename 'README.txt'
+        # — 3 files share that name"), so the only spelling shown was the one
+        # spelling that could never be opened. For a file at the root the
+        # relative path IS the filename, so nothing is lost by always using it.
+        name = doc.get("relative_path") or doc.get("filename") or "?"
         score = doc.get("score", 0.0)
         lines.append(f"{number}. **[{role}]** `{name}` — score {score:.2f}")
     return "\n".join(lines)
@@ -4048,8 +4266,11 @@ def run_interactive_agent(
                 _handback_panel(
                     engine,
                     headline=(
-                        f"That step passed the {request_timeout:.0f}s time limit, so I "
-                        "stopped it. Nothing is lost; the session is saved."
+                        f"One step ran past its {request_timeout:.0f}s limit, so I "
+                        "stopped it there — that is a time guard, not a failure, and "
+                        "everything up to it is saved. The crate is part-built: "
+                        "below is what exists so far and what is still missing, "
+                        "while it is all still easy to change."
                     ),
                 )
             )
