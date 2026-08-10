@@ -160,38 +160,6 @@ def _synthesize_fix(issue: RoutableIssue) -> str:
     return f"Fix `{entity}`: {issue.message}"
 
 
-# Vocabulary namespaces a crate CITES rather than describes. The RO-Crate
-# validator already exempts exactly this category from "SHOULD have a schema.org
-# type / a name / be described in the same @graph" — w3.org, schema.org,
-# purl.org (Dublin Core), bioschemas.org, urn:. Its list stops at the
-# vocabularies a *workflow* crate is built from; a toxicology crate is built
-# from OBO, BAO, EFO and the AOP-Wiki ontology, which appear in exactly the same
-# position — a `propertyID` on a PropertyValue — and get flagged where Dublin
-# Core does not. ~100 findings per crate come from that inconsistency alone.
-#
-# A LOCAL stand-in until the upstream list widens (crs4/rocrate-validator,
-# profiles/ro-crate/1.2/should/0_entity_metadata.ttl). Patching the bundled
-# shapes was the alternative and it cannot reach all three: two of the shapes
-# use sh:targetClass, which takes no SPARQL filter.
-#
-# Deliberately NOT orcid.org, ror.org, pubchem or comptox. Those identify DATA
-# the crate makes claims about, the spec genuinely wants them described, and
-# exempting them would bury the missing names, emails and unreferenced compounds
-# that are ours to fix — measured on one crate: 22 of 26 PubChem findings were
-# orphaned compounds, not vocabulary noise.
-_CITED_VOCABULARY_NAMESPACES: tuple[str, ...] = (
-    "http://purl.obolibrary.org/obo/",
-    "http://www.bioassayontology.org/",
-    "http://www.ebi.ac.uk/efo/",
-    "https://aopwiki.org/ontology/",
-)
-
-
-def _is_cited_vocabulary(entity_id: Any) -> bool:
-    """Whether a finding is about a vocabulary term the crate only points at."""
-    return isinstance(entity_id, str) and entity_id.startswith(_CITED_VOCABULARY_NAMESPACES)
-
-
 def _assemble_and_validate(
     state: CrateState, *, severity: str, profile: str
 ) -> tuple[dict[str, Any], list[Any]]:
@@ -274,36 +242,30 @@ def build_and_validate(
         return {"ok": False, "conformance": {}, "issues": [], "error": str(e)}
 
     conformance = {r.profile: r.passed_required for r in results}
-    issues: list[dict[str, Any]] = []
-    cited = 0
-    for result in results:
-        for issue in result.issues:
-            if _is_cited_vocabulary(issue.entity_id):
-                cited += 1
-                continue
-            issues.append(
-                {
-                    "entity_id": issue.entity_id,
-                    "property": issue.property,
-                    "message": issue.message,
-                    "fix": _synthesize_fix(issue),
-                    "severity": issue.severity,
-                    "profile": issue.profile,
-                }
-            )
-    if cited:
-        # Counted and logged, never silently dropped: this is OUR exemption, not
-        # the validator's verdict, and it has to stay visible to anyone auditing
-        # why a crate reports what it does.
-        logger.info(
-            "Set aside %d finding(s) on cited vocabulary terms (see "
-            "_CITED_VOCABULARY_NAMESPACES)",
-            cited,
-        )
+    # Every finding the validator reports is reported here. We used to set aside
+    # findings whose subject was an IRI in a vocabulary namespace the crate only
+    # CITES (OBO, BAO, EFO, AOP-Wiki) — the upstream validator exempts the same
+    # category for schema.org/w3.org/Dublin Core but its list stops at the
+    # vocabularies a *workflow* crate is built from. That was a hardcoded host
+    # list: it needed an edit for every new ontology, and the need only ever
+    # surfaced as findings appearing for no visible reason. Modelling propertyID
+    # as a string rather than a node removed most of what it was compensating
+    # for; the rest is reported, consistent with showing users what is still
+    # missing rather than deciding for them that it does not count.
+    issues: list[dict[str, Any]] = [
+        {
+            "entity_id": issue.entity_id,
+            "property": issue.property,
+            "message": issue.message,
+            "fix": _synthesize_fix(issue),
+            "severity": issue.severity,
+            "profile": issue.profile,
+        }
+        for result in results
+        for issue in result.issues
+    ]
 
-    ok = not any(
-        i for r in results for i in r.issues if not _is_cited_vocabulary(i.entity_id)
-    )
+    ok = not issues
     # Keep the original routable tool shape stable. The engine receives the
     # requested severity/profile as call arguments and routes writeback from
     # those arguments rather than expanding this public result contract.
