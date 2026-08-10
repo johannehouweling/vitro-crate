@@ -143,6 +143,19 @@ def test_optional_ca_bundle_is_passed_to_openai_clients(
 
     import httpx
 
+    # Force the provider imports BEFORE httpx.Client is swapped out. langchain's
+    # `_SyncHttpxClientWrapper` subclasses `httpx.Client` at IMPORT time, so if
+    # langchain_openai first loads while the fake is installed, the wrapper
+    # inherits from the fake permanently — and every later construction fails
+    # openai's `isinstance(http_client, httpx.Client)` against the real class,
+    # in a different test, with no visible connection to this one.
+    #
+    # That is exactly what happened: this module passes alone and in most shard
+    # layouts, and broke the moment an unrelated PR added tests and repartitioned
+    # pytest-split so `test_unset_ca_bundle_keeps_default_client_path` landed
+    # after this one in shard 16.
+    import langchain_openai  # noqa: F401
+
     class FakeContext:
         check_hostname = True
 
