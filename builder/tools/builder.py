@@ -159,9 +159,11 @@ def assemble_crate(
     # (fallback Study, then a default) so ro-crate-py's preview header isn't
     # "Untitled Investigation" (#272).
     _apply_root_name(crate, state)
-    # Describe the ontology terms the crate points at. Must run LAST: it reads
-    # the finished graph to find which IRIs are referenced.
+    # Both read the FINISHED graph, so they run last: one describes the ontology
+    # terms the crate points at, the other adds each domain type's published
+    # schema.org supertype (looked up in profiles/vocabulary, not decided here).
     describe_external_references(crate)
+    add_schema_org_types(crate)
     return crate
 
 
@@ -184,6 +186,20 @@ _TERM_SET_NAMES: dict[str, str] = {
     "http://purl.org/dc/terms/title": "title",
     "http://purl.org/dc/terms/description": "description",
 }
+
+
+def _label_key(label: str) -> str:
+    """A label reduced to what it MEANS, ignoring how it was written."""
+    return " ".join(str(label).replace("_", " ").replace("-", " ").lower().split())
+
+
+def _preferred_label(labels: set[str]) -> str:
+    """The most human-readable spelling of one label — the one a person wrote.
+
+    Prefers a variant with spaces over one with underscores, then a longer one,
+    then alphabetical so the choice is stable across builds.
+    """
+    return sorted(labels, key=lambda s: ("_" in s, -len(s), s))[0]
 
 
 def describe_external_references(crate: ROCrate) -> int:
@@ -233,8 +249,15 @@ def describe_external_references(crate: ROCrate) -> int:
         known = _TERM_SET_NAMES.get(iri)
         if known:
             labels[iri] = known
-        elif len(found) == 1:
-            labels[iri] = next(iter(found))
+            continue
+        # "Technical replicate" and "technical_replicate" are the same label in
+        # two spellings — one written for a person, one for a column header —
+        # and refusing to name the term over that is over-caution, not care.
+        # Compare with case and separators normalised; a genuine disagreement
+        # (two columns using one unit term for different quantities) still
+        # differs after normalising and is still left alone.
+        if len({_label_key(label) for label in found}) == 1:
+            labels[iri] = _preferred_label(found)
         # Disagreement means the referrers are naming their own column, not the
         # term: 'concentration_unit' and 'measured_unit' both point at IAO_0000039
         # (unit of measurement) and neither is its name. Say nothing rather than
@@ -252,6 +275,74 @@ def describe_external_references(crate: ROCrate) -> int:
     if added:
         logger.info("Described %d externally-referenced ontology term(s)", added)
     return added
+
+
+def add_schema_org_types(crate: ROCrate) -> int:
+    """Give each domain-typed node its published schema.org supertype as well.
+
+    RO-Crate RECOMMENDS every entity carry a type in the schema.org namespace,
+    and the shape enforcing it is syntactic — it looks for a type IRI starting
+    with ``http(s)://schema.org/``. Our domain types resolve to
+    ``https://bioschemas.org/…``, so a perfectly well-typed LabProcess fails it.
+
+    The supertype is READ from the vendored vocabulary
+    (:mod:`profiles.vocabulary`), never decided here. It is a published fact —
+    Bioschemas states ``LabProcess rdfs:subClassOf schema:Action`` — and writing
+    it out by hand got two of three wrong the first time. A type absent from the
+    vocabulary gains nothing: an unfixed RECOMMENDED finding is a smaller harm
+    than a fabricated claim about what an entity is.
+
+    The domain type stays FIRST — it is the specific, meaningful one; the
+    schema.org term is the general one a generic consumer can follow. Idempotent.
+
+    Returns:
+        How many entities gained a type.
+    """
+    from profiles.vocabulary import type_supertypes
+
+    supertypes = type_supertypes()
+    if not supertypes:
+        return 0
+
+    updated = 0
+    for entity in list(crate.get_entities()):
+        try:
+            current = entity.type
+        except Exception:  # noqa: BLE001 — typing never fails a build
+            continue
+        types = [str(t) for t in (current if isinstance(current, list) else [current]) if t]
+        if any(t.startswith("schema:") or t in _SCHEMA_ORG_TYPE_TOKENS for t in types):
+            continue
+        companion = next((supertypes[t] for t in types if t in supertypes), None)
+        if companion is None or companion in types:
+            continue
+        # ro-crate-py guards `entity["@type"] = …`, so write the backing JSON-LD.
+        entity._jsonld["@type"] = types + [companion]
+        updated += 1
+    if updated:
+        logger.info("Added a published schema.org supertype to %d entit(ies)", updated)
+    return updated
+
+
+# Type tokens the crate context already maps into the schema.org namespace, so a
+# node carrying one needs no companion.
+_SCHEMA_ORG_TYPE_TOKENS: frozenset[str] = frozenset(
+    {
+        "Dataset",
+        "File",
+        "MediaObject",
+        "CreativeWork",
+        "PropertyValue",
+        "DefinedTerm",
+        "Person",
+        "Organization",
+        "ScholarlyArticle",
+        "SoftwareApplication",
+        "Action",
+        "HowTo",
+        "Thing",
+    }
+)
 
 
 _GRAPH_FILENAME = "ro-crate-graph.mmd"

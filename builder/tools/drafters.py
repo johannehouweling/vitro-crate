@@ -6,8 +6,14 @@ ROCrate objects — just the state representation with completion tracking.
 
 from __future__ import annotations
 
+import logging
+import re
+from typing import Any
+
 from builder.state import CrateState, Entity, EntityProvenance
 from profiles.ontology_iris import iri
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str, str]]:
@@ -69,6 +75,81 @@ _IDENTIFIER_PROPERTY_IDS: dict[str, str] = {
     "DOI": iri("OBI:0002110"),  # digital object identifier
     "PubMedID": iri("OBI:0001617"),  # PubMed identifier
 }
+
+
+def _person_key(name: Any) -> str:
+    """A person's name reduced to identity, ignoring a trailing role note.
+
+    ``"Nathalie Dierichs (dataset contact)"`` and ``"Nathalie Dierichs"`` are one
+    researcher; the parenthetical is a role, and a role is not part of a name —
+    it belongs on the field that points at the person.
+    """
+    base = re.sub(r"\s*\([^)]*\)\s*$", "", str(name or ""))
+    return " ".join(base.strip().lower().split())
+
+
+def _bare_orcid(value: Any) -> str:
+    """The digits of an ORCID, however it was written (URL, bare, with prefix)."""
+    return str(value or "").strip().rstrip("/").rsplit("/", 1)[-1].upper()
+
+
+def _existing_person(
+    state: CrateState, name: str, orcid_id: str | None, hints: dict
+) -> Entity | None:
+    """The Person already in state that *name*/ORCID refers to, if any.
+
+    ORCID decides when present — it is the identifier, and two people can share a
+    name. Otherwise an exact match on the normalised name, which is deliberately
+    strict: merging two different people would be worse than the duplicate this
+    prevents, so nothing fuzzy happens here.
+    """
+    wanted_orcid = _bare_orcid(orcid_id or hints.get("orcid"))
+    wanted_name = _person_key(name)
+    for person in state.list_entities("Person"):
+        if wanted_orcid:
+            held = _bare_orcid(person.fields.get("orcid") or person.entity_id)
+            if held and held == wanted_orcid:
+                return person
+        if wanted_name and _person_key(person.fields.get("name")) == wanted_name:
+            return person
+    return None
+
+
+def _fill_empty_fields(entity: Entity, hints: dict) -> None:
+    """Fill only what is missing, and never trade a cleaner name for a noisier one.
+
+    An amend must not overwrite verified data with a later guess: an ORCID-backed
+    record beats a hand-typed one, and ``"Dierichs (dataset contact)"`` must not
+    replace ``"Dierichs"``.
+    """
+    for key, value in hints.items():
+        if value in (None, "", [], {}):
+            continue
+        current = entity.fields.get(key)
+        if current in (None, "", [], {}):
+            entity.fields[key] = value
+            entity.set_field_status(key, "filled", "llm")
+        elif key == "name" and _person_key(current) == _person_key(value):
+            # Same person, two spellings — keep the one without the role note.
+            if len(str(value)) < len(str(current)):
+                entity.fields[key] = value
+
+
+def _normalize_reference_hints(state: CrateState, entity_id: str, hints: dict) -> dict:
+    """Canonicalise the reference-valued keys of a drafting ``hints`` dict.
+
+    ``set_fields`` has always done this; the drafters wrote hints straight onto
+    the entity, so the same value took a different shape depending on which tool
+    happened to set it. Imported lazily: ``management`` imports the registry that
+    this module registers into.
+    """
+    from builder.tools.management import _normalize_reference_value, is_reference_field
+
+    normalized = dict(hints)
+    for key, value in list(normalized.items()):
+        if is_reference_field(key):
+            normalized[key] = _normalize_reference_value(state, entity_id, value, key)
+    return normalized
 
 
 def _make_entity_id(prefix: str, name: str, hints: dict) -> str:
@@ -231,6 +312,11 @@ def draft_process(state: CrateState, assay_id: str, process_type: str, hints: di
         type="LabProcess",
         _provenance=EntityProvenance(created_by="llm"),
     )
+    # Reference-valued hints go through the SAME canonicalisation set_fields
+    # applies. Writing them raw is how `chemicals` came to hold the workbook's
+    # prose — "Amiodarone; BSP; Cefuroxime; …" — which the build cannot resolve,
+    # leaving every compound in the crate connected to nothing.
+    hints = _normalize_reference_hints(state, entity_id, hints)
     entity.set_fields_from_dict(hints, source="llm")
     entity.fields["assay_id"] = assay_id
     entity.set_field_status("assay_id", "filled", "llm")
@@ -413,6 +499,22 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     orcid_id, orcid_fields = _resolve_person_orcid(name, merged_hints)
     if orcid_id:
         merged_hints.update(orcid_fields)
+
+    # Drafting someone the crate already holds AMENDS them. Without this, naming
+    # the dataset contact created a second node for a person who was already an
+    # author — "Nathalie Dierichs (dataset contact)" alongside
+    # "Nathalie Dierichs" — and the metadata pointed at the copy with no ORCID,
+    # splitting one researcher's provenance in two.
+    existing = _existing_person(state, name, orcid_id, merged_hints)
+    if existing is not None:
+        _fill_empty_fields(existing, merged_hints)
+        if orcid_id:
+            existing.set_field_status("orcid", "verified", "lookup")
+        logger.info(
+            "Amended existing Person %s instead of drafting a duplicate", existing.entity_id
+        )
+        return existing
+
     entity_id = orcid_id or _make_entity_id("person", name, hints)
     entity = Entity(
         entity_id=entity_id,
