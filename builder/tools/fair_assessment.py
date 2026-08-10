@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from builder.state import CrateState, FAIRReport, MITReport
 
@@ -92,30 +93,152 @@ def _check_reuse_attributes(state: CrateState) -> bool:
     return len(state.list_entities()) >= 2
 
 
+def _placeholder_license() -> str:
+    """The root licence the build synthesizes when the user named none.
+
+    Imported from the build's own constant rather than duplicated, so a reworded
+    default cannot silently start counting as a licence the user chose — the same
+    rule ``mit_assessment._placeholder_values`` follows. Lazy because
+    ``_crate_mapping`` pulls in ro-crate-py.
+    """
+    global _PLACEHOLDER_LICENSE_CACHE
+    if _PLACEHOLDER_LICENSE_CACHE is None:
+        from builder.tools._crate_mapping import DEFAULT_ROOT_LICENSE
+
+        _PLACEHOLDER_LICENSE_CACHE = DEFAULT_ROOT_LICENSE.strip().lower()
+    return _PLACEHOLDER_LICENSE_CACHE
+
+
+_PLACEHOLDER_LICENSE_CACHE: str | None = None
+
+
+def _effective_license(state: CrateState) -> str:
+    """The reuse licence the exported crate will actually carry, or ``""``.
+
+    The canonical home is ``state.metadata.license``: ``set_crate_metadata`` is the
+    only writer, and ``_crate_mapping`` copies it to ``root_dataset["license"]``.
+    Scanning ``Entity.fields["license"]`` — as every licence check used to do
+    exclusively — reads a key no production path writes, so a crate licensed the
+    documented way failed all three RDA licence indicators and collapsed the DSM
+    ladder. Entity fields stay as a fallback for hand-assembled states.
+
+    The synthesized "all rights reserved" default is *not* a licence the user
+    granted, so it reports as absent — crediting it would tell the researcher the
+    licence question is settled when the build is still waiting on an answer.
+    """
+    candidates = [state.metadata.license or ""]
+    candidates.extend(str(e.fields.get("license") or "") for e in state.list_entities())
+    for lic in candidates:
+        text = lic.strip()
+        if text and text.lower() != _placeholder_license():
+            return text
+    return ""
+
+
+# Licence-authority hosts: a URI here identifies a licence someone else defined
+# and published, which is what "standard" means in RDA-R1.1-02M.
+_LICENSE_HOSTS = frozenset(
+    {
+        "creativecommons.org",
+        "spdx.org",
+        "opensource.org",
+        "opendefinition.org",
+        "opendatacommons.org",
+        "gnu.org",
+        "apache.org",
+        "mozilla.org",
+        "eclipse.org",
+        "mit-license.org",
+        "unlicense.org",
+    }
+)
+
+# SPDX short identifiers, normalised (upper-case, whitespace → "-"). A curated
+# subset covering what research data and research software actually carry, not
+# the full ~600-entry SPDX list: the point is to replace a substring test that
+# accepted "ACC-001" and rejected Apache-2.0, and a bounded list does that
+# without a vendored dependency. Vendoring the SPDX list (or F-UJI's
+# licenses.yaml) behind the same generator pattern as fair/rda_fdmm.xlsx is the
+# natural next step if this proves too narrow.
+_SPDX_IDS = frozenset(
+    s.upper()
+    for s in {
+        "CC0-1.0",
+        "CC-BY-3.0",
+        "CC-BY-4.0",
+        "CC-BY-SA-3.0",
+        "CC-BY-SA-4.0",
+        "CC-BY-NC-3.0",
+        "CC-BY-NC-4.0",
+        "CC-BY-ND-4.0",
+        "CC-BY-NC-SA-4.0",
+        "CC-BY-NC-ND-4.0",
+        "ODbL-1.0",
+        "ODC-BY-1.0",
+        "PDDL-1.0",
+        "MIT",
+        "APACHE-2.0",
+        "BSD-2-CLAUSE",
+        "BSD-3-CLAUSE",
+        "ISC",
+        "MPL-2.0",
+        "EPL-2.0",
+        "EUPL-1.2",
+        "ZLIB",
+        "UNLICENSE",
+        "GPL-2.0-ONLY",
+        "GPL-2.0-OR-LATER",
+        "GPL-3.0-ONLY",
+        "GPL-3.0-OR-LATER",
+        "LGPL-3.0-ONLY",
+        "LGPL-3.0-OR-LATER",
+        "AGPL-3.0-ONLY",
+        "AGPL-3.0-OR-LATER",
+    }
+)
+
+
+def _license_uri_host(lic: str) -> str | None:
+    """Host of ``lic`` when it is a well-formed http(s) URI, else None."""
+    try:
+        parts = urlsplit(lic)
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return None
+    return parts.netloc.lower().removeprefix("www.")
+
+
 def _check_license_present(state: CrateState) -> bool:
-    """Check that metadata includes license information."""
-    for entity in state.list_entities():
-        if "license" in entity.fields and entity.fields["license"]:
-            return True
-    return False
+    """Check that metadata includes license information (RDA-R1.1-01M)."""
+    return bool(_effective_license(state))
 
 
 def _check_license_standard(state: CrateState) -> bool:
-    """Check that metadata refers to a standard reuse license."""
-    for entity in state.list_entities():
-        lic = entity.fields.get("license", "")
-        if lic and ("creativecommons" in str(lic).lower() or "cc-" in str(lic).lower()):
-            return True
-    return False
+    """Check that metadata refers to a standard reuse license (RDA-R1.1-02M).
+
+    "Standard" means a licence identified by a scheme someone else maintains: an
+    SPDX short identifier, or a URI on a licence-authority host. The previous
+    substring test for "creativecommons"/"cc-" failed every MIT, Apache, BSD, GPL
+    and ODbL crate while passing an accession like "PROJ-CC-07".
+    """
+    lic = _effective_license(state)
+    if not lic:
+        return False
+    host = _license_uri_host(lic)
+    if host is not None:
+        return host in _LICENSE_HOSTS
+    return " ".join(lic.split()).replace(" ", "-").upper() in _SPDX_IDS
 
 
 def _check_license_machine(state: CrateState) -> bool:
-    """Check that license is machine-understandable (URL)."""
-    for entity in state.list_entities():
-        lic = entity.fields.get("license", "")
-        if lic and str(lic).startswith("http"):
-            return True
-    return False
+    """Check that the license is machine-understandable (RDA-R1.1-03M).
+
+    A resolvable http(s) URI, parsed rather than prefix-matched — ``startswith
+    ("http")`` also accepted "http-only access on request".
+    """
+    lic = _effective_license(state)
+    return bool(lic) and _license_uri_host(lic) is not None
 
 
 def _check_provenance(state: CrateState) -> bool:
@@ -251,8 +374,13 @@ def _check_resolvable_terms(state: CrateState) -> bool:
 
 
 def _check_standard_license(state: CrateState) -> bool:
-    """Descriptor references a standard reuse license."""
-    return _check_license_present(state)
+    """Descriptor references a standard reuse license (DSM-3-C7).
+
+    Delegates to the *standard*-licence check, not mere presence: the indicator
+    text asks for a standard reuse licence, and level 3 is the DSM rung where
+    community standards start to be required.
+    """
+    return _check_license_standard(state)
 
 
 def _check_domain_standard(state: CrateState) -> bool:
@@ -337,6 +465,11 @@ DSM_CHECKS: dict[str, Any] = {
     "resolvable_terms": _check_resolvable_terms,
     "standard_license": _check_standard_license,
     "domain_standard": _check_domain_standard,
+    # DSM-4-R6. Registered here as well as in FAIR_CHECKS: the two registries are
+    # separate, and this one's omission meant the only `scope: full` indicator at
+    # level 4 was skipped by the `check_name in DSM_CHECKS` guard — silently, so
+    # every crate that reached level 4 was handed level 5 as well.
+    "license_machine": _check_license_machine,
     "standard_field_metadata": _check_standard_field_metadata,
     "controlled_values": _check_controlled_values,
     "standard_identifiers": _check_standard_identifiers,
@@ -406,6 +539,26 @@ def assess_fair_maturity(state: CrateState, *, mit: MITReport | None = None) -> 
                         "passed": passed,
                     }
                 )
+            else:
+                # An indicator naming a check that FAIR_CHECKS does not implement
+                # used to vanish from the results entirely, shrinking the
+                # denominator without a trace. Report it as unassessed and say so.
+                logger.error(
+                    "FAIR indicator %s names check %r, which is not in FAIR_CHECKS — "
+                    "reporting it as unassessed",
+                    indicator.get("id", ""),
+                    check_name,
+                )
+                indicator_results.append(
+                    {
+                        "id": indicator.get("id", ""),
+                        "dimension": indicator.get("dimension", ""),
+                        "priority": indicator.get("priority", ""),
+                        "text": indicator.get("text", ""),
+                        "passed": None,
+                        "scope": "unimplemented",
+                    }
+                )
 
     dsm_level = _compute_dsm_level(state, dsm_data)
 
@@ -426,7 +579,11 @@ def _compute_dsm_level(state: CrateState, dsm_data: dict[str, Any] | None) -> in
         dsm_data: Parsed DSM indicators YAML data, or None.
 
     Returns:
-        The highest DSM level achieved (0-5).
+        The highest DSM level achieved. 0-4 in practice: level 5 (enterprise
+        master/reference data) carries no crate-intrinsic indicator, and a level
+        at which nothing could be assessed is never awarded. The model's scale is
+        still 0-5, so the report's "N / 5" denominator stays correct — 4 is the
+        ceiling one RO-Crate can demonstrate on its own.
     """
     if dsm_data is None:
         return 0
@@ -446,19 +603,35 @@ def _compute_dsm_level(state: CrateState, dsm_data: dict[str, Any] | None) -> in
             break
 
         level_indicators = by_level[level]
+        # A level nobody could assess is not a level the crate earned. Level 5 is
+        # entirely `scope: na` (enterprise master data is not crate-intrinsic), so
+        # without this the ladder promoted every level-4 crate straight to 5/5.
+        assessed_any = False
         for ind in level_indicators:
             scope = ind.get("scope", "full")
             if scope == "na":
                 continue
 
             check_name = ind.get("check", "")
-            if check_name in DSM_CHECKS:
-                passed = DSM_CHECKS[check_name](state)
-                if not passed:
-                    cumulative_pass = False
-                    break
+            if check_name not in DSM_CHECKS:
+                # Previously an unresolvable name fell through the `in` guard and
+                # read exactly like a pass. Fail loudly instead: an indicator we
+                # cannot score must not advance the ladder.
+                logger.error(
+                    "DSM indicator %s names check %r, which is not in DSM_CHECKS — "
+                    "treating it as not met",
+                    ind.get("id", ""),
+                    check_name,
+                )
+                cumulative_pass = False
+                break
 
-        if cumulative_pass:
+            assessed_any = True
+            if not DSM_CHECKS[check_name](state):
+                cumulative_pass = False
+                break
+
+        if cumulative_pass and assessed_any:
             max_level = level
 
     return max_level

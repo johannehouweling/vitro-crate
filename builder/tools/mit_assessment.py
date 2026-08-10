@@ -106,6 +106,7 @@ def _placeholder_values() -> frozenset[str]:
     """
     global _PLACEHOLDER_CACHE
     if _PLACEHOLDER_CACHE is None:
+        from builder.tools._crate_mapping import DEFAULT_ROOT_LICENSE
         from builder.tools.builder import (
             _DEFAULT_ROOT_NAME,
             _PLACEHOLDER_ROOT_DESCRIPTION,
@@ -118,10 +119,7 @@ def _placeholder_values() -> frozenset[str]:
                 _PLACEHOLDER_ROOT_NAME,
                 _DEFAULT_ROOT_NAME,
                 _PLACEHOLDER_ROOT_DESCRIPTION,
-                # _crate_mapping's default root license; there is no constant for
-                # it, and the module already refuses to credit `conditionsOfAccess`
-                # from it for the same reason.
-                "ALL RIGHTS RESERVED BY THE AUTHORS",
+                DEFAULT_ROOT_LICENSE,
             )
         )
     return _PLACEHOLDER_CACHE

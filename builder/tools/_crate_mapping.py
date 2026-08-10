@@ -48,6 +48,13 @@ ROCRATE_SPEC = "https://w3id.org/ro/crate/1.2"
 PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
 CELL_LINE_TERM_ID = iri("NCIT:C16403")
+# The root licence the build synthesizes when the user named none. Base RO-Crate
+# makes a root licence a MUST, so something has to be written; this is the most
+# restrictive reading and therefore the safe default. It is a NAMED constant
+# because two assessors have to recognise and refuse to credit it — a value
+# synthesized in the user's absence is not an answer the user gave
+# (builder/tools/mit_assessment.py, builder/tools/fair_assessment.py).
+DEFAULT_ROOT_LICENSE = "ALL RIGHTS RESERVED BY THE AUTHORS"
 
 # Fields that hold references to other entities (resolved via the index), not literals.
 _REF_FIELDS = frozenset(
@@ -899,7 +906,7 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     if m.license:
         crate.root_dataset["license"] = m.license
     elif not crate.root_dataset.get("license"):
-        crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
+        crate.root_dataset["license"] = DEFAULT_ROOT_LICENSE
 
     # Conformance placement follows RO-Crate 1.2 (ro-crate-1.2.0.md §Profiles,
     # isa_tox.md §Conformance): the metadata file descriptor's conformsTo is
