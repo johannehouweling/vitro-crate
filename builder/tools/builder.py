@@ -11,6 +11,7 @@ serialises a valid `ro-crate-metadata.json`.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,10 @@ logger = logging.getLogger(__name__)
 # session has no title. ro-crate-py's bundled preview renders this verbatim as the
 # page header, so an untitled crate shows a meaningless "Untitled Investigation"
 # (#272). _apply_root_name replaces it with the Investigation/Study name.
+# Opt in to the self-contained style: describe every externally-referenced
+# vocabulary term as a node in the crate. Off by default — see assemble_crate.
+_DESCRIBE_EXTERNAL_TERMS_ENV = "VITRO_DESCRIBE_EXTERNAL_TERMS"
+
 _PLACEHOLDER_ROOT_NAME = "Untitled Investigation"
 # The placeholder root description _crate_mapping falls back to when the session
 # has neither a description nor a title. Treated as a placeholder so the
@@ -159,10 +164,19 @@ def assemble_crate(
     # (fallback Study, then a default) so ro-crate-py's preview header isn't
     # "Untitled Investigation" (#272).
     _apply_root_name(crate, state)
-    # Both read the FINISHED graph, so they run last: one describes the ontology
-    # terms the crate points at, the other adds each domain type's published
-    # schema.org supertype (looked up in profiles/vocabulary, not decided here).
-    describe_external_references(crate)
+    # A vocabulary term the crate POINTS AT stays external. `propertyID:
+    # BAO_0000114` links to a definition that dereferences and is maintained by
+    # its ontology; copying the label in duplicates someone else's data, goes
+    # stale on their next release, and adds a node per distinct term for
+    # information a reader can already fetch. The crate DESCRIBES what it
+    # asserts — its samples, processes, people — and LINKS what it cites.
+    #
+    # The validator RECOMMENDS the opposite (it wants a self-contained graph),
+    # so this costs ~60-76 non-blocking findings per crate and saves ~20 nodes.
+    # Deliberate trade: `describe_external_references` still implements the
+    # self-contained style for anyone who wants it, and is called by nothing.
+    if os.environ.get(_DESCRIBE_EXTERNAL_TERMS_ENV, "").strip().lower() in ("1", "true", "yes"):
+        describe_external_references(crate)
     add_schema_org_types(crate)
     return crate
 
