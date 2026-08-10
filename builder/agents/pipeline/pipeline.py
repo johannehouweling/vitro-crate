@@ -2023,21 +2023,14 @@ def _materialize_plan(
 def _reference_names(engine: AgentEngine, entity_type: str) -> list[str]:
     """Allowed cell values for a condition-table foreign-key column.
 
-    The table's ``compound`` / ``cell_line`` cells carry entity **names**, not
-    entity ids — :func:`~builder.tools.data_content.propose_condition_rows`
-    writes ``name`` and only falls back to ``entity_id`` for an entity that has
-    none, and a depositor's own plate map names compounds the way a bench
-    scientist writes them. Allowing both is therefore the check working as
-    intended, not a loosening: an id-only allow-list would flag every row of a
-    correct table, and a check that always fires is a check nobody reads.
+    Delegates to the single definition in
+    :func:`builder.tools.data_content.reference_cell_allowlist`, which the eval
+    scorer (#474) shares — the build's payload verdict and the scorer must
+    never disagree about the same cell.
     """
-    allowed: list[str] = []
-    for entity in engine.state.list_entities(entity_type):
-        name = str(entity.fields.get("name") or "").strip()
-        if name:
-            allowed.append(name)
-        allowed.append(entity.entity_id)
-    return allowed
+    from builder.tools.data_content import reference_cell_allowlist
+
+    return reference_cell_allowlist(engine.state, entity_type)
 
 
 def _validate_populated_tables(
@@ -2074,15 +2067,18 @@ def _validate_populated_tables(
         return []
 
     try:
-        from builder.tools._crate_mapping import _CONDITION_TABLE_COLUMNS
+        from builder.tools._crate_mapping import (
+            _CONDITION_TABLE_COLUMNS,
+            CONDITION_TABLE_REFERENCE_COLUMNS,
+        )
         from builder.tools.data_content import csvw_to_frictionless, validate_table
 
         result = validate_table(
             path,
             csvw_to_frictionless(_CONDITION_TABLE_COLUMNS),
             {
-                "compound": _reference_names(engine, "MolecularEntity"),
-                "cell_line": _reference_names(engine, "CellLineSample"),
+                column: _reference_names(engine, entity_type)
+                for column, entity_type in CONDITION_TABLE_REFERENCE_COLUMNS.items()
             },
         )
     except Exception as exc:  # noqa: BLE001 - the payload layer is additive
