@@ -812,20 +812,35 @@ def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
     orphans = counts.get("orphan", 0)
     reachable = len(nodes) - orphans
 
+    isolated = counts.get("isolated", 0)
+    stranded = counts.get("stranded", 0)
+    links = counts.get("unreachable_clusters", 0)
+
     swatches = "".join(
         f'<span class="lg"><span class="ov-key cat-{cat}"></span> {cat}</span>'
         for cat in ("container", "process", "protocol", "material", "chemical",
                     "data", "agent", "publication", "annotation")
     )
-    legend = _legend(
-        swatches, '<span class="lg"><span class="ov-key orphan"></span> unreachable</span>'
-    )
+    # Only name a state the map actually shows: a key for a tile the reader
+    # cannot find is noise, and here it would also misdescribe the crate.
+    reach_keys = []
+    if isolated:
+        reach_keys.append(
+            '<span class="lg"><span class="ov-key orphan isolated"></span> '
+            "unreachable · linked to nothing</span>"
+        )
+    if stranded:
+        reach_keys.append(
+            '<span class="lg"><span class="ov-key orphan stranded"></span> '
+            "unreachable · linked to each other, not to the root</span>"
+        )
+    legend = _legend(swatches, *reach_keys)
 
     note = (
         f'<p class="chem-warn">{_mk("no")}<span><b>{orphans} of {len(nodes)} entities '
-        "are unreachable from the crate root.</b> They are described in the metadata "
-        "and connected to nothing — a reader walking the crate never arrives at "
-        "them. The other views show which links are missing.</span></p>"
+        "are unreachable from the crate root</b> — described in the metadata, but a "
+        f"reader walking the crate never arrives at them. {_reach_repair(counts)} "
+        "The other views show which links are missing.</span></p>"
         if orphans
         else '<p class="good-note">Every entity is reachable from the crate root.</p>'
     )
@@ -834,11 +849,46 @@ def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
         '<p class="prov-cap">Every entity in the crate, one tile each, grouped by '
         "functional category inside its paper layer — the crate's shape and its "
         f"health on one screen. <b>{len(nodes)}</b> entities · <b>{reachable}</b> "
-        f"reachable · <b>{orphans}</b> not.</p>\n"
+        f"reachable · <b>{orphans}</b> not"
+        + (f" · <b>{links}</b> link{'' if links == 1 else 's'} away" if links else "")
+        + ".</p>\n"
         f'  <div class="prov-scroll">{svg}</div>\n  {legend}\n'
         f"  {note}"
     )
     return panel, str(len(nodes))
+
+
+def _reach_repair(counts: dict[str, Any]) -> str:
+    """One sentence on how much work the unreachable entities actually are.
+
+    The count of unreachable entities is not the size of the job, and reporting
+    it as though it were is discouraging in precisely the wrong direction: an
+    island of thirty entities that already reference each other is *one* missing
+    link, and the better-connected it is the more alarming the raw number looks.
+    This states the number of links instead, and splits the two kinds so a reader
+    knows which entities share a fix and which each need their own.
+    """
+    isolated = int(counts.get("isolated", 0))
+    stranded = int(counts.get("stranded", 0))
+    links = int(counts.get("unreachable_clusters", 0))
+    if not links:
+        return ""
+
+    parts = []
+    if stranded:
+        parts.append(
+            f"<b>{stranded}</b> are linked to each other but not to the root"
+        )
+    if isolated:
+        parts.append(f"<b>{isolated}</b> stand entirely alone")
+    detail = f" ({'; '.join(parts)})" if parts else ""
+
+    if links == 1:
+        return f"They form a single group{detail}, so <b>one link</b> would reconnect them all."
+    return (
+        f"They form <b>{links}</b> groups{detail}, so <b>{links} links</b> — not "
+        f"{counts.get('orphan', 0)} — would reconnect every one of them."
+    )
 
 
 def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:

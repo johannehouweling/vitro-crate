@@ -997,6 +997,50 @@ def _reachable_from(root: str | None, edges: list[dict[str, str]]) -> set[str]:
     return seen
 
 
+def _unreachable_clusters(unreached: set[str], edges: list[dict[str, str]]) -> list[list[str]]:
+    """Group unreachable in-crate nodes into connected components (undirected).
+
+    A component is one unit of repair. Reachability here is undirected, so a
+    single link from **any** member to the reachable graph pulls the entire
+    component in with it — twelve entities wired to each other are one missing
+    link, not twelve. Reporting a flat count of unreachable entities therefore
+    overstates the work by however much structure the crate already has, which is
+    exactly backwards: the better-connected the stranded island, the worse the
+    number looks.
+
+    Restricted to in-crate nodes on purpose. An edge to an external IRI or to a
+    dangling stub cannot carry reachability, so it can never make two entities
+    rescuable by one link — counting it would merge components that still need
+    separate repairs.
+
+    Returns components as sorted id lists, ordered by their first id, so the
+    numbering a reader sees is stable across runs.
+    """
+    adj: dict[str, set[str]] = {nid: set() for nid in unreached}
+    for edge in edges:
+        src, dst = edge["src"], edge["dst"]
+        if src in adj and dst in adj:
+            adj[src].add(dst)
+            adj[dst].add(src)
+
+    seen: set[str] = set()
+    components: list[list[str]] = []
+    for start in sorted(unreached):
+        if start in seen:
+            continue
+        seen.add(start)
+        stack, group = [start], []
+        while stack:
+            cur = stack.pop()
+            group.append(cur)
+            for nxt in sorted(adj[cur]):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        components.append(sorted(group))
+    return components
+
+
 def build_crate_graph(
     metadata: dict[str, Any] | list[dict[str, Any]],
     *,
@@ -1020,7 +1064,14 @@ def build_crate_graph(
     Returns:
         ``{"nodes": [...], "edges": [...], "hidden_count": int, "counts": {...},
         "root": str|None}``. Each node: ``{id, label, type, layer, status,
-        identifier_backed, orphan}``.
+        identifier_backed, orphan, reach, cluster, cluster_size}``.
+
+        ``orphan`` stays the union "not reachable from the root". ``reach``
+        refines it into ``linked`` / ``isolated`` (unreachable and joined to
+        nothing) / ``stranded`` (unreachable but joined to other unreachable
+        entities), and ``cluster`` numbers the island a stranded node belongs to.
+        ``counts["unreachable_clusters"]`` is how many links would reconnect
+        everything — see :func:`_unreachable_clusters`.
     """
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
     raw = _graph_nodes(graph)
@@ -1054,6 +1105,18 @@ def build_crate_graph(
     def _layer_of(nid: str) -> int:
         return 1 if nid == root_id else _entity_layer(nodes[nid])
 
+    # Split "unreachable" into the two states a reader can act on differently:
+    # an entity linked to nothing at all, and an island of entities linked to
+    # each other but not to the root. The second is one link from being fixed
+    # however large it is (#see _unreachable_clusters).
+    unreached = {nid for nid in nodes if nid != root_id and nid not in reachable}
+    clusters = _unreachable_clusters(unreached, full_edges)
+    cluster_of: dict[str, int] = {}
+    for index, group in enumerate(clusters, start=1):
+        for nid in group:
+            cluster_of[nid] = index
+    cluster_size = {nid: len(clusters[i - 1]) for nid, i in cluster_of.items()}
+
     model_nodes: dict[str, dict[str, Any]] = {}
     for nid, node in nodes.items():
         lyr = _layer_of(nid)
@@ -1069,7 +1132,16 @@ def build_crate_graph(
             "layer": lyr,
             "status": "in_crate",
             "identifier_backed": id_backed,
-            "orphan": (not is_root) and (nid not in reachable),
+            # Kept as the union of the two unreachable states so every existing
+            # consumer (mermaid overlay, matrices, topology strip) is unaffected.
+            "orphan": nid in unreached,
+            "reach": (
+                "linked"
+                if nid not in unreached
+                else ("isolated" if cluster_size.get(nid, 1) == 1 else "stranded")
+            ),
+            "cluster": cluster_of.get(nid),
+            "cluster_size": cluster_size.get(nid),
         }
     for sid in stub_ids:
         external = _is_uri(sid)
@@ -1082,6 +1154,9 @@ def build_crate_graph(
             "status": "external" if external else "dangling",
             "identifier_backed": external,
             "orphan": False,
+            "reach": "linked",
+            "cluster": None,
+            "cluster_size": None,
         }
 
     # Cumulative layer filter: drop in-crate nodes deeper than `depth`; drop
@@ -1107,6 +1182,11 @@ def build_crate_graph(
         "external": sum(1 for n in model_nodes.values() if n["status"] == "external"),
         "dangling": sum(1 for n in model_nodes.values() if n["status"] == "dangling"),
         "orphan": sum(1 for n in model_nodes.values() if n["orphan"]),
+        "isolated": sum(1 for n in model_nodes.values() if n.get("reach") == "isolated"),
+        "stranded": sum(1 for n in model_nodes.values() if n.get("reach") == "stranded"),
+        # The repair estimate: one link per component reconnects every entity in
+        # it, so this — not `orphan` — is the number of edits the crate needs.
+        "unreachable_clusters": len(clusters),
     }
 
     return {
@@ -2839,6 +2919,26 @@ _OV_CATEGORY_ORDER: tuple[str, ...] = (
 )
 
 
+def _ov_reach_note(node: dict[str, Any]) -> str:
+    """Tooltip suffix naming an unreachable tile's kind, and its island.
+
+    A tile is 13px, so the map can only ever say *that* something is wrong. The
+    tooltip is where a reader finds out whether this entity needs a link of its
+    own or shares one with a dozen others — and the group number is how they find
+    the dozen others.
+    """
+    reach = str(node.get("reach") or "linked")
+    if reach == "isolated":
+        return " · unreachable — linked to nothing at all"
+    if reach == "stranded":
+        size = int(node.get("cluster_size") or 0)
+        return (
+            f" · unreachable — group {node.get('cluster')} of linked entities "
+            f"({size} in this group, one link reconnects them all)"
+        )
+    return ""
+
+
 def render_overview_svg(model: dict[str, Any]) -> str:
     """Draw every entity in the crate as one composition map.
 
@@ -2890,10 +2990,15 @@ def render_overview_svg(model: dict[str, Any]) -> str:
                 row = index // _OV_COLS
                 x = _OV_X0 + col * (_OV_TILE + _OV_GAP)
                 ty = y + row * (_OV_TILE + _OV_GAP)
-                cls = f"ov-t cat-{category}" + (" orphan" if node.get("orphan") else "")
+                reach = str(node.get("reach") or "linked")
+                # `orphan` stays on both unreachable kinds as the shared base
+                # class; the specific one differentiates them.
+                cls = f"ov-t cat-{category}" + (
+                    f" orphan {reach}" if node.get("orphan") else ""
+                )
                 tiles.append(
                     f"<g><title>{node['label']} — {_escape(str(node.get('type') or ''))}"
-                    f"{' · unreachable from the crate root' if node.get('orphan') else ''}"
+                    f"{_ov_reach_note(node)}"
                     f'</title><rect class="{cls}" x="{x}" y="{ty}" '
                     f'width="{_OV_TILE}" height="{_OV_TILE}" rx="2.5"/></g>'
                 )
@@ -2904,9 +3009,13 @@ def render_overview_svg(model: dict[str, Any]) -> str:
     width = _OV_X0 * 2 + _OV_COLS * (_OV_TILE + _OV_GAP)
     height = y - _OV_LAYER_GAP + 6
     counts = model.get("counts", {})
+    links = int(counts.get("unreachable_clusters", 0) or 0)
     aria = (
         f"Crate composition: {len(nodes)} entities, "
         f"{counts.get('orphan', 0)} unreachable from the root"
+        # The screen-reader summary gets the same correction as the visible one:
+        # the entity count is not the repair count.
+        + (f", reconnectable with {links} link{'' if links == 1 else 's'}" if links else "")
     )
     return (
         f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
@@ -3009,7 +3118,15 @@ def _crate_node_label(n: dict[str, Any]) -> str:
     if n["status"] == "dangling":
         return f"⚠ {name}<br/><small>unresolved ref</small>"
     icon = "⚠ " if n["orphan"] else ("🔗 " if n["identifier_backed"] else "")
-    suffix = " · orphan" if n["orphan"] else ""
+    # Same distinction the overview map draws: a lone entity needs its own link,
+    # a stranded one shares a link with everything in its group.
+    reach = n.get("reach")
+    if reach == "isolated":
+        suffix = " · unreachable · linked to nothing"
+    elif reach == "stranded":
+        suffix = f" · unreachable · group {n.get('cluster')}"
+    else:
+        suffix = " · orphan" if n["orphan"] else ""
     return f"{icon}{name}<br/><small>{_escape(n['type'])}{suffix}</small>"
 
 
