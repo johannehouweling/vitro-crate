@@ -85,6 +85,20 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
 - **success** (bool) + the per-layer **conformance** map;
 - **content quality** — `meets_quota` (bool / `None`) + `entity_counts`, recorded for
   cases that declare a `min_entities` quota (see above); `None` otherwise;
+- **the manuscript's evaluation axes** (#474, [`scorers.py`](scorers.py)) —
+  `mit_propertyid`: per-parameter MIT coverage joined via `schema:propertyID`
+  against the ontology IRIs curated in `mit/invitro_tox.yaml`, counting only
+  non-empty non-placeholder bindings; the denominator is the IRI-bearing
+  parameters, and `mit_propertyid_detail` names which bound so a zero is
+  diagnosable (an exact-IRI join: where the crate and the MIT YAML curate
+  different terms for one concept, the parameter honestly reads unbound).
+  `csvw_air`: the AI-readiness axis, **row-level** — half for a CSVW-typed
+  *and populated* condition table (a header-only table scores 0, never a
+  vacuous pass), half for its reference cells resolving in-crate, with the
+  #408 multivalued-`valueUrl` drop never penalised. `csvw_air` is `None` —
+  "not assessed" — for an arm without a pipeline condition-table report
+  (ReAct). Both are additive; neither touches `success`. Both surface per
+  repeat (`*_per_repeat`) and in `compare_reports`;
 - **tokens** — input / output / total, summed from the run's `profile.ndjson`
   (`node_end`/`model` events);
 - **latency** — wall-clock seconds for the build;

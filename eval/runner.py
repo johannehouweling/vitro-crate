@@ -25,9 +25,15 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from builder.state import CrateState
+
+# The scorers join against the assembled crate, so the runner reuses the MIT
+# module's own assembly (the graph the registered tool scores) — one notion of
+# "the assembled graph", not a second one.
+from builder.tools.mit_assessment import _assemble_graph
 from eval.agent_api import AgentFactory, BuildOutcome
 from eval.corpus import EvalCase, meets_entity_quota, reaches_isa_tox_conformance
 from eval.metrics import compute_cost, crate_graph_hash, mine_profile_metrics
+from eval.scorers import csvw_air_score, mit_propertyid_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +99,14 @@ class CaseResult:
     demanded domain content (and how much of each demanded type it drafted). For
     cases without a quota, ``meets_quota`` is ``None`` and ``entity_counts`` empty
     — the signal is purely additive and never affects ``success``.
+
+    ``mit_propertyid`` / ``csvw_air`` are the manuscript's two evaluation axes
+    (#474, :mod:`eval.scorers`), additive in the same mould: per-parameter MIT
+    coverage joined via ``schema:propertyID``, and the row-level CSVW /
+    AI-readiness score. Headlines are repeat #1's; ``*_per_repeat`` record every
+    repeat (#405). ``csvw_air`` is ``None`` — "not assessed" — for an arm with
+    no pipeline condition-table report (ReAct, mocks); ``mit_propertyid`` is
+    ``None`` only when the crate graph could not be assembled at all.
     """
 
     case_id: str
@@ -124,6 +138,12 @@ class CaseResult:
     success_per_repeat: list[bool] = field(default_factory=list)
     conformance_per_repeat: list[dict[str, bool]] = field(default_factory=list)
     meets_quota_per_repeat: list[bool | None] = field(default_factory=list)
+    mit_propertyid: float | None = None
+    csvw_air: float | None = None
+    mit_propertyid_detail: dict[str, Any] = field(default_factory=dict)
+    csvw_air_detail: dict[str, Any] = field(default_factory=dict)
+    mit_propertyid_per_repeat: list[float | None] = field(default_factory=list)
+    csvw_air_per_repeat: list[float | None] = field(default_factory=list)
 
     @property
     def total_tokens(self) -> int:
@@ -219,6 +239,12 @@ class CaseResult:
             "success_per_repeat": self.success_per_repeat,
             "conformance_per_repeat": self.conformance_per_repeat,
             "meets_quota_per_repeat": self.meets_quota_per_repeat,
+            "mit_propertyid": self.mit_propertyid,
+            "csvw_air": self.csvw_air,
+            "mit_propertyid_detail": self.mit_propertyid_detail,
+            "csvw_air_detail": self.csvw_air_detail,
+            "mit_propertyid_per_repeat": self.mit_propertyid_per_repeat,
+            "csvw_air_per_repeat": self.csvw_air_per_repeat,
             "success_rate": self.success_rate,
             "always_succeeds": self.always_succeeds,
             "variance": self.variance(),
@@ -406,6 +432,24 @@ def _build_with_transient_retries(
         return outcome, latency, transient_retries
 
 
+def _condition_table_report(outcome: BuildOutcome) -> dict[str, Any] | None:
+    """The build's own condition-table record, or ``None`` when the arm has none.
+
+    Lives at ``pipeline_result["materialized"]["condition_table"]`` — the field
+    the pipeline arm reports and the ReAct arm (and mocks) leave ``None``, which
+    is exactly the "not assessed" signal :func:`eval.scorers.csvw_air_score`
+    expects.
+    """
+    result = outcome.pipeline_result
+    if not isinstance(result, dict):
+        return None
+    materialized = result.get("materialized")
+    if not isinstance(materialized, dict):
+        return None
+    table = materialized.get("condition_table")
+    return table if isinstance(table, dict) else None
+
+
 def _run_case(
     agent_factory: AgentFactory,
     case: EvalCase,
@@ -450,6 +494,16 @@ def _run_case(
     scored: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     predicates: list[dict[str, Any]] = []
     quotas: list[dict[str, Any]] = []
+    # The manuscript axes (#474) join against the assembled graph, which is as
+    # costly as the hash's own assembly — so both are memoised on the same
+    # digest. csvw_air additionally depends on the repeat's OWN pipeline report
+    # (the condition-table path is per-session), so it is computed per repeat
+    # over the memoised graph.
+    graphs: dict[str, list[dict[str, Any]] | None] = {}
+    mit_by_digest: dict[str, tuple[float | None, dict[str, Any]]] = {}
+    mit_scores: list[float | None] = []
+    air_scores: list[float | None] = []
+    air_details: list[dict[str, Any]] = []
     for (outcome_i, _), digest in zip(repeat_runs, hashes, strict=True):
         verdict = scored.get(digest)
         if verdict is None:
@@ -458,8 +512,37 @@ def _run_case(
                 meets_entity_quota(outcome_i.state, case.min_entities),
             )
             scored[digest] = verdict
+            try:
+                graph = _assemble_graph(outcome_i.state)
+            except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
+                logger.warning("Scorer graph assembly failed for %s: %s", case.case_id, exc)
+                graph = None
+            graphs[digest] = graph
+            if graph is None:
+                mit_by_digest[digest] = (None, {})
+            else:
+                mit = mit_propertyid_coverage(graph)
+                mit_by_digest[digest] = (
+                    mit["coverage"],
+                    {
+                        "covered": mit["covered"],
+                        "joinable": mit["joinable"],
+                        "covered_ids": [p["id"] for p in mit["per_param"] if p["bound"]],
+                    },
+                )
         predicates.append(verdict[0])
         quotas.append(verdict[1])
+        mit_scores.append(mit_by_digest[digest][0])
+
+        graph_i = graphs[digest]
+        table_report = _condition_table_report(outcome_i)
+        if graph_i is None:
+            air_scores.append(None)
+            air_details.append({})
+        else:
+            air = csvw_air_score(outcome_i.state, graph_i, table_report)
+            air_scores.append(air["score"])
+            air_details.append({"reason": air["reason"], "columns": air["columns"]})
     predicate = predicates[0]
     quota = quotas[0]
 
@@ -513,6 +596,12 @@ def _run_case(
         success_per_repeat=[bool(p["success"]) for p in predicates],
         conformance_per_repeat=[dict(p["conformance"]) for p in predicates],
         meets_quota_per_repeat=[q["meets_quota"] for q in quotas],
+        mit_propertyid=mit_scores[0],
+        csvw_air=air_scores[0],
+        mit_propertyid_detail=mit_by_digest[hashes[0]][1],
+        csvw_air_detail=air_details[0],
+        mit_propertyid_per_repeat=mit_scores,
+        csvw_air_per_repeat=air_scores,
     )
 
 
