@@ -1,4 +1,4 @@
-# Upstream request: extend the cited-vocabulary exemption to life-science ontologies
+# Upstream request: let a caller declare the vocabulary namespaces its crate cites
 
 **Target:** [crs4/rocrate-validator](https://github.com/crs4/rocrate-validator)
 **Status:** to file
@@ -6,12 +6,14 @@
 
 ## Summary
 
-The base RO-Crate shapes already exempt vocabulary a crate merely *cites* from the
-checks that ask an entity for a type, a name, or a description. The exempt list
-covers the namespaces a workflow crate cites. It does not cover the ontology
-namespaces a life-science crate cites, so those terms are reported as
-underdescribed entities — for terms the crate does not own and cannot describe
-without duplicating someone else's data.
+The base shapes already hold the position that vocabulary a crate merely *cites*
+should not be interrogated as though the crate described it. That position is
+currently expressed as literal namespace prefixes inside SPARQL targets, so it
+covers exactly the vocabularies the authors had in mind and no others.
+
+**The ask is an interface, not an entry:** a way for a caller to declare the
+vocabulary namespaces *its* domain cites, so extending the set does not require a
+release of this project.
 
 ## Evidence that the exemption is intended
 
@@ -30,35 +32,76 @@ FILTER(!STRSTARTS(STR(?this), "https://github.com/crs4/rocrate-validator/"))
 FILTER(!STRSTARTS(STR(?this), "urn:"))
 ```
 
-The same block appears throughout the base profile — 34 `FILTER(!STRSTARTS(...))`
-clauses across eight shape files, at SHOULD and MUST severity alike. The intent
-reads unambiguously: an IRI in a vocabulary namespace is a reference, not an
-entity the crate is expected to describe.
+The same block recurs throughout the base profile — **34 `FILTER(!STRSTARTS(...))`
+clauses across eight shape files**, at SHOULD and MUST severity alike.
 
-## The gap
+## Why a list of literals does not scale
 
-`http://purl.org/` is exempt, so Dublin Core terms pass. `http://purl.obolibrary.org/`
-is a **different host** and is not exempt, so every OBO term a crate cites is
-reported. The same applies to EFO and to AOP-Wiki's ontology namespace.
+`http://purl.org/` is exempt, so Dublin Core passes. `http://purl.obolibrary.org/`
+is a **different host** and is not, so every OBO term a life-science crate cites
+is reported as an underdescribed entity — for terms the crate does not own and
+cannot describe without copying data that the ontology maintains and versions.
 
-Measured on one real ISA-Tox crate (293 entities, 36 AOP nodes):
+Measured on one real ISA-Tox crate (293 entities):
 
 | | |
 |---|---:|
-| RECOMMENDED findings before | 211 |
-| after exempting the three namespaces below | **124** |
+| RECOMMENDED findings | 211 |
+| after exempting OBO / EFO / AOP-Wiki | **124** |
 | findings on cited vocabulary | 87 → **0** |
 
-The ~20 distinct IRIs behind those findings include `CHEBI_23367` (molecular
-entity), `IAO_0000039` (has measurement unit label), `PATO_0000033`
-(concentration of), `NCIT_C60819` (assay), `EFO_0002090` (technical replicate).
-Each is maintained, dereferenceable and versioned by its ontology. Copying its
-label into the crate duplicates data the crate does not own and goes stale on the
-ontology's next release.
+The ~20 distinct IRIs behind them include `CHEBI_23367` (molecular entity),
+`IAO_0000039` (has measurement unit label), `PATO_0000033` (concentration of),
+`NCIT_C60819` (assay), `EFO_0002090` (technical replicate).
 
-## Requested change
+Adding those two hosts fixes toxicology. It leaves earth science, astronomy, the
+humanities and every other domain to open the same issue for their own registries
+— and each one costs a release. The problem is not which namespaces are on the
+list; it is that the list is compiled into SPARQL.
 
-Add to the existing filter list, in the same form:
+## Proposed interface
+
+A `ValidationSettings` field, beside the reporting controls already there
+(`disable_inherited_profiles_issue_reporting`, `requirement_severity_only`,
+`disable_check_for_duplicates`, the skip-checks list):
+
+```python
+settings = ValidationSettings(
+    rocrate_uri=...,
+    profile_identifier="ro-crate-1.2",
+    cited_vocabulary_namespaces=[
+        "http://purl.obolibrary.org/obo/",
+        "http://www.ebi.ac.uk/efo/",
+        "https://aopwiki.org/ontology/",
+    ],
+)
+```
+
+A focus node whose IRI starts with one of these is not reported — the same
+outcome the SPARQL filters produce today, decided by the caller who knows which
+vocabularies their crate cites.
+
+Three properties this has that adding entries does not:
+
+**It applies uniformly.** `should/6_contextual_entity_metadata.ttl` carries
+"Contextual entities SHOULD be referenced by other entities" and "…referenced by
+other entities SHOULD be described in the same @graph", and contains **no**
+`STRSTARTS` filters at all. So today a cited term is exempt from *must have a
+name* but not from *must be described in the same graph* — two checks saying much
+the same thing about the same IRIs, disagreeing. A settings-level filter closes
+that without anyone having to decide, shape by shape, where the block belongs.
+
+**It is declared where the knowledge is.** Which namespaces a crate cites is a
+property of the domain, known by the caller. It is not knowable in advance here.
+
+**It absorbs the current literals.** The 34 clauses could become the default
+value of the same setting — one list, in one place, instead of prefixes repeated
+across eight files where they can and do drift apart.
+
+## If the interface is not wanted
+
+The minimal change that unblocks life-science crates is two lines in the existing
+filter list:
 
 ```sparql
 FILTER(!STRSTARTS(STR(?this), "http://purl.obolibrary.org/obo/"))
@@ -66,28 +109,17 @@ FILTER(!STRSTARTS(STR(?this), "http://www.ebi.ac.uk/efo/"))
 ```
 
 `purl.obolibrary.org/obo/` covers the OBO Foundry as a whole — CHEBI, IAO, NCIT,
-PATO, UO, OBI and the rest — so this is one entry per registry rather than per
-ontology.
+PATO, UO, OBI — so it is one entry per registry rather than per ontology. We would
+carry `https://aopwiki.org/ontology/` locally either way; AOP-Wiki is
+domain-specific in a way the OBO Foundry is not.
 
-We also exempt `https://aopwiki.org/ontology/` locally; that one is arguably
-ours to carry rather than yours, since AOP-Wiki is domain-specific in a way the
-OBO Foundry is not.
+This leaves the `should/6` inconsistency above unaddressed, which is the main
+reason we would rather have the interface.
 
-Note the term *paths*, not the bare hosts. `https://aopwiki.org/events/2266` is a
-Key Event a crate may legitimately describe, and it should keep answering these
-checks; only the ontology namespace is a citation.
+## A note on scoping, either way
 
-## A second, separable inconsistency
-
-`should/6_contextual_entity_metadata.ttl` carries these two checks:
-
-- "Contextual entities SHOULD be referenced by other entities."
-- "Contextual entities that are referenced by other entities SHOULD be described
-  in the same @graph, with at least an RDF type specified."
-
-It contains **no** `STRSTARTS` filters at all — so cited vocabulary is exempt from
-"must have a name" but not from "must be described in the same graph". Those two
-say much the same thing about the same IRIs. Whether the exemption belongs there
-too is a design call for the maintainers, which is why we have not patched it
-locally: extending an existing list is one thing, introducing one where you chose
-not to have one is another.
+Term **paths**, not bare hosts. `https://aopwiki.org/events/2266` is a Key Event
+a crate may legitimately fetch, name and describe — ours does — and it should keep
+answering these checks like any other entity the crate asserts. Only
+`https://aopwiki.org/ontology/` is a citation. An exemption keyed on the bare host
+would silence a check that was right to fire.

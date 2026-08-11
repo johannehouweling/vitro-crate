@@ -162,8 +162,11 @@ def _patch_cited_vocabulary_exemption() -> None:
     shape rather than a list extension — so it is left alone and reported
     upstream instead.
 
-    Delete this once the upstream list includes them; the request is written up
-    in ``docs/upstream/rocrate-validator-cited-vocabulary.md``.
+    Delete this once roc-validator can be told which namespaces a crate cites.
+    ``docs/upstream/rocrate-validator-cited-vocabulary.md`` asks for that as a
+    `ValidationSettings` field rather than for two more entries in their list —
+    patching literals in someone else's SPARQL is a workaround precisely because
+    the set is compiled in, and every other domain has the same problem.
     """
     try:
         base = Path(DEFAULT_PROFILES_PATH) / "ro-crate" / "1.2"
