@@ -831,6 +831,15 @@ _LG_ORG = (
     '<rect x="1" y="2" width="20" height="10" rx="2" fill="var(--surface-2)" '
     'stroke="var(--cat-org)" stroke-width="1.6"/></svg> Organisation</span>'
 )
+# The chemicals view draws compounds only (#506), so its legend defines the two
+# states a compound node can be in rather than the route shapes it no longer
+# draws. The dashed outline matches `.n-chem.unwired` in the stylesheet.
+_LG_COMPOUND_UNWIRED = (
+    '<span class="lg"><svg width="22" height="14" aria-hidden="true">'
+    '<polygon points="4,1 18,1 21,4 21,10 18,13 4,13 1,10 1,4" fill="var(--surface-2)" '
+    'stroke="var(--low)" stroke-width="1.6" stroke-dasharray="5 3"/></svg>'
+    " Compound not reachable from a process</span>"
+)
 _LG_LINK = '<span class="lg"><span class="gl"></span> links to</span>'
 _LG_BREAK = '<span class="lg"><span class="gl brk"></span> ✗ link missing</span>'
 
@@ -1252,9 +1261,11 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
         f'<tbody>{"".join(rows)}</tbody></table></div>'
     )
 
+    # Compounds only (#506) — the legend defines the two states a compound node
+    # can be in, not the route shapes this view no longer draws.
     diagram = (
         f'<div class="prov-scroll">{svg}</div>\n  '
-        + _legend(_LG_PROCESS, _LG_FILE, _LG_COMPOUND, _LG_LINK, _LG_BREAK)
+        + _legend(_LG_COMPOUND, _LG_COMPOUND_UNWIRED)
         if svg
         else ""
     )
