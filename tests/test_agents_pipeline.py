@@ -3864,9 +3864,20 @@ class TestCompoundIdentifierRetry:
     ) -> None:
         """The determinism guarantee: with no provider the spine reaches no
         network at all, so a state seeded with an identifier-less compound must
-        not fire a lookup (``TestDeterminism`` seeds exactly such a state)."""
+        not fire a lookup (``TestDeterminism`` seeds exactly such a state).
+
+        ``get_provider`` is pinned to ``None`` for the same reason its sibling
+        above pins it to ``"openai"``: this asserts the GATE, and leaving it to
+        the ambient configuration means asserting the machine instead. That is
+        not hypothetical — ``config.get_provider`` falls back to ``load_config()``
+        after the environment, so a developer with an api_key in their vitro
+        config gets ``"openai"`` with no env var set anywhere. CI has no config
+        file, so this test passed there and failed on every machine that has one.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
         from builder.agents.pipeline.pipeline import run_pipeline
 
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: None)
         queried = self._record_lookup(monkeypatch, hits={})
         engine = _engine(self._state_with("Triiodothyronine"))
 
