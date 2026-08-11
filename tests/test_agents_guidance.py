@@ -2345,10 +2345,19 @@ class TestNonClearingGapIsNotReAsked:
         assertion is over *repeats*, not over one hard-coded prompt, so it
         cannot pass vacuously by the loop never reaching a particular gap.
         """
+        import builder.tools.lookups as lookups_mod
         from builder.agents.pipeline import guidance
         from builder.agents.pipeline.guidance import run_guidance
 
         monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        # Hermetic, for the same reason as TestMeasurementMethodIsResolved: the
+        # measurementMethod route reaches the live BAO service, and it is NOT
+        # gated on a provider. Person-gap grouping (#337) settles four gaps in one
+        # round, so a bounded run now gets FURTHER down the report than it used
+        # to and reaches that gap — which is the point of the grouping, but it
+        # must not make this test's verdict depend on the network.
+        monkeypatch.setattr(lookups_mod, "lookup_bao_term", lambda *a, **k: {})
+
         engine = AgentEngine(state=_honest_backbone())
 
         human = ScriptedHuman(input_answers=[_value("resazurin viability assay")] * 8)
@@ -2362,10 +2371,15 @@ class TestNonClearingGapIsNotReAsked:
     def test_resolved_count_only_includes_gaps_that_actually_cleared(self, monkeypatch):
         """``format_guidance_summary`` prints ``resolved: N`` straight from this
         list, so a commit that did not clear its gap must not be counted."""
+        import builder.tools.lookups as lookups_mod
         from builder.agents.pipeline import guidance
         from builder.agents.pipeline.guidance import run_guidance
 
         monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        # Hermetic — see the sibling test above: grouping lets a bounded run reach
+        # the measurementMethod gap, whose route calls the live BAO service.
+        monkeypatch.setattr(lookups_mod, "lookup_bao_term", lambda *a, **k: {})
+
         engine = AgentEngine(state=_honest_backbone())
 
         human = ScriptedHuman(input_answers=[_value("resazurin viability assay")] * 8)
@@ -2664,3 +2678,298 @@ class TestRootPublisherGapClosesOnceAnswered:
         recorded = engine.state.get_entity(publisher_id)
         assert recorded is not None
         assert recorded.fields.get("familyName") == "Hopper"
+
+
+# ---------------------------------------------------------------------------
+# #337 (Part B) — the several gaps that all mean "who is responsible?" must be
+# ONE question.
+#
+# Part A (a root person answer that could never be satisfied) is fixed:
+# `_record_root_attribution` records the answer against the `CrateMetadata` slot
+# it was asked for. What remained is the DUPLICATION: the scaffolded backbone
+# opens four distinct SHOULD gaps naming a person — the root's `schema:creator`
+# and `schema:publisher`, plus `schema:creator` on the Study and the Assay — and
+# `_gap_identity` keys on (source, entity_id, property, message), so they are four
+# unrelated gaps to the loop. Each was drawn on its own round and re-worded by
+# `phrase_gap_question`, so one run asked the same human the same thing four times
+# in four different phrasings. Each ask was individually correct; the aggregate
+# was absurd.
+#
+# The gaps below come from the REAL gap engine over the real backbone, so these
+# tests fail if the engine stops emitting them rather than passing vacuously.
+# ---------------------------------------------------------------------------
+
+
+def _open_person_gaps(engine: AgentEngine) -> list[Gap]:
+    """The live person/agent gaps the loop would ask about, from the real engine."""
+    from builder.agents.pipeline.guidance import _is_ask_user_gap, _is_person_gap
+
+    gaps = [
+        g
+        for g in assess_gaps(engine.state).gaps
+        if _is_person_gap(g) and _is_ask_user_gap(g)
+    ]
+    assert len(gaps) >= 3, (
+        "expected the real backbone to open several person gaps (root publisher / "
+        f"creator, Study and Assay creator); got {[(g.entity_id, g.property) for g in gaps]}"
+    )
+    return gaps
+
+
+def _report_then_empty(monkeypatch, gaps: list[Gap]) -> None:
+    """Offer ``gaps`` once, then a clean report so the loop terminates promptly."""
+    from builder.agents.pipeline import guidance
+
+    reports = iter(
+        [
+            GapReport(
+                gaps=list(gaps),
+                counts={"must_open": 0, "should_open": len(gaps), "may_open": 0},
+            ),
+            GapReport(gaps=[], counts={"must_open": 0, "should_open": 0, "may_open": 0}),
+        ]
+    )
+    monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
+
+
+def _constant_report(monkeypatch, gaps: list[Gap]) -> None:
+    """Re-emit ``gaps`` EVERY round — the shape that used to spin the loop."""
+    from builder.agents.pipeline import guidance
+
+    monkeypatch.setattr(
+        guidance,
+        "assess_gaps",
+        lambda _state: GapReport(
+            gaps=list(gaps),
+            counts={"must_open": 0, "should_open": len(gaps), "may_open": 0},
+        ),
+    )
+
+
+def _local_property(gap: Gap) -> str:
+    """The gap's local field name — the same token `_apply_value` writes to."""
+    from builder.agents.pipeline.guidance import _local_name
+
+    return _local_name(gap.property)
+
+
+class TestPersonGapsAreAskedOnce:
+    """#337 Part B: one question, one Person, every target written."""
+
+    def test_one_question_writes_every_gathered_target(self, monkeypatch):
+        """Honesty control: the grouped answer must reach EVERY gap it gathered,
+        not just the one that happened to be drawn.
+
+        A first-only implementation writes exactly one of these four places and
+        passes any assertion phrased as "a Person was minted" — so the oracle is
+        per-target, and it is read off the real state the build will publish.
+        """
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+        from builder.tools._crate_mapping import _mint_id
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=_backbone())
+        gaps = _open_person_gaps(engine)
+        # Both target SHAPES must be represented or the check below could pass by
+        # only ever exercising one of the two write routes.
+        assert any(guidance._resolve_entity_id(engine, g) is not None for g in gaps)
+        assert any(guidance._resolve_entity_id(engine, g) is None for g in gaps)
+        _report_then_empty(monkeypatch, gaps)
+
+        human = ScriptedHuman(input_answers=[_value("Fabian Wagenaars")] * 6)
+        summary = run_guidance(engine, human, max_rounds=6)
+
+        assert len(human.inputs) == 1, (
+            f"{len(gaps)} person gaps must cost ONE question; the user was asked "
+            f"{len(human.inputs)} times"
+        )
+
+        # ONE Person, minted once (draft_person dedups by name).
+        persons = engine.state.list_entities("Person")
+        assert len(persons) == 1, f"one answer must mint one Person, got {len(persons)}"
+        person = persons[0]
+        reference = {"@id": _mint_id(person)}
+
+        # …and it landed on EVERY target, checked per gathered gap rather than at
+        # a hard-coded list of entities. An entity-scoped gap gets the Person as a
+        # reference on its own entity; a root gap gets the CrateMetadata slot it
+        # asked about — the Part A mechanism reused, not a second one.
+        unwritten: list[tuple[str | None, str]] = []
+        for gap in gaps:
+            field = _local_property(gap)
+            state_id = guidance._resolve_entity_id(engine, gap)
+            if state_id is not None:
+                if _get(engine, state_id).fields.get(field) != reference:
+                    unwritten.append((gap.entity_id, field))
+                continue
+            slot = guidance._ROOT_ATTRIBUTION_SLOTS.get(field)
+            assert slot is not None, f"unexpected root person property: {field}"
+            if getattr(engine.state.metadata, slot) != person.entity_id:
+                unwritten.append((gap.entity_id, field))
+        assert not unwritten, (
+            f"the one answer reached {len(gaps) - len(unwritten)} of {len(gaps)} "
+            f"gathered targets; never written: {unwritten}"
+        )
+        assert len(summary["resolved"]) == len(gaps), (
+            "every gathered gap that cleared must be reported resolved"
+        )
+
+    def test_the_question_says_the_person_is_credited_in_every_role(self, monkeypatch):
+        """`publisher` is not `creator`. Defaulting one to the other is fine for a
+        single-lab dataset and wrong for an institutional deposit, so it must be
+        stated in the question — never applied silently."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=_backbone())
+        _report_then_empty(monkeypatch, _open_person_gaps(engine))
+
+        human = ScriptedHuman(input_answers=[_value("Fabian Wagenaars")] * 6)
+        run_guidance(engine, human, max_rounds=6)
+
+        prompt = human.inputs[0][0]
+        lowered = prompt.lower()
+        assert "publisher" in lowered and "creator" in lowered, (
+            f"the question must name the roles it will fill: {prompt}"
+        )
+        assert "credited" in lowered, (
+            f"the question must say the one name is credited in all of them: {prompt}"
+        )
+
+    def test_a_group_that_never_clears_is_asked_once_and_claims_nothing(self, monkeypatch):
+        """Termination + #375 honesty for the grouped path.
+
+        With a report that re-emits the same person gaps every round, the answer
+        applies but nothing clears. Every gathered gap must be retired anyway, or
+        the next round redraws one of them and asks the identical question again —
+        the re-ask loop #337 and #375 exist to stop. And none of them may be
+        counted resolved: `format_guidance_summary` prints that list verbatim.
+        """
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=_backbone())
+        _constant_report(monkeypatch, _open_person_gaps(engine))
+
+        human = ScriptedHuman(input_answers=[_value("Fabian Wagenaars")] * 20)
+        summary = run_guidance(engine, human, max_rounds=20)
+
+        assert len(human.inputs) == 1, (
+            f"a grouped answer that does not clear must not spin: {len(human.inputs)} asks"
+        )
+        assert summary["resolved"] == [], (
+            "no gap cleared, so nothing may be reported resolved"
+        )
+
+    def test_a_skipped_group_is_not_re_asked(self, monkeypatch):
+        """A grouped question the user declines retires the whole group — one
+        refusal must not be re-litigated once per member."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=_backbone())
+        gaps = _open_person_gaps(engine)
+        _constant_report(monkeypatch, gaps)
+
+        human = ScriptedHuman(input_answers=[_skip()] * 20)
+        run_guidance(engine, human, max_rounds=20)
+
+        assert len(human.inputs) == 1
+        assert engine.state.list_entities("Person") == []
+        assert engine.state.metadata.publisher is None
+
+    def test_the_grouped_answer_still_refuses_prose_it_cannot_use(self, monkeypatch):
+        """The group is a batching decision, not a relaxation: an answer with no
+        usable name commits nothing, anywhere."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        monkeypatch.setattr(guidance, "get_provider", lambda: None)
+        engine = AgentEngine(state=_backbone())
+        _constant_report(monkeypatch, _open_person_gaps(engine))
+
+        human = ScriptedHuman(input_answers=[_value("0000-0002-1825-0097")] * 20)
+        run_guidance(engine, human, max_rounds=20)
+
+        # A bare ORCID parses to an EMPTY name, so `_apply_person_value` refuses
+        # it — no Person, no slot, and no second attempt.
+        assert engine.state.list_entities("Person") == []
+        assert engine.state.metadata.publisher is None
+        assert engine.state.metadata.creator is None
+        assert len(human.inputs) == 1
+
+
+class TestPersonGapGrouping:
+    """Which gaps `_person_gap_group` will and will not gather."""
+
+    @staticmethod
+    def _gap(prop: str, *, entity_id: str | None = "st1", fix_hint: str = "ask-user") -> Gap:
+        return Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id=entity_id,
+            entity_type="Study",
+            property=prop,
+            message=f"missing {prop}",
+            suggestion=None,
+            fix_hint=fix_hint,
+            auto_fixable=False,
+        )
+
+    def _group(self, gaps: list[Gap], index: int = 0, **kw) -> list[int]:
+        from builder.agents.pipeline.guidance import _person_gap_group
+
+        return _person_gap_group(
+            GapReport(gaps=gaps, counts={}),
+            index,
+            skipped=kw.get("skipped", set()),
+            tried_identities=kw.get("tried_identities", set()),
+        )
+
+    def test_a_lone_person_gap_is_not_grouped(self):
+        """One person gap must take exactly today's path — grouping is only a fix
+        for the duplication, so a single ask must not change shape."""
+        gaps = [
+            self._gap("http://schema.org/creator"),
+            self._gap("http://schema.org/description"),
+        ]
+        assert self._group(gaps) == [0]
+
+    def test_every_open_person_gap_is_gathered(self):
+        gaps = [
+            self._gap("http://schema.org/creator"),
+            self._gap("http://schema.org/description"),
+            self._gap("http://schema.org/publisher", entity_id="./"),
+        ]
+        assert self._group(gaps) == [0, 2]
+
+    def test_a_report_only_person_gap_is_never_gathered(self):
+        """The loop never draws a report-only gap, so answering one in a group
+        would spend the answer on a target `_apply_value` cannot write."""
+        gaps = [
+            self._gap("http://schema.org/creator"),
+            self._gap("author", fix_hint="report-only"),
+        ]
+        assert self._group(gaps) == [0]
+
+    def test_an_already_retired_person_gap_is_never_gathered(self):
+        """A gap the user already declined must not be dragged back in by a later
+        group — `tried_identities` is a per-RUN retirement, not a per-round one."""
+        from builder.agents.pipeline.guidance import _gap_identity
+
+        gaps = [
+            self._gap("http://schema.org/creator"),
+            self._gap("http://schema.org/publisher", entity_id="./"),
+        ]
+        assert self._group(gaps, tried_identities={_gap_identity(gaps[1])}) == [0]
+
+    def test_a_non_person_gap_never_starts_a_group(self):
+        gaps = [
+            self._gap("http://schema.org/description"),
+            self._gap("http://schema.org/creator"),
+        ]
+        assert self._group(gaps) == [0]

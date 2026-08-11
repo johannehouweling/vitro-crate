@@ -45,6 +45,41 @@ _OUTPUT_FIELDS: tuple[str, ...] = ("result", "output")
 # output on these therefore leaves the derivation chain genuinely dangling.
 _OUTPUT_REQUIRED_TYPES = frozenset({"EndpointReadout", "DataAnalysis"})
 
+# Where the BUILD reads a domain entity from, keyed by (target type, process
+# type). The bundled ISA shape allows only File/Sample/BioSample as a process
+# object/input, so `_build_process` takes compounds from `chemicals` and the
+# cell line from `cell_line` — a compound named as an Exposure's `input` is read
+# by nothing and vanishes at assembly. Worse, `_build_process` reads
+# `f.get("object") or f.get("input")`, so once `object` holds the sample the
+# input field is never even consulted: every such link succeeds and every
+# compound ends up orphaned in the exported crate.
+#
+# So the edge is written where the build will find it, and the caller is told.
+# Refusing instead would be defensible, but the intent of
+# `link(exposure, input, compound)` is unambiguous and correct — the experiment
+# did expose those cells to that compound — and only the field is wrong.
+# Mirrors composites._DOMAIN_WIRING.
+_PROCESS_LINK_HOMES: dict[tuple[str, str], str] = {
+    ("MolecularEntity", "Exposure"): "chemicals",
+    ("CellLineSample", "CellCulture"): "cell_line",
+}
+
+# Relations that name "this process consumed that thing" and so can be rerouted
+# to the field carrying it. Outputs are never rerouted: a compound as a process
+# *result* is a different claim, and a wrong guess there would invent chemistry.
+_REROUTABLE_RELATIONS = frozenset({"input", "object", "samples"})
+
+
+def _build_honoured_field(state: CrateState, src: Entity, relation: str, to_id: str) -> str:
+    """The field *relation* must be written to for the build to see the edge."""
+    if relation not in _REROUTABLE_RELATIONS:
+        return relation
+    target = state.get_entity(to_id)
+    if target is None:
+        return relation
+    process_type = str(src.fields.get("process_type") or src.fields.get("additionalType") or "")
+    return _PROCESS_LINK_HOMES.get((str(target.type), process_type), relation)
+
 
 def draft_file(
     state: CrateState,
@@ -140,17 +175,39 @@ def link(state: CrateState, from_id: str, relation: str, to_id: str) -> dict[str
     if state.get_entity(to_id) is None:
         raise ValueError(f"link target entity not found: {to_id!r}.")
 
-    existing = src.fields.get(relation)
+    # Write where the build reads, not where the caller pointed — see
+    # _PROCESS_LINK_HOMES. Silently storing an edge assembly discards is worse
+    # than either honouring it or refusing it.
+    stored_as = _build_honoured_field(state, src, relation, to_id)
+
+    existing = src.fields.get(stored_as)
     if existing is None:
-        src.fields[relation] = to_id
+        src.fields[stored_as] = to_id
     elif isinstance(existing, list):
         if to_id not in existing:
             existing.append(to_id)
     elif existing != to_id:
-        src.fields[relation] = [existing, to_id]
-    src.set_field_status(relation, "filled", "llm")
-    logger.debug("Linked %s --%s--> %s", from_id, relation, to_id)
-    return {"from_id": from_id, "relation": relation, "to_id": to_id}
+        src.fields[stored_as] = [existing, to_id]
+    src.set_field_status(stored_as, "filled", "llm")
+    logger.debug("Linked %s --%s--> %s (stored as %r)", from_id, relation, to_id, stored_as)
+
+    result = {"from_id": from_id, "relation": relation, "to_id": to_id}
+    if stored_as != relation:
+        result["stored_as"] = stored_as
+        result["note"] = (
+            f"Recorded as {stored_as!r}, not {relation!r}: the ISA profile allows only "
+            f"File/Sample/BioSample as a process {relation}, so the crate carries this "
+            f"link through {stored_as!r}. The edge is kept — use {stored_as!r} directly "
+            "next time."
+        )
+        logger.info(
+            "link(%s, %s, %s) rerouted to %r so the build keeps it",
+            from_id,
+            relation,
+            to_id,
+            stored_as,
+        )
+    return result
 
 
 def _scanned_abspath(path_str: str, input_path: str | None) -> str:

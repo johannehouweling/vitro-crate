@@ -6,11 +6,18 @@ and computes per-module completion scores.
 The ``crate_slot`` vocabulary (``Investigation:author``, ``LabProcessExposure:param``,
 ``CellLineSample:sampleType`` …) describes the **assembled RO-Crate** — schema.org /
 RO-Crate properties on nodes discriminated by ``@type`` + ``additionalType`` — not the
-intermediate :class:`CrateState`. So when the serialized ``@graph`` is available
-(``assess_mit_coverage(state, graph=…)``, as the maturity report passes it), coverage is
-scored by matching each slot against the graph nodes (#311). Without a graph, it falls
-back to the legacy best-effort match against ``CrateState`` fields — all the domain data
-is only synthesized at assembly, so the graph path is the accurate one.
+intermediate :class:`CrateState`. All the domain data is only synthesized at assembly,
+so the assembled ``@graph`` is the only document the checklist can honestly be scored
+against.
+
+There is therefore exactly ONE scoring path (#311): :func:`assess_mit_coverage` matches
+slots against graph nodes, and assembles the graph itself when the caller has none
+instead of falling back to a second, weaker matcher. The fallback it replaces scanned
+``CrateState`` fields and scored 0.0 for every real crate — the slot names it looked for
+(``char``, ``keyEvent``, ``taxonomicRange``) simply do not exist before assembly — and
+that 0.0 was indistinguishable from "this crate covers nothing", so the maturity report
+rendered "MIT coverage 0%" as a confident false statement about a crate nobody had
+measured.
 """
 
 from __future__ import annotations
@@ -366,23 +373,84 @@ def assess_mit_coverage(
 ) -> MITReport:
     """Assess OECD MIT coverage of *state* against the MIT YAML checklist.
 
+    **THE one scoring owner** (#311): coverage is always measured against an
+    assembled ``@graph``, never against ``CrateState`` fields. A caller that
+    already holds the document passes it (the export path does, through
+    ``build_maturity_html``); a caller that does not gets it assembled here by
+    :func:`_assemble_graph`. Two scorers meant two answers for the same crate —
+    0.0 from the state path against 0.148 from the graph path for the golden
+    fixture — and the cheaper one was wrong, not approximate.
+
     Args:
         state: The current CrateState.
-        graph: The assembled crate ``@graph`` (or the full metadata document).
-            When provided, each ``crate_slot`` is matched against the serialized
-            nodes — the accurate path, since the MIT vocabulary describes the
-            assembled crate. When ``None``, falls back to a best-effort match
-            against ``CrateState`` fields (used by callers that don't hold an
-            assembled crate, e.g. the in-loop score floor).
+        graph: The assembled crate ``@graph`` (or the full metadata document),
+            when the caller already has one. ``None`` assembles it — same
+            document, one extra in-memory assembly (no disk, no network, no
+            SHACL).
 
     Returns:
-        An MITReport with per-module scores and an overall score.
+        An MITReport with per-module scores and an overall score, or an
+        *unassessed* report (empty ``module_scores``, see
+        :func:`mit_was_assessed`) when coverage could not be measured at all:
+        the checklist did not load, or the crate did not assemble. Callers must
+        render that as "not assessed" — its 0.0 is the absence of a measurement,
+        not a measured zero.
     """
     mit_data = load_mit_yaml()
     if mit_data is None:
-        return MITReport(module_scores={}, overall_score=0.0)
+        return MITReport()
+
+    graph = scoring_graph(state, graph)
+    if graph is None:
+        # A state that will not assemble cannot be scored against anything.
+        # Returning a 0.0 *score* here would put "MIT coverage 0%" on the report
+        # for a crate that was never looked at; an unassessed report makes every
+        # consumer say so instead.
+        return MITReport()
 
     return _score_modules(mit_data, slot_matcher(state, graph=graph))
+
+
+def scoring_graph(state: CrateState, graph: Any | None = None) -> Any | None:
+    """The document to score *state* against: the caller's, else one built here.
+
+    The single place either MIT reader turns a "no graph" into something scorable
+    (#311), so the scorer and the gap engine cannot answer the same question two
+    ways. They used to agree on ``graph=None`` only because both were equally
+    wrong — the ``crate_slot`` vocabulary describes assembled nodes, so the
+    ``CrateState`` fallback scored 0.0 for every real crate. Teaching only the
+    scorer to assemble would have replaced that shared wrong answer with a
+    disagreement, which is worse: two numbers for one crate, and no way to tell
+    which the report meant.
+
+    Returns ``None`` when the crate will not assemble. Callers decide what that
+    means for them — the scorer declines to state a number, the gap engine still
+    surfaces what it can from the degraded field match — but neither invents an
+    assembly that failed.
+    """
+    if graph is not None:
+        return graph
+    try:
+        return _assemble_graph(state)
+    except Exception as exc:  # noqa: BLE001 — any assembly failure, same answer
+        # Never raise: the callers are a pure report writer that must still render
+        # its other axes, and a gap engine the guidance loop runs every round.
+        logger.warning("MIT coverage not assessed — crate assembly failed: %s", exc)
+        return None
+
+
+def mit_was_assessed(report: MITReport) -> bool:
+    """Whether *report* carries a real measurement of a crate.
+
+    A report with no module scores was never scored — the checklist did not load,
+    the crate did not assemble, or this is the untouched :class:`MITReport`
+    default on a state nobody has assessed. Its ``overall_score`` is 0.0 by
+    construction, which is exactly why it must not be rendered as "0% covered":
+    that phrasing is a claim about a crate, and no crate was examined. The same
+    distinction the dashboard's MIT tile already draws, and the same one the
+    maturity report draws for an unevaluated SHACL severity tier (#446).
+    """
+    return bool(report.module_scores)
 
 
 def graph_nodes(graph: Any) -> list[dict[str, Any]]:
@@ -418,8 +486,14 @@ def slot_matcher(
     un-migrated copy — the two disagreeing is what made the pipeline ask for
     identifiers the crate already carried.
 
-    With ``graph=None`` it degrades to the legacy ``CrateState`` field match, for
-    callers that hold no assembled document (e.g. an in-loop score floor).
+    With ``graph=None`` it degrades to the legacy ``CrateState`` field match.
+    That branch is **not a scoring path** (#311): for the three reasons above it
+    credits almost nothing on a real crate, so :func:`assess_mit_coverage`
+    assembles a graph rather than call it. It survives for the gap engine's one
+    genuinely degraded case — a state whose SHACL assembly already failed, where
+    re-assembling here would only fail the same way — and what it returns there
+    is a best-effort guess at which questions to ask, never a coverage figure
+    anyone reports.
     """
     if graph is not None:
         nodes = graph_nodes(graph)
@@ -455,21 +529,11 @@ def slot_type_present(entity_type: str, nodes: list[dict[str, Any]]) -> bool:
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
-
-def _assess_mit_coverage_tool(state: CrateState, *, assemble: bool = True) -> MITReport:
-    """The registered tool: score against the ASSEMBLED crate by default (#377).
-
-    The bare function was registered directly, so every ``run_tool`` call passed
-    ``graph=None`` and both arms saw the legacy ``CrateState`` score — far below
-    what the maturity report reports for the same crate, because most of the MIT
-    vocabulary only resolves after assembly.
-
-    ``assemble=False`` keeps the cheap no-graph branch reachable for an in-loop
-    score floor; it is an explicit opt-out rather than an implicit behaviour
-    change, since a full crate assembly per call is not free.
-    """
-    graph = {"@graph": _assemble_graph(state)} if assemble else None
-    return assess_mit_coverage(state, graph=graph)
-
-
-TOOL_REGISTRY.register("assess_mit_coverage", _assess_mit_coverage_tool, takes_state=True)
+# Registered bare. A wrapper (`_assess_mit_coverage_tool`) used to assemble the
+# graph before delegating, because the bare function scored the legacy
+# ``CrateState`` path when called with no graph (#377); it also carried an
+# ``assemble=False`` opt-out for a cheap in-loop score floor that no caller ever
+# used. Now that :func:`assess_mit_coverage` assembles for itself, the wrapper had
+# nothing left to add, and removing it means the tool, the maturity report and the
+# gap engine cannot report three different numbers for one crate.
+TOOL_REGISTRY.register("assess_mit_coverage", assess_mit_coverage, takes_state=True)

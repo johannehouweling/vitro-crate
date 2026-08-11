@@ -41,6 +41,7 @@ from builder.tools.mit_assessment import (
     graph_nodes,
     iter_scorable_params,
     load_mit_yaml,
+    scoring_graph,
     slot_matcher,
     slot_type_present,
 )
@@ -409,11 +410,21 @@ def _mit_gaps(state: CrateState, *, graph: Any | None = None) -> tuple[list[Gap]
     if mit_data is None:
         return [], 0.0
 
+    # (#311) Resolve the graph through the SAME helper the scorer uses, so a
+    # caller who holds none gets the same document — and therefore the same score
+    # — from both readers. Skipping this is how the two would drift apart: the
+    # scorer would assemble and the gap engine would fall back to the field match,
+    # and one crate would carry two different coverage numbers.
+    graph = scoring_graph(state, graph)
+
     # (#377) ONE matcher for the crate_slot vocabulary, shared with the scorer.
     # With a graph it resolves what a CrateState field scan structurally cannot:
     # LabProcess* subtypes (not EntityType members), the `char` characteristic
     # traversal, and fields the assembly PROMOTES (a compound's `cas` becomes the
-    # node's `identifier`). Without one it degrades to the legacy field match.
+    # node's `identifier`). Without one — only when the crate will not assemble at
+    # all — it degrades to the legacy field match, because a degraded list of gaps
+    # is still work the user can act on, where a degraded coverage *percentage*
+    # would be a claim the scorer rightly refuses to make.
     matcher = slot_matcher(state, graph=graph)
     nodes = graph_nodes(graph) if graph is not None else None
     present_types = _present_entity_types(state)
