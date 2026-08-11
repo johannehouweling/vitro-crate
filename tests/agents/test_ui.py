@@ -194,10 +194,19 @@ def test_snapshot_from_fresh_engine_is_empty() -> None:
 
 
 def test_render_status_bar_shows_counts_and_validation() -> None:
+    """The middle slot carries findings once drafting has started, not the scan.
+
+    ``3 files`` is settled before the first entity exists and never moves again,
+    so once ``entity_count`` is non-zero the slot is spent on what is still open
+    instead. This snapshot has entities and no assessed tiers, so the honest
+    answer there is "locked" — not a zero for checks nobody ran. The slot's own
+    cases live in ``tests/test_status_footer.py``.
+    """
     text = _render(ui.render_status_bar(_snapshot()))
     assert "sess-1" in text
     assert "3 entities" in text
-    assert "3 files" in text
+    assert "3 files" not in text
+    assert "req/rec/opt locked" in text
     assert "base" in text
     assert "ISA" in text
     assert "Tox" in text
