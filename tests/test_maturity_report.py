@@ -673,6 +673,11 @@ class TestChemicalsSection:
         assert "not reachable" in legend
         for absent in ("Process", "File / table", "links to", "link missing"):
             assert absent not in legend, f"legend still explains {absent!r}"
+        # Both keys are the diagram's real outline (#488's registry), and the
+        # unreachable key carries the diagram's own `unwired` class — a
+        # hand-drawn dashed swatch is exactly how a key drifts from its node.
+        assert legend.count('class="n n-chemical"') == 1
+        assert legend.count('class="n n-chemical unwired"') == 1
 
     def test_unwired_compound_is_called_out_with_the_fix(self) -> None:
         page = self._page(wire=False)

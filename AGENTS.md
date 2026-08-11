@@ -1526,6 +1526,36 @@ and document shell live in sibling assets — `maturity_report.css` and `maturit
 automatic, best-effort (a reporting failure never fails the export), and can be turned off with
 `export_crate(..., embed_report=False)`.
 
+**One entity type, one colour and one shape — `CATEGORY_STYLES` (#487).** The report has six diagram
+tabs and the CLI emits two Mermaid views, and each used to decide its own palette: a `File` was
+magenta in the report, yellow in the crate graph and brown in the provenance DAG; a `Dataset` was a
+barred indigo block in the ISA tab and an anonymous grey box in the cell-line and people tabs; a
+`Person` and a `Sample` were the same rounded rectangle in different colours. Colour that changes
+between tabs teaches the reader that colour carries no meaning — which costs them the *only* channel
+the all-entities map has, since a 13px tile cannot carry a shape.
+
+`provenance_dag.CATEGORY_STYLES` is now the single registry: one entry per functional category
+holding its colour, its Mermaid delimiters and its legend wording, keyed by the same string that
+selects the inline-SVG outline (`_svg_node_shape`) and the CSS class (`_SVG_CLASS`). Everything
+downstream is generated from it —
+
+- `category_css()` emits the `--cat-*` custom properties plus each category's tile, node and tag
+  rules into `maturity_report.css` at the `__CATEGORY_STYLES__` placeholder. CSS cannot iterate, and
+  the hand-written rules were how protocols ended up with a colour in the overview and none anywhere
+  else. The stylesheet declares no palette of its own; a test asserts that.
+- `legend_swatch()` draws a key by calling the diagram's own `_svg_node_shape` and letting a
+  `viewBox` shrink it, so a legend cannot show a shape the figure does not draw (the "File / table"
+  key was a plain rectangle long after the diagram had switched to a folded-corner document).
+- `_node_class` / `_node_class_for_brief` both classify through `_entity_category`, so a routed view
+  and the overview cannot disagree about what an entity is.
+
+Colours are a constant-lightness ring in CIE Lab (L\* 47, chroma 44, hues 36° apart), with process
+and container split on lightness instead because sRGB is narrow in the blues. Worst pair dE 24
+(against 14 for the hand-picked palette it replaced); every stroke clears 3:1 on the page. Shape is
+the channel that survives greyscale, print and colour vision deficiency, so **no two categories may
+share an outline** — `TestCategoryRegistry` pins that, the palette separation, the contrast floor,
+and the generated-CSS coverage.
+
 ### D15: Deterministic Pipeline as the Default Build Path
 The `--interactive` default is the deterministic pipeline (§14), not the ReAct loop
 (D1): code owns the step ordering and the LLM is confined to bounded leaves. The

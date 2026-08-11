@@ -328,3 +328,60 @@ class TestEmptyConditionTableSaysSo:
         """
         table = self._table(_assemble(_exposure_state()))
         assert "NO rows" not in str(table.get("description", "") or "")
+
+
+def test_property_url_stays_an_id_reference_not_a_bare_string():
+    """propertyUrl must be ``{"@id": …}``, not the bare URI string.
+
+    A bare string reads as the faithful CSVW form — propertyUrl IS typed as a
+    URI — and the terms look like vocabulary the crate merely cites. But some of
+    them the crate DOES describe: a CellLineSample materialises NCIT_C16403 as a
+    `cell line` DefinedTerm, and the base profile then reports "references
+    NCIT_C16403 as a string" and fails the whole pass.
+
+    The sibling assertion in ``test_condition_table_emits_ten_typed_csvw_columns``
+    goes through ``_iri()``, which unwraps either form and so cannot see the
+    difference. This one looks at the raw value, because the difference is the
+    entire point.
+    """
+    by_id = _by_id(_assemble(_exposure_state()))
+    table = next(
+        e for e in by_id.values()
+        if str(e.get("@id", "")).endswith("condition_table.csv")
+    )
+    schema_ids = [s for s in _ids(table.get("conformsTo")) if "schema" in str(s)]
+    schema = by_id[schema_ids[0]]
+    cols = [by_id[cid] for cid in _ids(schema.get("columns"))]
+    assert cols
+
+    cell_line = next(c for c in cols if c["titles"] == "cell_line")
+    assert cell_line["propertyUrl"] == {
+        "@id": "http://purl.obolibrary.org/obo/NCIT_C16403"
+    }
+    # Not just the one term that happens to be described today.
+    for col in cols:
+        if col.get("propertyUrl") is not None:
+            assert isinstance(col["propertyUrl"], dict), (
+                f"{col['titles']}: propertyUrl must be an @id reference, "
+                f"got {col['propertyUrl']!r}"
+            )
+
+
+def test_every_csvw_column_carries_a_name():
+    """csvw:Column nodes are Contextual Entities, which RO-Crate requires be named.
+
+    Carrying only ``titles`` earns a finding per column. The column title IS the
+    human-readable name, so this states nothing new — it states it under the term
+    the base profile reads.
+    """
+    by_id = _by_id(_assemble(_exposure_state()))
+    table = next(
+        e for e in by_id.values()
+        if str(e.get("@id", "")).endswith("condition_table.csv")
+    )
+    schema_ids = [s for s in _ids(table.get("conformsTo")) if "schema" in str(s)]
+    schema = by_id[schema_ids[0]]
+    cols = [by_id[cid] for cid in _ids(schema.get("columns"))]
+    assert cols
+    for col in cols:
+        assert col.get("name") == col["titles"]
