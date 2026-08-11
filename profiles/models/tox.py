@@ -14,6 +14,21 @@ from profiles.ontology_iris import iri
 # measurement, it is the absence of one dressed up as data — see :func:`_pv`.
 _PLACEHOLDER_VALUES = {"", "unknown", "n/a", "na", "none", "not applicable", "not recorded"}
 
+# PropertyValues whose propertyID MUST be an IRI NODE, not a string: the tox
+# shapes for these match it with `sh:hasValue <…OBI_0002110>`, which a string
+# literal can never satisfy (profiles/shapes/tox/10_doi_property_value.ttl,
+# 11_pubmed_id_property_value.ttl).
+#
+# Everything else emits it as a STRING, which is what schema:propertyID is for —
+# its range is Text or URL, and the value identifies WHICH property this is,
+# not an entity the crate describes. Wrapping it as {"@id": …} turned every
+# ontology term into a graph node the validator then wanted described and named
+# — findings piling up for terms that were never ours to describe. The
+# original reason for wrapping ("an IRI used as a string is flagged when that
+# IRI is ALSO a described entity") stopped applying when cited vocabulary
+# stopped being materialised into the graph.
+_NODE_PROPERTY_ID_NAMES: frozenset[str] = frozenset({"DOI", "PubMedID"})
+
 
 def _pv(crate, name, value, property_id=None, unit=None):
     """ParameterValue with a unique @id, optionally the key's ontology IRI as
@@ -37,7 +52,9 @@ def _pv(crate, name, value, property_id=None, unit=None):
         return None
     props: dict = {}
     if property_id:
-        props["propertyID"] = {"@id": property_id}
+        props["propertyID"] = (
+            {"@id": property_id} if name in _NODE_PROPERTY_ID_NAMES else property_id
+        )
     if unit:
         props["unitText"] = unit
     return ParameterValue(crate, param_id(name, value), name, value, properties=props)

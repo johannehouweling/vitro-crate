@@ -20,6 +20,8 @@ from __future__ import annotations
 import importlib.metadata as _metadata
 import json
 import logging
+import multiprocessing
+import os
 
 # ---------------------------------------------------------------------------
 # rocrate-validator compatibilty shim  (#57)
@@ -539,35 +541,105 @@ def validate_crate_dict(
             f"Unknown profile {profile!r}; expected one of 'all', 'base', 'isa', 'tox'."
         )
 
-    results: list[DictValidationResult] = []
-    for key in passes:
-        profile_identifier, extra = _PROFILE_PASSES[key]
-        # rocrate_uri is required even on the dict path; its value is ignored when
-        # the document is supplied as a dict (base IRI resolves to "./").
-        settings = services.ValidationSettings(
-            rocrate_uri=".",  # ty: ignore[unknown-argument]
-            profile_identifier=profile_identifier,
-            requirement_severity=gate,
-            **extra,
-        )
-        result = services.validate_metadata_as_dict(metadata_doc, settings)
-        # Drop file-only checks that can't apply to an in-memory document (see
-        # _DICT_PATH_NA_CHECKS), then derive pass/fail from the filtered issues.
-        issues = [
-            ri
-            for i in result.get_issues()
-            if (ri := _routable_issue(i, key)).check_id not in _DICT_PATH_NA_CHECKS
-        ]
-        _raise_on_transport_failure(issues, profile=key)
-        results.append(
-            DictValidationResult(
-                profile=key,
-                passed=not issues,
-                passed_required=not any(i.severity == "required" for i in issues),
-                issues=issues,
+    if len(passes) > 1 and not _serial_only():
+        parallel = _validate_passes_parallel(metadata_doc, passes, severity)
+        if parallel is not None:
+            return parallel
+    return [_validate_one_pass(metadata_doc, key, gate) for key in passes]
+
+
+def _validate_one_pass(
+    metadata_doc: dict, key: str, gate: "models.Severity"
+) -> DictValidationResult:
+    """Run a single profile pass over *metadata_doc*."""
+    profile_identifier, extra = _PROFILE_PASSES[key]
+    # rocrate_uri is required even on the dict path; its value is ignored when
+    # the document is supplied as a dict (base IRI resolves to "./").
+    settings = services.ValidationSettings(
+        rocrate_uri=".",  # ty: ignore[unknown-argument]
+        profile_identifier=profile_identifier,
+        requirement_severity=gate,
+        **extra,
+    )
+    result = services.validate_metadata_as_dict(metadata_doc, settings)
+    # Drop file-only checks that can't apply to an in-memory document (see
+    # _DICT_PATH_NA_CHECKS), then derive pass/fail from the filtered issues.
+    issues = [
+        ri
+        for i in result.get_issues()
+        if (ri := _routable_issue(i, key)).check_id not in _DICT_PATH_NA_CHECKS
+    ]
+    _raise_on_transport_failure(issues, profile=key)
+    return DictValidationResult(
+        profile=key,
+        passed=not issues,
+        passed_required=not any(i.severity == "required" for i in issues),
+        issues=issues,
+    )
+
+
+def _validate_pass_worker(payload: tuple[dict, str, str]) -> DictValidationResult:
+    """Pool entry point — module-level so it is picklable."""
+    metadata_doc, key, severity = payload
+    return _validate_one_pass(metadata_doc, key, _SEVERITY_BY_NAME[severity])
+
+
+def _serial_only() -> bool:
+    """Whether to force the serial path (``VITRO_VALIDATE_SERIAL=1``)."""
+    return os.environ.get("VITRO_VALIDATE_SERIAL", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _validate_passes_parallel(
+    metadata_doc: dict, passes: list[str], severity: str
+) -> list[DictValidationResult] | None:
+    """Run the passes concurrently, or return None to fall back to serial.
+
+    The passes are independent — each validates the same document against a
+    different profile and nothing flows between them — but they are the dominant
+    cost of the agent's loop, and running them one after another means waiting
+    out their sum rather than their maximum.
+
+    Processes, not threads: the work is pyshacl/rdflib SPARQL evaluation, which
+    is pure Python and holds the GIL, so threads would serialise anyway.
+
+    ``spawn``, not ``fork``: the loop invokes the model under a timeout wrapper,
+    so this can be called from a process that already has threads running, and
+    forking there risks inheriting a held lock and deadlocking in the child. A
+    fresh interpreter cannot.
+
+    Spawn is not free — each worker re-imports rdflib and pyshacl — so the win is
+    real but well short of 3x, and it grows with the crate because the fixed
+    startup cost amortises. Measured over the three-pass ``all`` profile, pinned
+    to 2 cores (the CI runner's shape), serial vs parallel wall-clock:
+
+        8 nodes    9.0s -> 8.2s   (1.10x)
+        209 nodes 13.3s -> 8.9s   (1.49x)
+        809 nodes 24.5s -> 18.5s  (1.32x)
+
+    Two cores is the pessimistic case and still wins, because a worker's import
+    overlaps the others' SPARQL evaluation rather than competing with it.
+
+    Returns None on any failure to start or run the pool so the caller simply
+    does the work serially. A validation error raised INSIDE a pass (a transport
+    failure) is a real verdict and propagates.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    try:
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=len(passes), mp_context=context) as pool:
+            return list(
+                pool.map(_validate_pass_worker, [(metadata_doc, key, severity) for key in passes])
             )
+    except ValidationTransportError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — a speedup must never break validation
+        logger.warning(
+            "Parallel validation unavailable (%s: %s); running the passes serially",
+            type(exc).__name__,
+            exc,
         )
-    return results
+        return None
 
 
 def _raise_on_transport_failure(issues, profile: str) -> None:
