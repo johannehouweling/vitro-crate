@@ -177,6 +177,32 @@ class TestConsumedByProcessCountsOnlyBuildReadFields:
         )
         assert _is_consumed_by_process(state, "cmp") is True
 
+    def test_a_cell_line_under_an_exposure_is_consumed_via_samples(self):
+        """The process type is half the key, and dropping it is not harmless.
+
+        A CellLineSample has a build home under a CellCulture (`cell_line`), but
+        under an Exposure it is an ordinary `samples` participant that the build
+        does read. Narrowing the fields for every process marked it permanently
+        loose, so `wire_unreferenced_domain_entities` re-wired it on every call.
+        That is a mutation, and it cost `export_crate` its idempotency: the
+        validation fingerprint changed between two exports of one unedited state.
+        """
+        state = CrateState()
+        state.add_entity(_ent("cell", "CellLineSample", name="HepG2"))
+        state.add_entity(
+            _ent("exp", "LabProcess", process_type="Exposure", samples="cell")
+        )
+        assert _is_consumed_by_process(state, "cell") is True
+
+    def test_a_cell_line_under_a_culture_still_needs_its_build_home(self):
+        # Where a home IS declared for the pair, the narrowing still applies.
+        state = CrateState()
+        state.add_entity(_ent("cell", "CellLineSample", name="HepG2"))
+        state.add_entity(
+            _ent("cult", "LabProcess", process_type="CellCulture", samples="cell")
+        )
+        assert _is_consumed_by_process(state, "cell") is False
+
     def test_a_file_still_counts_through_the_ordinary_io_fields(self):
         # Only types with a declared build home are narrowed; everything else
         # keeps the full set of process I/O fields.

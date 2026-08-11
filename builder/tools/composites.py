@@ -1788,21 +1788,26 @@ def _is_consumed_by_process(state: CrateState, target_id: str) -> bool:
     notes describe it, but only a process records that the experiment touched it.
     """
     wanted = target_id.lstrip("./").lstrip("#")
-    # Only fields the BUILD reads for this entity type count. A compound listed
-    # under a process's `input` is read by nothing (the ISA shape allows only
-    # File/Sample/BioSample there, so `_build_process` takes compounds from
-    # `chemicals`) — counting it as consumed makes this backstop skip the exact
-    # case it exists for, leaving entities orphaned in the export while the state
-    # looks fully wired. `link` now reroutes such edges, but set_fields can still
-    # write the field directly, so the test stays honest on its own.
     target = state.get_entity(target_id)
-    homes = {
-        home
-        for (entity_type, _process_type), home in _BUILD_HONOURED_HOMES.items()
-        if target is not None and entity_type == str(target.type)
-    }
-    fields = tuple(homes) if homes else _PROCESS_IO_FIELDS
+    target_type = str(target.type) if target is not None else ""
     for proc in state.list_entities("LabProcess"):
+        # Narrow to the build's field ONLY for the (entity type, process type)
+        # pair that has one. A compound under an Exposure's `input` is read by
+        # nothing — the ISA shape allows only File/Sample/BioSample there, so
+        # `_build_process` takes compounds from `chemicals` — and counting it as
+        # consumed makes this backstop skip the exact case it exists for.
+        #
+        # The process type is half of that key and cannot be dropped. A
+        # CellLineSample has a build home under a CellCulture (`cell_line`), but
+        # under an Exposure it is an ordinary `samples` participant that the
+        # build does read. Narrowing it everywhere marked it permanently loose,
+        # so `wire_unreferenced_domain_entities` re-wired it on every call —
+        # which is a mutation, and cost the export its idempotency.
+        process_type = str(
+            proc.fields.get("process_type") or proc.fields.get("additionalType") or ""
+        )
+        home = _BUILD_HONOURED_HOMES.get((target_type, process_type))
+        fields = (home,) if home else _PROCESS_IO_FIELDS
         for field in fields:
             value = proc.fields.get(field)
             if value is None:
