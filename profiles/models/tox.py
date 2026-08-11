@@ -22,8 +22,8 @@ _PLACEHOLDER_VALUES = {"", "unknown", "n/a", "na", "none", "not applicable", "no
 # Everything else emits it as a STRING, which is what schema:propertyID is for —
 # its range is Text or URL, and the value identifies WHICH property this is,
 # not an entity the crate describes. Wrapping it as {"@id": …} turned every
-# ontology term into a graph node the validator then wanted described and named:
-# 36 findings on one crate for a term that was never ours to describe. The
+# ontology term into a graph node the validator then wanted described and named
+# — findings piling up for terms that were never ours to describe. The
 # original reason for wrapping ("an IRI used as a string is flagged when that
 # IRI is ALSO a described entity") stopped applying when cited vocabulary
 # stopped being materialised into the graph.
