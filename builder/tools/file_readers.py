@@ -986,6 +986,60 @@ def compact_attribute_json(text: str) -> str:
     return "\n".join(out).strip()
 
 
+_LICENCE_NAMES = {"license", "licence"}
+
+
+def extract_deposit_licence(text: str) -> str | None:
+    """The licence a BioStudies descriptor declares, as the deposit states it (#535).
+
+    Reading this is not guessing: the descriptor carries it as an attribute, and
+    usually qualifies it with a canonical URL —
+
+    .. code-block:: json
+
+        {"name": "License", "value": "CC-BY",
+         "valqual": [{"name": "URL",
+                      "value": "https://creativecommons.org/licenses/by/4.0/legalcode"}]}
+
+    A URL is preferred because it is machine-actionable and the depositor chose
+    it. Without one the declared value is returned **verbatim**: "CC-BY" does
+    not say which version, and mapping it onto a 4.0 URI would state something
+    the depositor did not (D5).
+
+    Applied blindly to any scanned file, so anything that is not a BioStudies
+    attribute tree — or carries no licence — yields ``None`` rather than raising.
+    """
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict) or not ("attributes" in parsed or "section" in parsed):
+        return None
+
+    found: list[str] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if str(node.get("name") or "").strip().casefold() in _LICENCE_NAMES:
+                for qualifier in node.get("valqual") or []:
+                    url = str((qualifier or {}).get("value") or "").strip()
+                    if url.startswith(("http://", "https://")):
+                        found.append(url)
+                        return
+                value = str(node.get("value") or "").strip()
+                if value:
+                    found.append(value)
+                return
+            for child in node.values():
+                _walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                _walk(child)
+
+    _walk(parsed)
+    return found[0] if found else None
+
+
 def read_file(
     path: str,
     *,

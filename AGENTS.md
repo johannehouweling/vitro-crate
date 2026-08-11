@@ -153,6 +153,11 @@ CrateState {
     session_id: str, created_at: datetime, updated_at: datetime,
     metadata: {
         title: str | None, description: str | None, accession: str | None,
+        license: str | None,
+        # the licence was READ from the deposit descriptor, not drafted (#535):
+        # a depositor's statement is a fact and outranks a drafted guess, so
+        # `set_crate_metadata` will not overwrite it
+        license_from_deposit: bool,
         input_type: "directory" | "conversation",
         input_path: str | None, output_path: str | None,
     },

@@ -772,9 +772,21 @@ def set_crate_metadata(
                 "tool": "set_crate_metadata",
             }
         setattr(m, attr, value)
+    licence_note: str | None = None
     if license not in (None, ""):
-        m.license = license
-    return {
+        # A licence READ from the deposit is a fact about someone else's data;
+        # this setter's caller is guessing. The guess does not get to replace it
+        # — the crate that prompted this asserted "all rights reserved" over a
+        # deposit that declared CC-BY (#535).
+        if m.license_from_deposit and license != m.license:
+            licence_note = (
+                f"license unchanged: the deposit declares {m.license!r}, which is a "
+                "stated fact and outranks a drafted value. Correct the deposit "
+                "descriptor if it is wrong."
+            )
+        else:
+            m.license = license
+    result = {
         "title": m.title,
         "description": m.description,
         "accession": m.accession,
@@ -785,6 +797,9 @@ def set_crate_metadata(
         "contact": m.contact,
         "license": m.license,
     }
+    if licence_note:
+        result["note"] = licence_note
+    return result
 
 
 def set_validation_preference(
