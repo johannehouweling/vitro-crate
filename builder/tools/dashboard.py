@@ -224,9 +224,7 @@ def _load_cratestate(session_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def format_mit_coverage(
-    overall_score: float | None, *, assessed: bool
-) -> tuple[str, str]:
+def format_mit_coverage(overall_score: float | None, *, assessed: bool) -> tuple[str, str]:
     """Format an MIT coverage score for display — the single source of truth
     shared by the profiler dashboard panel and the interactive UI
     (:mod:`builder.agents.ui`) so both build arms render coverage identically
@@ -265,6 +263,32 @@ def _format_export_timestamp(raw: str) -> str:
         return datetime.fromisoformat(raw).strftime("%Y-%m-%d %H:%M")
     except (TypeError, ValueError):
         return raw
+
+
+def _build_crate_path_line(state: dict[str, Any] | None) -> Any:
+    """The header's crate line: where this session's crate is written.
+
+    Prefers the configured destination over the last-export stamp, so the path is
+    on screen from the start of the run rather than only after the first export —
+    "where will my crate go" is the same question as "where did it go", asked
+    earlier, and a dashboard that answers it only in hindsight is answering it
+    too late. Falls back to the export record, then to saying plainly that no
+    destination is set yet.
+    """
+    from rich.text import Text
+
+    metadata = (state or {}).get("metadata") or {}
+    configured = metadata.get("output_path")
+    exported = metadata.get("exported_at")
+    if not configured:
+        return Text.assemble(("Crate: ", HEADER_STYLE), ("no output path set yet", LABEL_STYLE))
+    when = f"written {_format_export_timestamp(exported)}" if exported else "not written yet"
+    return Text.assemble(
+        ("Crate: ", HEADER_STYLE),
+        (str(configured), OK_STYLE if exported else LABEL_STYLE),
+        ("  │  ", BORDER_STYLE),
+        (when, "" if exported else LABEL_STYLE),
+    )
 
 
 def _last_export_span(metadata: dict[str, Any]) -> Any:
@@ -367,9 +391,7 @@ def _build_cratestate_panel(
     # Kept as a SPAN, not as markup inside the string: this goes into
     # Text.assemble, which takes (text, style) pairs and does not parse console
     # markup — an embedded "[red]…[/red]" rendered literally in the dashboard.
-    issue_span = (
-        (f"  {required_count} REQUIRED", ERR_STYLE) if required_count > 0 else ("", "")
-    )
+    issue_span = (f"  {required_count} REQUIRED", ERR_STYLE) if required_count > 0 else ("", "")
 
     # MIT score — shared formatter keeps this identical to the interactive UI.
     mit = state.get("mit_assessment", {})
@@ -855,25 +877,32 @@ def format_session_summary(session_id: str, records: list[dict[str, Any]]) -> An
 
     layout = Layout()
     layout.split_column(
-        Layout(name="header", size=3),
+        # Four rows, not three: the header carries the output path on its own
+        # line. "Where did my crate go" is the question a dashboard is opened to
+        # answer, and the path was only reachable by reading down into the
+        # CrateState panel — present, but not where anyone looks first.
+        Layout(name="header", size=4),
         Layout(name="body"),
         Layout(name="footer", size=1),
     )
+
+    # Load CrateState first: the header shows where the crate is written, so it
+    # needs the metadata before it can be built.
+    crate_state = _load_cratestate(session_id)
 
     # Header
     now = _config.now().strftime("%Y-%m-%d %H:%M:%S %Z")
     header_text = Text()
     header_text.append(" Agent Profiler Dashboard", style=HEADER_STYLE)
     header_text.append(f"  |  Session: {session_id}", style=BORDER_STYLE)
+    header_text.append("\n ")
+    header_text.append_text(_build_crate_path_line(crate_state))
     layout["header"].update(Panel(header_text, style=BORDER_STYLE))
 
     if not records:
         layout["body"].update(_NoDataPanel(session_id))
         layout["footer"].update(Text(f"Last refresh: {now}", style=LABEL_STYLE))
         return layout
-
-    # Load CrateState
-    crate_state = _load_cratestate(session_id)
     # Agent status (▶ driving / ⏸ awaiting input / ⏹ idle) — issue #193.
     agent_status = determine_agent_status(records)
     crate_panel = _build_cratestate_panel(crate_state, status=agent_status)

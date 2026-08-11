@@ -3283,7 +3283,19 @@ def _format_user_answers(engine: AgentEngine, *, limit: int = 8) -> str:
     )
 
 
-def _handback_panel(engine: AgentEngine, *, headline: str) -> Any:
+def _will_self_continue(engine: AgentEngine, self_continues: int) -> bool:
+    """Whether a guard-stopped turn is about to resume without asking the user.
+
+    The panel and the resume decision have to agree, and they used to be made in
+    two places — the panel inside the turn, the decision after it — so a turn
+    that was about to pick itself back up still printed "Paused … Your call",
+    immediately followed by "Picking that back up myself". The box asked a
+    question that had already been answered. One predicate, both call sites.
+    """
+    return self_continues < _MAX_SELF_CONTINUES and bool(open_items(engine.state))
+
+
+def _handback_panel(engine: AgentEngine, *, headline: str, handing_back: bool = True) -> Any:
     """Render "here is where we got to, here is what you can do" for a stopped turn.
 
     A turn that ends on a guard used to print one dim sentence and return the
@@ -3365,6 +3377,19 @@ def _handback_panel(engine: AgentEngine, *, headline: str) -> Any:
     except Exception:  # noqa: BLE001 — a hand-back must never raise
         logger.debug("hand-back: state summary failed", exc_info=True)
         entities, required = [], 0
+
+    if not handing_back:
+        # A turn that is about to resume itself is not paused and is not asking
+        # anything, so it gets no question and no yellow. Same body — where we
+        # got to, what is still open — because that IS worth reading; only the
+        # framing changes, from "your call" to "carrying on".
+        return Panel(
+            "\n".join(lines),
+            title="[bold]Still working — picking this back up myself[/bold]",
+            title_align="left",
+            border_style="cyan",
+            padding=(0, 1),
+        )
 
     options: list[tuple[str, str]] = [
         (
@@ -4396,6 +4421,10 @@ def run_interactive_agent(
         finally:
             engine.on_tool_event = prior_tool_event
 
+    # Seeded before `_run_turn` closes over it: the stopped-branch panel reads it
+    # to decide whether it is handing back or carrying on.
+    self_continues = 0
+
     def _run_turn(message_content: str) -> tuple[str, str]:
         """Run ONE model invocation and return ``(reply, outcome)`` (#263).
 
@@ -4494,13 +4523,16 @@ def run_interactive_agent(
             )
             console.print()
         elif outcome == "stopped":
+            resuming = _will_self_continue(engine, self_continues)
             console.print(
                 _handback_panel(
                     engine,
                     headline=(
                         "I was repeating the same step without getting anywhere, so I "
-                        "stopped rather than keep spending on it. The session is saved."
+                        "stopped rather than keep spending on it."
+                        + (" Carrying on from here." if resuming else " The session is saved.")
                     ),
+                    handing_back=not resuming,
                 )
             )
             console.print()
@@ -4662,7 +4694,7 @@ def run_interactive_agent(
                     # refill a counter is not a decision, it is a keystroke, so
                     # do it here: same reset, same directive, bounded so a
                     # genuinely stuck model still reaches the user.
-                    if outcome == "stopped" and self_continues < _MAX_SELF_CONTINUES:
+                    if outcome == "stopped" and _will_self_continue(engine, self_continues):
                         outstanding = open_items(engine.state)
                         if outstanding:
                             self_continues += 1

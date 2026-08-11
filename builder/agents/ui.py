@@ -139,9 +139,7 @@ def install_notice_handler(
     """
     root = logging.getLogger()
     for handler in list(root.handlers):
-        if isinstance(handler, logging.StreamHandler) and not isinstance(
-            handler, NoticeHandler
-        ):
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, NoticeHandler):
             root.removeHandler(handler)
     handler = NoticeHandler(console or get_console(), level=level)
     root.addHandler(handler)
@@ -287,9 +285,7 @@ def _read_token_totals(session_id: str) -> tuple[int, int, str]:
         key = str(profile_path)
         tail = _TOKEN_TAILS.get(key)
         if tail is None or tail.inode != stat.st_ino or stat.st_size < tail.offset:
-            tail = _TokenTail(
-                inode=stat.st_ino, offset=0, tokens_in=0, tokens_out=0, last_model=""
-            )
+            tail = _TokenTail(inode=stat.st_ino, offset=0, tokens_in=0, tokens_out=0, last_model="")
             _TOKEN_TAILS[key] = tail
 
         if stat.st_size > tail.offset:
@@ -375,9 +371,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
             from builder.config import get_model_provider
             from builder.pricing import compute_cost
 
-            info = compute_cost(
-                tokens_in, tokens_out, last_model, provider=get_model_provider()
-            )
+            info = compute_cost(tokens_in, tokens_out, last_model, provider=get_model_provider())
             cost_usd = info.get("total_cost")
         except Exception:
             logger.debug("cost unavailable for %s", state.session_id, exc_info=True)
@@ -455,6 +449,43 @@ def _compact_tokens(count: int) -> str:
     return f"{count / 1_000_000:.1f}M".replace(".0M", "M")
 
 
+def _work_field(snap: UiSnapshot) -> tuple[str, str]:
+    """The middle status slot: the scan at first, then what is left to fix.
+
+    Returns ``(field_key, text)``.
+
+    The file count is a startup fact — it is settled by the time the first entity
+    exists and then never moves again, so a run spends its whole life looking at
+    "54 files" telling it nothing. Once drafting begins the slot earns its place
+    by showing the open findings instead.
+
+    A tier that has not been swept shows as **locked** rather than as ``0``. This
+    is honest, not decorative: ``build_and_validate`` defaults to the REQUIRED
+    gate, and a gate is a floor — RECOMMENDED and OPTIONAL checks are not
+    evaluated at all until the gate is lowered, so their counts are genuinely
+    unknown, not zero. ``assessed_tiers`` is what the validator actually
+    assessed, so it is the thing to read.
+    """
+    if snap.entity_count == 0:
+        return "files", f"{snap.file_count} files"
+
+    assessed = set(snap.assessed_tiers)
+    parts: list[str] = []
+    locked: list[str] = []
+    for tier, label, count in (
+        ("required", "req", snap.required_issue_count),
+        ("recommended", "rec", snap.should_issue_count),
+        ("optional", "opt", snap.may_issue_count),
+    ):
+        if tier in assessed:
+            parts.append(f"{count} {label}")
+        else:
+            locked.append(label)
+    if locked:
+        parts.append(f"{'/'.join(locked)} locked")
+    return "issues", " ".join(parts) if parts else "not validated"
+
+
 def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None = None) -> str:
     """The status line as one line of Rich markup (no padding, no newline).
 
@@ -476,9 +507,12 @@ def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None =
 
     token_str = ""
     if snap.tokens_in + snap.tokens_out > 0:
-        from builder.pricing import format_cost
-
-        cost_str = f" @{format_cost(snap.cost_usd)}" if snap.cost_usd is not None else ""
+        # Two decimals here, not `format_cost`'s six-then-four. This line is read
+        # at a glance while the run moves; $0.004821 is precision nobody acts on,
+        # and it changes width as it grows, which makes the whole segment jitter.
+        # `format_cost` keeps its resolution for the places that settle up — the
+        # goodbye summary and the dashboard.
+        cost_str = f" @${snap.cost_usd:.2f}" if snap.cost_usd is not None else ""
         total = snap.tokens_in + snap.tokens_out
         # ↑/↓ are THIS turn — the prompt is rebuilt every call, so ↑ is the live
         # context size and its drift is the bloat signal. Before the first call
@@ -494,16 +528,22 @@ def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None =
         # Model time, not wall clock: the clock beside it counts the user
         # thinking, which is not what the run cost.
         time_str = f"  {_compact_seconds(snap.model_seconds)}" if snap.model_seconds else ""
-        token_str = "  " + _SEP + "  " + model_prefix + field(
-            "tokens",
-            f"↑{_compact_tokens(turn_in)} ↓{_compact_tokens(turn_out)}"
-            f"  {_compact_tokens(total)} tok{cost_str}{time_str}",
+        token_str = (
+            "  "
+            + _SEP
+            + "  "
+            + model_prefix
+            + field(
+                "tokens",
+                f"↑{_compact_tokens(turn_in)} ↓{_compact_tokens(turn_out)}"
+                f"  {_compact_tokens(total)} tok{cost_str}{time_str}",
+            )
         )
 
     return (
         f"{field('session', snap.session_id)}  {_SEP}  "
         f"{field('entities', f'{snap.entity_count} entities')}  {_SEP}  "
-        f"{field('files', f'{snap.file_count} files')}  {_SEP}  "
+        f"{field(*_work_field(snap))}  {_SEP}  "
         f"{_dot(snap.base_passed)} {field('base', 'base')}  "
         f"{_dot(snap.isa_passed)} {field('isa', 'ISA')}  "
         f"{_dot(snap.tox_passed)} {field('tox', 'Tox')}"
@@ -518,6 +558,15 @@ def status_field_values(snap: UiSnapshot) -> dict[str, Any]:
         "model": snap.model,
         "entities": snap.entity_count,
         "files": snap.file_count,
+        # The middle slot swaps from the scan to the open findings once drafting
+        # starts (`_work_field`); both keys are listed so the fader tints
+        # whichever one is currently on screen.
+        "issues": (
+            snap.required_issue_count,
+            snap.should_issue_count,
+            snap.may_issue_count,
+            snap.assessed_tiers,
+        ),
         "base": snap.base_passed,
         "isa": snap.isa_passed,
         "tox": snap.tox_passed,
@@ -685,9 +734,7 @@ def render_resume_summary(snap: UiSnapshot, *, resumed: bool) -> RenderableType:
         summary.add_row("Issues:", f"[red]{snap.required_issue_count} REQUIRED[/red]")
 
     if snap.entity_counts:
-        parts = ", ".join(
-            f"[cyan]{k}[/cyan]={v}" for k, v in sorted(snap.entity_counts.items())
-        )
+        parts = ", ".join(f"[cyan]{k}[/cyan]={v}" for k, v in sorted(snap.entity_counts.items()))
         summary.add_row("Breakdown:", parts)
 
     title = "Resumed Session" if resumed else "Session"
@@ -1150,9 +1197,7 @@ class TransientReplies:
         self._console.print(renderable)
         if erasable and transient:
             try:
-                self._height = len(
-                    self._console.render_lines(renderable, pad=False)
-                )
+                self._height = len(self._console.render_lines(renderable, pad=False))
             except Exception:  # noqa: BLE001 — fall back to leaving it on screen
                 logger.debug("transient reply height failed", exc_info=True)
 
