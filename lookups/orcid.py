@@ -60,7 +60,8 @@ def lookup_orcid(orcid_id: str) -> dict:
 
     Returns:
         dict with keys: @id, @type, identifier, name, givenName, familyName,
-        affiliation_name (str), affiliation_ror (str, may be ""). The caller
+        affiliation_name (str), affiliation_ror (str, may be ""), job_title
+        (str, may be ""). The caller
         is responsible for creating an Organization entity from these fields.
         Returns {} when the iD is not found. Raises TransientLookupError on a
         transient API failure (timeout / connection / 429 / 5xx) so a momentary
@@ -86,11 +87,18 @@ def lookup_orcid(orcid_id: str) -> dict:
         groups = employments.get("affiliation-group") or []
         affiliation_name = ""
         affiliation_ror = ""
+        # The same employment summary that names the organisation also names the
+        # role. We were reading one and discarding the other, and the ISA profile
+        # asks every Person for a job title — so the finding was answerable from
+        # data already on the wire. Absent for plenty of researchers, and then it
+        # stays absent: an empty role is not something to invent.
+        job_title = ""
         if groups:
             summaries = groups[0].get("summaries") or [{}]
             emp = summaries[0].get("employment-summary") or {}
             org = emp.get("organization") or {}
             affiliation_name = org.get("name", "")
+            job_title = (emp.get("role-title") or "").strip()
             disambig = org.get("disambiguated-organization") or {}
             if (disambig.get("disambiguation-source") or "").upper() == "ROR":
                 ror_value = disambig.get("disambiguated-organization-identifier", "")
@@ -110,6 +118,7 @@ def lookup_orcid(orcid_id: str) -> dict:
             "name": full_name or orcid_id,
             "affiliation_name": affiliation_name,
             "affiliation_ror": affiliation_ror,
+            "job_title": job_title,
         }
     except TransientLookupError:
         raise
@@ -171,9 +180,7 @@ def _search_orcid_by_name(
         return ()
 
 
-def lookup_orcid_by_name(
-    given: str, family: str, affiliation: str | None = None
-) -> list[dict]:
+def lookup_orcid_by_name(given: str, family: str, affiliation: str | None = None) -> list[dict]:
     """Search the ORCID public registry for people matching a name.
 
     Uses the ORCID public ``/v3.0/expanded-search`` endpoint (no auth) via the

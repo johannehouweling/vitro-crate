@@ -1046,6 +1046,15 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
         org_id = _find_or_draft_organization(state, affiliation_name, data.get("affiliation_ror"))
         if org_id is not None:
             fields["affiliation"] = {"@id": org_id}
+    # The ISA profile asks every Person for a job title, and ORCID publishes one
+    # on the same employment record the affiliation above comes from — so this
+    # answers the finding from data already fetched, rather than by asking a
+    # human for something a registry already states. Written only when ORCID has
+    # it: many researchers leave the role blank, and an invented title is worse
+    # than a missing one.
+    job_title = str(data.get("job_title") or "").strip()
+    if job_title:
+        fields["jobTitle"] = job_title
     person.set_fields_from_dict(fields, source="lookup")
     person.set_field_status("orcid", "verified", "lookup")
     return person
