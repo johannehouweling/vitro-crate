@@ -75,8 +75,13 @@ Three mechanisms enforce this:
 ## CI
 
 A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
-1. `lint` job — `uvx ruff check` and `uv run ty check` (ty is continue-on-error).
-2. `test` job — a **4-way matrix** that shards the suite across four independent
+1. `lint` job — `uvx ruff check` and `uv run ty check`. **Both gate**: `ty` has been
+   enforcing since the ty-clean sweep, so a type error reddens the PR before any test
+   shard runs. Run it locally before pushing — it is cheap, and it catches things a
+   passing test suite will not (a stub whose signature no longer matches what it
+   replaces, a `dict` literal ty narrows more tightly than you meant).
+   `ruff format` is **not** a gate.
+2. `test` job — a **16-way matrix** that shards the suite across sixteen independent
    `ubuntu-latest` runners with [`pytest-split`](https://github.com/jerry-git/pytest-split).
    Each shard runs serially (no `pytest-xdist`), and the shards run concurrently
    as separate jobs.
@@ -90,7 +95,7 @@ runner's RAM and provides real wall-clock parallelism without OOM risk.
 
 Shards are balanced by recorded test timings in the committed `.test_durations`
 file (`--splitting-algorithm least_duration`), so the heavy SHACL-validation and
-e2e build tail is spread evenly (~162s per shard) rather than piling into one
+e2e build tail is spread evenly (a few minutes per shard) rather than piling into one
 group. Regenerate `.test_durations` after large test-suite changes with:
 
 ```bash
