@@ -324,7 +324,7 @@ class TestSaveSession:
 class TestSaveSessionForce:
     """Tests for forced save (always_write parameter)."""
 
-    def test_force_always_writes_even_if_unchanged(self, tmp_path):
+    def test_force_always_writes_even_if_unchanged(self, tmp_path, monkeypatch):
         """When always_write=True, the save happens regardless of state changes."""
         from builder.tools import session as sess_mod
 
@@ -345,12 +345,38 @@ class TestSaveSessionForce:
         session_path = tmp_path / "sessions" / "force_test"
         state_path = session_path / "crate_state.json"
 
-        mtime_before = state_path.stat().st_mtime_ns
+        # Count the atomic commit (os.replace of the temp file over
+        # crate_state.json) rather than comparing st_mtime_ns before/after.
+        # File timestamps come from the kernel's *coarse* clock, which only
+        # advances once per tick -- measured at ~4.1ms on the CI filesystem --
+        # so two saves microseconds apart stamp an IDENTICAL mtime and a
+        # strict `>` fails at random (~57% of back-to-back writes collide).
+        # The claim under test is "the write happened", so observe the write.
+        replaced_paths: list[str] = []
+        real_replace = os.replace
+
+        def _counting_replace(src, dst):
+            replaced_paths.append(str(dst))
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(os, "replace", _counting_replace)
+
+        # Control: identical content without the flag must skip the write
+        # entirely, otherwise the forced write below would prove nothing.
+        unforced = sess_mod.save_session(state)
+        assert unforced["skipped"] is True
+        assert str(state_path) not in replaced_paths, (
+            "Unchanged state should not be rewritten without always_write"
+        )
+
         result = sess_mod.save_session(state, always_write=True)
-        mtime_after = state_path.stat().st_mtime_ns
 
         assert result["success"] is True
-        assert mtime_after > mtime_before, "File should be modified when always_write=True"
+        assert result["skipped"] is False
+        assert replaced_paths.count(str(state_path)) == 1, (
+            "always_write=True must rewrite crate_state.json even though the "
+            "content hash is unchanged"
+        )
 
 
 # =========================================================================
