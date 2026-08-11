@@ -560,6 +560,11 @@ class CrateMetadata:
     creator: str | None = None
     contact: str | None = None
     license: str | None = None
+    # True when `license` was READ from the deposit rather than drafted (#535).
+    # A depositor's statement is a fact and a drafter's is a guess, so the guess
+    # does not get to overwrite it — a wrong licence is wrong in the one
+    # direction that suppresses reuse of openly-licensed data.
+    license_from_deposit: bool = False
     input_type: InputType = "directory"
     input_path: str | None = None
     output_path: str | None = None
@@ -584,6 +589,8 @@ class CrateMetadata:
             value = getattr(self, key)
             if value is not None:
                 d[key] = value
+        if self.license_from_deposit:
+            d["license_from_deposit"] = True
         if self.input_path is not None:
             d["input_path"] = self.input_path
         if self.output_path is not None:
@@ -606,6 +613,7 @@ class CrateMetadata:
             creator=data.get("creator"),
             contact=data.get("contact"),
             license=data.get("license"),
+            license_from_deposit=bool(data.get("license_from_deposit", False)),
             input_type=data.get("input_type", "directory"),  # type: ignore[arg-type]
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
