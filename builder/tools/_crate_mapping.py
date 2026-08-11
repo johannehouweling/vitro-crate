@@ -570,9 +570,7 @@ def _context_terms() -> frozenset[str]:
     from profiles.context import ISA_TOX_CONTEXT
 
     blocks = ISA_TOX_CONTEXT if isinstance(ISA_TOX_CONTEXT, list) else [ISA_TOX_CONTEXT]
-    return frozenset(
-        key for block in blocks if isinstance(block, dict) for key in block
-    )
+    return frozenset(key for block in blocks if isinstance(block, dict) for key in block)
 
 
 def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -1109,6 +1107,18 @@ def _add_leaves(
     # objects pointing at sibling AOP node @ids, so the subgraph is cross-linked
     # verbatim — no fabricated ids (D5). They are kept out of _REF_FIELDS so
     # _scalar_props preserves them rather than stripping them as resolver inputs.
+    #
+    # Each also carries schema:DefinedTerm, exactly as the csvw:Column nodes do.
+    # The AOP classes resolve to https://aopwiki.org/ontology/… (profiles/context.py),
+    # which is not a schema.org type — so the base profile asked every one of
+    # these for one, 36 findings on a real crate. These are NOT cited vocabulary
+    # we could argue our way out of describing: `materialize_aop_subgraph` fetches
+    # them, names them and puts them in the graph deliberately, so the finding is
+    # correct and the answer is to satisfy it. A Key Event IS a defined term —
+    # an entry in a controlled vocabulary, with AOP-Wiki as its DefinedTermSet —
+    # so this states what the node already is, under a term the base profile
+    # reads. The AOP class stays first and unchanged, so the tox and ISA shapes
+    # that match on it are untouched.
     for aop_type in ("AdverseOutcomePathway", "KeyEvent", "KeyEventRelationship"):
         for aop_entity in state.list_entities(aop_type):
             _idx_add(
@@ -1119,7 +1129,7 @@ def _add_leaves(
                         crate,
                         _mint_id(aop_entity),
                         properties={
-                            "@type": aop_entity.type,
+                            "@type": [aop_entity.type, "schema:DefinedTerm"],
                             **_scalar_props(aop_entity),
                         },
                     )
@@ -1670,9 +1680,7 @@ _EMPTY_CONDITION_TABLE_NOTE = (
 )
 
 
-def _materialize_provisional_table(
-    fe: Entity, output_dir: Path | None, rel: str
-) -> str | None:
+def _materialize_provisional_table(fe: Entity, output_dir: Path | None, rel: str) -> str | None:
     """Write a provisional placeholder's header-only CSV and return its path.
 
     Returns ``None`` when there is nothing to write (not a provisional entity, or
@@ -1854,9 +1862,7 @@ def _add_generator_provenance(state: CrateState, crate: ROCrate) -> None:
         action_props["startTime"] = gen.started_at
     if gen.ended_at:
         action_props["endTime"] = gen.ended_at
-    action = crate.add(
-        ContextEntity(crate, f"#{_slug(gen.name)}_run", properties=action_props)
-    )
+    action = crate.add(ContextEntity(crate, f"#{_slug(gen.name)}_run", properties=action_props))
     action.append_to("instrument", app)
     action["result"] = {"@id": "./"}
 
@@ -1890,9 +1896,7 @@ def _add_generator_provenance(state: CrateState, crate: ROCrate) -> None:
             model_props["provider"] = vendor
         action.append_to(
             "instrument",
-            crate.add(
-                ContextEntity(crate, f"#model_{_slug(gen.model)}", properties=model_props)
-            ),
+            crate.add(ContextEntity(crate, f"#model_{_slug(gen.model)}", properties=model_props)),
         )
 
     for label, value in (
@@ -2050,9 +2054,7 @@ def _build_condition_table_schema(
     """
     dropped = multivalued or set()
     value_urls: dict[str, str | None] = {
-        "cell_line": None
-        if "cell_line" in dropped
-        else (_node_id(cells[0]) if cells else None),
+        "cell_line": None if "cell_line" in dropped else (_node_id(cells[0]) if cells else None),
         "compound": None if "compound" in dropped else (_node_id(chems[0]) if chems else None),
     }
     return _build_csvw_schema(

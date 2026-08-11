@@ -27,7 +27,6 @@ from builder.tools.drafters import draft_investigation, draft_study
 from builder.tools.validation import build_and_validate
 from lookups import _http, aopwiki
 
-
 # Every test here exports a crate, and each export now runs the uncached,
 # owlrl-heavy validator over all three profiles at the full severity gate (#446)
 # — ~10s per export locally, and the 2-vCPU CI runner is ~2-3x slower, which puts
@@ -200,9 +199,19 @@ class TestMaterializeBuild:
             state, materialize_payload=False, include_all_scanned=False
         ).metadata.generate()["@graph"]
 
-        aop = next(n for n in graph if n.get("@type") == "AdverseOutcomePathway")
-        kes = [n for n in graph if n.get("@type") == "KeyEvent"]
-        kers = [n for n in graph if n.get("@type") == "KeyEventRelationship"]
+        # Membership, not equality: each AOP node carries its AOP class AND
+        # schema:DefinedTerm, because the AOP classes resolve to
+        # aopwiki.org/ontology/… and the base profile asks a described contextual
+        # entity for a schema.org type. The AOP class stays first.
+        def _typed(node, wanted):
+            types = node.get("@type")
+            return wanted in (types if isinstance(types, list) else [types])
+
+        aop = next(n for n in graph if _typed(n, "AdverseOutcomePathway"))
+        kes = [n for n in graph if _typed(n, "KeyEvent")]
+        kers = [n for n in graph if _typed(n, "KeyEventRelationship")]
+        assert aop["@type"][0] == "AdverseOutcomePathway"
+        assert "schema:DefinedTerm" in aop["@type"]
         assert len(kes) == 4
         assert len(kers) == 3
 
@@ -426,9 +435,7 @@ class TestLinkAssayToMaterializedKeyEvent:
         assert assay_node["keyEvent"] == [{"@id": self._MITOCHONDRIAL_DYSFUNCTION}]
         # And the target really is a KeyEvent node in the SAME graph — the whole
         # point is an edge into the AOP subgraph, not a dangling reference.
-        assert self._MITOCHONDRIAL_DYSFUNCTION in {
-            e.entity_id for e in _by_type(state, "KeyEvent")
-        }
+        assert self._MITOCHONDRIAL_DYSFUNCTION in {e.entity_id for e in _by_type(state, "KeyEvent")}
 
     def test_unmatched_name_writes_nothing_and_returns_candidates(self):
         # Honesty control for the row above: "TPO inhibition" is a real assay
@@ -458,9 +465,7 @@ class TestLinkAssayToMaterializedKeyEvent:
 
         assert result["ok"] is False
         assert "keyEvent" not in state.get_entity(assay_id).fields
-        duplicated = [
-            c for c in result["candidates"] if c["name"] == "Mitochondrial dysfunction"
-        ]
+        duplicated = [c for c in result["candidates"] if c["name"] == "Mitochondrial dysfunction"]
         assert len(duplicated) == 2
         assert {c["@id"] for c in duplicated} == {
             self._MITOCHONDRIAL_DYSFUNCTION,
