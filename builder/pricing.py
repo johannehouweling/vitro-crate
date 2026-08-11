@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import ssl
 from functools import lru_cache
@@ -133,6 +134,46 @@ def get_model_vendor(model_name: str) -> str | None:
     return str(vendor).strip().lower() if vendor else None
 
 
+# What the deployment actually pays, per 1000 tokens. LiteLLM's table is a mirror
+# of PUBLIC list prices, and a proxy in front of a model is free to charge
+# something else — one observed proxy billed 1.00/6.00 per 1k where the published
+# price for the same model is 0.22/1.32 per 1M, a ~4.5x markup. The lookup was
+# right and the number was still wrong by 4.5x, silently, in a footer people read
+# to decide whether a run was worth it.
+#
+# Per 1000 tokens because that is the unit proxies quote. Either may be set alone;
+# whichever is set wins over the table for every model, since a proxy's price list
+# is a property of the deployment and not of the model.
+_PRICE_OVERRIDE_ENV = {
+    "input_cost_per_token": "VITRO_PRICE_INPUT_PER_1K",
+    "output_cost_per_token": "VITRO_PRICE_OUTPUT_PER_1K",
+}
+
+
+def price_overrides() -> dict[str, float]:
+    """Per-token rates declared by the deployment, or an empty dict.
+
+    A value that is not a number is ignored with a warning rather than crashing a
+    run over a typo in an env var — the cost display is advisory, and losing it is
+    a smaller harm than losing the session.
+    """
+    out: dict[str, float] = {}
+    for field, env in _PRICE_OVERRIDE_ENV.items():
+        raw = os.environ.get(env)
+        if raw is None or not raw.strip():
+            continue
+        try:
+            per_1k = float(raw)
+        except ValueError:
+            logger.warning("%s=%r is not a number; ignoring it", env, raw)
+            continue
+        if per_1k < 0:
+            logger.warning("%s=%r is negative; ignoring it", env, raw)
+            continue
+        out[field] = per_1k / 1000.0
+    return out
+
+
 @lru_cache(maxsize=64)
 def get_model_cost(
     model_name: str,
@@ -229,8 +270,13 @@ def compute_cost(
     (each a float or *None* if pricing is unavailable).
     """
     pricing = get_model_cost(model_name, provider)
-    if pricing is None:
+    overrides = price_overrides()
+    if pricing is None and not overrides:
         return {"input_cost": None, "output_cost": None, "total_cost": None}
+    # The deployment's own rates win: the table cannot know what a proxy charges,
+    # and an override is also the only way to price a model the table has never
+    # heard of.
+    pricing = {**(pricing or {}), **overrides}
 
     in_rate = pricing.get("input_cost_per_token")
     out_rate = pricing.get("output_cost_per_token")
