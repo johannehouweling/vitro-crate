@@ -138,6 +138,26 @@ _CITED_VOCABULARY_NAMESPACES: tuple[str, ...] = (
 _VOCABULARY_FILTER_ANCHOR = 'FILTER(!STRSTARTS(STR(?this), "https://bioschemas.org/"))'
 
 
+def _replace_file(path: Path, content: str) -> None:
+    """Rewrite *path* as a NEW file, never through the link that is already there.
+
+    uv hardlinks packages from its shared cache into every environment: the
+    shapes here had `st_nlink == 11`. `write_text` truncates in place, so writing
+    a patched shape edits the inode every one of those environments shares —
+    including the cache uv installs from, which means the next `uv sync`
+    reinstalls the patched copy and a reinstall can no longer undo it. A patch
+    meant for this venv silently became a patch to the machine.
+
+    Writing a temp file beside the target and `os.replace`-ing it swaps the
+    directory entry instead: this environment gets its own copy, every other one
+    keeps the original, and the operation is atomic so an interrupted run cannot
+    leave a half-written shape.
+    """
+    tmp = path.with_suffix(path.suffix + ".vitro-tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _patch_cited_vocabulary_exemption() -> None:
     """Extend roc-validator's own vocabulary exemption to life-science ontologies.
 
@@ -185,9 +205,9 @@ def _patch_cited_vocabulary_exemption() -> None:
                     indent = line[: len(line) - len(line.lstrip())]
                     break
             added = "".join(f'\n{indent}FILTER(!STRSTARTS(STR(?this), "{ns}"))' for ns in missing)
-            shape.write_text(
+            _replace_file(
+                shape,
                 text.replace(_VOCABULARY_FILTER_ANCHOR, _VOCABULARY_FILTER_ANCHOR + added),
-                encoding="utf-8",
             )
             logger.info("Exempted %d cited-vocabulary namespace(s) in %s", len(missing), shape.name)
     except OSError:

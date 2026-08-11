@@ -89,3 +89,21 @@ class TestTheBoundary:
             tail = namespace.split("://", 1)[1]
             assert "/" in tail.rstrip("/"), f"{namespace} is a bare host, not a term path"
             assert namespace.endswith("/")
+
+
+class TestItStaysInThisEnvironment:
+    def test_a_patched_shape_is_not_shared_with_other_venvs(self):
+        """uv hardlinks packages from a shared cache — these shapes had 11 links.
+
+        `write_text` truncates in place, so writing a patched shape edits the
+        inode every one of those environments shares, including the cache uv
+        installs from. A patch meant for this venv becomes a patch to the
+        machine, and a reinstall no longer undoes it because the cache is the
+        thing that was edited. `_replace_file` swaps the directory entry instead,
+        so this environment gets its own copy and every other one keeps theirs.
+        """
+        for shape in _shapes_with_the_exemption():
+            assert shape.stat().st_nlink == 1, (
+                f"{shape.name} is still hardlinked into other environments — "
+                "patching it would edit theirs too"
+            )
