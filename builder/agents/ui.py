@@ -459,31 +459,37 @@ def _work_field(snap: UiSnapshot) -> tuple[str, str]:
     "54 files" telling it nothing. Once drafting begins the slot earns its place
     by showing the open findings instead.
 
-    A tier that has not been swept shows as **locked** rather than as ``0``. This
-    is honest, not decorative: ``build_and_validate`` defaults to the REQUIRED
-    gate, and a gate is a floor — RECOMMENDED and OPTIONAL checks are not
-    evaluated at all until the gate is lowered, so their counts are genuinely
-    unknown, not zero. ``assessed_tiers`` is what the validator actually
-    assessed, so it is the thing to read.
+    A tier nobody has swept shows ``—``, never ``0``. The distinction is the
+    point: ``build_and_validate`` defaults to the REQUIRED gate, and a gate is a
+    floor — the RECOMMENDED and OPTIONAL checks are not evaluated at all until it
+    is lowered, so their counts are unknown rather than clean.
+
+    It used to read "locked", which said something untrue. A tier drops out of
+    ``assessed_tiers`` in two different situations: nobody has ever swept it, and
+    — far more often — the crate has changed since the sweep that did, so the
+    write-back retires findings that now describe an older crate. The second is
+    not a gate anyone shut. It happens on ordinary edits, so the footer announced
+    a lock every time the agent touched an entity, and un-announced it on the next
+    wide sweep. ``—`` says the one thing that is true of both: not known right
+    now.
+
+    The count itself is gone by then — the write-back clears the tier's findings,
+    because the export reads them and a maturity report full of findings computed
+    against an older crate is exactly the bug that clearing prevents. So there is
+    no stale number to show even if we wanted to.
     """
     if snap.entity_count == 0:
         return "files", f"{snap.file_count} files"
 
     assessed = set(snap.assessed_tiers)
     parts: list[str] = []
-    locked: list[str] = []
     for tier, label, count in (
         ("required", "req", snap.required_issue_count),
         ("recommended", "rec", snap.should_issue_count),
         ("optional", "opt", snap.may_issue_count),
     ):
-        if tier in assessed:
-            parts.append(f"{count} {label}")
-        else:
-            locked.append(label)
-    if locked:
-        parts.append(f"{'/'.join(locked)} locked")
-    return "issues", " ".join(parts) if parts else "not validated"
+        parts.append(f"{count} {label}" if tier in assessed else f"— {label}")
+    return "issues", " ".join(parts)
 
 
 def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None = None) -> str:

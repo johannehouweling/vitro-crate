@@ -81,7 +81,7 @@ class TestTheMiddleSlot:
         assert "121 rec" in line
         assert "66 opt" in line
 
-    def test_unassessed_tiers_read_as_locked_not_zero(self):
+    def test_unassessed_tiers_read_as_a_dash_not_zero(self):
         """A REQUIRED-gated sweep did not evaluate the other tiers at all.
 
         Printing `0 rec` there would claim a clean bill of health for checks that
@@ -94,11 +94,22 @@ class TestTheMiddleSlot:
             )
         )
         assert "0 req" in line
-        assert "rec/opt locked" in line
+        assert "— rec" in line
+        assert "— opt" in line
         assert "0 rec" not in line
         assert "0 opt" not in line
 
-    def test_partial_gate_locks_only_what_was_not_swept(self):
+    def test_it_never_says_locked(self):
+        """A tier drops out of `assessed_tiers` on any ordinary edit, because the
+        write-back retires findings that describe an older crate. Calling that a
+        lock claimed a gate had been shut when nobody had shut one — and it
+        flickered, announcing itself on every mutation.
+        """
+        for tiers in ((), ("required",), ("required", "recommended")):
+            line = _plain(render_status_markup(_snap(entity_count=97, assessed_tiers=tiers)))
+            assert "locked" not in line
+
+    def test_partial_gate_dashes_only_what_was_not_swept(self):
         line = _plain(
             render_status_markup(
                 _snap(
@@ -109,12 +120,12 @@ class TestTheMiddleSlot:
             )
         )
         assert "121 rec" in line
-        assert "opt locked" in line
-        assert "rec/opt" not in line
+        assert "— opt" in line
+        assert "— rec" not in line
 
     def test_nothing_validated_yet_says_so(self):
         line = _plain(render_status_markup(_snap(entity_count=3, assessed_tiers=())))
-        assert "req/rec/opt locked" in line
+        assert "— req — rec — opt" in line
 
 
 class TestFader:
