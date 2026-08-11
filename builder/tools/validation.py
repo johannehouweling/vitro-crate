@@ -506,11 +506,13 @@ def apply_validation_result(
     fingerprint = state.validation_fingerprint()
     # The structured records shadow the string lists tier for tier: retired
     # together, refreshed together, so neither view can describe a different
-    # validation than the other.
-    tier_records = {
-        tier: [r for r in report.issue_records if r.get("severity") == tier]
-        for tier in _TIER_ORDER
-    }
+    # validation than the other. Bucketing by the severity actually present —
+    # rather than by the three known tiers — keeps a record this run neither
+    # evaluated nor retired: no writer emits one today, but a checkpoint can
+    # carry it, and the report renders such findings rather than dropping them.
+    tier_records: dict[str, list[dict[str, str]]] = {tier: [] for tier in _TIER_ORDER}
+    for record in report.issue_records:
+        tier_records.setdefault(str(record.get("severity") or ""), []).append(record)
     # Retire the tiers this run did NOT cover, whenever the state has moved on
     # since the last verdict. `assessed_tiers` is otherwise additive: once an
     # export assessed all three, a later REQUIRED-only run refreshed the required
@@ -534,7 +536,9 @@ def apply_validation_result(
         setattr(report, _TIER_FIELDS[tier], order_issues(issues, tier))
         report.assessed_tiers.add(tier)
         tier_records[tier] = _issue_records(issues, tier)
-    report.issue_records = [r for tier in _TIER_ORDER for r in tier_records[tier]]
+    report.issue_records = [r for tier in _TIER_ORDER for r in tier_records[tier]] + [
+        r for tier, records in tier_records.items() if tier not in _TIER_ORDER for r in records
+    ]
     report.input_fingerprint = fingerprint
 
 

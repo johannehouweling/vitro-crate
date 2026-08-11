@@ -236,6 +236,44 @@ class TestValidate:
         assert report.should_issues == ["[Recommended] add a license"]
         assert report.may_issues == ["[Optional] a DOI would help"]
 
+    def test_a_message_two_profiles_raise_is_recorded_once_per_profile(self, tmp_path, monkeypatch):
+        """The display list dedups identical advisory text; the records do not.
+
+        Two passes can report the same sentence about different layers. Collapsed
+        to one string it reads as one finding, but it is two — and the records
+        are what carry the attribution the report groups by, so each keeps its
+        own profile."""
+        import profiles.validator as validator_mod
+        from profiles.validator import ValidationResult
+
+        same = "[Recommended] add a license"
+
+        def patched_validate(crate_dir):
+            return [
+                ValidationResult(
+                    profile="Base RO-Crate 1.2",
+                    passed=False,
+                    issues=[same],
+                    required_issues=[],
+                    passed_required=True,
+                ),
+                ValidationResult(
+                    profile="ISA RO-Crate Profile",
+                    passed=False,
+                    issues=[same],
+                    required_issues=[],
+                    passed_required=True,
+                ),
+            ]
+
+        monkeypatch.setattr(validator_mod, "validate_crate", patched_validate)
+        crate_dir = tmp_path / "placeholder"
+        crate_dir.mkdir()
+        report = validate(CrateState(), str(crate_dir))
+
+        assert report.should_issues == [same]
+        assert [r["profile"] for r in report.issue_records] == ["base", "isa"]
+
     def test_isa_failure_does_not_fail_base(self, tmp_path, monkeypatch):
         """Every pass's display name contains "ro-crate" ("ISA RO-Crate
         Profile", "ISA-Tox RO-Crate Profile"), so the old ``"ro-crate" in

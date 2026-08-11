@@ -535,19 +535,46 @@ def _tier_findings_html(records: list[dict[str, str]], tier: str) -> str:
     return "".join(out)
 
 
-def _tier_records(val: ValidationReport) -> dict[str, list[dict[str, str]]] | None:
-    """The verdict's findings bucketed by severity tier, or ``None`` if unstructured.
-
-    ``None`` means the verdict carries no ``issue_records`` — one recorded
-    before the field existed — and the caller falls back to the flat display
-    list rather than silently dropping findings.
-    """
-    if not val.issue_records:
-        return None
+def _tier_records(val: ValidationReport) -> dict[str, list[dict[str, str]]]:
+    """The verdict's structured findings, bucketed by severity tier."""
     buckets: dict[str, list[dict[str, str]]] = {tier: [] for tier in _TIER_RENDER_ORDER}
     for record in val.issue_records:
         buckets.setdefault(str(record.get("severity") or ""), []).append(record)
     return buckets
+
+
+# Which display list each tier's findings live in when the verdict carries no
+# structured records for it (mirrors the write-back's own tier→field mapping).
+_TIER_STRING_FIELDS: dict[str, str] = {
+    "required": "required_issues",
+    "recommended": "should_issues",
+    "optional": "may_issues",
+}
+
+
+def _tier_body(val: ValidationReport, tier: str) -> tuple[str, int]:
+    """One tier's findings as ``(html, count)`` — records first, strings second.
+
+    The choice is made per tier, never once for the whole report: a verdict can
+    legitimately hold records for one tier and only display strings for another
+    (a pre-records checkpoint that then takes a REQUIRED-gate write-back).
+    Deciding globally hid the string-only tiers' findings while the severity row
+    went on counting them, so the report counted findings its own list omitted.
+
+    Records carry the profile attribution and render grouped by layer; strings
+    have none and render as one ungrouped list. Either way the count returned is
+    the count of what the caller is about to show.
+    """
+    records = _tier_records(val).get(tier, [])
+    if records:
+        return _tier_findings_html(records, tier), len(records)
+    field = _TIER_STRING_FIELDS.get(tier)
+    issues: list[str] = getattr(val, field) if field else []
+    if not issues:
+        return "", 0
+    template = _TIER_TEMPLATES.get(tier, "<li>{msg}</li>")
+    items = [template.format(msg=html.escape(str(msg))) for msg in issues]
+    return f'<ul class="sugg">{"".join(_capped_tier_items(tier, items))}</ul>', len(issues)
 
 
 def _render_severity_detail(val: ValidationReport, tiers: list[dict[str, str]]) -> str:
@@ -562,37 +589,33 @@ def _render_severity_detail(val: ValidationReport, tiers: list[dict[str, str]]) 
     A row holding REQUIRED findings is born ``open``: a collapsed fold must
     never hide a blocking issue.
     """
-    buckets = _tier_records(val)
     rows: list[str] = []
     for tier in tiers:
-        row = (
-            f'{_mk(tier["state"])}<span class="st">{tier["tier"]}</span>'
-            f'<span class="sc">{tier["summary"]}</span><span class="sn">{tier["note"]}</span>'
-        )
-        records = (buckets or {}).get(tier["key"], [])
-        if not records:
-            rows.append(f'<div class="sev-drow">{row}</div>')
-            continue
+        body, count = _tier_body(val, tier["key"])
+        summary = tier["summary"]
         # Where the summary IS a count of findings, it is the count of what the
         # row unfolds — never a number taken from a different list. REQUIRED is
         # left alone: its summary counts passing profiles, a different quantity,
         # and the fold answers "which findings" underneath it.
-        if tier["key"] != "required":
-            row = row.replace(
-                f'<span class="sc">{tier["summary"]}</span>',
-                f'<span class="sc">{_plural_issues(len(records))}</span>',
-                1,
-            )
+        if count and tier["key"] != "required":
+            summary = _plural_issues(count)
+        row = (
+            f'{_mk(tier["state"])}<span class="st">{tier["tier"]}</span>'
+            f'<span class="sc">{summary}</span><span class="sn">{tier["note"]}</span>'
+        )
+        if not count:
+            rows.append(f'<div class="sev-drow">{row}</div>')
+            continue
         rows.append(
             f'<details class="sev-fold"{" open" if tier["key"] == "required" else ""}>'
             f'<summary class="sev-drow">{row}</summary>'
-            f'<div class="sev-body">{_tier_findings_html(records, tier["key"])}</div>'
+            f'<div class="sev-body">{body}</div>'
             "</details>"
         )
     # A finding whose severity is none of the three tiers has no row of its own
     # to fold out of. The writers cannot produce one today, but this report does
     # not silently drop findings — it grows a row rather than losing them.
-    for key, records in (buckets or {}).items():
+    for key, records in _tier_records(val).items():
         if key in _TIER_RENDER_ORDER or not records:
             continue
         rows.append(
@@ -608,33 +631,6 @@ def _render_severity_detail(val: ValidationReport, tiers: list[dict[str, str]]) 
         '<div class="sev-detail"><span class="sev-detail-label">By severity</span>'
         f'{"".join(rows)}</div>'
     )
-
-
-def _suggestion_items(val: ValidationReport) -> list[str]:
-    """Render the flat improvement list: what to fix, across every assessed tier.
-
-    The fallback for a verdict without structured ``issue_records`` (recorded
-    before #510): the display strings are all such a verdict carries, so they
-    are shown as-is, ungrouped. Naming a RECOMMENDED or OPTIONAL finding is the
-    point of assessing it — a crate whose author can see the twelve things that
-    would make it better is more likely to get them than one told only that it
-    clears the bar. REQUIRED findings stay first and uncapped; the advisory
-    tiers are capped, and a cap that bites says how many it hid rather than
-    trailing off silently.
-    """
-    esc = html.escape
-    tiers: list[tuple[str, list[str]]] = [
-        ("required", val.required_issues),
-        ("recommended", val.should_issues),
-        ("optional", val.may_issues),
-    ]
-    items: list[str] = []
-    for tier, issues in tiers:
-        if not issues:
-            continue
-        rendered = [_TIER_TEMPLATES[tier].format(msg=esc(msg)) for msg in issues]
-        items.extend(_capped_tier_items(tier, rendered))
-    return items
 
 
 def _clean_note(val: ValidationReport) -> str:
@@ -682,19 +678,15 @@ def _render_profile_section(
         for key, name in _PROFILE_LAYERS
     )
     severity_detail = _render_severity_detail(val, tiers)
-    # The findings live in the severity rows when the verdict is structured; a
-    # pre-records verdict has only the flat display strings, so it keeps the
-    # flat list under the block. Either way the empty state stays honest about
-    # how much of the crate was actually checked.
-    if _tier_records(val) is not None:
-        sugg = ""
-    else:
-        sugg_items = _suggestion_items(val)
-        sugg = (
-            f'<ul class="sugg">{"".join(sugg_items)}</ul>'
-            if sugg_items
-            else f'<p class="good-note">{_clean_note(val)}</p>'
-        )
+    # Every finding lives in the severity row it belongs to, so the only thing
+    # left to say underneath is that there were none — and that line stays
+    # honest about how much of the crate was actually checked (#306).
+    has_findings = any(_tier_body(val, tier["key"])[1] for tier in tiers) or any(
+        records
+        for key, records in _tier_records(val).items()
+        if key not in _TIER_RENDER_ORDER
+    )
+    sugg = "" if has_findings else f'<p class="good-note">{_clean_note(val)}</p>'
 
     return (
         "<section>\n"

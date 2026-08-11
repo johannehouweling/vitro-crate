@@ -1367,7 +1367,10 @@ class TestGroupedSuggestions:
         assert "<b>x</b>" not in page
         assert "&lt;img src=x" in page
 
-    def test_verdict_without_records_falls_back_to_the_flat_list(self) -> None:
+    def test_verdict_without_records_folds_its_display_strings(self) -> None:
+        # A verdict recorded before issue_records existed carries only the flat
+        # strings. They still belong to a tier, so they still fold out of it —
+        # ungrouped, because such a verdict has no profile attribution to group by.
         state = vhps_fixture_state("S-VHPS21")
         val = ValidationReport(
             base_passed=False,
@@ -1377,9 +1380,109 @@ class TestGroupedSuggestions:
             should_issues=["consider adding a license"],
         )
         body = _body(build_maturity_html(state, validation=val))
-        assert "sev-fold" not in body
-        assert "root MUST have a name" in body
-        assert "consider adding a license" in body
+        assert "root MUST have a name" in self._fold(body, "Required")
+        assert "consider adding a license" in self._fold(body, "Recommended")
+
+    def test_a_tier_whose_records_are_missing_still_shows_its_findings(self) -> None:
+        """The mixed state: records for one tier, display strings for another.
+
+        A pre-records checkpoint that then takes a REQUIRED-gate write-back ends
+        up with required records beside still-fresh advisory strings. Choosing
+        the rendering once, for the whole report, hid those advisory findings
+        while the severity row went on counting them — the report would count
+        findings its own list omits.
+        """
+        state = vhps_fixture_state("S-VHPS21")
+        val = ValidationReport(
+            base_passed=False,
+            isa_passed=True,
+            tox_passed=True,
+            required_issues=["[base] ./: root MUST have a name"],
+            should_issues=["[isa] #s: consider a license", "[tox] #a: add dose units"],
+            may_issues=["[isa] #s: a DOI would help"],
+            assessed_tiers={"required", "recommended", "optional"},
+            issue_records=[
+                {
+                    "profile": "base",
+                    "severity": "required",
+                    "entity_id": "./",
+                    "message": "root MUST have a name",
+                }
+            ],
+        )
+        body = _body(build_maturity_html(state, validation=val))
+        rec = self._fold(body, "Recommended")
+        assert "2 issues" in rec
+        assert "consider a license" in rec and "add dose units" in rec
+        assert "a DOI would help" in self._fold(body, "Optional")
+
+    def test_cap_applies_per_profile_group_not_across_the_tier(self) -> None:
+        # Two layers of 12 findings each: the cap bounds each group at 10, so
+        # both groups keep a listed head and both name what they hid — a global
+        # cap would have shown 10 of 24 and hidden a whole layer.
+        state = vhps_fixture_state("S-VHPS21")
+        records = [
+            {
+                "profile": profile,
+                "severity": "recommended",
+                "entity_id": f"#{profile}{i}",
+                "message": f"{profile} advisory {i}",
+            }
+            for profile in ("isa", "tox")
+            for i in range(12)
+        ]
+        val = ValidationReport(
+            base_passed=True,
+            isa_passed=True,
+            tox_passed=True,
+            should_issues=[f"{r['profile']} advisory {r['entity_id']}" for r in records],
+            assessed_tiers={"required", "recommended", "optional"},
+            issue_records=records,
+        )
+        rec = self._fold(_body(build_maturity_html(state, validation=val)), "Recommended")
+        assert rec.count("Recommended: ") == 20
+        assert rec.count("+2 further recommended findings") == 2
+        assert "24 issues" in rec
+
+    def test_unattributed_findings_are_reported_not_dropped(self) -> None:
+        state = vhps_fixture_state("S-VHPS21")
+        val = ValidationReport(
+            base_passed=True,
+            isa_passed=True,
+            tox_passed=True,
+            should_issues=["one with no layer"],
+            assessed_tiers={"required", "recommended", "optional"},
+            issue_records=[
+                {
+                    "profile": "",
+                    "severity": "recommended",
+                    "entity_id": "#x",
+                    "message": "one with no layer",
+                }
+            ],
+        )
+        rec = self._fold(_body(build_maturity_html(state, validation=val)), "Recommended")
+        assert "unattributed" in rec
+        assert "one with no layer" in rec
+
+    def test_a_severity_outside_the_three_tiers_grows_its_own_row(self) -> None:
+        state = vhps_fixture_state("S-VHPS21")
+        val = ValidationReport(
+            base_passed=True,
+            isa_passed=True,
+            tox_passed=True,
+            assessed_tiers={"required", "recommended", "optional"},
+            issue_records=[
+                {
+                    "profile": "base",
+                    "severity": "info",
+                    "entity_id": "#x",
+                    "message": "an informational note",
+                }
+            ],
+        )
+        body = _body(build_maturity_html(state, validation=val))
+        assert "an informational note" in self._fold(body, "Info")
 
     def test_a_findings_row_reports_the_count_it_unfolds(self) -> None:
         # The row's count and its contents come from one list, so the summary

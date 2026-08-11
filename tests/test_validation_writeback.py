@@ -288,6 +288,54 @@ class TestIssueRecords:
         assert state.validation.issue_records == []
         assert state.validation.should_issues == []
 
+    def test_a_covered_tier_replaces_its_records_rather_than_accumulating(self) -> None:
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        first = {
+            "severity": "required",
+            "profile": "isa",
+            "entity_id": "./",
+            "message": "missing identifier",
+        }
+        apply_validation_result(state, "build_and_validate", self._result([first]), severity="required")
+        second = {**first, "message": "still missing a name"}
+        apply_validation_result(
+            state, "build_and_validate", self._result([second]), severity="required"
+        )
+        assert [r["message"] for r in state.validation.issue_records] == ["still missing a name"]
+
+    def test_a_severity_outside_the_three_tiers_survives_a_write_back(self) -> None:
+        # No writer emits one today, but a checkpoint or a hand-built report can
+        # carry it — and the report renders such findings rather than dropping
+        # them, so the write-back must not be the thing that loses them.
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        state.validation = ValidationReport(
+            issue_records=[
+                {"profile": "base", "severity": "info", "entity_id": "#x", "message": "noted"}
+            ],
+            input_fingerprint=state.validation_fingerprint(),
+        )
+        apply_validation_result(
+            state,
+            "build_and_validate",
+            self._result(
+                [
+                    {
+                        "severity": "required",
+                        "profile": "isa",
+                        "entity_id": "./",
+                        "message": "missing identifier",
+                    }
+                ]
+            ),
+            severity="required",
+        )
+        severities = [r["severity"] for r in state.validation.issue_records]
+        assert "info" in severities and "required" in severities
+
     def test_records_round_trip_through_serialisation(self) -> None:
         record = {
             "profile": "base",
