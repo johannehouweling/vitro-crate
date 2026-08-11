@@ -138,82 +138,81 @@ _CITED_VOCABULARY_NAMESPACES: tuple[str, ...] = (
 _VOCABULARY_FILTER_ANCHOR = 'FILTER(!STRSTARTS(STR(?this), "https://bioschemas.org/"))'
 
 
-def _replace_file(path: Path, content: str) -> None:
-    """Rewrite *path* as a NEW file, never through the link that is already there.
-
-    uv hardlinks packages from its shared cache into every environment: the
-    shapes here had `st_nlink == 11`. `write_text` truncates in place, so writing
-    a patched shape edits the inode every one of those environments shares —
-    including the cache uv installs from, which means the next `uv sync`
-    reinstalls the patched copy and a reinstall can no longer undo it. A patch
-    meant for this venv silently became a patch to the machine.
-
-    Writing a temp file beside the target and `os.replace`-ing it swaps the
-    directory entry instead: this environment gets its own copy, every other one
-    keeps the original, and the operation is atomic so an interrupted run cannot
-    leave a half-written shape.
-    """
-    tmp = path.with_suffix(path.suffix + ".vitro-tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, path)
+def _exempt_cited_vocabulary(text: str) -> str:
+    """Add our namespaces to an upstream shape's exclusion list, in memory."""
+    missing = [ns for ns in _CITED_VOCABULARY_NAMESPACES if ns not in text]
+    if not missing:
+        return text
+    indent = ""
+    for line in text.splitlines():
+        if _VOCABULARY_FILTER_ANCHOR in line:
+            indent = line[: len(line) - len(line.lstrip())]
+            break
+    added = "".join(f'\n{indent}FILTER(!STRSTARTS(STR(?this), "{ns}"))' for ns in missing)
+    return text.replace(_VOCABULARY_FILTER_ANCHOR, _VOCABULARY_FILTER_ANCHOR + added)
 
 
 def _patch_cited_vocabulary_exemption() -> None:
-    """Extend roc-validator's own vocabulary exemption to life-science ontologies.
+    """Extend roc-validator's own vocabulary exemption to the namespaces we cite.
 
     The base shapes already refuse to interrogate vocabulary a crate merely
-    cites. ``should/0_entity_metadata.ttl`` and ``must/6_contextual_entity_metadata.ttl``
-    each carry a SPARQL target commented "Exclude entities with non-IRI
-    identifiers or those from specific namespaces", filtering out schema.org,
-    w3.org, purl.org, bioschemas.org, w3id.org/ro/crate and urn: — 34 FILTER
-    clauses across eight files, at SHOULD and MUST severity alike.
+    cites: every one of them carries a SPARQL target commented "Exclude entities
+    with non-IRI identifiers or those from specific namespaces", filtering
+    schema.org, w3.org, purl.org, bioschemas.org, w3id.org/ro/crate and urn: — 34
+    FILTER clauses across seven files, at SHOULD and MUST severity alike. So the
+    validator does not want a self-contained graph either; its list is simply the
+    one a WORKFLOW crate needs, and never grew the ontology hosts a life-science
+    crate cites. One real crate collected 87 findings from ~20 such IRIs, not one
+    of which is ours to describe.
 
-    So the validator does NOT want a self-contained graph, and our position —
-    describe what you assert, link what you cite — is its authors' position too.
-    Their list is simply the one a WORKFLOW crate needs; it never grew the
-    ontology hosts a toxicology crate cites. One real crate collected ~60
-    findings from ~20 such IRIs, not one of which is ours to describe.
+    Done by wrapping the loader, so nothing on disk is touched. An earlier
+    version rewrote the .ttl files, which is worse than it sounds: uv hardlinks
+    packages from a shared cache (st_nlink was 11 here), so writing a shape
+    edited the copy every environment on the machine shares, including the cache
+    uv installs from — a patch meant for one venv silently became a patch to the
+    machine, and reinstalling could not undo it because the cache was what got
+    edited. In memory there is nothing to leak, nothing to clean up, and a fresh
+    install is genuinely fresh.
 
-    This adds those hosts to the list already there, in the same form, and is
-    idempotent so a fresh ``uv sync`` self-heals. It extends an existing
-    exemption and invents nothing: ``should/6_contextual_entity_metadata.ttl``
-    (referenced-but-not-described, described-but-not-referenced) has NO exemption
-    block at all, and introducing one would be a design change to someone else's
-    shape rather than a list extension — so it is left alone and reported
-    upstream instead.
+    Scoped to term PATHS, not hosts: `https://aopwiki.org/events/2266` is a Key
+    Event `materialize_aop_subgraph` fetches, names and puts in the graph — ours,
+    and it should answer the same checks as anything else we assert.
 
-    Delete this once roc-validator can be told which namespaces a crate cites.
-    ``docs/upstream/rocrate-validator-cited-vocabulary.md`` asks for that as a
-    `ValidationSettings` field rather than for two more entries in their list —
-    patching literals in someone else's SPARQL is a workaround precisely because
-    the set is compiled in, and every other domain has the same problem.
+    Extends an existing exemption and invents none:
+    `should/6_contextual_entity_metadata.ttl` has no exemption block at all, and
+    introducing one is a design change to someone else's shape rather than a list
+    extension. Left alone, and raised upstream instead — see
+    docs/upstream/rocrate-validator-cited-vocabulary.md, which asks for a way to
+    extend the list so this patch can be deleted.
     """
     try:
-        base = Path(DEFAULT_PROFILES_PATH) / "ro-crate" / "1.2"
-        for shape in sorted(base.rglob("*.ttl")):
-            text = shape.read_text(encoding="utf-8")
+        from rdflib import Graph
+        from rocrate_validator.requirements.shacl import utils as _shacl_utils
+    except ImportError:  # pragma: no cover — validation is unavailable anyway
+        logger.debug("Could not reach the SHACL loader to extend the exemption")
+        return
+
+    original = _shacl_utils.load_shapes_from_file
+    if getattr(original, "_vitro_vocabulary_patch", False):
+        return  # already wrapped; importing twice must not stack wrappers
+
+    def load_shapes_from_file(file_path, publicID=None):  # noqa: ANN001, ANN202
+        try:
+            text = Path(file_path).read_text(encoding="utf-8")
             if _VOCABULARY_FILTER_ANCHOR not in text:
-                continue
-            missing = [ns for ns in _CITED_VOCABULARY_NAMESPACES if ns not in text]
-            if not missing:
-                continue
-            # Match the anchor's own indentation so the patched SPARQL keeps the
-            # shape of the block around it.
-            indent = ""
-            for line in text.splitlines():
-                if _VOCABULARY_FILTER_ANCHOR in line:
-                    indent = line[: len(line) - len(line.lstrip())]
-                    break
-            added = "".join(f'\n{indent}FILTER(!STRSTARTS(STR(?this), "{ns}"))' for ns in missing)
-            _replace_file(
-                shape,
-                text.replace(_VOCABULARY_FILTER_ANCHOR, _VOCABULARY_FILTER_ANCHOR + added),
-            )
-            logger.info("Exempted %d cited-vocabulary namespace(s) in %s", len(missing), shape.name)
-    except OSError:
-        # Read-only install: the findings come back, which is the pre-patch
-        # behaviour — noisier, not wrong.
-        logger.debug("Could not extend the cited-vocabulary exemption", exc_info=True)
+                return original(file_path, publicID)
+            graph = Graph()
+            graph.parse(data=_exempt_cited_vocabulary(text), format="turtle", publicID=publicID)
+            return _shacl_utils.load_shapes_from_graph(graph)
+        except Exception:  # noqa: BLE001
+            # Any surprise — an unreadable file, a shape we mis-edited — falls back
+            # to loading it untouched. The findings come back, which is the
+            # pre-patch behaviour: noisier, not wrong.
+            logger.debug("Falling back to the unpatched shape %s", file_path, exc_info=True)
+            return original(file_path, publicID)
+
+    load_shapes_from_file._vitro_vocabulary_patch = True  # ty: ignore[unresolved-attribute]
+    _shacl_utils.load_shapes_from_file = load_shapes_from_file
 
 
 _patch_cited_vocabulary_exemption()
