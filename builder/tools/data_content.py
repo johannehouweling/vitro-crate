@@ -45,22 +45,64 @@ logger = logging.getLogger(__name__)
 # ``concentration`` / ``unit`` / ``duration`` are the pre-#180 five-column names the
 # ReAct tool description advertised long after they stopped existing; a model that
 # obeyed that description had every one of its values silently discarded.
+#
+# The ``*_id`` / ``biosample_*`` / ``exposure_*`` block is the tidy per-well export
+# vocabulary (#471), read off the header of the corpus's only genuine tidy design
+# table (S-VHPS22 ``Combined uptake data EDCs_tidy.csv``, 1048 rows). Not one of its
+# fifteen headers matched a canonical title or an alias, so the whole table hit the
+# refusal gate and the study shipped a header-only placeholder.
+#
+# Six headers of that file are deliberately NOT aliased and keep surfacing in
+# ``unmapped_source_columns``: ``measurement_*`` / ``notes`` are results and prose,
+# not design, and ``biosample_id`` (blank in every row there) would collide with
+# ``biosample_type`` on ``cell_line`` — see the collision rule in
+# :func:`project_condition_rows`. Reporting them is the honest outcome; inventing a
+# canonical home for a measurement column is exactly the fabrication D5 forbids.
 _CONDITION_TABLE_ALIASES: dict[str, str] = {
     "well": "well_id",
     "well_position": "well_id",
+    # A tidy export has no plate geometry: ``run_id`` is its per-row key, and
+    # well_id is typed dcterms:identifier (an identifier, not a coordinate), so the
+    # source's own key goes there verbatim. Sending run_id to ``experiment`` instead
+    # reads better in isolation but leaves every row without a well key, and the
+    # second refusal gate below then drops all 1048 rows on the floor.
+    "run_id": "well_id",
     "concentration": "concentration_value",
     "conc": "concentration_value",
     "dose": "concentration_value",
+    "exposure_concentration_value": "concentration_value",
     "unit": "concentration_unit",
     "units": "concentration_unit",
+    "exposure_concentration_unit": "concentration_unit",
     "duration": "exposure_duration",
     "exposure_time": "exposure_duration",
     "cell": "cell_line",
     "cell line": "cell_line",
+    "biosample_type": "cell_line",
     "chemical": "compound",
     "substance": "compound",
     "test_item": "compound",
+    "test_substance_id": "compound",
+    # The endpoint names the readout the row belongs to (T3 / T4 uptake); ``assay``
+    # is the only canonical column that carries it, and it is a plain string column
+    # — no entity resolution rides on it (CONDITION_TABLE_REFERENCE_COLUMNS covers
+    # compound and cell_line only), so this cannot turn prose into a false id claim.
+    "assay_endpoint": "assay",
     "replicate": "technical_replicate",
+    "replicate_id": "technical_replicate",
+}
+
+# Tidy sources split a duration into value + unit columns where the canonical table
+# has ONE string column (#471). Aliasing both to ``exposure_duration`` would make
+# them collide, and the loser would be dropped — emitting a bare ``24`` with the
+# ``h`` discarded is a claim we must never make, since h and d differ by 24x, the
+# same magnitude trap the uM/mM suffix rule exists to avoid. So the pair is composed
+# into one literal (``"24 h"``) instead. D5 as everywhere else here: the unit is
+# carried verbatim and never lifted to a UO IRI.
+#
+# Keyed by canonical column -> (value header, unit header), both lower-cased.
+_CONDITION_TABLE_UNIT_PAIRS: dict[str, tuple[str, str]] = {
+    "exposure_duration": ("exposure_duration_value", "exposure_duration_unit"),
 }
 
 # A dose column that carries its unit in the header (``concentration_uM``,
@@ -332,6 +374,16 @@ def project_condition_rows(
     both ``well_id`` and ``well`` keeps ``well_id``, and an explicit
     ``concentration_unit`` survives a ``dose_uM`` header.
 
+    Two *aliases* can legitimately target the same canonical column (``chemical``
+    and ``test_substance_id`` both mean ``compound``). When both carry a value on
+    one row the first in the source's own column order wins and the second is
+    dropped — a defined outcome rather than a coin flip, because a row mapping is
+    ordered. The loser is NOT reported in ``unmapped_source_columns``: that list
+    means "no canonical home", and a collision loser had one. Where a split source
+    would collide by construction — a value column and its unit column, both meaning
+    ``exposure_duration`` — :data:`_CONDITION_TABLE_UNIT_PAIRS` composes the two into
+    one literal instead of letting either half be silently discarded.
+
     Args:
         rows: Source row mappings, keyed by whatever headers the source used.
 
@@ -359,11 +411,52 @@ def project_condition_rows(
             if name in canonical_set and _has_value(value):
                 out[name] = value
                 mapped.add(name)
+        # Value+unit pairs are composed BEFORE the alias pass, so both halves reach
+        # the single canonical column they share instead of colliding there.
+        lowered_row = {str(k).strip().lower(): v for k, v in row.items()}
+        # Headers the pair rule CLAIMED on this row, i.e. suppressed from
+        # `unmapped_source_columns`. A header is claimed only once it has actually
+        # been consumed — or had nothing to give. Claiming the pair unconditionally
+        # is the trap: a unit column whose value column is missing is genuinely
+        # discarded, so claiming it would drop the `d` from a two-day exposure AND
+        # hide that from the caller. That is strictly worse than the collision this
+        # rule exists to prevent, because the report is the only thing left that
+        # could notice.
+        paired_headers: set[str] = set()
+        for target, (value_header, unit_header) in _CONDITION_TABLE_UNIT_PAIRS.items():
+            magnitude = lowered_row.get(value_header)
+            unit = lowered_row.get(unit_header)
+            # A canonical `exposure_duration` on the row outranks the split pair,
+            # exactly as it outranks an alias. Both halves then lose a DEFINED
+            # collision, and a collision loser is never reported unmapped — it had
+            # a canonical home, it just did not win it.
+            if target in out:
+                paired_headers.update((value_header, unit_header))
+                continue
+            if not _has_value(magnitude):
+                # No magnitude, nothing to compose. A blank unit is claimed anyway
+                # (the header was understood, the row was empty — what the alias
+                # pass does with a blank value too); a unit carrying a REAL value
+                # is deliberately left unclaimed, so it surfaces in
+                # `unmapped_source_columns` rather than vanishing.
+                paired_headers.add(value_header)
+                if not _has_value(unit):
+                    paired_headers.add(unit_header)
+                continue
+            composed = str(magnitude).strip()
+            if _has_value(unit):
+                composed = f"{composed} {str(unit).strip()}"
+            out[target] = composed
+            mapped.add(target)
+            paired_headers.update((value_header, unit_header))
+
         for key, value in row.items():
             name = str(key).strip()
             if name in canonical_set:
                 continue
             lowered = name.lower()
+            if lowered in paired_headers:
+                continue
             target = _CONDITION_TABLE_ALIASES.get(lowered)
             if target is not None:
                 if _has_value(value) and target not in out:
