@@ -191,3 +191,92 @@ class TestResultsUnchanged:
         ]
         assert ident, [(i.entity_id, i.property, i.check_id) for i in isa.issues]
         assert ident[0].severity == "required"
+
+
+class TestParallelPassesAgreeWithSerial:
+    """The three profile passes run concurrently; the verdict must not change.
+
+    The passes are independent — same document, different profile, nothing flows
+    between them — so running them in a process pool trades startup cost for
+    overlap. A speedup that changes a verdict is not a speedup, so the contract
+    tested here is equivalence, plus a fallback that can never make validation
+    fail on its own.
+    """
+
+    def _verdict(self, results):
+        return sorted(
+            (r.profile, r.passed, r.passed_required, len(r.issues)) for r in results
+        )
+
+    def test_a_good_crate_gets_the_same_verdict_either_way(self, monkeypatch):
+        from profiles.validator import validate_crate_dict
+
+        doc = _base_valid_doc()
+        monkeypatch.setenv("VITRO_VALIDATE_SERIAL", "1")
+        serial = validate_crate_dict(doc, severity="required", profile="all")
+        monkeypatch.delenv("VITRO_VALIDATE_SERIAL")
+        parallel = validate_crate_dict(doc, severity="required", profile="all")
+        assert self._verdict(parallel) == self._verdict(serial)
+
+    def test_a_bad_crate_still_fails_through_the_pool(self, monkeypatch):
+        """A failure must survive the trip back from a worker process.
+
+        Only the parallel path runs here — the serial verdict for this fixture is
+        already pinned by ``test_known_bad_crate_still_fails_isa_required``, and a
+        second full three-pass sweep would double this test's runtime for nothing.
+        """
+        from profiles.validator import validate_crate_dict
+
+        monkeypatch.delenv("VITRO_VALIDATE_SERIAL", raising=False)
+        results = validate_crate_dict(_isa_bad_doc(), severity="required", profile="all")
+        assert {r.profile for r in results} == {"base", "isa", "tox"}
+        isa = next(r for r in results if r.profile == "isa")
+        assert isa.passed_required is False
+        # The issues themselves survive pickling, not just the boolean verdict.
+        assert isa.issues and all(i.message for i in isa.issues)
+
+    def test_a_single_pass_does_not_start_a_pool(self, monkeypatch):
+        """One pass has nothing to overlap, so it must stay in-process."""
+        import profiles.validator as validator
+
+        called = False
+
+        def _spy(*args, **kwargs):
+            nonlocal called
+            called = True
+            raise AssertionError("must not be reached")
+
+        monkeypatch.setattr(validator, "_validate_passes_parallel", _spy)
+        validator.validate_crate_dict(_base_valid_doc(), severity="required", profile="base")
+        assert called is False
+
+    def test_a_broken_pool_falls_back_instead_of_failing(self, monkeypatch, caplog):
+        """A speedup must never be the reason validation breaks.
+
+        A pool that cannot start is not a verdict — the caller gets the same
+        answer, computed serially, and a warning explaining the degrade.
+        """
+        import profiles.validator as validator
+
+        def _explode(*args, **kwargs):
+            raise OSError("no workers for you")
+
+        monkeypatch.delenv("VITRO_VALIDATE_SERIAL", raising=False)
+        monkeypatch.setattr(validator.multiprocessing, "get_context", _explode)
+        results = validator.validate_crate_dict(
+            _base_valid_doc(), severity="required", profile="all"
+        )
+        # A complete, ordinary answer — the caller cannot tell it degraded.
+        assert [r.profile for r in results] == ["base", "isa", "tox"]
+        assert next(r for r in results if r.profile == "base").passed_required is True
+        assert "serially" in caplog.text
+
+    def test_the_serial_escape_hatch_is_honoured(self, monkeypatch):
+        import profiles.validator as validator
+
+        monkeypatch.setenv("VITRO_VALIDATE_SERIAL", "1")
+        assert validator._serial_only() is True
+        monkeypatch.setenv("VITRO_VALIDATE_SERIAL", "0")
+        assert validator._serial_only() is False
+        monkeypatch.delenv("VITRO_VALIDATE_SERIAL")
+        assert validator._serial_only() is False
