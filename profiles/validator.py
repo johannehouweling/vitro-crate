@@ -150,6 +150,17 @@ def _patch_in_memory_descriptor_id() -> None:
     the in-memory dict path — so the on-disk ``validate_crate`` (which legitimately
     discovers a descriptor in a real crate directory) is untouched. The patch is
     idempotent so repeated imports don't re-wrap it.
+
+    **Delete this when upstream fixes it.** Reported as
+    https://github.com/crs4/rocrate-validator/issues/192 — filed against the
+    *symptom* (the walk finds nothing, ``get_file_content`` raises
+    ``FileNotFoundError``, and the check's ``except Exception`` relabels it as a
+    false "not UTF-8 encoded" finding), but the cause is the same walk this patch
+    skips. Their fix is ours: in metadata-only mode there is no folder, so the
+    descriptor id should be the canonical constant instead of something searched
+    for. When a released roc-validator no longer walks the CWD on the dict path,
+    this whole function goes — check by removing it and timing
+    ``validate_crate_dict`` from a large checkout.
     """
     try:
         from rocrate_validator.rocrate.base import ROCrate as _RVROCrate
