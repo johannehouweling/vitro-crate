@@ -15,6 +15,7 @@ stopped being news:
 from __future__ import annotations
 
 import re
+from typing import Any
 
 import pytest
 
@@ -26,7 +27,12 @@ def _plain(markup: str) -> str:
 
 
 def _snap(**kw) -> UiSnapshot:
-    base = dict(
+    # Annotated `dict[str, Any]`: inferred from the literal, ty narrows the value
+    # type to `str | int | bool` and then rejects every `**base` field whose real
+    # type is anything else (`assessed_tiers` is a tuple, `cost_usd` a float) — 21
+    # errors for a helper that is correct. The annotation says what this genuinely
+    # is: a bag of keyword defaults, typed by UiSnapshot at the call below.
+    base: dict[str, Any] = dict(
         session_id="s1",
         entity_count=0,
         file_count=54,
@@ -36,7 +42,7 @@ def _snap(**kw) -> UiSnapshot:
         required_issue_count=0,
     )
     base.update(kw)
-    return UiSnapshot(**base)  # ty: ignore[missing-argument]
+    return UiSnapshot(**base)
 
 
 class TestCost:
