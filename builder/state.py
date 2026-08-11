@@ -684,15 +684,21 @@ class MITReport:
         module_scores: Per-module scores keyed by module name,
             each containing {"completed": int, "total": int}.
         overall_score: Overall coverage as a fraction (0.0 - 1.0).
+        standard_scores: Per-guidance-document scores keyed by the checklist's
+            ``standards`` keys (e.g. ``oecd_gd211``), same bucket shape.
+            Documents overlap — one parameter can be required by several — so
+            buckets do not sum to the checklist total.
     """
 
     module_scores: dict[str, dict[str, int]] = field(default_factory=dict)
     overall_score: float = 0.0
+    standard_scores: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "module_scores": dict(self.module_scores),
             "overall_score": self.overall_score,
+            "standard_scores": dict(self.standard_scores),
         }
 
     @classmethod
@@ -700,6 +706,7 @@ class MITReport:
         return cls(
             module_scores=data.get("module_scores", {}),
             overall_score=data.get("overall_score", 0.0),
+            standard_scores=data.get("standard_scores", {}),
         )
 
 
