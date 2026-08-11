@@ -34,7 +34,9 @@ class TestTheSetDoesNotDrift:
         """A new lookup_* must not quietly fall outside the guard."""
         from builder.agents.react.tools_spec import TOOL_SPECS
 
-        registered = {spec["name"] for spec in TOOL_SPECS if spec["name"].startswith("lookup_")}
+        registered = {
+            str(spec["name"]) for spec in TOOL_SPECS if str(spec["name"]).startswith("lookup_")
+        }
         assert registered == _LOOKUP_TOOLS
 
 
