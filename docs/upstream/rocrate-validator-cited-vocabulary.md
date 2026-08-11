@@ -23,6 +23,19 @@ FILTER(!STRSTARTS(STR(?this), "https://bioschemas.org/"))
 FILTER(!STRSTARTS(STR(?this), "urn:"))
 ```
 
+The same block appears in seven shape files, 34 filters in all, at both SHOULD and
+MUST severity:
+
+| file | filters |
+|---|---:|
+| `profiles/ro-crate/1.2/must/6_contextual_entity_metadata.ttl` | 18 |
+| `profiles/ro-crate/1.2/should/0_entity_metadata.ttl` | 8 |
+| `profiles/ro-crate/1.2/must/4_data_entity_metadata.ttl` | 2 |
+| `profiles/ro-crate/1.2/should/6_organization_metadata.ttl` | 2 |
+| `profiles/ro-crate/1.2/should/4_data_entity_metadata.ttl` | 1 |
+| `profiles/ro-crate/1.2/should/4_dataset_data_entity.ttl` | 1 |
+| `profiles/ro-crate/1.1/must/4_data_entity_metadata.ttl` | 2 |
+
 The idea behind it is right: an IRI that a crate only cites is not an entity the
 crate has to describe.
 
@@ -33,7 +46,8 @@ terms are defined and maintained elsewhere. In one crate we saw around 20 such
 IRIs produce 87 findings.
 
 Adding namespaces one at a time means a release each time, and the list can never
-be complete.
+be complete. It also has to be added in several places at once, and the 1.1 and
+1.2 profiles carry their own copies.
 
 **Could the list be made extensible?** A setting would fit well beside the options
 that already exist:
@@ -47,9 +61,10 @@ ValidationSettings(
 
 Two things we noticed while looking at this:
 
-- `should/6_contextual_entity_metadata.ttl` has no namespace filters at all, so a
-  cited IRI is excluded from "must have a name" but still reported by "should be
-  described in the same @graph". A shared list would make those two agree.
+- `profiles/ro-crate/1.2/should/6_contextual_entity_metadata.ttl` has no namespace
+  filters at all, so a cited IRI is excluded from "must have a name" but still
+  reported by "should be described in the same @graph". A shared list would make
+  those two agree.
 - Matching on a full prefix rather than a host would help. Some sites publish
   vocabulary and data under the same host, where the vocabulary is only cited but
   the data entities can genuinely be described.
