@@ -239,8 +239,10 @@ class TestGuidanceDocumentCoverage:
         YAML (the ``TestMitSingleOwner`` traversal pattern)."""
         from builder.tools.mit_assessment import iter_scorable_params, load_mit_yaml
 
+        mit_data = load_mit_yaml()
+        assert mit_data is not None, "shipped MIT YAML must load"
         expected: dict[str, int] = {}
-        for _module, param, _slots in iter_scorable_params(load_mit_yaml()):
+        for _module, param, _slots in iter_scorable_params(mit_data):
             for key, flagged in (param.get("standards") or {}).items():
                 if flagged is True:
                     expected[key] = expected.get(key, 0) + 1
