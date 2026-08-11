@@ -1108,3 +1108,51 @@ class TestSharedChrome:
         # The guidance tail is handed the status-bar wrapper, so every gap question
         # is headed by the shared status line.
         assert isinstance(seen["human"], build._StatusBarHuman)
+
+
+class TestUnresolvedCompoundsAreSurfaced:
+    """#338 — an identifier the lookups could not find must be SAID, on both arms.
+
+    The gap engine marks identifier gaps ``report-only`` and the guidance loop
+    never draws a report-only gap, so nothing else in the build mentions a
+    compound that shipped without a CAS. ``run_pipeline`` returns the retry's
+    leftovers under ``unresolved_compounds``; these assert both summaries print
+    them, because the interactive arm prints only the GUIDANCE summary — which
+    knows nothing about the spine's retry — and would otherwise be the one arm
+    where the user is never told.
+    """
+
+    _WITH_MISS = {**_PIPELINE_RESULT, "unresolved_compounds": ["Nonexistadiol"]}
+
+    def test_headless_summary_names_them(self) -> None:
+        from builder.agents.build import format_gap_summary
+
+        text = format_gap_summary(self._WITH_MISS)
+        assert "Nonexistadiol" in text
+        assert "unresolved" in text.lower()
+
+    def test_headless_summary_stays_quiet_when_everything_resolved(self) -> None:
+        """No reassuring "0 unresolved" line on a clean build."""
+        from builder.agents.build import format_gap_summary
+
+        assert "unresolved" not in format_gap_summary(_PIPELINE_RESULT).lower()
+
+    def test_interactive_build_tells_the_user_too(self, tmp_path) -> None:
+        from builder.agents.build import run_interactive_build
+
+        engine = _engine(_InteractiveHuman())
+        engine.state.metadata.output_path = str(tmp_path / "unresolved-ro-crate")
+        lines: list[str] = []
+
+        run_interactive_build(
+            engine,
+            pipeline_runner=lambda eng: dict(self._WITH_MISS),
+            guidance_runner=lambda eng, human, **kw: dict(_GUIDANCE_RESULT),
+            output=lines.append,
+        )
+
+        joined = "\n".join(lines)
+        assert "Nonexistadiol" in joined, (
+            "the interactive arm prints only the guidance summary, so an "
+            f"unresolved identifier must be re-stated there: {joined}"
+        )

@@ -25,11 +25,19 @@ The sequence mirrors AGENTS.md §14.2::
    is configured** (the deterministic spine, its tests, and the A/B path are
    unchanged) and when there is no usable context. It is D5-safe: identifiers are
    never set or overwritten — those come from lookups.
-3. **build_and_validate** in memory (no disk write).
-4. **Fix loop**: call ``fix_required_issues`` and re-validate, bounded to
+3. **Retry unresolved compound identifiers** (#338) — ONE more
+   ``resolve_compound`` per MolecularEntity that still carries no CAS / PubChem
+   CID / DTXSID, because the upstream call in ``_materialize_plan`` is one-shot
+   and its miss (a transient PubChem failure, or verification clearing an
+   unconfirmable value) otherwise ships a CAS-less crate in silence. Whatever is
+   still unresolved is *named* in the result dict, never swallowed. D5 unchanged
+   — only the compound's name is sent, the identifier still comes from the
+   lookup.
+4. **build_and_validate** in memory (no disk write).
+5. **Fix loop**: call ``fix_required_issues`` and re-validate, bounded to
    ``_MAX_FIX_ROUNDS`` rounds, stopping when no REQUIRED issue remains or a round
    makes no progress (deterministic dispatch only — see :mod:`builder.tools.repair`).
-5. Return a result dict with the final per-layer conformance.
+6. Return a result dict with the final per-layer conformance.
 
 Determinism contract: with **no LLM provider configured** every step is
 deterministic — the scaffold is idempotent, the drafter-leaf step is a strict
@@ -2108,6 +2116,170 @@ def _validate_populated_tables(
     return issues
 
 
+def _compound_identifier(entity: Entity) -> str | None:
+    """The first identifier the BUILD would publish for ``entity``, or ``None``.
+
+    Read straight off :data:`builder.tools._crate_mapping._MOLECULAR_IDENTIFIERS`
+    (CAS -> PubChem CID -> DTXSID, including the ``casrn`` / ``cas_number``
+    aliases) so "this compound has no identifier" means exactly the same thing
+    here and in the crate that ships. Asking the question against our own private
+    tuple of field names is how the retry below would come to disagree with
+    ``_build_identifier_pvs`` and either re-look-up a compound the crate already
+    identifies or stay quiet about one it does not.
+
+    ``chebiId`` counts too, and is checked separately because it is not a
+    PropertyValue identifier: it is a context-declared ``schema:identifier`` that
+    ``_scalar_props`` publishes directly, and ``_chebi_purl`` promotes to the
+    node's ``@id``. A ChEBI-resolved compound therefore ships fully identified —
+    so omitting it would make the retry re-query that compound on every run,
+    forever, and then report it as "still not found" in the summary. A report
+    that names an identified compound as missing is the same class of untruth
+    this issue exists to remove.
+    """
+    from builder.tools._crate_mapping import _MOLECULAR_IDENTIFIERS, _first_field
+
+    for aliases, _scheme, _property_id in _MOLECULAR_IDENTIFIERS:
+        value = _first_field(entity, aliases)
+        if value is not None:
+            return value
+    chebi = entity.fields.get("chebiId")
+    return str(chebi) if chebi not in (None, "") else None
+
+
+def _fold_back_compound_twin(engine: AgentEngine, target_id: str, outcome: Any) -> None:
+    """Move a freshly-minted duplicate compound's data onto *target_id* (#338).
+
+    See :func:`_retry_unresolved_compounds`. ``resolve_compound`` cannot recognise
+    an identifier-less node whose id is not ``chem_<name>``, so retrying such a
+    compound mints a second MolecularEntity. This folds that twin back into the
+    node the rest of the crate already references and deletes it, so the retry
+    fills the compound the Exposure points at rather than a parallel orphan.
+
+    Silent no-op when the composite reused the intended node (the common case) or
+    reported no entity at all — there is then nothing to fold.
+    """
+    from builder.tools.composites import _COMPOUND_DATA_FIELDS
+
+    twin_id = (outcome or {}).get("entity_id") if isinstance(outcome, dict) else None
+    if not twin_id or twin_id == target_id:
+        return
+    twin = engine.state.get_entity(twin_id)
+    target = engine.state.get_entity(target_id)
+    if twin is None or target is None:
+        return
+
+    recovered = {
+        key: twin.fields[key]
+        for key in _COMPOUND_DATA_FIELDS
+        if twin.fields.get(key) not in (None, "")
+    }
+    if recovered:
+        # Through set_fields, never by assigning fields directly, so the values
+        # carry the same provenance and field status the composite gave them.
+        engine.run_tool("set_fields", entity_id=target_id, fields=recovered)
+    engine.run_tool("remove_entity", entity_id=twin_id)
+    logger.info(
+        "folded duplicate MolecularEntity %r back into %r (%d field(s))",
+        twin_id,
+        target_id,
+        len(recovered),
+    )
+
+
+def _retry_unresolved_compounds(
+    engine: AgentEngine, progress: ProgressSink = _noop_progress
+) -> list[str]:
+    """Re-attempt the authoritative lookup for every identifier-less compound (#338).
+
+    ``resolve_compound`` is wired exactly ONCE, upstream in
+    :func:`_materialize_plan`, and it is one-shot. When that single call missed —
+    a transient PubChem 429/timeout, or
+    :func:`builder.tools.verification.verify_identifier` CLEARING a value it could
+    not confirm (D5, ``composites.resolve_compound`` step 3) — the
+    MolecularEntity is left in state with a name and no CAS, and nothing ever
+    tries again. The identifier gap the engine then raises is ``REPORT_ONLY``
+    (``gap_analysis._is_committable`` refuses every identifier field, and
+    ``guidance._next_actionable_index`` never draws a report-only gap), so the
+    crate silently ships without a CAS and the user is never told. Suppressing
+    the (premature) question made the failure quieter, not fixed.
+
+    This is the retry. It is deliberately **not** in ``assess_gaps`` — that is a
+    pure, network-free assessor the guidance loop re-runs every round, and a
+    lookup there would fire once per round per compound. It sits in the spine
+    instead of the guidance tail because the spine runs on BOTH arms: the
+    default ``--interactive`` build and the headless ``--arch pipeline`` /
+    corpus-eval build. The silent ship is a property of the crate, not of the
+    interactive session, so the repair has to be where every crate passes.
+
+    Bounded and fail-soft by construction:
+
+    * **one attempt per compound per run** — a list comprehension over state, not
+      a loop with a retry budget; a second miss is a genuine "couldn't resolve";
+    * an entity that already carries any identifier is skipped entirely (no
+      lookup, so a fully-resolved run costs nothing);
+    * a raising / timing-out / absent-provider ``resolve_compound`` is caught and
+      counted as a miss, so this degrades to exactly today's behaviour rather
+      than breaking the build;
+    * only the compound's **exact ``name``** is passed (D5 — identifiers still
+      come only from the authoritative lookup, never from prose).
+
+    ``resolve_compound`` reuses an existing node by identity first and by the
+    name-derived ``chem_<name>`` id second. Neither can match the node being
+    retried here: it has no identifier *by definition*, and its id is only
+    ``chem_<name>`` when ``resolve_compound`` itself minted it. For a compound
+    that arrived any other way — a resumed session, a ReAct-arm crate, a direct
+    ``draft_molecular_entity`` — the composite therefore MINTS A TWIN carrying
+    the recovered CAS, while the node actually wired into the Exposure keeps
+    none. The crate would ship two molecules where there is one, the wired one
+    still unidentified, and this function would report the compound unresolved
+    although the lookup found it. So a twin is detected by id and folded back:
+    the recovered fields are copied onto the original through ``set_fields`` and
+    the twin is removed. It is safe to remove precisely because it was minted a
+    moment ago by this call and nothing references it yet.
+
+    The NETWORK gate lives at the call site in :func:`run_pipeline`
+    (``get_provider() is not None``), not here, so this function stays directly
+    testable without faking a provider.
+
+    Returns the names (or ids, for a nameless entity) still without an
+    identifier, so the caller can put them in the run summary. That list is the
+    point: an unresolved compound is now *reported*, not silently shipped.
+    """
+    unresolved: list[str] = []
+    for entity in list(engine.state.list_entities("MolecularEntity")):
+        if _compound_identifier(entity) is not None:
+            continue
+        name = str(entity.fields.get("name") or "").strip()
+        if not name:
+            # No name is nothing to look the compound up BY — retrying would have
+            # to invent a query, which is precisely what D5 forbids.
+            unresolved.append(entity.entity_id)
+            continue
+        try:
+            outcome = engine.run_tool("resolve_compound", name=name)
+            _fold_back_compound_twin(engine, entity.entity_id, outcome)
+        except Exception as exc:  # noqa: BLE001 — a flaky lookup must not break the build
+            logger.warning("resolve_compound retry failed for %r: %s", name, exc)
+        # "The tool returned" is not "the identifier resolved": a miss returns
+        # {"ok": False} and mints nothing, and even a hit can end with the value
+        # CLEARED again by verification. So the verdict is read back off the
+        # entity in state — the same node the build will publish — and never off
+        # the composite's return value.
+        refreshed = engine.state.get_entity(entity.entity_id) or entity
+        if _compound_identifier(refreshed) is None:
+            unresolved.append(name)
+
+    if unresolved:
+        # Say it out loud on the spine's progress channel too: on the headless arm
+        # this line and the summary are the only places the user could learn it.
+        progress(
+            f"No authoritative identifier for {len(unresolved)} compound(s): "
+            f"{', '.join(unresolved)}"
+        )
+        logger.info("Compound identifier retry still unresolved: %s", ", ".join(unresolved))
+    return unresolved
+
+
 def _run_fix_loop(
     engine: AgentEngine,
     *,
@@ -2208,9 +2380,17 @@ def run_pipeline(
 
     Returns:
         ``{"ok", "conformance", "issues", "data_issues", "scaffold",
-        "materialized", "drafted", "fix_rounds", "usage"}`` — the final
+        "materialized", "drafted", "unresolved_compounds", "fix_rounds",
+        "usage"}`` — the final
         ``build_and_validate`` verdict (``ok`` / per-layer ``conformance`` /
         routed ``issues``) plus a small trace of what each step did.
+        ``unresolved_compounds`` names the MolecularEntities that still carry no
+        authoritative identifier after :func:`_retry_unresolved_compounds` had a
+        second go (#338). Its own key, and deliberately NOT folded into ``ok``: a
+        compound PubChem has never heard of is a reporting fact, not a
+        conformance failure — but it must be *said*, because the report-only gap
+        the engine raises for it is never drawn by the guidance loop, so before
+        this the crate shipped CAS-less in silence.
         ``conformance`` always carries the ``base`` / ``isa`` / ``tox`` keys.
         ``data_issues`` is the Frictionless payload layer's verdict on a
         condition table that actually received rows (#409) — deliberately its
@@ -2252,6 +2432,27 @@ def run_pipeline(
 
     drafted = _draft_entities(engine, usage_sink, overrides)
 
+    # (#338) Second and last chance for a compound identifier, BEFORE the fix loop
+    # validates: a CAS recovered here is part of the crate that gets validated and
+    # exported, whereas retrying after the loop would enrich state the final
+    # `build_and_validate` never saw. Whatever is still missing comes back as a
+    # list of names so the summary can say so out loud.
+    #
+    # Provider-gated for the same reason `_materialize_plan`'s compound section is:
+    # the spine must not reach the NETWORK unless a provider is configured. That is
+    # what makes the no-provider path both deterministic and offline — a state
+    # seeded with an identifier-less MolecularEntity (which is exactly what
+    # `TestDeterminism.test_determinism_holds_with_seeded_entities` runs) would
+    # otherwise fire a live PubChem lookup out of a run that promises neither. With
+    # no provider no compound is materialized in the first place, so the gate costs
+    # the real build nothing.
+    #
+    # No _persist() here on purpose: the fix loop saves right after its first
+    # build_and_validate, so a recovered CAS reaches sessions/ either way.
+    unresolved_compounds = (
+        _retry_unresolved_compounds(engine, emit) if get_provider() is not None else []
+    )
+
     validation, fix_rounds = _run_fix_loop(engine, progress=emit, save=_persist)
 
     data_issues = _validate_populated_tables(engine, materialized)
@@ -2266,6 +2467,7 @@ def run_pipeline(
         "scaffold": scaffold,
         "materialized": materialized,
         "drafted": drafted,
+        "unresolved_compounds": unresolved_compounds,
         "fix_rounds": fix_rounds,
         "usage": {
             "input_tokens": totals["input_tokens"],

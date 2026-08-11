@@ -3508,3 +3508,341 @@ class TestConditionTableFromPlan:
         assert outcome.get("proposal_reason"), (
             "the proposal's own failure must be recorded alongside"
         )
+
+
+# ---------------------------------------------------------------------------
+# #338 — the compound identifier retry.
+#
+# `resolve_compound` is wired exactly ONCE, upstream in `_materialize_plan`, and
+# it is one-shot. When that call missed — a transient PubChem failure, or
+# `verify_identifier` clearing a value it could not confirm (D5) — the
+# MolecularEntity stayed in state with a name and no CAS and nothing ever tried
+# again. The identifier gap the engine then raises is `report-only`
+# (`gap_analysis._is_committable` refuses every identifier field) and
+# `guidance._next_actionable_index` never draws a report-only gap, so the crate
+# shipped CAS-less and the user was never told. Suppressing the (premature)
+# question made the failure quieter, not fixed.
+#
+# These tests are fully offline: `lookup_compound` / `verify_identifier` are
+# patched in the `composites` namespace (where `resolve_compound` resolves them),
+# and conftest's autouse `_stub_composites_dtxsid` keeps the CompTox call a miss.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _clear_compound_cache():
+    """Reset the shared in-process compound cache (Issue #252) around a test.
+
+    ``resolve_compound`` warms a process-wide cache keyed by normalized name;
+    without this an earlier test's resolution could serve these ones from cache
+    and starve their recorder, so "the retry consulted the lookup" would pass
+    without a lookup ever happening.
+    """
+    from builder.tools._resolve_cache import compound_cache, resolve_concurrency
+
+    compound_cache.clear()
+    resolve_concurrency.reset()
+    yield
+    compound_cache.clear()
+    resolve_concurrency.reset()
+
+
+class TestCompoundIdentifierRetry:
+    """#338 — a one-shot miss must not ship a CAS-less crate in silence."""
+
+    # Methimazole: the compound from the live run in the issue. The CAS is the
+    # real one, supplied here by the (stubbed) LOOKUP — never by the test's prose
+    # reaching the entity through some other route (D5).
+    _CAS = "60-56-0"
+    _CID = "1349907"
+
+    def _record_lookup(
+        self, monkeypatch: pytest.MonkeyPatch, *, hits: dict[str, dict[str, str]]
+    ) -> list[str]:
+        """Patch the authoritative lookup and RECORD every name it is asked about.
+
+        The recorder is the point: an implementation that merely re-reads state,
+        or that reports success off ``resolve_compound``'s return value without a
+        lookup having happened, leaves this list empty.
+        """
+        import builder.tools.composites as composites_mod
+
+        queried: list[str] = []
+
+        def fake_lookup_compound(name):
+            queried.append(str(name))
+            data = hits.get(str(name).strip())
+            if data is None:
+                return {"found": False, "data": None, "error": "not found"}
+            return {"found": True, "data": {**data, "source": "pubchem"}, "error": None}
+
+        def fake_verify_identifier(state, entity_id, field):
+            ent = state.get_entity(entity_id)
+            if ent is not None:
+                ent.set_field_status(field, "verified", "lookup")
+            return {"verified": True, "entity_id": entity_id, "field": field, "message": "ok"}
+
+        monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
+        monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
+        return queried
+
+    def _state_with(self, *names: str, **fields) -> CrateState:
+        """A titled crate carrying one MolecularEntity per name.
+
+        The entity ids are the ones ``resolve_compound`` derives from the name
+        (``chem_<normalized name>``), which is exactly the shape a run that
+        resolved the compound and then had its identifier CLEARED by verification
+        leaves behind.
+        """
+        state = CrateState()
+        state.metadata.title = "Thyroid disruption screen"
+        for name in names:
+            state.add_entity(
+                _entity(f"chem_{name.lower()}", "MolecularEntity", name=name, **fields)
+            )
+        return state
+
+    def test_the_retry_consults_the_lookup_and_fills_the_field(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """Honesty control (a): the lookup is really called, by the exact name."""
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        queried = self._record_lookup(
+            monkeypatch, hits={"Methimazole": {"cas": self._CAS, "pubchem_cid": self._CID}}
+        )
+        engine = _engine(self._state_with("Methimazole"))
+
+        unresolved = _retry_unresolved_compounds(engine)
+
+        assert queried == ["Methimazole"], (
+            "the retry must consult the authoritative lookup with the entity's "
+            f"exact name; the lookup saw {queried}"
+        )
+        assert unresolved == []
+        chem = engine.state.get_entity("chem_methimazole")
+        assert chem is not None and chem.fields.get("cas") == self._CAS, (
+            "the CAS must come back onto the SAME node, from the lookup"
+        )
+
+    def test_the_retry_mints_no_duplicate_molecular_entity(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """One compound stays ONE node, whatever its id happens to be.
+
+        The id here is deliberately NOT ``chem_<name>``. ``resolve_compound``
+        reuses an existing node by identity first and by the name-derived id
+        second, and neither can match the node being retried: it has no
+        identifier by definition, and its id is only ``chem_<name>`` when
+        ``resolve_compound`` minted it. Any other provenance — a resumed session,
+        a ReAct-arm crate, a direct ``draft_molecular_entity`` — makes the
+        composite mint a twin. Asserting this with a ``chem_methimazole`` fixture
+        would pass by construction and prove nothing, since the id under test is
+        the one the producer re-derives.
+        """
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        self._record_lookup(
+            monkeypatch, hits={"Methimazole": {"cas": self._CAS, "pubchem_cid": self._CID}}
+        )
+        state = self._state_with("Methimazole")
+        state.remove_entity("chem_methimazole")
+        state.add_entity(_entity("chem1", "MolecularEntity", name="Methimazole"))
+        engine = _engine(state)
+
+        _retry_unresolved_compounds(engine)
+
+        chems = [e for e in engine.state.list_entities() if e.type == "MolecularEntity"]
+        assert [c.entity_id for c in chems] == ["chem1"], (
+            "the retry duplicated the compound instead of filling the node the "
+            "rest of the crate already references"
+        )
+        # …and the recovered identifier landed on THAT node, not on a phantom.
+        assert chems[0].fields.get("cas") == self._CAS
+
+    def test_a_chebi_identified_compound_is_never_re_queried(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """A ChEBI-resolved compound ships identified, so it is not "unresolved".
+
+        ``chebiId`` is not a PropertyValue identifier — it is a context-declared
+        ``schema:identifier`` that the build publishes directly and promotes to
+        the node's ``@id``. Reading only the PropertyValue identifiers would make
+        the retry re-query such a compound on every run forever and then name it
+        in the summary as still not found.
+        """
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        calls = self._record_lookup(monkeypatch, hits={})
+        engine = _engine(self._state_with("Weirdol", chebiId="CHEBI:50673"))
+
+        assert _retry_unresolved_compounds(engine) == []
+        assert calls == [], "a compound the crate already identifies was re-queried"
+
+    def test_a_genuine_miss_is_reported_not_silently_shipped(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """Honesty control (b): a second miss is a real "couldn't resolve", and it
+        reaches the summary the user reads instead of vanishing."""
+        from builder.agents.build import format_gap_summary
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        queried = self._record_lookup(monkeypatch, hits={})  # PubChem knows nothing
+        engine = _engine(self._state_with("Nonexistadiol"))
+        progress_lines: list[str] = []
+
+        unresolved = _retry_unresolved_compounds(engine, progress_lines.append)
+
+        assert queried == ["Nonexistadiol"], "the lookup must still have been attempted"
+        assert unresolved == ["Nonexistadiol"]
+        chem = engine.state.get_entity("chem_nonexistadiol")
+        assert chem is not None and not chem.fields.get("cas"), (
+            "nothing may be invented for a compound that does not resolve (D5)"
+        )
+        assert any("Nonexistadiol" in line for line in progress_lines), (
+            f"the miss must be said out loud; progress was {progress_lines}"
+        )
+        summary = format_gap_summary(
+            {
+                "issues": [],
+                "conformance": {"base": True, "isa": True, "tox": True},
+                "unresolved_compounds": unresolved,
+            }
+        )
+        assert "Nonexistadiol" in summary, (
+            "an unresolved identifier must appear in the build summary, not only in a log"
+        )
+
+    def test_reporting_success_requires_the_field_to_be_filled(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """"The tool returned" is not "the identifier resolved".
+
+        The lookup HITS but verification cannot confirm the value and clears it
+        (D5, ``resolve_compound`` step 3) — the exact case the issue names. The
+        entity ends with no identifier, so the compound must be reported
+        unresolved even though ``resolve_compound`` ran happily.
+
+        The stubbed record carries a CAS and no CID on purpose: a CID that matches
+        the lookup's own answer is confirmed by that resolution and never routed
+        through ``verify_identifier`` (#261), so it would survive the clearing
+        verifier and leave the compound identified after all.
+        """
+        import builder.tools.composites as composites_mod
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        self._record_lookup(monkeypatch, hits={"Methimazole": {"cas": self._CAS}})
+
+        def clearing_verifier(state, entity_id, field):
+            ent = state.get_entity(entity_id)
+            if ent is not None:
+                ent.fields.pop(field, None)
+            return {
+                "verified": False,
+                "entity_id": entity_id,
+                "field": field,
+                "message": "could not confirm",
+            }
+
+        monkeypatch.setattr(composites_mod, "verify_identifier", clearing_verifier)
+        engine = _engine(self._state_with("Methimazole"))
+
+        assert _retry_unresolved_compounds(engine) == ["Methimazole"]
+
+    def test_an_already_identified_compound_is_never_looked_up(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """Bounded: a resolved run costs nothing, so this cannot become a per-run
+        re-resolution of every compound in the crate."""
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        queried = self._record_lookup(monkeypatch, hits={})
+        engine = _engine(self._state_with("Methimazole", cas=self._CAS))
+
+        assert _retry_unresolved_compounds(engine) == []
+        assert queried == [], "a compound that already carries a CAS must not be re-looked-up"
+
+    def test_each_compound_is_attempted_exactly_once(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """Bounded: ONE attempt per compound per run — a retry, not a retry loop."""
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        queried = self._record_lookup(monkeypatch, hits={})
+        engine = _engine(self._state_with("Nonexistadiol", "Unobtainium"))
+
+        unresolved = _retry_unresolved_compounds(engine)
+
+        assert sorted(queried) == ["Nonexistadiol", "Unobtainium"]
+        assert len(queried) == 2, f"one attempt per compound, got {queried}"
+        assert sorted(unresolved) == ["Nonexistadiol", "Unobtainium"]
+
+    def test_a_failing_lookup_degrades_instead_of_breaking_the_build(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """No provider / no network / an exception must never raise or hang — the
+        run degrades to exactly today's behaviour and says what is missing."""
+        import builder.tools.composites as composites_mod
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        def exploding_lookup(name):
+            raise RuntimeError("PubChem is unreachable")
+
+        monkeypatch.setattr(composites_mod, "lookup_compound", exploding_lookup)
+        engine = _engine(self._state_with("Methimazole"))
+
+        assert _retry_unresolved_compounds(engine) == ["Methimazole"]
+
+    def test_a_nameless_compound_is_reported_never_guessed(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """D5: no name is nothing to look the compound up BY, and inventing a
+        query is exactly what must not happen — so it is reported, not queried."""
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        queried = self._record_lookup(monkeypatch, hits={})
+        state = CrateState()
+        state.metadata.title = "Thyroid disruption screen"
+        state.add_entity(_entity("chem_anon", "MolecularEntity"))
+        engine = _engine(state)
+
+        assert _retry_unresolved_compounds(engine) == ["chem_anon"]
+        assert queried == []
+
+    def test_run_pipeline_runs_the_retry_and_returns_what_is_still_missing(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """The wiring: BOTH build arms go through ``run_pipeline``, so this is
+        where the silent ship is stopped for the headless arm too."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        # A provider is what un-gates the spine's network use (`_materialize_plan`
+        # already gates its compound lookups the same way). The two LLM leaves are
+        # stubbed out so nothing but the retry does any work.
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+        monkeypatch.setattr(pipeline_mod, "extract_plan", lambda *a, **k: None)
+        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", lambda *a, **k: {})
+        queried = self._record_lookup(monkeypatch, hits={})
+
+        engine = _engine(self._state_with("Nonexistadiol"))
+        result = run_pipeline(engine)
+
+        assert queried == ["Nonexistadiol"], "the spine must run the retry"
+        assert result["unresolved_compounds"] == ["Nonexistadiol"]
+
+    def test_the_no_provider_spine_stays_offline(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """The determinism guarantee: with no provider the spine reaches no
+        network at all, so a state seeded with an identifier-less compound must
+        not fire a lookup (``TestDeterminism`` seeds exactly such a state)."""
+        from builder.agents.pipeline.pipeline import run_pipeline
+
+        queried = self._record_lookup(monkeypatch, hits={})
+        engine = _engine(self._state_with("Triiodothyronine"))
+
+        result = run_pipeline(engine)
+
+        assert queried == []
+        assert result["unresolved_compounds"] == []

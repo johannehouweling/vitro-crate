@@ -29,6 +29,40 @@ def _stub_composites_dtxsid(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_composites_compound(monkeypatch):
+    """Keep ``resolve_compound``'s PRIMARY PubChem lookup offline too (#338).
+
+    Sibling of :func:`_stub_composites_dtxsid`, and needed for the same reason at
+    a new call site: the spine now retries every identifier-less compound
+    (``_retry_unresolved_compounds``), so any test that runs ``run_pipeline`` with
+    a provider configured and an unresolved MolecularEntity in state reaches
+    PubChem — including tests written long before the retry existed, which stub
+    only the leaves. ``tests/test_agents_pipeline.py::TestTokenAccounting`` seeds
+    exactly that shape.
+
+    A live call there is not a slow test, it is a flaky one: PubChem 429s put
+    ``resolve_compound`` at 30-66s against this module's 120s cap while
+    ``_resolve_cache.DEFAULT_RESOLVE_TIMEOUT`` is 240s, so the pytest timeout
+    fires first and the failure carries no diagnostic. It also poisons the
+    process-global ``compound_cache`` for every later test in the same xdist
+    worker.
+
+    Defaults to a MISS. Tests exercising the resolution path re-patch
+    ``composites.lookup_compound`` with a hit (a later ``monkeypatch.setattr``
+    wins). Scoped to the symbol bound in the ``composites`` namespace, so the
+    ``lookups`` / ``pubchem`` contract tests are untouched.
+    """
+    from builder.tools import composites
+
+    monkeypatch.setattr(
+        composites,
+        "lookup_compound",
+        lambda name, **_kw: {"found": False, "data": {}, "error": "offline stub (conftest)"},
+        raising=False,
+    )
+
+
 @pytest.fixture
 def minimal_state() -> CrateState:
     """Return a CrateState with one Investigation entity."""
