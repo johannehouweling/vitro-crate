@@ -2,15 +2,16 @@
 
 **Target:** [crs4/rocrate-validator](https://github.com/crs4/rocrate-validator)
 **Status:** to file
-**Related local work:** `builder/tools/validation.py::_cited_iris` implements the rule below on our side, so the behaviour and the measurements are real rather than hypothetical.
 
 Everything below the line is the issue text.
 
 ---
 
-## Decide the excluded namespaces from the graph instead of listing them
+## Work out the excluded namespaces from the graph instead of listing them
 
-The entity checks exclude a fixed set of namespaces. From
+### What happens today
+
+The entity checks skip a fixed set of namespaces. From
 `profiles/ro-crate/1.2/should/0_entity_metadata.ttl`:
 
 ```sparql
@@ -23,8 +24,7 @@ FILTER(!STRSTARTS(STR(?this), "https://bioschemas.org/"))
 FILTER(!STRSTARTS(STR(?this), "urn:"))
 ```
 
-The same block appears in seven shape files, 34 filters in all, at both SHOULD
-and MUST severity:
+The same block appears in seven files, 34 filters in total:
 
 | file | filters |
 |---|---:|
@@ -36,88 +36,102 @@ and MUST severity:
 | `profiles/ro-crate/1.2/should/4_dataset_data_entity.ttl` | 1 |
 | `profiles/ro-crate/1.1/must/4_data_entity_metadata.ttl` | 2 |
 
-The intent is clearly right: an IRI a crate only cites is not an entity the crate
-has to describe.
+The idea is right. A crate points at terms from other vocabularies, and it should
+not have to describe them.
 
-### What the list cannot express
+### The problem
 
-`http://purl.org/` is excluded, so Dublin Core passes. `http://purl.obolibrary.org/`
-is a different host and is not, so every OBO term a crate cites is reported as
-missing a type, a name and a description. The same is true for any registry the
-list does not name — and every field has its own.
+The list names the vocabularies the authors had in mind. Any other one is
+reported as an entity with no type, no name and no description. Those findings
+cannot be fixed. The terms belong to someone else, and copying their labels into
+the crate duplicates data that goes stale on the ontology's next release.
 
-Adding entries one at a time means a release each time, in several files, in two
-profile versions. But the harder problem is that some cases cannot be written as
-a namespace at all:
+`http://purl.org/` is on the list, so Dublin Core terms pass. Ontology registries
+on other hosts are not, so their terms are all reported. Every field has its own
+registries, so adding entries means a release each time, in seven files, in two
+profile versions.
+
+And some cases cannot be written as a namespace at all. Take these two:
 
 ```
-https://orcid.org                        a scheme, cited by propertyID
-https://orcid.org/0009-0000-5074-6239    an author, described in the crate
+https://orcid.org                        an identifier scheme, only pointed at
+https://orcid.org/0009-0000-5074-6239    a person, described in the crate
 ```
 
-Same prefix, opposite answers. Excluding the prefix silences the authors;
-excluding neither reports the scheme. We hit exactly this and could not resolve it
-with any list.
+Excluding the prefix hides the people. Excluding neither reports the scheme.
+There is no prefix that separates them.
 
-### The rule the list is approximating
+### What could replace it
 
-Whether an IRI is cited or described is visible in the graph. An IRI is a
-citation when all of:
+Whether a crate cites an IRI or describes it is already visible in the graph. An
+IRI is only cited when both of these hold:
 
-- it is not the subject of any triple other than `rdf:type` — the crate says
-  nothing about it;
-- every triple with it as object uses a property that *references* rather than
-  *asserts*: `schema:propertyID`, `csvw:propertyUrl`, `schema:inDefinedTermSet`,
-  `dcterms:conformsTo`;
-- which, in RDF, also covers IRIs used only as predicates or as types: they have
-  no asserting references by construction.
+1. The crate says nothing about it — it is the subject of no triple except
+   `rdf:type`.
+2. Nothing points at it in a way that claims something. Every triple with it as
+   the object uses a property that references rather than asserts:
+   `schema:propertyID`, `csvw:propertyUrl`, `schema:inDefinedTermSet`,
+   `dcterms:conformsTo`.
 
-Anything referenced through `schema:author`, `schema:hasPart`, or a domain
-property is an entity the crate is talking about, and stays checked — including
-an entity the crate references but forgot to describe, which is a real finding
-that must survive.
+An IRI used only as a predicate or a type passes both without a special case,
+because it is never the object of anything.
 
-This subsumes the current list. `http://schema.org/name` is only ever a
-predicate; `https://bioschemas.org/Sample` is only ever a type; both fall out
-without being named. And it needs no addition for a registry nobody has seen.
+This covers the current list. `http://schema.org/name` is only ever a predicate.
+`https://bioschemas.org/Sample` is only ever a type. Neither has to be named.
 
-It replaces an open-ended list of hosts with a closed list of four properties —
-spec-defined, and not something each deployment has to extend.
+It also keeps the findings that matter. An entity referenced by
+`schema:author` or `schema:hasPart` and never described is still reported,
+because something claimed it exists. That is a real gap in the crate.
 
-### Measured
+And it separates the two ORCID IRIs above without anyone deciding anything.
 
-We implemented this on our side, over a 293-entity crate, at the RECOMMENDED
-gate:
+### How involved is it
 
-| | |
-|---|---:|
-| findings before | 211 |
-| entity findings kept | **112** |
-| citation findings separated | **99** |
+Small. It changes the SPARQL targets that already exist, and nothing else — no
+Python, no API, no new settings.
 
-The 99 are OBO, EFO and AOP-Wiki terms, plus three identifier schemes
-(`https://orcid.org`, `https://pubchem.ncbi.nlm.nih.gov/compound`,
-`https://comptox.epa.gov/dashboard/chemical/details`) — none of which the crate
-could describe without copying data maintained elsewhere.
+In each place the namespace filters appear now, this goes in their place:
 
-Everything that stays reported is a genuine gap: authors missing an email or job
-title, organizations, cell lines, the licence, the publication. The eight authors
-under `https://orcid.org/…` keep all their findings while the scheme root is
-excluded, which is the case no list could handle.
+```sparql
+# Skip IRIs the crate only cites. Nothing is said about them, and every
+# reference to them points rather than claims.
+FILTER NOT EXISTS {
+    $this ?p ?o .
+    FILTER(?p != rdf:type)
+}
+FILTER NOT EXISTS {
+    ?subject ?ref $this .
+    FILTER(?ref NOT IN (schema:propertyID, csvw:propertyUrl,
+                        schema:inDefinedTermSet, dcterms:conformsTo))
+}
+```
 
-### Two notes
+Roughly:
 
-`profiles/ro-crate/1.2/should/6_contextual_entity_metadata.ttl` has no namespace
-filters at all, so today a cited IRI is excluded from "must have a name" but still
-reported by "should be described in the same @graph". A rule applied once covers
-both, where a list has to be copied into each file.
+- seven files to edit, replacing 34 lines with about ten;
+- `csvw:` needs adding to the shared prefixes if it is not there;
+- the four properties are the only judgement call, and they are spec-defined
+  rather than open-ended;
+- `should/6_contextual_entity_metadata.ttl` has no filters today, so it would
+  gain the exclusion and stop disagreeing with its neighbours;
+- worth measuring the cost of the second `NOT EXISTS` on a large graph. It scans
+  incoming edges per focus node, which is the one part that could be slow.
 
-We have not measured the cost of the `NOT EXISTS` over incoming edges on a large
-graph. Ours is small. That seems the main thing worth checking before adopting it.
+An implementation of this rule outside SHACL, over the same JSON-LD, took about
+40 lines and behaved as described: on a 293-entity crate, 211 findings at the
+RECOMMENDED gate separated into 112 about the crate and 99 about vocabulary it
+cites. Everything kept was a real gap: people missing an email or a job title,
+organizations, cell lines, a licence, a publication. The people under
+`https://orcid.org/…` kept all their findings while the scheme root was excluded.
 
-### If the rule is too large a change
+### A smaller option
 
-A way to extend the existing list from the caller — a `ValidationSettings` field —
-would let each deployment name the namespaces its domain cites, without a release
-per registry. It would not solve the `orcid.org` case above, but it would solve
-most of them.
+If the rule is more than you want to take on, a setting that lets a caller add
+namespaces to the current list would help a lot on its own:
+
+```python
+ValidationSettings(rocrate_uri=..., excluded_namespaces=[...])
+```
+
+It would not separate the two ORCID IRIs, but it would stop each field needing a
+release.
