@@ -134,24 +134,28 @@ def get_model_vendor(model_name: str) -> str | None:
     return str(vendor).strip().lower() if vendor else None
 
 
-# What the deployment actually pays, per 1000 tokens. LiteLLM's table is a mirror
-# of PUBLIC list prices, and a proxy in front of a model is free to charge
-# something else — one observed proxy billed 1.00/6.00 per 1k where the published
-# price for the same model is 0.22/1.32 per 1M, a ~4.5x markup. The lookup was
-# right and the number was still wrong by 4.5x, silently, in a footer people read
-# to decide whether a run was worth it.
+# What the deployment actually pays, per 1,000,000 tokens — the unit every vendor
+# price list is written in.
 #
-# Per 1000 tokens because that is the unit proxies quote. Either may be set alone;
-# whichever is set wins over the table for every model, since a proxy's price list
-# is a property of the deployment and not of the model.
+# LiteLLM's table mirrors PUBLIC list prices, and it can disagree with the vendor.
+# `azure/gpt-5.6-luna` is listed there at 0.22/1.32 per 1M while Azure's own page
+# publishes 0.97/5.80 for the deployment actually in use — the same ~4.5x across
+# every field in the entry, cached reads included. So the lookup was right, the
+# model was right, and the footer was still 4.5x low: one session read $0.46 and
+# cost $2.08.
+#
+# Either may be set alone; whichever is set wins over the table for every model,
+# because what a deployment pays is a property of the deployment.
 _PRICE_OVERRIDE_ENV = {
-    "input_cost_per_token": "VITRO_PRICE_INPUT_PER_1K",
-    "output_cost_per_token": "VITRO_PRICE_OUTPUT_PER_1K",
+    "input_cost_per_token": "VITRO_PRICE_INPUT_PER_1M",
+    "output_cost_per_token": "VITRO_PRICE_OUTPUT_PER_1M",
 }
 
 
 def price_overrides() -> dict[str, float]:
     """Per-token rates declared by the deployment, or an empty dict.
+
+    Env values are per 1,000,000 tokens; the returned rates are per token.
 
     A value that is not a number is ignored with a warning rather than crashing a
     run over a typo in an env var — the cost display is advisory, and losing it is
@@ -163,14 +167,14 @@ def price_overrides() -> dict[str, float]:
         if raw is None or not raw.strip():
             continue
         try:
-            per_1k = float(raw)
+            per_1m = float(raw)
         except ValueError:
             logger.warning("%s=%r is not a number; ignoring it", env, raw)
             continue
-        if per_1k < 0:
+        if per_1m < 0:
             logger.warning("%s=%r is negative; ignoring it", env, raw)
             continue
-        out[field] = per_1k / 1000.0
+        out[field] = per_1m / 1_000_000.0
     return out
 
 
