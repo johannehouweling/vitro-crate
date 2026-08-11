@@ -288,6 +288,12 @@ def resolve_entity_id(state: CrateState, raw: str) -> str:
     return raw
 
 
+# Every way the crate's Root Data Entity gets written. The graph calls it "./",
+# validation findings quote it as "./" or "./#…", and a model reaching for the
+# crate itself tries the bare forms too.
+_ROOT_ALIASES: frozenset[str] = frozenset({"./", ".", "/", "#", "./#", "root", "#root", "./#root"})
+
+
 def entity_not_found_message(state: CrateState, entity_id: str, *, limit: int = 3) -> str:
     """ "Entity not found", plus the ids it was most likely reaching for.
 
@@ -317,6 +323,21 @@ def entity_not_found_message(state: CrateState, entity_id: str, *, limit: int = 
     import difflib
 
     base = f"Entity not found: {entity_id}"
+
+    # "./" is the Root Data Entity, and it is NOT in the entity store — it is
+    # built from `state.metadata`, so there is nothing here to resolve it to.
+    # Deliberately not taught to `resolve_entity_id`: mapping it to some entity
+    # would silently write crate-level fields (title, licence, publisher) onto
+    # the wrong node. The model is not confused about what "./" means, only about
+    # which tool owns it, so name that tool.
+    if str(entity_id).strip() in _ROOT_ALIASES:
+        return (
+            f"{base}. `./` is the crate's Root Data Entity, which is not an entity in "
+            "the store — it is built from the crate metadata. Use set_crate_metadata("
+            "title=…, description=…, license=…, publisher=…, creator=…, contact=…) "
+            "to change it."
+        )
+
     try:
         known = [e.entity_id for e in state.list_entities()]
     except Exception:  # noqa: BLE001 — an error message must never raise

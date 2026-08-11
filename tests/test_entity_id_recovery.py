@@ -121,3 +121,34 @@ class TestTheSuppressedReadAnswersTheQuestion:
         from builder.agents.react.agent_loop import _suppressed_query_answer
 
         assert _suppressed_query_answer(engine, "get_status", {}) == ""
+
+
+class TestTheCrateRoot:
+    """`./` is the Root Data Entity, and it is not in the entity store.
+
+    Session 20260811_133825 hit this alongside the two rebuilt process ids:
+    `set_fields(state, "./", …)` -> "Entity not found: ./". The model is not
+    confused about what `./` means, only about which tool owns it — the root is
+    built from `state.metadata` and `set_crate_metadata` writes it.
+
+    Deliberately NOT taught to `resolve_entity_id`: there is no entity to resolve
+    `./` TO, and mapping it to one would silently write crate-level fields onto
+    the wrong node.
+    """
+
+    @pytest.mark.parametrize("alias", ["./", ".", "#root", "./#root", "root", "./#"])
+    def test_root_aliases_name_the_right_tool(self, state, alias):
+        msg = entity_not_found_message(state, alias)
+        assert "Root Data Entity" in msg
+        assert "set_crate_metadata" in msg
+        assert "Did you mean" not in msg
+
+    def test_a_normal_id_is_unaffected(self, state):
+        real = next(e.entity_id for e in state.list_entities() if "klf9" in e.entity_id)
+        msg = entity_not_found_message(state, real + "_typo")
+        assert "Root Data Entity" not in msg
+
+    def test_set_fields_on_the_root_says_so(self, state):
+        with pytest.raises(ValueError) as exc:
+            set_fields(state, "./", {"license": "CC-BY-4.0"})
+        assert "set_crate_metadata" in str(exc.value)
