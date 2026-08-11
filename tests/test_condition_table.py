@@ -16,12 +16,12 @@ import pytest
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import _CONDITION_TABLE_COLUMNS
 from builder.tools.data_content import (
+    _UNIT_SUFFIX_RE,
     csvw_to_frictionless,
     populate_condition_table,
     project_condition_rows,
     validate_table,
 )
-
 
 # Every test here exports a crate, and each export now runs the uncached,
 # owlrl-heavy validator over all three profiles at the full severity gate (#446)
@@ -40,6 +40,24 @@ pytestmark = pytest.mark.timeout(120)
 _FIXTURE_CSV = (
     Path(__file__).parent / "fixtures" / "svhps22_input" / "raw_data" / "dose_response_raw.csv"
 )
+
+# The real depositor file behind #471: the corpus's only genuine tidy per-well
+# design table, 1048 rows, fifteen headers, none of them canonical.
+_TIDY_FIXTURE_CSV = (
+    Path(__file__).parent
+    / "fixtures"
+    / "svhps22_real_input"
+    / "assay_01_TH_uptake"
+    / "EDCs"
+    / "Combined uptake data EDCs_tidy.csv"
+)
+
+
+def _tidy_rows(limit: int | None = None) -> list[dict[str, str]]:
+    """Rows of the real tidy fixture, read off disk — never hand-authored here."""
+    with open(_TIDY_FIXTURE_CSV, newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    return rows[:limit] if limit is not None else rows
 
 
 def _exposure_state() -> CrateState:
@@ -297,6 +315,158 @@ class TestPopulateRefusesRatherThanBlanking:
         assert {r["concentration_unit"] for r in written} == {"uM"}
 
 
+class TestTidyExportVocabulary:
+    """The S-VHPS22 tidy per-well export is aliased onto the canonical ten (#471).
+
+    ``Combined uptake data EDCs_tidy.csv`` is the only genuine tidy per-well design
+    table in the nine-dataset corpus, and not one of its fifteen headers matched a
+    canonical title, an alias or the suffix-unit rule — so ``mapped_columns`` came
+    back empty, the first refusal gate fired, and the study shipped the header-only
+    placeholder while 1048 real rows sat on disk.
+
+    These drive the real projection over the real file, never a paraphrase of it.
+    """
+
+    def test_the_tidy_header_can_only_be_mapped_by_an_alias(self) -> None:
+        """Honesty control for everything below.
+
+        If a single tidy header were already canonical (or matched the suffix-unit
+        rule) the assertions below would pass while proving nothing about the alias
+        table. Pin that neither older path can reach this file: whatever lands in
+        the projection got there through the #471 alias entries.
+        """
+        with open(_TIDY_FIXTURE_CSV, newline="", encoding="utf-8") as fh:
+            header = next(csv.reader(fh))
+        canonical = {c["titles"] for c in _CONDITION_TABLE_COLUMNS}
+        assert not set(header) & canonical, (
+            f"tidy header {header} now shares a name with a canonical column — the "
+            "alias assertions below no longer prove the alias table did the work"
+        )
+        assert not [h for h in header if _UNIT_SUFFIX_RE.match(h)], (
+            "a suffix-unit header would populate the dose axis without any alias"
+        )
+
+    def test_the_real_header_populates_the_design_columns(self) -> None:
+        rows = _tidy_rows(limit=8)
+        projected = project_condition_rows(rows)["rows"][0]
+        source = rows[0]
+        # Right-hand sides are read out of the file, so each assertion says "this
+        # canonical cell carries the value of that source column" — the mapping
+        # claim itself — rather than restating a literal the test chose.
+        assert projected["compound"] == source["test_substance_id"]
+        assert projected["cell_line"] == source["biosample_type"]
+        assert projected["concentration_value"] == source["exposure_concentration_value"]
+        assert projected["concentration_unit"] == source["exposure_concentration_unit"]
+        assert projected["assay"] == source["assay_endpoint"]
+        assert projected["technical_replicate"] == source["replicate_id"]
+        # A tidy export has no plate geometry; run_id is its row key and well_id is
+        # typed dcterms:identifier, so the source's own key goes there unaltered.
+        # Without it no row resolves a well_id and the SECOND refusal gate fires,
+        # which is why the issue's "one alias per column" sketch was not enough.
+        assert projected["well_id"] == source["run_id"]
+
+    def test_measurement_columns_are_still_reported_never_swallowed(self) -> None:
+        unmapped = set(project_condition_rows(_tidy_rows(limit=8))["unmapped_source_columns"])
+        # Results and prose are not design. Aliasing them into a design column
+        # would be fabrication (D5); reporting them is the honest outcome.
+        assert {
+            "measurement_type",
+            "measurement_value",
+            "measurement_unit",
+            "measurement_date",
+            "notes",
+        } <= unmapped
+        # biosample_id is left unaliased on purpose: it would collide with
+        # biosample_type on cell_line, and the file never fills it.
+        assert "biosample_id" in unmapped
+
+    def test_populate_writes_the_table_it_used_to_refuse(self, tmp_path) -> None:
+        state = _exposure_state()
+        result = populate_condition_table(
+            state, "proc_exp", str(_TIDY_FIXTURE_CSV), output_dir=str(tmp_path)
+        )
+        assert result["ok"] is True, result
+        with open(result["path"], newline="", encoding="utf-8") as fh:
+            written = list(csv.DictReader(fh))
+        source = _tidy_rows()
+        assert len(written) == len(source)
+        assert all(r["well_id"] for r in written)
+        assert {r["compound"] for r in written} == {r["test_substance_id"] for r in source}
+        assert {r["cell_line"] for r in written} == {r["biosample_type"] for r in source}
+        assert {r["concentration_unit"] for r in written} == {
+            r["exposure_concentration_unit"] for r in source
+        }
+        # Success must not quietly absorb the measurement columns it skipped.
+        assert "measurement_value" in result["unmapped_source_columns"]
+
+    def test_a_split_duration_is_composed_rather_than_half_dropped(self) -> None:
+        # Both halves mean `exposure_duration`, which is ONE string column. Aliasing
+        # both would make them collide and keep only "24" — and h vs d is a 24x
+        # error, the same magnitude trap the uM/mM suffix rule exists to avoid.
+        rows = [{"well": "A1", "exposure_duration_value": "24", "exposure_duration_unit": "h"}]
+        duration = project_condition_rows(rows)["rows"][0]["exposure_duration"]
+        assert duration == "24 h"
+
+    def test_a_composed_duration_stays_a_literal_never_an_ontology_iri(self) -> None:
+        rows = [{"exposure_duration_value": "24", "exposure_duration_unit": "h"}]
+        duration = project_condition_rows(rows)["rows"][0]["exposure_duration"]
+        assert "://" not in duration and ":" not in duration
+
+    def test_a_canonical_duration_outranks_the_split_pair(self) -> None:
+        rows = [
+            {
+                "exposure_duration": "48h",
+                "exposure_duration_value": "24",
+                "exposure_duration_unit": "h",
+            }
+        ]
+        assert project_condition_rows(rows)["rows"][0]["exposure_duration"] == "48h"
+
+    def test_a_duration_unit_with_no_magnitude_writes_nothing_and_says_so(self) -> None:
+        # "h" on its own describes no duration, so no cell is written. The header
+        # IS reported, though: the pair rule understood it and still discarded a
+        # real value, and `unmapped_source_columns` is the only channel that can
+        # tell the caller so. Suppressing it here — on the grounds that the header
+        # was "understood" — is how a two-day exposure would ship as a bare `2`
+        # with the `d` gone and nothing left to notice.
+        result = project_condition_rows([{"well": "A1", "exposure_duration_unit": "h"}])
+        assert "exposure_duration" not in result["rows"][0]
+        assert "exposure_duration_unit" in result["unmapped_source_columns"]
+
+    def test_a_unit_orphaned_by_another_alias_is_still_reported(self) -> None:
+        # The case that makes the rule above load-bearing rather than pedantic:
+        # `exposure_time` fills `exposure_duration` through the ALIAS pass, so the
+        # pair never composes and the `d` is dropped. A 2-day exposure must not
+        # ship as "2" in silence.
+        result = project_condition_rows(
+            [{"well": "A1", "exposure_time": "2", "exposure_duration_unit": "d"}]
+        )
+        assert result["rows"][0]["exposure_duration"] == "2"
+        assert "exposure_duration_unit" in result["unmapped_source_columns"]
+
+    def test_a_blank_duration_pair_is_not_reported(self) -> None:
+        # Nothing was discarded, so there is nothing to report: an empty row is
+        # what the alias pass does with a blank value too. This is the control
+        # that stops the rule above from degenerating into "always report".
+        result = project_condition_rows(
+            [{"well": "A1", "exposure_duration_value": "", "exposure_duration_unit": ""}]
+        )
+        assert "exposure_duration" not in result["rows"][0]
+        assert result["unmapped_source_columns"] == []
+
+    def test_two_aliases_for_one_column_resolve_in_source_order(self) -> None:
+        # `chemical` and `test_substance_id` both mean `compound`. A row carrying
+        # both is a real hazard, so the outcome is defined rather than incidental:
+        # the first source column wins, in the source's own column order.
+        both = {"chemical": "Aspirin", "test_substance_id": "Methimazole"}
+        assert project_condition_rows([both])["rows"][0]["compound"] == "Aspirin"
+        swapped = dict(reversed(list(both.items())))
+        result = project_condition_rows([swapped])
+        assert result["rows"][0]["compound"] == "Methimazole"
+        # The loser had a canonical home; only homeless columns belong in that list.
+        assert result["unmapped_source_columns"] == []
+
+
 class TestPopulatePathResolution:
     def test_falls_back_to_the_session_crate_path_not_cwd(self, tmp_path, monkeypatch) -> None:
         # data_content resolved a missing output_dir to Path.cwd() while
@@ -340,6 +510,19 @@ class TestReactToolDescriptionMatchesTheCode:
         for retired in ("concentration/unit/duration", "concentration/unit", "unit/duration"):
             assert retired not in text, f"stale column list {retired!r} still advertised"
 
+    def test_the_tidy_export_vocabulary_is_advertised(self) -> None:
+        # Same drift trap as the retired five-column names: an alias the model is
+        # never told about is an alias it will not aim for when it hand-builds rows.
+        from builder.tools.data_content import _CONDITION_TABLE_ALIASES
+
+        with open(_TIDY_FIXTURE_CSV, newline="", encoding="utf-8") as fh:
+            header = next(csv.reader(fh))
+        understood = [h for h in header if h.lower() in _CONDITION_TABLE_ALIASES]
+        assert understood, "no tidy header is aliased at all — #471 has regressed"
+        text = str(self._spec())
+        for name in understood:
+            assert name in text, f"tool description does not mention the {name!r} alias"
+
     def test_the_refusal_contract_is_documented(self) -> None:
         # A tool that can refuse must say so, or the caller reads a failure as a bug.
         description = self._spec()["description"].lower()
@@ -359,6 +542,15 @@ class TestReactToolDescriptionMatchesTheCode:
         ("substance", "compound"),
         ("test_item", "compound"),
         ("replicate", "technical_replicate"),
+        # The tidy per-well export vocabulary (#471), header names taken from
+        # S-VHPS22's Combined uptake data EDCs_tidy.csv.
+        ("run_id", "well_id"),
+        ("biosample_type", "cell_line"),
+        ("test_substance_id", "compound"),
+        ("exposure_concentration_value", "concentration_value"),
+        ("exposure_concentration_unit", "concentration_unit"),
+        ("assay_endpoint", "assay"),
+        ("replicate_id", "technical_replicate"),
     ],
 )
 def test_alias_table_covers_the_documented_synonyms(source: str, canonical: str) -> None:
