@@ -145,7 +145,9 @@ def get_model_vendor(model_name: str) -> str | None:
 # cost $2.08.
 #
 # Either may be set alone; whichever is set wins over the table for every model,
-# because what a deployment pays is a property of the deployment.
+# because what a deployment pays is a property of the deployment. The table
+# disagreement itself is written up for upstream in
+# docs/upstream/litellm-gpt-5-6-luna-pricing.md.
 _PRICE_OVERRIDE_ENV = {
     "input_cost_per_token": "VITRO_PRICE_INPUT_PER_1M",
     "output_cost_per_token": "VITRO_PRICE_OUTPUT_PER_1M",
