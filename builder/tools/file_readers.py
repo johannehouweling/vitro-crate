@@ -11,10 +11,46 @@ from __future__ import annotations
 import json
 import logging
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _silence_openpyxl_extension_warnings() -> None:
+    """Stop openpyxl reporting the workbook features it drops while reading.
+
+    openpyxl warns once per worksheet extension it cannot round-trip —
+    ``"Data Validation extension is not supported and will be removed"``, and the
+    same sentence for Conditional Formatting, Sparkline Group, Slicer List,
+    Protected Range, Ignored Error, Web Extension and Timeline Ref
+    (``openpyxl.xml.constants.EXT_TYPES``).
+
+    Every one of those is an Excel *presentation* feature: a dropdown, a colour
+    rule, a slicer. We open workbooks ``read_only=True, data_only=True`` to take
+    cell VALUES, and we never write a workbook back — so nothing openpyxl drops
+    can change what we read, and "will be removed" describes openpyxl's in-memory
+    model, not the file on disk. A depositor workbook with validated columns
+    emitted pages of it, and neither the user nor the agent can act on any of it.
+
+    Registered at import rather than around each ``load_workbook``:
+    :func:`warnings.catch_warnings` mutates process-global state and is not
+    thread-safe, and these readers run concurrently in the tools node.
+
+    Matched on the message alone. The ``module`` argument matches the module that
+    *issues* the warning, which openpyxl reaches through a ``warn()`` helper — a
+    detail of theirs we would rather not depend on. The sentence is distinctive
+    enough on its own, and the filter is pinned to UserWarning.
+    """
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*extension is not supported and will be removed",
+        category=UserWarning,
+    )
+
+
+_silence_openpyxl_extension_warnings()
 
 # ---------------------------------------------------------------------------
 # Limits
@@ -126,9 +162,7 @@ def read_excel_rows(
         logger.error("read_excel_rows: openpyxl is not installed")
         return None
     try:
-        book = openpyxl.load_workbook(
-            src, read_only=True, data_only=True, keep_links=False
-        )
+        book = openpyxl.load_workbook(src, read_only=True, data_only=True, keep_links=False)
     except Exception:
         logger.exception("read_excel_rows: could not open %s", path)
         return None
@@ -153,9 +187,7 @@ def read_excel_rows(
                     header = [str(c).strip() for c in cells]
                     continue
                 row = {
-                    key: cells[i] if i < len(cells) else ""
-                    for i, key in enumerate(header)
-                    if key
+                    key: cells[i] if i < len(cells) else "" for i, key in enumerate(header) if key
                 }
                 rows.append(row)
                 if max_rows is not None and len(rows) >= max_rows:
@@ -737,9 +769,7 @@ def _collapse_numbered_series(rows: list[str]) -> list[str]:
     for row in rows:
         stripped = row.strip()
         cells = (
-            [c.strip() for c in stripped.strip("|").split("|")]
-            if stripped.startswith("|")
-            else []
+            [c.strip() for c in stripped.strip("|").split("|")] if stripped.startswith("|") else []
         )
         match = _SERIES_KEY.match(cells[0]) if len(cells) >= 2 else None
         if match is None:
@@ -831,9 +861,7 @@ def compact_attribute_json(text: str) -> str:
         parsed = json.loads(text)
     except (ValueError, TypeError):
         return text
-    if not isinstance(parsed, dict) or not (
-        "attributes" in parsed or "section" in parsed
-    ):
+    if not isinstance(parsed, dict) or not ("attributes" in parsed or "section" in parsed):
         return text
 
     out: list[str] = []
