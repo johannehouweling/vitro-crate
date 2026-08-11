@@ -267,7 +267,11 @@ def _cited_iris(metadata_doc: dict[str, Any]) -> set[str]:
     Nothing the crate asserts can be silenced by this.
 
     No namespace list, no configuration, and an ontology nobody has seen before
-    classifies correctly on first contact.
+    classifies correctly on first contact. It replaces an open-ended list of hosts
+    with a closed list of four properties, which is the part worth keeping.
+
+    Proposed upstream too, since the same rule would subsume the namespace list
+    their shapes carry — see docs/upstream/rocrate-validator-cited-vocabulary.md.
     """
     graph = metadata_doc.get("@graph")
     if not isinstance(graph, list):
