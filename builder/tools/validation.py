@@ -502,7 +502,7 @@ def _remember_sweep(
 
 
 def _sweep_covers(
-    cached: tuple[str, str, dict[str, bool], list[dict[str, Any]]],
+    cached: tuple[str, str, dict[str, bool], list[dict[str, Any]], list[dict[str, Any]]],
     profile: str,
     severity: str,
 ) -> bool:
