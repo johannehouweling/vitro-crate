@@ -212,7 +212,11 @@ def _patch_cited_vocabulary_exemption() -> None:
             return original(file_path, publicID)
 
     load_shapes_from_file._vitro_vocabulary_patch = True  # ty: ignore[unresolved-attribute]
-    _shacl_utils.load_shapes_from_file = load_shapes_from_file
+    # ty flags any function-to-attribute rebind as implicit shadowing, even when
+    # the signatures are identical — annotating the shim cannot satisfy it, so the
+    # suppression is the explicit "yes, intentional" it asks for. Same convention
+    # as the two bootstrap patches at the top of this module.
+    _shacl_utils.load_shapes_from_file = load_shapes_from_file  # ty: ignore[invalid-assignment]
 
 
 _patch_cited_vocabulary_exemption()
