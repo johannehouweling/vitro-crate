@@ -774,3 +774,364 @@ class TestGuidanceColumnCompaction:
         )
 
         assert "| Documenttype | Beschrijving |" in out
+
+
+class TestHeaderRowDetection:
+    """The header is found, not assumed to be row 1 (#421).
+
+    Every column rule in `compact_grid_text` is read off the header, so a sheet
+    that opens with preamble prose had its whole vocabulary matched against a
+    sentence. The real S-VHPS22 file this reproduces — an RIVM template with six
+    rows of Dutch fill-in instructions above `Veldnaam | Optionaliteit | Hoe vaak
+    in te vullen | Beschrijving | Tips | Hier invullen` — recognised no guidance
+    column at all and compacted to 18,777 chars against a 9,000-char tier-0
+    share, cut off before Licentie, Status and Metadata-auteur. Measured on that
+    workbook, header detection alone takes it to 8,059.
+
+    That workbook is a committed fixture, so the acceptance criterion is asserted
+    on the real file (`test_the_real_rivm_workbook_fits_the_tier_0_share`). The
+    synthetic grids are here for the shapes the fix must NOT touch — a re-pick is
+    a licence to delete a row and a column, so most of this class is about
+    refusing to use it.
+
+    The evidence that makes a re-pick safe is measured, not assumed: across the
+    real corpus (1,046 sheets, 79,146 pipe rows) exactly two rows name two or
+    more guidance columns, and both are this one RIVM header.
+    """
+
+    _PREAMBLE = [
+        "| Metadatavelden voor de catalogus |  |  |  |  |  |",
+        "| Elke rij laat de veldnaam zien, hoe belangrijk het veld is, en wat je "
+        "moet invullen. |  |  |  |  |  |",
+        "| Versienummer | 1.2.0 | 2025-06-26 |  |  |  |",
+    ]
+
+    _TABLE = [
+        "| Veldnaam | Optionaliteit | Hoe vaak in te vullen | Beschrijving | Tips "
+        "| Hier invullen |",
+        "| Titel | Verplicht | Eenmalig | De titel van de dataset zoals getoond in de "
+        "catalogus | Bijv. 'Effect van X op Y' | Thyroid hormone transport in CHO-K1 |",
+        "| Auteur | Verplicht | Per auteur | De volledige naam van de auteur "
+        "| Voornaam Achternaam | Fabian Wagenaars |",
+        "| ORCID | Aanbevolen | Per auteur | Persistent identifier voor de auteur "
+        "| Zie orcid.org | 0009-0000-5074-6239 |",
+    ]
+
+    _WITH_PREAMBLE = "\n".join(["[Sheet: Metadata]", *_PREAMBLE, *_TABLE])
+    _HEADER_FIRST = "\n".join(["[Sheet: Metadata]", *_TABLE])
+
+    _RIVM_WORKBOOK = (
+        Path(__file__).parent / "fixtures/svhps22_real_input/Metadataveldenlijst_1.2.0.xlsx"
+    )
+
+    def test_the_real_rivm_workbook_fits_the_tier_0_share(self):
+        """The acceptance criterion of #421, on the committed workbook itself.
+
+        Not a synthetic stand-in: this is the file that failed. Read whole and
+        compacted, it has to come in under the 9,000-char tier-0 share it blew
+        with 18,777 — and it has to still be the file, so the depositor's own
+        answers are named one by one. Those two together are the whole issue:
+        halving the size by losing Metadata-auteur would pass a length check and
+        fail the user.
+        """
+        from builder.tools.file_readers import compact_grid_text, read_excel
+
+        raw = read_excel(str(self._RIVM_WORKBOOK), max_rows=1000)
+        assert raw is not None
+        out = compact_grid_text(raw)
+
+        assert len(out) < 9000, len(out)
+        for answer in (
+            "Nathalie Dierichs",
+            "0009-0000-5074-6239",
+            "ellen.hessel@rivm.nl",
+            "Metadata-auteur",
+            "Licentie",
+        ):
+            assert answer in out, answer
+
+    def test_guidance_columns_are_recognised_below_preamble_prose(self):
+        """The defect itself: three rows of prose hid the header, so nothing fired."""
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(self._WITH_PREAMBLE)
+
+        # The header was found, so its guidance columns went…
+        assert "De titel van de dataset" not in out
+        assert "Voornaam Achternaam" not in out
+        assert "Optionaliteit" not in out
+        # …and the depositor's answers stayed, still paired with their field.
+        assert "| ORCID | 0009-0000-5074-6239 |" in out
+        assert "| Auteur | Fabian Wagenaars |" in out
+        assert "Thyroid hormone transport in CHO-K1" in out
+
+    def test_the_preamble_is_not_read_through_the_table_columns(self):
+        """A header speaks for the rows under it and for nothing above it.
+
+        `Versienummer | 1.2.0 | 2025-06-26` sits in the columns the header later
+        calls Optionaliteit and Hoe vaak in te vullen. Judging it by those names
+        costs it two of its three cells and then the whole row, for falling under
+        two — the template's version and date deleted by a rule about a table the
+        row is not part of.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(self._WITH_PREAMBLE)
+
+        assert "| Versienummer | 1.2.0 | 2025-06-26 |" in out
+
+    def test_a_sheet_whose_first_row_is_the_header_is_unchanged(self):
+        """HONESTY CONTROL: finding the header must cost the ordinary sheet nothing.
+
+        Same table, once with the preamble and once without. The compacted table
+        must come out identical, so the search cannot be paying for the RIVM file
+        with a different answer on every workbook that was already fine.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        plain = compact_grid_text(self._HEADER_FIRST)
+        with_preamble = compact_grid_text(self._WITH_PREAMBLE)
+
+        assert plain.split("\n")[1:] == [
+            "| Titel | Thyroid hormone transport in CHO-K1 |",
+            "| Auteur | Fabian Wagenaars |",
+            "| ORCID | 0009-0000-5074-6239 |",
+        ]
+        table = [ln for ln in with_preamble.split("\n") if ln.startswith("|")]
+        assert table[-3:] == plain.split("\n")[1:]
+
+    def test_a_narrow_header_is_not_overruled_by_wider_rows_below_it(self):
+        """A header may be narrower than the ragged rows it heads, and still be it.
+
+        The S-VHPS26 sheets spill a long Comments entry into an unheadered third
+        column, so every body row is wider than the header. Row 0 keeps the job
+        anyway — it is not asked to be the widest row, only not to be overruled
+        by a lower row that names guidance columns, and none of these do. Drop
+        that requirement and `| Adverse outcome pathway | … |` is promoted, which
+        this test sees as the `Parameter` boilerplate surviving.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Endpoint]",
+                    "| Parameter | Value |",
+                    "| Adverse outcome pathway | AOP 464 | URL: https://aopwiki.org/aops/464 |",
+                    "| Key event | MCT8 uptake | URL: https://aopwiki.org/events/2258 |",
+                    "| Endpoint | T4 uptake | URL: https://aopwiki.org/events/2376 |",
+                ]
+            )
+        )
+
+        assert "| Adverse outcome pathway | AOP 464 | URL: https://aopwiki.org/aops/464 |" in out
+        assert "| Key event | MCT8 uptake | URL: https://aopwiki.org/events/2258 |" in out
+        # …and row 0 is still read as the header, so the boilerplate goes (#378).
+        assert "| Parameter | Value |" not in out
+
+    def test_a_dutch_key_value_row_is_never_promoted_to_header(self):
+        """A key/value sheet under a title row, which the first attempt destroyed.
+
+        Every row here is content. `Toelichting` is one of the twelve guidance
+        words, so promoting row 1 both deletes that row and strikes column 0 from
+        every row under it — five real cells gone with nothing said. One
+        vocabulary word is a coincidence, not a guidance header; two is the bar.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Notes]",
+                    "| Rat liver microsome study |  |  |",
+                    "| Toelichting | zie protocol | RIVM |",
+                    "| Methode | LC-MS | RIVM |",
+                    "| Datum | mei 2024 | RIVM |",
+                ]
+            )
+        )
+
+        assert "| Toelichting | zie protocol | RIVM |" in out
+        assert "| Methode | LC-MS | RIVM |" in out
+        assert "| Datum | mei 2024 | RIVM |" in out
+
+    def test_an_english_key_value_row_is_never_promoted_to_header(self):
+        """The same destruction in English: `Description` is in the vocabulary too."""
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Notes]",
+                    "| Rat liver microsome study |  |  |",
+                    "| Description | see protocol | RIVM |",
+                    "| Method | LC-MS | RIVM |",
+                    "| Author | N. Dierichs | RIVM |",
+                ]
+            )
+        )
+
+        assert "| Description | see protocol | RIVM |" in out
+        assert "| Method | LC-MS | RIVM |" in out
+        assert "| Author | N. Dierichs | RIVM |" in out
+
+    def test_a_plate_layout_row_is_never_promoted_to_header(self):
+        """A real corpus mis-pick, asserted on the search itself rather than its output.
+
+        S-VHPS21's `220317_SK_MCT8_MDCK1_P3_BSP+Desipramide.xls` sheet `Layout`
+        is a 96-well plate map under three lines of run metadata, and the first
+        attempt declared plate row **B** its header. Nothing downstream happened
+        to change, because none of those cells is a vocabulary word — which is
+        luck, not a guarantee, so this asserts the index directly.
+        """
+        from builder.tools.file_readers import _header_index
+
+        rows = [
+            ["Plate layout", "", "", "", "", "", "", ""],
+            ["Compound", "BSP", "Desipramide", "", "", "", "", ""],
+            ["", "1", "2", "3", "4", "5", "6", "7"],
+            ["B", "x", "DMSO (0.1%)", "0,03 uM", "1 uM", "0,3 uM", "1 uM", "3 uM"],
+            ["C", "x", "DMSO (0.1%)", "0,03 uM", "1 uM", "0,3 uM", "1 uM", "3 uM"],
+            ["D", "x", "Blanco", "0,03 uM", "1 uM", "0,3 uM", "1 uM", "3 uM"],
+        ]
+
+        assert _header_index(rows) == 0
+
+    def test_a_legend_sheet_that_lists_guidance_words_as_data_keeps_them(self):
+        """Once a row reaches across the table the preamble is over — stop looking.
+
+        A rename legend is the one sheet whose *values* are column names, so row
+        2 carries two vocabulary words and reads exactly like a guidance header.
+        It is not one: the real header is row 1, the first row to reach across
+        the table, and it names no guidance column, which ends the search. Read
+        past it and row 2 is promoted — deleted outright, and columns 0-1 struck
+        from both rows under it, which is every word this sheet exists to say.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Legenda]",
+                    "| Legenda: hernoemde kolommen |  |  |  |",
+                    "| Oude naam | Nieuwe naam | Sinds | Door |",
+                    "| Beschrijving | Toelichting | 1.0 | RIVM |",
+                    "| Tips | Voorbeeld | 1.1 | RIVM |",
+                    "| Commentaar | Opmerking | 1.2 | RIVM |",
+                ]
+            )
+        )
+
+        assert "| Beschrijving | Toelichting | 1.0 | RIVM |" in out
+        assert "| Tips | Voorbeeld | 1.1 | RIVM |" in out
+        assert "| Commentaar | Opmerking | 1.2 | RIVM |" in out
+
+    def test_a_searched_header_starting_with_parameter_is_not_deleted(self):
+        """`Parameter` drops row 0's boilerplate; it may not drop a row we inferred.
+
+        The header is found here (`Description` and `Comments` are two guidance
+        words), but the answer column is empty and `Description` carries the
+        study, so nothing is droppable and every column stays — the guard from
+        `test_a_description_column_holding_real_content_is_untouched`. What must
+        not then happen is the `Parameter` rule finishing the job on its own and
+        deleting the header row anyway, with none of that guard's protection.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Study]",
+                    "| Metadata for the OATP1C1 uptake study |  |  |  |",
+                    "| Parameter | Description | Value | Comments |",
+                    "| Study title | Thyroid hormone disruption screen in CHO-K1 |  |  |",
+                    "| Study aim | Identify inhibitors of OATP1C1-mediated uptake |  |  |",
+                ]
+            )
+        )
+
+        assert "| Parameter | Description | Value | Comments |" in out
+        assert "| Study title | Thyroid hormone disruption screen in CHO-K1 |" in out
+
+    def test_a_preamble_row_cannot_make_the_guidance_columns_droppable(self):
+        """Whether the guidance columns are droppable is decided by the table only.
+
+        `Beschrijving` and `Tips` are all this sheet says — the depositor left
+        `Hier invullen` empty — so no row stands up without them and every column
+        stays. Counting the preamble's `Versienummer … 1.2.0` as a row that does
+        stand up flips that verdict and deletes the sheet down to its version
+        number.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Metadatavelden]",
+                    "| Metadatavelden voor de catalogus |  |  |  |",
+                    "| Versienummer |  |  | 1.2.0 |",
+                    "| Veldnaam | Beschrijving | Tips | Hier invullen |",
+                    "| Titel | De titel van de dataset | Bijv. 'Effect van X' |  |",
+                    "| Auteur | De volledige naam van de auteur | Voornaam Achternaam |  |",
+                ]
+            )
+        )
+
+        assert "| Titel | De titel van de dataset | Bijv. 'Effect van X' |" in out
+        assert "| Auteur | De volledige naam van de auteur | Voornaam Achternaam |" in out
+
+    def test_a_row_naming_two_guidance_words_is_data_not_a_header(self) -> None:
+        """A crosswalk that TABULATES column names must survive intact (#421).
+
+        This is the shape the threshold exists to refuse, and it is one this
+        domain really produces: a legend mapping renamed RIVM field names. Its
+        rows carry two vocabulary words each —
+        as a KEY and a VALUE, not as column headings — and under a narrow title
+        row such a row is the first row to span the table, so nothing but the
+        threshold stands between it and promotion. Promoted, it would be deleted
+        as scaffolding and its column struck from every row below.
+
+        The corpus has no row between one guidance word and the RIVM header's
+        four, so 2, 3 and 4 all behave identically on real data; this asserts the
+        threshold sits in the MIDDLE of that gap rather than on its near edge,
+        which is the whole difference between destroying this sheet and not.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Legenda]",
+                    "| Legenda: hernoemde kolommen |  |  |  |",
+                    "| Beschrijving | Toelichting | 1.0 | RIVM |",
+                    "| Tips | Voorbeeld | 1.0 | RIVM |",
+                    "| Titel | Naam | 1.1 | RIVM |",
+                ]
+            )
+        )
+
+        for cell in ("Beschrijving", "Toelichting", "Tips", "Voorbeeld", "Titel", "Naam"):
+            assert cell in out, f"{cell!r} was deleted — a data row was promoted to header"
+
+    def test_the_rivm_header_still_wins_above_the_threshold(self) -> None:
+        """The control for the test above: four guidance words still re-picks.
+
+        Raising the bar must not raise it past the file this issue is about, so
+        this pins the other side of the gap — otherwise "refuse everything" would
+        pass the sibling test and silently undo the fix.
+        """
+        from builder.tools.file_readers import compact_grid_text
+
+        out = compact_grid_text(
+            "\n".join(
+                [
+                    "[Sheet: Metadatavelden]",
+                    "| Vul dit blad in volgens de instructies hieronder. |  |  |  |  |  |",
+                    "| Veldnaam | Optionaliteit | Hoe vaak in te vullen | Beschrijving | Tips | Hier invullen |",
+                    "| Titel | Verplicht | 1x | De titel van de dataset | Bijv. 'Effect van X' | Mijn dataset |",
+                ]
+            )
+        )
+
+        assert "Mijn dataset" in out
+        assert "Bijv." not in out, "the guidance columns were not dropped — the re-pick did not fire"

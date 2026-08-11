@@ -595,6 +595,97 @@ def _guidance_is_droppable(
     )
 
 
+# Guidance columns a candidate row must name before it may overrule row 0.
+#
+# Measured, not guessed. Across 1,046 sheets of the real corpus (220 readable
+# workbooks: the three S-VHPS deposits plus the committed fixtures) there are
+# 79,146 pipe rows. **Exactly two of them name two or more guidance columns —
+# and both are the same RIVM header**, ``Veldnaam | Optionaliteit | Hoe vaak in
+# te vullen | Beschrijving | Tips | Hier invullen``, which names four. 140 rows
+# name exactly one; 79,004 name none.
+#
+# One is nowhere near enough: at a threshold of 1 the search re-picks on 16
+# sheets across 11 workbooks, every one of them a mis-pick. 2, 3 and 4 all
+# re-pick on the RIVM sheet and nothing else, because the corpus has NOTHING
+# between one guidance word and that header's four — so anything in 2..4 costs
+# the same on real data and the only question is which is hardest to trip by
+# accident.
+#
+# 3, therefore: the middle of the empty gap rather than its near edge. The
+# difference is not hypothetical. Two rows carrying two vocabulary words each is
+# a shape this domain really produces — a legend or a DataCite crosswalk that
+# TABULATES column names as data ("Beschrijving | Toelichting | 1.0 | RIVM") —
+# and under a narrow title row such a row is the first spanning row, so it would
+# be promoted, deleted, and its column struck from every row below it. At 2 that
+# sheet is destroyed; at 3 it is left alone, and the RIVM header still wins with
+# four.
+#
+# This is what makes the re-pick safe at all. A key/value data row —
+# ``Toelichting | zie protocol | RIVM`` — carries at most one vocabulary word,
+# so it can never be promoted and have its label deleted as scaffolding.
+_MIN_GUIDANCE_COLUMNS = 3
+
+
+def _table_span(rows: list[list[str]]) -> int:
+    """How many columns this sheet's rows actually occupy.
+
+    The median row width, deliberately: a value containing a literal ``|`` splits
+    into extra cells at this layer — the RIVM sheet tells depositors to separate
+    repeated values with a pipe and then does so itself — which makes the widest
+    row a lie, while the mode is a coin-flip whenever two widths tie.
+
+    Measured on the real S-VHPS22 template, whose table is six columns wide: the
+    median row is 5 cells, but its ``Trefwoorden`` row lists ten pipe-separated
+    keywords and arrives here as **15**. A max-width span therefore demands 15
+    cells of the header, no row can reach that, and the search finds nothing —
+    the file goes back to the 18,777 chars of #421.
+    """
+    widths = sorted(sum(1 for cell in cells if cell) for cells in rows)
+    return widths[len(widths) // 2]
+
+
+def _header_index(rows: list[list[str]]) -> int:
+    """Index of the sheet's header among its pipe rows — 0 unless prose precedes it.
+
+    S-VHPS22's top-level RIVM template opens with six rows of Dutch instructions
+    on how to fill the sheet in, and only then names its columns (``Veldnaam |
+    Optionaliteit | Hoe vaak in te vullen | Beschrijving | Tips | Hier
+    invullen``). Reading the first pipe row as the header matched the guidance
+    vocabulary against a sentence, so not one guidance column was recognised and
+    the file compacted to 18,777 chars against a 9,000-char tier-0 share (#421).
+
+    Row 0 keeps the job unless a lower row **earns** it, and only one shape can:
+    a fill-in-the-blanks template whose header names at least
+    :data:`_MIN_GUIDANCE_COLUMNS` authoring-guidance columns, sitting under
+    preamble that does not reach across the table. Two things are asked of the
+    candidate and nothing else is enough — it spans the table
+    (:func:`_table_span`), and it names two guidance columns.
+
+    Only the *first* spanning row is ever considered. Once a row reaches across
+    the table the preamble is over; the rows after it are data, not further
+    chances, and a sheet whose first spanning row is not a guidance header is
+    left exactly as it was.
+
+    Refusing is the safe outcome because a wrong pick loses data silently:
+    :func:`_compact_sheet` deletes the row it calls the header and reads the
+    guidance vocabulary off it, so promoting a data row would delete a real
+    column from every row below it.
+    """
+    if not rows:
+        return 0
+    span = _table_span(rows)
+    for idx, cells in enumerate(rows):
+        if sum(1 for cell in cells if cell) < span:
+            continue  # still preamble: this row does not reach across the table
+        if idx and len(_guidance_columns(cells)) >= _MIN_GUIDANCE_COLUMNS:
+            return idx
+        # The first spanning row is the only candidate there is. If it does not
+        # name guidance columns, the row after it is a data row, not a second
+        # chance — keep row 0 and change nothing about this sheet.
+        return 0
+    return 0
+
+
 def _compact_sheet(lines: list[str]) -> list[str]:
     """Apply the row/column rules to one sheet's worth of lines."""
     rows: dict[int, list[str]] = {}
@@ -605,15 +696,29 @@ def _compact_sheet(lines: list[str]) -> list[str]:
     if not rows:
         return list(lines)
 
-    header_idx, header_cells = next(iter(rows.items()))
+    ordered = list(rows.items())
+    position = _header_index([cells for _, cells in ordered])
+    header_idx, header_cells = ordered[position]
     guidance = _guidance_columns(header_cells)
     last = len(header_cells) - 1
     overflow_from = last if last in guidance else None
-    if guidance and not _guidance_is_droppable(
-        [cells for idx, cells in rows.items() if idx != header_idx], guidance, overflow_from
-    ):
+    # A header speaks for the table under it and for nothing above it. Judging a
+    # preamble row by the header's column meanings deletes real content: the RIVM
+    # sheet's ``Versienummer | 1.2.0 | 2025-06-26`` sits in the columns the header
+    # later calls Optionaliteit and Hoe vaak in te vullen, and would lose two of
+    # its three cells — then the whole row, for falling under two.
+    body = [cells for idx, cells in ordered if idx > header_idx]
+    if guidance and not _guidance_is_droppable(body, guidance, overflow_from):
         guidance, overflow_from = set(), None
-    drop_header = bool(guidance) or bool(header_cells) and header_cells[0].lower() == "parameter"
+    # ``Parameter`` in the first cell marks the repeated boilerplate header of a
+    # depositor workbook, which is why that row goes even when no guidance column
+    # was recognised. It is only ever safe on **row 0**: a searched row starting
+    # with ``Parameter`` is a row this function inferred, and deleting it outright
+    # — with no guidance column involved, so none of `_guidance_is_droppable`'s
+    # protection — would silently destroy a data row under a title row.
+    drop_header = bool(guidance) or (
+        position == 0 and bool(header_cells) and header_cells[0].lower() == "parameter"
+    )
 
     out: list[str] = []
     seen_iris: set[str] = set()
@@ -625,11 +730,14 @@ def _compact_sheet(lines: list[str]) -> list[str]:
         if idx == header_idx and drop_header:
             continue
         # Dropped by index, not by position: a ragged row shorter than the
-        # header would otherwise lose whichever column happened to be last.
+        # header would otherwise lose whichever column happened to be last. Only
+        # rows the header actually describes — itself and everything below it —
+        # are read through its columns (see the ``body`` note above).
+        in_table = idx >= header_idx
         kept = [
             c
             for i, c in enumerate(cells)
-            if c and not _is_guidance_cell(i, guidance, overflow_from)
+            if c and not (in_table and _is_guidance_cell(i, guidance, overflow_from))
         ]
         if len(kept) < 2:
             continue
@@ -655,6 +763,12 @@ def compact_grid_text(text: str) -> str:
     sheet, columns of authoring instructions, and empty cells. On the real
     S-VHPS26 workbook that noise pushes the cell line, RRID, author and
     chemicals 2-5 past any affordable context slice.
+
+    Every column rule is read off the sheet's header, which is **found, not
+    assumed to be row 1** (:func:`_header_index`): an RIVM template spends six
+    rows telling the depositor how to fill the sheet in before naming a single
+    column, and matching the guidance vocabulary against that prose recognised
+    nothing (#421).
 
     Four rules, in order: drop the repeated header row; drop the sheet's
     authoring-guidance columns **only when that sheet's own header names them**
