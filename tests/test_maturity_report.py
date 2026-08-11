@@ -34,6 +34,15 @@ def _body(page: str) -> str:
     return page.split("</style>", 1)[-1]
 
 
+def _mit_pct(page: str) -> int:
+    """The percentage printed on the OECD MIT coverage KPI tile."""
+    import re
+
+    m = re.search(r'OECD MIT coverage.*?<b>(\d+)</b><span class="den">%', page, re.S)
+    assert m, "MIT KPI tile shows no percentage"
+    return int(m.group(1))
+
+
 class TestReportFilename:
     """The report filename shares the crate's ``ro-crate-metadata`` stem."""
 
@@ -364,18 +373,14 @@ class TestProvenanceSection:
         populate_crate(state, crate, tmp_path, materialize_payload=False)
         graph = crate.metadata.generate()["@graph"]
 
-        def _mit_pct(page: str) -> int:
-            import re
-
-            m = re.search(
-                r'OECD MIT coverage.*?<b>(\d+)</b><span class="den">%', page, re.S
-            )
-            assert m, "MIT KPI tile not found"
-            return int(m.group(1))
-
-        assert _mit_pct(build_maturity_html(state, graph=graph)) > 0
-        # Without the graph the report falls back (cheap) and this fixture scores 0.
-        assert _mit_pct(build_maturity_html(state)) == 0
+        with_graph = _mit_pct(build_maturity_html(state, graph=graph))
+        assert with_graph > 0
+        # HONESTY CONTROL (#311): omitting the graph must not change the number.
+        # It used to: the report fell back to a second scorer that credited
+        # nothing and printed "MIT coverage 0%" for this same crate — a false
+        # statement, not a cheap approximation. The assessor now assembles its
+        # own graph, so there is one score per crate however it is reached.
+        assert _mit_pct(build_maturity_html(state)) == with_graph
 
     def test_export_embeds_provenance_from_crate_graph(self, tmp_path: Path) -> None:
         # End-to-end: the embedded report is built with the crate's real @graph,
@@ -386,6 +391,63 @@ class TestProvenanceSection:
         build_crate(state)
         page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
         assert "Graph topology" in page
+
+
+class TestUnassessedMITIsNotRenderedAsZero:
+    """The report never prints a coverage number it did not measure (#311).
+
+    When MIT coverage cannot be scored at all — the checklist will not load, or
+    the crate will not assemble — the assessor returns an *unassessed* report
+    whose ``overall_score`` is 0.0 by construction. Printing that as "0%" (and
+    saying "MIT coverage 0%" through the meter's ``aria-label``) is a claim about
+    a crate nobody looked at, and reads exactly like a crate that genuinely covers
+    nothing. Same "not assessed" state the profile tile already shows for an
+    unevaluated SHACL severity tier (#446).
+    """
+
+    @staticmethod
+    def _unscoreable_page(monkeypatch: pytest.MonkeyPatch) -> str:
+        # Break the checklist load rather than hand-build an MITReport: this
+        # drives the real entry point and proves the report ASKS the assessor,
+        # instead of asserting a page we wrote back to ourselves.
+        monkeypatch.setattr("builder.tools.mit_assessment.load_mit_yaml", lambda: None)
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"))
+
+    def test_no_percentage_is_printed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        page = self._unscoreable_page(monkeypatch)
+        assert "MIT coverage 0%" not in page
+        # No MIT meter at all, so no aria-label asserting a coverage figure.
+        assert 'aria-label="MIT coverage' not in page
+
+    def test_it_says_not_assessed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = _body(self._unscoreable_page(monkeypatch))
+        # The KPI tile's own sub-line, not the generic "na" mark that the
+        # profile tile also carries — this must be the MIT tile saying it.
+        assert '<div class="kpi-sub">not assessed</div>' in body
+        # And the section says why, in words, rather than leaving a blank chart.
+        assert "was not measured for this crate" in body
+        # The old empty-scores section header read "0/0 fields · 0%", which
+        # asserts a coverage figure just as loudly as the tile did.
+        assert "fields · 0%" not in body
+
+    def test_the_rest_of_the_report_still_renders(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The assessor must not raise: three other axes depend on this page."""
+        body = _body(self._unscoreable_page(monkeypatch))
+        assert "FAIR" in body
+        assert "Reproducibility readiness" in body
+        assert "Profile adherence" in body
+
+    def test_a_scoreable_crate_still_prints_its_number(self) -> None:
+        """Honesty control: the "not assessed" state is reached by failure only.
+
+        Without it, a bug that made every crate unscoreable would satisfy the
+        three assertions above.
+        """
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        assert _mit_pct(page) > 0
+        assert 'aria-label="MIT coverage' in page
 
 
 class TestActionableTopology:

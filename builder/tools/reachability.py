@@ -158,11 +158,6 @@ PIPELINE_UNREACHED: Mapping[str, str] = {
         "Its only production route is writers/rocrate_writer <- writers/arc_writer, "
         "and write_arc has no production caller. Overlaps #360."
     ),
-    "assess_mit_coverage": (
-        "The registered wrapper _assess_mit_coverage_tool has no arm call site. "
-        "The capability is not missing: writers/maturity_report calls the "
-        "underlying assess_mit_coverage directly, with the assembled graph."
-    ),
     "set_validation_preference": (
         "Records a mid-session change of mind about the RECOMMENDED/OPTIONAL "
         "tiers. The deterministic arm has no dialogue in which the user changes "
