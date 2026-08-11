@@ -42,6 +42,7 @@ row — the "not assessed" state remains for reports rendered from a partial ver
 from __future__ import annotations
 
 import html
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -287,6 +288,12 @@ def _load_css() -> str:
             "report would render with no entity colours at all."
         )
     return css.replace(_CSS_CATEGORY_TOKEN, category_css())
+
+
+# The shell's placeholders, matched in ONE pass (see build_maturity_html). Kept
+# module-level so the pattern is compiled once and the set of sentinels has a
+# single definition rather than one per call site.
+_SHELL_PLACEHOLDER_RE = re.compile(r"__(?:STYLE|BODY|TITLE)__")
 
 
 @lru_cache(maxsize=1)
@@ -1752,12 +1759,13 @@ def build_maturity_html(
         + footer
     )
 
-    # Fill the shell placeholders. STYLE and BODY first (neither can contain a
-    # sentinel), TITLE last so crate-controlled text can never re-trigger a
-    # replacement.
-    return (
-        _load_shell()
-        .replace("__STYLE__", _load_css())
-        .replace("__BODY__", body)
-        .replace("__TITLE__", esc(title))
-    )
+    # ONE pass over the shell, so nothing a substitution inserts is ever scanned
+    # again. Chained `.replace()` calls cannot give that guarantee in any order:
+    # BODY carries crate-controlled entity ids and validation messages, and
+    # `html.escape` leaves underscores alone, so a finding on an entity whose
+    # `@id` is `#__TITLE__` came out as `#My Crate` — naming an entity that does
+    # not exist. Reversing the order only moves the hole to a crate titled
+    # `__BODY__`, which would paste the whole body into `<title>`. Both strings
+    # come from the crate, so neither can be the trusted one.
+    filling = {"__STYLE__": _load_css(), "__BODY__": body, "__TITLE__": esc(title)}
+    return _SHELL_PLACEHOLDER_RE.sub(lambda m: filling[m.group(0)], _load_shell())
