@@ -626,7 +626,6 @@ def materialize_aop_subgraph(
     }
 
 
-
 # ---------------------------------------------------------------------------
 # Assay -> AOP Key Event (#382)
 # ---------------------------------------------------------------------------
@@ -694,9 +693,7 @@ def link_assay_to_key_event(state: CrateState, assay_id: str, event_name: str) -
             if alias
         )
     ]
-    candidates = [
-        {"@id": e.entity_id, "name": e.fields.get("name")} for e in events
-    ]
+    candidates = [{"@id": e.entity_id, "name": e.fields.get("name")} for e in events]
     if len(matches) != 1:
         return {
             "ok": False,
@@ -715,6 +712,7 @@ def link_assay_to_key_event(state: CrateState, assay_id: str, event_name: str) -
         "key_event_id": event.entity_id,
         "matched_name": event.fields.get("name"),
     }
+
 
 # ---------------------------------------------------------------------------
 # Publication authors + ORCID harmonization (Issue #180, deferred item)
@@ -789,6 +787,70 @@ def _verify_orcid(orcid_id: str, family: str, lookup_orcid_fn: Any) -> dict | No
     if _norm(resolved_family) and _norm(resolved_family) == _norm(family):
         return data
     return None
+
+
+# Authors are verified against ORCID one network round-trip at a time, and a paper
+# has as many of those as it has authors. `_prefetch_orcid_verifications` runs
+# that step for every author at once instead, under the same bounded gate
+# `resolve_compound` uses so ORCID is not hammered.
+#
+# Only step (a) of the cascade moves. Everything else stays exactly where it was,
+# in order, on the calling thread: the in-crate match and the person entities
+# touch CrateState, and the name-search branch can ask the human. Neither belongs
+# on a worker thread, and interleaving prompts from several at once would be
+# worse than the wait.
+_AUTHOR_VERIFY_TIMEOUT = 25.0
+
+
+def _prefetch_orcid_verifications(
+    authors: list[dict[str, Any]], lookup_orcid_fn: Any
+) -> dict[int, dict | None]:
+    """Verify every author's Crossref ORCID up front, concurrently.
+
+    Returns ``{author index: verified record or None}``. An index missing from
+    the mapping was never attempted (no Crossref ORCID to check).
+
+    A verification that runs past :data:`_AUTHOR_VERIFY_TIMEOUT` yields ``None``,
+    which the cascade already understands as "not verified" and handles by moving
+    to its next step. That is the point: one ORCID sitting on the retry ladder
+    used to hold up every author behind it. A profiled run spent 405 seconds in a
+    single `draft_publication_with_authors` call — 22% of that session's machine
+    time — resolving one DOI.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    pending = {
+        index: str(author.get("identifier"))
+        for index, author in enumerate(authors)
+        if author.get("identifier")
+    }
+    if not pending:
+        return {}
+
+    def verify(index: int, orcid_id: str) -> tuple[int, dict | None]:
+        family = str(authors[index].get("familyName", ""))
+        with resolve_concurrency.slot():
+            ok, value = run_with_timeout(
+                lambda: _verify_orcid(orcid_id, family, lookup_orcid_fn),
+                _AUTHOR_VERIFY_TIMEOUT,
+            )
+        if not ok:
+            logger.info(
+                "ORCID verification for author %d ran past %.0fs; falling through "
+                "to the rest of the cascade",
+                index,
+                _AUTHOR_VERIFY_TIMEOUT,
+            )
+            return index, None
+        return index, value
+
+    verified: dict[int, dict | None] = {}
+    # Bounded by the gate inside `verify`, so the pool only has to be wide enough
+    # not to be the narrower limit.
+    with ThreadPoolExecutor(max_workers=min(8, len(pending))) as pool:
+        for index, value in pool.map(lambda kv: verify(*kv), list(pending.items())):
+            verified[index] = value
+    return verified
 
 
 def _find_in_crate_person(
@@ -1095,17 +1157,23 @@ def draft_publication_with_authors(
 
     authors_out: list[dict[str, Any]] = []
     hitl_count = 0
-    for author in data.get("author", []):
+    # Step (a) for every author at once, before the loop — see
+    # `_prefetch_orcid_verifications`. The loop below is otherwise unchanged: the
+    # cascade, its order, the HITL prompts and every write to CrateState still
+    # happen here, one author at a time, on this thread.
+    author_list = list(data.get("author", []))
+    prefetched = _prefetch_orcid_verifications(author_list, lookup_orcid)
+    for index, author in enumerate(author_list):
         given = author.get("givenName", "")
         family = author.get("familyName", "")
         affiliation = author.get("affiliation")
         resolution = "synthesized"
         person: Entity | None = None
 
-        # (a) Crossref ORCID on the author.
+        # (a) Crossref ORCID on the author, verified before the loop started.
         crossref_orcid = author.get("identifier")
         if crossref_orcid:
-            verified = _verify_orcid(crossref_orcid, family, lookup_orcid)
+            verified = prefetched.get(index)
             if verified is not None:
                 person = _ensure_person_for_orcid(state, crossref_orcid, verified)
                 resolution = "crossref_orcid"
@@ -1872,11 +1940,7 @@ def wire_unreferenced_domain_entities(state: CrateState) -> dict[str, Any]:
         else:
             # No process to attach to — say what IS true: the Study mentions it.
             container = next(
-                (
-                    c
-                    for kind in _CONTAINER_FALLBACK
-                    for c in state.list_entities(kind)
-                ),
+                (c for kind in _CONTAINER_FALLBACK for c in state.list_entities(kind)),
                 None,
             )
             if container is None:
