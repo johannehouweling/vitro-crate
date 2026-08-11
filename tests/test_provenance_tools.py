@@ -193,6 +193,64 @@ class TestLink:
             link(state, "ghost", "result", "f1")
 
 
+class TestLinkWritesWhereTheBuildReads:
+    """A link the build cannot read is a link the exported crate loses."""
+
+    def _state(self):
+        state = CrateState()
+        state.add_entity(_ent("exp", "LabProcess", process_type="Exposure"))
+        state.add_entity(_ent("cult", "LabProcess", process_type="CellCulture"))
+        state.add_entity(_ent("cmp", "MolecularEntity", name="doxorubicin"))
+        state.add_entity(_ent("cells", "CellLineSample", name="HepG2"))
+        state.add_entity(_ent("smp", "Sample", name="well A1"))
+        return state
+
+    def test_compound_as_exposure_input_is_stored_where_the_build_reads_it(self):
+        # `_build_process` takes compounds from `chemicals`; a MolecularEntity
+        # left under `input` is read by nothing and vanishes at assembly.
+        state = self._state()
+        result = link(state, "exp", "input", "cmp")
+        assert state.get_entity("exp").fields["chemicals"] == "cmp"
+        assert "input" not in state.get_entity("exp").fields
+        assert result["stored_as"] == "chemicals"
+
+    def test_the_caller_is_told_the_field_changed(self):
+        state = self._state()
+        result = link(state, "exp", "input", "cmp")
+        assert "chemicals" in result["note"]
+        # The relation the caller asked for is still reported back unchanged.
+        assert result["relation"] == "input"
+
+    def test_cell_line_in_a_culture_is_rerouted_too(self):
+        state = self._state()
+        link(state, "cult", "object", "cells")
+        assert state.get_entity("cult").fields["cell_line"] == "cells"
+
+    def test_a_sample_is_left_alone(self):
+        # Sample IS allowed as a process object by the ISA shape, so there is
+        # nothing to reroute and no note to emit.
+        state = self._state()
+        result = link(state, "exp", "object", "smp")
+        assert state.get_entity("exp").fields["object"] == "smp"
+        assert "stored_as" not in result
+
+    def test_outputs_are_never_rerouted(self):
+        # A compound as a process *result* is a different claim about the
+        # chemistry, and guessing there would invent one.
+        state = self._state()
+        result = link(state, "exp", "result", "cmp")
+        assert state.get_entity("exp").fields["result"] == "cmp"
+        assert "stored_as" not in result
+
+    def test_the_wrong_process_type_is_not_rerouted(self):
+        # `chemicals` is where an Exposure carries compounds; a CellCulture is
+        # not an exposure and has no such field.
+        state = self._state()
+        result = link(state, "cult", "input", "cmp")
+        assert state.get_entity("cult").fields["input"] == "cmp"
+        assert "stored_as" not in result
+
+
 class TestCheckProvenance:
     def test_flags_dangling_readout(self):
         # An EndpointReadout consumes samples but produces no output (result):
