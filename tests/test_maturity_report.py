@@ -89,32 +89,61 @@ class TestBuildMaturityHtml:
         assert "<script>alert(1)</script>" not in page
         assert "&lt;script&gt;" in page
 
-    def test_mit_guidance_document_breakdown_rendered(self) -> None:
+    def test_mit_guidance_document_breakdown_rendered(self, tmp_path: Path) -> None:
         """#491: under the module rows, the MIT section breaks coverage out per
-        guidance document — display label AND a computed x/y fraction per row
-        (label-only assertions are the trap ``test_sections_present`` names),
-        with the aggregate headline untouched and an explicit overlap note."""
+        guidance document. Each row's rendered numerator AND denominator must
+        equal the scorer's own bucket — a label-plus-denominator assertion
+        survived a mutant that hardcoded every numerator to 0 — and the
+        aggregate headline must stay the module-bucket sums, since summing the
+        overlapping per-document buckets is exactly the double-count the
+        overlap note warns about. Scored on the graph path so the pinned
+        numerators are non-vacuously non-zero."""
         import re
 
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        for label in (
-            "OECD GD 211",
-            "LINCS",
-            "ToxTemp",
-            "Nature",
-            "OECD GD 34",
-            "OECD GD 417",
-            "IUCLID OHT 201",
-        ):
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from builder.tools.mit_assessment import (
+            MIT_STANDARD_LABELS,
+            assess_mit_coverage,
+        )
+        from profiles.context import ISA_TOX_CONTEXT
+
+        state = vhps_fixture_state("S-VHPS21")
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, tmp_path, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+        mit = assess_mit_coverage(state, graph=graph)
+
+        page = build_maturity_html(state, graph=graph)
+        assert set(mit.standard_scores) == set(MIT_STANDARD_LABELS)
+        assert any(b["completed"] > 0 for b in mit.standard_scores.values())
+        for key, bucket in mit.standard_scores.items():
+            label = MIT_STANDARD_LABELS[key]
             m = re.search(
                 re.escape(label) + r'</div>.*?(\d+)<span class="den">/(\d+)</span>',
                 page,
                 re.S,
             )
             assert m, f"no per-document row for {label}"
-            assert int(m.group(2)) > 0, f"{label} denominator is zero"
-        # The aggregate stays the headline; the split is additive detail.
-        assert "OECD MIT coverage" in page
+            assert (int(m.group(1)), int(m.group(2))) == (
+                bucket["completed"],
+                bucket["total"],
+            ), label
+        # The aggregate stays the headline, summed over the MODULE buckets —
+        # not inflated by the overlapping per-document ones.
+        head = re.search(
+            r'OECD MIT coverage</h2><span class="sec-meta"><b>(\d+)/(\d+)</b> fields',
+            page,
+        )
+        assert head, "aggregate headline fraction not found"
+        assert int(head.group(1)) == sum(
+            sc["completed"] for sc in mit.module_scores.values()
+        )
+        assert int(head.group(2)) == sum(
+            sc["total"] for sc in mit.module_scores.values()
+        )
         # Documents overlap — one parameter can serve several — so the note
         # that rows don't sum is part of the contract, not decoration.
         assert "do not sum" in page

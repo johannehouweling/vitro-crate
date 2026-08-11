@@ -59,18 +59,22 @@ def load_mit_yaml() -> dict[str, Any] | None:
         return None
 
 
-def parse_crate_slots(slot_str: str) -> list[tuple[str, str]]:
+def parse_crate_slots(slot_str: str | None) -> list[tuple[str, str]]:
     """Parse a crate_slot string into a list of (EntityType, field) tuples.
 
     Crate slots are formatted like "Investigation:name;Study:name;Assay:name"
     or "MolecularEntity:formula;MolecularEntity:smiles".
 
     Args:
-        slot_str: The crate_slot string from the MIT YAML.
+        slot_str: The crate_slot string from the MIT YAML. ``None`` (an
+            explicit ``crate_slot: null`` — ``dict.get``'s default only covers
+            a *missing* key) parses to no slots, same as an omitted key.
 
     Returns:
         A list of (entity_type, field_name) tuples.
     """
+    if not slot_str:
+        return []
     slots: list[tuple[str, str]] = []
     parts = [p.strip() for p in slot_str.split(";") if p.strip()]
     for part in parts:
@@ -301,8 +305,9 @@ def iter_scorable_params(
     permanently uncoverable and silently depress every score. The two callers
     previously disagreed on exactly this: the scorer skipped such a parameter,
     the gap engine counted it. The skip is live, not theoretical: checklist
-    parameters with no curated slot (``crate_slot: null`` in the YAML — 44 of
-    220 at the time of writing) are excluded from every denominator.
+    parameters with no curated slot (the ``crate_slot`` key omitted entirely —
+    44 of 220 at the time of writing; an explicit ``crate_slot: null`` parses
+    the same) are excluded from every denominator.
     """
     for module in mit_data.get("modules", []):
         for param in unique_module_params(module):
