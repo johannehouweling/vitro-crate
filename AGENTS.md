@@ -1494,7 +1494,11 @@ dashboard — a KPI row over four detail sections — and covers four axes: prof
 from the crate's existing `state.validation` — it does **not** re-run the SHACL validator, so the
 embed adds no validation cost to export — validation stays a separate step), FAIR indicators rolled
 up into F/A/I/R pillars + DSM level (`assess_fair_maturity`), OECD MIT coverage
-(`assess_mit_coverage`), and a derived reproducibility-readiness checklist.
+(`assess_mit_coverage`), and a derived reproducibility-readiness checklist. The MIT axis keeps the
+aggregate score as the headline and additionally breaks coverage out per guidance document (#491):
+each checklist parameter's `standards` map buckets it under the documents that require it
+(`MITReport.standard_scores`, labels from `MIT_STANDARD_LABELS`); documents overlap, so the
+per-document rows deliberately do not sum to the checklist total.
 
 Profile adherence is reported across the three SHACL severity tiers **Required / Recommended /
 Optional** (#306). The report must not lie about unassessed tiers: the fast in-loop path

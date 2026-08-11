@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -12,8 +12,6 @@ from builder.state import CrateState, ValidationReport
 from builder.tools.builder import build_crate, export_crate
 from builder.writers.maturity_report import REPORT_FILENAME, build_maturity_html
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
-
-
 
 # Every test here exports a crate, and each export now runs the uncached,
 # owlrl-heavy validator over all three profiles at the full severity gate (#446)
@@ -90,6 +88,36 @@ class TestBuildMaturityHtml:
         page = build_maturity_html(state)
         assert "<script>alert(1)</script>" not in page
         assert "&lt;script&gt;" in page
+
+    def test_mit_guidance_document_breakdown_rendered(self) -> None:
+        """#491: under the module rows, the MIT section breaks coverage out per
+        guidance document — display label AND a computed x/y fraction per row
+        (label-only assertions are the trap ``test_sections_present`` names),
+        with the aggregate headline untouched and an explicit overlap note."""
+        import re
+
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        for label in (
+            "OECD GD 211",
+            "LINCS",
+            "ToxTemp",
+            "Nature",
+            "OECD GD 34",
+            "OECD GD 417",
+            "IUCLID OHT 201",
+        ):
+            m = re.search(
+                re.escape(label) + r'</div>.*?(\d+)<span class="den">/(\d+)</span>',
+                page,
+                re.S,
+            )
+            assert m, f"no per-document row for {label}"
+            assert int(m.group(2)) > 0, f"{label} denominator is zero"
+        # The aggregate stays the headline; the split is additive detail.
+        assert "OECD MIT coverage" in page
+        # Documents overlap — one parameter can serve several — so the note
+        # that rows don't sum is part of the contract, not decoration.
+        assert "do not sum" in page
 
 
 class TestEmbeddedInCrate:
