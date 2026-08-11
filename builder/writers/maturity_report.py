@@ -463,15 +463,8 @@ def _suggestion_items(val: ValidationReport) -> list[str]:
     RECOMMENDED or OPTIONAL finding is the point of assessing it — a crate whose
     author can see the twelve things that would make it better is more likely to
     get them than one told only that it clears the bar. REQUIRED findings stay
-    first and uncapped.
-
-    The advisory tiers are capped so the section stays readable, but the cap
-    HIDES rather than discards: the remainder goes behind a disclosure. A count
-    on its own ("+232 further recommended findings not listed here") tells an
-    author there is more without telling them what, which is the one thing they
-    cannot act on — and the report is the only place those findings are shown.
-    ``<details>`` keeps that a click away and costs no script, so the page stays
-    self-contained and offline.
+    first and uncapped; the advisory tiers are capped, and a cap that bites says
+    how many it hid rather than trailing off silently.
     """
     esc = html.escape
     tiers: list[tuple[str, list[str], str]] = [
@@ -486,15 +479,11 @@ def _suggestion_items(val: ValidationReport) -> list[str]:
         cap = _SUGGESTION_CAPS[tier]
         shown = issues if cap is None else issues[:cap]
         items.extend(template.format(msg=esc(msg)) for msg in shown)
-        hidden = issues[len(shown) :]
+        hidden = len(issues) - len(shown)
         if hidden:
-            rest = "".join(template.format(msg=esc(msg)) for msg in hidden)
-            noun = "finding" if len(hidden) == 1 else "findings"
-            them = "it" if len(hidden) == 1 else "them"
             items.append(
-                f'<li class="more"><details class="more-d">'
-                f"<summary>+{len(hidden)} further {tier} {noun} — show {them}</summary>"
-                f'<ul class="more-list">{rest}</ul></details></li>'
+                f'<li class="more">+{hidden} further {tier} '
+                f"{'finding' if hidden == 1 else 'findings'} not listed here</li>"
             )
     return items
 
