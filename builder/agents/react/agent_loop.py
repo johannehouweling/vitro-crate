@@ -73,6 +73,7 @@ def _raise_if_invocation_cancelled() -> None:
     if event is not None and event.is_set():
         raise _InvocationCancelled("model invocation was cancelled after timeout")
 
+
 _DIAGNOSTIC_MAX_CHARS = 1200
 _SENSITIVE_DIAGNOSTIC_RE = re.compile(
     r"(?i)(?:bearer\s+|api[_ -]?key\s*[:=]\s*|authorization\s*[:=]\s*|cookie\s*[:=]\s*)[^\s,;]+"
@@ -402,9 +403,7 @@ def _run_validation_escalation(
 
     # This call is synchronous: the optional prompt cannot be reached until the
     # recommended validator has returned and its state writeback is complete.
-    recommended = engine.run_tool(
-        "build_and_validate", severity="recommended", profile="all"
-    )
+    recommended = engine.run_tool("build_and_validate", severity="recommended", profile="all")
     if not isinstance(recommended, dict) or "error" in recommended:
         setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
         detail = recommended.get("error") if isinstance(recommended, dict) else None
@@ -415,14 +414,10 @@ def _run_validation_escalation(
 
     recommended_issues = recommended.get("issues") or []
     recommended_status = (
-        f"{len(recommended_issues)} finding(s)"
-        if recommended_issues
-        else "no findings"
+        f"{len(recommended_issues)} finding(s)" if recommended_issues else "no findings"
     )
     summary: dict[str, Any] = {
-        "recommended": _escalation_tier_summary(
-            recommended, engine.state.validation.should_issues
-        ),
+        "recommended": _escalation_tier_summary(recommended, engine.state.validation.should_issues),
         "note": _ESCALATION_REPORT_NOTE,
     }
     # The recommended result can be unsuccessful because it found SHOULD issues;
@@ -461,6 +456,7 @@ def _run_validation_escalation(
         summary["optional"] = {"status": "declined_by_user"}
     setattr(engine, _VALIDATION_ESCALATION_FP_FLAG, fingerprint)
     return summary
+
 
 # ---------------------------------------------------------------------------
 # Issue #287 Fix B: loop-breaker for repeated non-progress tool calls
@@ -516,6 +512,44 @@ _STATE_QUERY_TOOLS = frozenset(
 )
 _STATE_QUERY_SEEN_FLAG = "_state_query_seen_fingerprints"
 
+# Registry lookups. Unlike a state query, a lookup's answer does not depend on
+# the crate AT ALL — it is a pure function of its arguments against an external
+# registry — so this guard keys on (name, args) with NO fingerprint. Keying on
+# state would be actively wrong here: one profiled loop re-issued the same
+# lookup_orcid eight times while drafting people in between, and every one of
+# those drafts would have reset a fingerprinted guard.
+#
+# Suppression starts at the FIRST repeat, not the third. For a state query a
+# repeat is merely pointless; for a lookup the identical answer is already in
+# the model's context verbatim, and nothing it can do will change it. The
+# observed run served seven repeats from cache in 0.0s each and still paid a
+# full ~6s model turn for every one — ~42s producing nothing. The guard hands
+# the previous answer straight back rather than only scolding, because the
+# model asked again precisely because it had lost track of it.
+#
+# `tests/test_lookup_repeat_guard.py` pins this set against the registered
+# tools, so a new lookup_* cannot quietly fall outside it.
+_LOOKUP_TOOLS = frozenset(
+    {
+        "lookup_compound",
+        "lookup_cell_line",
+        "lookup_cell_line_by_name",
+        "lookup_aop",
+        "lookup_bao_term",
+        "lookup_ontology_term",
+        "lookup_unit",
+        "lookup_dtxsid",
+        "lookup_orcid",
+        "lookup_ror",
+        "lookup_doi",
+    }
+)
+# Distinct from `_LOOKUP_SEEN_FLAG` below, which records WHETHER a lookup counted
+# as progress (a set of signatures, read by the idle ladder). This holds the
+# ANSWER itself, so a repeat can be served from it. Two names, two shapes, one
+# subject — keeping them apart matters: they are stored on the same engine object.
+_LOOKUP_ANSWER_FLAG = "_lookup_seen_answers"
+
 # Repeats of one query against one unchanged state before the turn ends. Two
 # warnings, then hand control back — the same escalation the other guards use,
 # because a corrective the model can bounce off is not a stop.
@@ -564,6 +598,7 @@ def _self_continue_directive(outstanding: list[str]) -> str:
         "needs the user (a licence, who owns the crate), ask that one question."
     )
 
+
 # --- one strike per model DECISION, not per tool call ------------------------
 # The model emits tool calls in parallel batches — 3 to 6 per decision is normal,
 # 16 has been observed. Counting each call separately meant a single decision
@@ -591,6 +626,8 @@ def _current_decision() -> int:
     """The id of the decision whose tool calls are running now."""
     with _decision_lock:
         return _decision_id
+
+
 # Nudge, then nudge harder, then hand back. The old shape spent SIX calls
 # saying nothing before the first warning and then repeated one generic
 # sentence — a model that has stopped making progress needs a different
@@ -670,6 +707,8 @@ def _validation_tier_counts(engine: AgentEngine) -> str:
     if "optional" in tiers:
         parts.append(f"OPTIONAL issues: {len(v.may_issues)}.")
     return " ".join(parts)
+
+
 _MUTATION_TOOLS = frozenset(
     {
         "set_fields",
@@ -1239,9 +1278,7 @@ def _record_mutation_cycle(
     # the fingerprints its siblings had just written.
     target = _mutation_target(tool_name, kwargs)
     with _MUTATION_HISTORY_LOCK:
-        histories: dict[str, list[str]] = dict(
-            getattr(engine, _MUTATION_HISTORY_FLAG, None) or {}
-        )
+        histories: dict[str, list[str]] = dict(getattr(engine, _MUTATION_HISTORY_FLAG, None) or {})
         history = list(histories.get(target, []))
         revisited = fingerprint in history
         history.append(fingerprint)
@@ -1400,9 +1437,7 @@ def _is_new_fact(
     # Holds whichever key was used: the (name, args) signature when the caller
     # has one, else the bare tool name. Annotating it `set[str]` described only
     # the fallback.
-    seen: set[tuple[str, tuple[Any, ...]] | str] = (
-        getattr(engine, _LOOKUP_SEEN_FLAG, None) or set()
-    )
+    seen: set[tuple[str, tuple[Any, ...]] | str] = getattr(engine, _LOOKUP_SEEN_FLAG, None) or set()
     key: tuple[str, tuple[Any, ...]] | str = signature or tool_name
     if key in seen:
         return False
@@ -1610,6 +1645,69 @@ def _guard_state_query(
     )
 
 
+def _lookup_is_retryable(result: Any) -> bool:
+    """Whether a lookup result is a TRANSIENT failure and so worth asking again.
+
+    The lookup layer marks a timeout / 429 / 5xx with ``transient=True`` for
+    exactly this reason, and its own caches decline to store those. The guard
+    follows the same rule: a momentary outage must never be frozen into a
+    permanent "you already asked that".
+    """
+    return isinstance(result, dict) and bool(result.get("transient"))
+
+
+def _remember_lookup(engine: AgentEngine, signature: tuple[str, tuple], result: Any) -> None:
+    """Record a lookup's answer so a repeat can be served from it."""
+    if _lookup_is_retryable(result):
+        return
+    seen = dict(getattr(engine, _LOOKUP_ANSWER_FLAG, None) or {})
+    seen[signature] = result
+    setattr(engine, _LOOKUP_ANSWER_FLAG, seen)
+
+
+def _guard_repeated_lookup(
+    engine: AgentEngine,
+    tool_name: str,
+    kwargs: dict[str, Any],
+    signature: tuple[str, tuple],
+) -> str | None:
+    """Hand back the answer a lookup already gave, instead of asking again.
+
+    Returns the corrective, or ``None`` when this lookup is new (or its last
+    answer was a transient failure) and should run normally.
+    """
+    seen = getattr(engine, _LOOKUP_ANSWER_FLAG, None) or {}
+    if signature not in seen:
+        return None
+
+    previous = seen[signature]
+    _log_suppressed(engine, tool_name, "lookup_already_answered", kwargs)
+    logger.info("Suppressed repeated %s — the answer has not changed", signature)
+
+    args = ", ".join(f"{k}={v!r}" for k, v in sorted(kwargs.items()))
+    corrective = (
+        f"{tool_name}({args}) has already been answered in this run. A lookup does not "
+        "depend on the crate, so nothing you have done since can change it — asking "
+        "again returns exactly this:\n\n"
+        f"{previous!r}\n\n"
+    )
+    if isinstance(previous, dict) and previous.get("fix"):
+        # The lookup failed definitively and already said what to do instead;
+        # repeat that rather than inventing a second, weaker instruction.
+        corrective += f"{previous['fix']}\n\nDo that now."
+    elif isinstance(previous, dict) and previous.get("found") is False:
+        corrective += (
+            "This is a definitive not-found. Record what you do know without the "
+            "identifier, or ask the user — do not look it up again."
+        )
+    else:
+        corrective += (
+            "Use that value in your next call. Your next call must CHANGE something "
+            "— draft, link, attach, set a field — or answer the user."
+        )
+    return corrective
+
+
 def _log_suppressed(
     engine: AgentEngine, tool_name: str, reason: str, kwargs: dict[str, Any]
 ) -> None:
@@ -1715,9 +1813,7 @@ def _record_recent_mutation(engine: AgentEngine, result: Any) -> None:
     entity = result
     if isinstance(result, dict):
         entity = (
-            result.get("entity")
-            or result.get("updated_entity")
-            or result.get("created_entity")
+            result.get("entity") or result.get("updated_entity") or result.get("created_entity")
         )
     if not hasattr(entity, "entity_id") or not hasattr(entity, "type"):
         return
@@ -1741,11 +1837,13 @@ def _format_compact_state_summary(engine: AgentEngine, *, limit: int = 8) -> str
             (entity.type, entity.entity_id, str(entity.fields.get("name", ""))[:60])
             for entity in entities[-limit:]
         ]
-        recent_text = ", ".join(
-            f"{entity_type}:{entity_id}"
-            + (f" ({name})" if name else "")
-            for entity_type, entity_id, name in recent
-        ) or "none"
+        recent_text = (
+            ", ".join(
+                f"{entity_type}:{entity_id}" + (f" ({name})" if name else "")
+                for entity_type, entity_id, name in recent
+            )
+            or "none"
+        )
         validation = engine.state.validation
         status = (
             f"base={'pass' if validation.base_passed else 'fail'}, "
@@ -1880,9 +1978,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # reach the tool function as unexpected keywords and raise a
                 # TypeError, turning a harmless status query into a failed call.
                 if kwargs and not declared.intersection(kwargs):
-                    kwargs = {
-                        k: v for k, v in kwargs.items() if k not in ("args", "kwargs")
-                    }
+                    kwargs = {k: v for k, v in kwargs.items() if k not in ("args", "kwargs")}
                 # An explicit null is the model saying "not specified", but it
                 # reaches the tool as a real None and overwrites the parameter's
                 # default: `list_scanned_files(offset=None)` raised
@@ -1913,9 +2009,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                 # a weak model stops looping (it ignored #281's directory message
                 # and looped ~36×). Distinct calls / a single retry never trip this.
                 signature = _call_signature(tool_name, kwargs)
-                deflected = _guard_human_question(
-                    engine, tool_name, kwargs, progress_before
-                )
+                deflected = _guard_human_question(engine, tool_name, kwargs, progress_before)
                 if deflected is not None:
                     return _track_progress(
                         engine, tool_name, progress_before, deflected, signature=signature
@@ -1924,7 +2018,20 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     query_answer = _guard_state_query(engine, tool_name, kwargs, signature)
                     if query_answer is not None:
                         return _track_progress(
-                            engine, tool_name, progress_before, query_answer,
+                            engine,
+                            tool_name,
+                            progress_before,
+                            query_answer,
+                            signature=signature,
+                        )
+                if tool_name in _LOOKUP_TOOLS:
+                    known = _guard_repeated_lookup(engine, tool_name, kwargs, signature)
+                    if known is not None:
+                        return _track_progress(
+                            engine,
+                            tool_name,
+                            progress_before,
+                            known,
                             signature=signature,
                         )
                 if tool_name == "list_entities":
@@ -1942,7 +2049,9 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # is short-circuited and the model is steered elsewhere.
                     _log_suppressed(engine, tool_name, "loop_breaker", kwargs)
                     return _track_progress(
-                        engine, tool_name, progress_before,
+                        engine,
+                        tool_name,
+                        progress_before,
                         _loop_breaker_intervention(engine, tool_name),
                     )
 
@@ -2052,9 +2161,9 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         bv_fp = engine.state.validation_fingerprint()
                     except Exception:  # noqa: BLE001 — the guard must never block a call.
                         bv_fp = None
-                    bv_seen: dict[tuple[str, str], tuple[str, int]] = getattr(
-                        engine, _BUILD_VALIDATE_SEEN_FLAG, None
-                    ) or {}
+                    bv_seen: dict[tuple[str, str], tuple[str, int]] = (
+                        getattr(engine, _BUILD_VALIDATE_SEEN_FLAG, None) or {}
+                    )
                     bv_entry = bv_seen.get(bv_sig)
                     # Suppress when THIS scope has already been validated against
                     # THIS state, whatever ran in between — alternating scopes is
@@ -2106,8 +2215,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                                 "no state change, so no new result is possible. "
                             )
                         corrective = (
-                            opener
-                            + f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
+                            opener + f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
                             f"isa={'pass' if v.isa_passed else 'fail'}, "
                             f"tox={'pass' if v.tox_passed else 'fail'}. "
                             f"{_validation_tier_counts(engine)} "
@@ -2122,9 +2230,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                             "validation. Validation re-runs automatically once the "
                             "state actually changes."
                         )
-                        return _track_progress(
-                            engine, tool_name, progress_before, corrective
-                        )
+                        return _track_progress(engine, tool_name, progress_before, corrective)
                     if bv_fp is not None:
                         # Record BEFORE running: validation never mutates entities
                         # or metadata (the #153 write-back only touches
@@ -2171,6 +2277,12 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # Genuinely fatal errors (SystemExit, KeyboardInterrupt) are
                     # intentionally NOT caught so they propagate normally.
                     result = {"error": str(exc), "tool": tool_name}
+                else:
+                    if tool_name in _LOOKUP_TOOLS:
+                        # Only a call that actually reached the registry is worth
+                        # remembering; the except-branch above is a tool-body bug,
+                        # not an answer.
+                        _remember_lookup(engine, signature, result)
                 finally:
                     if tool_name in _MUTATION_TOOLS:
                         with _MUTATION_HISTORY_LOCK:
@@ -3030,11 +3142,7 @@ def _build_system_prompt_with_state(
     weak model is steered to the next concrete step instead of stalling once the
     obvious entities exist.
     """
-    brief = (
-        f"[Session: {session_id} | "
-        f"Files: {file_count} | "
-        f"Entities: {entity_count} | "
-    )
+    brief = f"[Session: {session_id} | Files: {file_count} | Entities: {entity_count} | "
     if document_count:
         brief += f"Documents: {document_count} | "
     brief += f"Iteration: {iteration_count}]"
@@ -3170,9 +3278,8 @@ def _format_user_answers(engine: AgentEngine, *, limit: int = 8) -> str:
         f"- asked: {item.get('question', '')[:160]}\n  answered: {item.get('answer', '')[:160]}"
         for item in answers[-limit:]
     ]
-    return (
-        "\n[Already answered by the user — do NOT ask these again; act on them]\n"
-        + "\n".join(lines)
+    return "\n[Already answered by the user — do NOT ask these again; act on them]\n" + "\n".join(
+        lines
     )
 
 
@@ -3275,8 +3382,7 @@ def _handback_panel(engine: AgentEngine, *, headline: str) -> Any:
     lines.append("\n[bold]Your call[/bold] — reply with one of:")
     lines.extend(f"  [bold]{word}[/bold][dim] — {why}[/dim]" for word, why in options)
     lines.append(
-        "[dim]  …or redirect me: name what to work on, what to skip, or what I got "
-        "wrong.[/dim]"
+        "[dim]  …or redirect me: name what to work on, what to skip, or what I got wrong.[/dim]"
     )
 
     return Panel(
@@ -3962,9 +4068,7 @@ def run_interactive_agent(
         if outcome == "ok":
             return
         checkpoint_generation += 1
-        checkpoint_thread_id = (
-            f"{engine.state.session_id}:recovered-{checkpoint_generation}"
-        )
+        checkpoint_thread_id = f"{engine.state.session_id}:recovered-{checkpoint_generation}"
         # INFO, not WARNING: rotating is the designed response to a turn that
         # did not finish cleanly, and most non-ok outcomes are themselves
         # deliberate (a loop guard stopping the turn, a time or step limit). The
@@ -4084,14 +4188,10 @@ def run_interactive_agent(
         lines: list[str] = []
         if val.required_issues:
             blocking = f"[red]{len(val.required_issues)} REQUIRED issue(s)[/red]"
-            lines.append(
-                f"  • [cyan]what is still missing?[/cyan] — {blocking} block conformance"
-            )
+            lines.append(f"  • [cyan]what is still missing?[/cyan] — {blocking} block conformance")
             lines.append("  • [cyan]fix the required issues[/cyan] — I'll work through them")
         elif not (val.base_passed and val.isa_passed and val.tox_passed):
-            nxt = (
-                "base" if not val.base_passed else "ISA" if not val.isa_passed else "ISA-Tox"
-            )
+            nxt = "base" if not val.base_passed else "ISA" if not val.isa_passed else "ISA-Tox"
             lines.append(f"  • [cyan]validate[/cyan] — {nxt} does not pass yet")
         else:
             lines.append("  • [cyan]export the crate[/cyan] — all three profiles pass")
@@ -4184,8 +4284,7 @@ def run_interactive_agent(
                 engine.profiler.log_event(**diagnostic_record)
         if verbose and outcome == "error" and greeting_diagnostic:
             console.print(
-                "[yellow]Legacy greeting error[/yellow]: "
-                f"{greeting_diagnostic['exception_chain']}"
+                f"[yellow]Legacy greeting error[/yellow]: {greeting_diagnostic['exception_chain']}"
             )
             if greeting_diagnostic["traceback_tail"]:
                 console.print(
