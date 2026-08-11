@@ -6,9 +6,6 @@
   --good:#0ca30c; --good-ink:#0a7d0a; --warn:#fab219; --warn-ink:#8a6500;
   --low:#d03b3b; --low-ink:#b3261e; --na-a:#e6ebeb; --na-b:#f3f6f6; --na-ink:#7a8688;
   --cov:#0e7c86; --track:#e6ebeb;
-  --cat-process:#2a78d6; --cat-material:#008300; --cat-data:#c0407a; --cat-chemical:#9a5b00;
-  --cat-agent:#7a3fc4; --cat-org:#4b5a94; --cat-container:#3f51a8;
-  --cat-protocol:#0a7f8c; --cat-annotation:#8a6fb0; --cat-publication:#b03a5b;
   --edge-object:#8a9698; --edge-result:#0e7c86;
   color-scheme: light;
   background:var(--page); color:var(--ink);
@@ -163,17 +160,17 @@
 .mat .prov-scroll { overflow-x:auto; padding-bottom:.3rem; }
 .mat svg.prov { display:block; width:100%; min-width:44rem; height:auto; }
 .mat .prov .n { stroke-width:1.7; }
-.mat .prov .n-process { fill:var(--accent-soft); stroke:var(--cat-process); }
-.mat .prov .n-material { fill:var(--surface-2); stroke:var(--cat-material); }
-.mat .prov .n-data { fill:var(--surface-2); stroke:var(--cat-data); }
-.mat .prov .n-ctx { fill:var(--surface-2); stroke:var(--muted); }
+/* Per-category fills, outlines and tile colours are generated from the one
+   registry in `provenance_dag.CATEGORY_STYLES` and substituted here, so no view
+   can be given a colour the others do not know about. */
+__CATEGORY_STYLES__
 .mat .prov .fold { fill:color-mix(in srgb,var(--cat-data) 22%,transparent); stroke:none; }
+/* Secondary marks — the small glyphs that tell two same-coloured outlines
+   apart. They inherit their category's colour from the outline beside them. */
+.mat .prov .figure { fill:none; stroke:var(--cat-agent); stroke-width:1.3; }
+.mat .prov .rule { stroke:var(--cat-publication); stroke-width:1.2; opacity:.7; }
 .mat .prov .name { fill:var(--ink); font-size:11.5px; text-anchor:middle; font-weight:520; }
 .mat .prov .tag { font-size:8px; text-anchor:middle; font-weight:700; letter-spacing:.04em; }
-.mat .prov .tag-process { fill:var(--cat-process); }
-.mat .prov .tag-material { fill:var(--cat-material); }
-.mat .prov .tag-data { fill:var(--cat-data); }
-.mat .prov .tag-ctx { fill:var(--muted); }
 .mat .prov .e { fill:none; stroke-width:1.6; }
 .mat .prov .e-object { stroke:var(--edge-object); stroke-dasharray:4 3; }
 .mat .prov .e-result { stroke:var(--edge-result); }
@@ -187,6 +184,14 @@
 /* The badge stands in for a swatch, so it is sized to sit on the same optical
    line as the drawn ones rather than inheriting the legend's smaller text. */
 .mat .prov-legend .lg-badge { font-size:.95rem; line-height:1; }
+/* Legend swatches are the diagram's own geometry shrunk by a viewBox, so the
+   stroke shrinks with it — these widths are in the node's coordinate space
+   (138x48) and land at roughly 1.5px once scaled. Without them the outline that
+   carries the category colour would render at a third of a pixel. */
+.mat svg.prov.lg-sw { display:inline-block; width:30px; height:12px; min-width:0;
+  vertical-align:-1px; flex:none; }
+.mat .prov.lg-sw .n { stroke-width:7; }
+.mat .prov.lg-sw .bars, .mat .prov.lg-sw .figure, .mat .prov.lg-sw .rule { stroke-width:5; }
 
 /* graph views — CSS-only tabs. The report is a self-contained offline artifact
    with no script, so the tabs are radio inputs plus `:checked ~` sibling rules;
@@ -238,38 +243,26 @@
    only shrink when the page is narrower. Stretching them to the chain's
    44rem floor would upscale a small diagram several times over. */
 .mat svg.prov.view { width:auto; min-width:0; max-width:100%; height:auto; }
-.mat .prov .n-chem { fill:color-mix(in srgb,var(--cat-chemical) 9%,var(--surface-2));
-  stroke:var(--cat-chemical); }
-.mat .prov .tag-chem { fill:var(--cat-chemical); }
-/* A compound the crate never links to a process: dashed outline + alarm colour,
-   so "described but unreachable" never reads like a wired one. */
-.mat .prov .n-chem.unwired { fill:color-mix(in srgb,var(--low) 7%,var(--surface-2));
-  stroke:var(--low); stroke-dasharray:5 3; }
-.mat .prov .tag-chem.unwired { fill:var(--low-ink); }
 .mat .prov .e-link { stroke:var(--edge-result); }
 .mat .prov .mk-link { fill:var(--edge-result); }
 .mat .prov .e-break { stroke:var(--low); stroke-dasharray:4 3; }
 .mat .prov .brk { fill:var(--low-ink); font-size:11px; font-weight:700; text-anchor:end; }
 .mat .prov .brk.start { text-anchor:start; }
-/* people & organisations */
-.mat .prov .n-agent { fill:color-mix(in srgb,var(--cat-agent) 9%,var(--surface-2));
-  stroke:var(--cat-agent); }
-.mat .prov .tag-agent { fill:var(--cat-agent); }
-.mat .prov .n-org { fill:color-mix(in srgb,var(--cat-org) 9%,var(--surface-2));
-  stroke:var(--cat-org); }
-.mat .prov .tag-org { fill:var(--cat-org); }
-.mat .prov .n-container { fill:color-mix(in srgb,var(--cat-container) 9%,var(--surface-2));
-  stroke:var(--cat-container); }
-.mat .prov .tag-container { fill:var(--cat-container); }
 .mat .prov .bars { stroke:var(--cat-container); stroke-width:1.2; fill:none; opacity:.75; }
 /* Every node shape needs its own unwired state, or an unreachable entity renders
-   identically to a correctly linked one. */
-.mat .prov .n-material.unwired, .mat .prov .n-container.unwired,
-.mat .prov .n-agent.unwired, .mat .prov .n-org.unwired {
+   identically to a correctly linked one. Written against the shared `.n` / `.tag`
+   classes rather than per category: the list this replaced named four of the ten
+   categories, so a compound was the only unreachable thing that looked it. The
+   extra class beats the generated per-category rule on specificity. */
+.mat .prov .n.unwired {
   fill:color-mix(in srgb,var(--low) 7%,var(--surface-2)); stroke:var(--low);
   stroke-dasharray:5 3; }
-.mat .prov .tag-material.unwired, .mat .prov .tag-container.unwired,
-.mat .prov .tag-agent.unwired, .mat .prov .tag-org.unwired { fill:var(--low-ink); }
+.mat .prov .tag.unwired { fill:var(--low-ink); }
+/* The secondary marks belong to the outline they sit on, so they go with it.
+   The fold is filled rather than stroked, hence the second rule. */
+.mat .prov .n.unwired ~ .bars, .mat .prov .n.unwired ~ .figure,
+.mat .prov .n.unwired ~ .rule { stroke:var(--low); }
+.mat .prov .n.unwired ~ .fold { fill:color-mix(in srgb,var(--low) 22%,transparent); }
 .mat .chem-tbl th[scope="row"] .ty { font-size:.68rem; color:var(--muted);
   text-transform:uppercase; letter-spacing:.05em; }
 .mat .prov .elabel { fill:var(--muted); font-size:8.5px; text-anchor:middle;
@@ -321,33 +314,6 @@
   border:1px solid; }
 .mat .prov-legend .lg .ov-key.orphan { background:color-mix(in srgb,var(--low) 14%,transparent);
   border-color:var(--low); border-style:dashed; }
-.mat .cat-container { fill:color-mix(in srgb,var(--cat-container) 26%,var(--surface));
-  stroke:var(--cat-container); background:color-mix(in srgb,var(--cat-container) 26%,#fff);
-  border-color:var(--cat-container); }
-.mat .cat-process { fill:color-mix(in srgb,var(--cat-process) 26%,var(--surface));
-  stroke:var(--cat-process); background:color-mix(in srgb,var(--cat-process) 26%,#fff);
-  border-color:var(--cat-process); }
-.mat .cat-protocol { fill:color-mix(in srgb,var(--cat-protocol) 26%,var(--surface));
-  stroke:var(--cat-protocol); background:color-mix(in srgb,var(--cat-protocol) 26%,#fff);
-  border-color:var(--cat-protocol); }
-.mat .cat-material { fill:color-mix(in srgb,var(--cat-material) 26%,var(--surface));
-  stroke:var(--cat-material); background:color-mix(in srgb,var(--cat-material) 26%,#fff);
-  border-color:var(--cat-material); }
-.mat .cat-chemical { fill:color-mix(in srgb,var(--cat-chemical) 26%,var(--surface));
-  stroke:var(--cat-chemical); background:color-mix(in srgb,var(--cat-chemical) 26%,#fff);
-  border-color:var(--cat-chemical); }
-.mat .cat-data { fill:color-mix(in srgb,var(--cat-data) 26%,var(--surface));
-  stroke:var(--cat-data); background:color-mix(in srgb,var(--cat-data) 26%,#fff);
-  border-color:var(--cat-data); }
-.mat .cat-agent { fill:color-mix(in srgb,var(--cat-agent) 26%,var(--surface));
-  stroke:var(--cat-agent); background:color-mix(in srgb,var(--cat-agent) 26%,#fff);
-  border-color:var(--cat-agent); }
-.mat .cat-publication { fill:color-mix(in srgb,var(--cat-publication) 26%,var(--surface));
-  stroke:var(--cat-publication); background:color-mix(in srgb,var(--cat-publication) 26%,#fff);
-  border-color:var(--cat-publication); }
-.mat .cat-annotation { fill:color-mix(in srgb,var(--cat-annotation) 22%,var(--surface));
-  stroke:var(--cat-annotation); background:color-mix(in srgb,var(--cat-annotation) 22%,#fff);
-  border-color:var(--cat-annotation); }
 
 /* graph-topology strip (relocated here from the header) */
 .mat .comp { display:flex; flex-wrap:wrap; gap:.5rem .9rem; align-items:center;
