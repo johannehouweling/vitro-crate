@@ -115,9 +115,7 @@ def _split_named_list(state: CrateState, value: Any) -> list[str] | None:
     matched = sum(1 for name, out in zip(names, resolved, strict=True) if out != name)
     if not matched:
         return None  # nothing recognised — leave the original string untouched
-    logger.info(
-        "Split a %d-name list into references (%d matched an entity)", len(names), matched
-    )
+    logger.info("Split a %d-name list into references (%d matched an entity)", len(names), matched)
     return resolved
 
 
@@ -290,6 +288,57 @@ def resolve_entity_id(state: CrateState, raw: str) -> str:
     return raw
 
 
+def entity_not_found_message(state: CrateState, entity_id: str, *, limit: int = 3) -> str:
+    """ "Entity not found", plus the ids it was most likely reaching for.
+
+    Ids are minted by the drafting tools from the entity's name, which makes them
+    look derivable — so the model rebuilds them from the pattern instead of
+    copying the value the tool handed back. It gets them nearly right:
+
+        passed  proc_cell_culture_for_sk_n_as_cell_culture_for_thyroid_receptor_transactivation
+        exists  proc_sk_n_as_cell_culture_for_thyroid_receptor_transactivation
+
+    (``proc_cell_culture_for_`` bolted onto an id that already began that way),
+    and
+
+        passed  proc_analysis_of_radioactive_t3t4_transporter_assay
+        exists  proc_analysis_of_thyroid_hormone_uptake_counts
+                proc_radioactive_t3t4_transporter_exposure
+
+    (the subject of one step welded to the verb of another). A bare "not found"
+    then sends it hunting through ``list_entities``, which the repeat guard
+    suppresses, and the turn is spent bouncing. Naming the near misses turns that
+    into one correction.
+
+    Suggestion only — :func:`resolve_entity_id` stays exact on purpose, because
+    silently accepting the closest id would edit a DIFFERENT entity than the one
+    asked for. This tells the model what exists and lets it choose.
+    """
+    import difflib
+
+    base = f"Entity not found: {entity_id}"
+    try:
+        known = [e.entity_id for e in state.list_entities()]
+    except Exception:  # noqa: BLE001 — an error message must never raise
+        return base
+    if not known:
+        return f"{base}. The crate has no entities yet — draft one first."
+
+    close = difflib.get_close_matches(str(entity_id), known, n=limit, cutoff=0.6)
+    if not close:
+        # Nothing similar: naming a few real ids still beats a dead end, and the
+        # count tells the model whether the list it is seeing is the whole crate.
+        shown = ", ".join(known[:limit])
+        more = f" (+{len(known) - limit} more)" if len(known) > limit else ""
+        return f"{base}. Existing ids include: {shown}{more}."
+    suggestions = ", ".join(close)
+    return (
+        f"{base}. Did you mean: {suggestions}? "
+        "Ids are minted by the drafting tools — use the one they returned rather "
+        "than rebuilding it from the entity's name."
+    )
+
+
 def set_fields(
     state: CrateState,
     entity_id: str,
@@ -318,13 +367,17 @@ def set_fields(
     entity_id = resolve_entity_id(state, entity_id)
     entity = state.get_entity(entity_id)
     if entity is None:
-        raise ValueError(f"Entity not found: {entity_id}")
+        raise ValueError(entity_not_found_message(state, entity_id))
 
     supplied = dict(fields)
     fields = {
-        name: (_normalize_reference_value(
-                   state, entity_id, _materialize_property_values(state, name, value), name)
-               if is_reference_field(name) else value)
+        name: (
+            _normalize_reference_value(
+                state, entity_id, _materialize_property_values(state, name, value), name
+            )
+            if is_reference_field(name)
+            else value
+        )
         for name, value in fields.items()
     }
     _reject_fully_dropped_references(entity_id, supplied, fields)
@@ -651,8 +704,15 @@ def set_crate_metadata(
     metadata.
     """
     supplied = (
-        title, description, accession, release_date, date_modified,
-        publisher, creator, contact, license,
+        title,
+        description,
+        accession,
+        release_date,
+        date_modified,
+        publisher,
+        creator,
+        contact,
+        license,
     )
     if all(value in (None, "") for value in supplied):
         return {
@@ -678,9 +738,7 @@ def set_crate_metadata(
         m.date_modified = date_modified
     # Attribution: an entity id or a resolvable IRI, never free text — a name
     # string credits nobody a registry can resolve (D5).
-    for attr, value in (
-        ("publisher", publisher), ("creator", creator), ("contact", contact)
-    ):
+    for attr, value in (("publisher", publisher), ("creator", creator), ("contact", contact)):
         if value in (None, ""):
             continue
         if not is_resolvable_reference(state, value):
@@ -750,6 +808,8 @@ def set_validation_preference(
         "tiers_that_will_run": ["required"]
         + [tier for tier in ("recommended", "optional") if prefs.get(tier)],
     }
+
+
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------

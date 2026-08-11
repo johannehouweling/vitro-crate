@@ -1638,10 +1638,45 @@ def _guard_state_query(
     return (
         f"{tool_name} has already been answered for this exact crate state, and nothing "
         "has changed since — reading it again cannot return anything new.\n\n"
-        f"{_format_compact_state_summary(engine)}\n\n"
-        "Use the state summary above (it is included in every message) instead of "
-        "re-querying. Your next call must CHANGE something — draft, link, attach, "
-        "set a field — or answer the user."
+        f"{_format_compact_state_summary(engine)}"
+        f"{_suppressed_query_answer(engine, tool_name, kwargs)}\n\n"
+        "Use the answer above instead of re-querying. Your next call must CHANGE "
+        "something — draft, link, attach, set a field — or answer the user."
+    )
+
+
+def _suppressed_query_answer(engine: AgentEngine, tool_name: str, kwargs: dict[str, Any]) -> str:
+    """The ids a suppressed ``list_entities`` was asking for, so the refusal answers it.
+
+    Suppressing a read while withholding what it would have returned is what makes
+    the model bounce. It was not being stubborn: it needed an entity id to write
+    with, the ids are minted from names and only LOOK derivable, so it rebuilt one
+    from the pattern, got it subtly wrong, and went to `list_entities` to find the
+    real one. The corrective then pointed at the compact state summary — which
+    carries per-type COUNTS and at most eight recent ids, so with sixteen
+    LabProcesses the answer structurally was not in there. Four bounces per turn,
+    in every session profiled.
+
+    So the guard now hands back the list, the same way the repeated-lookup guard
+    hands back the previous answer. Only for a typed `list_entities`: `get_status`
+    and the rest are already fully answered by the summary above.
+    """
+    if tool_name != "list_entities":
+        return ""
+    wanted = kwargs.get("entity_type") or kwargs.get("type")
+    if not wanted:
+        return ""
+    try:
+        ids = [e.entity_id for e in engine.state.list_entities(str(wanted))]
+    except Exception:  # noqa: BLE001 — a corrective must never raise
+        logger.debug("could not list %s for the corrective", wanted, exc_info=True)
+        return ""
+    if not ids:
+        return f"\n\nThere are no {wanted} entities. Draft one before referring to it."
+    listed = "\n".join(f"  - {eid}" for eid in ids)
+    return (
+        f"\n\nThe {len(ids)} {wanted} id(s), which is what you asked for:\n{listed}\n"
+        "Copy one of these verbatim — do not rebuild an id from an entity's name."
     )
 
 
