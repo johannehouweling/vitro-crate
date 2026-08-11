@@ -655,6 +655,30 @@ def _clean_note(val: ValidationReport) -> str:
     return "No outstanding REQUIRED issues."
 
 
+def _payload_caveat(val: ValidationReport) -> str:
+    """Name the one question a metadata-only verdict cannot answer (#530).
+
+    Whether the crate contains the files it describes is REQUIRED by the base
+    profile and answerable only where the payload exists. A verdict computed
+    from the assembled document alone never looked, and the checks that would
+    have asked emit nothing there — so its verdict is about the metadata, not
+    about the crate.
+
+    Rendered independently of whether the crate has findings: a verdict can be
+    clean at REQUIRED, carry advisory findings, and still head the report with
+    "Conformant" — so hanging this off the no-findings note would drop it in
+    exactly the case where the green pill is doing the over-claiming. Export
+    verifies the payload and clears it.
+    """
+    if val.payload_checked:
+        return ""
+    return (
+        '<p class="lead payload-note">The crate\'s files were not checked against the '
+        "metadata — this verdict covers the metadata document only, so it cannot say "
+        "whether the crate contains the files it describes.</p>"
+    )
+
+
 def _render_profile_section(
     val: ValidationReport, tiers: list[dict[str, str]] | None, *, stale: bool = False
 ) -> str:
@@ -702,6 +726,7 @@ def _render_profile_section(
         f'  <div class="prof-grid">{cards}</div>\n'
         f"  {severity_detail}\n"
         f"  {sugg}\n"
+        f"  {_payload_caveat(val)}\n"
         "</section>\n"
     )
 
