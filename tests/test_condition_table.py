@@ -422,12 +422,37 @@ class TestTidyExportVocabulary:
         ]
         assert project_condition_rows(rows)["rows"][0]["exposure_duration"] == "48h"
 
-    def test_a_duration_unit_with_no_magnitude_writes_nothing(self) -> None:
-        # "h" on its own describes no duration, so no cell is written — and the
-        # header is not misreported as unmapped, because it WAS understood.
+    def test_a_duration_unit_with_no_magnitude_writes_nothing_and_says_so(self) -> None:
+        # "h" on its own describes no duration, so no cell is written. The header
+        # IS reported, though: the pair rule understood it and still discarded a
+        # real value, and `unmapped_source_columns` is the only channel that can
+        # tell the caller so. Suppressing it here — on the grounds that the header
+        # was "understood" — is how a two-day exposure would ship as a bare `2`
+        # with the `d` gone and nothing left to notice.
         result = project_condition_rows([{"well": "A1", "exposure_duration_unit": "h"}])
         assert "exposure_duration" not in result["rows"][0]
-        assert "exposure_duration_unit" not in result["unmapped_source_columns"]
+        assert "exposure_duration_unit" in result["unmapped_source_columns"]
+
+    def test_a_unit_orphaned_by_another_alias_is_still_reported(self) -> None:
+        # The case that makes the rule above load-bearing rather than pedantic:
+        # `exposure_time` fills `exposure_duration` through the ALIAS pass, so the
+        # pair never composes and the `d` is dropped. A 2-day exposure must not
+        # ship as "2" in silence.
+        result = project_condition_rows(
+            [{"well": "A1", "exposure_time": "2", "exposure_duration_unit": "d"}]
+        )
+        assert result["rows"][0]["exposure_duration"] == "2"
+        assert "exposure_duration_unit" in result["unmapped_source_columns"]
+
+    def test_a_blank_duration_pair_is_not_reported(self) -> None:
+        # Nothing was discarded, so there is nothing to report: an empty row is
+        # what the alias pass does with a blank value too. This is the control
+        # that stops the rule above from degenerating into "always report".
+        result = project_condition_rows(
+            [{"well": "A1", "exposure_duration_value": "", "exposure_duration_unit": ""}]
+        )
+        assert "exposure_duration" not in result["rows"][0]
+        assert result["unmapped_source_columns"] == []
 
     def test_two_aliases_for_one_column_resolve_in_source_order(self) -> None:
         # `chemical` and `test_substance_id` both mean `compound`. A row carrying
