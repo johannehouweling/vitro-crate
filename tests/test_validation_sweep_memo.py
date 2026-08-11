@@ -94,11 +94,38 @@ class TestSweepReuse:
         V.build_and_validate(state, severity="required")
         assert calls == ["optional", "required"]
 
-    def test_a_different_profile_is_its_own_sweep(self, sweeps, state):
+    def test_a_narrower_profile_is_served_from_all(self, sweeps, state):
+        """ "all" runs base + isa + tox, so it answers any single-profile ask.
+
+        This test used to assert the opposite. The memo was keyed on the profile,
+        so "all" and "base" looked like unrelated questions — and a profiled
+        session paid for six consecutive profile="base" sweeps immediately after
+        an profile="all" sweep of the identical state, none of which could hit.
+        """
         calls, _ = sweeps
         V.build_and_validate(state, severity="optional", profile="all")
         V.build_and_validate(state, severity="required", profile="tox")
-        assert calls == ["optional", "required"]
+        V.build_and_validate(state, severity="required", profile="base")
+        assert calls == ["optional"]
+
+    def test_a_wider_profile_still_runs(self, sweeps, state):
+        """A base-only sweep never ran the isa or tox passes."""
+        calls, _ = sweeps
+        V.build_and_validate(state, severity="optional", profile="base")
+        V.build_and_validate(state, severity="optional", profile="all")
+        assert calls == ["optional", "optional"]
+
+    def test_disjoint_profiles_each_run(self, sweeps, state):
+        calls, _ = sweeps
+        V.build_and_validate(state, severity="optional", profile="base")
+        V.build_and_validate(state, severity="optional", profile="tox")
+        assert calls == ["optional", "optional"]
+
+    def test_an_unknown_profile_never_matches(self, sweeps, state):
+        calls, _ = sweeps
+        V.build_and_validate(state, severity="optional", profile="all")
+        assert V._scope_covers("all", "bse") is False
+        assert calls == ["optional"]
 
 
 class TestGateFiltering:
@@ -179,4 +206,38 @@ class TestMemoHygiene:
         assert "error" in first
         V.build_and_validate(state, severity="required")
         assert calls == ["optional", "required"]
+        V.clear_sweep_memo()
+
+
+class TestScoping:
+    """A served answer must be indistinguishable from a real run at that scope."""
+
+    def test_only_the_asked_for_passes_are_reported(self, monkeypatch, state):
+        V.clear_sweep_memo()
+        calls: list[str] = []
+
+        def fake(state, *, severity, profile):
+            calls.append(profile)
+            issues = [_issue("required"), _issue("required")]
+            issues[1].profile = "tox"
+            return {}, [
+                DictValidationResult(
+                    profile="base", passed=False, passed_required=False, issues=[issues[0]]
+                ),
+                DictValidationResult(
+                    profile="tox", passed=False, passed_required=False, issues=[issues[1]]
+                ),
+            ]
+
+        monkeypatch.setattr(V, "_assemble_and_validate", fake)
+        wide = V.build_and_validate(state, severity="optional", profile="all")
+        assert {i["profile"] for i in wide["issues"]} == {"base", "tox"}
+        assert set(wide["conformance"]) == {"base", "tox"}
+
+        narrow = V.build_and_validate(state, severity="optional", profile="base")
+        assert calls == ["all"]
+        assert {i["profile"] for i in narrow["issues"]} == {"base"}
+        assert set(narrow["conformance"]) == {"base"}, (
+            "a base-scoped caller must not be handed tox conformance it never asked for"
+        )
         V.clear_sweep_memo()
