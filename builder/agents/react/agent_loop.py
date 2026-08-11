@@ -3512,6 +3512,57 @@ def _format_document_context(documents: list[dict[str, Any]] | None) -> str:
     return "\n".join(lines)
 
 
+def _call_ids(message: Any) -> list[str]:
+    """Every tool-call id on *message*, whatever shape the call objects take."""
+    ids: list[str] = []
+    for call in getattr(message, "tool_calls", None) or []:
+        cid = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+        if cid:
+            ids.append(str(cid))
+    return ids
+
+
+def _drop_unanswered_tool_calls(messages: list) -> list:
+    """Remove tool calls that never got a result, and the half-answers around them.
+
+    ``start_on="human"`` stops the trimmed window BEGINNING with an orphan, which
+    is the failure mode trimming can create. It cannot help with the other one: a
+    turn interrupted between the model's ``tool_calls`` and the tool node's
+    replies ends the history with a call nobody answered. The provider rejects
+    the entire request for it — ``No tool output found for function call …`` — so
+    a single Ctrl+C otherwise poisons every later turn of the session, and the
+    saved history carries the poison into the next run too.
+
+    Dropping the call is right rather than synthesising a result: the tool never
+    ran, so there is no outcome, and inventing one would tell the model something
+    false about the crate. When only SOME of a message's calls were answered, the
+    surviving ``ToolMessage``s go with it — a result whose call is gone is just
+    the same violation from the other side.
+    """
+    answered = {str(tid) for m in messages if (tid := getattr(m, "tool_call_id", None)) is not None}
+    doomed: set[str] = set()
+    for message in messages:
+        ids = _call_ids(message)
+        if ids and not all(cid in answered for cid in ids):
+            doomed.update(ids)
+    if not doomed:
+        return messages
+
+    kept = [
+        m
+        for m in messages
+        if not (set(_call_ids(m)) & doomed)
+        and str(getattr(m, "tool_call_id", "") or "") not in doomed
+    ]
+    logger.warning(
+        "Dropped %d message(s) for %d tool call(s) that never got a result — "
+        "usually an interrupted turn",
+        len(messages) - len(kept),
+        len(doomed),
+    )
+    return kept
+
+
 def _trim_history(messages: list, *, max_tokens: int) -> list:
     """Bound the per-turn message history so verbose tool outputs aren't replayed.
 
@@ -3527,7 +3578,9 @@ def _trim_history(messages: list, *, max_tokens: int) -> list:
        guarantees the trimmed window never *begins* with a dangling
        ``ToolMessage`` (or an ``AIMessage`` whose tool_call lost its answer),
        i.e. it never produces orphaned tool messages — the provider API rejects
-       those.
+       those. Orphans that arrive already in the history — an interrupted turn
+       leaves a tool_call nobody answered — are removed by
+       ``_drop_unanswered_tool_calls`` before either step.
 
     The leading system prompt and trailing state brief are added by
     ``_assemble_model_messages`` *around* the result, so they are intentionally
@@ -3545,7 +3598,7 @@ def _trim_history(messages: list, *, max_tokens: int) -> list:
     if not messages:
         return []
 
-    pruned = _prune_state_backed_outputs(messages)
+    pruned = _drop_unanswered_tool_calls(_prune_state_backed_outputs(messages))
 
     try:
         trimmed = trim_messages(
@@ -4391,10 +4444,22 @@ def run_interactive_agent(
             # The turn hit the recursion_limit safety net — treat as a graceful
             # end so the loop stops auto-continuing and the backstop can run.
             outcome = "recursion"
+        except BaseException:
+            # Ctrl+C is the one that matters here. Interrupting mid-turn kills the
+            # tool node between an AIMessage's tool_calls and their ToolMessages,
+            # so the checkpoint keeps a function call that was never answered.
+            # Every later turn replays it and the provider refuses the request
+            # ("No tool output found for function call …") — the exact failure
+            # `_rotate_checkpoint` exists to prevent, which never ran for an
+            # interrupt because KeyboardInterrupt is not an Exception and
+            # propagated straight past the call below.
+            outcome = "interrupt"
+            raise
         finally:
             root_logger.setLevel(old_root_level)
-
-        _rotate_checkpoint(outcome)
+            # In `finally` so EVERY exit rotates — including the interrupt above,
+            # which leaves this function without passing the old call site.
+            _rotate_checkpoint(outcome)
 
         # Flush any in-loop auto-export status lines buffered during the invoke
         # (#287 Fix A) now the spinner's Live region is gone, so "Crate written
