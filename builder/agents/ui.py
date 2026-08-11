@@ -1207,12 +1207,16 @@ def print_status_bar(engine: AgentEngine, footer: PinnedFooter | None = None) ->
 def print_resume_summary(engine: AgentEngine, *, resumed: bool) -> None:
     """Print the session summary panel when there is anything to show (both arms).
 
-    A no-op on an empty session (no entities, no scanned files) — there is nothing
-    to summarise — so callers need no guard of their own. That emptiness check is
-    about *content*; it is not a resume test. *resumed* carries provenance and is
-    mandatory precisely so no call site can fall back to inferring it from content
-    (#410) — the two are independent, and conflating them is what labelled every
-    fresh ``--input`` run a resume.
+    On an empty session (no entities, no scanned files) there is no panel to draw,
+    so it degrades to a one-line ``session <id> · model <model>`` header — the
+    model about to spend the user's money is worth stating up front. With no model
+    resolved either, it prints nothing at all, so callers still need no guard of
+    their own.
+
+    That emptiness check is about *content*; it is not a resume test. *resumed*
+    carries provenance and is mandatory precisely so no call site can fall back to
+    inferring it from content (#410) — the two are independent, and conflating
+    them is what labelled every fresh ``--input`` run a resume.
     """
     snap = snapshot_from_engine(engine)
     console = get_console()
