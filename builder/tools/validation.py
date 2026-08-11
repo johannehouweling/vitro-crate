@@ -195,6 +195,126 @@ def _assemble_and_validate(
     return metadata_doc, validate_crate_dict(metadata_doc, severity=severity, profile=profile)
 
 
+# Properties whose value is a term the crate POINTS AT rather than describes.
+# `propertyID` says which scheme an identifier belongs to, `propertyUrl` which
+# term a column means, `conformsTo` which spec a thing follows. None of them
+# assert anything about the IRI itself.
+#
+# Kept in step with `builder.tools.builder._TERM_REFERENCE_PROPERTIES`, which is
+# the same idea for the same reason on the writing side.
+_CITATION_PROPERTIES: frozenset[str] = frozenset(
+    {"propertyID", "propertyUrl", "inDefinedTermSet", "conformsTo"}
+)
+
+
+def _context_vocabulary(metadata_doc: dict[str, Any]) -> set[str]:
+    """Every IRI the crate's own ``@context`` defines a term for.
+
+    A context maps names to classes and properties — `"KeyEvent"` to
+    `https://aopwiki.org/ontology/KeyEvent`, `"has_key_event"` to
+    `…/hasKeyEvent`. Those IRIs reach the validator as types and predicates, never
+    as reference objects, so scanning the graph for `{"@id": …}` values misses
+    every one of them: on a real crate that was 47 findings asking a *property*
+    for a human-readable name.
+
+    Vocabulary by construction. A predicate is not an entity a crate can describe,
+    whoever publishes it — which is why this needs no namespace list either.
+    """
+    context = metadata_doc.get("@context")
+    entries = context if isinstance(context, list) else [context]
+    defined: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue  # a remote context reference; its terms are not ours to judge
+        for term, target in entry.items():
+            if term.startswith("@"):
+                continue  # @vocab and friends are namespaces, not terms
+            iri = target.get("@id") if isinstance(target, dict) else target
+            if isinstance(iri, str) and "://" in iri:
+                defined.add(iri)
+    return defined
+
+
+def _cited_iris(metadata_doc: dict[str, Any]) -> set[str]:
+    """External IRIs the crate CITES — points at without asserting anything about.
+
+    An RO-Crate is expected to describe what it asserts. It is not expected to
+    describe the vocabularies it references: the upstream shapes say so
+    themselves, excluding schema.org, w3.org, purl.org, bioschemas.org and urn:
+    from these very checks. That list is the one a workflow crate needs, so a
+    crate citing any other vocabulary gets findings for terms it does not own —
+    "no name", "no schema.org type", "not described in the graph" — none of which
+    can be fixed without copying data that belongs to, and is versioned by,
+    somebody else.
+
+    The obvious fix is to add the missing namespaces, and it is wrong. It fits
+    whichever crate prompted it, needs an edit for every new ontology, and cannot
+    express the case that actually matters: `https://orcid.org` is a scheme this
+    crate cites, while `https://orcid.org/0009-0000-5074-6239` is an author it
+    describes. Same prefix, opposite answers. No host list can separate them.
+
+    So this asks the crate instead. An IRI is a citation when all three hold:
+
+    * it is external — a crate-local id is always ours;
+    * the crate does not describe it — nothing in the graph gives it properties;
+    * nothing references it through a property that asserts something. Referenced
+      only via `propertyID`/`propertyUrl`/`conformsTo`, or only as a type, it is
+      vocabulary. Referenced via `author`, `hasPart` or `has_key_event`, it is an
+      entity the crate is genuinely missing, and it stays reported.
+
+    That last clause is the safety property: an author we linked but never drafted
+    is referenced via `author`, so it is NOT a citation and the finding survives.
+    Nothing the crate asserts can be silenced by this.
+
+    No namespace list, no configuration, and an ontology nobody has seen before
+    classifies correctly on first contact.
+    """
+    graph = metadata_doc.get("@graph")
+    if not isinstance(graph, list):
+        return set()
+
+    described: set[str] = set()
+    asserted: set[str] = set()  # referenced through a property that means something
+    mentioned: set[str] = set()  # referenced at all
+
+    for node in graph:
+        if not isinstance(node, dict):
+            continue
+        node_id = node.get("@id")
+        # A node carrying anything beyond its identity is described. `@type`
+        # alone is not description — a bare {"@id", "@type"} stub is exactly what
+        # these findings are about.
+        if isinstance(node_id, str) and set(node) - {"@id", "@type"}:
+            described.add(node_id)
+        for prop, value in node.items():
+            if prop in ("@id", "@type"):
+                continue
+            for item in value if isinstance(value, list) else [value]:
+                iri = item.get("@id") if isinstance(item, dict) else item
+                if not isinstance(iri, str) or "://" not in iri:
+                    continue
+                mentioned.add(iri)
+                if prop not in _CITATION_PROPERTIES:
+                    asserted.add(iri)
+
+    # The classes and properties the crate's own context defines are vocabulary
+    # too, and they never appear as reference objects — see `_context_vocabulary`.
+    return (mentioned | _context_vocabulary(metadata_doc)) - asserted - described
+
+
+def _partition_citations(
+    issues: list[dict[str, Any]], cited: set[str]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split findings into real gaps and findings about cited vocabulary."""
+    if not cited:
+        return issues, []
+    gaps, citations = [], []
+    for issue in issues:
+        entity = issue.get("entity_id") or ""
+        (citations if entity in cited else gaps).append(issue)
+    return gaps, citations
+
+
 def build_and_validate(
     state: CrateState,
     severity: str | None = "required",
@@ -247,7 +367,7 @@ def build_and_validate(
             cached[0],
             cached[1],
         )
-        return _sweep_scoped(cached[2], cached[3], profile, severity)
+        return _sweep_scoped(cached[2], cached[3], profile, severity, cached[4])
 
     try:
         # include_all_scanned=False: the auto-included scanned-file leaves (#175)
@@ -260,16 +380,16 @@ def build_and_validate(
         return {"ok": False, "conformance": {}, "issues": [], "error": str(e)}
 
     conformance = {r.profile: r.passed_required for r in results}
-    # Every finding the validator reports is reported here. We used to set aside
-    # findings whose subject was an IRI in a vocabulary namespace the crate only
-    # CITES (OBO, BAO, EFO, AOP-Wiki) — the upstream validator exempts the same
-    # category for schema.org/w3.org/Dublin Core but its list stops at the
-    # vocabularies a *workflow* crate is built from. That was a hardcoded host
-    # list: it needed an edit for every new ontology, and the need only ever
-    # surfaced as findings appearing for no visible reason. Modelling propertyID
-    # as a string rather than a node removed most of what it was compensating
-    # for; the rest is reported, consistent with showing users what is still
-    # missing rather than deciding for them that it does not count.
+    # Findings about vocabulary the crate CITES are separated from findings about
+    # what the crate ASSERTS — see `_cited_iris` for how that line is drawn, and
+    # why it is drawn from the crate's own structure rather than from a list of
+    # ontology hosts. A previous attempt at this WAS such a list, deleted in
+    # 00ca43b for needing an edit per ontology; the objection was right and it
+    # applies to any list, including one written today.
+    #
+    # Separated, not dropped: they come back under `citations`, counted, so a
+    # finding never disappears without a trace. What changes is that `issues`
+    # holds the things somebody can actually act on.
     issues: list[dict[str, Any]] = [
         {
             "entity_id": issue.entity_id,
@@ -283,13 +403,20 @@ def build_and_validate(
         for issue in result.issues
     ]
 
+    issues, citations = _partition_citations(issues, _cited_iris(metadata_doc))
+    if citations:
+        logger.info(
+            "%d finding(s) are about vocabulary this crate cites, not about the crate",
+            len(citations),
+        )
+
     if memo_key:
-        _remember_sweep(memo_key, profile, severity, conformance, issues)
+        _remember_sweep(memo_key, profile, severity, conformance, issues, citations)
 
     # Keep the original routable tool shape stable. The engine receives the
     # requested severity/profile as call arguments and routes writeback from
     # those arguments rather than expanding this public result contract.
-    return _sweep_scoped(conformance, issues, profile, severity)
+    return _sweep_scoped(conformance, issues, profile, severity, citations)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +426,9 @@ def build_and_validate(
 # computed for that state. Bounded and in-process: a crate the agent has moved on
 # from is never asked about again, so a handful of entries covers the loop's
 # back-and-forth without holding whole issue lists for a long session.
-_SWEEP_MEMO: dict[str, tuple[str, str, dict[str, bool], list[dict[str, Any]]]] = {}
+_SWEEP_MEMO: dict[
+    str, tuple[str, str, dict[str, bool], list[dict[str, Any]], list[dict[str, Any]]]
+] = {}
 _SWEEP_MEMO_MAX = 4
 
 # Which passes each `profile` argument actually runs. Mirrors the dispatch in
@@ -353,6 +482,7 @@ def _remember_sweep(
     severity: str,
     conformance: dict[str, bool],
     issues: list[dict[str, Any]],
+    citations: list[dict[str, Any]],
 ) -> None:
     """Record a sweep, keeping the widest (profile, gate) seen for this state."""
     existing = _SWEEP_MEMO.get(key)
@@ -364,7 +494,7 @@ def _remember_sweep(
         return  # what we already hold answers strictly more
     if len(_SWEEP_MEMO) >= _SWEEP_MEMO_MAX and key not in _SWEEP_MEMO:
         _SWEEP_MEMO.pop(next(iter(_SWEEP_MEMO)))
-    _SWEEP_MEMO[key] = (profile, severity, conformance, issues)
+    _SWEEP_MEMO[key] = (profile, severity, conformance, issues, citations)
 
 
 def _sweep_covers(
@@ -381,6 +511,7 @@ def _sweep_scoped(
     issues: list[dict[str, Any]],
     profile: str,
     severity: str,
+    citations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Narrow a sweep to the passes and tiers this call actually asked for.
 
@@ -405,10 +536,21 @@ def _sweep_scoped(
         if issue.get("profile") in passes
         and (issue.get("severity") not in _TIER_ORDER or issue.get("severity") in tiers)
     ]
-    gated_conformance = {
-        layer: passed for layer, passed in conformance.items() if layer in passes
+    gated_conformance = {layer: passed for layer, passed in conformance.items() if layer in passes}
+    scoped_citations = [
+        issue
+        for issue in (citations or [])
+        if issue.get("profile") in passes
+        and (issue.get("severity") not in _TIER_ORDER or issue.get("severity") in tiers)
+    ]
+    return {
+        "ok": not scoped,
+        "conformance": gated_conformance,
+        "issues": scoped,
+        # Scoped and gated exactly like `issues`, so a narrowed result is
+        # indistinguishable from a real run at that scope — citations included.
+        "citations": scoped_citations,
     }
-    return {"ok": not scoped, "conformance": gated_conformance, "issues": scoped}
 
 
 def clear_sweep_memo() -> None:
