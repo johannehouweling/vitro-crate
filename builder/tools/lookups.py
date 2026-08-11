@@ -24,6 +24,7 @@ from lookups.bao import lookup_unit as lookup_unit_ols
 from lookups.cellosaurus import lookup_cellosaurus, search_cellosaurus
 from lookups.comptox import lookup_dtxsid as lookup_dtxsid_comptox
 from lookups.crossref import lookup_doi as lookup_doi_crossref
+from lookups.orcid import is_well_formed_orcid
 from lookups.orcid import lookup_orcid as lookup_orcid_api
 from lookups.pubchem import lookup_pubchem
 from lookups.ror import search_ror
@@ -39,14 +40,26 @@ def _success(data: dict) -> dict[str, Any]:
     return {"found": True, "data": data, "error": None}
 
 
-def _failure(error: str, transient: bool = False) -> dict[str, Any]:
+def _failure(error: str, transient: bool = False, fix: str | None = None) -> dict[str, Any]:
     """Wrap a failure into the standard result format.
 
     ``transient=True`` marks a temporary outage (timeout / 429 / 5xx) as
     distinct from a definitive not-found, so callers (e.g. verify_identifier)
     can keep the user's value and retry rather than treat it as unresolved.
+
+    ``fix`` states what to DO about a definitive failure, in the same spirit as
+    the ``fix`` key on a validation issue. A bare "no" is what makes the model
+    wander: told only that a lookup failed, it has no next action and re-runs
+    the neighbouring lookups that DO succeed. One observed run re-issued the
+    same successful ORCID lookup 8 times after an adjacent one came back
+    unresolvable, burning ~42s of model turns on a cached answer it already
+    held. Omitted when the failure is transient — there the next action is
+    simply to retry, and the caller already knows that from ``transient``.
     """
-    return {"found": False, "data": {}, "error": error, "transient": transient}
+    result = {"found": False, "data": {}, "error": error, "transient": transient}
+    if fix:
+        result["fix"] = fix
+    return result
 
 
 @functools.lru_cache(maxsize=256)
@@ -431,6 +444,16 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
     Args:
         orcid_id: Bare ORCID iD, e.g. "0000-0001-6004-8653".
 
+    A malformed iD is rejected before any network call: an ORCID iD carries an
+    ISO 7064 MOD 11-2 check digit, so a transcription error is detectable
+    locally. Both definitive outcomes — malformed, and well-formed but not
+    registered — carry a ``fix`` naming the next action, because neither is
+    recoverable by retrying and the model otherwise has no exit (see
+    :func:`_failure`).
+
+    Args:
+        orcid_id: Bare ORCID iD, e.g. "0000-0001-6004-8653".
+
     Returns:
         Standard lookup dict with keys:
             found: True if ORCID record was found (always True for valid
@@ -438,7 +461,23 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
             data: Dict with @id, @type, identifier, name, givenName,
                   familyName, affiliation_name, affiliation_ror keys.
             error: Error message or None on success.
+            fix: On a definitive failure, what to do instead.
     """
+    if not is_well_formed_orcid(orcid_id):
+        # Never guess a correction: the digits identify a real person, and the
+        # nearest valid iD belongs to someone else.
+        return _failure(
+            f"'{orcid_id}' is not a valid ORCID iD — it fails the ORCID check digit, "
+            "so it was mistyped or misread rather than deregistered. No lookup was "
+            "attempted, and re-running this will not change the answer.",
+            fix=(
+                "Do not guess a corrected iD. Re-read it from the source document; if "
+                "it still does not check out, draft the person without one — "
+                "draft_person(name='...') with no orcid hint is valid and complete. "
+                "Ask the human with present_to_human only if this identifier has to be "
+                "in the crate."
+            ),
+        )
     try:
         result = lookup_orcid_api(orcid_id)
         if result and "name" in result:
@@ -446,7 +485,16 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
         # ORCID returns a fallback dict even on 404, so check for @id
         if result and result.get("@id"):
             return _success(result)
-        return _failure(f"ORCID lookup failed for '{orcid_id}'")
+        return _failure(
+            f"ORCID has no public record for '{orcid_id}'. The iD is well formed, so "
+            "this is a definitive not-found (unregistered, or the record is private) "
+            "and not a temporary outage — repeating this lookup returns the same result.",
+            fix=(
+                "Draft the person without one — draft_person(name='...') with no orcid "
+                "hint is valid and complete. Ask the human with present_to_human only if "
+                "this identifier has to be in the crate."
+            ),
+        )
     except TransientLookupError as exc:
         return _failure(f"ORCID unavailable (transient): {exc}", transient=True)
     except Exception as exc:

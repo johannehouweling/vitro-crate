@@ -214,7 +214,10 @@ def build_and_validate(
             default "required" runs only REQUIRED-severity checks (fastest);
             lower it to also surface recommendations.
         profile: "all" runs the base -> isa -> tox passes; "base"/"isa"/"tox"
-            scopes to a single pass (the tox pass dominates wall-clock).
+            scopes to a single pass. The BASE pass dominates wall-clock — on a
+            293-entity crate it is 22.9s of a 36.9s OPTIONAL sweep (62%), against
+            9.2s for tox (25%) and 4.8s for isa. Scoping to "tox" therefore saves
+            far less than scoping away from "base" would.
 
     Returns:
         ``{"ok": bool, "conformance": {layer: bool}, "issues": [issue, ...]}``
@@ -229,14 +232,25 @@ def build_and_validate(
     severity = "required" if severity is None else severity
     profile = "all" if profile is None else profile
 
+    # A sweep already computed for this exact state can answer any narrower
+    # question, because the gate is a floor and not a filter (see
+    # :func:`tiers_covered`): an OPTIONAL sweep already carries the REQUIRED and
+    # RECOMMENDED findings, so serving "required" from it is a list filter rather
+    # than 20-plus seconds of SHACL. Without this, a profiled run paid for two
+    # 40-second RECOMMENDED sweeps immediately after an export had validated the
+    # same unchanged state at OPTIONAL.
+    memo_key = _sweep_memo_key(state, profile)
+    cached = _SWEEP_MEMO.get(memo_key) if memo_key else None
+    if cached is not None and _gate_covers(cached[0], severity):
+        logger.debug("Reusing the %s sweep already computed for this state", cached[0])
+        return _sweep_at_gate(cached[1], cached[2], severity)
+
     try:
         # include_all_scanned=False: the auto-included scanned-file leaves (#175)
         # are plain File nodes that don't change the validation verdict, so we skip
         # them on this hot in-loop path to keep build_and_validate fast. export_crate
         # uses the default (True) so the written crate packages the whole dataset.
-        metadata_doc, results = _assemble_and_validate(
-            state, severity=severity, profile=profile
-        )
+        metadata_doc, results = _assemble_and_validate(state, severity=severity, profile=profile)
     except Exception as e:  # noqa: BLE001 — surface as a tool error, never crash the loop
         logger.error("build_and_validate failed: %s", e)
         return {"ok": False, "conformance": {}, "issues": [], "error": str(e)}
@@ -265,11 +279,83 @@ def build_and_validate(
         for issue in result.issues
     ]
 
-    ok = not issues
+    if memo_key:
+        _remember_sweep(memo_key, severity, conformance, issues)
+
     # Keep the original routable tool shape stable. The engine receives the
     # requested severity/profile as call arguments and routes writeback from
     # those arguments rather than expanding this public result contract.
-    return {"ok": ok, "conformance": conformance, "issues": issues}
+    return _sweep_at_gate(conformance, issues, severity)
+
+
+# ---------------------------------------------------------------------------
+# One sweep per state (#profile-20260810)
+# ---------------------------------------------------------------------------
+# Keyed on (validation fingerprint, profile) and holding the WIDEST gate computed
+# for that state. Bounded and in-process: a crate the agent has moved on from is
+# never asked about again, so a handful of entries covers the loop's back-and-forth
+# without holding whole issue lists for a long session.
+_SWEEP_MEMO: dict[tuple[str, str], tuple[str, dict[str, bool], list[dict[str, Any]]]] = {}
+_SWEEP_MEMO_MAX = 4
+
+
+def _sweep_memo_key(state: CrateState, profile: str) -> tuple[str, str] | None:
+    """Memo key for *state* at *profile*, or None when it cannot be fingerprinted."""
+    try:
+        return (state.validation_fingerprint(), profile)
+    except Exception:  # noqa: BLE001 — an un-fingerprintable state just re-runs
+        logger.debug("State could not be fingerprinted; validating without the memo")
+        return None
+
+
+def _gate_covers(have: str, want: str) -> bool:
+    """Whether a sweep run at *have* already evaluated everything *want* asks for."""
+    have_tiers = set(tiers_covered(have))
+    want_tiers = set(tiers_covered(want))
+    # An unknown severity covers nothing (tiers_covered returns ()), so a typo
+    # re-runs rather than silently matching every cached sweep.
+    return bool(want_tiers) and want_tiers <= have_tiers
+
+
+def _remember_sweep(
+    key: tuple[str, str],
+    severity: str,
+    conformance: dict[str, bool],
+    issues: list[dict[str, Any]],
+) -> None:
+    """Record a sweep, keeping the widest gate seen for this state."""
+    existing = _SWEEP_MEMO.get(key)
+    if existing is not None and _gate_covers(existing[0], severity):
+        return
+    if len(_SWEEP_MEMO) >= _SWEEP_MEMO_MAX and key not in _SWEEP_MEMO:
+        _SWEEP_MEMO.pop(next(iter(_SWEEP_MEMO)))
+    _SWEEP_MEMO[key] = (severity, conformance, issues)
+
+
+def _sweep_at_gate(
+    conformance: dict[str, bool], issues: list[dict[str, Any]], severity: str
+) -> dict[str, Any]:
+    """Narrow a sweep's findings to the tiers *severity* actually gates on.
+
+    Only a finding whose severity is a KNOWN tier wider than the gate is set
+    aside. ``_routable_issue`` falls back to the raw enum name for any severity
+    outside the three tiers, and a filter that kept just the recognised ones
+    would silently swallow those — the same "findings vanish for no visible
+    reason" failure that reporting vocabulary findings was meant to end. An
+    unrecognised severity is always reported.
+    """
+    tiers = set(tiers_covered(severity))
+    gated = [
+        issue
+        for issue in issues
+        if issue.get("severity") not in _TIER_ORDER or issue.get("severity") in tiers
+    ]
+    return {"ok": not gated, "conformance": conformance, "issues": gated}
+
+
+def clear_sweep_memo() -> None:
+    """Forget every remembered sweep — for tests, and for a fresh session."""
+    _SWEEP_MEMO.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -313,8 +399,7 @@ def order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
     selected.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
     return [
         (
-            f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: "
-            f"{i.get('message') or ''}"
+            f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: {i.get('message') or ''}"
         ).rstrip()
         for i in selected
     ]
@@ -407,8 +492,10 @@ def ensure_validated(
     run shipped a maturity report whose Recommended and Optional rows read "not
     assessed", so the one artifact meant to describe the crate's quality was
     silent about two of its three tiers. Assessing everything costs one extra
-    sweep per export (the tox pass dominates); it buys a report that covers the
-    whole crate.
+    sweep per export — ~37s on a 293-entity crate, of which the BASE pass is 62%
+    and tox 25% — and it buys a report that covers the whole crate. When the
+    in-loop sweep already ran at this gate, :func:`build_and_validate` serves it
+    from the per-state memo and the extra sweep costs nothing.
 
     Freshness now accounts for tier coverage as well as content: a verdict whose
     fingerprint matches but that only ever assessed REQUIRED is not sufficient

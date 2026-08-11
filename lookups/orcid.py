@@ -8,12 +8,47 @@ No authentication required (uses the public ORCID API).
 from __future__ import annotations
 
 import functools
+import re
 from urllib.parse import quote
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
 _BASE = "https://pub.orcid.org/v3.0"
 _HEADERS = {"Accept": "application/json"}
+
+# 16 characters as four hyphenated groups; the final one may be "X" (check digit 10).
+_ORCID_SHAPE = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
+
+
+def is_well_formed_orcid(orcid_id: str) -> bool:
+    """Whether *orcid_id* is a structurally valid ORCID iD — shape AND check digit.
+
+    An ORCID iD carries an ISO 7064 MOD 11-2 check digit, so a mistyped or
+    misread iD is detectable without asking ORCID about it. This is a pure
+    function: it never touches the network.
+
+    Deliberately NOT called by :func:`lookup_orcid`, which stays a thin transport
+    wrapper — a caller holding a synthetic iD (tests, fixtures) must still be able
+    to exercise the 404 and timeout paths. The agent-facing wrapper in
+    ``builder.tools.lookups`` is where a malformed iD is worth catching, because
+    that is the layer that has to tell the model what to do about it.
+
+    Args:
+        orcid_id: Bare ORCID iD, e.g. "0000-0001-6004-8653". A bare iD only —
+            a full ``https://orcid.org/…`` URL is not accepted.
+
+    Returns:
+        True when the shape matches and the check digit agrees with the first 15
+        digits; False otherwise.
+    """
+    if not _ORCID_SHAPE.match(orcid_id or ""):
+        return False
+    digits = orcid_id.replace("-", "")
+    total = 0
+    for char in digits[:15]:
+        total = (total + int(char)) * 2
+    expected = (12 - total % 11) % 11
+    return ("X" if expected == 10 else str(expected)) == digits[15]
 
 
 @functools.lru_cache(maxsize=256)

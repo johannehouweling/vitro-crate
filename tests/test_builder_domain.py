@@ -350,6 +350,22 @@ class TestOntologyAnnotations:
         _, by_id = _build(state, tmp_path)
         assert "#DefinedTerm_ke_55" in _ids(by_id["#Assay_assay_1"].get("keyEvent"))
 
+    def test_free_text_key_event_is_not_emitted(self, tmp_path):
+        """#382: prose on ``keyEvent`` reaches no crate — it must not be stored.
+
+        ``_wire_mention`` emits a mention only for a resolvable entity, an inline
+        ``{"@id": …}`` or a bare IRI, so a depositor's words ("Mitochondrial
+        dysfunction") are dropped without a trace. This is why the guidance tail
+        resolves such an answer through ``link_assay_to_key_event`` instead of
+        committing it: a literal commit would report success and lose the answer.
+        Keep the absence asserted — "fixing" this by keeping literals would put an
+        unresolvable string into the exported crate.
+        """
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A", keyEvent="Mitochondrial dysfunction"))
+        _, by_id = _build(state, tmp_path)
+        assert "keyEvent" not in by_id["#Assay_assay_1"]
+
     def test_mentions_resolve_by_typed_key_when_study_and_assay_share_id(self, tmp_path):
         """Issue #93: with a Study and an Assay sharing an entity_id, each must
         receive its own mention annotations.
