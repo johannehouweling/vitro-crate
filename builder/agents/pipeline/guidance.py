@@ -41,6 +41,12 @@ The loop (:func:`run_guidance`) per round:
      deterministic ask-and-set — still routed through
      :func:`_deterministic_decision`, so the D5 identifier skip applies offline too.
 
+   A person/agent gap is the one case where a round settles SEVERAL gaps: the
+   root ``publisher`` / ``creator`` and the Investigation/Study/Assay ``creator``
+   are four gaps with one answer, so they are gathered and asked ONCE (#337,
+   Part B), with the single minted Person applied to every target through the
+   ordinary ``_apply_value``.
+
 4. Re-assess after each committed change; **never loop forever** — bounded by
    ``max_rounds`` and a per-report skip-set. A gap the loop cannot progress this
    round (e.g. the user skips it) is *skipped*, not fatal: the loop advances to the
@@ -83,6 +89,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -1325,6 +1332,192 @@ def _resolve_from_file(
     return None
 
 
+def _gap_record(gap: Gap) -> dict[str, Any]:
+    """The per-gap summary record ``resolved`` / ``asked`` carry.
+
+    Factored out of :func:`_resolve_gap` so the grouped person path (#337, Part B)
+    reports gaps in exactly the same shape rather than growing a second, drifting
+    record format for the same summary lists.
+    """
+    return {
+        "tier": gap.tier,
+        "source": gap.source,
+        "entity_id": gap.entity_id,
+        # A typed gap (MIT) carries no entity_id, so entity_type is the only thing
+        # identifying WHICH entity it was about — and after #375 it is also what
+        # decides where the answer is written. Recorded so a caller can tell two
+        # same-property gaps apart (e.g. Assay:description vs LabProtocol:description).
+        "entity_type": gap.entity_type,
+        "property": gap.property,
+        "fix_hint": gap.fix_hint,
+    }
+
+
+# Fix hints that are NOT the ask-user route. ``auto_fixable`` is checked
+# separately (it wins over the hint in :func:`_resolve_gap`). Everything else —
+# including an unknown or absent hint — falls back to ask-user, mirroring
+# :func:`_next_actionable_index`'s actionability rule.
+_NON_ASK_HINTS: frozenset[str | None] = frozenset({REPORT_ONLY, "draft", "fix_required_issues"})
+
+
+def _is_ask_user_gap(gap: Gap) -> bool:
+    """Whether the loop would resolve ``gap`` by ASKING the user."""
+    return not gap.auto_fixable and gap.fix_hint not in _NON_ASK_HINTS
+
+
+def _is_person_gap(gap: Gap) -> bool:
+    """Whether ``gap`` asks for a person/agent, by the rule ``_apply_value`` uses.
+
+    Deliberately the same expression :func:`_apply_value` evaluates
+    (``_is_person_field`` over the property's LOCAL name) rather than a looser
+    "does the property mention creator" test: a gap grouped here that
+    ``_apply_value`` would not route to :func:`_apply_person_value` would be
+    answered with a person's name and then committed as a literal string.
+    """
+    field = _local_name(gap.property) or (gap.property or "")
+    return _is_person_field(field)
+
+
+def _person_gap_group(
+    report: GapReport,
+    index: int,
+    *,
+    skipped: set[int],
+    tried_identities: set[GapIdentity],
+) -> list[int]:
+    """Indices of every open person/agent gap ONE answer settles (#337, Part B).
+
+    The scaffolded backbone opens four gaps that all mean "who is the responsible
+    person?" — the root Data Entity's ``creator`` and ``publisher``, plus a
+    ``creator`` on the Study and on the Assay. :func:`_gap_identity` keys on
+    ``(source, entity_id, property, message)``, so they are four unrelated gaps to
+    the loop: it drew them one at a time and ``phrase_gap_question`` re-worded each
+    into its own LLM variant, asking the same human the same thing three or four
+    times. Each ask was individually correct and the aggregate was absurd.
+
+    Gathering is restricted to gaps the loop would otherwise have ASKED about and
+    has not already retired, so the group can never resurrect a gap the user
+    declined (``skipped`` / ``tried_identities``) or steal a turn from the
+    draft-confirm or auto-fix routes. Identities are de-duplicated so the caller's
+    applied-vs-cleared bookkeeping stays 1:1 even if a report lists the same gap
+    twice.
+
+    Returns ``[index]`` unchanged when the primary gap is not a groupable person
+    gap, or when it is the only one — a single person gap keeps exactly today's
+    behaviour.
+    """
+    primary = report.gaps[index]
+    if not (_is_person_gap(primary) and _is_ask_user_gap(primary)):
+        return [index]
+    group = [index]
+    seen: set[GapIdentity] = {_gap_identity(primary)}
+    for other, gap in enumerate(report.gaps):
+        if other == index or other in skipped:
+            continue
+        identity = _gap_identity(gap)
+        if identity in tried_identities or identity in seen:
+            continue
+        if _is_person_gap(gap) and _is_ask_user_gap(gap):
+            group.append(other)
+            seen.add(identity)
+    return group
+
+
+def _person_group_target(engine: AgentEngine, gap: Gap) -> str:
+    """One gap in a person group, described the way a human would name it."""
+    field = _local_name(gap.property) or (gap.property or "creator")
+    name = _gap_entity_name(engine, gap)
+    if name and gap.entity_type:
+        return f"{field} of the {gap.entity_type} '{name}'"
+    if gap.entity_type:
+        return f"{field} of the {gap.entity_type}"
+    # A root/crate-level gap has no state entity and no type — `./` folds the
+    # Investigation, so naming it "the crate itself" is the honest description.
+    return f"{field} of the crate itself"
+
+
+def _join_roles(roles: list[str]) -> str:
+    """``['creator', 'publisher']`` -> ``"creator and publisher"``."""
+    if len(roles) == 1:
+        return roles[0]
+    return f"{', '.join(roles[:-1])} and {roles[-1]}"
+
+
+def _person_group_message(engine: AgentEngine, gaps: list[Gap]) -> str:
+    """The ONE question's ``message`` for a group of person gaps (#337, Part B).
+
+    This is the gap message the ask-user step phrases, so it reaches BOTH paths
+    that put words in front of the user: ``_ask_user_prompt`` prints it verbatim
+    as the "Why:" line on the offline/no-provider path, and ``_gap_context``
+    hands it to ``phrase_gap_question`` on the LLM path.
+
+    It spells the roles out on purpose. ``publisher`` is not ``creator``:
+    defaulting the publisher to the researcher is right for a single-lab dataset
+    and wrong for one deposited by an institution or a repository, so answering
+    once must not quietly credit someone as publisher without saying that is what
+    is happening. The coalescing is a convenience; it is not licence to infer.
+    """
+    targets = [_person_group_target(engine, gap) for gap in gaps]
+    roles = sorted({_local_name(g.property) or (g.property or "creator") for g in gaps})
+    return (
+        f"The crate still needs a responsible person in {len(targets)} places: "
+        f"{'; '.join(targets)}. One name fills all of them — the person you give "
+        f"will be credited as {_join_roles(roles)}, which is what you want for a "
+        "single-lab dataset but not if the publisher is a separate institution or "
+        "repository."
+    )
+
+
+def _resolve_person_group(
+    engine: AgentEngine,
+    human: HumanInterface,
+    gaps: list[Gap],
+    *,
+    asked: list[dict[str, Any]],
+    usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
+) -> list[tuple[GapIdentity, dict[str, Any]]]:
+    """Ask ONE question for ``gaps`` and apply the answer to every one (#337, B).
+
+    The answer goes through the SAME :func:`_apply_value` every other commit uses,
+    once per gap — no parallel apply path. That is what keeps the grouped route
+    consistent with :func:`_record_root_attribution` rather than competing with
+    it: an entity-scoped gap links the Person by reference, and a root gap records
+    the Person against the ``CrateMetadata`` slot it asked about, exactly as a
+    singly-answered gap does. ``draft_person`` dedups by name, so N applies mint
+    ONE Person and every target points at it.
+
+    Returns ``(identity, record)`` pairs for the gaps whose apply succeeded, in
+    apply order. It deliberately does NOT append to ``resolved`` itself: the
+    caller must first re-assess and drop any gap that did not actually clear
+    (#375), and a helper that had already claimed them resolved would make that
+    correction a deletion instead of a decision.
+    """
+    for gap in gaps:
+        # Every gathered gap WAS surfaced to the user — in one question, but the
+        # summary's `asked` list counts gaps, not prompts, and under-reporting
+        # here would hide the coalescing rather than demonstrate it.
+        asked.append(_gap_record(gap))
+
+    # A synthetic gap carrying the group's message: `_resolve_ask_user` phrases
+    # whatever gap it is handed, so re-messaging a copy of the primary is how the
+    # group's wording reaches both the LLM and the offline prompt without
+    # threading an extra parameter through five call sites. The copy is never
+    # recorded anywhere — identities and applies use the REAL gaps.
+    question_gap = replace(gaps[0], message=_person_group_message(engine, gaps))
+    value = _resolve_ask_user(
+        engine, human, question_gap, usage_sink=usage_sink, overrides=overrides
+    )
+    if value is None:
+        return []
+
+    applied: list[tuple[GapIdentity, dict[str, Any]]] = []
+    for gap in gaps:
+        if _apply_value(engine, gap, value, human):
+            applied.append((_gap_identity(gap), {**_gap_record(gap), "via": "ask-user-grouped"}))
+    return applied
+
+
 def _resolve_gap(
     engine: AgentEngine,
     human: HumanInterface,
@@ -1348,18 +1541,7 @@ def _resolve_gap(
     user) for the run summary. ``usage_sink`` is threaded to every leaf this gap
     may reach so the tail's token spend is accounted (#384).
     """
-    record = {
-        "tier": gap.tier,
-        "source": gap.source,
-        "entity_id": gap.entity_id,
-        # A typed gap (MIT) carries no entity_id, so entity_type is the only thing
-        # identifying WHICH entity it was about — and after #375 it is also what
-        # decides where the answer is written. Recorded so a caller can tell two
-        # same-property gaps apart (e.g. Assay:description vs LabProtocol:description).
-        "entity_type": gap.entity_type,
-        "property": gap.property,
-        "fix_hint": gap.fix_hint,
-    }
+    record = _gap_record(gap)
 
     # --- auto-fixable: deterministic repair, no human prompt -------------------
     if gap.auto_fixable:
@@ -1436,6 +1618,16 @@ def run_guidance(
     aborting, so one un-committable gap never abandons the ones behind it (#230).
     The loop is bounded by ``max_rounds`` and terminates once the whole report is
     exhausted with no progress, or once no MUST gap remains and the user is done.
+
+    One exception to "one gap per round" (#337, Part B): when the drawn gap asks
+    for a **person/agent**, every other open person gap is gathered with it
+    (:func:`_person_gap_group`) and the group is settled by ONE question whose
+    answer is applied to each target through the ordinary :func:`_apply_value`.
+    The backbone opens four such gaps — root ``publisher`` and ``creator``, Study
+    and Assay ``creator`` — and asking "who is responsible?" four times, reworded
+    by the phrase leaf each time, is what Part B removes. Every gathered gap is
+    accounted for in the same round (cleared, or retired into
+    ``tried_identities``), so the group can never be re-asked.
     CODE owns control flow; the LLM only drafts; the user confirms every uncertain
     commit (D5). HITL is never bypassed.
 
@@ -1512,6 +1704,42 @@ def run_guidance(
             break
 
         rounds += 1
+
+        # --- (#337, Part B) one question for every gap asking "who?" ----------
+        # Several distinct gaps (root publisher + root/Study/Assay creator) all
+        # want the same person. Resolve them TOGETHER so the user is asked once.
+        group = _person_gap_group(report, index, skipped=skipped, tried_identities=tried_identities)
+        if len(group) > 1:
+            grouped = [report.gaps[i] for i in group]
+            group_identities = {_gap_identity(g) for g in grouped}
+            applied = _resolve_person_group(engine, human, grouped, asked=asked, usage_sink=sink)
+            cleared: set[GapIdentity] = set()
+            if applied:
+                # State changed: re-assess, then run the #375 "did it actually
+                # clear?" test PER GATHERED GAP. One answer satisfying three gaps
+                # must not let a fourth that silently failed be counted resolved.
+                report = assess_gaps(engine.state)
+                skipped = set()
+                still_open = {_gap_identity(g) for g in report.gaps}
+                for gap_identity, record in applied:
+                    if gap_identity not in still_open:
+                        resolved.append(record)
+                        cleared.add(gap_identity)
+            else:
+                # The whole group made no progress (skipped, or no usable name).
+                # Skip every gathered index so this report advances past all of
+                # them rather than re-drawing the second member next round.
+                skipped.update(group)
+            # THE termination invariant for the grouped path: every gap in the
+            # group is now either CLEARED or in ``tried_identities``. Without this
+            # the members that did not clear are still actionable, the next round
+            # draws one of them, and the user is asked the identical question
+            # again — the exact re-ask loop #337/#375 exist to stop. Each round
+            # therefore retires at least ``len(group)`` gaps, so the loop cannot
+            # spin on a grouped answer that fails to apply.
+            tried_identities.update(group_identities - cleared)
+            continue
+
         identity = _gap_identity(gap)
         resolved_before = len(resolved)
         progressed = _resolve_gap(
