@@ -20,6 +20,7 @@ class TestImportParity:
 
     def test_all_shared_helpers_importable(self) -> None:
         from builder.agents.llm import (  # noqa: F401
+            UsageSink,
             _build_chat_model,
             _detect_provider,
             _extract_model_name,
@@ -27,7 +28,33 @@ class TestImportParity:
             _get_request_timeout,
             _is_openai_reasoning_model,
             _recursion_limit,
+            make_usage_logger,
         )
+
+    def test_importing_llm_does_not_drag_in_the_engine(self) -> None:
+        """``make_usage_logger`` duck-types its engine on purpose (#384).
+
+        It only reaches for ``engine.profiler`` / ``engine.state``, so
+        :class:`~builder.engine.AgentEngine` stays a ``TYPE_CHECKING`` import. If
+        it ever became a real one this deliberately cheap shared module would pull
+        the whole engine in behind every leaf, and the leaves import it eagerly.
+        Measured in a fresh interpreter because the in-process ``sys.modules`` is
+        already polluted by whatever the rest of the suite imported.
+        """
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[2]
+        probe = "import sys, builder.agents.llm; print('builder.engine' in sys.modules)"
+        proc = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert proc.stdout.strip() == "False", "builder.agents.llm must stay engine-free"
 
 
 class TestRecursionLimit:
@@ -148,6 +175,98 @@ class TestExtractModelName:
 
         msg = _FakeMessage(response_metadata={"model_name": "gpt-4o"})
         assert _extract_model_name(msg) == "gpt-4o"
+
+
+class _RecordingProfiler:
+    """A profiler double that keeps the kwargs of every event logged to it."""
+
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def log_event(self, **kwargs: Any) -> None:
+        self.events.append(kwargs)
+
+
+class _DuckEngine:
+    """The only two attributes ``make_usage_logger`` is allowed to reach for.
+
+    Deliberately NOT an ``AgentEngine``: the sink must stay duck-typed so the
+    shared llm module never needs to import the engine (see
+    ``TestImportParity.test_importing_llm_does_not_drag_in_the_engine``). Its
+    ``state`` is a real :class:`CrateState`, so the generator-record side of the
+    sink is exercised against the real accumulator rather than a fake one.
+    """
+
+    def __init__(self, profiler: Any = None) -> None:
+        from builder.state import CrateState
+
+        self.state = CrateState()
+        self.state.iteration_count = 4
+        self.profiler = profiler
+
+
+class TestMakeUsageLogger:
+    """#384 — one shared sink builder, usable by any LLM caller in either arm.
+
+    It was the pipeline spine's private helper while the spine was its only
+    caller; the guidance tail became a second one, and a second *copy* would have
+    been free to log a different event shape than the one every reader parses.
+    """
+
+    def test_accumulates_totals_and_logs_the_reader_visible_event(self) -> None:
+        from builder.agents.llm import make_usage_logger
+
+        profiler = _RecordingProfiler()
+        engine = _DuckEngine(profiler)
+        totals = {"input_tokens": 0, "output_tokens": 0}
+
+        sink = make_usage_logger(engine, totals)
+        sink(120, 35, "gpt-4o-mini")
+        sink(80, 5, "gpt-4o-mini")
+
+        assert totals == {"input_tokens": 200, "output_tokens": 40}
+        # The exact shape ``ui._read_token_totals`` / the dashboard / the eval
+        # filter on: anything else is invisible to every reader.
+        assert [(e["event"], e["node"]) for e in profiler.events] == [
+            ("node_end", "model"),
+            ("node_end", "model"),
+        ]
+        assert profiler.events[0]["input_tokens"] == 120
+        assert profiler.events[0]["output_tokens"] == 35
+        assert profiler.events[0]["model_name"] == "gpt-4o-mini"
+        assert profiler.events[0]["iteration"] == 4
+        # …and the crate's own generator record, which the export carries.
+        assert engine.state.generator.input_tokens == 200
+        assert engine.state.generator.output_tokens == 40
+
+    def test_unknown_usage_coerces_to_zero(self) -> None:
+        """``(None, None, None)`` is what ``_extract_token_usage`` reports for an
+        offline/fake model — it must record a clean zero, never crash or guess.
+        """
+        from builder.agents.llm import make_usage_logger
+
+        profiler = _RecordingProfiler()
+        engine = _DuckEngine(profiler)
+        totals = {"input_tokens": 0, "output_tokens": 0}
+
+        make_usage_logger(engine, totals)(None, None, None)
+
+        assert totals == {"input_tokens": 0, "output_tokens": 0}
+        assert profiler.events[0]["input_tokens"] == 0
+        assert profiler.events[0]["output_tokens"] == 0
+
+    def test_accumulates_without_a_profiler(self) -> None:
+        """An engine that was never initialized has no profiler; only the profile
+        write is skipped, the accounting still happens.
+        """
+        from builder.agents.llm import make_usage_logger
+
+        engine = _DuckEngine(profiler=None)
+        totals = {"input_tokens": 0, "output_tokens": 0}
+
+        make_usage_logger(engine, totals)(11, 7, "gpt-4o-mini")
+
+        assert totals == {"input_tokens": 11, "output_tokens": 7}
 
 
 class TestBuildChatModel:

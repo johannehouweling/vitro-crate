@@ -90,16 +90,15 @@ from typing import TYPE_CHECKING, Any, Callable
 # single stable monkeypatch target — and so a flaky/absent LLM drafter / guidance
 # leaf can be stubbed without importing langchain.
 #
-# ``UsageSink`` / ``_make_usage_logger`` are the spine's token-accounting seam,
-# reused verbatim rather than reimplemented (#384): the logger emits the same
-# ``node_end``/``node="model"`` profile event the ReAct model node emits, which is
-# the only surface the status bar, the ``--dashboard`` table and the eval read.
-from builder.agents.llm import ModelOverrides
-from builder.agents.pipeline.pipeline import (
-    UsageSink,
-    _make_usage_logger,
-    draft_entity_fields,
-)
+# ``UsageSink`` / ``make_usage_logger`` come from the SHARED llm module rather
+# than from the spine (#384): the tail reuses the one implementation verbatim
+# instead of reimplementing it, so the logger emits the same
+# ``node_end``/``node="model"`` profile event the spine and the ReAct model node
+# emit — the only surface the status bar, the ``--dashboard`` table and the eval
+# read. Importing it from ``pipeline`` would work too, but would leave the tail
+# depending on the spine for something neither of them owns.
+from builder.agents.llm import ModelOverrides, UsageSink, make_usage_logger
+from builder.agents.pipeline.pipeline import draft_entity_fields
 from builder.config import get_provider
 from builder.tools.field_kinds import (
     CITATION_FIELDS,
@@ -1448,7 +1447,7 @@ def run_guidance(
         max_rounds: Hard upper bound on rounds (default 20). Guarantees
             termination even if a resolved gap never clears.
         usage_sink: Where each leaf call reports its token usage (#384). Defaults
-            to the spine's own :func:`_make_usage_logger`, so the tail is
+            to the shared :func:`builder.agents.llm.make_usage_logger`, so the tail is
             accounted whether or not a caller asks for it: without one, every
             phrase / interpret / draft / from-file call is missing from
             ``profile.ndjson`` and the status bar re-printed before EVERY
@@ -1474,7 +1473,7 @@ def run_guidance(
     # and logs the ``node_end``/``node="model"`` profile event that the status bar,
     # the ``--dashboard`` table and the eval all read.
     totals: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
-    sink = usage_sink or _make_usage_logger(engine, totals)
+    sink = usage_sink or make_usage_logger(engine, totals)
     resolved: list[dict[str, Any]] = []
     asked: list[dict[str, Any]] = []
     rounds = 0

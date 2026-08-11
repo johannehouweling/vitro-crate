@@ -2739,3 +2739,53 @@ class TestRepeatedNonProgressLoopBreaker:
             )
 
 
+
+
+class TestDuplicatePeopleReachTheChecklist:
+    """A split researcher is surfaced as work, not silently merged or ignored.
+
+    ``probable_duplicate_people`` only finds candidate pairs; ``open_items`` is
+    where they become something the user is asked about. The entry must name both
+    entities and say to ASK rather than to merge.
+    """
+
+    def _state_with_split_person(self):
+        from builder.state import CrateState
+        from builder.tools.drafters import draft_person
+
+        state = CrateState()
+        draft_person(state, "J. Doe", {})
+        draft_person(state, "John Doe", {})
+        return state
+
+    def test_the_pair_is_listed_as_an_open_item(self):
+        from builder.agents.react.agent_loop import open_items
+
+        items = open_items(self._state_with_split_person())
+        hits = [i for i in items if "same person" in i]
+        assert len(hits) == 1
+        assert "ASK" in hits[0]
+
+    def test_no_duplicates_means_no_entry(self):
+        from builder.agents.react.agent_loop import open_items
+        from builder.state import CrateState
+        from builder.tools.drafters import draft_person
+
+        state = CrateState()
+        draft_person(state, "John Doe", {})
+        draft_person(state, "Jane Roe", {})
+        assert [i for i in open_items(state) if "same person" in i] == []
+
+    def test_a_failing_check_never_breaks_the_checklist(self, monkeypatch):
+        """A checklist entry is a convenience; it must not be able to end a run."""
+        import builder.tools.drafters as drafters
+        from builder.agents.react.agent_loop import open_items
+
+        def _explode(state):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(drafters, "probable_duplicate_people", _explode)
+        # Must not raise, and the rest of the checklist must still be produced.
+        items = open_items(self._state_with_split_person())
+        assert isinstance(items, list)
+        assert [i for i in items if "same person" in i] == []
