@@ -1638,7 +1638,13 @@ def _materialize_plan(
       attached is logged. This runs even with NO provider.
     * each ``aops[]`` → :func:`materialize_aop_subgraph` onto the scaffolded
       Study (the only model input is the numeric ``aop_id``; every node id comes
-      from AOP-Wiki — D5).
+      from AOP-Wiki — D5), followed by the Assay → Key Event link (#382) when the
+      plan's ``measured_event_name`` says which event the assay measures. The
+      plan supplies a NAME; :func:`link_assay_to_key_event` matches it against
+      the KeyEvents just materialized and commits their AOP-Wiki IRI, writing
+      NOTHING on a zero or ambiguous match — picking the measured event is a
+      scientific claim, so an unlinked Assay is a legitimate outcome (counted
+      under ``key_events``).
     * each ``people[]`` → ``draft_person`` with the name plus a deterministic
       ``givenName`` / ``familyName`` split of that name (ISA REQUIRES a non-empty
       given name; splitting a name is descriptive parsing, not identifier
@@ -1678,7 +1684,8 @@ def _materialize_plan(
       ids), so re-running the spine mints no duplicates.
 
     Returns ``{"study", "compounds", "cell_lines", "protocols", "processes",
-    "files", "aops", "people", "publications", "publications_deferred"}`` —
+    "files", "aops", "key_events", "people", "publications",
+    "publications_deferred"}`` —
     per-section counts of what was materialized (``processes`` is the standard
     chain's length, ``files`` the number of scanned files attached), plus the
     titles of publications that found no confident DOI match and were deferred for
@@ -1692,6 +1699,12 @@ def _materialize_plan(
         "processes": 0,
         "files": 0,
         "aops": 0,
+        # #382: Assay -> Key Event links actually committed. Counted separately
+        # from `aops` because materializing a pathway and knowing which of its
+        # events was measured are different achievements — a run with aops=1 and
+        # key_events=0 is the honest "we have the pathway, nobody said which
+        # event" outcome, not a failure.
+        "key_events": 0,
         "people": 0,
         "publications": 0,
         "publications_deferred": [],
@@ -1908,8 +1921,13 @@ def _materialize_plan(
                 exc,
             )
 
-    # --- AOPs: materialize each subgraph and wire it onto the scaffolded Study ---
+    # --- AOPs: materialize each subgraph and wire it onto the scaffolded Study,
+    # then link the Assay to the ONE Key Event it measures (#382). Wiring the
+    # Study alone left the Assay connected to nothing in the subgraph: the crate
+    # said "this study is about AOP 42" and "here are AOP 42's eight key events"
+    # and never which one was actually measured. ---
     study_id = _first_entity_id(engine, "Study")
+    assay_id = _first_entity_id(engine, "Assay")
     for aop in plan.get("aops") or []:
         aop_id = str((aop or {}).get("aop_id") or "").strip()
         if not aop_id:
@@ -1918,10 +1936,56 @@ def _materialize_plan(
             aop_result = engine.run_tool(
                 "materialize_aop_subgraph", aop_id=aop_id, study_id=study_id
             )
-            if aop_result.get("aop_entity_id"):
-                result["aops"] += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning("materialize_aop_subgraph failed for %r: %s", aop_id, exc)
+            continue
+        if not aop_result.get("aop_entity_id"):
+            # A lookup miss put no subgraph in the crate. Matching the event name
+            # anyway would resolve it against some OTHER pathway's events, so the
+            # link is skipped with the pathway that should have carried it.
+            continue
+        result["aops"] += 1
+
+        # The plan carries the event's NAME only; the composite matches it against
+        # the KeyEvents the lookup just materialized and commits THEIR AOP-Wiki
+        # IRI, so the reference is never built from the model's words (D5). A
+        # zero/ambiguous match writes nothing and reports it — which Key Event an
+        # assay measures is a scientific claim, so a refusal to guess is a normal
+        # outcome here, not an error, and the crate is simply left unlinked.
+        event_name = str((aop or {}).get("measured_event_name") or "").strip()
+        if not event_name or not assay_id:
+            continue
+        # `keyEvent` holds ONE reference (it is not a collection field), so a
+        # second plan item naming an event would overwrite the first silently and
+        # still increment the counter — the run would claim two links where the
+        # crate carries one. First pathway wins and the rest are reported: an
+        # assay measuring several key events is a modelling question this lane
+        # does not answer, and quietly replacing an edge is the wrong way to
+        # answer it.
+        linked_assay = engine.state.get_entity(assay_id)
+        if linked_assay is not None and linked_assay.fields.get("keyEvent"):
+            logger.info(
+                "assay already linked to a Key Event; not replacing it with %r from AOP %s",
+                event_name,
+                aop_id,
+            )
+            continue
+        try:
+            link_result = engine.run_tool(
+                "link_assay_to_key_event", assay_id=assay_id, event_name=event_name
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("link_assay_to_key_event failed for %r: %s", event_name, exc)
+            continue
+        if isinstance(link_result, dict) and link_result.get("ok"):
+            result["key_events"] += 1
+        else:
+            logger.info(
+                "assay left unlinked: no single Key Event of AOP %s is named %r (%s)",
+                aop_id,
+                event_name,
+                (link_result or {}).get("error") if isinstance(link_result, dict) else link_result,
+            )
 
     # --- people: a Person from the name + a deterministic given/family split,
     # plus an Organization minted (or reused) from `affiliation_name` and wired

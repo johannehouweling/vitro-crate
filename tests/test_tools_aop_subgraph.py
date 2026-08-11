@@ -15,6 +15,7 @@ as the existing lookup tests do (per project policy, lookups stay offline).
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -45,12 +46,30 @@ def _load(name: str) -> dict:
 
 @pytest.fixture(autouse=True)
 def _offline_aop(monkeypatch):
-    """Serve the bundled AOP-610 fixture instead of hitting AOP-Wiki."""
+    """Serve the bundled AOP-610 fixture instead of hitting AOP-Wiki.
+
+    ``/aops/611.json`` is served too: a second pathway whose only key event
+    REPEATS AOP-610's "Mitochondrial dysfunction" under a different event id. Two
+    pathways in one crate legitimately share an event NAME while owning distinct
+    AOP-Wiki ids, which is the case ``link_assay_to_key_event`` must refuse rather
+    than pick from (#382). It is derived from the same fixture, so the duplicate
+    name is the fixture's own wording, not a string the test invents.
+    """
     aop_data = _load("aopwiki_aop610.json")
+    ambiguous = copy.deepcopy(aop_data)
+    ambiguous["aop"]["aop_kes"] = [
+        {
+            "event_id": 9177,
+            "event": aop_data["aop"]["aop_kes"][0]["event"],
+            "event_type": "KeyEvent",
+        }
+    ]
 
     def fake_get_json(url, **kwargs):
         if url.endswith("/aops/610.json"):
             return aop_data
+        if url.endswith("/aops/611.json"):
+            return ambiguous
         # Per-event detail endpoint: .../events/<id>.json
         eid = url.rsplit("/", 1)[1].removesuffix(".json")
         return {"short_name": f"Event {eid}", "biological_organization": "Cellular"}
@@ -96,6 +115,26 @@ class TestMaterializeState:
         assert result["events"] == 4
         assert result["relationships"] == 3
         assert result["aop_entity_id"] == aops[0].entity_id
+
+    def test_result_reports_materialized_event_iris(self):
+        # (#382) The composite used to report COUNTS only, so a caller that had
+        # just put four KeyEvents in the crate had nothing to pick one WITH — the
+        # reason neither arm ever linked an Assay to the event it measures.
+        state = CrateState()
+        result = materialize_aop_subgraph(state, "610")
+
+        # Every value comes off the fixture through `lookup_aop`; the test writes
+        # none of them into state.
+        assert {
+            "@id": "https://aopwiki.org/events/888",
+            "name": "Binding of inhibitor, NADH-ubiquinone oxidoreductase (complex I)",
+            "eventType": "Molecular Initiating Event",
+        } in result["events_detail"]
+        # Detail and count describe the same materialization.
+        assert len(result["events_detail"]) == result["events"]
+        assert {d["@id"] for d in result["events_detail"]} == {
+            e.entity_id for e in _by_type(state, "KeyEvent")
+        }
 
     def test_event_types_discriminated_only_by_event_type_field(self):
         state = CrateState()
@@ -341,8 +380,120 @@ class TestLinkAssayToKeyEvent:
         assay = next(n for n in graph if n.get("additionalType") == "Assay")
         assert assay["keyEvent"] == [{"@id": "https://aopwiki.org/events/177"}]
 
-    def test_materialize_returns_event_detail_for_picking(self) -> None:
-        # events_detail is additive — the int count stays for existing callers.
-        from builder.tools.composites import materialize_aop_subgraph
 
-        assert callable(materialize_aop_subgraph)
+class TestLinkAssayToMaterializedKeyEvent:
+    """The same link, but over the KeyEvents AOP-Wiki really produced (#382).
+
+    :class:`TestLinkAssayToKeyEvent` hand-builds its KeyEvents, which cannot show
+    that the id committed onto the Assay is one the LOOKUP minted. These tests
+    type only the event's lowercase NAME and let the AOP-610 fixture supply every
+    id, so a name-derived or fabricated IRI fails them.
+    """
+
+    _MITOCHONDRIAL_DYSFUNCTION = "https://aopwiki.org/events/177"
+
+    def _crate(self, aop_ids: tuple[str, ...] = ("610",)):
+        from builder.tools.composites import scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "AOP link"
+        scaffold = scaffold_isa_backbone(
+            state,
+            investigation={"name": "I"},
+            study={"name": "S"},
+            assay={"name": "Complex I activity assay"},
+        )
+        for aop_id in aop_ids:
+            materialize_aop_subgraph(state, aop_id, study_id=scaffold["study_id"])
+        return state, scaffold["assay_id"]
+
+    def _assay_node(self, state: CrateState):
+        from builder.tools.builder import assemble_crate
+
+        graph = assemble_crate(
+            state, materialize_payload=False, include_all_scanned=False
+        ).metadata.generate()["@graph"]
+        return next(n for n in graph if n.get("additionalType") == "Assay")
+
+    def test_links_assay_to_uniquely_named_key_event(self):
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        # Only the lowercase NAME is typed here; the IRI below is the fixture's.
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        assay_node = self._assay_node(state)
+        assert assay_node["keyEvent"] == [{"@id": self._MITOCHONDRIAL_DYSFUNCTION}]
+        # And the target really is a KeyEvent node in the SAME graph — the whole
+        # point is an edge into the AOP subgraph, not a dangling reference.
+        assert self._MITOCHONDRIAL_DYSFUNCTION in {
+            e.entity_id for e in _by_type(state, "KeyEvent")
+        }
+
+    def test_unmatched_name_writes_nothing_and_returns_candidates(self):
+        # Honesty control for the row above: "TPO inhibition" is a real assay
+        # name that matches nothing in AOP-610, and the abbreviation gap it stands
+        # for ("TPO" vs "Thyroperoxidase") is exactly what no matcher may bridge.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        result = link_assay_to_key_event(state, assay_id, "TPO inhibition")
+
+        assert result["ok"] is False
+        assert "keyEvent" not in state.get_entity(assay_id).fields
+        assert "keyEvent" not in self._assay_node(state)
+        # The candidates are the four fixture events, offered for a human choice.
+        assert {c["name"] for c in result["candidates"]} == {
+            e.fields.get("name") for e in _by_type(state, "KeyEvent")
+        }
+        assert len(result["candidates"]) == 4
+
+    def test_ambiguous_name_across_two_pathways_writes_nothing(self):
+        # Two materialized pathways share an event NAME under different AOP-Wiki
+        # ids. Picking either would be a fabricated scientific assertion.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate(("610", "611"))
+        result = link_assay_to_key_event(state, assay_id, "Mitochondrial dysfunction")
+
+        assert result["ok"] is False
+        assert "keyEvent" not in state.get_entity(assay_id).fields
+        duplicated = [
+            c for c in result["candidates"] if c["name"] == "Mitochondrial dysfunction"
+        ]
+        assert len(duplicated) == 2
+        assert {c["@id"] for c in duplicated} == {
+            self._MITOCHONDRIAL_DYSFUNCTION,
+            "https://aopwiki.org/events/9177",
+        }
+
+    def test_never_fabricates_an_iri_from_the_name(self):
+        # D5 control: the committed reference must be an id that is ALREADY in
+        # state, so an id minted from the name (#KeyEvent_mitochondrial_...) or
+        # any other guess fails regardless of how plausible it looks.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        committed = state.get_entity(assay_id).fields["keyEvent"]
+        # `set_fields` canonicalises a reference to its bare id, so the stored
+        # value is the IRI string rather than the `{"@id": …}` it was passed.
+        ref_id = committed.get("@id") if isinstance(committed, dict) else committed
+        assert ref_id in {e.entity_id for e in _by_type(state, "KeyEvent")}
+
+    def test_field_status_source_is_lookup_on_the_camel_case_field(self):
+        # The MIT slot is `Assay:keyEvent` and `_count_filled_fields` keys on the
+        # RAW state field name, so writing `key_event` would produce a
+        # correct-looking crate whose maturity row stays unfilled.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        assay = state.get_entity(assay_id)
+        assert "key_event" not in assay.fields
+        status = assay.get_field_status("keyEvent")
+        assert status is not None
+        # `lookup`, not `llm`/`user`: the id came from AOP-Wiki, not from prose.
+        assert status.source == "lookup"

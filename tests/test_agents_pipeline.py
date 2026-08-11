@@ -18,6 +18,7 @@ The headline guarantees under test:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -837,7 +838,10 @@ class TestMaterializePlan:
                         {
                             "@id": mie,
                             "@type": "KeyEvent",
-                            "name": "MIE",
+                            # A REAL event name (#382): the Assay -> Key Event link
+                            # matches the plan's `measured_event_name` against these
+                            # names, so a placeholder "MIE" could not exercise it.
+                            "name": "Mitochondrial dysfunction",
                             "eventType": "Molecular Initiating Event",
                         },
                         {
@@ -1086,6 +1090,204 @@ class TestMaterializePlan:
         for ent in engine.state.list_entities():
             assert ent.fields.get("identifier") != "10.0/FAKE"
             assert ent.fields.get("doi") != "10.0/FAKE"
+
+    # --- the Assay -> AOP Key Event link (#382) ------------------------------
+    #
+    # Materializing a pathway used to be the end of the AOP section: the crate
+    # listed every KeyEvent of AOP 610 and never said which one the assay
+    # measured, so the assay-to-mechanism edge was absent from every crate the
+    # tool had ever produced. The plan now carries the event NAME and the spine
+    # feeds it to `link_assay_to_key_event`, which commits the id AOP-Wiki gave
+    # it. One claim, then controls: the link must be CAUSED by
+    # `measured_event_name` flowing through the tool — so it must NOT appear when
+    # the plan is silent or names an event this pathway does not have, and no id
+    # the plan carries may ever reach the crate.
+
+    def _assay_key_event(self, engine: AgentEngine) -> Any:
+        """The Assay's stored `keyEvent` reference id, or None."""
+        assay = self._by_type(engine, "Assay")[0]
+        ref = assay.fields.get("keyEvent")
+        return ref.get("@id") if isinstance(ref, dict) else ref
+
+    def test_plan_measured_event_wires_assay_to_key_event(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(
+            monkeypatch,
+            {
+                "aops": [
+                    {"aop_id": "610", "measured_event_name": "Mitochondrial dysfunction"}
+                ]
+            },
+        )
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        # The committed reference is the IRI the LOOKUP STUB produced for the
+        # event of that name — the test never writes it onto an entity, and the
+        # plan carries only the name.
+        assert self._assay_key_event(engine) == "https://aopwiki.org/events/1"
+        assert result["key_events"] == 1
+        # The MIT slot is `Assay:keyEvent` and MIT scoring keys on the raw state
+        # field name, so the snake_case spelling would score as unfilled.
+        assert "key_event" not in self._by_type(engine, "Assay")[0].fields
+
+    def test_unnamed_event_leaves_assay_unlinked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Honesty control: the default plan names no event, so nothing is linked.
+
+        This is today's behaviour and must stay: it proves the test above is
+        driven by `measured_event_name` rather than by anything the AOP section
+        does unconditionally.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)  # the default _PLAN: aop_id only
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        # The subgraph IS fully materialized; only the assay edge is missing.
+        assert self._by_type(engine, "AdverseOutcomePathway")
+        assert self._by_type(engine, "KeyEvent")
+        assert "keyEvent" not in self._by_type(engine, "Assay")[0].fields
+        assert result["key_events"] == 0
+
+    def test_plan_event_name_matching_nothing_leaves_assay_unlinked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Honesty control: a name AOP-610 does not carry links nothing, quietly.
+
+        "TPO inhibition" vs "Thyroperoxidase, Inhibition" is the real abbreviation
+        gap this refusal exists for — no string matcher may bridge it, and being
+        unable to is a normal outcome, not a spine failure.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(
+            monkeypatch,
+            {
+                "aops": [
+                    {"aop_id": "610", "measured_event_name": "Thyroperoxidase, Inhibition"}
+                ]
+            },
+        )
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)  # must not raise
+
+        assert "keyEvent" not in self._by_type(engine, "Assay")[0].fields
+        assert result["key_events"] == 0
+        assert result["aops"] == 1  # the pathway itself still landed
+
+    def test_plan_cannot_supply_an_event_identifier(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """D5: an event id an adversarial model attaches never reaches the crate.
+
+        The plan is passed through the REAL `_strip_plan_identifiers` — the same
+        scrub `extract_plan` applies to the model's output — before the spine sees
+        it, so this exercises the guard rather than asserting the stub's own shape.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.pipeline.leaves import _strip_plan_identifiers
+
+        self._enable_provider(monkeypatch)
+        raw_plan = {
+            "aops": [
+                {
+                    "aop_id": "610",
+                    "event_id": "999",
+                    "measured_event_name": "Mitochondrial dysfunction",
+                }
+            ]
+        }
+        self._stub_extract_plan(monkeypatch, _strip_plan_identifiers(raw_plan))
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        # The NAME still resolves through the lookup, so the link is made — from
+        # the lookup's id, never the plan's.
+        assert self._assay_key_event(engine) == "https://aopwiki.org/events/1"
+        for ent in engine.state.list_entities():
+            assert "999" not in ent.entity_id
+            for value in ent.fields.values():
+                assert "999" not in str(value)
+
+    def test_the_scrub_removes_event_ids_and_keeps_the_event_name(self) -> None:
+        """The scrub itself, not just its effect downstream (D5).
+
+        ``_materialize_plan`` reads only ``aop_id`` and ``measured_event_name``, so
+        an unstripped ``event_id`` cannot reach the crate through it — which means
+        the end-to-end D5 test above stays green even with ``event_id`` / ``ke_id``
+        / ``mie_id`` removed from :data:`_PLAN_IDENTIFIER_FIELDS`, and pins nothing
+        about the guard. Asserting the stripper directly is what makes those three
+        entries load-bearing: they are defense in depth against a FUTURE reader of
+        ``aops[]``, and defense nothing exercises rots.
+        """
+        from builder.agents.pipeline.leaves import _strip_plan_identifiers
+
+        scrubbed = _strip_plan_identifiers(
+            {
+                "aops": [
+                    {
+                        "aop_id": "610",
+                        "event_id": "999",
+                        "ke_id": "888",
+                        "mie_id": "777",
+                        "measured_event_name": "Mitochondrial dysfunction",
+                    }
+                ]
+            }
+        )
+
+        item = scrubbed["aops"][0]
+        assert set(item) == {"aop_id", "measured_event_name"}, (
+            "an AOP-Wiki event id must not survive the scrub; the name must"
+        )
+        assert item["measured_event_name"] == "Mitochondrial dysfunction"
+
+    def test_plan_schema_offers_no_event_identifier_field(self) -> None:
+        """The new slot must never grow an id sibling the model could fill (D5)."""
+        from builder.agents.pipeline.leaves import (
+            _PLAN_IDENTIFIER_FIELDS,
+            _plan_schema,
+        )
+
+        names: set[str] = set()
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                properties = node.get("properties")
+                if isinstance(properties, dict):
+                    names.update(properties)
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(_plan_schema())
+        # The slot that must exist, spelled as a name...
+        assert "measured_event_name" in names
+        # ...and no identifier-shaped property anywhere in the schema.
+        assert not (names & _PLAN_IDENTIFIER_FIELDS)
 
     def test_no_provider_skips_only_the_plan_driven_sections(
         self, monkeypatch: pytest.MonkeyPatch

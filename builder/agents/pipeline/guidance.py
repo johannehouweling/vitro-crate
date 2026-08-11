@@ -213,6 +213,29 @@ _CITATION_FIELDS = CITATION_FIELDS
 _is_citation_field = is_citation_field
 
 
+# (#382) The Assay's AOP Key Event slot, in all three spellings the crate mapping
+# accepts (``_ASSAY_MENTION_FIELDS``); all expand to ``schema:mentions``. Its value
+# MUST be a reference to a ``KeyEvent`` ALREADY IN THE CRATE — ``_wire_mention``
+# emits nothing for free text, so storing the user's reply as a literal string
+# would report success while the answer vanished and the gap re-emitted: the same
+# #275 / #179 re-ask class as the person and citation fields above. The reply is
+# instead routed to ``link_assay_to_key_event`` (see
+# :func:`_apply_key_event_value`), which resolves the name against the in-crate
+# KeyEvents and commits their AOP-Wiki IRI.
+#
+# Kept local rather than in :mod:`builder.tools.field_kinds`: unlike the person and
+# citation vocabularies, nothing outside this module asks the question — the gap
+# engine has no key-event branch (emitting that gap is deliberately out of scope,
+# #382 "Out of scope"), so a shared constant would advertise a contract no second
+# reader has.
+_KEY_EVENT_FIELDS: frozenset[str] = frozenset({"key_event", "keyEvent", "key_events"})
+
+
+def _is_key_event_field(field: str) -> bool:
+    """Whether ``field`` is the Assay's AOP Key Event reference slot (#382)."""
+    return field in _KEY_EVENT_FIELDS
+
+
 def _gap_is_root(engine: AgentEngine, gap: Gap) -> bool:
     """Whether ``gap`` targets the Root Data Entity (``./`` / no state entity).
 
@@ -546,6 +569,71 @@ def _apply_citation_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
         return False
 
 
+def _apply_key_event_value(
+    engine: AgentEngine, gap: Gap, value: str, *, human: HumanInterface | None = None
+) -> bool:
+    """Resolve an Assay's Key Event answer against the in-crate KeyEvents (#382).
+
+    ``keyEvent`` is a reference-only property (an alias of ``schema:mentions``):
+    the build strips it out of the node's scalar properties and ``_wire_mention``
+    emits nothing for a value that is neither a resolvable IRI nor an index hit.
+    So committing the user's prose ("mitochondrial dysfunction") as a literal
+    string would return ``True`` while the crate carried nothing and the gap
+    re-emitted next round — the #275 / #179 re-ask class.
+
+    The answer is instead routed to ``link_assay_to_key_event`` (never hand-rolled
+    JSON-LD, AGENTS.md §4.7), which matches the name against the ``KeyEvent``
+    entities already in state and commits THEIR AOP-Wiki id.
+
+    Returns ``True`` only when the link was actually written. A zero or ambiguous
+    match returns ``False`` **and commits nothing**: which Key Event an assay
+    measures is a scientific claim, and reporting a refusal as progress would be
+    the same lie in the opposite direction. The candidate names come back on the
+    tool result, so the user is shown what the crate can actually offer instead of
+    being asked the identical question again.
+    """
+    text = (value or "").strip()
+    if not text:
+        return False
+
+    # A MIT gap carries `entity_id=None` + `entity_type="Assay"`, a SHACL gap the
+    # assay node; resolve both the way `_apply_value` resolves its own targets, so
+    # the answer lands on the entity the question was phrased about (#375).
+    assay_id = _resolve_entity_id(engine, gap)
+    if assay_id is None:
+        instances = _instances_for_commit(engine, "Assay")
+        if len(instances) != 1:
+            if len(instances) > 1:
+                _notify(
+                    human,
+                    "there are several Assay entries, so it is not clear which one "
+                    "measures that key event — your answer was not stored.",
+                )
+            return False
+        assay_id = instances[0].entity_id
+
+    try:
+        result = engine.run_tool("link_assay_to_key_event", assay_id=assay_id, event_name=text)
+    except Exception as exc:  # noqa: BLE001 — a tool failure is a guidance skip
+        logger.warning("guidance: key event link failed for %r: %s", text, exc)
+        return False
+
+    if isinstance(result, dict) and result.get("ok"):
+        return True
+
+    offered = result.get("candidates") or [] if isinstance(result, dict) else []
+    candidates = [str(c.get("name")) for c in offered if isinstance(c, dict) and c.get("name")]
+    known = ""
+    if candidates:
+        known = f" The key events in this crate are: {', '.join(candidates)}."
+    _notify(
+        human,
+        f"'{text}' does not name exactly one key event already in the crate, so "
+        f"your answer was not stored.{known}",
+    )
+    return False
+
+
 def _instances_for_commit(engine: AgentEngine, entity_type: str | None) -> list[Any]:
     """In-state instances of ``entity_type`` — the commit-target selection rule.
 
@@ -627,6 +715,12 @@ def _apply_value(
     :func:`_apply_citation_value`: its value must be a ``ScholarlyArticle``
     reference resolved through the publication composites, not a literal string,
     so a string commit dropped the answer and the gap was re-asked every round.
+
+    The Assay's ``keyEvent`` field (#382) is routed to
+    :func:`_apply_key_event_value`, which resolves the answer against the
+    ``KeyEvent`` entities in the crate: ``_wire_mention`` drops free text, so a
+    literal commit would silently lose the one edge that says what the assay
+    actually measures.
     """
     field = _local_name(gap.property) or (gap.property or "")
     if not field:
@@ -639,6 +733,14 @@ def _apply_value(
     # (#179) The root citation gap needs a resolved ScholarlyArticle, not a string.
     if _is_citation_field(field) and _gap_is_root(engine, gap):
         return _apply_citation_value(engine, gap, value)
+
+    # (#382) The Assay's key event needs a reference to a KeyEvent already in the
+    # crate. A value that ALREADY resolves (an AOP-Wiki IRI, or an in-state id the
+    # user pasted) is a reference, not prose, so it falls through to the generic
+    # reference path below — sending it to the name matcher would fail to match an
+    # IRI against the event NAMES and reject a perfectly good answer.
+    if _is_key_event_field(field) and not is_resolvable_reference(engine.state, value):
+        return _apply_key_event_value(engine, gap, value, human=human)
 
     # Assay measurementMethod is a DefinedTerm reference, but the user naturally
     # answers it with a method name (for example, "Gamma counter"). Resolve that

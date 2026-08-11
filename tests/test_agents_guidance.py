@@ -2181,6 +2181,110 @@ class TestReferenceFieldNeverCommittedAsLiteral:
         assert assay is not None and assay.fields.get("measurementMethod") == "term1"
 
 
+class TestKeyEventAnswerIsResolvedNotStored:
+    """#382: the Assay's key event answer must resolve, or not count as progress.
+
+    ``keyEvent`` is an alias of ``schema:mentions`` and reference-only:
+    ``_wire_mention`` emits nothing for a value that is neither a resolvable IRI
+    nor an index hit. Storing the user's prose would report success while the
+    crate carried nothing and the gap re-emitted next round — the #275 / #179
+    re-ask class. The answer is routed to ``link_assay_to_key_event`` instead.
+
+    The gap here is the REAL one the MIT module emits for
+    ``Assay:keyEvent;Study:aop``, taken from the live gap engine.
+    """
+
+    _MITOCHONDRIAL_DYSFUNCTION = "https://aopwiki.org/events/177"
+
+    def _engine_with_events(self, *events: tuple[str, str]) -> AgentEngine:
+        state = _honest_backbone()
+        for entity_id, name in events or (
+            (self._MITOCHONDRIAL_DYSFUNCTION, "Mitochondrial dysfunction"),
+            ("https://aopwiki.org/events/279", "Thyroperoxidase, Inhibition"),
+        ):
+            state.add_entity(_entity(entity_id, "KeyEvent", name=name))
+        return AgentEngine(state=state)
+
+    def _gap(self, engine: AgentEngine) -> Gap:
+        return _mit_gap(engine.state, "Assay", "keyEvent")
+
+    def test_named_event_answer_reaches_the_crate(self):
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = self._engine_with_events()
+        gap = self._gap(engine)
+
+        # The user answers with the event's NAME, as a human would.
+        assert _apply_value(engine, gap, "mitochondrial dysfunction") is True
+
+        from builder.tools.builder import assemble_crate
+
+        graph = assemble_crate(
+            engine.state, output_dir=None, materialize_payload=False, include_all_scanned=False
+        ).metadata.generate()["@graph"]
+        assay_node = next(n for n in graph if n.get("additionalType") == "Assay")
+        # The point of the route: the answer SURVIVES the build as a reference.
+        assert assay_node.get("keyEvent") == [{"@id": self._MITOCHONDRIAL_DYSFUNCTION}]
+
+    def test_unmatched_answer_is_not_progress_and_stores_nothing(self):
+        """Honesty control — and the anti-re-ask guarantee.
+
+        Returning ``True`` on a failed resolution would let the loop record
+        progress for an answer the crate never carried, so the gap would come
+        back every round: exactly #275 / #179. Returning ``False`` puts the gap
+        in the skip-set instead.
+        """
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = self._engine_with_events()
+        gap = self._gap(engine)
+
+        assert _apply_value(engine, gap, "TPO inhibition") is False
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and "keyEvent" not in assay.fields
+
+    def test_ambiguous_answer_stores_nothing(self):
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = self._engine_with_events(
+            ("https://aopwiki.org/events/177", "Mitochondrial dysfunction"),
+            ("https://aopwiki.org/events/9177", "Mitochondrial dysfunction"),
+        )
+        gap = self._gap(engine)
+
+        assert _apply_value(engine, gap, "Mitochondrial dysfunction") is False
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and "keyEvent" not in assay.fields
+
+    def test_answer_that_is_already_a_reference_still_commits(self):
+        """Honesty control: the name matcher is not in the way of an IRI answer.
+
+        A user who pastes the AOP-Wiki IRI has given a resolvable reference, so it
+        takes the generic reference path — sending it to the name matcher would
+        fail to match an IRI against event NAMES and reject a perfect answer.
+        """
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = self._engine_with_events()
+        gap = self._gap(engine)
+
+        assert _apply_value(engine, gap, self._MITOCHONDRIAL_DYSFUNCTION) is True
+        assay = engine.state.get_entity("as1")
+        assert assay is not None
+        assert assay.fields.get("keyEvent") == self._MITOCHONDRIAL_DYSFUNCTION
+
+    def test_no_key_events_in_the_crate_stores_nothing(self):
+        """Nothing to resolve against — the answer must not be kept as prose."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        engine = AgentEngine(state=_honest_backbone())
+        gap = self._gap(engine)
+
+        assert _apply_value(engine, gap, "mitochondrial dysfunction") is False
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and "keyEvent" not in assay.fields
+
+
 class TestIdentifierNeverCommittedFromProse:
     """#375(c): D5 holds on EVERY commit path, including offline."""
 

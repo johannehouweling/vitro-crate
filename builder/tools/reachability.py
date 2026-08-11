@@ -112,13 +112,6 @@ PIPELINE_UNREACHED: Mapping[str, str] = {
         "No caller, though it is report-only and offline — the cheapest genuine "
         "win here, one call after the fix loop."
     ),
-    "link_assay_to_key_event": (
-        "Closes the ReAct half of #382 — `key_event` had zero writers in either "
-        "arm. The deterministic arm still has none: it would need the pipeline to "
-        "decide WHICH Key Event an assay measures, which is a scientific claim "
-        "the tool deliberately refuses to guess at. Delete this row when the "
-        "pipeline learns to supply the event name."
-    ),
     "lookup_unit": (
         "No deterministic unit resolution yet; tied to the placeholder "
         "ParameterValue lane, which is exactly where units are needed."
