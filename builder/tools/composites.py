@@ -46,6 +46,10 @@ from builder.tools.lookups import (
     lookup_orcid,
     warm_compound_cache,
 )
+
+# One source of truth with the link tool for "where does the build read this
+# entity type from" — imported rather than restated so the two cannot drift.
+from builder.tools.provenance import _PROCESS_LINK_HOMES as _BUILD_HONOURED_HOMES
 from builder.tools.verification import verify_identifier
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
@@ -1784,8 +1788,27 @@ def _is_consumed_by_process(state: CrateState, target_id: str) -> bool:
     notes describe it, but only a process records that the experiment touched it.
     """
     wanted = target_id.lstrip("./").lstrip("#")
+    target = state.get_entity(target_id)
+    target_type = str(target.type) if target is not None else ""
     for proc in state.list_entities("LabProcess"):
-        for field in _PROCESS_IO_FIELDS:
+        # Narrow to the build's field ONLY for the (entity type, process type)
+        # pair that has one. A compound under an Exposure's `input` is read by
+        # nothing — the ISA shape allows only File/Sample/BioSample there, so
+        # `_build_process` takes compounds from `chemicals` — and counting it as
+        # consumed makes this backstop skip the exact case it exists for.
+        #
+        # The process type is half of that key and cannot be dropped. A
+        # CellLineSample has a build home under a CellCulture (`cell_line`), but
+        # under an Exposure it is an ordinary `samples` participant that the
+        # build does read. Narrowing it everywhere marked it permanently loose,
+        # so `wire_unreferenced_domain_entities` re-wired it on every call —
+        # which is a mutation, and cost the export its idempotency.
+        process_type = str(
+            proc.fields.get("process_type") or proc.fields.get("additionalType") or ""
+        )
+        home = _BUILD_HONOURED_HOMES.get((target_type, process_type))
+        fields = (home,) if home else _PROCESS_IO_FIELDS
+        for field in fields:
             value = proc.fields.get(field)
             if value is None:
                 continue
