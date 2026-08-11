@@ -208,6 +208,12 @@ class TestParallelPassesAgreeWithSerial:
             (r.profile, r.passed, r.passed_required, len(r.issues)) for r in results
         )
 
+    # Two full three-pass sweeps, same shape as
+    # test_patched_results_byte_identical_to_unpatched — which needed its own
+    # budget because a pair of sweeps sits at the 30s edge on CI's 2-vCPU runner
+    # (#278). Equivalence is only demonstrable by running both paths, so this one
+    # gets the same allowance rather than a weaker assertion.
+    @pytest.mark.timeout(120)
     def test_a_good_crate_gets_the_same_verdict_either_way(self, monkeypatch):
         from profiles.validator import validate_crate_dict
 
