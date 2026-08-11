@@ -1485,3 +1485,72 @@ class TestUnreachableRepairEstimate:
 
         assert "Every entity is reachable from the crate root." in page
         assert "would reconnect" not in page
+
+
+class TestCappedTiersKeepTheirRemainder:
+    """A cap that bites must hide the rest, not discard it.
+
+    The advisory tiers are capped so the section stays readable, but the report
+    is the only place these findings are shown. A bare count told an author
+    there were 232 more without telling them what — the one thing they cannot
+    act on. The remainder now sits behind a <details>, which costs no script and
+    keeps the page self-contained.
+    """
+
+    def _page(self, n_recommended: int = 30, n_optional: int = 20) -> str:
+        validation = ValidationReport(
+            base_passed=False,
+            isa_passed=True,
+            tox_passed=True,
+            required_issues=["root MUST have a name"],
+            should_issues=[f"recommended finding {i}" for i in range(n_recommended)],
+            may_issues=[f"optional finding {i}" for i in range(n_optional)],
+        )
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=validation)
+
+    def test_every_recommended_finding_is_in_the_page(self):
+        page = self._page()
+        for i in range(30):
+            assert f"recommended finding {i}" in page, f"recommended finding {i} was dropped"
+
+    def test_every_optional_finding_is_in_the_page(self):
+        page = self._page()
+        for i in range(20):
+            assert f"optional finding {i}" in page, f"optional finding {i} was dropped"
+
+    def test_the_overflow_is_behind_a_disclosure(self):
+        page = self._page()
+        assert "<details" in page and "more-list" in page
+        # The count still leads, so the summary says how much is folded away.
+        assert "+20 further recommended findings" in page
+        assert "+15 further optional findings" in page
+
+    def test_the_findings_above_the_cap_stay_directly_visible(self):
+        # The disclosure is for the remainder only — the first ten recommended
+        # findings must not be buried behind a click.
+        page = self._page()
+        head, _, tail = page.partition("+20 further recommended findings")
+        assert "recommended finding 0" in head
+        assert "recommended finding 9" in head
+        assert "recommended finding 10" in tail
+
+    def test_no_disclosure_when_nothing_is_capped(self):
+        page = self._page(n_recommended=2, n_optional=2)
+        assert "further recommended" not in page
+        assert "further optional" not in page
+        assert "recommended finding 1" in page
+
+    def test_a_single_hidden_finding_reads_as_one(self):
+        page = self._page(n_recommended=11, n_optional=0)
+        assert "+1 further recommended finding — show it" in page
+
+    def test_hidden_findings_are_escaped(self):
+        validation = ValidationReport(
+            base_passed=False,
+            isa_passed=True,
+            tox_passed=True,
+            should_issues=[f"pad {i}" for i in range(10)] + ["<script>alert(1)</script>"],
+        )
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=validation)
+        assert "<script>alert(1)</script>" not in page
+        assert "&lt;script&gt;" in page
