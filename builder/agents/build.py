@@ -52,6 +52,7 @@ __all__ = [
     "run_interactive_build",
     "format_guidance_summary",
     "format_gap_summary",
+    "format_unresolved_compounds",
     "CrateExportError",
 ]
 
@@ -463,6 +464,13 @@ def _run_build_body(
     guidance_result = guidance_runner(engine, prompt_human, **guidance_kwargs)
 
     emit(format_guidance_summary(guidance_result))
+    # (#338) The interactive tail prints the GUIDANCE summary, which knows nothing
+    # about the spine's compound retry — and the identifier gap behind it is
+    # report-only, so the loop never surfaced it either. Re-state it here or the
+    # interactive user is the one person who never learns the CAS is missing.
+    unresolved = format_unresolved_compounds(pipeline_result)
+    if unresolved:
+        emit(f"  {unresolved}")
 
     # Export LAST so the guidance-enriched crate is what lands on disk (#233).
     export_result = _export_crate_to_disk(engine, exporter, emit)
@@ -565,6 +573,30 @@ def _export_crate_to_disk(
     return result
 
 
+def format_unresolved_compounds(pipeline_result: dict[str, Any] | None) -> str | None:
+    """One line naming the compounds that still have no identifier, or ``None`` (#338).
+
+    ``run_pipeline`` re-attempts ``resolve_compound`` for every MolecularEntity
+    that carries no CAS / PubChem CID / DTXSID and returns whatever is still
+    missing under ``unresolved_compounds``. That list has to be *said*: the gap
+    engine marks identifier gaps ``report-only``, and the guidance loop never
+    draws a report-only gap, so without this line the crate ships CAS-less and the
+    user is never told — the quiet failure #338 was reopened for.
+
+    Returns ``None`` when nothing is unresolved, so both call sites (the headless
+    :func:`format_gap_summary` and the interactive tail) can simply skip it rather
+    than print a reassuring "0 unresolved".
+    """
+    names = (pipeline_result or {}).get("unresolved_compounds") or []
+    if not names:
+        return None
+    return (
+        f"unresolved identifiers: {len(names)} compound(s) with no authoritative "
+        f"CAS/PubChem id ({', '.join(str(n) for n in names)}) — re-queried after "
+        "the first miss and still not found; the crate ships without them"
+    )
+
+
 def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
     """Render a concise, human-readable summary of a guidance run.
 
@@ -665,6 +697,13 @@ def format_gap_summary(pipeline_result: dict[str, Any] | None) -> str:
             )
         else:
             lines.append(f"  condition table: {table.get('rows')} row(s)")
+
+    # (#338) An unresolved compound identifier is a reporting fact, not a
+    # conformance failure, so it gets its own line rather than being folded into
+    # the MUST count — but it is never omitted.
+    unresolved = format_unresolved_compounds(result)
+    if unresolved:
+        lines.append(f"  {unresolved}")
     return "\n".join(lines)
 
 

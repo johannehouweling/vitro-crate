@@ -121,10 +121,6 @@ PIPELINE_UNREACHED: Mapping[str, str] = {
         "Generic OLS escape hatch across EFO/OBI/NCIT/UBERON. No deterministic "
         "field needs an arbitrary ontology term; this is LLM-discretionary."
     ),
-    "remove_entity": (
-        "Repair-only escape hatch. repair.fix_required_issues repairs by setting "
-        "fields, never by deleting entities."
-    ),
     "list_entities": (
         "Thin wrapper over CrateState.list_entities; the arm calls the state "
         "method directly (e.g. main.py's session summary). Introspection for an "
