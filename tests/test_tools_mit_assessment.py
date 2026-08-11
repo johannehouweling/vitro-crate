@@ -321,6 +321,11 @@ class TestGuidanceDocumentCoverage:
     """
 
     def test_all_seven_documents_get_a_bucket(self):
+        # Bucket SHAPE only: an empty state now assembles to a real (if bare)
+        # crate, and ro-crate-py's auto-stamped root fields (`datePublished`)
+        # legitimately credit a parameter or two — so zero-credit is not
+        # asserted here. The denominators are pinned exactly by
+        # test_totals_rederived_from_the_raw_checklist.
         result = assess_mit_coverage(CrateState())
         assert set(result.standard_scores) == {
             "oecd_gd211",
@@ -332,7 +337,7 @@ class TestGuidanceDocumentCoverage:
             "oecd_oht201",
         }
         for key, bucket in result.standard_scores.items():
-            assert bucket["completed"] == 0, key
+            assert 0 <= bucket["completed"] <= bucket["total"], key
             assert bucket["total"] > 0, key
 
     def test_totals_rederived_from_the_raw_checklist(self):
