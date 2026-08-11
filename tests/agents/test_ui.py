@@ -328,10 +328,53 @@ def test_print_resume_summary_prints_when_populated(monkeypatch) -> None:
     assert "Resumed Session" in rec.export_text()
 
 
-def test_print_resume_summary_is_noop_on_fresh_session(monkeypatch) -> None:
+def test_print_resume_summary_states_the_model_on_a_fresh_session(monkeypatch) -> None:
+    """An empty session prints the model line — and nothing more (#494).
+
+    There is no panel to draw, but the model about to spend the user's money is
+    worth stating up front, so ``print_resume_summary`` deliberately falls back to
+    a one-line header. This test used to pin the older "strict no-op" contract and
+    was the thing making main red; the production branch is the intended
+    behaviour, so the expectation moves rather than the code.
+
+    The assertion is over CONTENT, not emptiness: the session id and the resolved
+    model must both appear, and the panel must NOT — an assertion that only
+    checked for non-empty output would pass on a full panel too.
+    """
+    import builder.config as config_mod
+
     rec = _rec()
     monkeypatch.setattr(ui, "get_console", lambda: rec)
+    # Pin the model through the REAL snapshot producer: `snapshot_from_engine`
+    # falls back to `get_active_model()` when the profile has no model event yet,
+    # which is exactly a fresh session. Stubbing the snapshot itself would bypass
+    # the producer under test.
+    monkeypatch.setattr(config_mod, "get_active_model", lambda: "gpt-4o-mini")
+
     ui.print_resume_summary(_real_engine(populated=False), resumed=False)
+
+    out = rec.export_text()
+    assert "sess-1" in out
+    assert "gpt-4o-mini" in out
+    assert "Resumed Session" not in out
+
+
+def test_print_resume_summary_is_silent_when_no_model_is_resolved(monkeypatch) -> None:
+    """With nothing built AND no model known there is nothing to say (#494).
+
+    The honesty control for the test above: it proves the model line is caused by
+    a RESOLVED model rather than by "the function was called on an empty
+    session". Without it, the pair could not tell the new branch from an
+    unconditional header.
+    """
+    import builder.config as config_mod
+
+    rec = _rec()
+    monkeypatch.setattr(ui, "get_console", lambda: rec)
+    monkeypatch.setattr(config_mod, "get_active_model", lambda: "")
+
+    ui.print_resume_summary(_real_engine(populated=False), resumed=False)
+
     assert rec.export_text() == ""
 
 
