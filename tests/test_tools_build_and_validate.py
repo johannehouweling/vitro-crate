@@ -28,7 +28,11 @@ def _exposure_state() -> CrateState:
 class TestBuildAndValidateShape:
     def test_returns_routable_shape(self):
         report = build_and_validate(CrateState())
-        assert set(report.keys()) == {"ok", "conformance", "issues"}
+        # `citations` joined the contract: findings about vocabulary the crate
+        # CITES are reported separately from findings about the crate itself, so
+        # `issues` is what somebody can act on and nothing is dropped silently.
+        assert set(report.keys()) == {"ok", "conformance", "issues", "citations"}
+        assert isinstance(report["citations"], list)
         assert isinstance(report["ok"], bool)
         assert isinstance(report["conformance"], dict)
         assert set(report["conformance"]) == {"base", "isa", "tox"}
