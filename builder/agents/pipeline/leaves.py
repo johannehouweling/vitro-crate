@@ -200,6 +200,13 @@ def _process_parameters_schema() -> dict[str, Any]:
 # Pruned from the schema the model sees AND stripped from the result. A superset
 # of :data:`_IDENTIFIER_SCALAR_FIELDS` with the plan-specific aliases the docs
 # might tempt the model toward (``cid``, ``cellosaurus``, ``@id``, ``id``).
+#
+# Membership is matched EXACTLY (see :func:`_strip_plan_identifiers`), never by
+# substring — which is what makes both halves of the #382 Key Event slot safe:
+# the AOP-Wiki event ids (``event_id`` / ``ke_id`` / ``mie_id``) a model might
+# volunteer alongside ``measured_event_name`` have to be listed here to be
+# stripped at all, and listing them cannot take ``measured_event_name`` (a NAME,
+# the only thing the plan is allowed to carry) down with them.
 _PLAN_IDENTIFIER_FIELDS: frozenset[str] = _IDENTIFIER_SCALAR_FIELDS | frozenset(
     {
         "cid",
@@ -207,6 +214,9 @@ _PLAN_IDENTIFIER_FIELDS: frozenset[str] = _IDENTIFIER_SCALAR_FIELDS | frozenset(
         "cellosaurus",
         "cellosaurus_accession",
         "aop_url",
+        "event_id",
+        "ke_id",
+        "mie_id",
         "@id",
         "id",
     }
@@ -233,10 +243,23 @@ _PLAN_SYSTEM_PROMPT = (
     "spaces; drop plate/well/replicate/date codes and the study accession) as a "
     "separate compound NAME. Propose the chemical names you recognise even when "
     "they appear only in a filename. "
+    # #382: the Assay -> Key Event edge is the reason an ISA-Tox crate is more
+    # than a file manifest, and only the documents can say WHICH event the assay
+    # measures. Ask for the wording verbatim: `link_assay_to_key_event` matches
+    # against the AOP-Wiki event names already in the crate and deliberately
+    # refuses to guess, so a paraphrase ("TPO inhibition" for "Thyroperoxidase,
+    # Inhibition") silently drops the link rather than mislinking it.
+    "For each AOP, also report in 'measured_event_name' the NAME of the key "
+    "event or molecular initiating event THIS study's assay measures, worded "
+    "exactly as the source documents word it. Leave it empty unless the "
+    "documents say which event is measured — never infer it from the assay's "
+    "name and never assume an assay measures the initiating event. "
     "Refer to compounds, cell lines, people and "
-    "publications BY NAME ONLY. NEVER include identifiers of any kind: no CAS, "
+    "publications BY NAME ONLY, and key events by their NAME only. NEVER "
+    "include identifiers of any kind: no CAS, "
     "PubChem CID, InChIKey, SMILES, InChI, Cellosaurus accession, ORCID, DOI, "
-    "or @id. Those are resolved later by dedicated lookup services, never by you."
+    "AOP-Wiki event id, or @id. Those are resolved later by dedicated lookup "
+    "services, never by you."
 )
 
 
@@ -330,7 +353,27 @@ def _plan_schema() -> dict[str, Any]:
                 required=["process_type"],
             ),
             "aops": _array_of(
-                {"aop_id": {**str_field, "description": "AOP-Wiki id, only if explicitly stated."}},
+                {
+                    "aop_id": {
+                        **str_field,
+                        "description": "AOP-Wiki id, only if explicitly stated.",
+                    },
+                    # #382: the ONE thing only the documents can say — which event
+                    # of this pathway the assay measures. A NAME, never an id: the
+                    # spine feeds it to `link_assay_to_key_event`, which matches it
+                    # against the KeyEvents AOP-Wiki just put in the crate and
+                    # commits their IRI. Asking for an id here would let the model
+                    # fabricate the very reference the lookup exists to supply (D5).
+                    "measured_event_name": {
+                        **str_field,
+                        "description": (
+                            "NAME ONLY of the key event / molecular initiating "
+                            "event this study's assay measures, worded exactly as "
+                            "the source documents word it. No event id, no IRI. "
+                            "Leave empty unless the documents state it."
+                        ),
+                    },
+                },
                 required=["aop_id"],
             ),
             "people": _array_of(

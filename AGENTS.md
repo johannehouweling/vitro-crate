@@ -615,7 +615,7 @@ format only (D7); the ARC folder tree is materialised at export time by
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent-WITH-merge: a reused layer's EMPTY fields are filled from the supplied hints, fill-don't-clobber), the fast path to a BASE-passing crate
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
-link_assay_to_key_event(assay_id: str, event_name: str) → {ok, assay_id, key_event_id, event_name} | {ok: False, reason, candidates}  # composite: link an Assay to the AOP Key Event it MEASURES (schema:mentions via keyEvent), matched by name against the KeyEvents already in state; commits the in-state AOP-Wiki id, never one built from the name, and writes NOTHING on a zero/ambiguous match because which Key Event an assay measures is a scientific claim (D5)
+link_assay_to_key_event(assay_id: str, event_name: str) → {ok, assay_id, key_event_id, matched_name} | {ok: False, error, candidates}  # composite: link an Assay to the AOP Key Event it MEASURES (schema:mentions via keyEvent), matched by name against the KeyEvents already in state; commits the in-state AOP-Wiki id, never one built from the name, and writes NOTHING on a zero/ambiguous match because which Key Event an assay measures is a scientific claim (D5)
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
 resolve_publication(title: str, verify=None) → {ok, doi, entity_id, title, score} | {ok: False, reason, title}  # composite: publication title → Crossref title-search → confidence gate → draft_publication_with_authors(doi=…), in one idempotent call; commits a DOI only on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5)
 draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
@@ -1970,6 +1970,17 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   as the *true conditions of the exposure process*, and the Study `mentions` edge
   is a redundant backstop (still load-bearing for a compound the table cannot reach,
   e.g. one resolved with no Exposure in the chain) rather than the primary link.
+  **Assay→Key Event (#382).** Materializing an AOP subgraph used to wire the *Study*
+  and stop, so the crate listed a pathway's key events without ever saying which one
+  the assay measures. Each `aops[]` item now also carries `measured_event_name` — a
+  NAME, never an id (D5) — and after the subgraph lands the spine calls
+  `link_assay_to_key_event(assay_id, event_name)`, which matches that name against
+  the KeyEvents just materialized and commits THEIR AOP-Wiki IRI onto the Assay's
+  `keyEvent` (camelCase: it is the `Assay:keyEvent` MIT slot). A zero or ambiguous
+  match writes nothing and is logged, not raised — which key event an assay measures
+  is a scientific claim, so an unlinked Assay is a legitimate outcome, and the
+  guidance tail (§14.6.1) can still take the answer from the user through the same
+  tool. Counted on `_materialize_plan`'s result as `key_events`.
 - **Assess** (`assess_gaps`, the gap engine #215, this section) — one
   prioritized `GapReport` unifying SHACL + MIT + FAIR.
 - **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every
