@@ -129,14 +129,6 @@
 .mat ul.sugg { margin:.8rem 0 0; padding-left:1.1rem; font-size:.85rem; } .mat ul.sugg li.must { color:var(--low-ink); }
 .mat ul.sugg li.opt { color:var(--muted); } .mat ul.sugg li.more { color:var(--muted); font-style:italic;
   list-style:none; margin-left:-1.1rem; }
-/* The capped tiers hide their remainder behind a disclosure rather than
-   dropping it — the summary keeps the muted/italic "more" treatment, the
-   findings inside read exactly like the ones above the cut. */
-.mat ul.sugg li.more > details > summary { cursor:pointer; }
-.mat ul.sugg li.more ul.more-list { font-style:normal; margin:.5rem 0 .2rem; padding-left:2.2rem;
-  display:grid; gap:.2rem; }
-.mat ul.sugg li.more ul.more-list li { color:var(--ink-2); }
-.mat ul.sugg li.more ul.more-list li.opt { color:var(--muted); }
 
 /* profile adherence — severity tiers (#306) */
 .mat .sev { display:flex; flex-direction:column; gap:.32rem; }
