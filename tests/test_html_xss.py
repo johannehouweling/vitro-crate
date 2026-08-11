@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import CrateState, Entity, EntityProvenance, ValidationReport
 from builder.tools.builder import build_crate
 from builder.writers.maturity_report import build_maturity_html
 from builder.writers.provenance_dag import (
@@ -157,6 +157,47 @@ def test_maturity_report_escapes_title() -> None:
     out = build_maturity_html(_malicious_state())
     assert SCRIPT_PAYLOAD not in out
     assert "&lt;script&gt;" in out
+
+
+def test_maturity_report_does_not_rewrite_crate_text_that_looks_like_a_sentinel() -> None:
+    """A crate string spelled like a shell placeholder must survive verbatim (#518).
+
+    The shell is filled by substituting ``__STYLE__`` / ``__BODY__`` / ``__TITLE__``.
+    ``html.escape`` leaves underscores alone, so an entity id of ``#__TITLE__``
+    reaches the body still spelled as the sentinel; a second substitution pass
+    then rewrote it to the crate title, and a finding about that entity named an
+    entity that does not exist. Not an injection — the title is escaped — but the
+    report quietly says something false about the crate.
+
+    Both strings are crate-controlled, so no ordering of chained replacements is
+    safe: putting TITLE last protects the body and exposes the title to a crate
+    named ``__BODY__``. Only a single pass is.
+    """
+    state = CrateState()
+    state.metadata.title = "My Crate"
+    state.add_entity(
+        Entity(
+            entity_id="#__TITLE__",
+            type="Investigation",
+            fields={"title": "An investigation"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+    )
+    # A finding is what puts the entity id into the BODY verbatim — which is the
+    # only place the second substitution pass could reach it.
+    state.validation = ValidationReport(
+        base_passed=False,
+        required_issues=["entity #__TITLE__ needs a name"],
+    )
+
+    out = build_maturity_html(state)
+
+    assert "__TITLE__" in out, "the crate's own text was rewritten by the shell fill"
+    assert "#My Crate" not in out
+    # …and the real title still reached the slot it was meant for.
+    assert "My Crate" in out
+    # No placeholder is left unfilled by the single pass.
+    assert "__STYLE__" not in out and "__BODY__" not in out
 
 
 # --- bundled ro-crate-preview.html (export) --------------------------------
