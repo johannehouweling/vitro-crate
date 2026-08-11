@@ -10,7 +10,7 @@ Everything below the line is the issue text.
 
 ## A way to extend the excluded-namespaces list
 
-The shapes already exclude some namespaces from the entity checks. From
+The shapes exclude a fixed set of namespaces from the entity checks. From
 `profiles/ro-crate/1.2/should/0_entity_metadata.ttl`:
 
 ```sparql
@@ -23,34 +23,33 @@ FILTER(!STRSTARTS(STR(?this), "https://bioschemas.org/"))
 FILTER(!STRSTARTS(STR(?this), "urn:"))
 ```
 
-This is the right idea: an IRI a crate only cites is not an entity the crate has
-to describe.
+The idea behind it is right: an IRI that a crate only cites is not an entity the
+crate has to describe.
 
-The problem is that the list is fixed. `http://purl.org/` is on it, so Dublin
-Core is fine. `http://purl.obolibrary.org/` is a different host and is not on it,
-so every OBO term a crate cites gets reported as missing a type, a name and a
-description. In one crate we tested that was 87 findings from about 20 IRIs, none
-of which we can fix — the terms belong to those ontologies.
+The difficulty is that the set is fixed. Crates in different fields cite different
+vocabularies, and any namespace not on this list is reported as an entity missing
+a type, a name and a description. Those findings cannot be resolved, because the
+terms are defined and maintained elsewhere. In one crate we saw around 20 such
+IRIs produce 87 findings.
 
-Every field has its own registries, so adding entries one by one means a release
-each time.
+Adding namespaces one at a time means a release each time, and the list can never
+be complete.
 
-**Could we get a way to extend this list?** A setting would be ideal, next to the
-options that already exist:
+**Could the list be made extensible?** A setting would fit well beside the options
+that already exist:
 
 ```python
 ValidationSettings(
     rocrate_uri=...,
-    cited_vocabulary_namespaces=["http://purl.obolibrary.org/obo/"],
+    excluded_namespaces=["https://example.org/some-vocabulary/"],
 )
 ```
 
-Two notes if you take this up:
+Two things we noticed while looking at this:
 
 - `should/6_contextual_entity_metadata.ttl` has no namespace filters at all, so a
-  cited term is excluded from "must have a name" but still reported by "should be
-  described in the same @graph". A shared list would make those agree.
-- Matching on the term path rather than the bare host matters. Some sites serve
-  both, for example `https://aopwiki.org/ontology/KeyEvent` (a class, only cited)
-  and `https://aopwiki.org/events/2266` (a specific event, which a crate can
-  describe). Only the first should be excluded.
+  cited IRI is excluded from "must have a name" but still reported by "should be
+  described in the same @graph". A shared list would make those two agree.
+- Matching on a full prefix rather than a host would help. Some sites publish
+  vocabulary and data under the same host, where the vocabulary is only cited but
+  the data entities can genuinely be described.
