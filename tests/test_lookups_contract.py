@@ -803,6 +803,49 @@ class TestCompToxContract:
 # ===========================================================================
 
 
+class TestORCIDWellFormedness:
+    """`is_well_formed_orcid` — ISO 7064 MOD 11-2, no network."""
+
+    @pytest.mark.parametrize(
+        "orcid_id",
+        [
+            "0000-0001-6004-8653",
+            "0000-0002-1825-0097",
+            "0000-0002-5248-863X",  # check digit 10 is written "X"
+            "0009-0000-5074-6239",  # 0009- prefix (post-2022 block)
+        ],
+    )
+    def test_accepts_valid_ids(self, orcid_id):
+        from lookups.orcid import is_well_formed_orcid
+
+        assert is_well_formed_orcid(orcid_id) is True
+
+    @pytest.mark.parametrize(
+        "orcid_id",
+        [
+            "0009-0003-3960-7523",  # the observed real-world transcription error
+            "0000-0002-1825-0098",  # last digit off by one
+            "0000-0000-0000-0000",  # placeholder-looking, still fails the check digit
+            "0000-1111-2222-3333",
+            "0000-0001-6004-865",  # too short
+            "https://orcid.org/0000-0001-6004-8653",  # a URL, not a bare iD
+            "not-an-orcid",
+            "",
+        ],
+    )
+    def test_rejects_invalid_ids(self, orcid_id):
+        from lookups.orcid import is_well_formed_orcid
+
+        assert is_well_formed_orcid(orcid_id) is False
+
+    def test_does_not_touch_the_network(self):
+        """No `responses` mock registered — a request would raise."""
+        from lookups.orcid import is_well_formed_orcid
+
+        assert is_well_formed_orcid("0000-0001-6004-8653") is True
+        assert is_well_formed_orcid("0000-0001-6004-8654") is False
+
+
 class TestORCIDContract:
     """Contract tests for lookups/orcid.py."""
 

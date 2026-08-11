@@ -532,9 +532,12 @@ class TestLookupOrcid:
             }
 
         monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
-        result = lookup_orcid("0000-0000-0000-0000")
+        # A well-formed iD, so the wrapper reaches the API rather than rejecting it
+        # up front — "0000-0000-0000-0000" reads like a placeholder but fails the
+        # ORCID check digit, which is now caught before any lookup happens.
+        result = lookup_orcid("0000-0002-1825-0097")
         assert result["found"] is True
-        assert result["data"]["@id"] == "https://orcid.org/0000-0000-0000-0000"
+        assert result["data"]["@id"] == "https://orcid.org/0000-0002-1825-0097"
         assert result["error"] is None
 
     def test_never_throws_exception(self, monkeypatch):
@@ -542,10 +545,60 @@ class TestLookupOrcid:
             raise RuntimeError("ORCID unavailable")
 
         monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
-        result = lookup_orcid("0000-1111-2222-3333")
+        result = lookup_orcid("0000-0002-1943-7793")
         assert result["found"] is False
         assert result["data"] == {}
         assert isinstance(result["error"], str)
+
+    def test_malformed_id_is_rejected_without_a_lookup(self, monkeypatch):
+        """A bad check digit is caught locally — no network call, and a way out.
+
+        The observed failure was 0009-0003-3960-7523: well-shaped, so it looked
+        like a real iD, but its check digit does not agree with the first 15
+        digits. The old wrapper spent a round-trip on it and reported only
+        "ORCID lookup failed", which left the model nothing to do next.
+        """
+        calls = []
+
+        def mock_lookup_orcid(orcid_id):  # pragma: no cover — must never run
+            calls.append(orcid_id)
+            return {}
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
+        result = lookup_orcid("0009-0003-3960-7523")
+        assert calls == []
+        assert result["found"] is False
+        assert result["transient"] is False
+        assert "not a valid ORCID iD" in result["error"]
+        assert "draft_person" in result["fix"]
+        # Never volunteer a "corrected" iD — it would belong to someone else.
+        assert "0009-0003-3960-7520" not in result["fix"]
+
+    def test_unregistered_id_says_so_and_offers_a_next_step(self, monkeypatch):
+        """Well-formed but unknown to ORCID: definitive, with an exit."""
+
+        def mock_lookup_orcid(orcid_id):
+            return {}
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
+        result = lookup_orcid("0000-0009-9999-9999")
+        assert result["found"] is False
+        assert result["transient"] is False
+        assert "no public record" in result["error"]
+        assert "draft_person" in result["fix"]
+
+    def test_transient_failure_carries_no_fix(self, monkeypatch):
+        """A retry is the next step, and `transient` already says so."""
+        from lookups._http import TransientLookupError
+
+        def mock_lookup_orcid(orcid_id):
+            raise TransientLookupError("ORCID timed out")
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_orcid_api", mock_lookup_orcid)
+        result = lookup_orcid("0000-0001-2345-6789")
+        assert result["found"] is False
+        assert result["transient"] is True
+        assert "fix" not in result
 
 
 class TestLookupROR:
