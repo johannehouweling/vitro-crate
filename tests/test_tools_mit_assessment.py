@@ -8,7 +8,7 @@ from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance, MITReport
 from builder.tools._crate_mapping import populate_crate
-from builder.tools.mit_assessment import assess_mit_coverage
+from builder.tools.mit_assessment import assess_mit_coverage, mit_was_assessed
 from profiles.context import ISA_TOX_CONTEXT
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
@@ -31,13 +31,23 @@ class TestAssessMITCoverage:
 
         assert isinstance(result, MITReport)
 
-    def test_empty_state_returns_zero_score(self):
-        """Empty state returns overall_score of 0.0 and empty module_scores."""
-        state = CrateState()
-        result = assess_mit_coverage(state)
+    def test_empty_state_credits_only_the_builds_own_boilerplate(self):
+        """An empty state IS assessed, and earns nothing but build boilerplate.
 
-        assert result.overall_score == 0.0
-        assert isinstance(result.module_scores, dict)
+        Scoring goes through the assembled crate (#311), and even an empty
+        CrateState assembles to a root Dataset carrying what ro-crate-py writes
+        for every crate. Exactly one checklist slot matches that:
+        `Investigation:datePublished`, which the build auto-sets and the user is
+        never asked for. Pinned at 1 rather than rounded away — it is a free
+        point every crate collects, and if a *second* slot ever starts matching a
+        crate with no content in it, that is a false pass and this fails.
+        """
+        result = assess_mit_coverage(CrateState())
+
+        # Assessed: the checklist was read and matched against a real document.
+        assert mit_was_assessed(result)
+        assert sum(sc["completed"] for sc in result.module_scores.values()) == 1
+        assert result.overall_score < 0.01
 
     def test_populated_state_has_module_scores(self):
         """State with entities yields per-module scores."""
@@ -128,19 +138,60 @@ class TestAssessMITCoverage:
         `sampleType` (`CellLineSample:sampleType`) are counted from the @graph."""
         state = vhps_fixture_state("S-VHPS21")
         graph = _assembled_graph(state, tmp_path)
-        by_graph = assess_mit_coverage(state, graph=graph)
-        by_state = assess_mit_coverage(state)  # legacy fallback, unchanged
-        # The graph path finds domain coverage the state-field path cannot.
-        assert by_graph.overall_score > by_state.overall_score
+        report = assess_mit_coverage(state, graph=graph)
+        # Domain coverage a CrateState field scan structurally cannot reach.
+        assert report.overall_score > 0.0
+        assert any(sc["completed"] > 0 for sc in report.module_scores.values())
 
-    def test_module_totals_stable_across_paths(self, tmp_path):
-        """Switching to graph matching must not change the checklist size — only
-        how many slots are credited. Per-module `total` stays identical."""
+    def test_no_graph_scores_identically_to_the_graph_path(self, tmp_path):
+        """HONESTY CONTROL (#311): the two entry points must not diverge again.
+
+        `assess_mit_coverage(state)` used to run a second, weaker matcher over
+        `CrateState` fields and return 0.0 for this very crate while the graph
+        path returned 0.148 — and the maturity report printed that 0.0 as "MIT
+        coverage 0%". There is now one scoring owner: with no graph the assessor
+        assembles one itself.
+
+        The comparison is against an *independently* assembled document (this
+        module's `_assembled_graph`, which builds the crate its own way) rather
+        than against `mit_assessment._assemble_graph`, so this measures agreement
+        between two assemblies and not a function against itself. Whole reports
+        are compared, not just the overall: a per-module drift is a divergence too.
+        """
+        state = vhps_fixture_state("S-VHPS21")
+        independent = assess_mit_coverage(state, graph=_assembled_graph(state, tmp_path))
+        assembled_here = assess_mit_coverage(state)
+
+        assert assembled_here == independent
+        # Guard the guard: an equality between two unassessed zeros would pass
+        # while saying nothing.
+        assert assembled_here.overall_score > 0.0
+
+    def test_module_totals_come_from_the_checklist_not_the_crate(self, tmp_path):
+        """The denominator is the checklist's size, never the matcher's opinion.
+
+        Scoring may change how many slots are CREDITED; it must never change how
+        many exist. Re-derived from the raw YAML rather than from a second
+        ``assess_mit_coverage`` call: since #311 both graph and no-graph paths run
+        the identical scorer, so comparing them to each other would compare a
+        report to a copy of itself and pass no matter how wrong the totals were.
+        """
+        from builder.tools.mit_assessment import iter_scorable_params, load_mit_yaml
+
+        checklist = load_mit_yaml()
+        assert checklist is not None, "the shipped MIT checklist must load"
+
+        expected: dict[str, int] = {}
+        for module, _param, _slots in iter_scorable_params(checklist):
+            name = module.get("name", module.get("id", "unknown"))
+            expected[name] = expected.get(name, 0) + 1
+
         state = vhps_fixture_state("S-VHPS21")
         graph = _assembled_graph(state, tmp_path)
-        g = assess_mit_coverage(state, graph=graph).module_scores
-        s = assess_mit_coverage(state).module_scores
-        assert {k: v["total"] for k, v in g.items()} == {k: v["total"] for k, v in s.items()}
+        for scored in (assess_mit_coverage(state, graph=graph), assess_mit_coverage(state)):
+            assert {k: v["total"] for k, v in scored.module_scores.items()} == expected
+            # Guard the guard: an empty checklist would make the equality vacuous.
+            assert sum(expected.values()) > 0
 
     def test_produces_correct_module_scores(self):
         """Verify module scores structure is correct."""
@@ -168,6 +219,57 @@ class TestAssessMITCoverage:
             assert isinstance(scores["completed"], int)
             assert isinstance(scores["total"], int)
             assert scores["completed"] <= scores["total"]
+
+
+class TestUnassessedIsNotZero:
+    """A coverage figure nobody measured must be reported as absent (#311).
+
+    `MITReport.overall_score` is 0.0 whenever scoring could not happen at all —
+    the checklist would not load, or the crate would not assemble. That 0.0 is
+    the absence of a measurement, and rendering it as "0% covered" states
+    something about a crate that was never examined. `mit_was_assessed` is the
+    one predicate that tells the two apart, and the assessor must never raise: it
+    is called from a report writer that still has three other axes to render.
+    """
+
+    def test_unreadable_checklist_reports_not_assessed(self, monkeypatch):
+        monkeypatch.setattr("builder.tools.mit_assessment.load_mit_yaml", lambda: None)
+        report = assess_mit_coverage(vhps_fixture_state("S-VHPS21"))
+
+        assert mit_was_assessed(report) is False
+        assert report.module_scores == {}
+
+    def test_unassemblable_state_reports_not_assessed(self, monkeypatch):
+        """A crate that will not assemble is unscoreable, not empty."""
+
+        def _boom(_state):
+            raise RuntimeError("assembly exploded")
+
+        monkeypatch.setattr("builder.tools.mit_assessment._assemble_graph", _boom)
+        report = assess_mit_coverage(vhps_fixture_state("S-VHPS21"))
+
+        assert mit_was_assessed(report) is False
+        assert report.module_scores == {}
+
+    def test_a_caller_supplied_graph_is_not_re_assembled(self, monkeypatch, tmp_path):
+        """The graph a caller already holds is used as-is — no second assembly.
+
+        The export path passes the document it just built; assembling again there
+        would double the cost of every export for an identical answer.
+        """
+        state = vhps_fixture_state("S-VHPS21")
+        graph = _assembled_graph(state, tmp_path)
+
+        def _boom(_state):
+            raise AssertionError("assembled despite being handed a graph")
+
+        monkeypatch.setattr("builder.tools.mit_assessment._assemble_graph", _boom)
+        assert assess_mit_coverage(state, graph=graph).overall_score > 0.0
+
+    def test_a_real_assessment_is_flagged_assessed(self):
+        """Honesty control: the flag distinguishes, it does not just say False."""
+        assert mit_was_assessed(assess_mit_coverage(vhps_fixture_state("S-VHPS21"))) is True
+        assert mit_was_assessed(MITReport()) is False
 
 
 class TestUncuratedSlots:
@@ -219,6 +321,11 @@ class TestGuidanceDocumentCoverage:
     """
 
     def test_all_seven_documents_get_a_bucket(self):
+        # Bucket SHAPE only: an empty state now assembles to a real (if bare)
+        # crate, and ro-crate-py's auto-stamped root fields (`datePublished`)
+        # legitimately credit a parameter or two — so zero-credit is not
+        # asserted here. The denominators are pinned exactly by
+        # test_totals_rederived_from_the_raw_checklist.
         result = assess_mit_coverage(CrateState())
         assert set(result.standard_scores) == {
             "oecd_gd211",
@@ -230,7 +337,7 @@ class TestGuidanceDocumentCoverage:
             "oecd_oht201",
         }
         for key, bucket in result.standard_scores.items():
-            assert bucket["completed"] == 0, key
+            assert 0 <= bucket["completed"] <= bucket["total"], key
             assert bucket["total"] > 0, key
 
     def test_totals_rederived_from_the_raw_checklist(self):
