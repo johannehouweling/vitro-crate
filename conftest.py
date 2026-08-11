@@ -43,6 +43,39 @@ def _isolate_session_dir(tmp_path, monkeypatch):
     return root
 
 
+@pytest.fixture(autouse=True)
+def _reset_http_shared_state():
+    """Clear ``lookups._http``'s process-global per-host state around every test.
+
+    ``_http`` deliberately keeps two module-level caches that outlive a single
+    lookup: the circuit breaker (``_breaker_state``) and the politeness throttle
+    (``_host_throttle``). Production wants exactly that — one host's outage is
+    remembered for the rest of the run. A test process is a *very long* run, so
+    without this fixture one test's simulated failures leak into every later
+    test in the same worker that touches the same host.
+
+    Concretely: three tests that drive a timeout/429/5xx at ``api.test`` push
+    the breaker over ``_BREAKER_THRESHOLD``, and for the next 60 seconds
+    ``http_get_json`` raises ``TransientLookupError`` for that host *without
+    issuing a request at all*. A later test then either fails outright (nothing
+    to inspect in ``responses.calls``) or — worse — passes vacuously, because
+    the "transient failure" it thinks it provoked came from the breaker rather
+    than from the response it registered. Which of those happens depends on how
+    xdist packs tests into workers, so it surfaces as load-dependent flakiness
+    instead of a stable red (#406).
+
+    Resetting *after* the test too keeps a test's own failures from reaching
+    fixture teardown or the next module's collection-time code.
+    """
+    from lookups import _http
+
+    _http.reset_circuit_breaker()
+    _http.reset_host_throttle()
+    yield
+    _http.reset_circuit_breaker()
+    _http.reset_host_throttle()
+
+
 @pytest.fixture
 def tmp_files(tmp_path):
     """Fixture that provides a helper to create files in a temporary directory.

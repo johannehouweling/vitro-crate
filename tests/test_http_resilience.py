@@ -78,7 +78,20 @@ class TestHttpGetJson:
             params={"q": "v"},
             headers={"Accept": "application/json"},
         )
-        assert "q=v" in (responses.calls[0].request.url or "")
+        # Assert on the call this test made, not on whatever sits at index 0.
+        # A positional index cannot tell "the request carried no params" from
+        # "no request was sent" — and _http can legitimately send nothing (an
+        # open circuit breaker short-circuits the host), so index 0 is only
+        # this test's request by luck of what ran before it.
+        sent = [
+            call
+            for call in responses.calls
+            if (call.request.url or "").startswith("https://api.test/x")
+        ]
+        assert len(sent) == 1, f"expected exactly one GET to api.test/x, got {len(sent)}"
+        request = sent[0].request
+        assert "q=v" in (request.url or "")
+        assert request.headers.get("Accept") == "application/json"
 
 
 class TestSessionRetryConfig:
