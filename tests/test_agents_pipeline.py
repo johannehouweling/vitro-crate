@@ -2057,6 +2057,34 @@ class TestTokenAccounting:
     ``node="model"`` events that :func:`eval.metrics.mine_profile_metrics` sums.
     """
 
+    @pytest.fixture(autouse=True)
+    def _no_live_compound_lookup(self, monkeypatch):
+        """Keep this class's ``run_pipeline`` runs off PubChem (#338).
+
+        ``_seeded_state`` carries an identifier-less "Methimazole" and these tests
+        configure a provider, so the spine's compound retry resolves it for real —
+        a module that stubs its leaves and asserts token arithmetic would suddenly
+        depend on api.ncbi.nlm.nih.gov. Not merely slow: a PubChem 429 puts
+        ``resolve_compound`` at 30-66s against this module's 120s cap while
+        ``_resolve_cache.DEFAULT_RESOLVE_TIMEOUT`` is 240s, so the pytest timeout
+        fires first with no diagnostic, and the process-global ``compound_cache``
+        is left poisoned for later tests in the same xdist worker.
+
+        Scoped to this class rather than to ``tests/conftest.py``: a suite-wide
+        autouse stub also short-circuits the tests that drive the REAL
+        ``resolve_compound`` with its HTTP mocked (``test_offline_validation.py``,
+        ``test_tools_resolve_compound.py``), which is a different thing from
+        reaching the network.
+        """
+        import builder.tools.composites as composites_mod
+
+        monkeypatch.setattr(
+            composites_mod,
+            "lookup_compound",
+            lambda name, **_kw: {"found": False, "data": {}, "error": "offline stub"},
+            raising=False,
+        )
+
     def _seeded_state(self) -> CrateState:
         import uuid
 
