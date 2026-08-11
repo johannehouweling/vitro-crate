@@ -148,6 +148,54 @@ def test_condition_table_value_urls_resolve_to_entities():
     assert "#Sample_sample_cult" in str(cols["cell_line"].get("valueUrl"))
 
 
+def test_a_declared_exposure_result_does_not_displace_the_condition_table():
+    """A drafter-supplied result is added to, never swapped for, the table (#531).
+
+    The condition table is not decoration: ISA forbids a MolecularEntity as a
+    LabProcess object, so a compound reaches the experiment only *through* the
+    table (table --about--> compound). Substituting a declared result for it
+    severs that route silently — the crate keeps its compounds and loses every
+    link to them.
+
+    The EndpointReadout branch already appends rather than substitutes and says
+    so in its own comment; this pins the Exposure branch to the same contract.
+    """
+    state = _exposure_state()
+    exposure = next(e for e in state.list_entities("LabProcess") if e.entity_id == "proc_exp")
+    exposure.fields["result"] = "file_declared"
+    state.add_entity(
+        _ent("file_declared", "File", name="declared.csv", path="data/declared.csv")
+    )
+
+    graph = _assemble(state)
+    by_id = _by_id(graph)
+    process = next(
+        e for e in graph if str(e.get("@id", "")).endswith("LabProcess_proc_exp")
+    )
+    results = _ids(process.get("output"))
+
+    assert any(r.endswith("condition_table.csv") for r in results), (
+        f"the condition table was displaced by the declared result: {results}"
+    )
+    assert any("declared" in r for r in results), (
+        f"the declared result was dropped: {results}"
+    )
+    # …and the table still routes the compound to the process.
+    table = by_id[next(r for r in results if r.endswith("condition_table.csv"))]
+    schema = by_id[[s for s in _ids(table.get("conformsTo")) if "schema" in str(s)][0]]
+    cols = {by_id[cid]["titles"]: by_id[cid] for cid in _ids(schema.get("columns"))}
+    assert "#MolecularEntity_chem_1" in str(cols["compound"].get("valueUrl"))
+
+
+def test_an_exposure_without_a_declared_result_still_gets_the_table():
+    # The pre-existing path, pinned so the fix cannot regress it.
+    graph = _assemble(_exposure_state())
+    process = next(
+        e for e in graph if str(e.get("@id", "")).endswith("LabProcess_proc_exp")
+    )
+    assert [r for r in _ids(process.get("output")) if r.endswith("condition_table.csv")]
+
+
 # --- (b) raw_measurements typed csvw:Table ----------------------------------
 
 

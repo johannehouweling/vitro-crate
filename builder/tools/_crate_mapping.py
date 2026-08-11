@@ -2376,7 +2376,14 @@ def _build_process(
         # intake/condition_table.py.
         cells = samples or obj
         chems = _resolve_many(idx, f.get("chemicals"))
-        out = result or [
+        # APPENDED, never substituted — the same contract the EndpointReadout
+        # branch below states for its raw_measurements table (#531). The table is
+        # the compound's only route to the process (a MolecularEntity cannot be
+        # the object), so letting a drafter-declared `result` stand in for it
+        # severed that route silently: the crate kept its compounds and lost
+        # every link to them, and the declared file — never synthesized, so
+        # never materialised — left the crate describing a file it lacks.
+        out = list(result) + [
             _synth_condition_table(
                 crate,
                 output_dir,
