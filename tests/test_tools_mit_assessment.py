@@ -170,6 +170,44 @@ class TestAssessMITCoverage:
             assert scores["completed"] <= scores["total"]
 
 
+class TestUncuratedSlots:
+    """An uncurated parameter is skipped, never a crash.
+
+    The shipped checklist omits ``crate_slot`` on uncurated parameters, but a
+    curator writing an explicit ``crate_slot: null`` (or a bare
+    ``crate_slot:``) hands the parser ``None`` — both spellings must mean
+    "not scorable", not an AttributeError that takes down every
+    ``assess_mit_coverage`` call and with it the maturity-report embed.
+    """
+
+    def test_explicit_null_crate_slot_is_skipped_not_a_crash(self):
+        from builder.tools.mit_assessment import iter_scorable_params
+
+        mit_data = {
+            "modules": [
+                {
+                    "id": "m",
+                    "name": "M",
+                    "sections": [
+                        {
+                            "parameters": [
+                                {"id": "uncurated", "crate_slot": None},
+                                {"id": "curated", "crate_slot": "Investigation:name"},
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        scorable = [p["id"] for _m, p, _s in iter_scorable_params(mit_data)]
+        assert scorable == ["curated"]
+
+    def test_parse_crate_slots_tolerates_none(self):
+        from builder.tools.mit_assessment import parse_crate_slots
+
+        assert parse_crate_slots(None) == []
+
+
 class TestGuidanceDocumentCoverage:
     """#491: coverage is also bucketed per guidance document.
 
