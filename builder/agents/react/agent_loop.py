@@ -544,7 +544,11 @@ _LOOKUP_TOOLS = frozenset(
         "lookup_doi",
     }
 )
-_LOOKUP_SEEN_FLAG = "_lookup_seen_answers"
+# Distinct from `_LOOKUP_SEEN_FLAG` below, which records WHETHER a lookup counted
+# as progress (a set of signatures, read by the idle ladder). This holds the
+# ANSWER itself, so a repeat can be served from it. Two names, two shapes, one
+# subject — keeping them apart matters: they are stored on the same engine object.
+_LOOKUP_ANSWER_FLAG = "_lookup_seen_answers"
 
 # Repeats of one query against one unchanged state before the turn ends. Two
 # warnings, then hand control back — the same escalation the other guards use,
@@ -1656,9 +1660,9 @@ def _remember_lookup(engine: AgentEngine, signature: tuple[str, tuple], result: 
     """Record a lookup's answer so a repeat can be served from it."""
     if _lookup_is_retryable(result):
         return
-    seen = dict(getattr(engine, _LOOKUP_SEEN_FLAG, None) or {})
+    seen = dict(getattr(engine, _LOOKUP_ANSWER_FLAG, None) or {})
     seen[signature] = result
-    setattr(engine, _LOOKUP_SEEN_FLAG, seen)
+    setattr(engine, _LOOKUP_ANSWER_FLAG, seen)
 
 
 def _guard_repeated_lookup(
@@ -1672,7 +1676,7 @@ def _guard_repeated_lookup(
     Returns the corrective, or ``None`` when this lookup is new (or its last
     answer was a transient failure) and should run normally.
     """
-    seen = getattr(engine, _LOOKUP_SEEN_FLAG, None) or {}
+    seen = getattr(engine, _LOOKUP_ANSWER_FLAG, None) or {}
     if signature not in seen:
         return None
 
