@@ -1995,20 +1995,23 @@ def _build_csvw_schema(
         title = col["titles"]
         # `titles` is the CSVW property; `name` is the schema.org one. These nodes
         # also carry schema:DefinedTerm, which makes them Contextual Entities, and
-        # RO-Crate requires those to have a `name` — 26 findings on one crate came
-        # from carrying only `titles`. The column title IS the human-readable name,
+        # RO-Crate requires those to have a `name` — carrying only `titles` earns
+        # findings per column. The column title IS the human-readable name,
         # so this states nothing new, it states it under the term the base profile
         # reads.
         props: dict[str, Any] = {"@type": "csvw:Column", "name": title, **col}
-        # propertyUrl names WHICH property a column holds — a term the crate
-        # cites, not an entity it describes. It was emitted as {"@id": …} to
-        # avoid RO-Crate flagging "an IRI used as a string when that IRI is ALSO
-        # a described entity"; that condition went away when cited vocabulary
-        # stopped being materialised into the graph, and the wrapping now only
-        # turns each term into a node the validator wants named and described.
-        # CSVW types propertyUrl as a URI, and a URI string is exactly that.
+        # propertyUrl stays an {"@id"} reference. Emitting it as a bare URI
+        # string reads as the faithful CSVW form — propertyUrl IS typed as a
+        # URI — and it is tempting to argue the term is only cited, not
+        # described. But some of these terms ARE described here: a
+        # CellLineSample materialises NCIT_C16403 as a `cell line` DefinedTerm,
+        # and the base profile then flags "references NCIT_C16403 as a string"
+        # and fails the whole pass. Making cited vocabulary a string was right
+        # for propertyID, whose values (ORCID, PubChem, DTXSID scheme IRIs) the
+        # crate never describes; it does not carry over here, and a run of
+        # tests/test_pipeline_e2e.py is what says so.
         if col.get("propertyUrl"):
-            props["propertyUrl"] = col["propertyUrl"]
+            props["propertyUrl"] = {"@id": col["propertyUrl"]}
         if value_urls.get(title):
             # Same rule for valueUrl: emit the resolved Sample / MolecularEntity
             # link as an {@id} reference, never a bare string @id.
