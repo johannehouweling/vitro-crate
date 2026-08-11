@@ -12,8 +12,8 @@ would manufacture ISA-layer orphans).
 from __future__ import annotations
 
 from builder.engine import AgentEngine
-from builder.state import CrateState
-from builder.tools.composites import scaffold_isa_backbone
+from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.tools.composites import _is_consumed_by_process, scaffold_isa_backbone
 from builder.tools.drafters import draft_investigation
 from builder.tools.validation import build_and_validate
 
@@ -140,3 +140,49 @@ class TestScaffoldMergesHintsIntoReused:
         study = _by_type(state, "Study")[0]
         assert study.fields.get("name") == "Keep me"  # existing value preserved
         assert study.fields.get("description") == "New desc"  # empty field filled
+
+
+def _ent(entity_id: str, type_: EntityType, **fields) -> Entity:
+    return Entity(
+        entity_id=entity_id,
+        type=type_,
+        fields=fields,
+        _provenance=EntityProvenance(created_by="llm"),
+    )
+
+
+class TestConsumedByProcessCountsOnlyBuildReadFields:
+    """The orphan backstop must agree with what assembly actually reads.
+
+    A compound sitting under a process's `input` is read by nothing — the ISA
+    shape allows only File/Sample/BioSample there, so `_build_process` takes
+    compounds from `chemicals`. Counting `input` as "consumed" made this check
+    pass for the exact entity that would go missing from the exported crate.
+    """
+
+    def _state(self):
+        state = CrateState()
+        state.add_entity(_ent("cmp", "MolecularEntity", name="doxorubicin"))
+        return state
+
+    def test_compound_only_under_input_is_not_consumed(self):
+        state = self._state()
+        state.add_entity(_ent("exp", "LabProcess", process_type="Exposure", input="cmp"))
+        assert _is_consumed_by_process(state, "cmp") is False
+
+    def test_compound_under_chemicals_is_consumed(self):
+        state = self._state()
+        state.add_entity(
+            _ent("exp", "LabProcess", process_type="Exposure", chemicals="cmp")
+        )
+        assert _is_consumed_by_process(state, "cmp") is True
+
+    def test_a_file_still_counts_through_the_ordinary_io_fields(self):
+        # Only types with a declared build home are narrowed; everything else
+        # keeps the full set of process I/O fields.
+        state = CrateState()
+        state.add_entity(_ent("f1", "File", name="a.csv"))
+        state.add_entity(
+            _ent("p", "LabProcess", process_type="DataAnalysis", object="f1")
+        )
+        assert _is_consumed_by_process(state, "f1") is True

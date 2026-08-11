@@ -65,3 +65,30 @@ def test_default_materializes_payload(tmp_path):
     _assemble(_exposure_state(), tmp_path, materialize_payload=True)
     csvs = list(tmp_path.rglob("*condition_table.csv"))
     assert csvs, "condition table CSV must be written to disk by default"
+
+
+def test_condition_table_node_describes_itself(tmp_path):
+    """The generated table says what it IS.
+
+    RO-Crate wants a `description` on the nodes it describes, and this one is
+    ours to describe: we generate it, so its structure is known rather than
+    guessed. On the no-payload path there is no CSV to count, so the structural
+    description is what stands — and it must claim nothing about row counts.
+    """
+    crate = _assemble(_exposure_state(), tmp_path, materialize_payload=False)
+    node = _condition_table_nodes(crate)[0]
+    description = node.get("description", "")
+    assert "one row per well" in description
+    # A row-count claim needs a CSV to count, which this path cannot do.
+    assert "no rows" not in description
+
+
+def test_a_definite_zero_still_overrides_the_structural_description(tmp_path):
+    """A counted, genuinely empty table says so — the honest note wins.
+
+    The structural text is the base; it must not mask the stronger claim when
+    the rows have actually been counted and there are none (see #477).
+    """
+    crate = _assemble(_exposure_state(), tmp_path, materialize_payload=True)
+    node = _condition_table_nodes(crate)[0]
+    assert "NO rows" in node.get("description", "")

@@ -46,6 +46,10 @@ from builder.tools.lookups import (
     lookup_orcid,
     warm_compound_cache,
 )
+
+# One source of truth with the link tool for "where does the build read this
+# entity type from" — imported rather than restated so the two cannot drift.
+from builder.tools.provenance import _PROCESS_LINK_HOMES as _BUILD_HONOURED_HOMES
 from builder.tools.verification import verify_identifier
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
@@ -1784,8 +1788,22 @@ def _is_consumed_by_process(state: CrateState, target_id: str) -> bool:
     notes describe it, but only a process records that the experiment touched it.
     """
     wanted = target_id.lstrip("./").lstrip("#")
+    # Only fields the BUILD reads for this entity type count. A compound listed
+    # under a process's `input` is read by nothing (the ISA shape allows only
+    # File/Sample/BioSample there, so `_build_process` takes compounds from
+    # `chemicals`) — counting it as consumed makes this backstop skip the exact
+    # case it exists for, leaving entities orphaned in the export while the state
+    # looks fully wired. `link` now reroutes such edges, but set_fields can still
+    # write the field directly, so the test stays honest on its own.
+    target = state.get_entity(target_id)
+    homes = {
+        home
+        for (entity_type, _process_type), home in _BUILD_HONOURED_HOMES.items()
+        if target is not None and entity_type == str(target.type)
+    }
+    fields = tuple(homes) if homes else _PROCESS_IO_FIELDS
     for proc in state.list_entities("LabProcess"):
-        for field in _PROCESS_IO_FIELDS:
+        for field in fields:
             value = proc.fields.get(field)
             if value is None:
                 continue
