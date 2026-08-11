@@ -169,6 +169,11 @@ CrateState {
     validation: {
         base_passed: bool, isa_passed: bool, tox_passed: bool,
         required_issues: [str], should_issues: [str], may_issues: [str],
+        # the same findings with structure intact (#510) — the flat lists above
+        # are their display projection and stay byte-stable (the ReAct loop
+        # parses them); empty on a verdict recorded before the field existed
+        issue_records: [{ profile, severity, entity_id, message }],
+        assessed_tiers: set[str], input_fingerprint: str,
     },
     mit_assessment: { module_scores: { m: { completed, total } }, overall_score },
     fair_assessment: { indicator_results, dsm_level },
@@ -1508,6 +1513,24 @@ renders as an explicit **"not assessed"** neutral state (glyph + label, never co
 a green zero; REQUIRED/RECOMMENDED issue text is still surfaced as `Must fix` / `Recommended`
 suggestions. Rendering this from `state.validation` alone (no new validation machinery) keeps the
 pure/cheap contract.
+
+**Every finding folds out of the severity row it belongs to** (#510). Severity is the primary axis
+because it is the fix order — REQUIRED blocks the build, the advisory tiers do not — so a tier row
+that has findings becomes a `<details>` whose summary is the row itself, listing those findings
+grouped by profile layer inside it (base → ISA → ISA-Tox, the gate-ordering contract). A second
+per-profile index alongside the rows would restate the same counts twice, so there is none, and the
+profile cards stay non-interactive: they assert REQUIRED-gate conformance and nothing else. A row
+holding REQUIRED findings is born `open` (a collapsed fold must never hide a blocking issue); a row
+with nothing to show does not fold at all, so a disclosure caret always means there is something
+there. Print keeps every row AND unfolds it.
+
+The rendering source is chosen **per tier, never once for the report**: `validation.issue_records`
+for a tier that has them (grouped by layer, entity ids shown as chips), else that tier's flat
+display list (ungrouped — such a verdict carries no attribution to group by). A verdict can hold
+records for one tier and only strings for another — a pre-records checkpoint that then takes a
+REQUIRED-gate write-back — and deciding globally there would hide the string-only tiers' findings
+while the row went on counting them. The count a row advertises is the count of what it unfolds.
+Advisory caps apply per profile group, and a cap that bites names how many findings it hid.
 
 When `export_crate` embeds the report it passes the crate's serialized `@graph`
 (`build_maturity_html(state, graph=crate.metadata.generate())`), which folds in a **Provenance &

@@ -82,22 +82,33 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
     required_issues: list[str] = []
     should_issues: list[str] = []
     may_issues: list[str] = []
+    issue_records: list[dict[str, str]] = []
 
     base_passed = True
     isa_passed = True
     tox_passed = True
 
-    for result in results:
-        profile_name = result.profile.lower()
-        required_issues.extend(result.required_issues)
+    def _record(profile: str, severity: str, text: str) -> dict[str, str]:
+        # The disk path has no per-issue entity routing; the "[Required] " style
+        # prefix is structure (already carried by `severity`), not message.
+        return {
+            "profile": profile,
+            "severity": severity,
+            "entity_id": "",
+            "message": text.removeprefix(f"[{severity.capitalize()}] "),
+        }
 
-        # Classify issues by severity
+    for result in results:
+        profile_key = _profile_key(result.profile)
+        required_issues.extend(result.required_issues)
+        issue_records.extend(_record(profile_key, "required", i) for i in result.required_issues)
+
         if not result.passed_required:
-            if "base" in profile_name or "ro-crate" in profile_name:
+            if profile_key == "base":
                 base_passed = False
-            elif "isa" in profile_name and "tox" not in profile_name:
+            elif profile_key == "isa":
                 isa_passed = False
-            elif "tox" in profile_name:
+            elif profile_key == "tox":
                 tox_passed = False
 
         # Non-required issues go to should/may
@@ -108,9 +119,11 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
             elif issue.startswith("[Recommended]"):
                 if issue not in should_issues:
                     should_issues.append(issue)
+                issue_records.append(_record(profile_key, "recommended", issue))
             elif issue.startswith("[Optional]"):
                 if issue not in may_issues:
                     may_issues.append(issue)
+                issue_records.append(_record(profile_key, "optional", issue))
 
     return ValidationReport(
         base_passed=base_passed,
@@ -119,7 +132,28 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
         required_issues=required_issues,
         should_issues=should_issues,
         may_issues=may_issues,
+        issue_records=issue_records,
     )
+
+
+def _profile_key(profile_name: str) -> str:
+    """Map a validator pass's display name to its canonical layer key.
+
+    The disk path labels its passes with prose names ("Base RO-Crate 1.2",
+    "ISA RO-Crate Profile", "ISA-Tox RO-Crate Profile") rather than the
+    ``base``/``isa``/``tox`` keys the dict path uses. Every one of those names
+    contains "ro-crate", so the most-specific token must be tested first — the
+    old ``"ro-crate" in name`` guard classified an ISA or ISA-Tox failure as a
+    BASE failure.
+    """
+    name = profile_name.lower()
+    if "tox" in name:
+        return "tox"
+    if "isa" in name:
+        return "isa"
+    if "base" in name or "ro-crate" in name:
+        return "base"
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -451,15 +485,38 @@ def tiers_covered(severity: str) -> tuple[str, ...]:
     return _TIER_ORDER[: _TIER_ORDER.index(severity) + 1]
 
 
-def order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
-    """Return one severity tier as stable, layer-ordered display strings."""
+def _select_tier(issues: list[dict[str, Any]], severity: str) -> list[dict[str, Any]]:
+    """One severity tier of *issues*, in stable base → isa → tox layer order."""
     selected = [i for i in issues if i.get("severity") == severity]
     selected.sort(key=lambda i: _VALIDATION_LAYER_ORDER.get(i.get("profile") or "", 99))
+    return selected
+
+
+def order_issues(issues: list[dict[str, Any]], severity: str) -> list[str]:
+    """Return one severity tier as stable, layer-ordered display strings."""
     return [
         (
             f"[{i.get('profile') or '?'}] {i.get('entity_id') or '?'}: {i.get('message') or ''}"
         ).rstrip()
-        for i in selected
+        for i in _select_tier(issues, severity)
+    ]
+
+
+def _issue_records(issues: list[dict[str, Any]], severity: str) -> list[dict[str, str]]:
+    """One severity tier as structured records, ordered like :func:`order_issues`.
+
+    The records carry the attribution the display strings flatten away, so the
+    maturity report can group findings per profile without re-parsing the
+    ``[profile] entity: message`` shape the ReAct loop depends on (#510).
+    """
+    return [
+        {
+            "profile": str(i.get("profile") or ""),
+            "severity": severity,
+            "entity_id": str(i.get("entity_id") or ""),
+            "message": str(i.get("message") or ""),
+        }
+        for i in _select_tier(issues, severity)
     ]
 
 
@@ -505,6 +562,15 @@ def apply_validation_result(
     severity = str(severity or result.get("severity") or "required")
     covered = tiers_covered(severity)
     fingerprint = state.validation_fingerprint()
+    # The structured records shadow the string lists tier for tier: retired
+    # together, refreshed together, so neither view can describe a different
+    # validation than the other. Bucketing by the severity actually present —
+    # rather than by the three known tiers — keeps a record this run neither
+    # evaluated nor retired: no writer emits one today, but a checkpoint can
+    # carry it, and the report renders such findings rather than dropping them.
+    tier_records: dict[str, list[dict[str, str]]] = {tier: [] for tier in _TIER_ORDER}
+    for record in report.issue_records:
+        tier_records.setdefault(str(record.get("severity") or ""), []).append(record)
     # Retire the tiers this run did NOT cover, whenever the state has moved on
     # since the last verdict. `assessed_tiers` is otherwise additive: once an
     # export assessed all three, a later REQUIRED-only run refreshed the required
@@ -519,6 +585,7 @@ def apply_validation_result(
             if tier not in covered:
                 setattr(report, _TIER_FIELDS[tier], [])
                 report.assessed_tiers.discard(tier)
+                tier_records[tier] = []
     # File EVERY tier the gate evaluated, not just the tier named. A gate is
     # inclusive (see `tiers_covered`), so a "recommended" run's result already
     # holds the REQUIRED findings; recording only the SHOULD ones left the
@@ -526,6 +593,10 @@ def apply_validation_result(
     for tier in covered:
         setattr(report, _TIER_FIELDS[tier], order_issues(issues, tier))
         report.assessed_tiers.add(tier)
+        tier_records[tier] = _issue_records(issues, tier)
+    report.issue_records = [r for tier in _TIER_ORDER for r in tier_records[tier]] + [
+        r for tier, records in tier_records.items() if tier not in _TIER_ORDER for r in records
+    ]
     report.input_fingerprint = fingerprint
 
 

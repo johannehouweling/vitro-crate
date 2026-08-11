@@ -624,6 +624,15 @@ class ValidationReport:
         required_issues: REQUIRED-severity issue descriptions.
         should_issues: SHOULD-severity issue descriptions.
         may_issues: MAY-severity (informational) issue descriptions.
+        issue_records: The same findings with their structure intact — one
+            ``{"profile", "severity", "entity_id", "message"}`` dict per finding
+            (``profile`` is ``base``/``isa``/``tox``, ``severity`` a tier name,
+            ``entity_id`` empty when the producer had none). The three flat
+            lists above are the display projection of these records and stay
+            byte-stable because the ReAct loop parses them; the records exist so
+            renderers (the maturity report's per-profile fold-outs, #510) never
+            have to re-parse that display format. Empty on a verdict recorded
+            before the field existed — consumers must fall back, not infer.
         input_fingerprint: :meth:`CrateState.validation_fingerprint` as it was
             when this verdict was recorded — the answer to "does this verdict
             still describe the crate?". Empty means unknown (a report restored
@@ -637,6 +646,7 @@ class ValidationReport:
     should_issues: list[str] = field(default_factory=list)
     may_issues: list[str] = field(default_factory=list)
     assessed_tiers: set[str] = field(default_factory=set)
+    issue_records: list[dict[str, str]] = field(default_factory=list)
     input_fingerprint: str = ""
 
     def is_stale_for(self, state: CrateState) -> bool:
@@ -659,6 +669,7 @@ class ValidationReport:
             "should_issues": list(self.should_issues),
             "may_issues": list(self.may_issues),
             "assessed_tiers": sorted(self.assessed_tiers),
+            "issue_records": [dict(r) for r in self.issue_records],
             "input_fingerprint": self.input_fingerprint,
         }
 
@@ -672,6 +683,7 @@ class ValidationReport:
             should_issues=data.get("should_issues", []),
             may_issues=data.get("may_issues", []),
             assessed_tiers=set(data.get("assessed_tiers", [])),
+            issue_records=data.get("issue_records", []),
             input_fingerprint=data.get("input_fingerprint", ""),
         )
 

@@ -104,6 +104,7 @@
 .mat .topo-detail-h { margin:.7rem 0 .1rem; font-size:.76rem; font-weight:640; color:var(--ink); }
 .mat .topo-detail-h:first-of-type { margin-top:.55rem; }
 .mat .topo-detail code,
+.mat ul.sugg li code,
 .mat .disc ul.ind li code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.76rem;
   background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
   padding:.02rem .32rem; color:var(--ink); }
@@ -129,6 +130,27 @@
 .mat ul.sugg { margin:.8rem 0 0; padding-left:1.1rem; font-size:.85rem; } .mat ul.sugg li.must { color:var(--low-ink); }
 .mat ul.sugg li.opt { color:var(--muted); } .mat ul.sugg li.more { color:var(--muted); font-style:italic;
   list-style:none; margin-left:-1.1rem; }
+/* each severity row unfolds its own findings (#510). The caret is absolutely
+   positioned so it never becomes a grid track — the row keeps one column layout
+   whether or not it folds, and the mobile override below still applies. */
+.mat details.sev-fold > summary { position:relative; cursor:pointer; list-style:none;
+  padding-right:1.1rem; border-radius:6px; }
+.mat details.sev-fold > summary::-webkit-details-marker { display:none; }
+.mat details.sev-fold > summary:hover { background:var(--surface-2); }
+.mat details.sev-fold > summary:focus-visible { outline:2px solid var(--cat-process);
+  outline-offset:2px; }
+.mat details.sev-fold > summary::after { content:""; position:absolute; right:.25rem; top:50%;
+  width:.36rem; height:.36rem; margin-top:-.25rem; border-right:1.5px solid var(--muted);
+  border-bottom:1.5px solid var(--muted); transform:rotate(-45deg);
+  transition:transform .12s ease; }
+.mat details.sev-fold[open] > summary::after { transform:rotate(45deg); margin-top:-.32rem; }
+.mat .sev-body { padding:.15rem 0 .5rem 1.85rem; }
+.mat .sugg-prof-h { display:flex; align-items:baseline; gap:.4rem; margin:.7rem 0 0;
+  font-size:.76rem; font-weight:640; color:var(--ink); }
+.mat .sugg-prof-h:first-child { margin-top:.35rem; }
+.mat .sugg-prof-h .pc { font-size:.7rem; font-weight:600; color:var(--muted);
+  font-variant-numeric:tabular-nums; }
+.mat .sev-body ul.sugg { margin-top:.25rem; }
 
 /* profile adherence — severity tiers (#306) */
 .mat .sev { display:flex; flex-direction:column; gap:.32rem; }
@@ -337,6 +359,10 @@ __CATEGORY_STYLES__
   .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
   .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}
   .mat details{display:block;} .mat .disc[open] summary{display:none;}
+  /* A severity row is the index of what it holds, so print keeps the row AND
+     unfolds it — a printed report never loses findings to a closed fold. */
+  .mat details.sev-fold > .sev-body{display:block !important;}
+  .mat details.sev-fold > summary::after{display:none;}
   /* Tabs are an on-screen affordance: print every view, each under its own
      heading, so a printed report never silently loses two of the three. */
   .mat .tabbar{display:none;}
