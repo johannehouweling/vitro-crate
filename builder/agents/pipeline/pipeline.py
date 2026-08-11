@@ -47,7 +47,15 @@ import re
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Any, Callable
 
-from builder.agents.llm import ModelOverrides
+# The token-accounting seam was born here (#221) but now lives in the shared LLM
+# module, because the spine stopped being its only caller once the HITL guidance
+# tail needed the same accounting (#384). Imported under the legacy private names
+# so the spine's docstrings, ``guidance.py`` and the tests that reach for
+# ``pipeline._make_usage_logger`` keep working against ONE implementation — a
+# second copy here would be free to drift into a different event shape, which is
+# exactly the failure this hoist exists to make impossible.
+from builder.agents.llm import ModelOverrides, UsageSink, _as_int
+from builder.agents.llm import make_usage_logger as _make_usage_logger
 from builder.config import get_provider
 
 # Deterministic given/family split lives in the pure drafter module so the
@@ -63,12 +71,6 @@ if TYPE_CHECKING:
     from builder.state import Entity
 
 logger = logging.getLogger(__name__)
-
-# A usage sink receives one leaf call's token usage as
-# ``(input_tokens, output_tokens, model_name)``. The spine passes a sink that
-# logs each leaf call's usage to the engine profiler so the eval harness records
-# real per-case token counts for the ``--arch pipeline`` arm (Issue #221).
-UsageSink = Callable[[int | None, int | None, str | None], None]
 
 # A progress sink receives one concise human-readable line per pipeline phase
 # (Issue #241). It defaults to a strict no-op so the eval and the determinism
@@ -150,59 +152,6 @@ def extract_plan(
     from builder.agents.pipeline.leaves import extract_plan as _leaf
 
     return _leaf(context, overrides=overrides, usage_sink=usage_sink)
-
-
-def _as_int(value: Any) -> int:
-    """Coerce a possibly-missing/None token count to a non-negative int."""
-    if value is None:
-        return 0
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _make_usage_logger(engine: AgentEngine, totals: dict[str, int]) -> UsageSink:
-    """Build a :data:`UsageSink` that records one leaf call's token usage (#221).
-
-    For each leaf call it (1) accumulates ``input``/``output`` tokens into
-    *totals* (the running per-run sum the spine surfaces in ``run_pipeline``'s
-    result) and (2) logs a ``node_end``/``node="model"`` event to the engine
-    profiler — the SAME profile-event shape the ReAct model node emits — so
-    :func:`eval.metrics.mine_profile_metrics` mines pipeline tokens identically to
-    the ReAct arm with no runner/factory changes. When no profiler is active (e.g.
-    an engine that was never initialized) the accumulation still happens; only the
-    profile write is skipped.
-    """
-
-    def _sink(
-        input_tokens: int | None,
-        output_tokens: int | None,
-        model_name: str | None,
-    ) -> None:
-        in_t = _as_int(input_tokens)
-        out_t = _as_int(output_tokens)
-        totals["input_tokens"] += in_t
-        totals["output_tokens"] += out_t
-        # Also accumulate onto the crate's generator record so the exported crate
-        # carries what the run cost. Independent of the profiler below: cost
-        # accounting must not depend on instrumentation being enabled.
-        try:
-            engine.state.record_llm_usage({"input_tokens": in_t, "output_tokens": out_t})
-        except Exception:  # noqa: BLE001 — accounting never breaks a leaf call
-            logger.debug("Could not record leaf LLM usage", exc_info=True)
-        profiler = getattr(engine, "profiler", None)
-        if profiler is not None:
-            profiler.log_event(
-                event="node_end",
-                node="model",
-                iteration=engine.state.iteration_count,
-                input_tokens=in_t,
-                output_tokens=out_t,
-                model_name=model_name,
-            )
-
-    return _sink
 
 
 # Fields the drafter-leaf result must NEVER write onto a state entity (D5: Verify,

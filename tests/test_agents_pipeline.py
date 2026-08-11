@@ -1981,6 +1981,33 @@ class TestTokenAccounting:
         assert usage["output_tokens"] >= 20
         assert usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
 
+    def test_usage_logger_has_one_shared_implementation(self) -> None:
+        """#384: the sink is shared code, not a spine-private helper that a second
+        caller is free to reimplement.
+
+        The guidance tail needs the exact same ``node_end``/``node="model"`` event
+        the spine writes — that identity is the whole reason the status bar, the
+        ``--dashboard`` table and the eval can all read one stream. Assert the
+        spine's name is the shared function itself (not a copy that happens to
+        look alike today), so a future edit cannot fork them into two loggers that
+        drift apart without this failing.
+        """
+        import builder.agents.llm as llm_mod
+        import builder.agents.pipeline.guidance as guidance_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        assert pipeline_mod._make_usage_logger is llm_mod.make_usage_logger
+        assert guidance_mod.make_usage_logger is llm_mod.make_usage_logger
+
+        # There is deliberately NO matching assertion for the ``UsageSink`` TYPE,
+        # because it would be vacuous: ``typing`` memoizes subscriptions
+        # (``_tp_cache``), so two modules that each independently declare
+        # ``Callable[[int | None, int | None, str | None], None]`` are handed the
+        # SAME object and ``is`` succeeds either way. That assertion would stay
+        # green after someone re-forked the alias — exactly the drift it would
+        # claim to catch — so it is omitted rather than written to look
+        # reassuring.
+
 
 class TestDeterminism:
     def test_identical_graph_hash_across_runs(self) -> None:

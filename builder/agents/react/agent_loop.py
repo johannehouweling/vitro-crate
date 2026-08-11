@@ -2710,6 +2710,23 @@ def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]
                     "draft_publication_with_authors, or link the Person entities"
                 )
 
+        # A duplicate person is a question for the human, not a guess for us.
+        # An abbreviated and a spelled-out form of one name are almost certainly
+        # one researcher — but only almost, and merging silently would be worse
+        # than the duplicate. The pair goes to the user with the evidence.
+        try:
+            from builder.tools.drafters import probable_duplicate_people
+
+            for first, second, why in probable_duplicate_people(state):
+                items.append(
+                    f"{first.entity_id} and {second.entity_id} may be the same person "
+                    f"({why}) — ASK the user to confirm before merging; if they are one "
+                    f"person, keep the ORCID-backed entity and remove_entity the other, "
+                    f"repointing anything that referenced it"
+                )
+        except Exception:  # noqa: BLE001 — a checklist entry must never break the loop
+            logger.debug("duplicate-person check failed", exc_info=True)
+
         orphans = _unreferenced_entities(state)
         for etype, ids in sorted(orphans.items()):
             items.append(
@@ -4148,7 +4165,7 @@ def run_interactive_agent(
             _print_reply(reply)
         else:
             _print_fresh_fallback()
-        if verbose and outcome == "error" and greeting_diagnostic:
+        if outcome == "error" and greeting_diagnostic:
             diagnostic_record: dict[str, Any] = {
                 "event": "model_error",
                 "exception_type": greeting_diagnostic["exception_type"],
@@ -4157,8 +4174,15 @@ def run_interactive_agent(
                 "traceback_tail": greeting_diagnostic["traceback_tail"],
                 "stage": "legacy_greeting",
             }
+            # Recorded whether or not -v was passed: the diagnostic is already
+            # redacted and length-capped, and it goes to the profile, not the
+            # screen. Gating the WRITE on the flag meant the one artifact that
+            # could explain a failure existed only for a run that had already
+            # been told to expect one — so diagnosing a crash required
+            # reproducing it. -v still controls what is printed.
             if engine.profiler is not None:
                 engine.profiler.log_event(**diagnostic_record)
+        if verbose and outcome == "error" and greeting_diagnostic:
             console.print(
                 "[yellow]Legacy greeting error[/yellow]: "
                 f"{greeting_diagnostic['exception_chain']}"
@@ -4329,7 +4353,9 @@ def run_interactive_agent(
             )
             console.print()
         elif outcome == "error":
-            if verbose and diagnostic:
+            if diagnostic:
+                # Always recorded — see the greeting path above. The profile is
+                # where a failed run explains itself after the fact.
                 diagnostic_record: dict[str, Any] = {
                     "event": "model_error",
                     "exception_type": diagnostic["exception_type"],
@@ -4340,6 +4366,11 @@ def run_interactive_agent(
                 }
                 if engine.profiler is not None:
                     engine.profiler.log_event(**diagnostic_record)
+                logger.error(
+                    "Model turn failed: %s",
+                    diagnostic["exception_chain"],
+                )
+            if verbose and diagnostic:
                 console.print(
                     "[yellow]Legacy model error[/yellow]: "
                     f"{diagnostic['exception_type']}: {diagnostic['message']}"
@@ -4349,11 +4380,20 @@ def run_interactive_agent(
                 console.print("Your work so far is saved.")
             else:
                 # Reserved for a GENUINE failure now that timeouts, loop guards
-                # and the step limit each report themselves.
+                # and the step limit each report themselves. The cause is named
+                # here rather than withheld: telling someone to reproduce a
+                # failure that cost them a long session, just to learn what it
+                # was, spends their time to recover something already captured.
+                cause = (
+                    f" [dim]({diagnostic['exception_type']}: {diagnostic['message']})[/dim]"
+                    if diagnostic
+                    else ""
+                )
                 console.print(
                     "[yellow]Something actually went wrong on that step[/yellow] and I "
-                    "stopped. The session is saved. Re-run with [bold]-v[/bold] to see "
-                    "the underlying error."
+                    f"stopped.{cause} The session is saved; the full traceback is in the "
+                    "session profile (`model_error`). Re-run with [bold]-v[/bold] to see "
+                    "it on screen."
                 )
             console.print()
 

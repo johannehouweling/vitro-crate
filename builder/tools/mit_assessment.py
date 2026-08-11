@@ -36,6 +36,19 @@ logger = logging.getLogger(__name__)
 # checklists.
 MIT_YAML_PATH = Path(__file__).resolve().parent.parent.parent / "mit" / "invitro_tox.yaml"
 
+# Display names for the checklist's per-parameter `standards` keys, in the
+# YAML's own column order. THE one mapping (the MIT_YAML_PATH precedent):
+# renderers import it rather than re-deriving labels from the snake_case keys.
+MIT_STANDARD_LABELS: dict[str, str] = {
+    "oecd_gd211": "OECD GD 211",
+    "lincs": "LINCS",
+    "toxtemp": "ToxTemp",
+    "nature": "Nature",
+    "oecd_gd34": "OECD GD 34",
+    "oecd_gd417": "OECD GD 417",
+    "oecd_oht201": "IUCLID OHT 201",
+}
+
 
 def load_mit_yaml() -> dict[str, Any] | None:
     """Load and parse the MIT YAML file.
@@ -53,18 +66,22 @@ def load_mit_yaml() -> dict[str, Any] | None:
         return None
 
 
-def parse_crate_slots(slot_str: str) -> list[tuple[str, str]]:
+def parse_crate_slots(slot_str: str | None) -> list[tuple[str, str]]:
     """Parse a crate_slot string into a list of (EntityType, field) tuples.
 
     Crate slots are formatted like "Investigation:name;Study:name;Assay:name"
     or "MolecularEntity:formula;MolecularEntity:smiles".
 
     Args:
-        slot_str: The crate_slot string from the MIT YAML.
+        slot_str: The crate_slot string from the MIT YAML. ``None`` (an
+            explicit ``crate_slot: null`` — ``dict.get``'s default only covers
+            a *missing* key) parses to no slots, same as an omitted key.
 
     Returns:
         A list of (entity_type, field_name) tuples.
     """
+    if not slot_str:
+        return []
     slots: list[tuple[str, str]] = []
     parts = [p.strip() for p in slot_str.split(";") if p.strip()]
     for part in parts:
@@ -294,8 +311,10 @@ def iter_scorable_params(
     the matcher could ever match, so counting it in the denominator would mark it
     permanently uncoverable and silently depress every score. The two callers
     previously disagreed on exactly this: the scorer skipped such a parameter,
-    the gap engine counted it. No parameter in the shipped checklist triggers it
-    today, which is precisely why it was worth removing before one did.
+    the gap engine counted it. The skip is live, not theoretical: checklist
+    parameters with no curated slot (the ``crate_slot`` key omitted entirely —
+    44 of 220 at the time of writing; an explicit ``crate_slot: null`` parses
+    the same) are excluded from every denominator.
     """
     for module in mit_data.get("modules", []):
         for param in unique_module_params(module):
@@ -309,25 +328,42 @@ def _score_modules(
     mit_data: dict[str, Any],
     slot_filled: Callable[[str, str], bool],
 ) -> MITReport:
-    """Roll the MIT YAML into per-module scores using *slot_filled* to decide,
-    for each ``(EntityType, field)`` crate_slot, whether it is covered."""
+    """Roll the MIT YAML into per-module and per-guidance-document scores using
+    *slot_filled* to decide, for each ``(EntityType, field)`` crate_slot,
+    whether it is covered."""
     module_scores: dict[str, dict[str, int]] = {}
+    standard_scores: dict[str, dict[str, int]] = {}
     total_completed = 0
     total_required = 0
 
     # A module with no scorable parameter never gets a row, as before: it is
     # created on first yield, so an all-unscorable module is simply never keyed.
-    for module, _param, slots in iter_scorable_params(mit_data):
+    # Guidance-document buckets follow the same rule, keyed by the parameter's
+    # `standards` map; a parameter no document flags belongs to no bucket but
+    # still counts toward the aggregate.
+    for module, param, slots in iter_scorable_params(mit_data):
         module_name = module.get("name", module.get("id", "unknown"))
         bucket = module_scores.setdefault(module_name, {"completed": 0, "total": 0})
+        covered = any(slot_filled(et, field) for et, field in slots)
         bucket["total"] += 1
         total_required += 1
-        if any(slot_filled(et, field) for et, field in slots):
+        if covered:
             bucket["completed"] += 1
             total_completed += 1
+        for key, flagged in (param.get("standards") or {}).items():
+            if flagged is not True:
+                continue
+            sbucket = standard_scores.setdefault(key, {"completed": 0, "total": 0})
+            sbucket["total"] += 1
+            if covered:
+                sbucket["completed"] += 1
 
     overall_score = total_completed / total_required if total_required > 0 else 0.0
-    return MITReport(module_scores=module_scores, overall_score=overall_score)
+    return MITReport(
+        module_scores=module_scores,
+        overall_score=overall_score,
+        standard_scores=standard_scores,
+    )
 
 
 def assess_mit_coverage(

@@ -21,6 +21,7 @@ from builder.tools.drafters import (
     draft_publication,
     draft_sample,
     draft_study,
+    probable_duplicate_people,
 )
 from profiles.context import ISA_TOX_CONTEXT
 
@@ -684,3 +685,80 @@ class TestUnitsThreadedIntoProcesses:
         names = {n.get("name") for n in graph}
         assert "Organ" not in names
         assert "Tissue" not in names
+
+
+class TestProbableDuplicatePeople:
+    """Finding the split-researcher case that exact matching cannot.
+
+    ``_existing_person`` merges only on an exact ORCID or an exact name, and
+    that strictness is right — silently fusing two researchers is worse than a
+    duplicate. It leaves one gap: the same author written once with initials and
+    once spelled out becomes two Person nodes, splitting one researcher's
+    provenance. This only FINDS such pairs; whether they are one human is a
+    question for the user, never a guess.
+    """
+
+    def _people(self, *names_and_orcids):
+        state = CrateState()
+        for i, (name, orcid) in enumerate(names_and_orcids):
+            hints = {"orcid": orcid} if orcid else {}
+            draft_person(state, name, hints)
+        return state
+
+    def test_finds_initials_against_a_spelled_out_name(self):
+        state = self._people(("J. Doe", None), ("John Doe", None))
+        pairs = probable_duplicate_people(state)
+        assert len(pairs) == 1
+        first, second, why = pairs[0]
+        assert {first.fields["name"], second.fields["name"]} == {"J. Doe", "John Doe"}
+        assert "doe" in why.lower()
+
+    def test_two_different_people_are_not_reported(self):
+        # Both given names are spelled out and differ: that is two researchers.
+        state = self._people(("Jane Doe", None), ("John Doe", None))
+        assert probable_duplicate_people(state) == []
+
+    def test_a_shared_surname_alone_is_not_enough(self):
+        state = self._people(("A. Doe", None), ("John Doe", None))
+        assert probable_duplicate_people(state) == []
+
+    def test_different_surnames_are_never_paired(self):
+        state = self._people(("J. Doe", None), ("John Smith", None))
+        assert probable_duplicate_people(state) == []
+
+    def test_two_different_orcids_settle_it(self):
+        # The identifier has already answered the question; do not second-guess it.
+        state = self._people(
+            ("J. Doe", "0000-0001-2345-6789"),
+            ("John Doe", "0000-0002-9876-5432"),
+        )
+        assert probable_duplicate_people(state) == []
+
+    def test_one_orcid_and_one_bare_name_is_still_reported(self):
+        state = self._people(("J. Doe", "0000-0001-2345-6789"), ("John Doe", None))
+        assert len(probable_duplicate_people(state)) == 1
+
+    def test_locally_minted_ids_are_not_mistaken_for_orcids(self):
+        """Two id-only people must not read as "two different ORCIDs".
+
+        ``_bare_orcid`` returns the last path segment of whatever it is given, so
+        a locally minted id comes back as a non-empty non-ORCID string. Comparing
+        two of those to each other would dismiss the pair.
+        """
+        state = self._people(("J. Doe", None), ("John Doe", None))
+        assert len(probable_duplicate_people(state)) == 1
+
+    def test_a_single_person_yields_nothing(self):
+        state = self._people(("John Doe", None))
+        assert probable_duplicate_people(state) == []
+
+    def test_a_mononym_is_not_paired_with_everyone(self):
+        # "Doe" has no given part, so there is no initial to agree on.
+        state = self._people(("Doe", None), ("John Doe", None))
+        assert probable_duplicate_people(state) == []
+
+    def test_it_never_merges_anything(self):
+        state = self._people(("J. Doe", None), ("John Doe", None))
+        before = {e.entity_id for e in state.list_entities("Person")}
+        probable_duplicate_people(state)
+        assert {e.entity_id for e in state.list_entities("Person")} == before

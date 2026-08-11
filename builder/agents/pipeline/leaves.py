@@ -26,12 +26,18 @@ Design (AGENTS.md §4.4 Model Tiering, §14.2 "Leaves = cheap model"):
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+# ``UsageSink`` is imported rather than re-declared here: the leaves, the spine
+# and the guidance tail must all mean the SAME callback contract, and a second
+# structurally-identical alias is a contract free to drift (#384). Re-exported
+# under this module's name so ``leaves.UsageSink`` keeps resolving for callers
+# and tests that already reach for it.
 from builder.agents.llm import (
     ModelOverrides,
+    UsageSink,
     _build_chat_model,
     _extract_model_name,
     _extract_token_usage,
@@ -42,13 +48,6 @@ from builder.tools.field_kinds import (
     IDENTIFIER_FIELDS,
     is_identifier_field,
 )
-
-# A usage sink is notified of one leaf call's token usage:
-# ``(input_tokens, output_tokens, model_name)``. Any element may be ``None`` when
-# the provider/fake reported no usage. The deterministic pipeline passes a sink
-# that accumulates usage and logs it to the engine profiler so the eval harness
-# records real per-case token counts for the ``--arch pipeline`` arm (Issue #221).
-UsageSink = Callable[[int | None, int | None, str | None], None]
 
 
 def _invoke_structured_with_usage(

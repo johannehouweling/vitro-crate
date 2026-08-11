@@ -21,18 +21,18 @@ The builder is a toolbox-based agent system that helps researchers create ISA-To
 # Clone the repo
 git clone <repo-url> && cd vitro-crate
 
-# Install with all extras (dev tools, LangChain, system certs)
-uv sync --group dev --extra langchain --extra system-certs
+# Install with everything (dev tools + LangChain)
+uv sync --group dev --extra langchain
 
 # Minimal install (just the builder library, no agent):
 uv sync
 
 # With LangChain agent support:
 uv sync --extra langchain
-
-# With LangChain + system CA certs (corporate proxies):
-uv sync --extra langchain --extra system-certs
 ```
+
+Behind a corporate proxy or a private CA? Nothing extra to install — see
+[Corporate / Private CA Certificates](#corporate--private-ca-certificates).
 
 ### Set up your LLM provider
 
@@ -332,7 +332,7 @@ See **[docs/profiling.md](docs/profiling.md)** for details on:
 ## Development
 
 See **[CONTRIBUTING.md](CONTRIBUTING.md)** for:
-- `uv sync --dev --extra langchain --extra system-certs` — full dev setup
+- `uv sync --dev --extra langchain` — full dev setup
 - `uv run pytest` — run tests
 - `uv run ty` — type checking
 - `uvx ruff check` — linting
