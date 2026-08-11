@@ -497,16 +497,21 @@ def _identifier_pv(
     """Build (and add) a schema:PropertyValue identifier node with a stable id.
 
     The id is ``param_id(name, value)`` (the wizard scheme); ``propertyID`` is
-    emitted as a URI STRING when a url is given, else omitted. A string because
-    that is what schema:propertyID takes (range Text|URL) and because the value
-    names WHICH identifier scheme this is — ORCID, PubChem CID, DTXSID — rather
-    than an entity the crate describes. Wrapped as {"@id": …} it became a graph
-    node the validator wanted named and typed.
+    emitted as an ``{"@id": …}`` reference when a url is given, else omitted.
+
+    Emitting it as a bare URI string is arguable — schema:propertyID does take
+    Text|URL, and these values name WHICH scheme this is (ORCID, PubChem CID,
+    DTXSID) rather than an entity the crate describes. ``profiles/models/tox.py``
+    makes exactly that argument for its own ParameterValues. But it is a
+    deliberate output change with gold-crate tests pinning the reference form
+    (tests/test_crate_mapping_identifiers.py), so it belongs in a change of its
+    own that updates them on purpose — not as a side effect of a report edit.
+
     Returns the added node so callers can reference it.
     """
     props: dict[str, Any] = {"@type": "PropertyValue", "name": name, "value": str(value)}
     if property_id_url:
-        props["propertyID"] = property_id_url
+        props["propertyID"] = {"@id": property_id_url}
     return crate.add(ContextEntity(crate, param_id(name, str(value)), properties=props))
 
 
@@ -988,8 +993,8 @@ def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
             continue
         props: dict[str, Any] = {}
         if char.property_id:
-            # A cited term, as a URI string — see `_identifier_property_value`.
-            props["propertyID"] = char.property_id
+            # An @id reference — see `_identifier_property_value`.
+            props["propertyID"] = {"@id": char.property_id}
         out.append(
             CharacteristicValue(
                 crate,
