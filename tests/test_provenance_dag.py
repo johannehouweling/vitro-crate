@@ -532,23 +532,35 @@ class TestBuildChemicalInventory:
 
 
 class TestRenderChemicalsSvg:
-    """``render_chemicals_svg`` draws the compound routes as a self-contained,
-    offline inline ``<svg>`` — same shapes/geometry as the derivation chain."""
+    """``render_chemicals_svg`` draws the compound inventory as a flat grid —
+    compounds only (#506). The route a compound takes (process → condition
+    table) is deliberately not drawn: those two nodes repeated the same hops in
+    every band and crowded out the substances the view exists to show. An
+    unreachable compound is marked on its own node; the full route story lives
+    in the caption counts, the route note, and the matrix."""
 
-    def test_returns_inline_svg_with_every_route_band(self) -> None:
+    def test_returns_inline_svg_naming_compounds_and_nothing_else(self) -> None:
         svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
         assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
-        for label in ("Exposure step", "Condition table", "Aflatoxin B1", "Orphan compound"):
+        for label in ("Aflatoxin B1", "Orphan compound"):
             assert label in svg, f"{label} missing from chemicals SVG"
+        # The route nodes are gone: no process, no table, no edges at all.
+        assert "Exposure step" not in svg
+        assert "Condition table" not in svg
+        assert 'class="e e-link"' not in svg
+        # Exactly one drawn node per compound — nothing else gets a node.
+        total = build_chemical_inventory(_chemicals_graph())["counts"]["total"]
+        assert svg.count("<g><title>") == total
 
-    def test_unwired_compounds_are_visually_distinguished(self) -> None:
+    def test_unreachable_compounds_are_marked_on_their_own_node(self) -> None:
         svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
-        # A broken route is drawn as a dashed stub ending in ✗, never omitted.
-        assert "e-break" in svg
-        assert "✗" in svg
+        # "Described but unreachable" must still differ from "wired" at a
+        # glance — the mark rides the compound node itself now, not a dashed
+        # route stub (there is no route drawing left to break).
         assert "unwired" in svg
+        assert "e-break" not in svg
 
-    def test_fully_wired_crate_has_no_break_marker(self) -> None:
+    def test_fully_wired_crate_has_no_unwired_marks(self) -> None:
         graph = _chemicals_graph()
         graph["@graph"] = [
             n for n in graph["@graph"] if n["@id"] not in ("#c_mentioned", "#c_orphan")
@@ -557,12 +569,12 @@ class TestRenderChemicalsSvg:
         assert "e-break" not in svg
         assert "unwired" not in svg
 
-    def test_one_band_per_route_not_per_relation(self) -> None:
-        # `about` and `valueUrl` reach different compounds through the SAME table:
-        # one band, one process node, both mechanisms named on the edge.
+    def test_no_route_machinery_survives(self) -> None:
+        # The pre-#506 view drew one process node per band and named the link
+        # mechanisms on the edges; none of that machinery may reappear.
         svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
-        assert svg.count('class="n n-process"') == 1
-        assert "about · valueUrl" in svg
+        assert 'class="n n-process"' not in svg
+        assert "about · valueUrl" not in svg
 
     def test_large_band_tiles_into_a_grid_not_a_column(self) -> None:
         # Every member drawn, but stacked one-per-row a 22-compound band rendered
@@ -586,9 +598,9 @@ class TestRenderChemicalsSvg:
         }
         assert len(xs) > 1, "all members share one x — still one column"
 
-    def test_one_connector_per_band_not_per_member(self) -> None:
-        # Every member of a band reaches the experiment the same way — that is
-        # what defines the band — so N parallel edges restate one fact N times.
+    def test_wired_crate_draws_compounds_without_edges(self) -> None:
+        # A fully wired 9-compound crate is a 9-node grid: no edges restating
+        # the route, every compound named, none marked unreachable.
         graph = {
             "@graph": [
                 {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
@@ -615,20 +627,23 @@ class TestRenderChemicalsSvg:
             ]
         }
         svg = render_chemicals_svg(build_chemical_inventory(graph))
-        # One edge per HOP (process→table, table→group), not one per compound.
-        assert svg.count('class="e e-link"') == 2
-        assert "about" in svg  # the grouped connector still carries its label
+        assert 'class="e e-link"' not in svg
+        assert "unwired" not in svg
+        assert svg.count("<g><title>") == 9
         for i in range(9):
             assert f"Compound {i}" in svg
 
-    def test_unlinked_band_gets_one_break_stub(self) -> None:
+    def test_every_unlinked_compound_is_marked(self) -> None:
+        # 12 compounds no process reaches: each node carries the unwired mark —
+        # the reader sees WHICH compounds are stranded, not one stub for all.
         graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
         for i in range(12):
             graph["@graph"].append(
                 {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i}"}
             )
         svg = render_chemicals_svg(build_chemical_inventory(graph))
-        assert svg.count('class="e e-break"') == 1, "one broken route, one marker"
+        assert svg.count("unwired") >= 12
+        assert 'class="e e-break"' not in svg
 
     def test_every_member_of_a_large_band_is_named(self) -> None:
         # No "+N more" aggregate: the picture exists so a reader can see WHICH

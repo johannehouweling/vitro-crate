@@ -828,6 +828,14 @@ _LG_CONTAINER = _lg("container")
 _LG_CELLLINE = _lg("material", "Cell line / sample")
 _LG_PERSON = _lg("agent")
 _LG_ORG = _lg("org")
+# The chemicals view draws compounds only (#506), so its legend defines the two
+# states a compound node can be in rather than the route shapes it no longer
+# draws. Drawn through the same registry with the diagram's own `unwired`
+# variant, so the dashed key can never drift from the dashed node.
+_LG_COMPOUND_UNWIRED = (
+    f'<span class="lg">{legend_swatch("chemical", "unwired")} '
+    "Compound not reachable from a process</span>"
+)
 _LG_LINK = '<span class="lg"><span class="gl"></span> links to</span>'
 _LG_BREAK = '<span class="lg"><span class="gl brk"></span> ✗ link missing</span>'
 
@@ -1255,9 +1263,11 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
         f'<tbody>{"".join(rows)}</tbody></table></div>'
     )
 
+    # Compounds only (#506) — the legend defines the two states a compound node
+    # can be in, not the route shapes this view no longer draws.
     diagram = (
         f'<div class="prov-scroll">{svg}</div>\n  '
-        + _legend(_LG_PROCESS, _LG_FILE, _LG_COMPOUND, _LG_LINK, _LG_BREAK)
+        + _legend(_LG_COMPOUND, _LG_COMPOUND_UNWIRED)
         if svg
         else ""
     )

@@ -840,7 +840,7 @@ _LEGEND_SWATCH_H = 12
 _LEGEND_SWATCH_PAD = 7  # room for the stroke, which straddles the outline
 
 
-def legend_swatch(category: str) -> str:
+def legend_swatch(category: str, variant: str = "") -> str:
     """A miniature of the outline the diagrams actually draw for *category*.
 
     Drawn by calling the same :func:`_svg_node_shape` the diagram calls and
@@ -852,6 +852,9 @@ def legend_swatch(category: str) -> str:
 
     Args:
         category: A key of :data:`CATEGORY_STYLES` (or ``"ctx"``).
+        variant: The node state to draw, passed straight through to
+            :func:`_svg_node_shape` — so a key for an ``unwired`` node inherits
+            the diagram's own dashed styling instead of re-describing it.
 
     Returns:
         An ``<svg>`` element carrying the ``prov`` class, so it picks up the same
@@ -861,7 +864,7 @@ def legend_swatch(category: str) -> str:
     return (
         f'<svg class="prov lg-sw" width="{_LEGEND_SWATCH_W}" height="{_LEGEND_SWATCH_H}" '
         f'viewBox="0 0 {_SVG_NODE_W + pad * 2} {_SVG_NODE_H + pad * 2}" aria-hidden="true">'
-        f"{_svg_node_shape(category, pad, pad)}</svg>"
+        f"{_svg_node_shape(category, pad, pad, variant)}</svg>"
     )
 
 
@@ -2379,14 +2382,26 @@ def _svg_document(
 
 
 def render_chemicals_svg(inventory: dict[str, Any]) -> str:
-    """Draw the compound routes as a self-contained inline ``<svg>``.
+    """Draw the crate's compounds as a self-contained inline ``<svg>`` grid.
 
-    One band per route: ``process --result--> table --about--> compound``, with
-    the compounds of that route stacked on the right. A band whose compounds are
-    only *mentioned* loses its process column, and an unlinked band loses both —
-    in each case the missing hop is drawn as a dashed stub ending in ✗ rather
-    than silently omitted, so "described but unreachable" looks different from
-    "properly wired" at a glance.
+    **Compounds only** (#506). This view used to draw each compound's route —
+    ``process --result--> table --about--> compound`` — one band per route. Those
+    two left-hand columns carry no per-compound information: every band repeats
+    the same two hops, and on a real crate they took half the canvas and pushed
+    the substances into a narrow right-hand strip. The route question is answered
+    better elsewhere in the same panel: the caption counts how many compounds are
+    reachable, the route note names the fix when any are not, and the matrix
+    flags the offenders row by row.
+
+    What survives is the honesty rule: a compound no process reaches is drawn in
+    the ``unwired`` variant, so "described but unreachable" still differs from
+    "properly wired" at a glance — now marked on the compound's own node rather
+    than on a shared dashed stub, which also names *which* compounds are
+    stranded when several are.
+
+    The cell-line view keeps its routed bands (:func:`render_celllines_svg`):
+    there the process column is the diagnosis, since the defect is a culture
+    consuming a freshly minted generic Sample instead of the declared line.
 
     Like :func:`render_provenance_svg` this emits finished SVG — no script, no
     external assets — so it embeds in the offline maturity report and prints
@@ -2399,13 +2414,36 @@ def render_chemicals_svg(inventory: dict[str, Any]) -> str:
         The ``<svg>…</svg>`` markup, or ``""`` when the crate declares no
         compounds.
     """
-    # Peer-aware labels: two entities must never draw as the same text.
+    chems = inventory.get("chemicals") or []
+    if not chems:
+        return ""
+
+    # Peer-aware labels: two compounds must never draw as the same text. Run
+    # before drawing so each brief carries the `display` label _svg_place reads.
     _label_briefs_uniquely(inventory)
-    return _render_routed_svg(
-        inventory,
-        node_cls="chemical",
-        more_tag="MolecularEntity",
-        noun="compounds",
+
+    # Unwired first, then by name: the compounds worth acting on lead the grid,
+    # matching the matrix's ordering directly below it.
+    ordered = sorted(chems, key=lambda c: (c["state"] == "wired", c["name"].casefold(), c["id"]))
+    cols = _grid_columns(len(ordered))
+    nodes_svg: list[str] = []
+    for i, chem in enumerate(ordered):
+        x = _CHEM_X0 + (i % cols) * _CHEM_GRID_DX
+        y = _CHEM_Y0 + (i // cols) * _CHEM_ROW_DY
+        variant = "" if chem["state"] == "wired" else "unwired"
+        # The inventory's own brief, not a copy: it carries the `display` label
+        # just written onto it, and a copy would silently lose it.
+        _svg_place(nodes_svg, chem, "chemical", x, y, variant)
+
+    rows = (len(ordered) - 1) // cols + 1
+    counts = inventory.get("counts", {})
+    return _svg_document(
+        [],
+        nodes_svg,
+        _CHEM_X0 + (cols - 1) * _CHEM_GRID_DX + _SVG_NODE_W + 16,
+        _CHEM_Y0 + (rows - 1) * _CHEM_ROW_DY + _SVG_NODE_H + 18,
+        f"Compounds: {counts.get('wired', 0)} of {counts.get('total', 0)} "
+        "reachable from a process",
         marker=_CHEM_MARKER,
     )
 
