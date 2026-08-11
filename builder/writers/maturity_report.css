@@ -116,6 +116,8 @@
 .mat .mname { font-size:.82rem; color:var(--ink-2); }
 .mat .mfrac { font-size:.8rem; color:var(--muted); font-variant-numeric:tabular-nums; min-width:3.2rem;
   text-align:right; }
+.mat .mit-sub { font-size:.78rem; font-weight:600; color:var(--ink-2); text-transform:uppercase;
+  letter-spacing:.04em; margin:1rem 0 .15rem; }
 
 /* profile detail */
 .mat .prof-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.6rem; }
