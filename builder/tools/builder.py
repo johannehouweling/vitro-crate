@@ -171,10 +171,19 @@ def assemble_crate(
     # information a reader can already fetch. The crate DESCRIBES what it
     # asserts — its samples, processes, people — and LINKS what it cites.
     #
-    # The validator RECOMMENDS the opposite (it wants a self-contained graph),
-    # so this costs ~60-76 non-blocking findings per crate and saves ~20 nodes.
-    # Deliberate trade: `describe_external_references` still implements the
-    # self-contained style for anyone who wants it, and is called by nothing.
+    # The validator holds the SAME position, which this comment used to deny. Its
+    # base shapes carry a SPARQL target commented "Exclude entities with non-IRI
+    # identifiers or those from specific namespaces", filtering out schema.org,
+    # w3.org, purl.org, bioschemas.org, w3id.org/ro/crate and urn: — 34 FILTER
+    # clauses across eight files, at SHOULD and MUST severity alike. It does not
+    # want a self-contained graph; it exempts cited vocabulary too.
+    #
+    # The ~60 findings this used to be priced against were never a trade, then.
+    # They came from that list being the one a WORKFLOW crate needs, missing the
+    # ontology hosts a toxicology crate cites — so `profiles.validator` now adds
+    # ours to it (`_patch_cited_vocabulary_exemption`) pending the upstream fix.
+    # `describe_external_references` still implements the self-contained style
+    # for anyone who wants it, and is called by nothing.
     if os.environ.get(_DESCRIBE_EXTERNAL_TERMS_ENV, "").strip().lower() in ("1", "true", "yes"):
         describe_external_references(crate)
     add_schema_org_types(crate)
@@ -282,9 +291,7 @@ def describe_external_references(crate: ROCrate) -> int:
     for iri, name in labels.items():
         if crate.dereference(iri) is not None:
             continue
-        crate.add(
-            ContextEntity(crate, iri, properties={"@type": "DefinedTerm", "name": name})
-        )
+        crate.add(ContextEntity(crate, iri, properties={"@type": "DefinedTerm", "name": name}))
         added += 1
     if added:
         logger.info("Described %d externally-referenced ontology term(s)", added)
@@ -642,9 +649,7 @@ def export_crate(
         # Returned so the caller can ask the user to confirm or replace them —
         # they are the one part of the payload that carries no real data.
         provisional = sorted(
-            _file_dest(fe)
-            for fe in state.list_entities("File")
-            if fe.fields.get("provisional")
+            _file_dest(fe) for fe in state.list_entities("File") if fe.fields.get("provisional")
         )
         if provisional:
             out["provisional_tables"] = provisional

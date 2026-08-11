@@ -124,6 +124,78 @@ def _patch_bundled_isa_ontology() -> None:
 _patch_bundled_isa_ontology()
 
 
+# Vocabulary namespaces this crate CITES and does not describe. Deliberately the
+# term paths, not the bare hosts: `https://aopwiki.org/events/2266` is a Key Event
+# we DO describe — `materialize_aop_subgraph` fetches and names it — and it must
+# keep answering the same checks as any other entity we assert.
+_CITED_VOCABULARY_NAMESPACES: tuple[str, ...] = (
+    "http://purl.obolibrary.org/obo/",
+    "http://www.ebi.ac.uk/efo/",
+    "https://aopwiki.org/ontology/",
+)
+
+# The last exemption in each upstream block, used as the insertion anchor.
+_VOCABULARY_FILTER_ANCHOR = 'FILTER(!STRSTARTS(STR(?this), "https://bioschemas.org/"))'
+
+
+def _patch_cited_vocabulary_exemption() -> None:
+    """Extend roc-validator's own vocabulary exemption to life-science ontologies.
+
+    The base shapes already refuse to interrogate vocabulary a crate merely
+    cites. ``should/0_entity_metadata.ttl`` and ``must/6_contextual_entity_metadata.ttl``
+    each carry a SPARQL target commented "Exclude entities with non-IRI
+    identifiers or those from specific namespaces", filtering out schema.org,
+    w3.org, purl.org, bioschemas.org, w3id.org/ro/crate and urn: — 34 FILTER
+    clauses across eight files, at SHOULD and MUST severity alike.
+
+    So the validator does NOT want a self-contained graph, and our position —
+    describe what you assert, link what you cite — is its authors' position too.
+    Their list is simply the one a WORKFLOW crate needs; it never grew the
+    ontology hosts a toxicology crate cites. One real crate collected ~60
+    findings from ~20 such IRIs, not one of which is ours to describe.
+
+    This adds those hosts to the list already there, in the same form, and is
+    idempotent so a fresh ``uv sync`` self-heals. It extends an existing
+    exemption and invents nothing: ``should/6_contextual_entity_metadata.ttl``
+    (referenced-but-not-described, described-but-not-referenced) has NO exemption
+    block at all, and introducing one would be a design change to someone else's
+    shape rather than a list extension — so it is left alone and reported
+    upstream instead.
+
+    Delete this once the upstream list includes them; the request is written up
+    in ``docs/upstream/rocrate-validator-cited-vocabulary.md``.
+    """
+    try:
+        base = Path(DEFAULT_PROFILES_PATH) / "ro-crate" / "1.2"
+        for shape in sorted(base.rglob("*.ttl")):
+            text = shape.read_text(encoding="utf-8")
+            if _VOCABULARY_FILTER_ANCHOR not in text:
+                continue
+            missing = [ns for ns in _CITED_VOCABULARY_NAMESPACES if ns not in text]
+            if not missing:
+                continue
+            # Match the anchor's own indentation so the patched SPARQL keeps the
+            # shape of the block around it.
+            indent = ""
+            for line in text.splitlines():
+                if _VOCABULARY_FILTER_ANCHOR in line:
+                    indent = line[: len(line) - len(line.lstrip())]
+                    break
+            added = "".join(f'\n{indent}FILTER(!STRSTARTS(STR(?this), "{ns}"))' for ns in missing)
+            shape.write_text(
+                text.replace(_VOCABULARY_FILTER_ANCHOR, _VOCABULARY_FILTER_ANCHOR + added),
+                encoding="utf-8",
+            )
+            logger.info("Exempted %d cited-vocabulary namespace(s) in %s", len(missing), shape.name)
+    except OSError:
+        # Read-only install: the findings come back, which is the pre-patch
+        # behaviour — noisier, not wrong.
+        logger.debug("Could not extend the cited-vocabulary exemption", exc_info=True)
+
+
+_patch_cited_vocabulary_exemption()
+
+
 def _patch_in_memory_descriptor_id() -> None:
     """Skip the working-directory walk on the in-memory (dict) validation path (#115).
 
@@ -528,8 +600,7 @@ def validate_crate_dict(
         # Fail loudly rather than silently falling back to the strictest gate,
         # which would under-report recommended/optional issues as a false pass.
         raise ValueError(
-            f"Unknown severity {severity!r}; expected one of "
-            f"{sorted(_SEVERITY_BY_NAME)}."
+            f"Unknown severity {severity!r}; expected one of {sorted(_SEVERITY_BY_NAME)}."
         )
     gate = _SEVERITY_BY_NAME[severity]
     if profile == "all":
