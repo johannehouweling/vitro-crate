@@ -175,6 +175,110 @@ class TestValidate:
         finally:
             validator_mod.validate_crate = original
 
+    def test_validate_attributes_issue_records_to_profiles(self, tmp_path, monkeypatch):
+        """The disk path knows which profile pass produced each finding — each
+        ``ValidationResult`` is one pass — so ``issue_records`` must carry that
+        attribution (#510). Severity comes from the ``[Required]``-style prefix
+        ``_format_issues`` stamps; the prefix is structure, not message, so the
+        recorded message is the string without it."""
+        import profiles.validator as validator_mod
+        from profiles.validator import ValidationResult
+
+        def patched_validate(crate_dir):
+            return [
+                ValidationResult(
+                    profile="Base RO-Crate 1.1",
+                    passed=False,
+                    issues=[
+                        "[Required] root missing name",
+                        "[Recommended] add a license",
+                    ],
+                    required_issues=["[Required] root missing name"],
+                    passed_required=False,
+                ),
+                ValidationResult(
+                    profile="ISA RO-Crate Profile",
+                    passed=False,
+                    issues=["[Optional] a DOI would help"],
+                    required_issues=[],
+                    passed_required=True,
+                ),
+            ]
+
+        monkeypatch.setattr(validator_mod, "validate_crate", patched_validate)
+
+        crate_dir = tmp_path / "placeholder"
+        crate_dir.mkdir()
+        report = validate(CrateState(), str(crate_dir))
+
+        assert report.issue_records == [
+            {
+                "profile": "base",
+                "severity": "required",
+                "entity_id": "",
+                "message": "root missing name",
+            },
+            {
+                "profile": "base",
+                "severity": "recommended",
+                "entity_id": "",
+                "message": "add a license",
+            },
+            {
+                "profile": "isa",
+                "severity": "optional",
+                "entity_id": "",
+                "message": "a DOI would help",
+            },
+        ]
+        # The display lists keep their historical prefixed shape.
+        assert report.required_issues == ["[Required] root missing name"]
+        assert report.should_issues == ["[Recommended] add a license"]
+        assert report.may_issues == ["[Optional] a DOI would help"]
+
+    def test_isa_failure_does_not_fail_base(self, tmp_path, monkeypatch):
+        """Every pass's display name contains "ro-crate" ("ISA RO-Crate
+        Profile", "ISA-Tox RO-Crate Profile"), so the old ``"ro-crate" in
+        name`` guard classified an ISA or ISA-Tox REQUIRED failure as a BASE
+        failure. The most specific token must win (#510)."""
+        import profiles.validator as validator_mod
+        from profiles.validator import ValidationResult
+
+        def patched_validate(crate_dir):
+            return [
+                ValidationResult(
+                    profile="Base RO-Crate 1.2",
+                    passed=True,
+                    issues=[],
+                    required_issues=[],
+                    passed_required=True,
+                ),
+                ValidationResult(
+                    profile="ISA RO-Crate Profile",
+                    passed=False,
+                    issues=["[Required] root missing identifier"],
+                    required_issues=["[Required] root missing identifier"],
+                    passed_required=False,
+                ),
+                ValidationResult(
+                    profile="ISA-Tox RO-Crate Profile",
+                    passed=False,
+                    issues=["[Required] no dose recorded"],
+                    required_issues=["[Required] no dose recorded"],
+                    passed_required=False,
+                ),
+            ]
+
+        monkeypatch.setattr(validator_mod, "validate_crate", patched_validate)
+
+        crate_dir = tmp_path / "placeholder"
+        crate_dir.mkdir()
+        report = validate(CrateState(), str(crate_dir))
+
+        assert report.base_passed is True
+        assert report.isa_passed is False
+        assert report.tox_passed is False
+
     def test_base_pass_uses_optional_severity(self, tmp_path):
         """Base RO-Crate pass should use Severity.OPTIONAL so that
         RECOMMENDED and OPTIONAL issues are surfaced alongside REQUIRED ones."""

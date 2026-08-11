@@ -169,6 +169,11 @@ CrateState {
     validation: {
         base_passed: bool, isa_passed: bool, tox_passed: bool,
         required_issues: [str], should_issues: [str], may_issues: [str],
+        # the same findings with structure intact (#510) — the flat lists above
+        # are their display projection and stay byte-stable (the ReAct loop
+        # parses them); empty on a verdict recorded before the field existed
+        issue_records: [{ profile, severity, entity_id, message }],
+        assessed_tiers: set[str], input_fingerprint: str,
     },
     mit_assessment: { module_scores: { m: { completed, total } }, overall_score },
     fair_assessment: { indicator_results, dsm_level },
@@ -1508,6 +1513,17 @@ renders as an explicit **"not assessed"** neutral state (glyph + label, never co
 a green zero; REQUIRED/RECOMMENDED issue text is still surfaced as `Must fix` / `Recommended`
 suggestions. Rendering this from `state.validation` alone (no new validation machinery) keeps the
 pure/cheap contract.
+
+The improvement list groups findings **per profile and per severity tier** (#510): one fold-out
+`<details>` per profile layer, in the base → ISA → ISA-Tox fix order the gate-ordering contract
+prescribes, whose summary counts the group's findings per tier. A group holding REQUIRED findings is
+born `open` — a collapsed fold must never hide a blocking issue — while advisory-only groups start
+collapsed with their counts still visible in the summary. The grouping renders from
+`validation.issue_records`, the structured view both validation write-back paths record alongside
+the flat display lists (which are themselves a parsed contract and stay byte-stable); a verdict
+without records — one recorded before the field existed — falls back to the flat ungrouped list
+rather than dropping findings. Advisory caps apply per profile group, and a cap that bites names
+how many findings it hid.
 
 When `export_crate` embeds the report it passes the crate's serialized `@graph`
 (`build_maturity_html(state, graph=crate.metadata.generate())`), which folds in a **Provenance &

@@ -190,6 +190,119 @@ class TestValidationFreshness:
         )
 
 
+class TestIssueRecords:
+    """Write-back preserves the validator's structured attribution (#510).
+
+    ``build_and_validate`` returns issues with ``profile`` / ``severity`` /
+    ``entity_id`` intact, but the write-back used to keep only the flattened
+    display strings — so the maturity report could never say WHICH profile a
+    warning belonged to. ``issue_records`` carries the structure; the display
+    strings stay byte-identical because the ReAct loop parses them.
+    """
+
+    def _state(self):
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        return vhps_fixture_state("S-VHPS21")
+
+    @staticmethod
+    def _result(issues: list[dict]) -> dict:
+        return {
+            "ok": not issues,
+            "conformance": {"base": True, "isa": False, "tox": True},
+            "issues": issues,
+        }
+
+    def test_writeback_records_structured_issues(self) -> None:
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        apply_validation_result(
+            state,
+            "build_and_validate",
+            self._result(
+                [
+                    {
+                        "severity": "recommended",
+                        "profile": "tox",
+                        "entity_id": "#m",
+                        "message": "add dose units",
+                    },
+                    {
+                        "severity": "required",
+                        "profile": "isa",
+                        "entity_id": "./",
+                        "message": "missing identifier",
+                    },
+                ]
+            ),
+            severity="optional",
+        )
+        v = state.validation
+        assert v.issue_records == [
+            {
+                "profile": "isa",
+                "severity": "required",
+                "entity_id": "./",
+                "message": "missing identifier",
+            },
+            {
+                "profile": "tox",
+                "severity": "recommended",
+                "entity_id": "#m",
+                "message": "add dose units",
+            },
+        ]
+        # The flattened display strings are a parsed contract (agent_loop's
+        # open-items queue splits on "] " and ": ") — they must not change shape.
+        assert v.required_issues == ["[isa] ./: missing identifier"]
+        assert v.should_issues == ["[tox] #m: add dose units"]
+
+    def test_required_only_refresh_keeps_then_retires_advisory_records(self) -> None:
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        advisory = {
+            "severity": "recommended",
+            "profile": "isa",
+            "entity_id": "#s",
+            "message": "consider a license",
+        }
+        apply_validation_result(
+            state, "build_and_validate", self._result([advisory]), severity="optional"
+        )
+        assert any(r["severity"] == "recommended" for r in state.validation.issue_records)
+
+        # Same state: a REQUIRED-only refresh must not discard fresh advisory records.
+        apply_validation_result(
+            state, "build_and_validate", self._result([]), severity="required"
+        )
+        assert any(r["severity"] == "recommended" for r in state.validation.issue_records)
+
+        # Crate changed: the advisory records describe an older crate — retire
+        # them alongside the advisory string lists.
+        state.metadata.title = "Edited after validating"
+        apply_validation_result(
+            state, "build_and_validate", self._result([]), severity="required"
+        )
+        assert state.validation.issue_records == []
+        assert state.validation.should_issues == []
+
+    def test_records_round_trip_through_serialisation(self) -> None:
+        record = {
+            "profile": "base",
+            "severity": "required",
+            "entity_id": "./",
+            "message": "root MUST have a name",
+        }
+        report = ValidationReport(issue_records=[record])
+        assert ValidationReport.from_dict(report.to_dict()).issue_records == [record]
+        # …and a checkpoint written before the field existed still loads.
+        legacy = report.to_dict()
+        del legacy["issue_records"]
+        assert ValidationReport.from_dict(legacy).issue_records == []
+
+
 class TestEnsureValidated:
     """``ensure_validated`` re-validates only when the recorded verdict is stale."""
 
