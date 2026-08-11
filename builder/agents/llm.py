@@ -11,16 +11,31 @@ dependency the build-mode harmonization removes. This module depends on neither
 mode; the provider SDKs (``langchain_openai`` / ``langchain_anthropic``) are
 imported lazily inside :func:`_build_chat_model` so importing this module stays
 cheap.
+
+It is also the shared home for the token-accounting seam: :data:`UsageSink` and
+:func:`make_usage_logger` live here rather than in the pipeline spine (where they
+were born, #221) because the spine is not the only non-ReAct caller of a bounded
+leaf any more -- the HITL guidance tail is one too (#384), and any future one
+(a second guidance-style tail, an MCP front-end) gets accounting by construction
+instead of by remembering. The logger only reads ``engine.state`` and
+``engine.profiler``, and says so structurally via :class:`UsageEngine`, so this
+module never imports the engine at all -- not even under ``TYPE_CHECKING`` -- and
+stays cycle-free and cheap to import.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Protocol
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ModelOverrides",
+    "UsageSink",
+    "make_usage_logger",
     "_build_chat_model",
     "_detect_provider",
     "_extract_model_name",
@@ -31,6 +46,34 @@ __all__ = [
     "_resolve_temperature",
     "_recursion_limit",
 ]
+
+# A usage sink receives one bounded-leaf call's token usage as
+# ``(input_tokens, output_tokens, model_name)``; any element may be ``None`` when
+# the provider (or an offline fake) reported no usage. Callers that own an
+# engine pass :func:`make_usage_logger`'s sink, which logs each call to the
+# engine profiler so every surface that reads ``profile.ndjson`` -- the
+# interactive status bar, the dashboard's token table, the eval's metric miner --
+# sees the same numbers regardless of which orchestrator made the call.
+UsageSink = Callable[[int | None, int | None, str | None], None]
+
+
+class UsageEngine(Protocol):
+    """The slice of an engine :func:`make_usage_logger` actually reads.
+
+    Structural rather than nominal, and deliberately so. Annotating the parameter
+    ``AgentEngine`` would state a dependency this module does not have and must
+    not acquire — importing the engine here would cost every caller the whole
+    engine import and risk a cycle, which is why the sink duck-types in the first
+    place. It would also be a claim the type checker enforces against callers who
+    legitimately pass something smaller (a test double, a future MCP front-end
+    that owns state but is not an ``AgentEngine``).
+
+    ``profiler`` is not declared: it is read with a ``getattr`` default because an
+    engine that was never initialized has none, and requiring it here would make
+    the annotation stricter than the code.
+    """
+
+    state: Any
 
 
 @dataclass(frozen=True)
@@ -420,3 +463,63 @@ def _extract_model_name(message: Any) -> str | None:
     """Extract the model name from an ``AIMessage``'s ``response_metadata``."""
     resp_meta: dict = getattr(message, "response_metadata", None) or {}
     return resp_meta.get("model_name") or resp_meta.get("model")
+
+
+def _as_int(value: Any) -> int:
+    """Coerce a possibly-missing/None token count to a non-negative int."""
+    if value is None:
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def make_usage_logger(engine: UsageEngine, totals: dict[str, int]) -> UsageSink:
+    """Build a :data:`UsageSink` that records one leaf call's token usage (#221).
+
+    For each leaf call it (1) accumulates ``input``/``output`` tokens into
+    *totals* (the running per-run sum the caller surfaces in its result dict) and
+    (2) logs a ``node_end``/``node="model"`` event to the engine profiler — the
+    SAME profile-event shape the ReAct model node emits — so
+    :func:`eval.metrics.mine_profile_metrics`, :func:`builder.agents.ui._read_token_totals`
+    and the dashboard's token table all see leaf calls identically to ReAct hops
+    with no changes of their own. When no profiler is active (e.g. an engine that
+    was never initialized) the accumulation still happens; only the profile write
+    is skipped.
+
+    Lives here, not in the pipeline spine, because the spine is not the only
+    caller: the HITL guidance tail builds one of these too (#384). One
+    implementation means the two phases of an interactive run cannot drift into
+    logging two different event shapes, which is precisely how the guidance tail's
+    spend went missing from the status bar in the first place.
+    """
+
+    def _sink(
+        input_tokens: int | None,
+        output_tokens: int | None,
+        model_name: str | None,
+    ) -> None:
+        in_t = _as_int(input_tokens)
+        out_t = _as_int(output_tokens)
+        totals["input_tokens"] += in_t
+        totals["output_tokens"] += out_t
+        # Also accumulate onto the crate's generator record so the exported crate
+        # carries what the run cost. Independent of the profiler below: cost
+        # accounting must not depend on instrumentation being enabled.
+        try:
+            engine.state.record_llm_usage({"input_tokens": in_t, "output_tokens": out_t})
+        except Exception:  # noqa: BLE001 — accounting never breaks a leaf call
+            logger.debug("Could not record leaf LLM usage", exc_info=True)
+        profiler = getattr(engine, "profiler", None)
+        if profiler is not None:
+            profiler.log_event(
+                event="node_end",
+                node="model",
+                iteration=engine.state.iteration_count,
+                input_tokens=in_t,
+                output_tokens=out_t,
+                model_name=model_name,
+            )
+
+    return _sink

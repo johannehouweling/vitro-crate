@@ -1128,6 +1128,117 @@ class TestExtractFieldFromFile:
         assert value == "", "D5: an identifier value must come from a lookup, not file text"
 
 
+# ---------------------------------------------------------------------------
+# Token-usage capture for the GUIDANCE leaves (Issue #384)
+#
+# The three leaves the HITL tail calls have accepted a `usage_sink` since #244,
+# but only `draft_entity_fields` and `extract_plan` had a test proving the sink is
+# actually invoked. That test-layer asymmetry is exactly why nobody noticed that
+# the guidance tail never passed a sink at all: the capability was there, nothing
+# exercised it, and the caller quietly dropped it. These close the asymmetry — the
+# sink must receive the raw AIMessage's usage, and the no-sink path must stay on
+# the legacy bare-parsed contract (no `include_raw` bind).
+# ---------------------------------------------------------------------------
+
+
+class TestGuidanceLeavesUsageCapture:
+    def test_phrase_gap_question_usage_sink_receives_token_usage(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel(
+            {"question": "What does this study examine?"},
+            usage_metadata={"input_tokens": 210, "output_tokens": 18, "total_tokens": 228},
+            model_name="gpt-4o-mini",
+        )
+        _patch_build_chat_model["model"] = fake
+        captured: list[tuple[Any, Any, Any]] = []
+
+        question = leaves.phrase_gap_question(
+            _GAP_CONTEXT,
+            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+        )
+
+        assert question == "What does this study examine?", "capture must not alter the result"
+        assert captured == [(210, 18, "gpt-4o-mini")]
+        assert fake.include_raw_flags == [True]
+
+    def test_interpret_gap_reply_usage_sink_receives_token_usage(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        fake = FakeChatModel(
+            {"action": "commit", "value": "A dose-response cytotoxicity study."},
+            usage_metadata={"input_tokens": 340, "output_tokens": 26, "total_tokens": 366},
+            model_name="gpt-4o-mini",
+        )
+        _patch_build_chat_model["model"] = fake
+        captured: list[tuple[Any, Any, Any]] = []
+
+        decision = leaves.interpret_gap_reply(
+            "What does this study examine?",
+            "A dose-response cytotoxicity study.",
+            _GAP_CONTEXT,
+            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+        )
+
+        assert decision["action"] == "commit"
+        assert decision["value"] == "A dose-response cytotoxicity study."
+        assert captured == [(340, 26, "gpt-4o-mini")]
+        assert fake.include_raw_flags == [True]
+
+    def test_extract_field_from_file_usage_sink_receives_token_usage(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # The from-file branch is the one that can carry the biggest prompt of the
+        # whole tail (the loop feeds it up to 32 KiB of file text), so it is the
+        # call least affordable to leave unaccounted.
+        fake = FakeChatModel(
+            {"value": "A viability assay protocol."},
+            usage_metadata={"input_tokens": 7400, "output_tokens": 31, "total_tokens": 7431},
+            model_name="gpt-4o-mini",
+        )
+        _patch_build_chat_model["model"] = fake
+        captured: list[tuple[Any, Any, Any]] = []
+
+        value = leaves.extract_field_from_file(
+            "description",
+            "Protocol: the cells were exposed for 24h then read out.",
+            {"property": "description", "entity_type": "LabProtocol"},
+            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+        )
+
+        assert value == "A viability assay protocol."
+        assert captured == [(7400, 31, "gpt-4o-mini")]
+        assert fake.include_raw_flags == [True]
+
+    def test_no_usage_sink_keeps_legacy_contract(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        # Without a sink none of the three may request include_raw, and each must
+        # still return its plain result — the sink is additive, never a rewrite.
+        phrase_fake = FakeChatModel({"question": "What does this study examine?"})
+        _patch_build_chat_model["model"] = phrase_fake
+        assert leaves.phrase_gap_question(_GAP_CONTEXT) == "What does this study examine?"
+
+        interpret_fake = FakeChatModel({"action": "skip"})
+        _patch_build_chat_model["model"] = interpret_fake
+        assert leaves.interpret_gap_reply("q", "no idea", _GAP_CONTEXT)["action"] == "skip"
+
+        extract_fake = FakeChatModel({"value": "A viability assay protocol."})
+        _patch_build_chat_model["model"] = extract_fake
+        assert (
+            leaves.extract_field_from_file(
+                "description",
+                "Protocol body.",
+                {"property": "description", "entity_type": "LabProtocol"},
+            )
+            == "A viability assay protocol."
+        )
+
+        assert phrase_fake.include_raw_flags == [False]
+        assert interpret_fake.include_raw_flags == [False]
+        assert extract_fake.include_raw_flags == [False]
+
+
 def _flatten_keys(schema: Any) -> set[str]:
     """Every property key appearing anywhere in a (possibly nested) JSON schema."""
     keys: set[str] = set()

@@ -200,9 +200,12 @@ class UiSnapshot:
     """A flat, render-ready view of session state.
 
     Decoupling the renderers from the live engine keeps them pure and
-    unit-testable, and lets each arm populate token/cost from whichever
-    source it has (the pipeline's structured ``usage`` dict, or ReAct's
-    ``profile.ndjson``).
+    unit-testable. Token/cost comes from ONE source in both arms:
+    :func:`snapshot_from_engine` reads the session's ``profile.ndjson`` and
+    nothing else. (It never reads the pipeline's returned ``usage`` dict — an
+    earlier version of this docstring claimed it did, which is what made it easy
+    to believe the pipeline's guidance tail was accounted when its calls simply
+    never reached the profile, #384.)
     """
 
     session_id: str
