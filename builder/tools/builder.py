@@ -603,6 +603,22 @@ def export_crate(
             logger.warning("Could not record generator provenance: %s", gen_err)
 
         crate = assemble_crate(state, output_dir, materialize_payload=True)
+
+        # Answer the one REQUIRED question the in-memory gate cannot: does the
+        # crate carry the files it describes (#530)? `ensure_validated` above
+        # validates a document, where a payload check has nothing to look at and
+        # so emits nothing — and silence there was being read as a pass, shipping
+        # a crate that fails the base profile on disk under a green "Conformant".
+        # Runs here because the maturity report is rendered from `state.validation`
+        # a few lines below, while the crate is still in memory: a verdict reached
+        # after `crate.write()` could never reach the report that ships inside it.
+        try:
+            from builder.tools.validation import record_payload_check
+
+            record_payload_check(state, crate)
+        except Exception as payload_err:  # noqa: BLE001 — never fail the write
+            logger.warning("Could not verify the crate payload: %s", payload_err)
+
         # Embed the standard ro-crate-py preview (ro-crate-preview.html, a
         # CreativeWork about ./) so the written crate is browsable without
         # tooling (#86) — rendered through an autoescaping template so

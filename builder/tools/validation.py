@@ -133,6 +133,9 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
         should_issues=should_issues,
         may_issues=may_issues,
         issue_records=issue_records,
+        # This path validated a directory, so the payload checks the in-memory
+        # gate cannot run did run here — the verdict covers the files too (#530).
+        payload_checked=True,
     )
 
 
@@ -154,6 +157,103 @@ def _profile_key(profile_name: str) -> str:
     if "base" in name or "ro-crate" in name:
         return "base"
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Payload verification (#530)
+# ---------------------------------------------------------------------------
+# The SHACL profiles ask whether every declared Data Entity is part of the
+# payload, but only the on-disk path can answer it: the in-memory document the
+# build/fix loop and `export_crate` validate has no payload to inspect, so the
+# check emits nothing at all — and a caller reading "no issues" as "passed"
+# ships a crate whose base profile fails on disk under a green "Conformant".
+#
+# The fix is deliberately NOT a list of check ids to skip. Ids move between
+# upstream releases (see the two namespaces tracked in #525), a list needs an
+# edit per release, and skipping a check that emits nothing suppresses nothing.
+# Instead this states the invariant the crate itself must satisfy — every local
+# data entity is backed by a source `write()` will materialise — and answers it
+# from the assembled crate, which is available wherever a crate is built, for
+# any deposit.
+
+
+def verify_payload(crate: Any) -> list[dict[str, Any]]:
+    """Report every data entity the crate declares but will not write.
+
+    ``ROCrate.write()`` materialises a data entity from its ``source``. An entity
+    whose source is ``None`` is written to the metadata and never to disk (
+    ro-crate-py warns "No source for …" and continues), leaving a crate that
+    describes a file it does not contain — a REQUIRED failure of the base
+    profile, and invisible to every in-memory validation.
+
+    Checked before the write rather than after, because the maturity report is
+    rendered and embedded while the crate is still in memory; a verdict reached
+    afterwards could not reach the report that ships inside the crate. The two
+    are equivalent for this class: ``write()`` materialises exactly the sources
+    it holds.
+
+    Entities identified by an absolute URI are remote by design and are not this
+    crate's to materialise, so they are not reported.
+
+    Args:
+        crate: The assembled :class:`rocrate.rocrate.ROCrate`.
+
+    Returns:
+        Routable issue dicts in the shape :func:`build_and_validate` returns, so
+        the existing write-back and the maturity report render them unchanged.
+    """
+    issues: list[dict[str, Any]] = []
+    for entity in crate.data_entities:
+        entity_id = str(getattr(entity, "id", "") or "")
+        if not entity_id or entity_id.startswith(("#", "http://", "https://")):
+            continue
+        if getattr(entity, "source", None) is not None:
+            continue
+        issues.append(
+            {
+                "entity_id": entity_id,
+                "property": "contentUrl",
+                "message": (
+                    f"The crate describes {entity_id!r} but carries no content for it, "
+                    "so the written crate would not contain the file"
+                ),
+                "fix": (
+                    f"Attach the real file for `{entity_id}`, or drop the entity so the "
+                    "crate stops claiming a file it does not have."
+                ),
+                "severity": "required",
+                "profile": "base",
+            }
+        )
+    return issues
+
+
+def record_payload_check(state: CrateState, crate: Any) -> list[dict[str, Any]]:
+    """Fold :func:`verify_payload` into ``state.validation`` (#530).
+
+    Files the crate cannot write are REQUIRED failures of the base profile, so
+    they are filed as REQUIRED issues through the same shape every other finding
+    uses: the maturity report renders them, and the header verdict flips off
+    "Conformant" without the report needing to know this check exists.
+
+    Marks the verdict ``payload_checked`` either way — a clean payload is a
+    result, and the distinction that matters downstream is "looked and found
+    nothing" versus "never looked".
+
+    Returns the issues found, for the caller to log or report.
+    """
+    issues = verify_payload(crate)
+    report = state.validation
+    existing = set(report.required_issues)
+    for issue, text in zip(issues, order_issues(issues, "required"), strict=True):
+        if text not in existing:
+            report.required_issues.append(text)
+            report.issue_records.extend(_issue_records([issue], "required"))
+    if issues:
+        report.base_passed = False
+    report.assessed_tiers.add("required")
+    report.payload_checked = True
+    return issues
 
 
 # ---------------------------------------------------------------------------

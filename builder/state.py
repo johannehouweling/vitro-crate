@@ -633,6 +633,11 @@ class ValidationReport:
             renderers (the maturity report's per-profile fold-outs, #510) never
             have to re-parse that display format. Empty on a verdict recorded
             before the field existed — consumers must fall back, not infer.
+        payload_checked: Whether anything actually looked at the crate's files.
+            The in-memory gate validates a document, so checks that need a
+            payload — "is every declared Data Entity present?" — emit nothing
+            there, and their silence must not be read as a pass (#530). False on
+            a verdict that only ever saw the metadata.
         input_fingerprint: :meth:`CrateState.validation_fingerprint` as it was
             when this verdict was recorded — the answer to "does this verdict
             still describe the crate?". Empty means unknown (a report restored
@@ -647,6 +652,7 @@ class ValidationReport:
     may_issues: list[str] = field(default_factory=list)
     assessed_tiers: set[str] = field(default_factory=set)
     issue_records: list[dict[str, str]] = field(default_factory=list)
+    payload_checked: bool = False
     input_fingerprint: str = ""
 
     def is_stale_for(self, state: CrateState) -> bool:
@@ -670,6 +676,7 @@ class ValidationReport:
             "may_issues": list(self.may_issues),
             "assessed_tiers": sorted(self.assessed_tiers),
             "issue_records": [dict(r) for r in self.issue_records],
+            "payload_checked": self.payload_checked,
             "input_fingerprint": self.input_fingerprint,
         }
 
@@ -684,6 +691,7 @@ class ValidationReport:
             may_issues=data.get("may_issues", []),
             assessed_tiers=set(data.get("assessed_tiers", [])),
             issue_records=data.get("issue_records", []),
+            payload_checked=data.get("payload_checked", False),
             input_fingerprint=data.get("input_fingerprint", ""),
         )
 

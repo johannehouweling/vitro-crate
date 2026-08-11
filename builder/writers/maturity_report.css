@@ -127,6 +127,10 @@
 .mat .prof-card span { font-weight:600; font-size:.9rem; } .mat .prof-card em { margin-left:auto;
   font-style:normal; font-size:.62rem; letter-spacing:.05em; color:var(--muted); }
 .mat .good-note { color:var(--good-ink); font-size:.86rem; margin:.8rem 0 0; font-weight:550; }
+/* What this verdict did NOT look at (#530) — a caveat, not a failure, so it is
+   set apart from the findings rather than coloured like one. */
+.mat .payload-note { margin:.8rem 0 0; padding-left:.7rem; border-left:2px solid var(--hairline);
+  color:var(--muted); font-size:.8rem; }
 .mat ul.sugg { margin:.8rem 0 0; padding-left:1.1rem; font-size:.85rem; } .mat ul.sugg li.must { color:var(--low-ink); }
 .mat ul.sugg li.opt { color:var(--muted); } .mat ul.sugg li.more { color:var(--muted); font-style:italic;
   list-style:none; margin-left:-1.1rem; }

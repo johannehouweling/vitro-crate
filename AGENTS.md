@@ -173,7 +173,11 @@ CrateState {
         # are their display projection and stay byte-stable (the ReAct loop
         # parses them); empty on a verdict recorded before the field existed
         issue_records: [{ profile, severity, entity_id, message }],
-        assessed_tiers: set[str], input_fingerprint: str,
+        assessed_tiers: set[str],
+        # whether anything actually looked at the crate's FILES (#530) — the
+        # in-memory gate validates a document, where payload checks emit nothing
+        payload_checked: bool,
+        input_fingerprint: str,
     },
     mit_assessment: { module_scores: { m: { completed, total } }, overall_score },
     fair_assessment: { indicator_results, dsm_level },
@@ -1516,6 +1520,19 @@ renders as an explicit **"not assessed"** neutral state (glyph + label, never co
 a green zero; REQUIRED/RECOMMENDED issue text is still surfaced as `Must fix` / `Recommended`
 suggestions. Rendering this from `state.validation` alone (no new validation machinery) keeps the
 pure/cheap contract.
+
+**A verdict states the ground it stands on (#530).** "Is every declared Data Entity part of the
+payload?" is REQUIRED by the base profile and answerable only where the payload exists — the
+in-memory gate validates a document, so that check emits *nothing* there, and its silence must never
+be read as a pass. `verify_payload` states the invariant the crate itself must satisfy instead of
+naming a check id (ids move between upstream releases, and skipping a check that emits nothing
+suppresses nothing): every local data entity is backed by a source `crate.write()` will
+materialise, since ro-crate-py writes the metadata for a source-less entity and no bytes. Export
+runs it against the assembled crate **before** the report is embedded — a verdict reached after the
+write could never reach the report shipping inside the crate — and files what it finds as REQUIRED
+issues, so the existing rendering flips the header verdict without knowing this check exists.
+`payload_checked` records that something looked; a verdict where nothing did says so rather than
+implying a clean sheet it did not earn.
 
 **Every finding folds out of the severity row it belongs to** (#510). Severity is the primary axis
 because it is the fix order — REQUIRED blocks the build, the advisory tiers do not — so a tier row
