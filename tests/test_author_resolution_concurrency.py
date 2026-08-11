@@ -82,8 +82,10 @@ class TestItKeepsTheCascadeHonest:
         out = _prefetch_orcid_verifications(
             authors, lambda oid: _orcid_ok("Alpha" if oid.endswith("1") else "Beta")
         )
-        assert out[0]["familyName"] == "Alpha"
-        assert out[1]["familyName"] == "Beta"
+        first, second = out[0], out[1]
+        assert first is not None and second is not None
+        assert first["familyName"] == "Alpha"
+        assert second["familyName"] == "Beta"
 
     def test_an_author_without_a_crossref_orcid_is_not_attempted(self):
         authors = [_author("Alpha"), _author("Beta", "0000-0000-0000-0002")]
