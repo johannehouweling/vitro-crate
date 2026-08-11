@@ -1007,9 +1007,12 @@ a fix to a specific field:
 
 `severity` (`required`|`recommended`|`optional`) is the gate that decides which
 SHACL checks run — `required` (the default) is fastest. `profile`
-(`all`|`base`|`isa`|`tox`) scopes the passes; since the tox pass dominates
-wall-clock, the inner loop can validate a single profile at REQUIRED severity
-and run the full 3-pass sweep only as a gate. The three passes mirror
+(`all`|`base`|`isa`|`tox`) scopes the passes, so the inner loop can validate a
+single profile at REQUIRED severity and run the full 3-pass sweep only as a gate.
+Which pass costs most is crate-dependent and NOT tox by default: on a real
+293-entity crate the BASE pass is 22.9s of a 36.9s optional sweep (62%) against
+9.2s for tox — measured in `builder/tools/validation.py`. Scoping to `tox` to
+save time is therefore backwards on a large crate. The three passes mirror
 `profiles/validator.validate_crate`, fed the metadata dict instead of a path.
 
 `fix_required_issues` is the **deterministic repair loop** — the keystone of the
@@ -2329,7 +2332,7 @@ renders the count of open **MUST** issues plus base/isa/tox conformance.
 **It REUSES the validation result the pipeline already computed** (`run_pipeline`
 returns `{conformance, issues, …}` from its required-severity fix loop) rather
 than calling `assess_gaps` afresh: a fresh `assess_gaps` re-runs the heaviest
-`severity="optional"` SHACL + MIT + FAIR sweep (the #115 tox-pass bottleneck),
+`severity="optional"` SHACL + MIT + FAIR sweep (the #115 validation bottleneck),
 which on every headless build is both a real per-build UX regression and a CI
 timeout (#296). Because the pipeline validates only at REQUIRED severity, SHOULD/MAY
 gaps are not computed on this fast path — the line reports them as *not assessed*

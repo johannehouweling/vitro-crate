@@ -50,12 +50,21 @@ speedup factors below are the portable result**.
 | **tox** | **required** | **2868 ms** | **220 ms** | **222 ms** | **2425 ms** | 0 |
 | **tox** | **optional** | **3588 ms** | **294 ms** | **212 ms** | **3082 ms** | 6 |
 
-The tox pass dominates the sweep, exactly as the issue said — but the split is the
-opposite of the assumption:
+On THIS fixture the tox pass dominates the sweep, as the issue assumed — but the
+split within it is the opposite of the assumption:
 
 - **owlrl inference: ~0.29 s (~8%)**
 - **SHACL evaluation: ~0.21 s (~6%)**
 - **composition + routing: ~3.08 s (~86%)**
+
+> **Superseded on a real crate — the ORDERING flips.** These numbers are from a
+> 29-node fixture. On a real 293-entity crate the **base** pass dominates: 22.9s
+> of a 36.9s optional sweep (62%), against 9.2s for tox (25%) and 4.8s for isa
+> (see `builder/tools/validation.py`). What survives is the finding *inside* a
+> pass — inference is ~14% and composition/routing ~86% — which is why the
+> upstream ask (crs4/rocrate-validator#184) targets graph reuse rather than
+> faster inference. What does NOT survive is "scope to tox to save time": on a
+> large crate that leaves the expensive pass running.
 
 Caching the parsed SHACL `.ttl` (the lever already rejected in #63/#111) would
 touch only the small ontology-parse slice inside composition — it cannot reach the
