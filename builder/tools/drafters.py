@@ -115,6 +115,83 @@ def _existing_person(
     return None
 
 
+_ORCID_RE = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
+
+
+def _real_orcid(entity: Entity) -> str:
+    """The entity's ORCID, or "" when it has none.
+
+    ``_bare_orcid`` takes the last path segment of whatever it is given, so a
+    locally minted id comes back as a non-empty string that is not an ORCID.
+    That is harmless when comparing against a known ORCID (nothing matches it),
+    but comparing two such values to each other reads as "two different ORCIDs,
+    so two different people" and dismisses the pair. So the shape is checked.
+    """
+    candidate = _bare_orcid(entity.fields.get("orcid") or entity.entity_id)
+    return candidate if _ORCID_RE.match(candidate) else ""
+
+
+def _name_parts(name: Any) -> tuple[str, str]:
+    """A person's name split into (given-part, family-name), both normalised."""
+    tokens = _person_key(name).split()
+    if len(tokens) < 2:
+        return "", " ".join(tokens)
+    return " ".join(tokens[:-1]), tokens[-1]
+
+
+def _is_initials(given: str) -> bool:
+    """Whether a given-name part is initials rather than a spelled-out name.
+
+    ``"j."``, ``"j m"`` and ``"jm"`` are initials; a spelled-out given name is not.
+    """
+    stripped = given.replace(".", " ").split()
+    return bool(stripped) and all(len(tok) == 1 for tok in stripped)
+
+
+def probable_duplicate_people(state: CrateState) -> list[tuple[Entity, Entity, str]]:
+    """Person pairs that plausibly name one human, for a person to confirm.
+
+    ``_existing_person`` merges only on an exact ORCID or an exact name, and that
+    strictness is right — silently fusing two researchers is worse than a
+    duplicate. It leaves one gap standing: the same author written once with
+    initials and once with a spelled-out given name becomes two Person nodes,
+    splitting one researcher's provenance.
+
+    Whether they are the same person is a question about the world, not about the
+    data, so this only FINDS the pairs — it never merges. The answer comes from
+    the human, who knows.
+
+    Two ORCIDs that differ settle it: those are two people, and the pair is not
+    reported.
+    """
+    people = list(state.list_entities("Person"))
+    pairs: list[tuple[Entity, Entity, str]] = []
+    for i, a in enumerate(people):
+        for b in people[i + 1 :]:
+            orcid_a, orcid_b = _real_orcid(a), _real_orcid(b)
+            if orcid_a and orcid_b and orcid_a != orcid_b:
+                continue  # the identifier has already answered this
+            given_a, family_a = _name_parts(a.fields.get("name"))
+            given_b, family_b = _name_parts(b.fields.get("name"))
+            if not family_a or family_a != family_b:
+                continue
+            if given_a == given_b:
+                continue  # identical names are _existing_person's business
+            # One side abbreviated, and the surviving initial agrees.
+            initials = (_is_initials(given_a), _is_initials(given_b))
+            if not any(initials) or not (given_a[:1] and given_a[:1] == given_b[:1]):
+                continue
+            pairs.append(
+                (
+                    a,
+                    b,
+                    f"{a.fields.get('name')!r} and {b.fields.get('name')!r} share the "
+                    f"surname {family_a!r} and first initial",
+                )
+            )
+    return pairs
+
+
 def _fill_empty_fields(entity: Entity, hints: dict) -> None:
     """Fill only what is missing, and never trade a cleaner name for a noisier one.
 
