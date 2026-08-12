@@ -144,9 +144,15 @@ class TestPartitioning:
         assert len(gaps) + len(citations) == len(issues), "a finding must never vanish"
 
     def test_nothing_cited_leaves_the_list_untouched(self):
+        """Equality, not identity: the guarantee is that no finding is lost.
+
+        This asserted `gaps is issues` when the function short-circuited on an
+        empty cited set. It no longer can — every finding is now also checked
+        against `_is_unanswerable` — and identity was never the promise.
+        """
         issues = [self._issue("./#Study_x")]
         gaps, citations = _partition_citations(issues, set())
-        assert gaps is issues
+        assert gaps == issues
         assert citations == []
 
 

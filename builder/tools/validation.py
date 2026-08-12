@@ -440,14 +440,36 @@ def _cited_iris(metadata_doc: dict[str, Any]) -> set[str]:
     return (mentioned | _context_vocabulary(metadata_doc)) - asserted - described
 
 
+# A property the crate cannot state about itself without chasing its own tail.
+# The maturity report is rendered FROM the validation result, so its byte count
+# depends on how many findings there were — and stating that size changes the
+# graph, which changes the findings, which changes the size. Measured across three
+# exports of one crate: 121,626 / 96,414 / 99,458 bytes as the findings moved.
+# There is no fixed point to converge on, so the size is not stated and the
+# finding that follows is not actionable by anyone.
+#
+# Deliberately ONE entry, matched on the crate's own generated filename. It is not
+# a list that grows with the domain — it is the single artifact whose content is a
+# function of the answer.
+_UNANSWERABLE = ((REPORT_FILENAME := "ro-crate-metadata-maturity.html"), "contentSize")
+
+
+def _is_unanswerable(issue: dict[str, Any]) -> bool:
+    """Whether this finding asks for something that cannot exist by construction."""
+    entity, prop = _UNANSWERABLE
+    return str(issue.get("entity_id") or "").endswith(entity) and prop in str(
+        issue.get("message") or ""
+    )
+
+
 def _partition_citations(
     issues: list[dict[str, Any]], cited: set[str]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split findings into real gaps and findings about cited vocabulary."""
-    if not cited:
-        return issues, []
     gaps, citations = [], []
     for issue in issues:
+        if _is_unanswerable(issue):
+            continue  # see `_UNANSWERABLE` — no one can act on it, including us
         entity = issue.get("entity_id") or ""
         (citations if entity in cited else gaps).append(issue)
     return gaps, citations
