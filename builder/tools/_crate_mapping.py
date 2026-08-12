@@ -663,6 +663,26 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     return props
 
 
+def _is_prose(value: Any) -> bool:
+    """Whether *value* is a phrase a human wrote, not a reference that failed.
+
+    Separates the two ways a string can arrive in a reference-typed field. An
+    entity id and an IRI are single tokens — ``bao``,
+    ``http://…/bao#BAO_0010196`` — so one that resolves to nothing is a BROKEN
+    reference, and emitting it would ship a dangling pointer as though it were
+    data (the #180 guard, still enforced).
+
+    A phrase with spaces was never going to be an id. "T4 uptake; parallel
+    CellTiter-Glo ATP cell-viability control" is a scientist describing their
+    method, and for the one property whose shape reads
+    ``sh:or [sh:datatype xsd:string] [sh:class schema:DefinedTerm]`` that IS a
+    conformant answer. Dropping it deleted the answer and left the crate
+    reporting the method as missing.
+    """
+    text = value if isinstance(value, str) else ""
+    return bool(text.strip()) and any(ch.isspace() for ch in text.strip())
+
+
 def _camel_case(key: str) -> str:
     """``measurement_method`` -> ``measurementMethod``."""
     head, *rest = key.split("_")
@@ -2890,17 +2910,13 @@ def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]
         node = _node_for(idx, asy)
         if node is None:
             continue
-        # `keep_literal`: the ISA shape takes a string OR a DefinedTerm
-        # (`sh:or [sh:datatype xsd:string] [sh:class schema:DefinedTerm]`), so a
-        # method the scientist stated in prose is a conformant answer and must
-        # not be discarded for want of an ontology term. It resolves to the
-        # DefinedTerm when one exists, exactly as before.
+        method = _first_of(asy.fields, _MEASUREMENT_METHOD_ALIASES)
         _wire_reference(
             node,
             "measurementMethod",
-            _first_of(asy.fields, _MEASUREMENT_METHOD_ALIASES),
+            method,
             idx,
-            keep_literal=True,
+            keep_literal=_is_prose(method),
         )
         for alias in _ASSAY_HASPART_ALIASES:
             for child in _resolve_many(idx, asy.fields.get(alias)):

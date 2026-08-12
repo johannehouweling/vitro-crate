@@ -268,6 +268,28 @@ class TestTheAgentsOwnAnswerIsNotDeleted:
         assay = next(n for n in doc["@graph"] if "Assay" in str(n.get("additionalType")))
         assert assay["measurementMethod"] == "Gamma counter"
 
+    def test_a_broken_reference_is_still_not_emitted(self):
+        """A single token that resolves to nothing is a dangling pointer (#180).
+
+        This is the line between the two cases: an entity id and an IRI are
+        single tokens, so one that names nothing is a BROKEN reference and must
+        not ship as though it were data. A phrase with spaces was never going to
+        be an id.
+        """
+        state = CrateState()
+        _add(state, "study_1", "Study", name="S")
+        _add(
+            state,
+            "assay_1",
+            "Assay",
+            name="An assay",
+            study_id="study_1",
+            measurementMethod="bao",
+        )
+        doc = _doc(state)
+        assay = next(n for n in doc["@graph"] if "Assay" in str(n.get("additionalType")))
+        assert assay.get("measurementMethod") != "bao"
+
     def test_it_still_resolves_to_a_defined_term_when_one_exists(self):
         """Prose is the fallback, not a replacement for the ontology term."""
         state = CrateState()
