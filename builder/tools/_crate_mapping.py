@@ -30,6 +30,7 @@ from rocrate.model import ContextEntity, DataEntity, File, Person
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
+from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, Sample, param_id
 from profiles.models.tox import (
     CellLineSample,
@@ -450,6 +451,10 @@ def populate_crate(
     _add_generator_provenance(state, crate)
     _wire_mentions(state, idx)
     _wire_dataset_aliases(state, crate, idx)
+    # LAST: the ISA hierarchy above derives study/assay identifiers by nesting
+    # under the root's, as a plain string. Wrapping the root identifier before
+    # that point would put an entity where those need text.
+    _wrap_root_identifier(crate)
 
 
 # ---------------------------------------------------------------------------
@@ -932,6 +937,63 @@ def _idx_add(idx: dict[str, Any], entity: Entity, node: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _wrap_root_identifier(crate: ROCrate) -> None:
+    """Re-emit the root's plain-string identifier as a PropertyValue entity.
+
+    Science-on-Schema.org — and the RO-Crate 1.2 SHOULD that follows it — asks
+    the root identifier to name WHICH scheme its string belongs to, rather than
+    leaving a reader to infer that from the string's shape. Every other
+    identifier in the crate is already a PropertyValue (`_identifier_pv`); this
+    is the root catching up.
+
+    A no-op when the identifier is absent or already an entity, so it is safe
+    wherever it runs in the pipeline.
+    """
+    root = crate.root_dataset
+    value = root.get("identifier")
+    if not isinstance(value, str) or not value.strip():
+        return
+    root["identifier"] = _identifier_pv(crate, "accession", value, _accession_scheme(value))
+
+
+def _accession_scheme(accession: str) -> str | None:
+    """The resolver a root accession belongs to, when its shape settles it.
+
+    Only claims a scheme the string itself establishes — a DOI is unambiguous,
+    an internal slug names no registry at all. Returning None simply omits
+    ``propertyID``, which is honest about not knowing.
+    """
+    value = (accession or "").strip()
+    if value.lower().startswith(("doi:", "10.")) or "doi.org/" in value.lower():
+        return "https://registry.identifiers.org/registry/doi"
+    return None
+
+
+def _license_value(crate: ROCrate, license_value: str) -> Any:
+    """The root's ``license``: a described contextual entity when we can name it.
+
+    The profile asks a License entity for a name and a description, and a bare
+    URL string is neither. When `describe_license` recognises the URL, the crate
+    carries a real entity that says what the licence is; when it does not, the
+    value is left exactly as given rather than dressed up with an invented name.
+    """
+    value = (license_value or "").strip()
+    described = describe_license(value)
+    if described is None:
+        return license_value
+    return crate.add(
+        ContextEntity(
+            crate,
+            value,
+            properties={
+                "@type": "CreativeWork",
+                "name": described["name"],
+                "description": described["description"],
+            },
+        )
+    )
+
+
 def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     m = state.metadata
     # Base RO-Crate MUST: the Root Data Entity has a name and a description.
@@ -952,7 +1014,7 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     # Base RO-Crate MUST: the Root Data Entity has a license. A license the user
     # gave wins; the ISA-Tox shape endorses this placeholder when none is known.
     if m.license:
-        crate.root_dataset["license"] = m.license
+        crate.root_dataset["license"] = _license_value(crate, m.license)
     elif not crate.root_dataset.get("license"):
         crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
 

@@ -160,6 +160,12 @@ class TestTheDeclaredLicenceReachesTheCrate:
     """Reading it is only worth anything if it lands on the Root Data Entity."""
 
     def test_a_declared_licence_still_reaches_the_root(self) -> None:
+        """It reaches the root as a described entity, not a bare URL.
+
+        The profile asks a License entity for a name and a description, so a
+        recognised licence is emitted as a contextual entity keyed on its URL —
+        the root still points at exactly the URL read from the deposit.
+        """
         from rocrate.rocrate import ROCrate
 
         from builder.tools._crate_mapping import populate_crate
@@ -170,6 +176,7 @@ class TestTheDeclaredLicenceReachesTheCrate:
         crate = ROCrate()
         populate_crate(state, crate, None, materialize_payload=False)
 
-        assert crate.root_dataset["license"] == (
-            "https://creativecommons.org/licenses/by/4.0/legalcode"
-        )
+        licence = crate.root_dataset["license"]
+        assert licence.id == "https://creativecommons.org/licenses/by/4.0/legalcode"
+        assert licence["name"] == "Creative Commons Attribution 4.0 International"
+        assert licence["description"]

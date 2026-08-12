@@ -90,9 +90,13 @@ ISA_TOX_CONTEXT: list[dict] = [
         "description": "http://schema.org/description",
         "identifier": "http://schema.org/identifier",
         "creator": "http://schema.org/creator",
-        # Friendly alias aligned with the BioStudies PageTab vocabulary; the builder
-        # emits authors under "author", which expands to schema:creator.
-        "author": "http://schema.org/creator",
+        # `author` is its own schema.org property, NOT an alias for `creator`.
+        # This block is the LAST entry in the crate's @context, so it overrides
+        # the RO-Crate context that precedes it — aliasing `author` here rewrote
+        # every author in the crate to schema:creator, and the ISA shape asking
+        # for schema:author then found nothing on an article whose authors were
+        # all present and resolvable. Keep the term mapped to itself.
+        "author": "http://schema.org/author",
         "publisher": "http://schema.org/publisher",
         "dateCreated": "http://schema.org/dateCreated",
         "datePublished": "http://schema.org/datePublished",
