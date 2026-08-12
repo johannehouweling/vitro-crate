@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import json
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,7 @@ from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 # (test_export_smoke, test_readers, test_path_traversal, test_html_xss).
 # Headroom, not a licence to grow: no test in this module is changed.
 pytestmark = pytest.mark.timeout(120)
+
 
 def _body(page: str) -> str:
     """The rendered markup without the inlined stylesheet.
@@ -147,12 +150,8 @@ class TestBuildMaturityHtml:
             page,
         )
         assert head, "aggregate headline fraction not found"
-        assert int(head.group(1)) == sum(
-            sc["completed"] for sc in mit.module_scores.values()
-        )
-        assert int(head.group(2)) == sum(
-            sc["total"] for sc in mit.module_scores.values()
-        )
+        assert int(head.group(1)) == sum(sc["completed"] for sc in mit.module_scores.values())
+        assert int(head.group(2)) == sum(sc["total"] for sc in mit.module_scores.values())
         # Documents overlap — one parameter can serve several — so the note
         # that rows don't sum is part of the contract, not decoration.
         assert "do not sum" in page
@@ -340,9 +339,7 @@ class TestExportCoupledToValidation:
         assert "Not conformant" in page
         assert "root MUST have a name" in page
 
-    def test_validator_failure_does_not_fail_the_export(
-        self, monkeypatch, tmp_path: Path
-    ) -> None:
+    def test_validator_failure_does_not_fail_the_export(self, monkeypatch, tmp_path: Path) -> None:
         import builder.tools.validation as validation
 
         def _boom(state, severity="required", profile="all"):
@@ -358,9 +355,7 @@ class TestExportCoupledToValidation:
     def test_validate_false_skips_entirely(self, monkeypatch, tmp_path: Path) -> None:
         calls: list = []
         self._stub(monkeypatch, calls)
-        res = export_crate(
-            vhps_fixture_state("S-VHPS21"), str(tmp_path / "c"), validate=False
-        )
+        res = export_crate(vhps_fixture_state("S-VHPS21"), str(tmp_path / "c"), validate=False)
         assert res["success"] is True
         assert "validation" not in res
         assert calls == []
@@ -487,9 +482,7 @@ class TestUnassessedMITIsNotRenderedAsZero:
         # asserts a coverage figure just as loudly as the tile did.
         assert "fields · 0%" not in body
 
-    def test_the_rest_of_the_report_still_renders(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_rest_of_the_report_still_renders(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The assessor must not raise: three other axes depend on this page."""
         body = _body(self._unscoreable_page(monkeypatch))
         assert "FAIR" in body
@@ -584,9 +577,7 @@ class TestActionableTopology:
             ]
         }
         for i in range(12):
-            graph["@graph"].append(
-                {"@id": f"#loose{i}", "@type": "File", "name": f"loose{i}.csv"}
-            )
+            graph["@graph"].append({"@id": f"#loose{i}", "@type": "File", "name": f"loose{i}.csv"})
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
         assert "12 orphans" in page
         assert "+2 more" in page
@@ -830,8 +821,14 @@ class TestGraphViewTabs:
     def test_all_three_views_are_tabbed(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         assert "<h2>Graph views</h2>" in page
-        for label in ("All entities", "ISA structure", "Provenance", "Chemicals",
-                      "Cell lines", "People &amp; orgs"):
+        for label in (
+            "All entities",
+            "ISA structure",
+            "Provenance",
+            "Chemicals",
+            "Cell lines",
+            "People &amp; orgs",
+        ):
             assert f'<span class="tb-n">{label}</span>' in page, f"missing tab: {label}"
         for pid in ("p-all", "p-isa", "p-prov", "p-chem", "p-cell", "p-people"):
             assert f'<div class="panel" id="{pid}">' in page, f"missing panel: {pid}"
@@ -1206,6 +1203,22 @@ class TestSeverityTiers:
         assert "3 / 3 profiles" not in page
 
 
+def _visible_before_the_fold(html: str) -> str:
+    """The part of a findings list a reader sees without opening the overflow.
+
+    The cap bounds what is shown, not what exists: the remainder now sits in a
+    nested `<details class="more-fold">`. Counting occurrences across the whole
+    string used to measure the cap and no longer does, because the hidden items
+    are in the markup too — closed, but present.
+    """
+    # Strip each fold whole, keeping what surrounds it. Two earlier attempts got
+    # this wrong in opposite directions: a non-greedy match to `</li>` ends INSIDE
+    # the fold (it contains <li> items) and leaks the remainder; splitting on the
+    # opening tag drops every later profile group, which is exactly what the cap
+    # is meant to be measured across. `</details></li>` closes it unambiguously.
+    return re.sub(r'<li class="more">.*?</details></li>', "", html, flags=re.S)
+
+
 class TestGroupedSuggestions:
     """Warnings fold out of the severity row they belong to (#510).
 
@@ -1221,10 +1234,30 @@ class TestGroupedSuggestions:
 
     @staticmethod
     def _fold(body: str, tier: str) -> str:
-        """The ``<details>`` markup for one severity row."""
+        """The ``<details>`` markup for one severity row.
+
+        Balances the tags rather than slicing to the first ``</details>``: the
+        advisory overflow is itself a ``<details>`` nested inside this one, so the
+        first closer belongs to the inner fold and cutting there truncated the
+        section — dropping every later profile group with it.
+        """
         start = body.index(f'<span class="st">{tier}</span>')
         open_at = body.rindex("<details", 0, start)
-        return body[open_at : body.index("</details>", open_at)]
+        depth, i = 0, open_at
+        while i < len(body):
+            nxt_open = body.find("<details", i)
+            nxt_close = body.find("</details>", i)
+            if nxt_close == -1:
+                break
+            if nxt_open != -1 and nxt_open < nxt_close:
+                depth += 1
+                i = nxt_open + len("<details")
+                continue
+            depth -= 1
+            if depth == 0:
+                return body[open_at:nxt_close]
+            i = nxt_close + len("</details>")
+        return body[open_at:]
 
     @staticmethod
     def _records_report() -> ValidationReport:
@@ -1342,7 +1375,7 @@ class TestGroupedSuggestions:
             issue_records=records,
         )
         body = _body(build_maturity_html(state, validation=val))
-        assert body.count("Recommended: ") == 10
+        assert _visible_before_the_fold(body).count("Recommended: ") == 10
         assert "+2 further recommended findings" in body
 
     def test_records_are_escaped(self) -> None:
@@ -1351,7 +1384,7 @@ class TestGroupedSuggestions:
             base_passed=False,
             isa_passed=True,
             tox_passed=True,
-            required_issues=['[base] #x: <img src=x onerror=alert(1)>'],
+            required_issues=["[base] #x: <img src=x onerror=alert(1)>"],
             assessed_tiers={"required"},
             issue_records=[
                 {
@@ -1440,7 +1473,7 @@ class TestGroupedSuggestions:
             issue_records=records,
         )
         rec = self._fold(_body(build_maturity_html(state, validation=val)), "Recommended")
-        assert rec.count("Recommended: ") == 20
+        assert _visible_before_the_fold(rec).count("Recommended: ") == 20
         assert rec.count("+2 further recommended findings") == 2
         assert "24 issues" in rec
 
@@ -1557,9 +1590,7 @@ class TestOverviewPanel:
         assert "are unreachable from the crate root" in page
 
     def test_clean_crate_reports_no_unreachable(self) -> None:
-        page = build_maturity_html(
-            vhps_fixture_state("S-VHPS21"), graph=self._graph(orphan=False)
-        )
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(orphan=False))
         assert "Every entity is reachable from the crate root." in page
         # Pinned to the exact phrase the orphan branch emits, so this stays a
         # real guard rather than passing because the wording moved on.

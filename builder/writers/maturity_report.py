@@ -452,7 +452,7 @@ def _render_kpis(
         chem_tile = (
             '<article class="kpi">'
             '<div class="kpi-h"><span class="eyebrow">Chemicals</span>'
-            f'{_mk("ok" if wired == total else "no")}</div>'
+            f"{_mk('ok' if wired == total else 'no')}</div>"
             f'<div class="kpi-v"><b>{wired}</b><span class="den">/ {total}</span> '
             '<span class="tag-inline">wired</span></div>'
             f'<div class="kpi-sub">{id_pct}% of identification fields filled</div>'
@@ -495,17 +495,31 @@ _TIER_RENDER_ORDER: tuple[str, ...] = ("required", "recommended", "optional")
 
 
 def _capped_tier_items(tier: str, rendered: list[str]) -> list[str]:
-    """Apply the tier's cap to already-rendered ``<li>`` items, naming the rest."""
+    """Apply the tier's cap, putting the remainder behind a second fold-out.
+
+    The cap bounds the page; it is not a decision about what the reader may see.
+    It used to end at "+9 further recommended findings not listed here", which
+    named a number and then offered no way to reach it — the crate's own report
+    was the one place those findings existed, so a reader who wanted them had
+    nowhere else to look.
+
+    The overflow now sits in a nested ``<details>``: closed by default, so the
+    page stays the length it was, and one click from complete.
+    """
     cap = _SUGGESTION_CAPS.get(tier)
     shown = rendered if cap is None else rendered[:cap]
-    hidden = len(rendered) - len(shown)
-    if hidden:
-        shown = [
-            *shown,
-            f'<li class="more">+{hidden} further {tier} '
-            f"{'finding' if hidden == 1 else 'findings'} not listed here</li>",
-        ]
-    return shown
+    rest = rendered[len(shown) :]
+    if not rest:
+        return shown
+    noun = "finding" if len(rest) == 1 else "findings"
+    return [
+        *shown,
+        '<li class="more">'
+        f'<details class="more-fold"><summary>+{len(rest)} further {tier} {noun}</summary>'
+        f'<ul class="sugg">{"".join(rest)}</ul>'
+        "</details>"
+        "</li>",
+    ]
 
 
 def _tier_findings_html(records: list[dict[str, str]], tier: str) -> str:
@@ -636,7 +650,7 @@ def _render_severity_detail(val: ValidationReport, tiers: list[dict[str, str]]) 
         )
     return (
         '<div class="sev-detail"><span class="sev-detail-label">By severity</span>'
-        f'{"".join(rows)}</div>'
+        f"{''.join(rows)}</div>"
     )
 
 
@@ -713,9 +727,7 @@ def _render_profile_section(
     # left to say underneath is that there were none — and that line stays
     # honest about how much of the crate was actually checked (#306).
     has_findings = any(_tier_body(val, tier["key"])[1] for tier in tiers) or any(
-        records
-        for key, records in _tier_records(val).items()
-        if key not in _TIER_RENDER_ORDER
+        records for key, records in _tier_records(val).items() if key not in _TIER_RENDER_ORDER
     )
     sugg = "" if has_findings else f'<p class="good-note">{_clean_note(val)}</p>'
 
@@ -830,9 +842,7 @@ def _render_mit_section(mit: MITReport) -> str:
         # label map doesn't know — rendered raw rather than dropped.
         ordered = [k for k in MIT_STANDARD_LABELS if k in mit.standard_scores]
         ordered += sorted(k for k in mit.standard_scores if k not in MIT_STANDARD_LABELS)
-        srows = "".join(
-            row(MIT_STANDARD_LABELS.get(k, k), mit.standard_scores[k]) for k in ordered
-        )
+        srows = "".join(row(MIT_STANDARD_LABELS.get(k, k), mit.standard_scores[k]) for k in ordered)
         body += (
             '\n  <h3 class="mit-sub">Per guidance document</h3>\n'
             '  <p class="lead">One parameter can be required by several documents — '
@@ -1113,9 +1123,7 @@ def _reach_repair(counts: dict[str, Any]) -> str:
 
     parts = []
     if stranded:
-        parts.append(
-            f"<b>{stranded}</b> are linked to each other but not to the root"
-        )
+        parts.append(f"<b>{stranded}</b> are linked to each other but not to the root")
     if isolated:
         parts.append(f"<b>{isolated}</b> stand entirely alone")
     detail = f" ({'; '.join(parts)})" if parts else ""
@@ -1148,15 +1156,12 @@ def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
     counts = inv["counts"]
     detached = counts["detached"]
     pct = (
-        round(counts["fields_met"] / counts["fields_total"] * 100)
-        if counts["fields_total"]
-        else 0
+        round(counts["fields_met"] / counts["fields_total"] * 100) if counts["fields_total"] else 0
     )
 
     svg = render_isa_svg(inv)
     diagram = (
-        f'<div class="prov-scroll">{svg}</div>\n  '
-        + _legend(_LG_CONTAINER, _LG_LINK, _LG_BREAK)
+        f'<div class="prov-scroll">{svg}</div>\n  ' + _legend(_LG_CONTAINER, _LG_LINK, _LG_BREAK)
         if svg
         else ""
     )
@@ -1166,8 +1171,8 @@ def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
         loose = [n["label"] for n in nodes if n["state"] == "detached"]
         notes.append(
             f'<p class="chem-warn">{_mk("no")}<span><b>{detached} ISA container'
-            f'{"" if detached == 1 else "s"} sit outside the hierarchy</b> '
-            f'({", ".join(loose[:4])}{"&hellip;" if len(loose) > 4 else ""}). '
+            f"{'' if detached == 1 else 's'} sit outside the hierarchy</b> "
+            f"({', '.join(loose[:4])}{'&hellip;' if len(loose) > 4 else ''}). "
             "Nothing lists them under <code>hasPart</code>, so a reader walking the "
             "Investigation never reaches them.</span></p>"
         )
@@ -1175,8 +1180,8 @@ def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
     if hollow:
         notes.append(
             f'<p class="chem-warn">{_mk("no")}<span><b>{len(hollow)} container'
-            f'{"" if len(hollow) == 1 else "s"} contain nothing below them</b> '
-            f'({", ".join(n["label"] for n in hollow[:4])}). An Assay needs a '
+            f"{'' if len(hollow) == 1 else 's'} contain nothing below them</b> "
+            f"({', '.join(n['label'] for n in hollow[:4])}). An Assay needs a "
             "<code>LabProcess</code>, a Study an Assay, an Investigation a Study — "
             "otherwise the level is a label with no work under it.</span></p>"
         )
@@ -1199,7 +1204,7 @@ def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
         )
         extra = (
             f'<span class="ty">{len(n["processes"])} process'
-            f'{"" if len(n["processes"]) == 1 else "es"}</span>'
+            f"{'' if len(n['processes']) == 1 else 'es'}</span>"
             if n["level"] == "Assay"
             else ""
         )
@@ -1210,13 +1215,13 @@ def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
             f'<tr><th scope="row">{_mk("ok" if n["state"] == "linked" else "no")}'
             f'<span class="cn">{n["label"]}</span>'
             f'<span class="ty" title="{html.escape(_ISA_LEVEL_NOTE[n["level"]])}">'
-            f'{n["level"]}</span>{extra}{flag}</th>{cells}</tr>'
+            f"{n['level']}</span>{extra}{flag}</th>{cells}</tr>"
         )
     matrix = (
         '<div class="chem-tbl-scroll"><table class="chem-tbl">'
         '<caption class="sr-only">Structural fields carried by each ISA container</caption>'
         f'<thead><tr><th scope="col">Container</th>{head}</tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody></table></div>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
     panel = (
@@ -1315,7 +1320,7 @@ def _render_graph_views_section(
 
     inputs = "".join(
         f'<input class="tab-in" type="radio" name="mat-view" id="{rid}"'
-        f'{" checked" if i == 0 else ""}>'
+        f"{' checked' if i == 0 else ''}>"
         for i, (rid, _pid, _label) in enumerate(live)
     )
     tabs = "".join(
@@ -1325,8 +1330,7 @@ def _render_graph_views_section(
         for rid, pid, label in live
     )
     bodies = "".join(
-        f'<div class="panel" id="{pid}">'
-        f'<h3 class="panel-h">{label}</h3>{panels[pid][0]}</div>'
+        f'<div class="panel" id="{pid}"><h3 class="panel-h">{label}</h3>{panels[pid][0]}</div>'
         for _rid, pid, label in live
     )
 
@@ -1379,9 +1383,7 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
     counts = inv["counts"]
     total, wired = counts["total"], counts["wired"]
     id_pct = (
-        round(counts["fields_met"] / counts["fields_total"] * 100)
-        if counts["fields_total"]
-        else 0
+        round(counts["fields_met"] / counts["fields_total"] * 100) if counts["fields_total"] else 0
     )
 
     svg = render_chemicals_svg(inv)
@@ -1421,7 +1423,7 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
             f"{'not linked' if c['state'] == 'unlinked' else 'no process'}</span>"
         )
         cells = "".join(
-            f'<td>{_mk("ok" if c["fields"].get(full) else "no")}</td>'
+            f"<td>{_mk('ok' if c['fields'].get(full) else 'no')}</td>"
             for full, _short in CHEM_COVERAGE_FIELDS
         )
         rows.append(
@@ -1432,14 +1434,13 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
         '<div class="chem-tbl-scroll"><table class="chem-tbl">'
         f'<caption class="sr-only">Identification fields carried by each compound</caption>'
         f'<thead><tr><th scope="col">Compound</th>{head}</tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody></table></div>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
     # Compounds only (#506) — the legend defines the two states a compound node
     # can be in, not the route shapes this view no longer draws.
     diagram = (
-        f'<div class="prov-scroll">{svg}</div>\n  '
-        + _legend(_LG_COMPOUND, _LG_COMPOUND_UNWIRED)
+        f'<div class="prov-scroll">{svg}</div>\n  ' + _legend(_LG_COMPOUND, _LG_COMPOUND_UNWIRED)
         if svg
         else ""
     )
@@ -1489,9 +1490,7 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
     total, wired = counts["total"], counts["wired"]
     rrid_backed = sum(1 for c in lines if c["rrid"])
     pct = (
-        round(counts["fields_met"] / counts["fields_total"] * 100)
-        if counts["fields_total"]
-        else 0
+        round(counts["fields_met"] / counts["fields_total"] * 100) if counts["fields_total"] else 0
     )
 
     svg = render_celllines_svg(inv)
@@ -1541,7 +1540,7 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
             f"{'not linked' if c['state'] == 'unlinked' else 'no process'}</span>"
         )
         cells = "".join(
-            f'<td>{_mk("ok" if c["fields"].get(full) else "no")}</td>'
+            f"<td>{_mk('ok' if c['fields'].get(full) else 'no')}</td>"
             for full, _short in CELLLINE_COVERAGE_FIELDS
         )
         rows.append(
@@ -1552,7 +1551,7 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
         '<div class="chem-tbl-scroll"><table class="chem-tbl">'
         '<caption class="sr-only">Identification fields carried by each cell line</caption>'
         f'<thead><tr><th scope="col">Cell line</th>{head}</tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody></table></div>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
     panel = (
@@ -1574,6 +1573,8 @@ _AGENT_STATE_NOTE = {
     "unattached": "nothing in the crate references this agent",
 }
 _AGENT_STATE_CHIP = {"affiliated": ("muted", "via affiliation"), "unattached": ("", "unattached")}
+
+
 def _render_people_panel(inv: dict[str, Any]) -> tuple[str, str]:
     """The People & organisations view: who the crate credits, how resolvably.
 
@@ -1625,9 +1626,7 @@ def _render_people_panel(inv: dict[str, Any]) -> tuple[str, str]:
             "ROR — a name string credits nobody a machine can resolve.</span></p>"
         )
     if not notes:
-        notes.append(
-            '<p class="good-note">Every agent is credited and identifier-backed.</p>'
-        )
+        notes.append('<p class="good-note">Every agent is credited and identifier-backed.</p>')
 
     ordered = sorted(
         agents, key=lambda a: (a["state"] == "credited", a["met"], a["name"].casefold(), a["id"])
@@ -1663,7 +1662,7 @@ def _render_people_panel(inv: dict[str, Any]) -> tuple[str, str]:
         '<div class="chem-tbl-scroll"><table class="chem-tbl">'
         '<caption class="sr-only">Attribution fields carried by each agent</caption>'
         f'<thead><tr><th scope="col">Agent</th>{head}</tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody></table></div>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
     panel = (
