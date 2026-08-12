@@ -26,6 +26,15 @@ dependencies = [
     "python-docx>=1.1.0",
     "cryptography>=41",
     "frictionless>=5.19.0",
+    # Not used directly — pinned because roc-validator declares `pyshacl>=0.26`
+    # with no ceiling, and pyshacl 0.40.0 removed `ConjunctiveLike` from
+    # `pyshacl.rdfutil.consts`, which roc-validator imports. The import error is
+    # caught per check and logged as a WARNING, so validation does not fail — it
+    # returns NO FINDINGS. A crate then validates "clean" because nothing ran,
+    # which is the one failure this project cannot tolerate quietly. Raise the
+    # ceiling only once roc-validator supports 0.40 (upstream declares no bound,
+    # so nothing else will stop this recurring).
+    "pyshacl>=0.26,<0.40",
 ]
 
 [project.optional-dependencies]
