@@ -1063,7 +1063,13 @@ _AFFILIATION_KEYS = (
     "http://schema.org/affiliation",
     "https://schema.org/affiliation",
 )
-_PROTOCOL_KEYS = ("executesLabProtocol", "https://bioschemas.org/executesLabProtocol")
+_PROTOCOL_KEYS = (
+    "executesLabProtocol",
+    # Bioschemas puts properties under /properties/; the bare-namespace form is
+    # what this crate used to emit, so both are read to keep older crates legible.
+    "https://bioschemas.org/properties/executesLabProtocol",
+    "https://bioschemas.org/executesLabProtocol",
+)
 # A CreateAction's tool/model. Nothing else references the generator's
 # SoftwareApplication nodes, so omitting this would report the crate's own
 # provenance record as orphaned.

@@ -50,11 +50,20 @@ PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
 CELL_LINE_TERM_ID = iri("NCIT:C16403")
 
+# The spellings a LabProcess's protocol link arrives under. `labprotocol` is what
+# the draft schema advertises; `protocol` is the word the agent actually reaches
+# for, and a link written under it used to resolve to nothing.
+_PROTOCOL_ALIASES = ("labprotocol", "protocol")
+
 # Fields that hold references to other entities (resolved via the index), not literals.
 _REF_FIELDS = frozenset(
     {
         "samples",
         "labprotocol",
+        # Alias of `labprotocol` (see `_PROTOCOL_ALIASES`). Listed here so the
+        # raw state id is consumed as a reference rather than also shipping as a
+        # literal `protocol` string on the process node.
+        "protocol",
         "cell_line",
         "object",
         "result",
@@ -451,6 +460,7 @@ def populate_crate(
     _add_generator_provenance(state, crate)
     _wire_mentions(state, idx)
     _wire_dataset_aliases(state, crate, idx)
+    _mirror_profile_predicates(crate)
     # LAST: the ISA hierarchy above derives study/assay identifiers by nesting
     # under the root's, as a plain string. Wrapping the root identifier before
     # that point would put an entity where those need text.
@@ -547,6 +557,15 @@ def _first_field(entity: Entity, aliases: tuple[str, ...]) -> str | None:
         value = entity.fields.get(alias)
         if value not in (None, ""):
             return str(value)
+    return None
+
+
+def _first_of(fields: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+    """The first non-empty value among ``aliases`` in a raw field dict."""
+    for alias in aliases:
+        value = fields.get(alias)
+        if value not in (None, "", [], {}):
+            return value
     return None
 
 
@@ -935,6 +954,34 @@ def _idx_add(idx: dict[str, Any], entity: Entity, node: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Root, conformance & contextual/leaf entities
 # ---------------------------------------------------------------------------
+
+
+# Values a crate must carry under TWO predicates because the two profiles it
+# declares ask for the same thing in different vocabularies. Each pair is
+# (key the builder emits, key that mirrors it) — both are context terms, so the
+# mirror lands on the second profile's IRI. Kept as data, not four call sites,
+# so adding a profile means adding a row.
+_PROFILE_MIRRORED_KEYS: tuple[tuple[str, str], ...] = (("parameter", "parameterValue"),)
+
+
+def _mirror_profile_predicates(crate: ROCrate) -> None:
+    """Re-emit values that two declared profiles name differently.
+
+    A process's parameters are ``schema:additionalProperty`` to schema.org (and
+    to our own tox shapes) and ``bioschemas:parameterValue`` to the ISA profile.
+    Both are true, and a crate declaring conformance to both owes the reader
+    both — writing only one leaves half the shapes looking at an IRI that is not
+    there, which reads as missing data when the parameters are right in the
+    node.
+
+    The mirror is a reference to the SAME PropertyValue nodes, not a copy, so
+    the graph gains a predicate rather than duplicate entities.
+    """
+    for entity in crate.get_entities():
+        for source, mirror in _PROFILE_MIRRORED_KEYS:
+            value = entity.get(source)
+            if value not in (None, "", [], {}) and entity.get(mirror) in (None, "", [], {}):
+                entity[mirror] = value
 
 
 def _wrap_root_identifier(crate: ROCrate) -> None:
@@ -2419,7 +2466,14 @@ def _add_processes(
         ptype = f.get("process_type") or f.get("additionalType") or ""
         pid = _mint_id(proc)
         name = f.get("name") or ptype or "Process"
-        protocol = _resolve_one(idx, f.get("labprotocol")) or _synth_protocol(
+        # `protocol` is the word an agent reaches for, and it wrote the real
+        # LabProtocol id under it while this read only `labprotocol` — so the
+        # link was in state, resolved to nothing, and every process fell through
+        # to a synthesised placeholder. The crate then carried TWO protocols: a
+        # stub each process pointed at, and the actual SOP nobody referenced.
+        # Same failure as `data_processing` / `computational_tool` below; same
+        # answer, accept both spellings.
+        protocol = _resolve_one(idx, _first_of(f, _PROTOCOL_ALIASES)) or _synth_protocol(
             crate, f.get("assay_id"), proto_cache
         )
         node = _build_process(
