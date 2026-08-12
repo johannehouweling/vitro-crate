@@ -1,9 +1,9 @@
 """ISA-Tox RO-Crate Builder — Main entry point.
 
 Usage:
-    python -m main [--input <path>] [--output <path>] [--resume <session_id>]
-    python -m main --interactive [--input <path>] [--provider openai|anthropic]
-    python -m main --graph [--input <crate-or-metadata.json>] [--resume <session_id>]
+    uv run python -m main [--input <path>] [--output <path>] [--resume <session_id>]
+    uv run python -m main --interactive [--input <path>] [--provider openai|anthropic]
+    uv run python -m main --graph [--input <crate-or-metadata.json>] [--resume <session_id>]
 """
 
 from __future__ import annotations

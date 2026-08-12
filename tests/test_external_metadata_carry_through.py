@@ -224,6 +224,68 @@ class TestTheRootIdentifierStaysAString:
         assert study["identifier"].startswith("S-VHPS26/")
 
 
+class TestTheAgentsOwnAnswerIsNotDeleted:
+    """An answer written under the spelling an agent reaches for still counts.
+
+    One session had the agent state what the assay measures
+    (`measurement_method`), the build delete it as "not a term in the crate's
+    JSON-LD context", and the maturity report then ask for a measurement method.
+    The crate reported as missing the very thing it had been told.
+
+    `measurementMethod` is a reference field — normally resolved to a BAO
+    DefinedTerm — but the ISA shape takes `sh:or [xsd:string] [schema:DefinedTerm]`,
+    so prose is a conformant answer and is kept rather than discarded for want
+    of an ontology term.
+    """
+
+    def test_a_method_stated_in_prose_reaches_the_assay(self):
+        state = CrateState()
+        _add(state, "study_1", "Study", name="S")
+        _add(
+            state,
+            "assay_1",
+            "Assay",
+            name="An assay",
+            study_id="study_1",
+            measurement_method="T4 uptake; CellTiter-Glo ATP viability control",
+        )
+        doc = _doc(state)
+        assay = next(n for n in doc["@graph"] if "Assay" in str(n.get("additionalType")))
+        assert assay["measurementMethod"] == "T4 uptake; CellTiter-Glo ATP viability control"
+
+    def test_the_camel_case_spelling_works_the_same(self):
+        state = CrateState()
+        _add(state, "study_1", "Study", name="S")
+        _add(
+            state,
+            "assay_1",
+            "Assay",
+            name="An assay",
+            study_id="study_1",
+            measurementMethod="Gamma counter",
+        )
+        doc = _doc(state)
+        assay = next(n for n in doc["@graph"] if "Assay" in str(n.get("additionalType")))
+        assert assay["measurementMethod"] == "Gamma counter"
+
+    def test_it_still_resolves_to_a_defined_term_when_one_exists(self):
+        """Prose is the fallback, not a replacement for the ontology term."""
+        state = CrateState()
+        _add(state, "study_1", "Study", name="S")
+        _add(state, "term_gamma", "DefinedTerm", name="Gamma counter", termCode="BAO:0000110")
+        _add(
+            state,
+            "assay_1",
+            "Assay",
+            name="An assay",
+            study_id="study_1",
+            measurement_method="term_gamma",
+        )
+        doc = _doc(state)
+        assay = next(n for n in doc["@graph"] if "Assay" in str(n.get("additionalType")))
+        assert isinstance(assay["measurementMethod"], dict), "an in-crate term must resolve"
+
+
 class TestContactDetailsBecomeAnEntity:
     """A contact the human gives has to become something the shapes can point at.
 

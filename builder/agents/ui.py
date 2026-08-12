@@ -820,9 +820,12 @@ def render_goodbye(
             t.add_row("This run:", f"[cyan]{cost}[/cyan] [dim]({total} tokens)[/dim]{model}{spent}")
 
     if resumable:
+        # `uv run`, not a bare `python`: this repo's dependencies live in the uv
+        # environment, so the line as printed has to be the line that works when
+        # pasted. A bare `python -m main` finds no rocrate and no langchain.
         t.add_row(
             "Resume:",
-            f"python -m main [cyan]--resume {session_id}[/cyan] [dim]--interactive[/dim]",
+            f"uv run python -m main [cyan]--resume {session_id}[/cyan] [dim]--interactive[/dim]",
         )
 
     return Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow")
