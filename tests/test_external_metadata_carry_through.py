@@ -29,7 +29,7 @@ import pytest
 from rdflib import Graph, URIRef
 from rocrate.rocrate import ROCrate
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools._crate_mapping import populate_crate
 from builder.tools.composites import _find_or_draft_organization
 from profiles.context import ISA_TOX_CONTEXT
@@ -56,7 +56,7 @@ def _node(doc: dict, node_id: str) -> dict | None:
     return next((n for n in doc["@graph"] if n.get("@id") == node_id), None)
 
 
-def _add(state: CrateState, entity_id: str, entity_type: str, **fields) -> Entity:
+def _add(state: CrateState, entity_id: str, entity_type: EntityType, **fields) -> Entity:
     e = Entity(
         entity_id=entity_id, type=entity_type, _provenance=EntityProvenance(created_by="lookup")
     )
@@ -256,6 +256,7 @@ class TestOrganizationsCarryTheirWebsite:
             state, "Vrije Universiteit Amsterdam", "https://ror.org/008xxew50"
         )
         assert first == second, "the same employer must not become two organizations"
+        assert second is not None
         org = state.get_entity(second)
         assert org is not None
         assert org.fields["url"] == "https://vu.nl/"
