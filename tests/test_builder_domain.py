@@ -138,8 +138,9 @@ class TestISAHierarchy:
 
         # The raw file is hasPart of its producing Assay …
         assert "data/raw.csv" in _ids(by_id["#Assay_assay_1"].get("hasPart"))
-        # … and no longer dumped directly on the root.
-        assert "data/raw.csv" not in _ids(by_id["./"].get("hasPart"))
+        # … and stays on the root too, which is what keeps it in the file tree
+        # (#532 — an ISA container is a contextual node, not a directory).
+        assert "data/raw.csv" in _ids(by_id["./"].get("hasPart"))
 
     def test_assay_haspart_is_deduped(self, tmp_path):
         state = CrateState()

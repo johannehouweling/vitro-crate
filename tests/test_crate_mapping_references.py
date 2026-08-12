@@ -231,9 +231,9 @@ class TestAssayDataFilesAndResources:
         )
         assert "assays/a/dataset/raw.prism" in assay_parts
         assert "assays/a/resources/README.txt" in assay_parts
-        # not orphaned loose on the root's hasPart
-        assert "assays/a/dataset/raw.prism" not in _ids(root.get("hasPart"))
-        assert "assays/a/resources/README.txt" not in _ids(root.get("hasPart"))
+        # …and still listed by the root, so the file tree reaches them (#532)
+        assert "assays/a/dataset/raw.prism" in _ids(root.get("hasPart"))
+        assert "assays/a/resources/README.txt" in _ids(root.get("hasPart"))
 
 
 class TestAssaysReverseAlias:
