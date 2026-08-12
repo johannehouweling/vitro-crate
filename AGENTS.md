@@ -1469,12 +1469,16 @@ of the root via `StudyMustBeReferencedFromInvestigation`, so the root cannot its
   (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). The `@id` (the path) is the true unique
   key; the `identifier` *property* is the ISA descriptor and must not collide across levels.
 - Attaches each **result `File` to its producing Assay's `hasPart`** (de-duped via `_append_unique`)
-  and removes it from the root's auto-added `hasPart` (`_remove_child`) — raw/processed data are the
-  data of an assay. Files stay reachable from the root transitively (File → Assay → Study → `./`).
+  **in addition to** the root's reference, never instead of it (#532) — raw/processed data are the
+  data of an assay, and RO-Crate lets a data entity be `hasPart` of more than one `Dataset`. The
+  root's reference is what keeps the file in the crate's **file tree**: that tree is walked from
+  `./` through *directory* Datasets, and an ISA container is a contextual `#Study_…` / `#Assay_…`
+  node, not a directory. Re-parenting therefore stranded every payload file — ro-crate-py refuses to
+  open such a crate, while all three SHACL profiles pass it, because none of them asks.
 - Re-emits the Assay's **`dataFiles` / `resources` PageTab aliases** (both expand to `schema:hasPart`
   via `profiles/context.py`) as resolved File references *and* nests those Files under the Assay's
-  `hasPart`, un-parenting them from the root — same move as result Files, so the gold-crate JSON keys
-  round-trip without breaking reachability (`_wire_dataset_aliases`, #180 Lane C).
+  `hasPart` — same move as result Files, so the gold-crate JSON keys round-trip (`_wire_dataset_aliases`,
+  #180 Lane C).
 
 Round-trip is symmetric: `read_existing_crate` (`builder/readers/existing_crate.py`) recovers the
 **bare** entity_id (stripping the type-qualifier so `#Study_study_1` → `study_1`, not the unbounded

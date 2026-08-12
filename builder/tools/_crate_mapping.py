@@ -1423,15 +1423,19 @@ def _attach_explicit_parts(node: Any, entity: Entity, idx: dict[str, Any], root:
     """Move a Study/Assay entity's explicit ``hasPart`` File members under its node.
 
     ``attach_files`` (#177) records placement by appending File entity_ids to the
-    dataset entity's ``hasPart`` field. Resolve those to their built File nodes,
-    attach them under the dataset, and un-parent them from the root's auto-added
-    ``hasPart`` — the same move D13 makes for a process's result Files.
+    dataset entity's ``hasPart`` field. Resolve those to their built File nodes
+    and attach them under the dataset — **in addition to** the root's reference,
+    never instead of it (#532). RO-Crate lets a data entity be ``hasPart`` of
+    more than one Dataset, and the root's copy is what makes the file reachable
+    at all: the file tree is walked from ``./`` through *directory* Datasets, and
+    an ISA container is a contextual ``#Study_…`` / ``#Assay_…`` node, not a
+    directory. Re-parenting therefore stranded every payload file — ro-crate-py
+    refuses to load such a crate, while all three SHACL profiles pass it.
     """
     for key in ("hasPart", "has_part"):
         for child in _resolve_many(idx, entity.fields.get(key)):
             if child is node:
                 continue
-            _remove_child(root, "hasPart", child.id)
             _append_unique(node, "hasPart", child)
 
 
@@ -2312,12 +2316,12 @@ def _add_processes(
         if assay is not None:
             assay.append_to("about", node)
             # Result Files are the data of this assay → attach them to the Assay's
-            # hasPart (ISA), de-duped, and remove them from the root's hasPart
-            # where crate.add auto-placed them. They stay reachable from the root
-            # transitively (File → Assay → Study → ./).
+            # hasPart (ISA), de-duped, while KEEPING the root's reference (#532).
+            # "Reachable transitively via File → Assay → Study → ./" was the
+            # premise for dropping it, and it is false: the file tree runs
+            # through directory Datasets, and an Assay is a contextual node.
             for file_node in _result_file_nodes(node):
                 _append_unique(assay, "hasPart", file_node)
-                _remove_child(crate.root_dataset, "hasPart", file_node.id)
 
 
 def _build_process(
@@ -2616,10 +2620,10 @@ def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]
       ``about``->LabProcess wiring, for the Investigation/root).
     * Assay ``measurementMethod`` -> a single DefinedTerm reference.
     * Assay ``dataFiles`` / ``resources`` -> File references, also attached to the
-      assay's ``hasPart`` and un-parented from the root (they expand to
-      schema:hasPart, so reachability and containment are preserved).
+      assay's ``hasPart`` while KEEPING the root's reference (#532) — both expand
+      to schema:hasPart, and the root's copy is what keeps the file in the file
+      tree, which is walked through directory Datasets rather than ISA nodes.
     """
-    root = crate.root_dataset
 
     # Agent/organisation references on the ISA datasets. These were emitted
     # straight out of `_scalar_props`, i.e. as the raw STATE id — which happens
@@ -2654,9 +2658,8 @@ def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]
                     continue
                 # Emit under the PageTab alias key …
                 _append_unique(node, alias, child)
-                # … and keep it reachable: nest under the assay's hasPart, removing
-                # the root's auto-added top-level reference (it stays reachable
-                # transitively File -> Assay -> Study -> ./). Both expand to
-                # schema:hasPart, so the RDF containment is a single edge.
-                _remove_child(root, "hasPart", child.id)
+                # … and nest under the assay's hasPart, keeping the root's
+                # reference alongside it (#532). Both alias and hasPart expand to
+                # schema:hasPart, so the RDF containment is a single edge; the
+                # root's copy is what keeps the file inside the crate's file tree.
                 _append_unique(node, "hasPart", child)

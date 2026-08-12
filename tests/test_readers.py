@@ -92,9 +92,12 @@ class TestRoundTrip:
         build_crate(restored, str(tmp_path / "c2"))
         by2 = _graph(tmp_path / "c2")
 
-        # The raw file stays attached to its Assay, not orphaned onto the root.
+        # The raw file is attached to its Assay AND to the root (#532): the ISA
+        # nesting is what makes it the assay's data, the root reference is what
+        # keeps it inside the crate's file tree. Dropping the latter stranded it —
+        # ro-crate-py refuses to open such a crate.
         assert "data/raw.csv" in _ids(by2["#Assay_assay_1"].get("hasPart"))
-        assert "data/raw.csv" not in _ids(by2["./"].get("hasPart"))
+        assert "data/raw.csv" in _ids(by2["./"].get("hasPart"))
 
     def test_single_investigation_not_duplicated_after_roundtrip(self, tmp_path):
         build_crate(self._state(), str(tmp_path / "c1"))
@@ -145,9 +148,9 @@ class TestRoundTrip:
         # The File's @id (path) is STABLE — no drift to data/raw.prism.
         assert nested in by2
         assert "data/raw.prism" not in by2
-        # And it stays nested under its Assay, not orphaned onto the root.
+        # Nested under its Assay, and still reachable from the root (#532).
         assert nested in _ids(by2["#Assay_assay_1"].get("hasPart"))
-        assert nested not in _ids(by2["./"].get("hasPart"))
+        assert nested in _ids(by2["./"].get("hasPart"))
 
 
 class TestReaderFileDestPath:

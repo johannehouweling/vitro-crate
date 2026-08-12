@@ -63,7 +63,7 @@ class TestAttachFiles:
         # The assay now references the file via hasPart.
         assert files[0].entity_id in (state.get_entity("assay_1").fields.get("hasPart") or [])
 
-    def test_build_places_file_under_assay_not_root(self, tmp_path):
+    def test_build_places_file_under_assay_and_root(self, tmp_path):
         state = self._state(tmp_path)
         attach_files(state, to="assay_1", mime_contains="csv", role="raw_data")
         graph = assemble_crate(
@@ -71,8 +71,11 @@ class TestAttachFiles:
         ).metadata.generate()["@graph"]
         assay = next(n for n in graph if n.get("additionalType") == "Assay")
         root = next(n for n in graph if n.get("@id") == "./")
+        # Under the Assay (ISA placement) AND under the root (#532): the root's
+        # reference is what keeps the file in the crate's file tree, which is
+        # walked through directory Datasets, not through contextual ISA nodes.
         assert any("raw.csv" in str(p) for p in _haspart_ids(assay)), assay
-        assert not any("raw.csv" in str(p) for p in _haspart_ids(root)), root
+        assert any("raw.csv" in str(p) for p in _haspart_ids(root)), root
 
     def test_dedups_already_drafted_file(self, tmp_path):
         state = self._state(tmp_path)
