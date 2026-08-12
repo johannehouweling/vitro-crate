@@ -224,6 +224,87 @@ class TestTheRootIdentifierStaysAString:
         assert study["identifier"].startswith("S-VHPS26/")
 
 
+class TestContactDetailsBecomeAnEntity:
+    """A contact the human gives has to become something the shapes can point at.
+
+    Both profiles want an entity, not a literal: an Organization's
+    ``contactPoint`` SHOULD reference a ContactPoint, and the root's authors or
+    publishers SHOULD have one between them. An email written as a string on the
+    Person satisfies neither — the same reference-not-literal rule that already
+    governs affiliation and creator.
+
+    Nothing here is invented. A crate with no contact details emits no
+    ContactPoint and keeps the finding open, because the only legitimate source
+    for a real person's address is the human.
+    """
+
+    def test_an_email_becomes_a_referenced_contact_point(self):
+        state = CrateState()
+        _add(state, "org_uu", "Organization", name="Utrecht University", email="info@uu.nl")
+        doc = _doc(state)
+        org = next(n for n in doc["@graph"] if n.get("@type") == "Organization")
+        ref = org["contactPoint"]
+        contact = _node(doc, ref[0]["@id"] if isinstance(ref, list) else ref["@id"])
+        assert contact is not None
+        assert contact["@type"] == "ContactPoint"
+        assert contact["email"] == "info@uu.nl"
+
+    def test_the_literal_does_not_also_ship(self):
+        """Two spellings of the same fact invite them to disagree later."""
+        state = CrateState()
+        _add(state, "org_uu", "Organization", name="Utrecht University", email="info@uu.nl")
+        org = next(n for n in _doc(state)["@graph"] if n.get("@type") == "Organization")
+        assert "email" not in org
+
+    def test_a_person_gets_one_too(self):
+        state = CrateState()
+        _add(state, "p1", "Person", name="Ada Lovelace", email="ada@example.org")
+        doc = _doc(state)
+        person = next(n for n in doc["@graph"] if n.get("@type") == "Person")
+        assert "contactPoint" in person
+
+    def test_a_mailto_prefix_is_stripped(self):
+        """It is how a human writes it; schema.org wants the bare address."""
+        state = CrateState()
+        _add(state, "p1", "Person", name="Ada", email="mailto:ada@example.org")
+        doc = _doc(state)
+        contact = next(n for n in doc["@graph"] if n.get("@type") == "ContactPoint")
+        assert contact["email"] == "ada@example.org"
+
+    def test_the_answer_to_a_contact_point_gap_lands(self):
+        """Guidance commits the gap's own field name, so it must work too."""
+        state = CrateState()
+        _add(state, "org_uu", "Organization", name="Utrecht", contactPoint="info@uu.nl")
+        doc = _doc(state)
+        contact = next(n for n in doc["@graph"] if n.get("@type") == "ContactPoint")
+        assert contact["email"] == "info@uu.nl"
+
+    def test_a_telephone_alone_is_enough(self):
+        state = CrateState()
+        _add(state, "org_uu", "Organization", name="Utrecht", telephone="+31 30 253 5000")
+        doc = _doc(state)
+        contact = next(n for n in doc["@graph"] if n.get("@type") == "ContactPoint")
+        assert contact["telephone"] == "+31 30 253 5000"
+        assert "email" not in contact
+
+    def test_no_contact_details_invent_nothing(self):
+        state = CrateState()
+        _add(state, "org_uu", "Organization", name="Utrecht University")
+        doc = _doc(state)
+        assert not [n for n in doc["@graph"] if n.get("@type") == "ContactPoint"]
+        org = next(n for n in doc["@graph"] if n.get("@type") == "Organization")
+        assert "contactPoint" not in org
+
+    def test_one_address_is_one_entity(self):
+        """Two people on the same lab address must not mint two ContactPoints."""
+        state = CrateState()
+        _add(state, "p1", "Person", name="Ada", email="lab@example.org")
+        _add(state, "p2", "Person", name="Grace", email="lab@example.org")
+        doc = _doc(state)
+        contacts = [n for n in doc["@graph"] if n.get("@type") == "ContactPoint"]
+        assert len(contacts) == 1
+
+
 class TestOrganizationsCarryTheirWebsite:
     """ROR states the website on the record; dropping it costs a finding."""
 
