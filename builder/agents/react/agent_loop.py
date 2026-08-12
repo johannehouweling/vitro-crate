@@ -1028,6 +1028,51 @@ def _unreadable_file_message(path: str, tool_name: str = "read_file_sample") -> 
 # ---------------------------------------------------------------------------
 
 
+def _prompt_idle(engine: AgentEngine) -> Any:
+    """Record how long the loop sat at the prompt waiting for a person.
+
+    Without this a session is unreadable. One real run measured 4.2 hours wall
+    clock and 31 minutes of work: the rest was three gaps of 122, 99 and 7
+    minutes with nothing in flight — someone away from the keyboard. Every
+    wall-clock figure drawn from a profile was that mixture, and no analysis
+    based on one meant anything.
+
+    Worse, a gap with no event is indistinguishable from a hang. If the loop had
+    genuinely deadlocked at the prompt, the profile would look exactly the same.
+
+    `present_to_human` already emits `hitl_wait` because the engine knows it is
+    about to block. The ordinary prompt between turns had no such marker — it is
+    not a tool call, so nothing recorded it. This closes that, and the two read
+    the same way: a `prompt_wait` opens the wait, and `prompt_input` closes it
+    with the duration.
+
+    Best-effort throughout: a headless engine has no profiler, and instrumentation
+    must never be the thing that ends a session.
+    """
+    import contextlib
+    from time import perf_counter
+
+    @contextlib.contextmanager
+    def _recorded() -> Any:
+        profiler = getattr(engine, "profiler", None)
+        if profiler is None:
+            yield
+            return
+        started = perf_counter()
+        with contextlib.suppress(Exception):
+            profiler.log_event(event="prompt_wait")
+        try:
+            yield
+        finally:
+            with contextlib.suppress(Exception):
+                profiler.log_event(
+                    event="prompt_input",
+                    duration_ms=(perf_counter() - started) * 1000,
+                )
+
+    return _recorded()
+
+
 def _emit_auto_export(engine: AgentEngine, message: str) -> None:
     """Surface an in-loop auto-export status line via the engine's emit sink.
 
@@ -4674,7 +4719,10 @@ def run_interactive_agent(
                     # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
                     # prompt_toolkit erases to the end of the screen on every
                     # repaint, so the footer repaints on the same beat.
-                    user_input = ui.boxed_input(console, on_render=footer.refresh)
+                    # Bracketed by `prompt_wait` / `prompt_input` so a session
+                    # profile can tell "waiting for a person" from "stuck".
+                    with _prompt_idle(engine):
+                        user_input = ui.boxed_input(console, on_render=footer.refresh)
             except KeyboardInterrupt:
                 # Ctrl+C: clear the line and re-prompt
                 console.print()
