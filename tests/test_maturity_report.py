@@ -815,10 +815,17 @@ class TestGraphViewTabs:
                     "@type": "Organization",
                     "name": "Brown University",
                 },
+                {
+                    "@id": "https://doi.org/10.1007/s00204-024-03787-2",
+                    "@type": "ScholarlyArticle",
+                    "name": "Two novel in vitro assays for OATP1C1",
+                    "datePublished": "2024",
+                    "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
+                },
             ]
         }
 
-    def test_all_three_views_are_tabbed(self) -> None:
+    def test_every_view_is_tabbed(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         assert "<h2>Graph views</h2>" in page
         for label in (
@@ -828,9 +835,10 @@ class TestGraphViewTabs:
             "Chemicals",
             "Cell lines",
             "People &amp; orgs",
+            "Citations",
         ):
             assert f'<span class="tb-n">{label}</span>' in page, f"missing tab: {label}"
-        for pid in ("p-all", "p-isa", "p-prov", "p-chem", "p-cell", "p-people"):
+        for pid in ("p-all", "p-isa", "p-prov", "p-chem", "p-cell", "p-people", "p-cite"):
             assert f'<div class="panel" id="{pid}">' in page, f"missing panel: {pid}"
 
     def test_inputs_precede_the_tabbar_and_panels(self) -> None:
@@ -843,7 +851,7 @@ class TestGraphViewTabs:
 
     def test_exactly_one_tab_starts_selected(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert body.count('name="mat-view"') == 6
+        assert body.count('name="mat-view"') == 7
         assert body.count(" checked>") == 1
         # ISA is first: the structural backbone every other view hangs off.
         assert 'id="mv-all" checked>' in body
@@ -854,9 +862,10 @@ class TestGraphViewTabs:
         assert "onclick" not in page.lower()
 
     def test_absent_views_drop_their_tab_and_first_survivor_is_selected(self) -> None:
-        # No compounds, no cell lines and nobody credited. The root Dataset is
-        # still an Investigation, so ISA survives alongside Provenance — and the
-        # first surviving tab must be the selected one, never a dead tab bar.
+        # No compounds, no cell lines, nobody credited and nothing cited. The
+        # root Dataset is still an Investigation, so ISA survives alongside
+        # Provenance — and the first surviving tab must be the selected one,
+        # never a dead tab bar.
         graph = {
             "@graph": [
                 {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
@@ -873,7 +882,10 @@ class TestGraphViewTabs:
             ]
         }
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
-        for absent in ("mv-chem", "p-chem", "mv-cell", "p-cell", "mv-people", "p-people"):
+        for absent in (
+            "mv-chem", "p-chem", "mv-cell", "p-cell",
+            "mv-people", "p-people", "mv-cite", "p-cite",
+        ):
             assert f'"{absent}"' not in body, f"{absent} should have been dropped"
         assert 'id="mv-all" checked>' in body
         assert body.count(" checked>") == 1
@@ -910,6 +922,22 @@ class TestGraphViewTabs:
         # …and the rule must actually match the class the renderer emits.
         assert 'class="prov view"' in _body(page)
 
+    def test_every_registered_view_is_styled(self) -> None:
+        # The tabs are pure CSS, and the stylesheet names each id by hand. A view
+        # added to `_VIEWS` without its four selectors renders a tab that cannot
+        # be selected and a panel that never shows — with no error anywhere.
+        from builder.writers.maturity_report import _VIEWS, _load_css
+
+        css = _load_css()
+        for rid, pid, _label in _VIEWS:
+            for selector in (
+                f'#{rid}:checked ~ .tabbar .tab[for="{rid}"]',
+                f'#{rid}:checked ~ .tabbar .tab[for="{rid}"] .tb-c',
+                f'#{rid}:focus-visible ~ .tabbar .tab[for="{rid}"]',
+                f"#{rid}:checked ~ #{pid}",
+            ):
+                assert selector in css, f"unstyled view selector: {selector}"
+
     def test_print_styles_expand_every_panel(self) -> None:
         # Tabs are a screen affordance; a printed report must not silently lose
         # two of the three views.
@@ -921,7 +949,7 @@ class TestGraphViewTabs:
         # The strip describes the whole graph, not one view — it must not be
         # trapped inside a panel that a reader has to select to see.
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert page.index('<div class="panel" id="p-people">') < page.index("Graph topology")
+        assert page.index('<div class="panel" id="p-cite">') < page.index("Graph topology")
 
 
 class TestCellLinesPanel:
@@ -1143,6 +1171,116 @@ class TestPeoplePanel:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
         assert "<script>alert(1)</script>" not in page
         assert "&lt;script&gt;" in page
+
+
+class TestCitationsPanel:
+    """The Citations view (#85): the literature the crate stands on.
+
+    A citation refers to two things at once, and each can fail on its own. The
+    work needs a DOI and something in the crate has to point at it; the credit
+    list has to reach entities the crate contains. The second is a shipping
+    defect — a Crossref author with no ORCID is minted as ``#CitationAuthor_…``
+    and nothing in the ``@graph`` answers to that ``@id`` (#532), leaving an
+    article that looks fully attributed in the JSON and credits nobody.
+    """
+
+    def _graph(self, *, cite: bool = True, doi: bool = True, dangling: bool = False) -> dict:
+        article_id = "https://doi.org/10.1007/s00204-024-03787-2" if doi else "#Publication_oatp"
+        root: dict = {"@id": "./", "@type": "Dataset", "name": "Crate"}
+        if cite:
+            root["citation"] = [{"@id": article_id}]
+        authors: list[dict] = [{"@id": "https://orcid.org/0000-0002-1825-0097"}]
+        if dangling:
+            authors.append({"@id": "#CitationAuthor_Zhongli_Chen"})
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                root,
+                {
+                    "@id": article_id,
+                    "@type": "ScholarlyArticle",
+                    "name": "Two novel in vitro assays for OATP1C1",
+                    "datePublished": "2024",
+                    "author": authors,
+                },
+                {
+                    "@id": "https://orcid.org/0000-0002-1825-0097",
+                    "@type": "Person",
+                    "name": "Josiah Carberry",
+                },
+            ]
+        }
+
+    def _page(self, **kw: bool) -> str:
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
+
+    def test_renders_diagram_and_matrix(self) -> None:
+        page = self._page()
+        assert '<div class="panel" id="p-cite">' in page
+        assert '<span class="tb-n">Citations</span>' in page
+        assert "Two novel in vitro assays for OATP1C1" in page
+        assert "10.1007/s00204-024-03787-2" in page
+        for column in ("DOI", "Title", "Date", "Authors", "Resolve", "Cited"):
+            assert f">{column}</th>" in page, f"missing citation column: {column}"
+
+    def test_uncited_article_is_called_out_with_the_fix(self) -> None:
+        page = self._page(cite=False)
+        assert "1 of 1 articles are cited by nothing in the crate" in page
+        assert "<code>citation</code>" in page
+
+    def test_missing_doi_is_called_out_separately_from_the_route(self) -> None:
+        # Correctly cited but unretrievable: the two defects are independent, and
+        # collapsing them would hide whichever the crate actually has.
+        page = self._page(doi=False)
+        assert "cited by nothing in the crate" not in page
+        assert "1 of 1 articles carry no resolvable DOI." in page
+
+    def test_author_that_resolves_to_nothing_is_reported(self) -> None:
+        page = self._page(dangling=True)
+        assert "1 author reference resolves to no entity in the crate." in page
+        assert "#CitationAuthor_&hellip;" in page
+        assert "1 of 2 authors unresolved" in page
+
+    def test_clean_citation_reports_no_defect(self) -> None:
+        page = self._page()
+        assert "Every article is cited, DOI-backed, and every author resolves." in page
+        assert "resolve to no entity" not in page
+
+    def test_legend_names_the_dashed_author_only_when_one_is_drawn(self) -> None:
+        # A key for a shape the reader cannot find teaches them to distrust the
+        # legend — and here it would also misdescribe the crate.
+        assert "Author reference that resolves to nothing" in self._page(dangling=True)
+        assert "Author reference that resolves to nothing" not in self._page()
+
+    def test_crate_without_articles_omits_the_view(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#f"}]},
+                {"@id": "#f", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
+        assert 'id="p-cite"' not in body
+        assert 'for="mv-cite"' not in body
+
+    def test_escapes_article_names(self) -> None:
+        graph = self._graph()
+        graph["@graph"][2]["name"] = "<script>alert(1)</script>"
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>alert(1)</script>" not in page
+        assert "&lt;script&gt;" in page
+
+    def test_escapes_a_crate_controlled_doi(self) -> None:
+        # The DOI reaches the matrix as a chip of its own, outside the `label`
+        # the inventory pre-escapes — a second path from crate text to the page.
+        # A DOI suffix is opaque and may legally carry `&`, so the chip cannot
+        # rely on the pattern alone to keep markup out.
+        graph = self._graph(doi=False)
+        graph["@graph"][2]["identifier"] = "10.1000/a&b<script>alert(1)</script>"
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>alert(1)</script>" not in page
+        assert "10.1000/a&amp;b" in page
 
 
 class TestSeverityTiers:

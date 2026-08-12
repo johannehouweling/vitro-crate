@@ -1010,6 +1010,14 @@ _LG_CONTAINER = _lg("container")
 _LG_CELLLINE = _lg("material", "Cell line / sample")
 _LG_PERSON = _lg("agent")
 _LG_ORG = _lg("org")
+_LG_ARTICLE = _lg("publication")
+# An `author` @id no node in the crate answers to. Drawn through the same
+# registry with the diagram's own `unwired` variant, so the dashed key can never
+# drift from the dashed node it explains (#532).
+_LG_AUTHOR_UNRESOLVED = (
+    f'<span class="lg">{legend_swatch("agent", "unwired")} '
+    "Author reference that resolves to nothing</span>"
+)
 # The chemicals view draws compounds only (#506), so its legend defines the two
 # states a compound node can be in rather than the route shapes it no longer
 # draws. Drawn through the same registry with the diagram's own `unwired`
@@ -1277,6 +1285,10 @@ _VIEWS: tuple[tuple[str, str, str], ...] = (
     ("mv-chem", "p-chem", "Chemicals"),
     ("mv-cell", "p-cell", "Cell lines"),
     ("mv-people", "p-people", "People &amp; orgs"),
+    # Last, and next to People: the two answer the same kind of question about
+    # credit, and a reader who has just checked who the crate credits is the one
+    # who wants to know whether the papers it cites credit anybody either.
+    ("mv-cite", "p-cite", "Citations"),
 )
 
 
@@ -1285,10 +1297,10 @@ def _render_graph_views_section(
 ) -> str:
     """The graph-views section: one diagram per tab, over a shared topology strip.
 
-    The three views answer different questions about the same ``@graph`` —
-    *how was the result produced* (provenance), *what was tested* (chemicals),
-    *who is credited* (people) — and a reader wants one at a time, not three
-    stacked diagrams. They are therefore tabbed.
+    The views answer different questions about the same ``@graph`` — *how was the
+    result produced* (provenance), *what was tested* (chemicals, cell lines),
+    *who is credited* (people), *what does it cite* (citations) — and a reader
+    wants one at a time, not a stack of diagrams. They are therefore tabbed.
 
     The tabs are pure CSS (radio inputs + ``:checked ~`` sibling rules), because
     the report is a self-contained offline artifact embedded in the crate and
@@ -1302,6 +1314,7 @@ def _render_graph_views_section(
     """
     from builder.writers.provenance_dag import (
         build_cellline_inventory,
+        build_citation_inventory,
         build_crate_graph,
         build_isa_inventory,
         build_people_inventory,
@@ -1315,6 +1328,7 @@ def _render_graph_views_section(
         "p-chem": _render_chemicals_panel(chem_inv),
         "p-cell": _render_celllines_panel(build_cellline_inventory(graph)),
         "p-people": _render_people_panel(build_people_inventory(graph)),
+        "p-cite": _render_citations_panel(build_citation_inventory(graph)),
     }
     live = [(rid, pid, label) for rid, pid, label in _VIEWS if panels[pid][0]]
 
@@ -1671,6 +1685,164 @@ def _render_people_panel(inv: dict[str, Any]) -> tuple[str, str]:
         f"{'person' if counts['people'] == 1 else 'people'} · <b>{counts['orgs']}</b> "
         f"organisation{'' if counts['orgs'] == 1 else 's'} · <b>{pid_backed}</b> "
         "identifier-backed.</p>\n"
+        f"  {diagram}\n"
+        f"  {''.join(notes)}\n"
+        f"  {matrix}"
+    )
+    return panel, str(total)
+
+
+_CITE_STATE_NOTE = {
+    "cited": "something in the crate points at this article",
+    "uncited": "nothing in the crate cites this article",
+}
+
+
+def _render_citations_panel(inv: dict[str, Any]) -> tuple[str, str]:
+    """The Citations view: the literature the crate stands on, and whether the
+    reference goes anywhere.
+
+    The same two questions the other views ask, because a citation fails the same
+    two ways. It is *unreachable* when nothing points at it — the Root Data
+    Entity's ``citation`` is what puts a paper into the deposit's record, and an
+    article no entity cites is described in the crate and referenced by nothing.
+    It is *unidentified* one hop further out than a compound is, because a
+    citation refers to two things: the work, which needs a DOI (a title names a
+    paper, ``10.…`` retrieves it), and the people who wrote it, which have to be
+    entities the crate actually contains. An ``author`` ``@id`` no node answers to
+    — the ``#CitationAuthor_…`` stub minted for a Crossref author with no ORCID —
+    leaves an article that looks fully attributed in the JSON and credits nobody
+    (#532).
+
+    Returns:
+        ``(panel html, tab badge)`` — ``("", "")`` when the crate declares none.
+    """
+    from builder.writers.provenance_dag import CITATION_COVERAGE_FIELDS, render_citations_svg
+
+    articles = inv["articles"]
+    if not articles:
+        return "", ""
+    counts = inv["counts"]
+    total, cited, doi_backed = counts["total"], counts["cited"], counts["doi_backed"]
+    broken = counts["unresolved_authors"]
+    # An article with an EMPTY credit list has no unresolved reference, so `broken`
+    # is 0 and every warning below stays silent — the green note then reports that
+    # "every author resolves" about a paper that credits nobody. Vacuous truth is
+    # the one thing this view must not print: it is the same shape as the "MIT
+    # coverage 0%" claim #311 removed, a confident statement about something never
+    # examined.
+    uncredited = sum(1 for a in inv["articles"] if not a["authors"])
+    pct = (
+        round(counts["fields_met"] / counts["fields_total"] * 100) if counts["fields_total"] else 0
+    )
+
+    svg = render_citations_svg(inv)
+    # The citing entity is drawn in its OWN category's shape — the root Dataset in
+    # a crate this tool builds, but a Study or a File in one it did not — so its
+    # key is looked up from what was actually drawn rather than hard-coded. A
+    # legend that names a shape the figure does not contain teaches the reader to
+    # distrust the legend.
+    sources = sorted(
+        {g["source_cls"] for g in inv["groups"] if g["source"]} & set(CATEGORY_STYLES)
+    )
+    keys = [_LG_ARTICLE, _LG_PERSON, *(_lg(cls) for cls in sources)]
+    if broken:
+        keys.append(_LG_AUTHOR_UNRESOLVED)
+    diagram = (
+        f'<div class="prov-scroll">{svg}</div>\n  ' + _legend(*keys, _LG_LINK, _LG_BREAK)
+        if svg
+        else ""
+    )
+
+    notes = []
+    if total - cited:
+        loose = [a["label"] for a in articles if a["state"] == "uncited"]
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{total - cited} of {total} articles are '
+            "cited by nothing in the crate</b> "
+            f"({', '.join(loose[:4])}{'&hellip;' if len(loose) > 4 else ''}). Point the Root "
+            "Data Entity&rsquo;s <code>citation</code> at the article — or the Study that "
+            "rests on it — otherwise the paper is described in the deposit and referenced "
+            "by nothing.</span></p>"
+        )
+    if total - doi_backed:
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{total - doi_backed} of {total} articles '
+            "carry no resolvable DOI.</b> A title names a paper; <code>10.…</code> retrieves "
+            "it, and is the only form a machine can follow.</span></p>"
+        )
+    if broken:
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{broken} author reference'
+            f"{'' if broken == 1 else 's'} resolve"
+            f"{'s' if broken == 1 else ''} to no entity in the crate.</b> The article&rsquo;s "
+            "<code>author</code> list points at an <code>@id</code> no node carries — usually a "
+            "<code>#CitationAuthor_&hellip;</code> stub minted for a co-author Crossref gave no "
+            "ORCID for. Add the <code>Person</code> entity or drop the reference: a credit that "
+            "resolves to nothing credits nobody.</span></p>"
+        )
+    if uncredited:
+        notes.append(
+            f'<p class="chem-warn">{_mk("no")}<span><b>{uncredited} of {total} articles '
+            "credit nobody.</b> The work carries no <code>author</code> or "
+            "<code>contributor</code> at all, so the crate says who was cited but not "
+            "who wrote it — and an empty credit list cannot fail the resolution check "
+            "below, which is why it reads as clean.</span></p>"
+        )
+    if not notes:
+        notes.append(
+            '<p class="good-note">Every article is cited, DOI-backed, and every author '
+            "resolves.</p>"
+        )
+
+    ordered = sorted(
+        articles, key=lambda a: (a["state"] == "cited", a["met"], a["name"].casefold(), a["id"])
+    )
+    head = "".join(
+        f'<th scope="col" title="{html.escape(full)}">{html.escape(short)}</th>'
+        for full, short in CITATION_COVERAGE_FIELDS
+    )
+    # Every article is listed — no cap. This is a metadata-checking view, and a
+    # truncated tail is exactly where an uncited paper would hide.
+    rows = []
+    for a in ordered:
+        link = " 🔗" if a["resolvable"] else ""
+        doi = f'<span class="ty">{html.escape(a["doi"])}</span>' if a["doi"] else ""
+        flag = (
+            ""
+            if a["state"] == "cited"
+            else f'<span class="chem-flag" title="{html.escape(_CITE_STATE_NOTE["uncited"])}">'
+            "uncited</span>"
+        )
+        # The credit list is where #532 lives, so the row states how much of it
+        # actually reaches an entity rather than leaving it to the tick alone.
+        dangling = sum(1 for author in a["authors"] if not author["resolved"])
+        credit = (
+            f'<span class="chem-flag" title="author @ids that resolve to no entity">'
+            f"{dangling} of {len(a['authors'])} authors unresolved</span>"
+            if dangling
+            else ""
+        )
+        cells = "".join(
+            f"<td>{_mk(_kind(a['fields'].get(full)))}</td>"
+            for full, _short in CITATION_COVERAGE_FIELDS
+        )
+        rows.append(
+            f'<tr><th scope="row">{_mk("ok" if a["state"] == "cited" else "no")}'
+            f'<span class="cn">{a["label"]}{link}</span>{doi}{flag}{credit}</th>{cells}</tr>'
+        )
+    matrix = (
+        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+        '<caption class="sr-only">Identification fields carried by each cited article</caption>'
+        f'<thead><tr><th scope="col">Article</th>{head}</tr></thead>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
+
+    panel = (
+        '<p class="prov-cap">The literature the crate stands on — whether each paper is '
+        "actually cited from the record, and whether a reader could retrieve it and reach "
+        f"the people who wrote it. <b>{total}</b> article{'' if total == 1 else 's'} · "
+        f"<b>{cited}</b> cited · <b>{doi_backed}</b> DOI-backed · <b>{pct}%</b> complete.</p>\n"
         f"  {diagram}\n"
         f"  {''.join(notes)}\n"
         f"  {matrix}"

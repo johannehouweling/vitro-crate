@@ -32,6 +32,7 @@ from builder.writers.provenance_dag import (
     _svg_node_shape,
     build_cellline_inventory,
     build_chemical_inventory,
+    build_citation_inventory,
     build_crate_graph,
     build_isa_inventory,
     build_people_inventory,
@@ -39,6 +40,7 @@ from builder.writers.provenance_dag import (
     legend_swatch,
     render_celllines_svg,
     render_chemicals_svg,
+    render_citations_svg,
     render_crate_graph,
     render_isa_svg,
     render_mermaid_html,
@@ -1253,6 +1255,227 @@ class TestRenderIsaSvg:
         assert "&lt;script&gt;" in svg
 
 
+def _citation_graph(
+    *,
+    cite: bool = True,
+    doi: bool = True,
+    dangling_author: bool = False,
+    authors: bool = True,
+) -> dict:
+    """A crate citing one paper, optionally broken the ways real crates are.
+
+    ``cite=False`` drops the root's ``citation`` (the paper is in the crate and
+    nothing points at it); ``doi=False`` gives the article a local ``@id`` and no
+    identifier; ``dangling_author`` adds the ``#CitationAuthor_…`` stub the
+    publication resolver mints for a Crossref author with no ORCID, which no node
+    in the ``@graph`` answers to (#532).
+    """
+    article_id = "https://doi.org/10.1007/s00204-024-03787-2" if doi else "#Publication_oatp"
+    article: dict = {
+        "@id": article_id,
+        "@type": "ScholarlyArticle",
+        "name": "Two novel in vitro assays for OATP1C1",
+        "datePublished": "2024",
+    }
+    if authors:
+        article["author"] = [{"@id": "https://orcid.org/0000-0002-1825-0097"}] + (
+            [{"@id": "#CitationAuthor_Zhongli_Chen"}] if dangling_author else []
+        )
+    root: dict = {"@id": "./", "@type": "Dataset", "name": "Crate"}
+    if cite:
+        root["citation"] = [{"@id": article_id}]
+    return {
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            root,
+            article,
+            {
+                "@id": "https://orcid.org/0000-0002-1825-0097",
+                "@type": "Person",
+                "name": "Josiah Carberry",
+            },
+        ]
+    }
+
+
+class TestBuildCitationInventory:
+    """``build_citation_inventory`` models the crate's citations.
+
+    A citation fails two ways: its ROUTE fails when nothing points at the
+    article, and its IDENTITY fails when the work carries no DOI or its credit
+    list points at ``@id``\\ s the crate does not contain (#532).
+    """
+
+    def _article(self, graph: dict) -> dict:
+        articles = build_citation_inventory(graph)["articles"]
+        assert len(articles) == 1
+        return articles[0]
+
+    def test_resolves_the_citing_entity_and_the_doi(self) -> None:
+        article = self._article(_citation_graph())
+        assert article["state"] == "cited"
+        assert article["source"] == "./"
+        assert article["edge"] == "citation"
+        assert article["doi"] == "10.1007/s00204-024-03787-2"
+
+    def test_doi_keeps_the_slash_in_its_suffix(self) -> None:
+        # The ORCID/ROR fallback reads the tail after the LAST slash; a DOI
+        # contains one, so that route would report "s00204-024-03787-2" — an
+        # identifier that resolves to nothing.
+        assert "/" in self._article(_citation_graph())["doi"]
+
+    def test_article_nothing_points_at_is_uncited(self) -> None:
+        article = self._article(_citation_graph(cite=False))
+        assert article["state"] == "uncited"
+        assert article["source"] is None
+        assert article["fields"]["Cited in the crate"] is False
+
+    def test_article_without_a_doi_is_not_identified(self) -> None:
+        article = self._article(_citation_graph(doi=False))
+        assert article["doi"] is None
+        assert article["fields"]["Resolvable DOI"] is False
+
+    def test_author_id_no_node_answers_to_is_kept_and_marked(self) -> None:
+        # Dropping it would leave the article looking fully attributed — which is
+        # exactly how #532 stayed invisible in the JSON.
+        article = self._article(_citation_graph(dangling_author=True))
+        by_id = {a["id"]: a for a in article["authors"]}
+        assert by_id["https://orcid.org/0000-0002-1825-0097"]["resolved"] is True
+        assert by_id["#CitationAuthor_Zhongli_Chen"]["resolved"] is False
+        assert article["fields"]["Every author resolves to an entity"] is False
+
+    def test_resolved_author_carries_its_orcid(self) -> None:
+        article = self._article(_citation_graph())
+        assert article["authors"][0]["pid"] == "0000-0002-1825-0097"
+
+    def test_article_with_no_credit_list_scores_resolution_as_not_applicable(self) -> None:
+        # No authors is one absence, not two; scoring "every author resolves" as
+        # a miss would count the same gap twice.
+        article = self._article(_citation_graph(authors=False))
+        assert article["fields"]["Authors listed"] is False
+        assert article["fields"]["Every author resolves to an entity"] is None
+
+    def test_contributor_only_credit_list_still_counts_as_authors(self) -> None:
+        graph = _citation_graph()
+        graph["@graph"][2]["contributor"] = graph["@graph"][2].pop("author")
+        assert self._article(graph)["fields"]["Authors listed"] is True
+
+    def test_author_repeated_as_contributor_is_one_person(self) -> None:
+        graph = _citation_graph()
+        graph["@graph"][2]["contributor"] = list(graph["@graph"][2]["author"])
+        assert len(self._article(graph)["authors"]) == 1
+
+    def test_placeholder_date_is_not_a_publication_date(self) -> None:
+        # The resolver stringifies a missing Crossref field, so a shipped crate
+        # carries `"datePublished": "None"`. Scoring that as present would paint
+        # a green column for an article that states no date at all.
+        graph = _citation_graph()
+        graph["@graph"][2]["datePublished"] = "None"
+        assert self._article(graph)["fields"]["Publication date"] is False
+
+    def test_counts_summarise_route_identity_and_credit(self) -> None:
+        counts = build_citation_inventory(_citation_graph(dangling_author=True))["counts"]
+        assert counts["total"] == 1
+        assert counts["cited"] == 1
+        assert counts["uncited"] == 0
+        assert counts["doi_backed"] == 1
+        assert counts["authors"] == 2
+        assert counts["unresolved_authors"] == 1
+
+    def test_the_same_broken_author_id_on_two_papers_is_one_fix(self) -> None:
+        graph = _citation_graph(dangling_author=True)
+        second = dict(graph["@graph"][2], **{"@id": "#Publication_second", "name": "Second paper"})
+        graph["@graph"].append(second)
+        graph["@graph"][1]["citation"].append({"@id": "#Publication_second"})
+        counts = build_citation_inventory(graph)["counts"]
+        assert counts["total"] == 2
+        assert counts["unresolved_authors"] == 1
+
+    def test_crate_without_articles_is_empty(self) -> None:
+        inv = build_citation_inventory({"@graph": [{"@id": "#f", "@type": "File", "name": "a"}]})
+        assert inv["articles"] == []
+        assert inv["groups"] == []
+        assert inv["counts"]["total"] == 0
+
+
+class TestRenderCitationsSvg:
+    """The citation diagram: ``citer → article → author``, nothing elided."""
+
+    def test_draws_the_chain_with_its_edge_labels(self) -> None:
+        svg = render_citations_svg(build_citation_inventory(_citation_graph()))
+        assert "Josiah Carberry" in svg
+        assert ">citation<" in svg
+        assert ">author<" in svg
+
+    def test_article_uses_the_registry_publication_shape(self) -> None:
+        # One colour and one shape per entity type, in every view (ac3fc9b): the
+        # article must draw as the registry's publication, never as a new shape.
+        svg = render_citations_svg(build_citation_inventory(_citation_graph()))
+        assert 'class="n n-publication"' in svg
+        assert 'class="n n-agent"' in svg  # …and an author is the people view's agent
+
+    def test_uncited_article_is_marked_and_still_drawn(self) -> None:
+        svg = render_citations_svg(build_citation_inventory(_citation_graph(cite=False)))
+        assert "Two novel in vitro assays for OATP1C1" in svg  # never dropped
+        assert "e-break" in svg and "unwired" in svg
+
+    def test_unresolved_author_is_drawn_with_the_edge_that_reaches_it(self) -> None:
+        # The crate really does state the reference, so the edge is drawn and it
+        # is the TRAIL that ends — a node simply left out would have shown
+        # nothing at all.
+        svg = render_citations_svg(
+            build_citation_inventory(_citation_graph(dangling_author=True))
+        )
+        assert "#CitationAuthor_Zhongli_Chen" in svg
+        assert 'class="n n-agent unwired"' in svg
+        assert "e-break" in svg
+
+    def test_every_drawn_node_stays_inside_the_canvas(self) -> None:
+        # The stub after a dangling author hangs past the last column; without
+        # room for it the ✗ is clipped off the page.
+        svg = render_citations_svg(
+            build_citation_inventory(_citation_graph(dangling_author=True))
+        )
+        box = re.search(r'viewBox="0 0 (\d+) (\d+)"', svg)
+        assert box is not None
+        width = int(box.group(1))
+        starts = [int(x) for x in re.findall(r'<text class="brk start" x="(\d+)"', svg)]
+        assert starts, "no trailing stub was drawn"
+        assert max(starts) < width
+
+    def test_shared_author_is_drawn_once(self) -> None:
+        # Two papers by one person is one person; drawing them twice would invent
+        # a collaborator the crate does not contain.
+        graph = _citation_graph()
+        graph["@graph"].append(
+            {
+                "@id": "#Publication_second",
+                "@type": "ScholarlyArticle",
+                "name": "Second paper",
+                "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
+            }
+        )
+        graph["@graph"][1]["citation"].append({"@id": "#Publication_second"})
+        svg = render_citations_svg(build_citation_inventory(graph))
+        assert svg.count('class="n n-agent"') == 1
+
+    def test_empty_inventory_returns_empty(self) -> None:
+        assert render_citations_svg(build_citation_inventory({"@graph": []})) == ""
+
+    def test_escapes_crate_controlled_names(self) -> None:
+        graph = _citation_graph()
+        graph["@graph"][2]["name"] = "<script>alert(1)</script>"
+        svg = render_citations_svg(build_citation_inventory(graph))
+        assert "<script>alert(1)</script>" not in svg
+        assert "&lt;script&gt;" in svg
+
+    def test_is_well_formed_xml(self) -> None:
+        svg = render_citations_svg(
+            build_citation_inventory(_citation_graph(dangling_author=True))
+        )
+        ET.fromstring(svg)
+
+
 class TestIdentifierFallbackIsNotFabricated:
     """The registry-URL fallback must identify, not merely match a hostname."""
 
@@ -2127,3 +2350,73 @@ class TestCategoryRegistry:
 
         assert f"{category_label('org')} · 1" in svg
         assert category_label("org") == "Organisation"
+
+
+class TestCitationCreditListIsDrawnHonestly:
+    """Two ways the Citations view could flatter a crate it should be reporting on."""
+
+    @staticmethod
+    def _graph(author: list[dict] | None) -> dict:
+        article: dict = {
+            "@id": "#a1",
+            "@type": "ScholarlyArticle",
+            "name": "A paper",
+            "identifier": "10.6019/s-vhps22",
+        }
+        if author is not None:
+            article["author"] = author
+        return {
+            "@graph": [
+                {"@id": "./", "@type": "Dataset", "citation": [{"@id": "#a1"}]},
+                article,
+                {"@id": "https://ror.org/02catss52", "@type": "Organization", "name": "Brown"},
+                {"@id": "#p1", "@type": "Person", "name": "A Person"},
+            ]
+        }
+
+    def test_an_organization_author_keeps_the_organization_shape(self) -> None:
+        """One entity, one colour and one shape, in EVERY view (ac3fc9b).
+
+        A credit list is not all Persons — a Crossref affiliation resolves to an
+        Organization — so painting the whole list with the agent block gives one
+        entity two shapes across the report, which is the rule's whole point.
+        """
+        from builder.writers.provenance_dag import build_citation_inventory, render_citations_svg
+
+        svg = render_citations_svg(
+            build_citation_inventory(
+                self._graph([{"@id": "https://ror.org/02catss52"}, {"@id": "#p1"}])
+            )
+        )
+
+        assert svg.count("n-org") == 1, "the Organization author was repainted as a Person"
+        assert svg.count("n-agent") == 1
+
+    def test_an_article_crediting_nobody_is_not_reported_as_fully_resolved(self) -> None:
+        """The vacuous-truth guard.
+
+        An empty credit list has no unresolved reference, so every warning stays
+        silent and the green note would report that "every author resolves" about
+        a paper that credits nobody. That is the same shape as the "MIT coverage
+        0%" claim #311 removed: a confident statement about something never
+        examined.
+        """
+        from builder.writers.maturity_report import _render_citations_panel
+        from builder.writers.provenance_dag import build_citation_inventory
+
+        panel, _badge = _render_citations_panel(build_citation_inventory(self._graph(None)))
+
+        assert "every author resolves" not in panel
+        assert "credit nobody" in panel
+
+    def test_a_real_credit_list_still_earns_the_clean_note(self) -> None:
+        """The control: the warning above must not fire on a crate that is fine."""
+        from builder.writers.maturity_report import _render_citations_panel
+        from builder.writers.provenance_dag import build_citation_inventory
+
+        panel, _badge = _render_citations_panel(
+            build_citation_inventory(self._graph([{"@id": "#p1"}]))
+        )
+
+        assert "every author resolves" in panel
+        assert "credit nobody" not in panel

@@ -3277,9 +3277,494 @@ def render_isa_svg(inventory: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Citations (#85) — the literature the crate stands on, and whether the
+# reference actually goes anywhere.
+#
+# A ScholarlyArticle fails the same two ways every other entity in these views
+# does. Its ROUTE fails when nothing cites it: the root's ``citation`` — what
+# ``_crate_mapping`` writes — or a Study/Assay reference is the only thing that
+# puts the paper into the deposit's record, and an article no entity points at is
+# a node a reader walking the crate never arrives at.
+#
+# Its IDENTITY fails one hop further out than a compound's, because a citation
+# refers to two things at once: the work, which needs a DOI (a title names a
+# paper, ``10.…`` retrieves it), and the people who wrote it, which have to be
+# entities the crate actually contains. That second half is a currently-shipping
+# defect (#532): a Crossref author with no ORCID is minted as
+# ``#CitationAuthor_Zhongli_Chen`` and the article's ``author`` list points at an
+# ``@id`` no node in the ``@graph`` carries. In the JSON the article looks fully
+# attributed while crediting nobody — invisible in a list of names, and obvious
+# in a picture where the author edge ends on a dashed box.
+# ---------------------------------------------------------------------------
+
+_CITATION_KEYS_FULL: tuple[str, ...] = (
+    "citation",
+    "http://schema.org/citation",
+    "https://schema.org/citation",
+)
+_ISBASEDON_KEYS: tuple[str, ...] = (
+    "isBasedOn",
+    "isBasedOnUrl",
+    "http://schema.org/isBasedOn",
+    "https://schema.org/isBasedOn",
+)
+_HEADLINE_KEYS: tuple[str, ...] = (
+    "headline",
+    "http://schema.org/headline",
+    "https://schema.org/headline",
+)
+_DATEPUBLISHED_KEYS: tuple[str, ...] = (
+    "datePublished",
+    "http://schema.org/datePublished",
+    "https://schema.org/datePublished",
+)
+
+# How something can point AT an article, most canonical first — the order decides
+# which citer is drawn when several apply. ``citation`` is what the builder
+# writes onto the Root Data Entity; ``isBasedOn`` and ``mentions``/``about`` are
+# how an externally-authored crate or a Study/Assay commonly reaches one, and a
+# crate that uses them should see its route rather than be told it has none.
+_CITATION_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (_CITATION_KEYS_FULL, "citation"),
+    (_ISBASEDON_KEYS, "isBasedOn"),
+    (_MENTIONS_KEYS, "mentions"),
+    (_ABOUT_KEYS, "about"),
+    (_HASPART_KEYS, "hasPart"),
+)
+
+# A DOI: the ``10.`` prefix, the registrant code, then the opaque suffix. Matched
+# rather than read off the tail of the URL the way `_registry_identifiers` reads
+# an ORCID — a DOI *contains* a slash, so splitting on the last one yields
+# "s-vhps22" out of "10.6019/s-vhps22" and would report a truncated identifier
+# that resolves to nothing.
+_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>]+")
+
+# Literals that carry no information but are not empty. The publication resolver
+# stringifies a missing Crossref field, so a real crate ships
+# ``"datePublished": "None"`` — and `_literal` cannot tell that from a date.
+# Scoring it as present would paint a green Date column for an article that
+# states no date at all, which is exactly the kind of false green these views
+# exist to remove.
+_PLACEHOLDER_LITERALS = frozenset({"", "none", "null", "nan", "n/a", "na", "unknown", "-"})
+
+# The coverage matrix columns: (full name, column header). The work first (is the
+# paper retrievable), then its credit list (does the reference reach anybody),
+# then the route (does anything cite it at all).
+CITATION_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("Resolvable DOI", "DOI"),
+    ("Title", "Title"),
+    ("Publication date", "Date"),
+    ("Authors listed", "Authors"),
+    ("Every author resolves to an entity", "Resolve"),
+    ("Cited in the crate", "Cited"),
+)
+
+_CITE_MARKER = "cite-ar-link"
+
+
+def _is_article(node: dict[str, Any]) -> bool:
+    """True for a publication entity.
+
+    Asked through :func:`_entity_category` rather than by testing ``@type``
+    directly, so this view draws exactly the entities the rest of the report
+    colours as publications — commit ``ac3fc9b``'s one colour and one shape per
+    entity type only holds if there is one definition of what a publication is.
+    """
+    return _entity_category(node) == "publication"
+
+
+def _meaningful(value: str | None) -> str | None:
+    """*value* when it says something, else ``None`` (see `_PLACEHOLDER_LITERALS`)."""
+    if value is None:
+        return None
+    text = value.strip()
+    return text if text.casefold() not in _PLACEHOLDER_LITERALS else None
+
+
+def _article_doi(node: dict[str, Any], nodes: dict[str, Any]) -> str | None:
+    """The article's DOI, from its ``@id``, ``url``, or an ``identifier``.
+
+    Every carrier is tried because the crate's own writer and an externally
+    authored crate disagree about which one is canonical: the builder mints the
+    DOI URL as the ``@id`` *and* repeats it under ``identifier``/``url``, while a
+    hand-written crate may give the bare ``10.…`` string alone.
+    """
+    candidates: list[str] = []
+    for key in _IDENTIFIER_KEYS:
+        for item in _as_list(node.get(key)):
+            if isinstance(item, str):
+                candidates.append(item)
+            elif isinstance(item, dict):
+                pv = nodes.get(item["@id"], item) if isinstance(item.get("@id"), str) else item
+                candidates.extend(
+                    v for v in (_literal(pv, _VALUE_KEYS), pv.get("@id")) if isinstance(v, str)
+                )
+    candidates.extend(
+        v for v in (_literal(node, _URL_KEYS), node.get("@id")) if isinstance(v, str)
+    )
+    for candidate in candidates:
+        match = _DOI_RE.search(candidate)
+        if match:
+            return match.group(0)
+    return None
+
+
+def _citation_authors(
+    node: dict[str, Any], nodes: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The article's credit list, resolved and unresolved alike.
+
+    ``contributor`` is read alongside ``author`` and the two deduplicated: the
+    builder writes the same Crossref person into both, and an article credited
+    only through ``contributor`` still has a credit list — reporting it as having
+    none would be a defect this view invented.
+
+    An unresolved reference is KEPT, and that is the point. Dropping it would
+    leave an article whose authors all resolve to nothing looking author-less, or
+    — worse — looking fine because the surviving references happened to resolve.
+    The brief carries the raw ``@id`` as its name, because that string is what a
+    reader has to go and fix.
+    """
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for keys, label in ((_AUTHOR_KEYS, "author"), (_CONTRIBUTOR_KEYS, "contributor")):
+        for ref in _refs(node, keys):
+            if ref in seen:
+                continue
+            seen.add(ref)
+            target = nodes.get(ref)
+            if target is None:
+                out.append(
+                    {
+                        "id": ref,
+                        "name": ref,
+                        "label": _escape(ref),
+                        # Named as the failure, not as a Person: the crate has no
+                        # entity here, and tagging the box "Person" would assert
+                        # the very thing that is missing.
+                        "tag": "Unresolved @id",
+                        "resolved": False,
+                        "pid": None,
+                        "edge": label,
+                    }
+                )
+                continue
+            ids = _registry_identifiers(target, nodes, _AGENT_ID_SCHEMES)
+            out.append(
+                {
+                    **_chem_node_brief(ref, target),
+                    "resolved": True,
+                    "pid": next((ids[s] for s in _PID_FOR_KIND["person"] if s in ids), None),
+                    "edge": label,
+                }
+            )
+    return out
+
+
+def build_citation_inventory(
+    metadata: dict[str, Any] | list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Model the crate's citations: their route into the record + their identity.
+
+    Resolves, for every ``ScholarlyArticle`` the crate declares, which entity
+    cites it (the Root Data Entity's ``citation`` is preferred when several do,
+    because that is the attribution a reader is looking for), whether it carries
+    a resolvable DOI, a title and a publication date, and whether every ``@id``
+    in its credit list points at an entity the crate actually contains.
+
+    Pure and cheap: one pass over the serialized ``@graph``, no validation and no
+    network. Crate-controlled text is HTML-escaped in ``label`` (#169).
+
+    Args:
+        metadata: Parsed ``ro-crate-metadata.json`` dict, the ``@graph`` list, or
+            the ``crate.metadata.generate()`` document.
+
+    Returns:
+        ``{"articles": [...], "groups": [...], "counts": {...}}``.
+
+        Each article: ``{id, name, label, tag, doi, resolvable, authors, fields,
+        met, total, state, source, edge}`` where ``state`` is ``"cited"``
+        (something in the crate points at it) or ``"uncited"`` (nothing does).
+        Each entry of ``authors`` carries ``resolved`` — ``False`` for an ``@id``
+        no node in the graph answers to (#532).
+
+        ``groups`` are the diagram's bands: a citing entity, the articles it
+        cites, and those articles' authors. Anything nothing cites falls into a
+        trailing band with no source.
+    """
+    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
+    nodes = _graph_nodes(metadata)
+    article_ids = {nid for nid, n in nodes.items() if _is_article(n)}
+    empty_counts = {
+        "total": 0,
+        "cited": 0,
+        "uncited": 0,
+        "doi_backed": 0,
+        "authors": 0,
+        "unresolved_authors": 0,
+        "fields_met": 0,
+        "fields_total": 0,
+    }
+    if not article_ids:
+        return {"articles": [], "groups": [], "counts": dict(empty_counts)}
+
+    root_id = _find_root_id(nodes, [n for n in graph if isinstance(n, dict)])
+    citers = _referrers_to(nodes, article_ids, _CITATION_LINK_RELATIONS)
+
+    def _citer(aid: str) -> tuple[str, str] | None:
+        """Best citing entity: the crate root when it cites this article (that is
+        the citation a reader is looking for), else the most canonical other."""
+        found = citers.get(aid)
+        if not found:
+            return None
+        rooted = [p for p in found if p[0] == root_id]
+        return (rooted or found)[0]
+
+    articles: list[dict[str, Any]] = []
+    # The @id tiebreak is load-bearing: `article_ids` is a SET, so two articles
+    # sharing a title would otherwise be ordered by the per-process string hash
+    # seed, and the embedded artifact must be byte-stable across runs.
+    for aid in sorted(article_ids, key=lambda a: (_name(nodes[a]).casefold(), a)):
+        node = nodes[aid]
+        doi = _article_doi(node, nodes)
+        authors = _citation_authors(node, nodes)
+        source = _citer(aid)
+        fields: dict[str, bool | None] = {
+            "Resolvable DOI": doi is not None,
+            "Title": _meaningful(_literal(node, _NAME_KEYS + _HEADLINE_KEYS)) is not None,
+            "Publication date": _meaningful(_literal(node, _DATEPUBLISHED_KEYS)) is not None,
+            "Authors listed": bool(authors),
+            # An article with no credit list has nothing to resolve — n/a, not a
+            # miss, or the same absence would be counted against it twice.
+            "Every author resolves to an entity": (
+                all(a["resolved"] for a in authors) if authors else None
+            ),
+            "Cited in the crate": source is not None,
+        }
+        articles.append(
+            {
+                **_chem_node_brief(aid, node),
+                "doi": doi,
+                "resolvable": _is_uri(aid),
+                "authors": authors,
+                "fields": fields,
+                "met": sum(1 for ok in fields.values() if ok),
+                "total": sum(1 for ok in fields.values() if ok is not None),
+                "state": "cited" if source else "uncited",
+                "source": source[0] if source else None,
+                "edge": source[1] if source else "",
+            }
+        )
+
+    # Bands: one per citing entity, holding the articles it cites. Uncited
+    # articles fall into a trailing band drawn with the ✗ stub on their left,
+    # exactly as an unattached agent does in the people view.
+    banded: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for article in articles:
+        if article["source"] is not None:
+            banded.setdefault((article["source"], article["edge"]), []).append(article)
+    groups: list[dict[str, Any]] = []
+    for (src, edge), band in sorted(
+        banded.items(), key=lambda kv: (kv[0][0] != root_id, kv[0][0], kv[0][1])
+    ):
+        brief = _chem_node_brief(src, nodes[src])
+        groups.append(
+            {
+                "source": brief,
+                # The citing entity's own category, carried out of the builder so
+                # the panel's legend can name the shape that was actually drawn
+                # rather than assume the root Dataset every crate does not have.
+                "source_cls": _node_class_for_brief(brief),
+                "edge": edge,
+                "articles": band,
+                "state": "cited",
+            }
+        )
+    loose = [a for a in articles if a["state"] == "uncited"]
+    if loose:
+        groups.append(
+            {"source": None, "source_cls": "", "edge": "", "articles": loose, "state": "uncited"}
+        )
+
+    # Author references are counted DISTINCTLY across the crate: two papers by the
+    # same unresolvable stub are one broken @id to fix, and reporting it twice
+    # would overstate the work.
+    author_ids = {a["id"] for art in articles for a in art["authors"]}
+    unresolved = {a["id"] for art in articles for a in art["authors"] if not a["resolved"]}
+    counts = {
+        "total": len(articles),
+        "cited": sum(1 for a in articles if a["state"] == "cited"),
+        "uncited": sum(1 for a in articles if a["state"] == "uncited"),
+        "doi_backed": sum(1 for a in articles if a["doi"]),
+        "authors": len(author_ids),
+        "unresolved_authors": len(unresolved),
+        "fields_met": sum(a["met"] for a in articles),
+        "fields_total": sum(a["total"] for a in articles),
+    }
+    return {"articles": articles, "groups": groups, "counts": counts}
+
+
+def render_citations_svg(inventory: dict[str, Any]) -> str:
+    """Draw the citation chain as a self-contained inline ``<svg>``.
+
+    One band per citing entity: ``crate root --citation--> ScholarlyArticle
+    --author--> Person``. The same three-column geometry the people view uses,
+    because it is the same shape of question — something credits something, which
+    in turn names somebody — and drawing them identically is the point: a break in
+    one reads exactly like a break in the other.
+
+    Two failures are drawn rather than omitted. An article nothing cites sits in a
+    trailing band with the ✗ stub on its left. An ``author`` ``@id`` no node in
+    the graph answers to is drawn as a dashed agent with the stub on its *right*:
+    the edge exists — the crate really does state that reference — and it is the
+    trail that ends, which a missing node would not have shown at all (#532).
+
+    Args:
+        inventory: The result of :func:`build_citation_inventory`.
+
+    Returns:
+        The ``<svg>…</svg>`` markup, or ``""`` when the crate cites nothing.
+    """
+    # Peer-aware labels: two entities must never draw as the same text.
+    _label_briefs_uniquely(inventory)
+    groups = inventory.get("groups") or []
+    if not groups:
+        return ""
+
+    has_source = any(g["source"] for g in groups)
+    first_col = 0 if has_source else 1
+    x0 = _CHEM_X0 + (_CHEM_BREAK_DX + 10 if first_col else 0)
+    col_x = [x0 + (i - first_col) * _CHEM_COL_DX for i in range(3)]
+
+    edges: list[str] = []
+    nodes_svg: list[str] = []
+    mid = _SVG_NODE_H // 2
+    band_y = _CHEM_Y0
+    dangling_drawn = False
+
+    def _row_y(row: int) -> int:
+        return band_y + row * _CHEM_ROW_DY
+
+    for group in groups:
+        # Every article and every author is drawn — no "+N more" aggregate. This
+        # view exists so a person can CHECK a citation reference by reference, and
+        # an elided tail is exactly where a dangling author stub would hide.
+        drawn_articles = group["articles"]
+
+        # One node per author, not one per (article, author) pair: a person who
+        # wrote two of the cited papers is ONE person, and drawing them twice
+        # would invent a collaborator the crate does not contain.
+        by_author: dict[str, dict[str, Any]] = {}
+        for article in drawn_articles:
+            for author in article["authors"]:
+                by_author.setdefault(author["id"], author)
+        drawn_authors = list(by_author.values())
+
+        article_rows = {a["id"]: i for i, a in enumerate(drawn_articles)}
+        credits: dict[str, list[int]] = {}
+        for article in drawn_articles:
+            for author in article["authors"]:
+                credits.setdefault(author["id"], []).append(article_rows[article["id"]])
+
+        # An author takes the row of the first article that credits them so the
+        # author edge stays horizontal; collisions step down to the next free row.
+        author_rows: dict[str, int] = {}
+        used: set[int] = set()
+        for author in drawn_authors:
+            row = min(credits.get(author["id"], [0]))
+            while row in used:
+                row += 1
+            author_rows[author["id"]] = row
+            used.add(row)
+
+        rows = max(len(drawn_articles), max(used, default=-1) + 1, 1)
+        centre = _row_y(0) + ((rows - 1) * _CHEM_ROW_DY) // 2
+
+        if group["source"] is not None:
+            _svg_place(
+                nodes_svg, group["source"], group["source_cls"], col_x[0], centre
+            )
+
+        for i, article in enumerate(drawn_articles):
+            y = _row_y(i)
+            uncited = article["state"] == "uncited"
+            _svg_place(
+                nodes_svg,
+                # The inventory's own brief, not a copy: it carries the `display`
+                # label just written onto it, and a copy would silently lose it.
+                article,
+                "publication",
+                col_x[1],
+                y,
+                "unwired" if uncited else "",
+            )
+            if group["source"] is not None:
+                _svg_link(
+                    edges,
+                    col_x[0] + _SVG_NODE_W,
+                    centre + mid,
+                    col_x[1],
+                    y + mid,
+                    group["edge"] if i == 0 else "",
+                    marker=_CITE_MARKER,
+                )
+            elif uncited:
+                _svg_break(edges, col_x[1], y + mid)
+            for j, author in enumerate(article["authors"]):
+                _svg_link(
+                    edges,
+                    col_x[1] + _SVG_NODE_W,
+                    y + mid,
+                    col_x[2],
+                    _row_y(author_rows[author["id"]]) + mid,
+                    author["edge"] if i == 0 and j == 0 else "",
+                    marker=_CITE_MARKER,
+                )
+            if not article["authors"]:
+                # Cited, but the paper credits nobody at all.
+                _svg_break(edges, col_x[1] + _SVG_NODE_W, y + mid, leading=False)
+
+        for author in drawn_authors:
+            y = _row_y(author_rows[author["id"]])
+            _svg_place(
+                nodes_svg,
+                author,
+                # The credit list is not all Persons: a Crossref affiliation
+                # resolves to an Organization, and painting it with the agent
+                # block would give one entity two shapes across the report —
+                # the exact rule ac3fc9b exists to hold. An UNRESOLVED id keeps
+                # the agent block because there is no entity to ask; its box is
+                # already tagged "Unresolved @id" and drawn `unwired`, so the
+                # shape is not the thing carrying the claim.
+                _node_class_for_brief(author) if author["resolved"] else "agent",
+                col_x[2],
+                y,
+                "" if author["resolved"] else "unwired",
+            )
+            if not author["resolved"]:
+                dangling_drawn = True
+                _svg_break(edges, col_x[2] + _SVG_NODE_W, y + mid, leading=False)
+
+        band_y += (rows - 1) * _CHEM_ROW_DY + _SVG_NODE_H + _CHEM_BAND_GAP
+
+    counts = inventory.get("counts", {})
+    return _svg_document(
+        edges,
+        nodes_svg,
+        # The trailing stub after a dangling author hangs past the last column, so
+        # the canvas has to make room for it or the ✗ is clipped off the page.
+        col_x[2] + _SVG_NODE_W + (_CHEM_BREAK_DX + 16 if dangling_drawn else 16),
+        band_y - _CHEM_BAND_GAP + 18,
+        f"Citations: {counts.get('cited', 0)} of {counts.get('total', 0)} articles cited "
+        f"in the crate, {counts.get('doi_backed', 0)} DOI-backed",
+        marker=_CITE_MARKER,
+    )
+
+
+# ---------------------------------------------------------------------------
 # All-entities overview (#85) — the whole crate on one screen.
 #
-# The other five views each answer a question by drawing EDGES. This one answers
+# The other six views each answer a question by drawing EDGES. This one answers
 # a different question — "what is actually in here, and how much of it is
 # connected?" — for which a node-link diagram is the wrong instrument: 188 nodes
 # and 79 edges render as a hairball that hides exactly the composition it is
