@@ -461,10 +461,6 @@ def populate_crate(
     _wire_mentions(state, idx)
     _wire_dataset_aliases(state, crate, idx)
     _mirror_profile_predicates(crate)
-    # LAST: the ISA hierarchy above derives study/assay identifiers by nesting
-    # under the root's, as a plain string. Wrapping the root identifier before
-    # that point would put an entity where those need text.
-    _wrap_root_identifier(crate)
 
 
 # ---------------------------------------------------------------------------
@@ -984,36 +980,26 @@ def _mirror_profile_predicates(crate: ROCrate) -> None:
                 entity[mirror] = value
 
 
-def _wrap_root_identifier(crate: ROCrate) -> None:
-    """Re-emit the root's plain-string identifier as a PropertyValue entity.
-
-    Science-on-Schema.org — and the RO-Crate 1.2 SHOULD that follows it — asks
-    the root identifier to name WHICH scheme its string belongs to, rather than
-    leaving a reader to infer that from the string's shape. Every other
-    identifier in the crate is already a PropertyValue (`_identifier_pv`); this
-    is the root catching up.
-
-    A no-op when the identifier is absent or already an entity, so it is safe
-    wherever it runs in the pipeline.
-    """
-    root = crate.root_dataset
-    value = root.get("identifier")
-    if not isinstance(value, str) or not value.strip():
-        return
-    root["identifier"] = _identifier_pv(crate, "accession", value, _accession_scheme(value))
-
-
-def _accession_scheme(accession: str) -> str | None:
-    """The resolver a root accession belongs to, when its shape settles it.
-
-    Only claims a scheme the string itself establishes — a DOI is unambiguous,
-    an internal slug names no registry at all. Returning None simply omits
-    ``propertyID``, which is honest about not knowing.
-    """
-    value = (accession or "").strip()
-    if value.lower().startswith(("doi:", "10.")) or "doi.org/" in value.lower():
-        return "https://registry.identifiers.org/registry/doi"
-    return None
+# The root identifier stays a PLAIN STRING, and the RO-Crate 1.2 recommendation
+# "the Root Data Entity SHOULD use PropertyValue entities for identifiers"
+# (Science-on-Schema.org) is deliberately left unsatisfied. The two profiles this
+# crate declares contradict each other here:
+#
+#   ro-crate-1.2 should/2_root_data_entity_identifier.ttl
+#       every schema:identifier on ./ SHOULD be a schema:PropertyValue  (Warning)
+#   isa-ro-crate 0_investigation.ttl
+#       schema:identifier on ./ MUST have sh:datatype xsd:string        (Violation)
+#
+# A PropertyValue is referenced by IRI, so satisfying the first breaks the
+# second, and no mixed form escapes it: the SHOULD's SPARQL flags ANY identifier
+# that is not a PropertyValue, while the MUST's sh:datatype constrains EVERY
+# value of the path. Trading a Violation for a Warning is a bad trade — ISA
+# conformance is the stronger claim, and the pipeline asserts it end to end.
+#
+# This was tried (the wrap ran last, after the ISA hierarchy had derived
+# study/assay identifiers from the root's as text) and it flipped ISA conformance
+# to False. Leaving the note so the next reader knows the finding is a decision,
+# not an oversight.
 
 
 def _license_value(crate: ROCrate, license_value: str) -> Any:

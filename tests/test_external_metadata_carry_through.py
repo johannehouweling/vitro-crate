@@ -174,43 +174,46 @@ class TestTheLicenceSaysWhatItIs:
         assert describe_license(value) is None
 
 
-class TestTheRootIdentifierNamesItsScheme:
-    def test_it_is_a_property_value_entity(self):
+class TestTheRootIdentifierStaysAString:
+    """The two profiles this crate declares contradict each other here.
+
+    RO-Crate 1.2 recommends the root identifier be a PropertyValue entity
+    (Science-on-Schema.org); the ISA profile REQUIRES `schema:identifier` on the
+    root to have `sh:datatype xsd:string`. A PropertyValue is referenced by IRI,
+    so satisfying the recommendation breaks the requirement — and no mixed form
+    escapes it, because the SHOULD flags ANY non-PropertyValue identifier while
+    the MUST constrains EVERY value of the path.
+
+    A Violation is worse than a Warning, so the string wins and the RO-Crate
+    recommendation stays open on purpose. This was tried the other way and
+    flipped end-to-end ISA conformance to False.
+    """
+
+    def test_it_is_a_plain_string(self):
         state = CrateState()
         state.metadata.accession = "S-VHPS26"
-        doc = _doc(state)
-        root = _node(doc, "./")
+        root = _node(_doc(state), "./")
         assert root is not None
-        ref = root["identifier"]
-        assert isinstance(ref, dict), "the profile asks for a PropertyValue, not a string"
-        node = _node(doc, ref["@id"])
-        assert node is not None
-        assert node["@type"] == "PropertyValue"
-        assert node["value"] == "S-VHPS26"
+        assert root["identifier"] == "S-VHPS26"
 
-    def test_a_doi_accession_carries_its_resolver(self):
+    def test_isa_conformance_survives_it(self):
+        """The ISA MUST is `sh:datatype xsd:string`; an IRI reference fails it."""
+        from builder.tools.validation import build_and_validate
+
         state = CrateState()
-        state.metadata.accession = "https://doi.org/10.1007/s00204-024-03787-2"
-        doc = _doc(state)
-        root = _node(doc, "./")
-        assert root is not None
-        node = _node(doc, root["identifier"]["@id"])
-        assert node is not None
-        assert node["propertyID"] == {"@id": "https://registry.identifiers.org/registry/doi"}
+        state.metadata.title = "An investigation"
+        state.metadata.description = "Enough to get past the base requirements."
+        state.metadata.accession = "S-VHPS26"
+        _add(state, "inv_1", "Investigation", name="An investigation")
+        result = build_and_validate(state, severity="required", profile="isa")
+        offenders = [
+            i
+            for i in result["issues"]
+            if "identifier" in i["message"] and (i.get("entity_id") or "").endswith("./")
+        ]
+        assert offenders == [], f"the root identifier broke an ISA MUST: {offenders}"
 
-    def test_an_opaque_accession_claims_no_scheme(self):
-        """D5: an internal slug belongs to no registry, so none is named."""
-        state = CrateState()
-        state.metadata.accession = "inv_local_slug"
-        doc = _doc(state)
-        root = _node(doc, "./")
-        assert root is not None
-        node = _node(doc, root["identifier"]["@id"])
-        assert node is not None
-        assert "propertyID" not in node
-
-    def test_isa_identifiers_below_the_root_stay_strings(self):
-        """They nest textually under the root's — an entity there breaks them."""
+    def test_isa_identifiers_below_the_root_nest_under_it(self):
         state = CrateState()
         state.metadata.accession = "S-VHPS26"
         _add(state, "inv_1", "Investigation", name="Investigation")
@@ -219,12 +222,6 @@ class TestTheRootIdentifierNamesItsScheme:
         study = next(n for n in doc["@graph"] if "Study" in str(n.get("additionalType")))
         assert isinstance(study["identifier"], str)
         assert study["identifier"].startswith("S-VHPS26/")
-
-    def test_no_identifier_means_no_node(self):
-        doc = _doc(CrateState())
-        root = _node(doc, "./")
-        assert root is not None
-        assert "identifier" not in root or root["identifier"] == ""
 
 
 class TestOrganizationsCarryTheirWebsite:

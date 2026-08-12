@@ -100,9 +100,7 @@ class TestISAHierarchy:
 
     def test_isa_levels_have_distinct_identifiers(self, tmp_path):
         # All three deliberately share an identifier value — the builder must
-        # still emit three DISTINCT identifiers. The root's is a PropertyValue
-        # entity (Science-on-Schema.org, RO-Crate 1.2 SHOULD) while the ISA
-        # levels below it stay single strings that nest under the root's value.
+        # still emit three DISTINCT, single-string identifiers.
         state = CrateState()
         state.metadata.accession = "FAB-2026"
         state.add_entity(_ent("inv_1", "Investigation", name="Inv", identifier="FAB-2026"))
@@ -110,14 +108,9 @@ class TestISAHierarchy:
                               investigation_id="inv_1"))
         state.add_entity(_ent("assay_1", "Assay", name="A", identifier="FAB-2026",
                               study_id="study_1"))
-        graph, by_id = _build(state, tmp_path)
+        _, by_id = _build(state, tmp_path)
 
-        root_ref = by_id["./"]["identifier"]
-        assert isinstance(root_ref, dict), "the root identifier is a PropertyValue reference"
-        root_pv = by_id[root_ref["@id"]]
-        assert root_pv["@type"] == "PropertyValue"
-        root_id = root_pv["value"]
-
+        root_id = by_id["./"]["identifier"]
         study_id = by_id["#Study_study_1"]["identifier"]
         assay_id = by_id["#Assay_assay_1"]["identifier"]
         for ident in (root_id, study_id, assay_id):
