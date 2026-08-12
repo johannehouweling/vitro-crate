@@ -511,6 +511,11 @@ def main(argv: list[str] | None = None) -> int:
                 select_func=lambda choices, default: ui.select_option(
                     ui.get_console(), choices, default=default
                 ),
+                # Questions whose honest answer is several of the choices get a
+                # checkbox box instead — space toggles, enter confirms the set.
+                select_many_func=lambda hint, choices: ui.select_options(
+                    ui.get_console(), choices, hint=hint
+                ),
             )
         )
     else:
