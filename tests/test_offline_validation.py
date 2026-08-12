@@ -75,7 +75,7 @@ def _network_down() -> Iterator[list[str]]:
         attempted.append(request.url)
         raise requests.exceptions.ConnectionError(_FLAKE_MESSAGE)
 
-    HTTPAdapter.send = blocked_send  # ty: ignore[invalid-assignment]
+    HTTPAdapter.send = blocked_send
     try:
         yield attempted
     finally:
@@ -105,7 +105,7 @@ def _requester_raises() -> Iterator[None]:
             return _blocked
         return original_getattr(self, name)
 
-    rv_http.HttpRequester.__getattr__ = patched_getattr  # ty: ignore[invalid-assignment]
+    rv_http.HttpRequester.__getattr__ = patched_getattr
     try:
         yield
     finally:
