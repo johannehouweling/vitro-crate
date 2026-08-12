@@ -758,6 +758,54 @@ def _file_dest(fe: Entity) -> str:
     return _contain_dest(str(path), fallback)
 
 
+def _known_file_size(state: CrateState, fe: Entity, input_path: str | None) -> int | None:
+    """Bytes for a drafted File, from whatever already knows — never a guess.
+
+    Three places may know, in order of authority: the entity's own
+    ``contentSize``, the scan that measured the file, and the file itself. A
+    drafted File that matches none of them has no size stated, which is correct:
+    a synthesized placeholder describes no bytes on disk.
+
+    This exists because the size used to depend on HOW a file entered the crate.
+    The scanned-file loop set it; the drafted-File loop emitted only the entity's
+    own fields; and a file that was BOTH drafted and scanned took the drafted path
+    and was skipped by the scanned one as already covered. So the same file in the
+    same crate carried a size or not depending on which tool created it — two
+    exports of one session differed on exactly this.
+    """
+    existing = fe.fields.get("contentSize")
+    if existing:
+        try:
+            return int(str(existing))
+        except (TypeError, ValueError):
+            pass  # a malformed value is replaced below, not propagated
+
+    dest = _file_dest(fe)
+    for fc in getattr(state, "scanned_files", []) or []:
+        if fc.size and (fc.filename == Path(dest).name or str(fc.path).endswith(dest)):
+            return int(fc.size)
+
+    source = _file_source(fe, input_path)
+    if source:
+        try:
+            return Path(source).stat().st_size
+        except OSError:
+            logger.debug("Could not size %s for contentSize", source, exc_info=True)
+
+    # A provisional table has no file on the in-memory path, but its payload is
+    # the header line `_materialize_provisional_table` is about to write — so its
+    # length is known without writing it. Sizing the CONTENT rather than the file
+    # keeps the validated crate and the written one saying the same thing, which
+    # is the whole reason these tables are described identically on both paths.
+    if fe.fields.get("provisional"):
+        spec = _PROVISIONAL_TABLES.get(str(fe.fields.get("table_kind") or "measurements"))
+        if spec is not None:
+            _name, columns = spec
+            header = ",".join(c["titles"] for c in columns) + "\n"
+            return len(header.encode("utf-8"))
+    return None
+
+
 def _file_source(fe: Entity, input_path: str | None) -> str | None:
     """Resolve the on-disk source for a File data entity, or ``None`` (#128).
 
@@ -1182,6 +1230,12 @@ def _add_leaves(
         # explicit note that it holds no rows, so a consumer can never mistake
         # the template for data.
         props: dict[str, Any] = {"@type": file_type, **_scalar_props(fe)}
+        # Every File gets a size if anything knows one — see `_known_file_size`.
+        # The base profile asks each File Data Entity for a contentSize, and the
+        # answer was already in the scan or on disk.
+        size = _known_file_size(state, fe, state.metadata.input_path)
+        if size is not None:
+            props["contentSize"] = str(size)
         if fe.fields.get("provisional"):
             # Say so in the NAME, on every path. A description explains it, but
             # the name is what a file browser, the preview page and a reader's
