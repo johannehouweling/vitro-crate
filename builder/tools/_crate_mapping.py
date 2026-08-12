@@ -1266,7 +1266,19 @@ def _add_leaves(
                 )
             ),
         )
-        if provisional_rel is not None:
+        if fe.fields.get("provisional"):
+            # Keyed on the FLAG, not on materialisation — the same correction the
+            # name, the co-type and the description above already carry.
+            #
+            # These columns are OURS: the build generates them from
+            # `_PROVISIONAL_TABLES`, so the crate can declare them whether or not
+            # a payload was written. Keyed on `provisional_rel`, the schema and
+            # its columns existed only in the EXPORTED crate — nine nodes the
+            # in-loop validation never saw, carrying what has historically been
+            # this project's largest finding bucket. The agent iterated against a
+            # graph with no CSVW schema at all, and those findings appeared for
+            # the first time after export, when the loop that could have fixed
+            # them had already finished.
             _attach_provisional_schema(crate, node, fe)
 
     for proto in state.list_entities("LabProtocol"):
