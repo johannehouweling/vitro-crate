@@ -101,6 +101,25 @@ class InputResponse(TypedDict):
     skipped: bool
 
 
+class MultiChoiceResponse(TypedDict):
+    """Response from asking a human to pick ANY NUMBER of options.
+
+    Distinct from :class:`HumanResponse` because the answer is a set, not a
+    decision: "which of these entities should reference this organization?" can
+    truthfully be answered with three of them, and a single-choice prompt forces
+    the asker to either pick one wrongly or invent a link. ``values`` is empty
+    when the user selected nothing.
+
+    Attributes:
+        values: The options the user selected, in the order they were offered.
+        skipped: True if the user declined to answer at all (distinct from
+            selecting nothing, which is a deliberate "none of these").
+    """
+
+    values: list[str]
+    skipped: bool
+
+
 # Sentinel ``purpose`` value marking a request to approve a NEW filesystem
 # scan root. The default/simulated interface must DENY these — it can never be
 # the approver for filesystem access (fail-closed, #197).
@@ -142,6 +161,12 @@ class HumanInterface(Protocol):
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Request a specific input value from the human."""
         ...
+
+    # `select_many` is deliberately NOT declared here. Like `is_interactive`, it
+    # is an OPTIONAL capability: requiring it would break every existing adapter
+    # and test double the moment it was added. Callers must go through
+    # :func:`select_many`, which detects support and degrades to a single-choice
+    # prompt on frontends that do not offer one.
 
 
 class SimulatedHumanInterface:
@@ -186,6 +211,21 @@ class SimulatedHumanInterface:
         """Log the request and return a skip response."""
         logger.info("HITL input request: %s (type=%s)", prompt, field_type)
         return {"value": None, "skipped": True}
+
+    def select_many(
+        self,
+        context: str,
+        options: list[str],
+        purpose: str | None = None,
+    ) -> MultiChoiceResponse:
+        """Log the request and skip — the simulator never picks on a user's behalf.
+
+        Declared (rather than left to the degrade path) so a headless run does
+        not fall through to :meth:`present`, whose auto-approval would look like
+        the user having chosen the first option.
+        """
+        logger.info("HITL multi-choice request: %s (%d options)", context, len(options or []))
+        return {"values": [], "skipped": True}
 
 
 def _default_console_prompt(field_type: str) -> str:
@@ -296,6 +336,29 @@ def _default_console_select(choices: list[str], default: int) -> int | None:
     return match_choice(raw, choices, default)
 
 
+def _default_console_select_many(context: str, choices: list[str]) -> list[int] | None:
+    """Plain-terminal many-of-N chooser — the default when no UI box is injected.
+
+    Reads one line of numbers (comma- or space-separated); an empty line means
+    "none of these", which is a real answer rather than a cancel. The CLI injects
+    the checkbox box (:func:`builder.agents.ui.select_options`) instead.
+    """
+    print(context)
+    for index, choice in enumerate(choices, start=1):
+        print(f"   {index}. {choice}")
+    try:
+        raw = input(f"Select any [1-{len(choices)}, comma-separated; Enter = none]: ")
+    except EOFError:
+        return None
+    picked: list[int] = []
+    for token in raw.replace(",", " ").split():
+        if token.isdigit() and 1 <= int(token) <= len(choices):
+            position = int(token) - 1
+            if position not in picked:
+                picked.append(position)
+    return picked
+
+
 class ConsoleHumanInterface:
     """A REAL interactive HITL interface that prompts on the terminal (stdin).
 
@@ -329,6 +392,7 @@ class ConsoleHumanInterface:
         prompt_func: Callable[[str], str] | None = None,
         show_func: Callable[[str], None] | None = None,
         select_func: Callable[[list[str], int], int | None] | None = None,
+        select_many_func: Callable[[str, list[str]], list[int] | None] | None = None,
     ) -> None:
         """Build the interface, optionally injecting the prompt reader + display.
 
@@ -347,11 +411,19 @@ class ConsoleHumanInterface:
                 The CLI passes the arrow-navigable rounded box
                 (:func:`builder.agents.ui.select_option`), so a decision and a
                 free-text answer look like the same control.
+            select_many_func: A ``(hint, choices) -> indices | None`` chooser used
+                by :meth:`select_many` for questions with several right answers
+                at once. Defaults to :func:`_default_console_select_many`
+                (numbered lines, comma-separated reply). The CLI passes the
+                checkbox box (:func:`builder.agents.ui.select_options`).
         """
         self._read: Callable[[str], str] = prompt_func or _default_console_prompt
         self._show: Callable[[str], None] = show_func or _default_console_show
         self._select: Callable[[list[str], int], int | None] = (
             select_func or _default_console_select
+        )
+        self._select_many: Callable[[str, list[str]], list[int] | None] = (
+            select_many_func or _default_console_select_many
         )
         self._done = False
 
@@ -431,6 +503,33 @@ class ConsoleHumanInterface:
         # WHICH option was picked (e.g. an ambiguous publication author).
         return {"action": "approved", "comments": answer, "edits": None}
 
+    def select_many(
+        self,
+        context: str,
+        options: list[str],
+        purpose: str | None = None,
+    ) -> MultiChoiceResponse:
+        """Ask for any number of *options* at once (see :func:`select_many`).
+
+        Confirming with nothing ticked is a real answer — "none of these" — and
+        returns empty values with ``skipped`` False. Cancelling (Esc / EOF) is
+        the skip. A scan-root escalation never routes here: widening filesystem
+        access is a single fail-closed decision, not a pick-list.
+        """
+        if purpose == SCAN_ROOT_PURPOSE:
+            return {"values": [], "skipped": True}
+        choices = [c for c in (options or []) if c]
+        if not choices:
+            return {"values": [], "skipped": True}
+        with suspend_console_animation():
+            picked = self._select_many(context, choices)
+        if picked is None:
+            return {"values": [], "skipped": True}
+        return {
+            "values": [choices[i] for i in picked if 0 <= i < len(choices)],
+            "skipped": False,
+        }
+
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Prompt the user for a value; an empty answer (or EOF) is a skip.
 
@@ -452,6 +551,58 @@ class ConsoleHumanInterface:
         if not value:
             return {"value": None, "skipped": True}
         return {"value": value, "skipped": False}
+
+
+def supports_multi_choice(human: HumanInterface | None) -> bool:
+    """Whether *human* can take a many-of-N answer natively."""
+    return callable(getattr(human, "select_many", None))
+
+
+def select_many(
+    human: HumanInterface | None,
+    context: str,
+    options: list[str],
+    *,
+    purpose: str | None = None,
+) -> MultiChoiceResponse:
+    """Ask *human* to pick any number of *options* — none, one, or several.
+
+    Some questions genuinely have several right answers at once. Forcing them
+    through the single-choice prompt makes the asker choose between recording
+    one of the true answers or none, and an agent that needs "which of these
+    does this apply to?" has no way to say "these three".
+
+    Frontends that implement ``select_many`` answer natively. Anything else —
+    including every adapter written before this existed — degrades to the
+    single-choice :meth:`~HumanInterface.present` prompt, whose one answer is
+    returned as a one-element list. Degrading is why this is a function rather
+    than a Protocol method: the capability is optional, and callers should not
+    have to ask which frontend they are talking to.
+
+    A ``None`` interface (headless) skips, consistent with :func:`is_interactive`
+    being fail-closed.
+    """
+    choices = [c for c in (options or []) if c]
+    if human is None or not choices:
+        return {"values": [], "skipped": True}
+
+    native = getattr(human, "select_many", None)
+    if callable(native):
+        result = native(context, choices, purpose)
+        # Trust the frontend's answer but never its bookkeeping: an option the
+        # user did not have on offer must not enter the crate.
+        offered = set(choices)
+        values = [v for v in (result.get("values") or []) if v in offered]
+        return {"values": values, "skipped": bool(result.get("skipped")) and not values}
+
+    response = human.present(context, choices, purpose)
+    if response.get("action") not in ("approved", "edited"):
+        return {"values": [], "skipped": True}
+    answer = response.get("comments")
+    return {"values": [answer], "skipped": False} if answer in choices else {
+        "values": [],
+        "skipped": True,
+    }
 
 
 def is_interactive(human: HumanInterface | None) -> bool:
@@ -503,8 +654,11 @@ __all__ = [
     "HumanInterface",
     "HumanResponse",
     "InputResponse",
+    "MultiChoiceResponse",
     "SimulatedHumanInterface",
     "is_interactive",
     "present_to_human",
     "request_input",
+    "select_many",
+    "supports_multi_choice",
 ]

@@ -30,6 +30,7 @@ from rocrate.model import ContextEntity, DataEntity, File, Person
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
+from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, Sample, param_id
 from profiles.models.tox import (
     CellLineSample,
@@ -49,11 +50,20 @@ PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
 CELL_LINE_TERM_ID = iri("NCIT:C16403")
 
+# The spellings a LabProcess's protocol link arrives under. `labprotocol` is what
+# the draft schema advertises; `protocol` is the word the agent actually reaches
+# for, and a link written under it used to resolve to nothing.
+_PROTOCOL_ALIASES = ("labprotocol", "protocol")
+
 # Fields that hold references to other entities (resolved via the index), not literals.
 _REF_FIELDS = frozenset(
     {
         "samples",
         "labprotocol",
+        # Alias of `labprotocol` (see `_PROTOCOL_ALIASES`). Listed here so the
+        # raw state id is consumed as a reference rather than also shipping as a
+        # literal `protocol` string on the process node.
+        "protocol",
         "cell_line",
         "object",
         "result",
@@ -450,6 +460,7 @@ def populate_crate(
     _add_generator_provenance(state, crate)
     _wire_mentions(state, idx)
     _wire_dataset_aliases(state, crate, idx)
+    _mirror_profile_predicates(crate)
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +553,15 @@ def _first_field(entity: Entity, aliases: tuple[str, ...]) -> str | None:
         value = entity.fields.get(alias)
         if value not in (None, ""):
             return str(value)
+    return None
+
+
+def _first_of(fields: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+    """The first non-empty value among ``aliases`` in a raw field dict."""
+    for alias in aliases:
+        value = fields.get(alias)
+        if value not in (None, "", [], {}):
+            return value
     return None
 
 
@@ -932,6 +952,81 @@ def _idx_add(idx: dict[str, Any], entity: Entity, node: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+# Values a crate must carry under TWO predicates because the two profiles it
+# declares ask for the same thing in different vocabularies. Each pair is
+# (key the builder emits, key that mirrors it) — both are context terms, so the
+# mirror lands on the second profile's IRI. Kept as data, not four call sites,
+# so adding a profile means adding a row.
+_PROFILE_MIRRORED_KEYS: tuple[tuple[str, str], ...] = (("parameter", "parameterValue"),)
+
+
+def _mirror_profile_predicates(crate: ROCrate) -> None:
+    """Re-emit values that two declared profiles name differently.
+
+    A process's parameters are ``schema:additionalProperty`` to schema.org (and
+    to our own tox shapes) and ``bioschemas:parameterValue`` to the ISA profile.
+    Both are true, and a crate declaring conformance to both owes the reader
+    both — writing only one leaves half the shapes looking at an IRI that is not
+    there, which reads as missing data when the parameters are right in the
+    node.
+
+    The mirror is a reference to the SAME PropertyValue nodes, not a copy, so
+    the graph gains a predicate rather than duplicate entities.
+    """
+    for entity in crate.get_entities():
+        for source, mirror in _PROFILE_MIRRORED_KEYS:
+            value = entity.get(source)
+            if value not in (None, "", [], {}) and entity.get(mirror) in (None, "", [], {}):
+                entity[mirror] = value
+
+
+# The root identifier stays a PLAIN STRING, and the RO-Crate 1.2 recommendation
+# "the Root Data Entity SHOULD use PropertyValue entities for identifiers"
+# (Science-on-Schema.org) is deliberately left unsatisfied. The two profiles this
+# crate declares contradict each other here:
+#
+#   ro-crate-1.2 should/2_root_data_entity_identifier.ttl
+#       every schema:identifier on ./ SHOULD be a schema:PropertyValue  (Warning)
+#   isa-ro-crate 0_investigation.ttl
+#       schema:identifier on ./ MUST have sh:datatype xsd:string        (Violation)
+#
+# A PropertyValue is referenced by IRI, so satisfying the first breaks the
+# second, and no mixed form escapes it: the SHOULD's SPARQL flags ANY identifier
+# that is not a PropertyValue, while the MUST's sh:datatype constrains EVERY
+# value of the path. Trading a Violation for a Warning is a bad trade — ISA
+# conformance is the stronger claim, and the pipeline asserts it end to end.
+#
+# This was tried (the wrap ran last, after the ISA hierarchy had derived
+# study/assay identifiers from the root's as text) and it flipped ISA conformance
+# to False. Leaving the note so the next reader knows the finding is a decision,
+# not an oversight.
+
+
+def _license_value(crate: ROCrate, license_value: str) -> Any:
+    """The root's ``license``: a described contextual entity when we can name it.
+
+    The profile asks a License entity for a name and a description, and a bare
+    URL string is neither. When `describe_license` recognises the URL, the crate
+    carries a real entity that says what the licence is; when it does not, the
+    value is left exactly as given rather than dressed up with an invented name.
+    """
+    value = (license_value or "").strip()
+    described = describe_license(value)
+    if described is None:
+        return license_value
+    return crate.add(
+        ContextEntity(
+            crate,
+            value,
+            properties={
+                "@type": "CreativeWork",
+                "name": described["name"],
+                "description": described["description"],
+            },
+        )
+    )
+
+
 def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     m = state.metadata
     # Base RO-Crate MUST: the Root Data Entity has a name and a description.
@@ -952,7 +1047,7 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     # Base RO-Crate MUST: the Root Data Entity has a license. A license the user
     # gave wins; the ISA-Tox shape endorses this placeholder when none is known.
     if m.license:
-        crate.root_dataset["license"] = m.license
+        crate.root_dataset["license"] = _license_value(crate, m.license)
     elif not crate.root_dataset.get("license"):
         crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
 
@@ -1053,6 +1148,44 @@ def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
     return out
 
 
+# Fields that describe how to reach a Person or Organization. Held back from the
+# node's scalar properties and re-emitted as a ContactPoint entity instead.
+_CONTACT_FIELDS: tuple[str, ...] = ("email", "telephone", "contactPoint", "contact_point")
+
+
+def _attach_contact_point(crate: ROCrate, node: Any, entity: Entity) -> None:
+    """Emit an entity's contact details as a ContactPoint, referenced from *node*.
+
+    Both profiles ask for the same thing in the same way: an Organization's
+    ``contactPoint`` SHOULD reference a ContactPoint contextual entity, and the
+    root's authors/publishers SHOULD have one between them. An email written as a
+    literal on the Person satisfies neither, because the shapes want an entity to
+    point at — the same reference-not-literal rule that already governs
+    affiliation and creator.
+
+    Nothing is invented (D5): with no contact details in state this emits
+    nothing, and the finding stays open rather than being answered with a made-up
+    address. The details arrive from the human, which is the only place a contact
+    for a real person can legitimately come from.
+    """
+    email = _first_field(entity, ("email", "contactPoint", "contact_point"))
+    telephone = _first_field(entity, ("telephone",))
+    if not email and not telephone:
+        return
+    properties: dict[str, Any] = {"@type": "ContactPoint", "contactType": "correspondence"}
+    if email:
+        # A `mailto:` prefix is how a human often writes it; the shapes and
+        # schema.org both want the bare address.
+        properties["email"] = email.removeprefix("mailto:").strip()
+    if telephone:
+        properties["telephone"] = telephone
+    anchor = properties.get("email") or properties.get("telephone") or ""
+    contact = crate.add(
+        ContextEntity(crate, f"#contact_{_slug(str(anchor))}", properties=properties)
+    )
+    node.append_to("contactPoint", contact)
+
+
 def _cell_line_term(crate: ROCrate) -> ContextEntity:
     """The shared, resolvable 'cell line' DefinedTerm for CellLineSample.sampleType."""
     return crate.add(
@@ -1079,24 +1212,27 @@ def _add_leaves(
     include_all_scanned: bool = True,
 ) -> None:
     for org in state.list_entities("Organization"):
-        _idx_add(
-            idx,
-            org,
-            crate.add(
-                ContextEntity(
-                    crate,
-                    _mint_id(org),
-                    properties={"@type": "Organization", **_scalar_props(org)},
-                )
-            ),
+        org_node = crate.add(
+            ContextEntity(
+                crate,
+                _mint_id(org),
+                properties={"@type": "Organization", **_scalar_props(org, skip=_CONTACT_FIELDS)},
+            )
         )
+        _attach_contact_point(crate, org_node, org)
+        _idx_add(idx, org, org_node)
 
     for person in state.list_entities("Person"):
         # affiliation is a reference, not a literal: resolve it to the in-crate
         # Organization node (or keep a bare IRI), and never emit it as a string.
         node = crate.add(
-            Person(crate, _mint_id(person), properties=_scalar_props(person, skip=("affiliation",)))
+            Person(
+                crate,
+                _mint_id(person),
+                properties=_scalar_props(person, skip=("affiliation", *_CONTACT_FIELDS)),
+            )
         )
+        _attach_contact_point(crate, node, person)
         _idx_add(idx, person, node)
         # A looked-up ORCID round-trips as an ORCID PropertyValue identifier (#180).
         orcid = person.fields.get("orcid")
@@ -2357,7 +2493,14 @@ def _add_processes(
         ptype = f.get("process_type") or f.get("additionalType") or ""
         pid = _mint_id(proc)
         name = f.get("name") or ptype or "Process"
-        protocol = _resolve_one(idx, f.get("labprotocol")) or _synth_protocol(
+        # `protocol` is the word an agent reaches for, and it wrote the real
+        # LabProtocol id under it while this read only `labprotocol` — so the
+        # link was in state, resolved to nothing, and every process fell through
+        # to a synthesised placeholder. The crate then carried TWO protocols: a
+        # stub each process pointed at, and the actual SOP nobody referenced.
+        # Same failure as `data_processing` / `computational_tool` below; same
+        # answer, accept both spellings.
+        protocol = _resolve_one(idx, _first_of(f, _PROTOCOL_ALIASES)) or _synth_protocol(
             crate, f.get("assay_id"), proto_cache
         )
         node = _build_process(

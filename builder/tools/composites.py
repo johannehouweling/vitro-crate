@@ -53,6 +53,7 @@ from builder.tools.provenance import _PROCESS_LINK_HOMES as _BUILD_HONOURED_HOME
 from builder.tools.verification import verify_identifier
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
+from lookups.ror import fetch_ror_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -1004,12 +1005,40 @@ def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = 
     ror_value = (ror or "").strip()
     for org in state.list_entities("Organization"):
         if str(org.fields.get("name") or "").strip() == name:
+            patch: dict[str, Any] = {}
             if ror_value and not org.fields.get("ror"):
-                org.set_fields_from_dict({"ror": ror_value}, source="lookup")
+                patch["ror"] = ror_value
+            known_ror = ror_value or str(org.fields.get("ror") or "")
+            if known_ror and not org.fields.get("url"):
+                patch.update(_ror_website(known_ror))
+            if patch:
+                org.set_fields_from_dict(patch, source="lookup")
             return org.entity_id
     hints: dict[str, Any] = {"ror": ror_value} if ror_value else {}
+    if ror_value:
+        hints.update(_ror_website(ror_value))
     org = draft_organization(state, name, hints)
     return org.entity_id
+
+
+def _ror_website(ror_id: str) -> dict[str, str]:
+    """``{"url": ...}`` for a known ROR id, or ``{}`` — never raises.
+
+    ROR states the organization's website on the record the id already names, so
+    the profile's "organization SHOULD have a URL" is answerable from a registry
+    rather than from a human. This is an exact by-id fetch, not a name search:
+    the id is already established (ORCID's employment record, or a human), so no
+    guess is involved and D5 holds.
+
+    Failure is silent by design. An organization without a website is a
+    recommendation-level finding; an author cascade that dies because ROR is
+    briefly down is a broken build.
+    """
+    try:
+        return {"url": url} if (url := (fetch_ror_by_id(ror_id) or {}).get("url")) else {}
+    except Exception:
+        logger.debug("ROR website lookup failed for %s", ror_id, exc_info=True)
+        return {}
 
 
 def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entity:

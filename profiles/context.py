@@ -7,6 +7,13 @@ module that creates an ROCrate with the ISA-Tox profile.
 
 from profiles.ontology_iris import PREFIXES, iri
 
+# Bioschemas splits its vocabulary by kind: types at the bare namespace,
+# properties beneath /properties/. Both the ISA-RO-Crate shapes and Bioschemas
+# itself use this split, so property IRIs are built from this prefix rather than
+# spelled out — a property written at the type namespace is invisible to the
+# shapes that ask for it.
+BIOSCHEMAS_PROP = "https://bioschemas.org/properties/"
+
 ISA_TOX_CONTEXT: list[dict] = [
     {
         # Use http://schema.org/ (HTTP) to align with the RO-Crate 1.1 context and
@@ -26,29 +33,39 @@ ISA_TOX_CONTEXT: list[dict] = [
         # schema:sampleType — the categorical annotation (a DefinedTerm) on the
         # cell-based test-system Sample (ISA-Tox domain layer).
         "sampleType": "http://schema.org/sampleType",
-        # Bioschemas properties
-        "processSequence": "https://bioschemas.org/processSequence",
-        "executesLabProtocol": "https://bioschemas.org/executesLabProtocol",
-        # Process parameters are PropertyValue nodes attached via
-        # schema:additionalProperty (schema:parameterValue is not a real schema.org
-        # term). The ISA-Tox shapes use `sh:path schema:additionalProperty`; the
-        # friendly key "parameter" is what the builder emits in JSON.
-        "parameterValue": "http://schema.org/additionalProperty",
+        # Bioschemas PROPERTIES live under /properties/; only TYPES sit at the
+        # bare namespace (https://bioschemas.org/LabProcess resolves, and so does
+        # https://bioschemas.org/properties/additionalProperty, while
+        # https://bioschemas.org/executesLabProtocol does not). Emitting a
+        # property at the type namespace put it on an IRI no shape looks at, so
+        # the ISA profile we declare conformance to could not see the protocol
+        # link at all — the value was in the crate under a predicate nobody asked
+        # about. Same failure mode as the `author`/`creator` alias.
+        "processSequence": f"{BIOSCHEMAS_PROP}processSequence",
+        "executesLabProtocol": f"{BIOSCHEMAS_PROP}executesLabProtocol",
+        # Process parameters are PropertyValue nodes. `parameter` stays on
+        # schema:additionalProperty — a real schema.org property, and the path
+        # our OWN tox shapes target — while `parameterValue` carries the
+        # Bioschemas predicate the ISA profile requires. The builder emits both
+        # keys for the same values, because the two profiles we claim ask for
+        # the parameters under different predicates and dropping either loses a
+        # conformance we advertise.
+        "parameterValue": f"{BIOSCHEMAS_PROP}parameterValue",
         "parameter": "http://schema.org/additionalProperty",
-        "factorValue": "https://bioschemas.org/factorValue",
+        "factorValue": f"{BIOSCHEMAS_PROP}factorValue",
         # schema:object is the real schema.org Action/LabProcess input predicate
         # (https://bioschemas.org/object does not exist); the shapes target schema:object.
         "object": "http://schema.org/object",
         # Friendly alias for a LabProcess's input(s).
         "input": "http://schema.org/object",
-        "labEquipment": "https://bioschemas.org/labEquipment",
-        "reagent": "https://bioschemas.org/reagent",
-        "computationalTool": "https://bioschemas.org/computationalTool",
+        "labEquipment": f"{BIOSCHEMAS_PROP}labEquipment",
+        "reagent": f"{BIOSCHEMAS_PROP}reagent",
+        "computationalTool": f"{BIOSCHEMAS_PROP}computationalTool",
         # Real schema.org PROPERTIES (the value is a DefinedTerm); previously these keys
         # were mapped to the schema:DefinedTerm *class*, which made every use a nonsense triple.
         "measurementMethod": "http://schema.org/measurementMethod",
         "measurementTechnique": "http://schema.org/measurementTechnique",
-        "labProcess": "https://bioschemas.org/labProcess",
+        "labProcess": f"{BIOSCHEMAS_PROP}labProcess",
         # Schema.org types (HTTP to match RO-Crate 1.1 context)
         "Dataset": "http://schema.org/Dataset",
         "File": "http://schema.org/MediaObject",
@@ -90,9 +107,13 @@ ISA_TOX_CONTEXT: list[dict] = [
         "description": "http://schema.org/description",
         "identifier": "http://schema.org/identifier",
         "creator": "http://schema.org/creator",
-        # Friendly alias aligned with the BioStudies PageTab vocabulary; the builder
-        # emits authors under "author", which expands to schema:creator.
-        "author": "http://schema.org/creator",
+        # `author` is its own schema.org property, NOT an alias for `creator`.
+        # This block is the LAST entry in the crate's @context, so it overrides
+        # the RO-Crate context that precedes it — aliasing `author` here rewrote
+        # every author in the crate to schema:creator, and the ISA shape asking
+        # for schema:author then found nothing on an article whose authors were
+        # all present and resolvable. Keep the term mapped to itself.
+        "author": "http://schema.org/author",
         "publisher": "http://schema.org/publisher",
         "dateCreated": "http://schema.org/dateCreated",
         "datePublished": "http://schema.org/datePublished",
