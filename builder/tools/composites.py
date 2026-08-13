@@ -307,7 +307,9 @@ def draft_process_chain(
 
     assay = state.get_entity(assay_id)
     if assay is None:
-        raise ValueError(f"draft_process_chain assay not found: {assay_id!r}.")
+        from builder.tools.management import entity_not_found_message
+
+        raise ValueError(f"draft_process_chain assay: {entity_not_found_message(state, assay_id)}")
     if assay.type != "Assay":
         raise ValueError(
             f"draft_process_chain assay_id must be an Assay; {assay_id!r} is a {assay.type}."

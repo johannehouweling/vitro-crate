@@ -29,6 +29,7 @@ from typing import Any
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import PROVENANCE_RELATIONS, _file_source
 from builder.tools.drafters import _make_entity_id
+from builder.tools.management import entity_not_found_message
 from builder.tools.scanner import encoding_format_for_name
 
 logger = logging.getLogger(__name__)
@@ -169,11 +170,15 @@ def link(state: CrateState, from_id: str, relation: str, to_id: str) -> dict[str
     if relation not in PROVENANCE_RELATIONS:
         valid = ", ".join(sorted(PROVENANCE_RELATIONS))
         raise ValueError(f"Unknown provenance relation {relation!r}. Valid relations are: {valid}.")
+    # Route a miss through the shared message so it names the ids the caller was
+    # most likely reaching for. A flat "not found" tells the agent its guess was
+    # wrong without telling it what is right, so it guesses again — one profiled
+    # session lost four iterations to exactly that, on ids it had never been shown.
     src = state.get_entity(from_id)
     if src is None:
-        raise ValueError(f"link source entity not found: {from_id!r}.")
+        raise ValueError(f"link source: {entity_not_found_message(state, from_id)}")
     if state.get_entity(to_id) is None:
-        raise ValueError(f"link target entity not found: {to_id!r}.")
+        raise ValueError(f"link target: {entity_not_found_message(state, to_id)}")
 
     # Write where the build reads, not where the caller pointed — see
     # _PROCESS_LINK_HOMES. Silently storing an edge assembly discards is worse
@@ -282,7 +287,7 @@ def attach_files(
     """
     target = state.get_entity(to)
     if target is None:
-        raise ValueError(f"attach_files target not found: {to!r}.")
+        raise ValueError(f"attach_files target: {entity_not_found_message(state, to)}")
     if target.type not in ("Study", "Assay"):
         raise ValueError(
             f"attach_files target must be a Study or Assay; {to!r} is a "
