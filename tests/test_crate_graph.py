@@ -318,6 +318,38 @@ def test_orphan_flagged() -> None:
     assert nodes["./"]["orphan"] is False  # root is never an orphan
 
 
+def test_the_root_licence_is_reachable() -> None:
+    """`schema:license` is an edge from the root, so its entity is not an orphan.
+
+    A recognised licence is a described CreativeWork rather than a bare URL, and
+    a predicate missing from the traversal vocabulary is reported as an orphan —
+    so the crate accused its own licence of being unreachable while the root
+    pointed straight at it. Reachability is only as complete as that list.
+    """
+    crate = _crate()
+    licence_id = "https://creativecommons.org/licenses/by/4.0/"
+    root = next(n for n in crate["@graph"] if n["@id"] == "./")
+    root["license"] = {"@id": licence_id}
+    crate["@graph"].append(
+        {
+            "@id": licence_id,
+            "@type": "CreativeWork",
+            "name": "Creative Commons Attribution 4.0 International",
+        }
+    )
+    nodes = _by_id(build_crate_graph(crate))
+    assert nodes[licence_id]["orphan"] is False
+
+
+def test_a_bare_string_licence_creates_no_node() -> None:
+    """An unrecognised licence stays a literal, and a literal is not an entity."""
+    crate = _crate()
+    root = next(n for n in crate["@graph"] if n["@id"] == "./")
+    root["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
+    ids = {n["id"] for n in build_crate_graph(crate)["nodes"]}
+    assert "ALL RIGHTS RESERVED BY THE AUTHORS" not in ids
+
+
 def test_descriptor_and_preview_excluded() -> None:
     ids = {n["id"] for n in build_crate_graph(_crate())["nodes"]}
     assert "ro-crate-metadata.json" not in ids

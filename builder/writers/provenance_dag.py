@@ -1113,6 +1113,16 @@ _AOP_KEYS = (
 _CONTACT_KEYS = ("contactPoint", "http://schema.org/contactPoint")
 _PROPERTYURL_KEYS = ("propertyUrl", "http://www.w3.org/ns/csvw#propertyUrl")
 _MEASTECH_KEYS = ("measurementTechnique", "measurementMethod", "intendedUse")
+# The licence the Root Data Entity declares. Now that a recognised licence is a
+# described CreativeWork rather than a bare URL, `schema:license` is a real edge
+# from the root — and a predicate missing from this vocabulary is reported as an
+# orphan, so the crate accused its own licence of being unreachable while the
+# root pointed straight at it.
+_LICENSE_KEYS = (
+    "license",
+    "http://schema.org/license",
+    "https://schema.org/license",
+)
 _PARAM_KEYS = (
     "parameter",
     "parameterValue",
@@ -1144,6 +1154,7 @@ _SECONDARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_VALUEURL_KEYS, "valueUrl", False),
     (_CONFORMSTO_KEYS, "conformsTo", False),
     (_CITATION_KEYS, "citation", False),
+    (_LICENSE_KEYS, "license", False),
     (_MEASTECH_KEYS, "measurementTechnique", False),
     (_PARAM_KEYS, "parameter", False),
     (_IDENTIFIER_REL_KEYS, "identifier", False),
