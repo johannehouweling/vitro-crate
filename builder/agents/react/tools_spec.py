@@ -11,6 +11,30 @@ scalar and reference keys an entity accepts.
 
 from builder.tools._crate_mapping import draft_hints_schema
 
+
+def _cell_line_resolve_hints_schema() -> dict:
+    """``draft_hints_schema("CellLineSample")`` minus the keys the composite refuses.
+
+    The drafter's schema advertises ``accession`` — correct there, since
+    ``draft_cell_line_sample`` is the primitive an agent uses when it already
+    holds a looked-up id. It is exactly wrong for ``resolve_cell_line``, whose
+    whole point is that the accession comes back from Cellosaurus inside the
+    call: advertising a slot the composite silently drops invites the model to
+    fill it with the nearest CVCL id in its context (#383). Derived from
+    ``_CELL_LINE_REFUSED_HINTS`` rather than restated, so the advertised schema
+    and the enforced one cannot drift.
+    """
+    from builder.tools.composites import _CELL_LINE_REFUSED_HINTS
+
+    schema = draft_hints_schema("CellLineSample")
+    schema["properties"] = {
+        key: spec
+        for key, spec in schema.get("properties", {}).items()
+        if key not in _CELL_LINE_REFUSED_HINTS
+    }
+    return schema
+
+
 TOOL_SPECS = [
     {
         "name": "draft_investigation",
@@ -125,6 +149,29 @@ TOOL_SPECS = [
                 "verify": {
                     "type": "boolean",
                     "description": "Verify the minted identifiers against source (default true). Pass false only when you will verify later — never to attach an unverified id.",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "resolve_cell_line",
+        "description": "Resolve a cell-line NAME to a CellLineSample carrying its Cellosaurus accession in ONE call (the cell-line counterpart of resolve_compound). Two steps, both against Cellosaurus: lookup_cell_line_by_name on the name (and then on catalog_name) commits an accession ONLY on its exact+unique D5 gate, and lookup_cell_line on that accession IS the verification (a definitive miss clears the accession; a transient outage keeps it unverified). Prefer this over lookup_cell_line_by_name + draft_cell_line_sample + verify_identifier. UNLIKE resolve_compound a miss is NOT a failure and there is no 'ok' key: a name-only CellLineSample is a valid ISA Sample, so the entity is ALWAYS minted and the accession is enrichment — read 'accession'/'match' to see whether one was found. 'name' is kept exactly as the source documents word it; the Cellosaurus label lands on alternateName. Idempotent (reused by accession, then by name). NEVER pass an accession — not as a hint and not as catalog_name (a CVCL_*-shaped catalog_name is refused); every id must come back from the lookup. Example: resolve_cell_line(name='FRTL-5 TPO-overexpressing rat thyroid follicular cells', catalog_name='FRTL-5').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Cell-line name as the source documents word it, e.g. 'FRTL-5 TPO-overexpressing rat thyroid follicular cells'.",
+                },
+                "hints": _cell_line_resolve_hints_schema(),
+                "catalog_name": {
+                    "type": "string",
+                    "description": "Optional SHORT catalogue name for the same line, e.g. 'FRTL-5' or 'HepG2' — a name, never an accession. Tried after the full name so a descriptive phrase can still reach its record.",
+                },
+                "verify": {
+                    "type": "boolean",
+                    "description": "Confirm the accession against its Cellosaurus record (default true). Passing false also skips the record fetch, so no enrichment lands — use only when you will verify later.",
                 },
             },
             "required": ["name"],

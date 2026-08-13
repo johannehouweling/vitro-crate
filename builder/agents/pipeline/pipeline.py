@@ -1545,9 +1545,10 @@ def _materialize_plan(
     * each ``compounds[]`` → :func:`resolve_compound` (mints the
       ``MolecularEntity`` and its **verified** identifiers; the plan supplies the
       NAME only — D5).
-    * each ``cell_lines[]`` → ``draft_cell_line_sample`` (a ``CellLineSample``
-      from the name only; the Cellosaurus accession is a later lookup, not the
-      plan).
+    * each ``cell_lines[]`` → :func:`resolve_cell_line` (mints the
+      ``CellLineSample`` and looks its Cellosaurus accession up from the plan's
+      NAME plus optional short ``catalog_name`` — D5). Unlike ``resolve_compound``
+      a miss still mints: a name-only cell line is a valid ISA Sample.
     * **entity→provenance wiring (#273).** Resolving a compound / cell line MINTS
       the entity but leaves it a graph ORPHAN unless something references it, so the
       collected ids are wired deterministically via ``set_fields`` (never
@@ -1752,22 +1753,34 @@ def _materialize_plan(
         if cid:
             compound_ids.append(str(cid))
 
-    # --- cell lines: a CellLineSample from the name only (accession is a lookup) ---
-    # Collect each minted CellLineSample id so the cell line can be wired into the
-    # CellCulture (and Study) below (#273) rather than left orphaned.
+    # --- cell lines: resolve_cell_line mints the CellLineSample + its accession ---
+    # This used to call `draft_cell_line_sample(name=name, hints={})` — no lookup at
+    # all — so `lookup_cell_line_by_name` had no caller on this arm and every
+    # default-arm cell line shipped without an accession (#372). Collect each id so
+    # the cell line can be wired into the CellCulture (and Study) below (#273)
+    # rather than left orphaned.
     cell_line_ids: list[str] = []
     for cell_line in plan.get("cell_lines") or []:
         name = str((cell_line or {}).get("name") or "").strip()
         if not name:
             continue
+        # The plan's short catalogue NAME (never an accession — the composite
+        # refuses a CVCL-shaped one). Without it a descriptive phrase like "FRTL-5
+        # TPO-overexpressing rat thyroid follicular cells" can never clear the
+        # exact-match gate, because Cellosaurus knows the line as "FRTL-5".
+        catalog_name = str((cell_line or {}).get("catalog_name") or "").strip()
         try:
-            cell = engine.run_tool("draft_cell_line_sample", name=name, hints={})
+            # D5: only NAMES are passed; the accession comes from the lookup.
+            resolved = engine.run_tool(
+                "resolve_cell_line", name=name, catalog_name=catalog_name or None
+            )
             result["cell_lines"] += 1
         except Exception as exc:  # noqa: BLE001
-            logger.warning("draft_cell_line_sample failed for %r: %s", name, exc)
+            logger.warning("resolve_cell_line failed for %r: %s", name, exc)
             continue
-        # draft_cell_line_sample returns the Entity it created/reused.
-        cid = getattr(cell, "entity_id", None)
+        # resolve_cell_line ALWAYS mints (a miss is not a failure — a name-only
+        # CellLineSample is a valid ISA Sample), so there is always an id to wire.
+        cid = resolved.get("entity_id") if isinstance(resolved, dict) else None
         if cid:
             cell_line_ids.append(str(cid))
 

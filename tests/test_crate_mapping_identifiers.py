@@ -480,3 +480,83 @@ class TestChebiOnlyMolecularEntityId:
         )
         state.add_entity(chem)
         assert _mint_id(chem) == "#MolecularEntity_chem_plain"
+
+
+class TestCellLineSampleCellosaurusId:
+    """A resolved CellLineSample gets the resolvable Cellosaurus IRI @id (#372).
+
+    The Cellosaurus accession IS the cell line's identifier and it dereferences.
+    Minting ``#CellLineSample_cell_cho_k1`` next to a field holding CVCL_0214
+    published a private handle for something the world already has a public name
+    for: the crate would not merge with anyone else's and a reader could not
+    follow it. Person/ORCID, Organization/ROR, MolecularEntity/PubChem and
+    Publication/DOI already work this way — the cell line was the gap, and the
+    branch shipped in ``_mint_id`` untested until ``resolve_cell_line`` gave the
+    deterministic arm a way to produce an accession at all.
+    """
+
+    def _cell_state(self, **fields) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "Cell line crate"
+        cell = Entity(
+            entity_id="cell_frtl_5",
+            type="CellLineSample",
+            fields={"name": "FRTL-5", **fields},
+            _provenance=EntityProvenance(created_by="lookup"),
+        )
+        state.add_entity(cell)
+        return state
+
+    def _cell(self, **fields) -> Entity:
+        return self._cell_state(**fields).list_entities("CellLineSample")[0]
+
+    def test_mint_id_is_the_cellosaurus_iri(self):
+        assert _mint_id(self._cell(accession="CVCL_0265")) == (
+            "https://www.cellosaurus.org/CVCL_0265"
+        )
+
+    def test_mint_id_not_a_fragment(self):
+        assert not _mint_id(self._cell(accession="CVCL_0265")).startswith("#")
+
+    def test_minted_id_is_absolute_uri(self):
+        assert _ABSOLUTE_URI.match(_mint_id(self._cell(accession="CVCL_0265")))
+
+    def test_node_built_under_the_cellosaurus_iri(self):
+        graph = _graph(self._cell_state(accession="CVCL_0265"))
+        cell = _by_id(graph, "https://www.cellosaurus.org/CVCL_0265")
+        assert cell is not None, "CellLineSample node @id must be the Cellosaurus IRI"
+        assert cell.get("additionalType") == "CellLine"
+
+    def test_accession_is_promoted_to_schema_identifier(self):
+        """The profile model derives ``identifier`` from ``accession``.
+
+        This is why ``resolve_cell_line`` persists the accession ONLY: a state
+        ``identifier`` field would arrive through ``_scalar_props`` and override
+        the model's own value (``default_properties | properties``), putting the
+        node's identifier under a second field that ``verify_identifier`` can pop
+        independently of the one the @id is minted from.
+        """
+        graph = _graph(self._cell_state(accession="CVCL_0265"))
+        cell = _by_id(graph, "https://www.cellosaurus.org/CVCL_0265")
+        assert cell is not None
+        assert cell.get("identifier") == "CVCL_0265"
+        assert cell.get("name") == "FRTL-5"
+
+    def test_rrid_prefixed_accession_resolves_the_same_iri(self):
+        """An ``RRID:CVCL_…`` / ``CVCL:…`` spelling is normalised, not fragmented."""
+        assert _mint_id(self._cell(rrid="RRID:CVCL_0265")) == (
+            "https://www.cellosaurus.org/CVCL_0265"
+        )
+
+    def test_a_full_url_accession_is_used_verbatim(self):
+        assert _mint_id(self._cell(accession="https://www.cellosaurus.org/CVCL_0265")) == (
+            "https://www.cellosaurus.org/CVCL_0265"
+        )
+
+    def test_no_accession_falls_back_to_the_fragment(self):
+        """D5 + the miss contract: a name-only cell line still builds, locally keyed.
+
+        ``resolve_cell_line`` deliberately mints a Sample when Cellosaurus has
+        nothing, so this fallback is the common case, not an edge case.
+        """
+        assert _mint_id(self._cell()) == "#CellLineSample_cell_frtl_5"

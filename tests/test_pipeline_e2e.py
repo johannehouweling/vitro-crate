@@ -112,7 +112,12 @@ _PLAN: dict[str, Any] = {
         {"name": "Methimazole", "role": "test"},
         {"name": "Sodium iodide", "role": "control"},
     ],
-    "cell_lines": [{"name": "FRTL-5 TPO-overexpressing cells"}],
+    # The descriptive phrase the documents use, plus the short catalogue NAME
+    # (#372) — a name, not an identifier, and the only thing that clears
+    # Cellosaurus's exact-match gate for this line.
+    "cell_lines": [
+        {"name": "FRTL-5 TPO-overexpressing cells", "catalog_name": "FRTL-5"},
+    ],
     "protocols": [
         {
             "name": "Amplex Red fluorometric TPO activity readout",
@@ -251,6 +256,33 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
             "message": "ok",
         }
 
+    # resolve_cell_line → the two Cellosaurus primitives (#372). Step 2 IS the
+    # verification, so there is no separate verify stub for the accession. The
+    # gate is modelled honestly: ONLY the short catalogue name resolves, exactly
+    # as live, so the descriptive plan name reaches CVCL_0265 through
+    # `catalog_name` or not at all.
+    def fake_lookup_cell_line_by_name(name: str) -> dict[str, Any]:
+        if str(name).strip().casefold() == "frtl-5":
+            return {
+                "found": True,
+                "data": {"accession": "CVCL_0265", "name": "FRTL-5", "synonyms": ["FRTL5"]},
+                "error": None,
+            }
+        return {"found": False, "data": {}, "error": "no confident match"}
+
+    def fake_lookup_cell_line(accession: str) -> dict[str, Any]:
+        if accession == "CVCL_0265":
+            return {
+                "found": True,
+                "data": {
+                    "name": "FRTL-5",
+                    "url": "https://www.cellosaurus.org/CVCL_0265",
+                    "alternateName": ["FRTL 5", "FRTL5"],
+                },
+                "error": None,
+            }
+        return {"found": False, "data": {}, "error": "not found"}
+
     # materialize_aop_subgraph → lookup_aop (imported lazily from tool_lookups).
     def fake_lookup_aop(aop_id: str) -> dict[str, Any]:
         iri = f"https://aopwiki.org/aops/{aop_id}"
@@ -305,6 +337,8 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     # suite-wide by the ``_stub_composites_dtxsid`` autouse fixture in conftest.py.
     monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
     monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
+    monkeypatch.setattr(composites_mod, "lookup_cell_line_by_name", fake_lookup_cell_line_by_name)
+    monkeypatch.setattr(composites_mod, "lookup_cell_line", fake_lookup_cell_line)
     monkeypatch.setattr(
         composites_mod, "search_works_by_title", fake_search_works_by_title
     )
@@ -410,11 +444,16 @@ class TestPipelineE2EConformanceAndFidelity:
         assert chems
         assert all(c.fields.get("cas") == "60-56-0" for c in chems)
 
-        # A CellLine Sample.
+        # A CellLine Sample carrying its LOOKED-UP Cellosaurus accession (#372).
+        # The name assertion alone stayed green through the whole period the arm
+        # never called a cell-line lookup at all; the accession is what proves the
+        # resolution ran. Reaching it required the plan's `catalog_name`, because
+        # the descriptive phrase misses the exact-match gate.
         cells = state.list_entities("CellLineSample")
         assert [c.fields.get("name") for c in cells] == [
             "FRTL-5 TPO-overexpressing cells"
         ]
+        assert cells[0].fields.get("accession") == "CVCL_0265"
 
         # The full four-step LabProcess derivation chain.
         procs = state.list_entities("LabProcess")

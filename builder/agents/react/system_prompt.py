@@ -34,6 +34,7 @@ Entity drafting:
 - materialize_aop_subgraph: Turn one AOP-Wiki id into the full subgraph (AdverseOutcomePathway + KeyEvents + KeyEventRelationships, cross-linked) and optionally wire it onto a Study
 - link_assay_to_key_event: Link an Assay to the AOP Key Event it measures, by the event's name (refuses to guess when the name is ambiguous)
 - resolve_compound: Resolve a chemical name to a verified MolecularEntity in one call (lookup_compound -> draft_molecular_entity -> verify_identifier), carrying the looked-up CAS + PubChem CID; idempotent and never keeps an unverified identifier (D5)
+- resolve_cell_line: Resolve a cell-line name to a CellLineSample carrying its Cellosaurus accession in one call (lookup_cell_line_by_name -> draft_cell_line_sample -> lookup_cell_line, which IS the verification); pass the short catalogue name as catalog_name when the documents' name is a descriptive phrase; unlike resolve_compound a miss is NOT a failure — the Sample is always minted and the accession is enrichment; never pass an accession yourself (D5)
 - resolve_publication: Resolve a publication title to a DOI-backed ScholarlyArticle in one call (Crossref title-search -> confidence gate -> draft_publication_with_authors); commits a DOI ONLY on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5); idempotent (keyed by the resolved DOI)
 - draft_investigation: Create an Investigation entity
 - draft_study: Create a Study entity
