@@ -885,6 +885,7 @@ def _render_next_steps_section(
     from builder.tools.remediation import (
         _TIER_RANK,
         TIER_LABEL,
+        _join,
         describe_parts,
         group_findings,
         group_orphans,
@@ -904,11 +905,16 @@ def _render_next_steps_section(
         for n in raw_nodes
         if isinstance(n, dict) and isinstance(n.get("name"), str)
     }
-    actions = group_findings(issues, labels=labels)
+    types = {
+        str(n.get("@id")): n.get("@type")
+        for n in raw_nodes
+        if isinstance(n, dict) and n.get("@type") is not None
+    }
+    actions = group_findings(issues, labels=labels, types=types)
     if graph is not None:
         model = build_crate_graph(graph)
         orphans = [str(n["id"]) for n in model.get("nodes", []) if n.get("orphan")]
-        actions += group_orphans(orphans, labels=labels)
+        actions += group_orphans(orphans, labels=labels, types=types)
     live = [a for a in actions if a.actionable and a.cleared]
     if not live:
         return ""
@@ -921,8 +927,34 @@ def _render_next_steps_section(
     # exists to surface.
     live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), -a.cleared, a.subject))
     esc = html.escape
+    def _subject_html(action: Any) -> str:
+        """The subject clause with every entity in a ``<code>`` chip.
+
+        Rebuilt through `_join` with a wrapper rather than marked up after the
+        fact: the plain sentence and this one must agree on the wording, the
+        truncation and the "and N others" count, and a regex over the finished
+        string would be a second implementation of all three.
+
+        Falls back to the plain clause for an action with no entity list to
+        mark up (a property action's subject is a property NAME, and a
+        deliberate non-action's is a note).
+        """
+        names = list(getattr(action, "subject_names", []) or [])
+        kinds = list(getattr(action, "subject_types", []) or [])
+        if not names or action.kind not in ("entity", "entities", "orphan"):
+            return esc(describe_parts(action)[1])
+        marked = _join([
+            (f"{esc(kind)} " if kind else "") + f"<code>{esc(name)}</code>"
+            for name, kind in zip(names, kinds + [""] * (len(names) - len(kinds)))
+        ])
+        # Re-run the SENTENCE with the marked-up subject substituted in, rather
+        # than marking up the finished string: one place composes the sentence,
+        # so the plain and rendered wordings cannot drift.
+        return describe_parts(action, subject=marked)[1]
+
     def _row(action: Any) -> str:
-        instruction, subject = describe_parts(action)
+        instruction, _subject = describe_parts(action)
+        subject = _subject_html(action)
         # The tier is named only when it BLOCKS. A badge on every row marks
         # nothing; the reader's question here is "what must I fix before this
         # crate is conformant?".
@@ -934,7 +966,7 @@ def _render_next_steps_section(
         return (
             f'<li><span class="na-n">{action.cleared}</span>'
             f'<span class="na-t"><span class="na-do">{esc(instruction)}</span> '
-            f'<span class="na-of">{esc(subject)}</span>{mark}</span></li>'
+            f'<span class="na-of">{subject}</span>{mark}</span></li>'
         )
 
     rows = "".join(_row(a) for a in live[:_NEXT_STEPS_CAP])
@@ -950,7 +982,20 @@ def _render_next_steps_section(
     settled = [a for a in actions if not a.actionable]
     aside = ""
     if settled:
-        notes = "".join(f"<li>{esc(a.note or '')}</li>" for a in settled)
+        # Grouped by REASON with a count each. "119 findings left open on
+        # purpose" is a bigger number than most of the actions above it, and
+        # without the breakdown a reader cannot tell whether that is 119
+        # distinct decisions or — as it always is — two recommendations
+        # repeated once per payload file.
+        by_reason: dict[str, int] = {}
+        for a in settled:
+            reason = a.note or ""
+            by_reason[reason] = by_reason.get(reason, 0) + a.cleared
+        notes = "".join(
+            f'<li><span class="na-n">{count}</span>'
+            f'<span class="na-of">{esc(reason)}</span></li>'
+            for reason, count in sorted(by_reason.items(), key=lambda kv: -kv[1])
+        )
         total = sum(a.cleared for a in settled)
         aside = (
             f'  <details class="na-aside"><summary>{total} '

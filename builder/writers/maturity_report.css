@@ -425,3 +425,16 @@ __CATEGORY_STYLES__
    as the quieter supporting clause they are. */
 .mat .na-do { color:var(--ink); font-weight:600; }
 .mat .na-of { color:var(--muted); }
+
+/* Entity chips in the actions list, the same convention the profile-adherence
+   suggestions already use — a reader should be able to tell at a glance which
+   words are things in their crate and which are the instruction. */
+.mat ol.next-actions code,
+.mat details.na-aside code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.76rem; background:var(--surface-2); border:1px solid var(--border);
+  border-radius:3px; padding:.02rem .32rem; color:var(--ink); }
+/* The aside's reasons are a counted list like the actions above it, so they
+   share the number column rather than inventing a second alignment. */
+.mat details.na-aside ul { list-style:none; padding:0; }
+.mat details.na-aside > ul > li { display:flex; gap:.6rem; align-items:baseline;
+  padding:.22rem 0; }
