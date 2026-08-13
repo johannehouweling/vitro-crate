@@ -1145,7 +1145,121 @@ def summarise_actions(
     return []
 
 
+_DESCRIBE_SYSTEM_PROMPT = (
+    "You write one-sentence descriptions for the files in a research data "
+    "package (an ISA-Tox RO-Crate), for a reader who has the crate but not the "
+    "lab notebook.\n\n"
+    "You are given, per file, its NAME and a PREVIEW of its actual content — "
+    "the first lines, sheet names, or column headers. Describe what the file "
+    "CONTAINS, from the preview: 'Per-well absorbance readings for the T4 uptake "
+    "assay, one row per plate position', not 'A CSV file' and not 'Data for the "
+    "study'.\n\n"
+    "ABSOLUTE RULES. Everything you write must be supported by the preview you "
+    "were given. Never infer from the FILENAME what the content is — a file "
+    "called 'protocol.docx' whose preview you cannot read is one you must "
+    "decline. Never state a result, a conclusion, a compound, a cell line, a "
+    "date or a number that is not visible in the preview. Never guess what the "
+    "file is FOR beyond what it evidently holds. If the preview is empty, "
+    "unreadable, or too thin to say anything specific, return an empty string "
+    "for that file — an empty description is a correct answer and a plausible "
+    "invention is not.\n\n"
+    "One sentence each, plain language, no filename echo, no markdown."
+)
+
+
+def _describe_schema(count: int) -> dict[str, Any]:
+    """Structured-output schema: one description per file, in order."""
+    return {
+        "title": "FileDescriptions",
+        "type": "object",
+        "description": "One description per supplied file, in the order supplied.",
+        "properties": {
+            "descriptions": {
+                "type": "array",
+                "minItems": count,
+                "maxItems": count,
+                "description": (
+                    "One sentence per file, same order as supplied, describing what "
+                    "the file CONTAINS based only on its preview. Empty string when "
+                    "the preview does not support a specific description."
+                ),
+                "items": {"type": "string"},
+            }
+        },
+        "required": ["descriptions"],
+    }
+
+
+def describe_files(
+    files: list[dict[str, Any]],
+    *,
+    overrides: ModelOverrides | None = None,
+    usage_sink: UsageSink | None = None,
+) -> list[str]:
+    """Describe each file from a PREVIEW OF ITS CONTENT, never from its name.
+
+    A pure bounded leaf: ONE structured-output call on the drafter tier, one
+    sentence per file, in order — the same shape as :func:`summarise_actions`,
+    and length-checked the same way, because a list that no longer lines up with
+    its inputs would attach each description to the wrong file.
+
+    **The preview is the whole point.** Describing a file from its name is
+    guessing, and a guess written into ``description`` is indistinguishable from
+    a curator's sentence once it is in the crate. So a file whose content could
+    not be read is not sent at all (the caller's job), and a model that cannot
+    say anything specific from what it was given is told to return "" — an empty
+    description is a correct answer where an invention is not.
+
+    This is prose, not an identifier: D5 governs accessions, CASRNs and ORCIDs,
+    which may only come from an authoritative lookup. A sentence saying what a
+    spreadsheet holds is the same kind of value as the study description and
+    protocol names the model already writes, and it is recorded with the same
+    ``source="llm"`` provenance, so a curator reading the crate's completion
+    record can see exactly which sentences a model wrote.
+
+    Args:
+        files: ``[{"name": ..., "preview": ...}]``. A caller must not include a
+            file whose preview is empty.
+        overrides: Model overrides for the drafter tier.
+        usage_sink: Token accounting sink.
+
+    Returns:
+        One description per input file, in order, with "" where the model
+        declined. ``[]`` when the call fails or returns the wrong count, so the
+        caller writes nothing rather than mismatched sentences.
+    """
+    usable = [f for f in files if str(f.get("preview") or "").strip()]
+    if not usable or len(usable) != len(files):
+        # A caller that passed a preview-less file has mis-specified the batch;
+        # refusing the whole batch is safer than silently describing the rest
+        # under indexes that no longer match what the caller will write back.
+        return []
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
+    listing = "\n\n".join(
+        f"FILE {i + 1}\n  name: {f.get('name')}\n  preview:\n{str(f.get('preview'))[:1200]}"
+        for i, f in enumerate(files)
+    )
+    messages = [
+        SystemMessage(content=_DESCRIBE_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                f"Describe exactly {len(files)} files, one sentence each, in this "
+                f"order:\n\n{listing}"
+            )
+        ),
+    ]
+    result = _invoke_structured_with_usage(
+        llm, _describe_schema(len(files)), messages, usage_sink
+    )
+    if isinstance(result, dict):
+        items = result.get("descriptions")
+        if isinstance(items, list) and len(items) == len(files):
+            return [str(i).strip() for i in items]
+    return []
+
+
 __all__ = [
+    "describe_files",
     "draft_entity_fields",
     "extract_field_from_file",
     "extract_plan",

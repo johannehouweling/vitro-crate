@@ -70,6 +70,30 @@ def _stub_composites_cellosaurus(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_file_descriptions(monkeypatch):
+    """Keep the pipeline's file-description pass offline.
+
+    Wiring `describe_payload_files` into `_materialize_plan` gave every test that
+    drives the real pipeline a live provider call it never had. Default it to
+    "described nothing", so a forgotten stub shows up as a missing description
+    rather than as a request to an LLM.
+
+    Scoped to the symbol bound in the PIPELINE namespace — the module imports it
+    inside the function, so this patches the source module's attribute, which is
+    what that import resolves. `tests/test_file_descriptions.py` injects its own
+    `describe_fn` and does not rely on this.
+    """
+    from builder.tools import file_descriptions
+
+    monkeypatch.setattr(
+        file_descriptions,
+        "describe_payload_files",
+        lambda state, **kw: [],
+        raising=False,
+    )
+
+
 @pytest.fixture
 def minimal_state() -> CrateState:
     """Return a CrateState with one Investigation entity."""
