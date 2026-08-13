@@ -508,6 +508,57 @@ def _embed_maturity_report(crate: ROCrate, state: CrateState) -> None:
     )
 
 
+# Exports already written this process, keyed by (state fingerprint, destination,
+# what was asked for). Small: an agent loop re-exports the SAME crate over and
+# over, so one live entry is the normal case and a couple of destinations the
+# most anyone needs.
+_EXPORT_MEMO: dict[tuple[str, str, bool, bool], dict[str, Any]] = {}
+_EXPORT_MEMO_MAX = 4
+
+
+def _export_memo_key(
+    state: CrateState,
+    output_dir: Path,
+    embed_graph: bool,
+    embed_report: bool,
+) -> tuple[str, str, bool, bool] | None:
+    """Memo key for an export, or None when the state cannot be fingerprinted.
+
+    Reuses ``validation_fingerprint`` — it hashes entities plus metadata, which
+    is everything ``assemble_crate`` reads, and deliberately excludes the
+    verdicts and timestamps that every export writes back. Anything the written
+    crate could differ by busts the key; a pure output does not.
+    """
+    try:
+        fingerprint = state.validation_fingerprint()
+    except Exception:  # noqa: BLE001 — an un-fingerprintable state just re-exports
+        logger.debug("State could not be fingerprinted; exporting without the memo")
+        return None
+    return (fingerprint, str(output_dir.resolve()), embed_graph, embed_report)
+
+
+def _export_is_intact(output_dir: Path) -> bool:
+    """Whether a previously written crate is still on disk.
+
+    The memo says what WE did; it cannot know what happened to the directory
+    afterwards. A user who deletes the output and re-runs must get their crate
+    back, so the descriptor is checked before a reuse is claimed.
+    """
+    try:
+        return (output_dir / "ro-crate-metadata.json").is_file()
+    except Exception:  # noqa: BLE001 — an unreadable path is not a valid reuse
+        return False
+
+
+def _remember_export(key: tuple[str, str, bool, bool] | None, result: dict[str, Any]) -> None:
+    """Record a successful export, bounding the memo."""
+    if key is None or not result.get("success"):
+        return
+    if len(_EXPORT_MEMO) >= _EXPORT_MEMO_MAX and key not in _EXPORT_MEMO:
+        _EXPORT_MEMO.pop(next(iter(_EXPORT_MEMO)), None)
+    _EXPORT_MEMO[key] = result
+
+
 def export_crate(
     state: CrateState,
     output_path: str | None = None,
@@ -567,6 +618,23 @@ def export_crate(
             output_path = state.metadata.output_path or _default_crate_path(state)
 
         output_dir = Path(output_path)
+        # An export nobody's changes have reached is the same export. One
+        # profiled session called this 32 times — 29 of them immediately after a
+        # validate — and spent 279s of its 305s export budget rewriting a crate
+        # byte for byte. `build_and_validate` already builds in memory and
+        # touches no disk, so exporting to check a verdict is pure waste.
+        #
+        # A memo rather than a prompt rule, because it does not depend on the
+        # agent behaving; and keyed on the destination too, since the same state
+        # written to a second directory is a genuinely different result.
+        memo_key = _export_memo_key(state, output_dir, embed_graph, embed_report)
+        if memo_key is not None and (cached := _EXPORT_MEMO.get(memo_key)) is not None:
+            if _export_is_intact(output_dir):
+                logger.info("Crate already exported and unchanged: %s", output_dir)
+                return {**cached, "reused": True}
+            # Someone removed or emptied it since; fall through and write again.
+            _EXPORT_MEMO.pop(memo_key, None)
+
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Validate BEFORE assembling, so the maturity report embedded below
@@ -677,6 +745,9 @@ def export_crate(
             out["provisional_tables"] = provisional
         if wiring["wired"] or wiring["ambiguous"]:
             out["wiring"] = wiring
+        # Remembered AFTER the write, and only on success, so a failed export is
+        # never reported as a completed one on the next call.
+        _remember_export(memo_key, out)
         return out
 
     except OSError as e:
