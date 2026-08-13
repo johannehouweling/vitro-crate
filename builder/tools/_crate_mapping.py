@@ -55,6 +55,11 @@ CELL_LINE_TERM_ID = iri("NCIT:C16403")
 # for, and a link written under it used to resolve to nothing.
 _PROTOCOL_ALIASES = ("labprotocol", "protocol")
 
+# The Assay's measurement method. The camelCase term is the context's, and the
+# snake_case spelling is the one an agent reaches for; both name the same
+# property, so both are read where the reference is wired.
+_MEASUREMENT_METHOD_ALIASES = ("measurementMethod", "measurement_method")
+
 # Fields that hold references to other entities (resolved via the index), not literals.
 _REF_FIELDS = frozenset(
     {
@@ -622,13 +627,32 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
         if key in drop or key.startswith("@"):
             continue
         if "_" in key and key not in _context_terms():
-            # One line, and only the part that varies. The generic advice that
-            # used to trail every one of these ("Use the context's property
-            # instead (e.g. releaseDate, measurementMethod)") wrapped each
-            # notice onto a second row and was identical every time; it belongs
-            # in this comment, not repeated in the user's transcript. A field is
-            # dropped because emitting a non-context term fails BASE conformance
-            # — the fix is to write the context's own property name instead.
+            # Almost every context term is camelCase, so a snake_case key is
+            # usually the same property spelled the way an agent says it out
+            # loud. `measurement_method` IS `measurementMethod`, and dropping it
+            # threw away an answer to a finding the crate then went on to report
+            # as missing — the agent had said what the assay measures and the
+            # build deleted it. Rename rather than drop whenever the camelCase
+            # form is a real term; an explicit camelCase value already on the
+            # entity wins, since that one was written deliberately.
+            renamed = _camel_case(key)
+            if renamed in drop:
+                # A real term, but one the reference pipeline owns (it resolves
+                # the value to an entity and drops prose that names nothing).
+                # Emitting it here as a scalar would smuggle a literal past that
+                # machinery — and past the explicit camelCase value, which is
+                # also held back for it. The alias is read where the reference
+                # is wired instead.
+                continue
+            if renamed in _context_terms():
+                if renamed not in entity.fields:
+                    props.setdefault(renamed, value)
+                continue
+            # No context term under either spelling: the field is a caller's
+            # invention, and emitting a bare JSON-LD key fails BASE conformance
+            # ("not allowed in the compacted JSON-LD context") in a way the agent
+            # cannot fix by editing the crate, because the invalid key is
+            # regenerated from state on every build.
             logger.warning(
                 "Dropped %r from %s (not a term in the crate's JSON-LD context)",
                 key,
@@ -637,6 +661,32 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
             continue
         props[key] = value
     return props
+
+
+def _is_prose(value: Any) -> bool:
+    """Whether *value* is a phrase a human wrote, not a reference that failed.
+
+    Separates the two ways a string can arrive in a reference-typed field. An
+    entity id and an IRI are single tokens — ``bao``,
+    ``http://…/bao#BAO_0010196`` — so one that resolves to nothing is a BROKEN
+    reference, and emitting it would ship a dangling pointer as though it were
+    data (the #180 guard, still enforced).
+
+    A phrase with spaces was never going to be an id. "T4 uptake; parallel
+    CellTiter-Glo ATP cell-viability control" is a scientist describing their
+    method, and for the one property whose shape reads
+    ``sh:or [sh:datatype xsd:string] [sh:class schema:DefinedTerm]`` that IS a
+    conformant answer. Dropping it deleted the answer and left the crate
+    reporting the method as missing.
+    """
+    text = value if isinstance(value, str) else ""
+    return bool(text.strip()) and any(ch.isspace() for ch in text.strip())
+
+
+def _camel_case(key: str) -> str:
+    """``measurement_method`` -> ``measurementMethod``."""
+    head, *rest = key.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
 
 
 def _bare_doi(raw: str) -> str:
@@ -2860,7 +2910,14 @@ def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]
         node = _node_for(idx, asy)
         if node is None:
             continue
-        _wire_reference(node, "measurementMethod", asy.fields.get("measurementMethod"), idx)
+        method = _first_of(asy.fields, _MEASUREMENT_METHOD_ALIASES)
+        _wire_reference(
+            node,
+            "measurementMethod",
+            method,
+            idx,
+            keep_literal=_is_prose(method),
+        )
         for alias in _ASSAY_HASPART_ALIASES:
             for child in _resolve_many(idx, asy.fields.get(alias)):
                 if child is node:

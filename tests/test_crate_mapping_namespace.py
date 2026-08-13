@@ -171,12 +171,21 @@ class TestMintedIdNamespace:
             )
 
 class TestSnakeCaseFieldsAreCheckedAgainstTheContext:
-    """``_scalar_props`` drops invented keys, never real vocabulary (#context).
+    """``_scalar_props`` keeps real vocabulary, renames misspellings, drops the rest.
 
     The rule started as "any key with an underscore is not a JSON-LD term". That
     is nearly true — but the AOP-Wiki vocabulary in the ISA-Tox context IS
     snake_case, so the syntactic version silently emptied every materialised AOP
     subgraph. Membership in the ``@context`` is the authority, not the key shape.
+
+    Dropping outright was still too blunt. Almost every other context term is
+    camelCase, so a snake_case key is usually the SAME property spelled the way
+    an agent says it out loud: `measurement_method` is `measurementMethod`.
+    Deleting it threw away an answer the crate then reported as missing — one
+    session had the agent state what the assay measures, the build delete it,
+    and the maturity report ask for it. So a key whose camelCase form is a real
+    term is renamed to it, and only a key that is no term under EITHER spelling
+    is dropped.
     """
 
     def test_context_defined_snake_case_terms_survive(self) -> None:
@@ -191,12 +200,51 @@ class TestSnakeCaseFieldsAreCheckedAgainstTheContext:
         props = _scalar_props(entity)
         assert props.get("short_name") == "MIE"
 
-    def test_invented_snake_case_keys_are_still_dropped(self) -> None:
+    def test_a_misspelt_real_term_is_recovered_under_its_real_name(self) -> None:
+        """The value is right; only the spelling is wrong. Keep the value."""
         from builder.tools._crate_mapping import _context_terms, _scalar_props
 
         assert "release_date" not in _context_terms()
+        assert "releaseDate" in _context_terms()
 
         entity = _entity("inv1", "Investigation", release_date="2025-11-10", name="Study")
         props = _scalar_props(entity)
-        assert "release_date" not in props, "an invented key must not reach the crate"
-        assert props.get("name") == "Study"
+        assert props.get("releaseDate") == "2025-11-10"
+        assert "release_date" not in props, "the misspelling must not ship as a key"
+
+    def test_a_key_that_is_no_term_either_way_is_dropped(self) -> None:
+        from builder.tools._crate_mapping import _camel_case, _context_terms, _scalar_props
+
+        for invented in ("works_for", "test_type"):
+            assert invented not in _context_terms()
+            assert _camel_case(invented) not in _context_terms()
+
+        entity = _entity("p1", "Person", works_for="Utrecht", test_type="in vitro", name="Ada")
+        props = _scalar_props(entity)
+        assert "works_for" not in props and "worksFor" not in props
+        assert "test_type" not in props and "testType" not in props
+        assert props.get("name") == "Ada", "a real term beside an invented one still ships"
+
+    def test_an_explicit_camel_case_value_wins(self) -> None:
+        """That one was written deliberately; the snake variant is the guess."""
+        from builder.tools._crate_mapping import _scalar_props
+
+        entity = _entity(
+            "inv1",
+            "Investigation",
+            releaseDate="2025-11-10",
+            release_date="1999-01-01",
+            name="Study",
+        )
+        props = _scalar_props(entity)
+        assert props.get("releaseDate") == "2025-11-10"
+
+    def test_a_reference_field_is_left_to_its_own_pipeline(self) -> None:
+        """`measurementMethod` resolves to a DefinedTerm; a scalar would bypass that."""
+        from builder.tools._crate_mapping import _REF_FIELDS, _scalar_props
+
+        assert "measurementMethod" in _REF_FIELDS
+        entity = _entity("assay1", "Assay", measurement_method="Gamma counter", name="A")
+        props = _scalar_props(entity)
+        assert "measurementMethod" not in props
+        assert "measurement_method" not in props
