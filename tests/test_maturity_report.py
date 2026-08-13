@@ -2065,8 +2065,13 @@ class TestEveryClassTheReportEmitsIsStyled:
                 for i in range(11)
             ],
         ]
-        html_out = _render_next_steps_section(val, None)
+        # Section AND the jump link that points at it — the link is emitted from
+        # the same call and carries classes of its own, so covering only the
+        # section would leave exactly the gap this test exists to close.
+        section, jump = _render_next_steps_section(val, None)
+        html_out = section + jump
         assert 'class="na-n"' in html_out, "the section did not render; this test is inert"
+        assert 'class="jump"' in html_out, "the jump link did not render; this test is inert"
         return html_out
 
     def test_no_class_in_the_page_is_missing_from_the_stylesheet(self) -> None:
@@ -2120,7 +2125,7 @@ class TestActionEntitiesAreMarkedAsEntities:
                 for i in range(9)
             ],
         ]
-        return _render_next_steps_section(val, graph)
+        return _render_next_steps_section(val, graph)[0]
 
     def test_the_name_is_chipped_and_the_type_is_not(self) -> None:
         """The chip marks the thing, not the classification — "CellLine" is the
@@ -2166,7 +2171,7 @@ class TestTheOverflowLinePointsSomewhere:
              "message": f"SHOULD have a thing of kind {i}"}
             for i in range(12)
         ]
-        section = _render_next_steps_section(val, None)
+        section, _jump = _render_next_steps_section(val, None)
         overflow = re.findall(r"<li>.*?</li>", section)[-1]
         assert "smaller item" in overflow, "no overflow row rendered; this test is inert"
         assert 'href="#adherence"' in overflow
@@ -2176,3 +2181,64 @@ class TestTheOverflowLinePointsSomewhere:
         in the markup — the same class of bug as a class with no CSS rule."""
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
         assert 'id="adherence"' in page
+
+
+class TestTheActionsCloseTheReport:
+    """Assessment first, then what to do about it.
+
+    "What to do next" sat directly under the KPI tiles, ahead of every section
+    that justifies it — the reader met the prescription before the diagnosis.
+    It closes the page now, which puts it several screens down, so the top
+    carries a link that names the section and states its size. Moving the
+    section without the link would simply have hidden it.
+    """
+
+    def _page(self) -> str:
+        state = vhps_fixture_state("S-VHPS21")
+        state.validation.base_passed = True
+        state.validation.issue_records = [
+            {
+                "profile": "base",
+                "severity": "required",
+                "entity_id": "./",
+                "message": "The root Dataset MUST have a licence",
+            },
+            *[
+                {
+                    "profile": "tox",
+                    "severity": "recommended",
+                    "entity_id": f"./#e{i}",
+                    "message": "A Sample SHOULD have a description",
+                }
+                for i in range(4)
+            ],
+        ]
+        page = build_maturity_html(state)
+        assert 'id="next"' in page, "no actions rendered; this test is inert"
+        return page
+
+    def test_the_actions_come_after_the_evidence(self) -> None:
+        page = self._page()
+        assert page.index("Profile adherence</h2>") < page.index("What to do next</h2>")
+        assert page.index("Reproducibility readiness</h2>") < page.index("What to do next</h2>")
+
+    def test_the_top_of_the_page_links_down_to_them(self) -> None:
+        page = self._page()
+        jump = page.index('href="#next"')
+        assert jump < page.index('id="next"'), "the link must come before what it points at"
+        assert jump < page.index("Profile adherence</h2>"), "…and near the top, not buried"
+
+    def test_the_link_says_how_big_the_job_is(self) -> None:
+        """A bare "see below" gives a reader nothing to decide with."""
+        import re
+
+        page = self._page()
+        band = re.search(r'<a class="jump".*?</a>', page, re.S)
+        assert band
+        assert "actions clear" in band.group(0)
+        assert re.search(r"<b>\d+</b> findings", band.group(0))
+
+    def test_no_link_when_there_is_nothing_to_do(self) -> None:
+        """An empty exhortation is worse than silence — and so is a link to it."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        assert 'href="#next"' not in page
