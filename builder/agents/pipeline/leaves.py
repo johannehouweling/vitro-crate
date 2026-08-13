@@ -1031,10 +1031,105 @@ def extract_field_from_file(
     return ""
 
 
+_SUMMARISE_SYSTEM_PROMPT = (
+    "You write the 'what to do next' summary for a research data package (an "
+    "ISA-Tox RO-Crate). You are given ACTIONS that have already been worked out "
+    "from a validator's findings — each names a subject, how many findings it "
+    "would clear, and the findings themselves. Your ONLY job is wording.\n\n"
+    "For each action write ONE imperative sentence a researcher can act on "
+    "today, naming the specific subject given ('Add an ORCID for Zhongli Chen', "
+    "not 'add identifiers to authors'). Say WHAT to supply, not which shape "
+    "failed. Never show SHACL shapes, property IRIs, validator jargon, entity "
+    "ids, or '@id'.\n\n"
+    "ABSOLUTE RULES. Return exactly one recommendation per action, in the order "
+    "given. Never invent a finding, a subject, a count, or a fact about the "
+    "data — you have no access to the crate beyond what is listed, so you cannot "
+    "know a person's affiliation, an accession, or a date. Never merge or split "
+    "actions: the grouping is already decided. If an action is unclear, restate "
+    "it plainly rather than guessing at specifics."
+)
+
+
+def _summarise_schema(count: int) -> dict[str, Any]:
+    """Structured-output schema: one recommendation per action, in order."""
+    return {
+        "title": "CrateRecommendations",
+        "type": "object",
+        "description": "Plain-language recommendations, one per supplied action, in order.",
+        "properties": {
+            "recommendations": {
+                "type": "array",
+                "minItems": count,
+                "maxItems": count,
+                "description": (
+                    "One imperative sentence per action, same order as supplied. "
+                    "No SHACL/IRI/validator jargon and no invented facts."
+                ),
+                "items": {"type": "string"},
+            }
+        },
+        "required": ["recommendations"],
+    }
+
+
+def summarise_actions(
+    actions: list[dict[str, Any]],
+    *,
+    overrides: ModelOverrides | None = None,
+    usage_sink: UsageSink | None = None,
+) -> list[str]:
+    """Word each already-grouped action as one plain-language recommendation.
+
+    A pure bounded leaf: ONE structured-output call on the drafter tier. The
+    grouping — which findings belong together, and how many each action clears —
+    is decided deterministically before this runs (:mod:`builder.tools.remediation`)
+    and is NOT the model's to change. A model that regroups produces a confident
+    summary of the wrong work, and nothing downstream would catch it; a model
+    that only words the groups can be checked by counting.
+
+    Returns ``[]`` when the model returns nothing usable or the wrong number of
+    sentences, so the caller falls back to its deterministic phrasing rather than
+    rendering a summary that no longer lines up with the actions it describes.
+    """
+    if not actions:
+        return []
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
+    listing = "\n\n".join(
+        f"ACTION {i + 1}\n"
+        f"  subject: {a.get('subject')}\n"
+        f"  clears: {a.get('cleared')} finding(s)\n"
+        f"  findings:\n" + "\n".join(f"    - {m}" for m in (a.get("findings") or [])[:6])
+        for i, a in enumerate(actions)
+    )
+    messages = [
+        SystemMessage(content=_SUMMARISE_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                f"Write exactly {len(actions)} recommendations, one per action, "
+                f"in this order:\n\n{listing}"
+            )
+        ),
+    ]
+    result = _invoke_structured_with_usage(
+        llm, _summarise_schema(len(actions)), messages, usage_sink
+    )
+    if isinstance(result, dict):
+        items = result.get("recommendations")
+        # Length is the check that the model kept to the grouping. A short or
+        # long list means the sentences no longer map onto the actions, and a
+        # mismatched summary is worse than the deterministic one.
+        if isinstance(items, list) and len(items) == len(actions):
+            out = [str(i).strip() for i in items]
+            if all(out):
+                return out
+    return []
+
+
 __all__ = [
     "draft_entity_fields",
     "extract_field_from_file",
     "extract_plan",
     "interpret_gap_reply",
     "phrase_gap_question",
+    "summarise_actions",
 ]
