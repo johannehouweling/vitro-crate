@@ -400,10 +400,15 @@ __CATEGORY_STYLES__
 .mat ol.next-actions > li { display:flex; gap:.6rem; align-items:baseline;
   padding:.32rem 0; border-top:1px solid var(--hairline); }
 .mat ol.next-actions > li:first-child { border-top:0; }
-/* Tabular figures and a fixed column so the numbers line up as a column rather
+/* The count is a MULTIPLIER — how many findings this one instruction clears —
+   not the point of the row. It shipped at weight 650 on the darkest ink, which
+   made it heavier than the instruction beside it (.na-do, weight 600) and put
+   the page's emphasis on an arithmetic detail. Muted and lighter now, so the
+   eye lands on the verb and reads the number only once it wants the size of the
+   job. Tabular figures and a fixed column keep it scannable as a column rather
    than ragging with the width of each count. */
-.mat .na-n { flex:0 0 2.4rem; text-align:right; font-weight:650; color:var(--ink);
-  font-variant-numeric:tabular-nums; }
+.mat .na-n { flex:0 0 2.4rem; text-align:right; font-weight:500; font-size:.82rem;
+  color:var(--muted); font-variant-numeric:tabular-nums; }
 .mat .na-t { color:var(--ink-2); }
 /* Named only on the tier that BLOCKS conformance — a badge on every row would
    mark nothing. Warn, not bad: this is work outstanding, not a failure. */
