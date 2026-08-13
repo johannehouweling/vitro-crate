@@ -105,6 +105,141 @@ class TestTheReferenceImplementationCanReadIt:
         assert unreachable == [], f"files unreachable from the root: {unreachable}"
 
 
+# Namespaces this builder MINTS entities in. A reference into one of these names
+# something the crate is supposed to have defined, so a dangling one is a defect
+# even though the string is a perfectly well-formed absolute IRI — which is
+# exactly how three truncated ORCIDs shipped green (#532): `_mint_id` derives a
+# Person's @id from the ORCID, so `https://orcid.org/0002-5392-0519` (missing the
+# leading `0000-` block) LOOKS external and resolves to nothing, while the
+# correct `…/0000-0002-5392-0519` entity sits in the same graph.
+#
+# Deliberately a mint-list, not a blocklist. External vocabulary — EFO term IRIs
+# on a csvw:Column, a CompTox `propertyID`, PURL/w3id profile ids — is REFERENCED
+# and never defined locally, which is legal and normal; asserting those resolve
+# would fail every correct crate.
+_MINTED_NAMESPACES: tuple[str, ...] = (
+    "https://orcid.org/",
+    "https://ror.org/",
+    "https://doi.org/",
+    "https://www.cellosaurus.org/",
+    "https://pubchem.ncbi.nlm.nih.gov/",
+)
+
+
+def _references(node: object) -> list[str]:
+    """Every ``{"@id": ...}`` reference anywhere inside *node*, at any depth."""
+    out: list[str] = []
+    if isinstance(node, dict):
+        target = node.get("@id")
+        # A one-key {"@id": ...} is a reference; a node with other keys is a
+        # DEFINITION and its own @id is not a reference to anything.
+        if isinstance(target, str) and set(node) == {"@id"}:
+            out.append(target)
+        for key, value in node.items():
+            if key != "@id":
+                out.extend(_references(value))
+    elif isinstance(node, list):
+        for item in node:
+            out.extend(_references(item))
+    return out
+
+
+class TestEveryReferenceResolves:
+    """The other half of #532, and the half SHACL cannot ask.
+
+    Part A of that issue was seven `@id` references pointing at nothing — three
+    truncated ORCIDs, three bare organization slugs (`org_erasmus_mc`, no `#`, no
+    ROR), and a `#CitationAuthor_…` that was never defined. All seven passed all
+    three profiles, because a SHACL shape validates the nodes that ARE there and
+    never asks whether an edge leads anywhere.
+
+    The defects themselves are fixed. This is the guard that was asked for and
+    not written, so they cannot come back silently.
+    """
+
+    def test_every_local_reference_is_defined(self, written_crate: Path) -> None:
+        """Catches the bare slug and the undefined local fragment.
+
+        Anything that is not an absolute IRI can only mean an entity in THIS
+        crate, so it has to be in the graph. `org_erasmus_mc` and
+        `#CitationAuthor_Zhongli_Chen` are both caught here.
+        """
+        import json
+
+        graph = json.loads(
+            (written_crate / "ro-crate-metadata.json").read_text(encoding="utf-8")
+        )["@graph"]
+        defined = {str(e.get("@id")) for e in graph}
+
+        dangling = sorted(
+            {
+                ref
+                for ref in _references(graph)
+                if "://" not in ref and ref not in defined
+            }
+        )
+        assert dangling == [], f"local references that resolve to nothing: {dangling}"
+
+    def test_every_reference_into_a_minted_namespace_is_defined(
+        self, written_crate: Path
+    ) -> None:
+        """Catches the truncated ORCID, which the test above cannot see.
+
+        A malformed ORCID is still an absolute IRI, so "external references are
+        someone else's problem" waves it through. But this builder MINTS Person
+        @ids from ORCIDs, so a reference to an orcid.org id it never defined is a
+        reference to an entity that was supposed to be here.
+        """
+        import json
+
+        graph = json.loads(
+            (written_crate / "ro-crate-metadata.json").read_text(encoding="utf-8")
+        )["@graph"]
+        defined = {str(e.get("@id")) for e in graph}
+
+        dangling = sorted(
+            {
+                ref
+                for ref in _references(graph)
+                if ref.startswith(_MINTED_NAMESPACES) and ref not in defined
+            }
+        )
+        assert dangling == [], (
+            f"references into a namespace this builder mints in, resolving to "
+            f"nothing: {dangling}"
+        )
+
+    def test_external_vocabulary_is_not_required_to_resolve(
+        self, written_crate: Path
+    ) -> None:
+        """The control, and the reason this is a mint-list rather than a rule
+        about absolute IRIs.
+
+        A correct crate cites terms it does not define — an EFO term on a
+        csvw:Column, a profile id under w3id. If the guards above ever grew to
+        demand those resolve, every honest crate would fail and the assertion
+        would be turned off rather than fixed. Proving the fixture HAS such a
+        reference is what stops that rewrite from looking harmless.
+        """
+        import json
+
+        graph = json.loads(
+            (written_crate / "ro-crate-metadata.json").read_text(encoding="utf-8")
+        )["@graph"]
+        defined = {str(e.get("@id")) for e in graph}
+        external_unresolved = [
+            ref
+            for ref in _references(graph)
+            if "://" in ref
+            and not ref.startswith(_MINTED_NAMESPACES)
+            and ref not in defined
+        ]
+        assert external_unresolved, (
+            "this fixture cites no external vocabulary, so the two guards above "
+            "are not actually distinguishing external references from broken ones"
+        )
+
+
 class TestTheIsaNestingSurvives:
     """Dual-parenting, not re-parenting: the ISA hierarchy is the point of D13."""
 
