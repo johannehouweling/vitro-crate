@@ -125,13 +125,84 @@ def _not_actionable_note(message: str) -> str | None:
     return None
 
 
+# How each authority's IRI is said out loud when the entity it names carries no
+# name of its own. The point is to say WHAT the thing is: a reader shown
+# "0000-0002-7685-9462" cannot tell a person from a grant from a checksum.
+_IRI_PHRASING: tuple[tuple[str, str], ...] = (
+    ("https://orcid.org/", "the person with ORCID {}"),
+    ("https://ror.org/", "the organization with ROR {}"),
+    ("https://doi.org/", "the publication with DOI {}"),
+    ("https://www.cellosaurus.org/", "the cell line {}"),
+    ("https://pubchem.ncbi.nlm.nih.gov/compound/", "the compound with PubChem CID {}"),
+)
+
+# Type prefixes on a minted fragment id. `_make_entity_id` builds
+# `#<Type>_<internal_id>`, and the internal id USUALLY repeats the type as its
+# own first token — `#Sample_sample_…`, `#Study_study_…`, `#LabProtocol_protocol_…`
+# — so stripping only the CamelCase prefix leaves "Sample sample proc … output
+# sample". Both layers come off.
+_ID_TYPE_PREFIXES: tuple[str, ...] = (
+    "CitationAuthor_", "DefinedTerm_", "LabProcess_", "LabProtocol_", "PropertyValue_",
+    "MolecularEntity_", "CellLineSample_", "Organization_", "Publication_", "Person_",
+    "Sample_", "Study_", "Assay_", "Investigation_", "File_", "Dataset_",
+)
+_ID_ECHO_TOKENS: tuple[str, ...] = (
+    "sample_", "study_", "assay_", "proc_", "protocol_", "pv_", "param_", "org_",
+    "chem_", "cell_", "dt_", "inv_",
+)
+
+
+def _id_variants(entity_id: str) -> tuple[str, ...]:
+    """The spellings of *entity_id* a lookup should try, most literal first.
+
+    The validator reports a fragment entity as ``./#Thing`` — resolved against
+    the crate base — while the graph writes the same node's ``@id`` as
+    ``#Thing``. Not one node in a real crate carries the ``./#`` form, so an
+    exact-match lookup missed EVERY fragment entity and every one of them fell
+    through to the id-mangling fallback: "PropertyValue pv sample role" and
+    "Sample sample proc … output sample" in a list that had their real names
+    available the whole time.
+    """
+    seen: list[str] = []
+    for candidate in (
+        entity_id,
+        entity_id.removeprefix("./"),
+        entity_id if entity_id.startswith("./") else f"./{entity_id}",
+    ):
+        if candidate and candidate not in seen:
+            seen.append(candidate)
+    return tuple(seen)
+
+
 def _entity_label(entity_id: str, labels: dict[str, str] | None) -> str:
-    """A name a reader recognises, falling back to the id's readable tail."""
-    if labels and (name := labels.get(entity_id)):
-        return name
+    """A name a reader recognises, or an honest description of what the thing is.
+
+    Order matters: the crate's own name for the entity always wins, because that
+    is what the reader will search the report for. Only when the entity has no
+    name — which for several of these IS the finding being reported — does this
+    fall back to describing it, and it never invents one.
+    """
+    for key in _id_variants(entity_id):
+        if labels and (name := labels.get(key)):
+            return name
+
+    if entity_id in ("./", ".", ""):
+        return "the crate itself"
+
+    for prefix, phrasing in _IRI_PHRASING:
+        if entity_id.startswith(prefix):
+            return phrasing.format(entity_id[len(prefix) :].strip("/"))
+
     tail = entity_id.rsplit("/", 1)[-1].lstrip("#").removeprefix("./")
-    for prefix in ("CitationAuthor_", "DefinedTerm_", "LabProcess_", "LabProtocol_"):
-        tail = tail.removeprefix(prefix)
+    for prefix in _ID_TYPE_PREFIXES:
+        if tail.startswith(prefix):
+            tail = tail[len(prefix) :]
+            # …and the type token the internal id repeats right after it.
+            for echo in _ID_ECHO_TOKENS:
+                if tail.startswith(echo):
+                    tail = tail[len(echo) :]
+                    break
+            break
     return tail.replace("_", " ").strip() or entity_id
 
 
@@ -269,6 +340,38 @@ def describe(action: Action) -> str:
     if action.kind == "property":
         return f"Supply {subject} for the {n} {'entity' if n == 1 else 'entities'} missing it."
     return f"{what} for {subject}." if what else f"Complete the metadata for {subject}."
+
+
+def describe_parts(action: Action) -> tuple[str, str]:
+    """*(instruction, subject)* — the same sentence, split where it changes topic.
+
+    ``describe`` returns one string because callers that emit plain text want one
+    string. But the HTML list runs the instruction and a long entity list
+    together, and the entity list is by far the longer half — "Add an identifier
+    for proc thyroid hormone receptor activation endpoint readout raw
+    measurements.csv, proc … .csv, proc … .csv and 15 others." The reader is
+    scanning for the verb, and it is buried.
+
+    The two are returned separately so the renderer can give the entity list its
+    own visual weight. Joining them reproduces ``describe`` exactly, and a test
+    pins that, so the plain-text and HTML wordings cannot drift.
+
+    The subject half is empty when the sentence has no entity list to separate
+    (a deliberate non-action, whose text is a note about the whole finding).
+    """
+    if not action.actionable:
+        return describe(action), ""
+    what = _wanted(action.findings)
+    subject = action.subject
+    n = action.cleared
+    plural = "entity is" if n == 1 else "entities are"
+    if action.kind == "orphan":
+        return "Connect", f"{subject} to the crate — {n} {plural} unreachable."
+    if action.kind == "property":
+        return "Supply", (
+            f"{subject} for the {n} {'entity' if n == 1 else 'entities'} missing it."
+        )
+    return (what or "Complete the metadata"), f"for {subject}."
 
 
 # What a finding is asking for, keyed on words the message actually uses. Only

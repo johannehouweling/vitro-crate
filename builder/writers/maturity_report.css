@@ -417,3 +417,11 @@ __CATEGORY_STYLES__
 .mat details.na-aside > summary:hover { color:var(--ink); }
 .mat details.na-aside ul { margin:.35rem 0 0; color:var(--muted);
   font-size:.86rem; }
+
+/* The instruction and the entities it applies to (#561 follow-up). The entity
+   list is by far the longer half — "Add an identifier for proc … .csv, proc …
+   .csv and 15 others" — so with both at one weight the reader scans a wall of
+   ids looking for the verb. The verb carries the page's ink; the entities read
+   as the quieter supporting clause they are. */
+.mat .na-do { color:var(--ink); font-weight:600; }
+.mat .na-of { color:var(--muted); }
