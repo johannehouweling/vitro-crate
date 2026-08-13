@@ -429,3 +429,40 @@ class TestCellosaurusResolvedCellLineContext:
         # The DefinedTerm node objects and the undeclared donor facts stayed off.
         for dropped in ("taxonomicRange", "disease", "anatomicalSite", "donorSex", "category"):
             assert dropped not in cell.fields
+
+
+class TestAPreservedFieldStillConforms:
+    """The whole reason the drop existed, asserted rather than assumed.
+
+    A bare `work_package` key fails BASE with "not allowed in the compacted
+    JSON-LD context", and that failure cannot be repaired by editing the crate
+    because it is regenerated from state on every build. Keeping the value as a
+    `PropertyValue` is only an improvement if the crate still passes — otherwise
+    it trades a silent deletion for a loud failure.
+    """
+
+    def test_base_is_clean_with_preserved_fields_in_the_graph(self) -> None:
+        from builder.state import CrateState
+        from builder.tools.builder import assemble_crate
+        from builder.tools.drafters import draft_investigation, draft_study
+        from profiles.validator import validate_crate_dict
+
+        state = CrateState()
+        investigation = draft_investigation(state, {"name": "Investigation"})
+        study = draft_study(state, investigation.entity_id, {"name": "Thyroid study"})
+        study.set_fields_from_dict(
+            {"project_reference": "NWA 1292.19.272", "work_package": "WP2.4"}, source="user"
+        )
+        crate = assemble_crate(
+            state, None, materialize_payload=False, include_all_scanned=False
+        )
+        document = crate.metadata.generate()
+
+        # The values ARE in the graph — otherwise a clean verdict proves nothing.
+        assert any(
+            node.get("name") == "work package" for node in document["@graph"]
+        ), "nothing was preserved, so this test does not exercise the risk"
+
+        results = validate_crate_dict(document, profile="base")
+        required = [issue for r in results for issue in getattr(r, "required_issues", [])]
+        assert required == [], f"preserving a field broke BASE conformance: {required}"
