@@ -93,11 +93,6 @@ class ToolReachabilityError(RuntimeError):
 # fails on a waiver naming a now-reachable tool, so wiring one forces its row out.
 PIPELINE_UNREACHED: Mapping[str, str] = {
     # --- should be wired; each names the lane that owns it -------------------
-    "lookup_cell_line_by_name": (
-        "Owned by #372 — the only name->Cellosaurus resolver, while the arm "
-        "materialises cell lines through draft_cell_line_sample, which does no "
-        "lookup; default-arm CellLineSamples therefore carry no accession."
-    ),
     "lookup_ror": (
         "No caller. composites._find_or_draft_organization sets `ror` only when "
         "a caller supplies one, and nothing on the arm does, so default-arm "

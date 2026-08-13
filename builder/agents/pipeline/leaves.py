@@ -254,6 +254,14 @@ _PLAN_SYSTEM_PROMPT = (
     "exactly as the source documents word it. Leave it empty unless the "
     "documents say which event is measured — never infer it from the assay's "
     "name and never assume an assay measures the initiating event. "
+    # #372: a descriptive phrase never clears the Cellosaurus exact-match gate,
+    # so without the short catalogue NAME the cell line resolves to nothing and
+    # the crate ships a Sample with no accession.
+    "For each cell line, also report its SHORT catalogue name in 'catalog_name' "
+    "when the documents give one — the name a cell collection or catalogue lists "
+    "it under, e.g. 'FRTL-5' for 'FRTL-5 TPO-overexpressing rat thyroid "
+    "follicular cells', or 'HepG2'. It is a NAME, never an accession or catalogue "
+    "number; leave it empty if the documents do not support one. "
     "Refer to compounds, cell lines, people and "
     "publications BY NAME ONLY, and key events by their NAME only. NEVER "
     "include identifiers of any kind: no CAS, "
@@ -317,7 +325,28 @@ def _plan_schema() -> dict[str, Any]:
                 required=["name"],
             ),
             "cell_lines": _array_of(
-                {"name": {**str_field, "description": "Cell-line name only (no accession)."}},
+                {
+                    "name": {
+                        **str_field,
+                        "description": (
+                            "Cell-line name as the documents word it, no accession."
+                        ),
+                    },
+                    # #372: the ONLY route from a descriptive phrase to a
+                    # Cellosaurus record. `resolve_cell_line`'s exact+unique D5
+                    # gate matches against primary identifiers and synonyms, so
+                    # "FRTL-5 TPO-overexpressing rat thyroid follicular cells"
+                    # misses while "FRTL-5" hits. A catalogue NAME is a name, not
+                    # an identifier — it is absent from _PLAN_IDENTIFIER_FIELDS on
+                    # purpose, and a hallucinated one simply fails the gate.
+                    "catalog_name": {
+                        **str_field,
+                        "description": (
+                            "Short catalogue/collection NAME for the same line, "
+                            "e.g. 'FRTL-5' or 'HepG2'. A name, never an accession."
+                        ),
+                    },
+                },
                 required=["name"],
             ),
             "protocols": _array_of(

@@ -631,6 +631,7 @@ scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
 link_assay_to_key_event(assay_id: str, event_name: str) → {ok, assay_id, key_event_id, matched_name} | {ok: False, error, candidates}  # composite: link an Assay to the AOP Key Event it MEASURES (schema:mentions via keyEvent), matched by name against the KeyEvents already in state; commits the in-state AOP-Wiki id, never one built from the name, and writes NOTHING on a zero/ambiguous match because which Key Event an assay measures is a scientific claim (D5)
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
+resolve_cell_line(name: str, hints: dict | None = None, catalog_name: str | None = None, verify=None) → {entity_id, name, accession, match, query, verifications, verified, source}  # composite: cell-line name → lookup_cell_line_by_name (full name, then catalog_name) → draft_cell_line_sample → lookup_cell_line (which IS the verification), in one idempotent call; a miss is NOT a failure (no `ok` key) — the Sample is always minted and the accession is enrichment
 resolve_publication(title: str, verify=None) → {ok, doi, entity_id, title, score} | {ok: False, reason, title}  # composite: publication title → Crossref title-search → confidence gate → draft_publication_with_authors(doi=…), in one idempotent call; commits a DOI only on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5)
 draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
 draft_investigation(hints: dict) → Entity
@@ -704,6 +705,48 @@ names resolving to the same `pubchem_cid` can no longer mint the same `@id` (whi
 ro-crate-py silently overwrites — data loss). When the record carries no identity
 field, it falls back to name-keyed reuse so re-running the same name still reuses
 the entity rather than duplicating it.
+
+`resolve_cell_line` (Issue #372) is the cell-line counterpart of
+`resolve_compound`, and the deterministic arm's **only** name→Cellosaurus path.
+Before it, `_materialize_plan` minted every cell line through
+`draft_cell_line_sample(name=…, hints={})` — no lookup — so
+`lookup_cell_line_by_name` had no caller outside the ReAct arm (its
+`PIPELINE_UNREACHED` waiver named exactly this gap) and no default-arm crate ever
+carried an accession. Two steps, both Cellosaurus: (1)
+`lookup_cell_line_by_name` on the full normalized name and then on
+`catalog_name`, each gated by that lookup's **unmodified** exact+unique D5 rule —
+first unique-exact hit wins, and the tier is reported as `match`; (2)
+`lookup_cell_line` on the accession, which **is** the verification —
+`_select_verifier("CellLineSample", "accession")` already resolves to exactly
+that function, so a following `verify_identifier` would re-issue the same
+`lru_cache`d call, and the status is set directly (mirroring
+`_verify_compound_identifier`). A *transient* step-2 failure keeps the accession
+unverified; a *definitive* step-2 miss clears it.
+
+**A miss is NOT a failure** — the one deliberate divergence from
+`resolve_compound`, which returns `{ok: False}` and mints nothing. A
+`CellLineSample` with only a name is a valid ISA Sample and is what the arm
+produced before this composite, so returning `{ok: False}` would delete the cell
+line from every crate whose line is not catalogued, taking the
+`CellCulture.cell_line` input and the Study's `cell_lines` mention with it.
+**Always mint; the accession is enrichment** — hence no `ok` key: read
+`accession` / `match`. `name` stays the name **as the source documents word it**;
+the Cellosaurus label goes to `alternateName`. The plan's short `catalog_name`
+(a catalogue *name* is a name, so it is D5-clean and `_strip_plan_identifiers`
+leaves it) is what lets a descriptive phrase such as "FRTL-5 TPO-overexpressing
+rat thyroid follicular cells" reach CVCL_0265 at all; one shaped like an
+accession is **refused**, as is any identifier-bearing `hints` key, so every id
+it commits came back from Cellosaurus inside the call. Idempotency lives in the
+composite, not the drafter: reuse is tried by accession first — one line often
+appears under two names in one submission, and once the accession drives the
+`@id` (`_crate_mapping._mint_id`) two such entities would collide onto one node
+— then by the deterministic name-derived id. Only `accession` /
+`alternateName` / `url` / `sameAs` are persisted; `_CELL_LINE_DROPPED_FIELDS`
+records what else the record offers and the failure each would cause (the
+record's own `identifier` is a full URL that `verify_all_identifiers` would
+re-query percent-encoded, miss, and pop; `taxonomicRange`/`disease`/
+`anatomicalSite` are `DefinedTerm` node objects that `_scalar_props` emits
+un-flattened, failing base conformance).
 
 `resolve_publication` (Issue #179) is the citation counterpart of
 `resolve_compound`, closing the gap PR #217 deferred: a plan carries a

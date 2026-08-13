@@ -15,6 +15,7 @@ consistent with the "Toolbox, Not Graph" design (AGENTS.md §1).
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -30,6 +31,7 @@ from builder.tools.drafters import (
     VALID_PROCESS_TYPES,
     _make_entity_id,
     draft_assay,
+    draft_cell_line_sample,
     draft_investigation,
     draft_molecular_entity,
     draft_organization,
@@ -40,6 +42,8 @@ from builder.tools.drafters import (
 )
 from builder.tools.hitl import HumanInterface
 from builder.tools.lookups import (
+    lookup_cell_line,
+    lookup_cell_line_by_name,
     lookup_compound,
     lookup_doi,
     lookup_dtxsid,
@@ -1488,11 +1492,14 @@ def _find_entity_by_identity(state: CrateState, key: tuple[str, str]) -> Entity 
 
 
 def _append_alternate_name(entity: Entity, name: str) -> None:
-    """Record ``name`` as a ``schema:alternateName`` on a reused MolecularEntity.
+    """Record ``name`` as a ``schema:alternateName`` on a reused entity.
 
     A no-op when ``name`` is empty, already the entity's primary ``name``, or
-    already present in ``alternateName`` (deduped). Keeps the field a list so a
-    molecule resolved under several synonyms accumulates them.
+    already present in ``alternateName`` (deduped). Keeps the field a list so an
+    entity resolved under several synonyms accumulates them — a molecule reused
+    across two chemical names (:func:`resolve_compound`) and a cell line reused
+    across two source spellings or its Cellosaurus label
+    (:func:`resolve_cell_line`) both rely on that.
     """
     candidate = " ".join(str(name).split())
     if not candidate or candidate == str(entity.fields.get("name") or ""):
@@ -1800,6 +1807,373 @@ def resolve_compound(
 
 
 # ---------------------------------------------------------------------------
+# resolve_cell_line (#372)
+# ---------------------------------------------------------------------------
+
+# A catalogue NAME is a name, not an identifier, which is what makes the plan's
+# `catalog_name` D5-clean. This refuses the one thing that is NOT a name: a
+# Cellosaurus accession smuggled through a field the plan's identifier strip
+# deliberately leaves alone. Case-insensitive and tolerant of the `CVCL-`
+# spelling, because a model routing an id around the strip would not be expected
+# to use the canonical form.
+_ACCESSION_SHAPED = re.compile(r"^CVCL[_-]?\w+$", re.IGNORECASE)
+
+# Hint keys refused outright before anything is written (D5). A caller — the
+# ReAct model, or a plan field that slipped the strip — must never be able to
+# hand this composite an accession: every id it commits has to come back from
+# Cellosaurus in THIS call. `rrid` and `identifier` are in here because
+# `_crate_mapping._mint_id` reads `accession`/`rrid` to build the cell line's
+# resolvable `@id`, so a hint on either would fabricate the node's identity, and
+# the profile model promotes the accession to `schema:identifier` itself.
+_CELL_LINE_REFUSED_HINTS: frozenset[str] = frozenset(
+    {"accession", "identifier", "rrid", "cellosaurus", "cellosaurus_accession", "@id", "id"}
+)
+
+# Fields copied from the `lookup_cell_line` record onto the CellLineSample.
+# Deliberately short — see `_CELL_LINE_DROPPED_FIELDS` for what the record also
+# offers and why each of those stays off the entity.
+_CELL_LINE_DATA_FIELDS: tuple[str, ...] = ("alternateName", "url", "sameAs")
+
+# Everything the Cellosaurus record carries that must NOT be persisted, each with
+# the failure it causes. Written out rather than left implicit because every one
+# of these looks harmless and two of them are silently destructive.
+_CELL_LINE_DROPPED_FIELDS: tuple[tuple[str, str], ...] = (
+    (
+        "identifier",
+        "lookup_cellosaurus sets `identifier` to the record's full URL, not the "
+        "bare accession. Persisting it would make verify_all_identifiers re-query "
+        "Cellosaurus with that URL percent-encoded into the cell-line path, miss, "
+        "and POP the field — D5 destroying a value the authority actually gave us. "
+        "The profile model derives schema:identifier from `accession` anyway.",
+    ),
+    (
+        "name",
+        "The entity's `name` is the name as the SOURCE DOCUMENTS word it. The "
+        "Cellosaurus label is a different string for the same line and belongs on "
+        "alternateName; clobbering `name` would rewrite the study's own wording.",
+    ),
+    (
+        "taxonomicRange",
+        "A DefinedTerm NODE object. _scalar_props emits it inline, producing an "
+        "un-flattened nested entity that fails base conformance. Promoting these "
+        "to real DefinedTerm entities is its own lane.",
+    ),
+    ("disease", "A list of DefinedTerm node objects — same un-flattening failure."),
+    ("anatomicalSite", "A DefinedTerm node object — same un-flattening failure."),
+    (
+        "donorSex",
+        "Not a term in the crate's JSON-LD context, so emitting it fails base "
+        "conformance ('not allowed in the compacted JSON-LD context'). It belongs "
+        "in a Sample characteristic, which needs the additionalProperty lane.",
+    ),
+    ("donorAge", "Not a context term — same base-conformance failure as donorSex."),
+    (
+        "category",
+        "Cellosaurus's own line-category vocabulary ('Cancer cell line', …), not a "
+        "schema.org value. Same characteristic lane as donorSex/donorAge.",
+    ),
+)
+
+
+def _cell_line_candidates(display_name: str, catalog_name: str | None) -> list[tuple[str, str]]:
+    """The ``(tier, query)`` name candidates to try against Cellosaurus, in order.
+
+    The full normalized display name first — it is what the documents call the
+    line, so a hit on it is the strongest claim available. Then ``catalog_name``,
+    the short catalogue name the extract plan may report ("FRTL-5" for "FRTL-5
+    TPO-overexpressing rat thyroid follicular cells"), which is the ONLY way a
+    descriptive phrase ever reaches its record: the D5 gate in
+    :func:`~builder.tools.lookups.lookup_cell_line_by_name` requires an exact
+    match against a primary identifier or synonym and is not relaxed here.
+
+    Two candidates are refused rather than queried: one shaped like an accession
+    (see :data:`_ACCESSION_SHAPED`), and one that merely re-spells the display
+    name, which would spend a second network round-trip to ask the same question.
+    """
+    candidates: list[tuple[str, str]] = []
+    if display_name.strip():
+        candidates.append(("exact", display_name))
+    catalog = " ".join(str(catalog_name or "").split())
+    if not catalog or _ACCESSION_SHAPED.match(catalog):
+        return candidates
+    if any(catalog.casefold() == query.casefold() for _tier, query in candidates):
+        return candidates
+    candidates.append(("catalog", catalog))
+    return candidates
+
+
+def _find_cell_line_by_accession(state: CrateState, accession: str) -> Entity | None:
+    """An existing ``CellLineSample`` already carrying ``accession``, or ``None``.
+
+    The cell-line counterpart of :func:`_find_entity_by_identity` (Issue #179).
+    One line routinely appears under two names in one submission — the shipped
+    S-VHPS22 fixture calls it "…rat thyroid follicular cells" in the README and
+    "…overexpressing cells" in both CSVs — and each name mints its own
+    ``cell_<name>`` id. Once the accession drives the ``@id``
+    (``_crate_mapping._mint_id``), two such entities collide onto ONE node at
+    build time and ro-crate-py silently keeps whichever was written last.
+    """
+    target = accession.strip()
+    for entity in state.list_entities("CellLineSample"):
+        existing = entity.fields.get("accession")
+        if existing not in (None, "") and str(existing).strip() == target:
+            return entity
+    return None
+
+
+def _search_cell_line_accession(
+    candidates: list[tuple[str, str]], budget: float
+) -> tuple[str, str, str]:
+    """Step 1: the first candidate name with a confident Cellosaurus accession.
+
+    Returns ``(accession, match_tier, query)`` — all empty strings when no
+    candidate resolved. Each candidate goes through the UNMODIFIED exact+unique
+    gate, so a "catalog"-tier hit is not a weaker claim about the record, only a
+    weaker claim that the record is the line the documents mean.
+
+    A transient outage or a timeout **stops the walk** rather than falling
+    through to the next candidate: the remaining candidates are weaker, and
+    committing one because the strongest could not be asked would turn an outage
+    into a quietly different answer.
+    """
+    for tier, query in candidates:
+
+        def _do_lookup(query: str = query) -> dict[str, Any]:
+            with resolve_concurrency.slot():
+                return lookup_cell_line_by_name(query)
+
+        try:
+            completed, hit = run_with_timeout(_do_lookup, budget)
+        except Exception:  # a lookup that raised — enrichment, never fatal
+            logger.exception("resolve_cell_line name search failed for %r", query)
+            break
+        if not completed:
+            logger.warning(
+                "resolve_cell_line name search for %r exceeded its %gs timeout; "
+                "continuing without an accession",
+                query,
+                budget,
+            )
+            break
+        if hit.get("found"):
+            accession = str((hit.get("data") or {}).get("accession") or "").strip()
+            if accession:
+                return accession, tier, query
+        elif hit.get("transient"):
+            break
+    return "", "", ""
+
+
+def resolve_cell_line(
+    state: CrateState,
+    name: str,
+    hints: dict[str, Any] | None = None,
+    catalog_name: str | None = None,
+    verify: bool | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """Resolve a cell-line name to a ``CellLineSample`` + Cellosaurus accession.
+
+    The cell-line counterpart of :func:`resolve_compound`, and the deterministic
+    arm's ONLY name→Cellosaurus path: before this existed the arm minted every
+    cell line through ``draft_cell_line_sample`` with empty hints, so
+    ``lookup_cell_line_by_name`` had no caller outside the ReAct arm and no
+    default-arm crate ever carried an accession (#372, #386).
+
+    Two steps, both against Cellosaurus:
+
+    1. :func:`~builder.tools.lookups.lookup_cell_line_by_name` on each candidate
+       name in turn (see :func:`_cell_line_candidates`) → a bare ``CVCL_*``
+       accession, committed only on that lookup's exact+unique D5 gate.
+    2. :func:`~builder.tools.lookups.lookup_cell_line` on that accession → the
+       record. **Step 2 IS the verification.**
+       ``_select_verifier("CellLineSample", "accession")`` already resolves to
+       exactly this function, so following it with ``verify_identifier`` would
+       re-issue the same ``lru_cache``d call to reach the same verdict; the
+       status is set directly instead, mirroring
+       :func:`_verify_compound_identifier`. A *transient* step-2 failure keeps
+       the accession unverified; a *definitive* step-2 miss clears it, because a
+       search that produced an accession the record endpoint denies is not
+       evidence of anything.
+
+    **A miss is NOT a failure.** The one deliberate divergence from
+    :func:`resolve_compound`, which returns ``{"ok": False}`` and mints nothing.
+    A ``CellLineSample`` carrying only a name is a valid ISA Sample and is
+    exactly what the arm produced before this composite existed, so refusing to
+    mint would delete the cell line from every crate whose line is not
+    catalogued — taking the ``CellCulture.cell_line`` input and the Study's
+    ``cell_lines`` mention with it. **Always mint; the accession is enrichment.**
+    There is therefore no ``ok`` key: read ``accession``/``match`` instead.
+
+    Idempotency is handled HERE, not in the drafter (which stays the plain
+    ReAct-callable primitive): ``draft_cell_line_sample`` is not idempotent and
+    ``state.add_entity`` silently *replaces* under ``CellLineSample:<eid>``,
+    which would wipe the accession, its verified status and its provenance on a
+    re-resolve. Reuse is tried by accession first (:func:`_find_cell_line_by_accession`)
+    and then by the deterministic name-derived id.
+
+    Args:
+        state: The crate state to resolve into.
+        name: The cell-line name **as the source documents word it** — kept
+            verbatim as the entity's ``name``. The Cellosaurus label, when it
+            differs, is recorded as an ``alternateName``, never as the name.
+        hints: Optional extra descriptive field values (e.g. ``passage``).
+            Identifier-bearing keys are refused (:data:`_CELL_LINE_REFUSED_HINTS`)
+            — an accession may only come back from Cellosaurus in this call.
+        catalog_name: Optional short catalogue name for the same line, e.g.
+            ``"FRTL-5"`` for a descriptive phrase naming it. A catalogue *name*
+            is a name, so it is D5-clean; one shaped like an accession is refused.
+        verify: When ``None``/``True`` (the default), run step 2. Passing
+            ``False`` skips it — and with it the record, since step 2 is the only
+            fetch: the accession is then kept unverified and no enrichment
+            fields land. ``verified`` is reported as ``None``.
+        timeout: Per-request wall-clock budget (seconds). ``None`` uses
+            :data:`~builder.tools._resolve_cache.DEFAULT_RESOLVE_TIMEOUT`;
+            ``<= 0`` disables the bound. On expiry the cell line is still minted,
+            without an accession.
+
+    Returns:
+        ``{"entity_id", "name", "accession", "match": "exact"|"catalog"|"none",
+        "query", "verifications": [{field, verified, message}], "verified":
+        bool | None, "source"}``. ``match`` is the tier of the candidate that
+        hit and ``query`` the string that hit it, so a caller (interactive build)
+        can surface a ``catalog``-tier commit for confirmation — that prompt is
+        deliberately NOT here and NOT in ``run_pipeline``, whose contract is to
+        stay non-blocking so ``--arch pipeline`` and the corpus eval run headless.
+    """
+    budget = DEFAULT_RESOLVE_TIMEOUT if timeout is None else timeout
+
+    # Canonical display name: strip + collapse internal whitespace. Casing is
+    # preserved for display; `_make_entity_id` lowercases for the id. Keeps
+    # "Hep G2" and "Hep  G2" one entity, and is what gets searched.
+    display_name = " ".join(str(name).split()) or name
+
+    accession, match, query = _search_cell_line_accession(
+        _cell_line_candidates(display_name, catalog_name), budget
+    )
+
+    # --- step 2: the record IS the verification -----------------------------
+    record: dict[str, Any] = {}
+    verifications: list[dict[str, Any]] = []
+    do_verify = verify is None or verify
+    verified: bool | None = None
+    denied_accession = ""
+    if accession and do_verify:
+
+        def _do_record() -> dict[str, Any]:
+            with resolve_concurrency.slot():
+                return lookup_cell_line(accession)
+
+        # A raised lookup and an expired budget are both "could not ask", which
+        # is a transient verdict — the accession stays, unverified. Only a
+        # definitive answer from the endpoint may clear it.
+        confirmation: dict[str, Any] = {"found": False, "transient": True}
+        try:
+            completed, fetched = run_with_timeout(_do_record, budget)
+            if completed and isinstance(fetched, dict):
+                confirmation = fetched
+        except Exception:
+            logger.exception("resolve_cell_line record fetch failed for %r", accession)
+
+        if confirmation.get("found"):
+            record = confirmation.get("data") or {}
+            verified = True
+            message = f"Verified accession for CellLineSample via cellosaurus ({accession})"
+        elif confirmation.get("transient"):
+            verified = False
+            message = (
+                f"accession {accession} could not be confirmed right now — cellosaurus "
+                "is temporarily unavailable; value kept."
+            )
+        else:
+            # The name search handed us an accession the record endpoint denies.
+            # Nothing about that pair is trustworthy, so drop it rather than
+            # publish a CVCL id that does not dereference (D5).
+            message = (
+                f"accession {accession} did not resolve at cellosaurus; cleared "
+                "rather than published as an unresolvable id."
+            )
+            denied_accession = accession
+            accession, match, query = "", "none", ""
+            verified = False
+        verifications.append({"field": "accession", "verified": bool(verified), "message": message})
+
+    # --- fields -------------------------------------------------------------
+    merged_hints: dict[str, Any] = {
+        key: value for key, value in (hints or {}).items() if key not in _CELL_LINE_REFUSED_HINTS
+    }
+    # Tracked separately so the AUTHORITY's values can be recorded as such; the
+    # rest of `merged_hints` is the caller's and keeps that origin.
+    looked_up: dict[str, Any] = {}
+    for key in _CELL_LINE_DATA_FIELDS:
+        value = record.get(key)
+        if value not in (None, ""):
+            looked_up[key] = value
+    if accession:
+        looked_up["accession"] = accession
+    merged_hints.update(looked_up)
+
+    # --- mint or reuse ------------------------------------------------------
+    by_accession = _find_cell_line_by_accession(state, accession) if accession else None
+    if by_accession is not None:
+        entity = by_accession
+        # Keep the name the line was first minted under and record this call's
+        # name as an alias, so the second spelling in the submission is not lost.
+        refreshed = dict(merged_hints)
+        refreshed.pop("name", None)
+        entity.set_fields_from_dict(refreshed, source="lookup")
+        _append_alternate_name(entity, display_name)
+    else:
+        entity_id = _make_entity_id("cell", display_name, merged_hints)
+        existing = state.get_entity(entity_id)
+        if existing is not None and existing.type == "CellLineSample":
+            entity = existing
+            entity.set_fields_from_dict({**merged_hints, "name": display_name}, source="lookup")
+        else:
+            entity = draft_cell_line_sample(state, display_name, merged_hints)
+            # The drafter stamps every hint it is handed `source="llm"` — right
+            # for a drafted hint, wrong for the Cellosaurus record. Re-record
+            # that subset as looked-up so a D5 audit reading `_completion` does
+            # not see a fabricated accession on every cell line (#424).
+            if looked_up:
+                entity.set_fields_from_dict(looked_up, source="lookup")
+
+    # The Cellosaurus label is an alias for the same line, never the entity's
+    # name (which stays the documents' wording). Skipped when the record carried
+    # no name-list: `lookup_cellosaurus` then echoes the accession back as the
+    # name, and publishing "CVCL_0265" as an alternateName would read as a name
+    # the line is actually known by.
+    label = str(record.get("name") or "")
+    if label != accession:
+        _append_alternate_name(entity, label)
+
+    if accession:
+        if verified:
+            entity.set_field_status("accession", "verified", "lookup")
+        if "cellosaurus" not in entity._provenance.lookups_used:
+            entity._provenance.lookups_used.append("cellosaurus")
+    elif denied_accession and str(entity.fields.get("accession") or "") == denied_accession:
+        # A re-resolve whose step 2 came back definitively 404: an id the record
+        # endpoint denies must not survive on the entity just because an earlier
+        # call wrote it. Mirrors `verify_identifier`'s pop-on-definitive-miss —
+        # the return would otherwise report no accession while the crate still
+        # published one, and `_mint_id` would still key the node on it.
+        entity.fields.pop("accession", None)
+        entity.set_field_status("accession", "missing", "lookup")
+
+    return {
+        "entity_id": entity.entity_id,
+        "name": display_name,
+        "accession": accession,
+        "match": match or "none",
+        "query": query,
+        "verifications": verifications,
+        "verified": verified,
+        "source": "cellosaurus",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
@@ -1807,6 +2181,7 @@ from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 TOOL_REGISTRY.register("scaffold_isa_backbone", scaffold_isa_backbone, takes_state=True)
 TOOL_REGISTRY.register("draft_process_chain", draft_process_chain, takes_state=True)
 TOOL_REGISTRY.register("resolve_compound", resolve_compound, takes_state=True)
+TOOL_REGISTRY.register("resolve_cell_line", resolve_cell_line, takes_state=True)
 TOOL_REGISTRY.register("resolve_publication", resolve_publication, takes_state=True)
 TOOL_REGISTRY.register("materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True)
 TOOL_REGISTRY.register("link_assay_to_key_event", link_assay_to_key_event, takes_state=True)

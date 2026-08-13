@@ -29,6 +29,47 @@ def _stub_composites_dtxsid(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_composites_cellosaurus(monkeypatch):
+    """Keep ``resolve_cell_line``'s Cellosaurus calls offline (#372).
+
+    Wiring ``resolve_cell_line`` into ``_materialize_plan`` gave three modules a
+    live network path they never had: ``test_agents_pipeline``,
+    ``test_pipeline_e2e`` and ``test_pipeline_real_input`` all drive the real
+    pipeline over a plan carrying a cell line, and nothing stubbed Cellosaurus.
+    Default both primitives to a MISS so a forgotten stub surfaces as "no
+    accession" rather than as a request to api.cellosaurus.org.
+
+    **Scoped to the symbols bound in the ``composites`` namespace**, exactly like
+    ``_stub_composites_dtxsid`` above — NOT to ``builder.tools.lookups``, which
+    the issue's plan proposed. Patching there is measurably wrong: nine tests in
+    ``test_lookups_cellosaurus_recall`` drive the REAL
+    ``builder.tools.lookups.lookup_cell_line_by_name`` with its HTTP replayed by
+    ``responses``, and stubbing the search it calls short-circuits the very
+    recall/D5-gate behaviour they pin. "Do not reach the network" and "do not
+    resolve" are different claims, and only the first one is this fixture's job.
+
+    Tests that need a hit re-patch these two names (a later ``monkeypatch.setattr``
+    wins); ``tests/test_composites_resolve_cell_line.py`` instead restores the real
+    primitives and stubs one layer down, so the D5 gate stays under test.
+    ``raising=False`` tolerates any import order.
+    """
+    from builder.tools import composites
+
+    monkeypatch.setattr(
+        composites,
+        "lookup_cell_line_by_name",
+        lambda name: {"found": False, "data": {}, "error": "offline stub (conftest)"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        composites,
+        "lookup_cell_line",
+        lambda accession: {"found": False, "data": {}, "error": "offline stub (conftest)"},
+        raising=False,
+    )
+
+
 @pytest.fixture
 def minimal_state() -> CrateState:
     """Return a CrateState with one Investigation entity."""

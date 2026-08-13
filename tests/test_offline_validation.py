@@ -313,3 +313,119 @@ class TestAValidatorThatCannotRunIsNotAPass:
             with _checks_must_run("isa"):
                 raise RuntimeError("boom")
         assert len(logging.getLogger("rocrate_validator").handlers) == before
+
+
+class TestCellosaurusResolvedCellLineContext:
+    """A Cellosaurus-resolved cell line must serialise to context-valid JSON-LD (#372).
+
+    The Cellosaurus record is far richer than the crate can absorb: three of its
+    fields are ``schema:DefinedTerm`` **node objects** (``taxonomicRange`` /
+    ``disease`` / ``anatomicalSite``), which ``_scalar_props`` would emit inline
+    as un-flattened nested entities, and three more (``donorSex`` / ``donorAge``
+    / ``category``) are not declared in the ``@context`` at all — the same class
+    of failure #243 hit with the ChEBI fallback's bare ``chebi_id``. This is the
+    gate proving ``_CELL_LINE_DATA_FIELDS`` is narrow enough, and that a
+    CellLineSample whose ``@id`` is now an external Cellosaurus IRI still builds.
+    """
+
+    @staticmethod
+    def _resolved_state(monkeypatch):
+        """A CrateState holding one Cellosaurus-resolved CellLineSample.
+
+        Drives the *real* ``resolve_cell_line`` over the *real* lookup stack with
+        only the two network primitives replaced, so the keys the entity carries
+        are exactly the ones the production path emits. The record double is the
+        recorded ``cellosaurus_hepg2.json`` body parsed by the real
+        ``lookup_cellosaurus``, reached through ``responses`` in
+        ``tests/test_composites_resolve_cell_line.py``; here it is handed over
+        directly to keep this module free of HTTP mocking.
+        """
+        from builder.state import CrateState
+        from builder.tools import composites, lookups
+
+        # tests/conftest.py defaults these to a miss suite-wide; this test needs
+        # the real primitives so the D5 gate and the record parse both run.
+        monkeypatch.setattr(
+            composites, "lookup_cell_line_by_name", lookups.lookup_cell_line_by_name
+        )
+        monkeypatch.setattr(composites, "lookup_cell_line", lookups.lookup_cell_line)
+        lookups.lookup_cell_line_by_name.cache_clear()
+        lookups.lookup_cell_line.cache_clear()
+
+        # CVCL_0027's real primary identifier is "Hep-G2"; "HepG2" is a synonym
+        # (#385), which is why the entity's own name and the label differ here.
+        candidates = (
+            {
+                "accession": "CVCL_0027",
+                "name": "Hep-G2",
+                "synonyms": ["HEP-G2", "Hep G2", "HEP G2", "HepG2", "HEPG2"],
+            },
+        )
+        record = {
+            "name": "Hep-G2",
+            "identifier": "https://www.cellosaurus.org/CVCL_0027",
+            "url": "https://www.cellosaurus.org/CVCL_0027",
+            "alternateName": ["HEP-G2", "Hep G2", "HEP G2", "HepG2", "HEPG2"],
+            "taxonomicRange": {
+                "@id": "http://purl.obolibrary.org/obo/NCBITaxon_9606",
+                "@type": "DefinedTerm",
+                "name": "Homo sapiens",
+            },
+            "disease": [
+                {
+                    "@id": "http://purl.obolibrary.org/obo/NCIT_C3728",
+                    "@type": "DefinedTerm",
+                    "name": "Hepatoblastoma",
+                }
+            ],
+            "anatomicalSite": {
+                "@id": "http://purl.obolibrary.org/obo/UBERON_0002107",
+                "@type": "DefinedTerm",
+                "name": "liver",
+            },
+            "donorSex": "Male",
+            "donorAge": "15Y",
+            "category": "Cancer cell line",
+            "sameAs": [
+                "http://purl.obolibrary.org/obo/CLO_0003703",
+                "https://www.wikidata.org/wiki/Q3512461",
+            ],
+        }
+        monkeypatch.setattr(lookups, "search_cellosaurus", lambda name, *a, **k: candidates)
+        monkeypatch.setattr(lookups, "lookup_cellosaurus", lambda accession: record)
+
+        state = CrateState()
+        state.metadata.title = "Cellosaurus crate"
+        result = composites.resolve_cell_line(state, name="HepG2")
+        assert result["accession"] == "CVCL_0027", result
+        return state, result
+
+    def test_cellosaurus_cell_line_passes_base_validation(self, monkeypatch):
+        from builder.tools.validation import build_and_validate
+
+        state, _ = self._resolved_state(monkeypatch)
+        report = build_and_validate(state, profile="base")
+
+        assert report["conformance"].get("base") is True, [
+            (i["entity_id"], i["property"], i["message"]) for i in report["issues"]
+        ]
+        joined = " ".join(i["message"] for i in report["issues"]).lower()
+        assert "not present in the @context" not in joined, report["issues"]
+
+    def test_only_context_valid_keys_reach_the_cell_line(self, monkeypatch):
+        state, _ = self._resolved_state(monkeypatch)
+        cell = next(e for e in state.list_entities() if e.type == "CellLineSample")
+
+        from profiles.context import ISA_TOX_CONTEXT as _CTX
+
+        context_terms = set(_CTX[0])
+        # `name`/`alternateName`/`url` are plain schema.org terms carried by the
+        # base RO-Crate context, so only the extension terms are checked here.
+        for key in cell.fields:
+            if key in {"name", "alternateName", "url"} or key.startswith("@"):
+                continue
+            assert key in context_terms, f"CellLineSample key {key!r} not in @context"
+
+        # The DefinedTerm node objects and the undeclared donor facts stayed off.
+        for dropped in ("taxonomicRange", "disease", "anatomicalSite", "donorSex", "category"):
+            assert dropped not in cell.fields

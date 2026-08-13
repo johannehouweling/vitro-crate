@@ -523,6 +523,19 @@ class TestRealInputPipeline:
         # D5: the CAS is the LOOKED-UP value, never fabricated by the plan/leaf.
         assert t4.fields.get("cas") == "51-48-9"
 
+        # #372, the honest seam: this plan carries the documents' descriptive
+        # phrase and no short catalogue name, so the exact-match gate finds
+        # nothing — and the cell line must survive that anyway. A miss is not a
+        # failure: returning {ok: False} would delete the Sample and with it the
+        # CellCulture's `cell_line` input. No canned CVCL_0214 is handed over,
+        # because "CHO-K1 OATP1C1-overexpressing cells" is not a name Cellosaurus
+        # can resolve to the parent line.
+        cells = state.list_entities("CellLineSample")
+        assert [c.fields.get("name") for c in cells] == [
+            "CHO-K1 OATP1C1-overexpressing cells"
+        ]
+        assert "accession" not in cells[0].fields
+
         procs = state.list_entities("LabProcess")
         assert {"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"} <= {
             p.fields.get("process_type") for p in procs

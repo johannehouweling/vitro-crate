@@ -869,9 +869,39 @@ class TestMaterializePlan:
         def fake_search_works_by_title(title):
             return []
 
+        # resolve_cell_line -> the two Cellosaurus primitives (#372). The suite-wide
+        # conftest stub defaults both to a MISS so no test reaches the network; here
+        # they answer for the plan's FRTL-5 so the accession assertions have a value
+        # to check. Step 2 (the record) IS the verification, hence no verify stub.
+        def fake_lookup_cell_line_by_name(name):
+            if str(name).strip().casefold() == "frtl-5":
+                return {
+                    "found": True,
+                    "data": {"accession": "CVCL_0265", "name": "FRTL-5", "synonyms": ["FRTL5"]},
+                    "error": None,
+                }
+            return {"found": False, "data": {}, "error": "no confident match"}
+
+        def fake_lookup_cell_line(accession):
+            if accession == "CVCL_0265":
+                return {
+                    "found": True,
+                    "data": {
+                        "name": "FRTL-5",
+                        "url": "https://www.cellosaurus.org/CVCL_0265",
+                        "alternateName": ["FRTL 5", "FRTL5"],
+                    },
+                    "error": None,
+                }
+            return {"found": False, "data": {}, "error": "not found"}
+
         monkeypatch.setattr(composites_mod, "lookup_compound", fake_lookup_compound)
         monkeypatch.setattr(composites_mod, "verify_identifier", fake_verify_identifier)
         monkeypatch.setattr(composites_mod, "search_works_by_title", fake_search_works_by_title)
+        monkeypatch.setattr(
+            composites_mod, "lookup_cell_line_by_name", fake_lookup_cell_line_by_name
+        )
+        monkeypatch.setattr(composites_mod, "lookup_cell_line", fake_lookup_cell_line)
         monkeypatch.setattr(tool_lookups, "lookup_aop", fake_lookup_aop)
 
     def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
@@ -896,9 +926,14 @@ class TestMaterializePlan:
         chems = self._by_type(engine, "MolecularEntity")
         assert {c.fields.get("name") for c in chems} == {"Methimazole", "Sodium iodide"}
 
-        # Cell line → CellLineSample.
+        # Cell line → CellLineSample, carrying the LOOKED-UP accession (#372).
+        # Asserting the name alone passed for as long as the arm called
+        # `draft_cell_line_sample(name=…, hints={})` and never looked anything up,
+        # which is exactly the defect: the accession is the assertion with teeth.
         cells = self._by_type(engine, "CellLineSample")
         assert [c.fields.get("name") for c in cells] == ["FRTL-5"]
+        assert cells[0].fields.get("accession") == "CVCL_0265"
+        assert cells[0]._completion["CellLineSample:accession"].status == "verified"
 
         # Process chain → 4 LabProcess steps wired to the assay.
         procs = self._by_type(engine, "LabProcess")
@@ -1841,6 +1876,190 @@ class TestMaterializeCompoundsFromFilenames:
         # The CAS on each entity is the name's LOOKED-UP value, not a fabrication.
         for name, expected in self._LOOKUP_BY_NAME.items():
             assert chems[name].fields.get("cas") == expected["cas"]
+
+
+class TestMaterializeCellLineAccessionFromThePlan:
+    """#372 — the DEFAULT pipeline path must turn a plan cell line into a
+    ``CellLineSample`` carrying its LOOKED-UP Cellosaurus accession.
+
+    Before ``resolve_cell_line``, ``_materialize_plan`` called
+    ``draft_cell_line_sample(name=name, hints={})`` — empty hints, no lookup —
+    so ``lookup_cell_line_by_name`` had zero callers under
+    ``builder/agents/pipeline/`` and every default-arm cell line shipped without
+    an accession.
+
+    Drives the REAL ``extract_plan`` leaf (only its chat model faked) so the
+    whole documents → plan → ``resolve_cell_line`` → CellLineSample chain runs
+    offline, including the ``catalog_name`` slot the leaf now offers: the
+    documents' descriptive phrase cannot clear Cellosaurus's exact-match gate,
+    and the short catalogue name is the only thing that can.
+    """
+
+    _DESCRIPTIVE = "FRTL-5 TPO-overexpressing rat thyroid follicular cells"
+    _CATALOG = "FRTL-5"
+
+    def _enable_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: "openai")
+
+    def _titled_state(self) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "FRTL-5 thyroid TPO inhibition screen"
+        state.metadata.description = (
+            "Rat thyroid follicular FRTL-5 cells overexpressing TPO, dosed in vitro."
+        )
+        return state
+
+    def _fake_leaf_chat_model(self, monkeypatch: pytest.MonkeyPatch, plan_item: dict) -> list[str]:
+        """Fake the REAL leaf's chat model, recording the prompt it was shown.
+
+        The genuine ``extract_plan`` code path runs — its schema is built, its
+        system prompt assembled and fed the gathered context — and the model
+        deterministically answers with the cell line a correctly-steered model
+        would propose. Names only (D5).
+        """
+        import builder.agents.pipeline.leaves as leaves_mod
+
+        seen_prompts: list[str] = []
+
+        class _Runnable:
+            def invoke(self, messages, *a, **k):
+                for msg in messages:
+                    content = getattr(msg, "content", "")
+                    if isinstance(content, str):
+                        seen_prompts.append(content)
+                return {"cell_lines": [dict(plan_item)]}
+
+        class _Model:
+            def with_structured_output(self, schema, *, include_raw=False, **k):
+                return _Runnable()
+
+        monkeypatch.setattr(leaves_mod, "_build_chat_model", lambda *a, **k: _Model())
+        return seen_prompts
+
+    def _stub_cellosaurus(
+        self, monkeypatch: pytest.MonkeyPatch, *, known: bool = True
+    ) -> list[str]:
+        """Stub the two Cellosaurus primitives, recording every name queried.
+
+        The exact+unique gate is modelled honestly: ONLY "FRTL-5" resolves, so a
+        descriptive phrase misses exactly as it does live.
+        """
+        import builder.tools.composites as composites_mod
+
+        queried: list[str] = []
+        catalog = self._CATALOG
+
+        def fake_lookup_cell_line_by_name(name):
+            queried.append(str(name))
+            if known and str(name).strip().casefold() == catalog.casefold():
+                return {
+                    "found": True,
+                    "data": {"accession": "CVCL_0265", "name": catalog, "synonyms": ["FRTL5"]},
+                    "error": None,
+                }
+            return {"found": False, "data": {}, "error": "no confident match"}
+
+        def fake_lookup_cell_line(accession):
+            if accession == "CVCL_0265":
+                return {
+                    "found": True,
+                    "data": {"name": catalog, "url": f"https://www.cellosaurus.org/{accession}"},
+                    "error": None,
+                }
+            return {"found": False, "data": {}, "error": "not found"}
+
+        monkeypatch.setattr(
+            composites_mod, "lookup_cell_line_by_name", fake_lookup_cell_line_by_name
+        )
+        monkeypatch.setattr(composites_mod, "lookup_cell_line", fake_lookup_cell_line)
+        return queried
+
+    def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
+        return [e for e in engine.state.list_entities() if e.type == type_name]
+
+    def test_cell_line_accession_comes_from_the_lookup_not_the_plan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """D5: only NAMES reach the composite; the accession is the looked-up value."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        seen_prompts = self._fake_leaf_chat_model(
+            monkeypatch, {"name": self._DESCRIPTIVE, "catalog_name": self._CATALOG}
+        )
+        queried = self._stub_cellosaurus(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        assert self._by_type(engine, "CellLineSample") == []
+
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        # The real leaf's prompt asks for the short catalogue name.
+        assert "catalog_name" in "\n".join(seen_prompts)
+
+        cells = self._by_type(engine, "CellLineSample")
+        assert len(cells) == 1
+        cell = cells[0]
+        # The name stays the documents' wording; the accession came from the lookup.
+        assert cell.fields["name"] == self._DESCRIPTIVE
+        assert cell.fields["accession"] == "CVCL_0265"
+        assert cell._completion["CellLineSample:accession"].status == "verified"
+        # And the descriptive phrase really was tried first and really did miss —
+        # so the catalogue name is doing the work, not a relaxed gate.
+        assert queried == [self._DESCRIPTIVE, self._CATALOG]
+
+    def test_no_accession_when_cellosaurus_has_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Honesty control: an uncatalogued line still mints, with NO accession.
+
+        This is the divergence from ``resolve_compound`` that keeps the crate
+        whole — the Sample survives so ``CellCulture.cell_line`` and the Study's
+        ``cell_lines`` mention still have something to point at — and it is also
+        the proof that the accession above was not manufactured by the wiring.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._fake_leaf_chat_model(monkeypatch, {"name": "Nonesuch primary cells"})
+        self._stub_cellosaurus(monkeypatch, known=False)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        cells = self._by_type(engine, "CellLineSample")
+        assert len(cells) == 1
+        assert cells[0].fields["name"] == "Nonesuch primary cells"
+        assert "accession" not in cells[0].fields
+
+    def test_an_accession_shaped_catalog_name_is_never_committed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`catalog_name` survives ``_strip_plan_identifiers`` — so it is guarded here.
+
+        A CVCL-shaped value in that NAME slot is refused before it is ever
+        queried, which is what stops the one D5 hole the new plan field opens.
+        """
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._fake_leaf_chat_model(
+            monkeypatch, {"name": self._DESCRIPTIVE, "catalog_name": "CVCL_0265"}
+        )
+        queried = self._stub_cellosaurus(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        cells = self._by_type(engine, "CellLineSample")
+        assert len(cells) == 1
+        assert "accession" not in cells[0].fields
+        assert queried == [self._DESCRIPTIVE]
 
 
 class TestPublicationFromPDF:
