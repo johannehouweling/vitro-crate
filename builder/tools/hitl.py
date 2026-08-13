@@ -573,6 +573,21 @@ class ConsoleHumanInterface:
 # any marker INTO the crate (that would be fabricating metadata, D5).
 SMOKE_TEST_ANSWER = "yes, continue"
 
+# The ``field_type`` a frontend is asked with when the question is not a metadata
+# field at all but the CONVERSATION itself — the legacy ReAct loop's "what next?"
+# prompt. A console frontend cannot tell the difference and should not try: it
+# reads a line either way. It exists so an interface that answers ITSELF can,
+# because that channel is the one place where "answer everything affirmatively"
+# does not terminate on its own (see `SmokeTestHumanInterface.request_input`).
+CONVERSATION_FIELD_TYPE = "conversation"
+
+# How many conversational turns a smoke test drives the ReAct loop for before
+# ending the session. Small on purpose: the mode proves the loop RUNS unattended
+# — reads a turn, acts, comes back for the next — and each extra turn is a real
+# model call spent re-proving it. Three is enough to show the come-back-for-more
+# behaviour that one turn cannot.
+SMOKE_TEST_CONVERSATION_TURNS = 3
+
 # Printed at the start of a smoke-test run and again beside the exported crate
 # path. Both, deliberately: the opening line makes an accidental ``--smoke-test``
 # obvious before the build spends anything, and the closing line means anyone
@@ -625,6 +640,15 @@ class SmokeTestHumanInterface:
     is_interactive: bool = True
     synthesizes_answers: bool = True
 
+    def __init__(self, conversation_turns: int = SMOKE_TEST_CONVERSATION_TURNS) -> None:
+        """Args:
+        conversation_turns: How many turns to drive a conversational loop
+            (the legacy ReAct arm) before ending the session. Ignored by the
+            default arm, which has no conversational channel. ``<= 0`` ends it
+            at the first prompt.
+        """
+        self._conversation_budget = int(conversation_turns)
+
     def present(
         self,
         context: str,
@@ -667,12 +691,36 @@ class SmokeTestHumanInterface:
         nothing to commit, so the commit → re-assess → next-gap path this mode
         exists to exercise would never run.
 
+        **:data:`CONVERSATION_FIELD_TYPE` is the exception, and it is why this
+        class needs state at all.** Every other channel terminates on its own:
+        the guidance loop runs out of gaps, the report runs out of findings,
+        ``max_rounds`` bounds the rest. A conversational loop has no such bound —
+        it ends when the person says so, and :data:`SMOKE_TEST_ANSWER` is not a
+        stop word, so answering it affirmatively forever is an infinite run
+        spending a model call per turn. After :data:`SMOKE_TEST_CONVERSATION_TURNS`
+        the answer becomes a skip, which the loop reads as end-of-input and
+        finalises on — the same ending Ctrl+D gives, so the crate is still
+        exported. Budget exhaustion is deliberately NOT ``is_done()``: that
+        answers a different question (may guidance stop early?) whose honest
+        answer here stays "no".
+
         An identifier field is safe to answer this way because the value cannot
         become one: the guidance tail routes every reply through
         ``_deterministic_decision`` / the interpret leaf, both of which force an
         identifier-bearing field to a skip (D5), and the citation-author path
         re-verifies any pasted ORCID against a real lookup before use.
         """
+        if field_type == CONVERSATION_FIELD_TYPE:
+            if self._conversation_budget <= 0:
+                logger.info("smoke-test: conversation budget spent — ending the session")
+                return {"value": None, "skipped": True}
+            self._conversation_budget -= 1
+            logger.info(
+                "smoke-test: driving a conversational turn with %r (%d left after this)",
+                SMOKE_TEST_ANSWER,
+                self._conversation_budget,
+            )
+            return {"value": SMOKE_TEST_ANSWER, "skipped": False}
         logger.info(
             "smoke-test: answering %r with the synthetic %r (type=%s)",
             prompt,
@@ -825,8 +873,10 @@ def request_input(
 
 
 __all__ = [
+    "CONVERSATION_FIELD_TYPE",
     "SCAN_ROOT_PURPOSE",
     "SMOKE_TEST_ANSWER",
+    "SMOKE_TEST_CONVERSATION_TURNS",
     "SYNTHETIC_ANSWER_NOTICE",
     "ConsoleHumanInterface",
     "HumanInterface",

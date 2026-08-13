@@ -41,7 +41,7 @@ from builder.agents.progress_spinner import ProgressSpinner
 from builder.agents.react.system_prompt import SYSTEM_PROMPT
 from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
-from builder.tools.hitl import is_interactive
+from builder.tools.hitl import CONVERSATION_FIELD_TYPE, answers_are_synthetic, is_interactive
 
 if TYPE_CHECKING:
     from typing import cast
@@ -4668,6 +4668,23 @@ def run_interactive_agent(
                     # Echo the seeded line so the transcript shows what drove the
                     # turn, exactly as boxed_input echoes a typed one.
                     user_input, pending_input = pending_input, None
+                    console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
+                elif answers_are_synthetic(engine.human_interface):
+                    # Nobody is at the keyboard (--smoke-test). This ONE read is
+                    # the reason the mode used to refuse this arm: every other
+                    # prompt already goes through the HumanInterface, but the
+                    # conversation was read straight off stdin, so a synthetic
+                    # interface had nothing to answer and the run sat on an empty
+                    # terminal. Ask the interface instead — and let a SKIP end the
+                    # session exactly as Ctrl+D does (below), which is what keeps
+                    # an unattended run from driving turns forever.
+                    reply = engine.human_interface.request_input(
+                        "What would you like to do next?",
+                        CONVERSATION_FIELD_TYPE,
+                    )
+                    if reply.get("skipped") or not str(reply.get("value") or "").strip():
+                        raise EOFError
+                    user_input = str(reply["value"]).strip()
                     console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
                 else:
                     # Rounded input box (Claude Code style); falls back to a plain
