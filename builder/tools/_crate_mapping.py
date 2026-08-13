@@ -465,6 +465,7 @@ def populate_crate(
     _add_generator_provenance(state, crate)
     _wire_mentions(state, idx)
     _wire_dataset_aliases(state, crate, idx)
+    _preserve_unowned_fields(state, crate, idx)
     _mirror_profile_predicates(crate)
 
 
@@ -598,6 +599,91 @@ def _context_terms() -> frozenset[str]:
     return frozenset(key for block in blocks if isinstance(block, dict) for key in block)
 
 
+def _preserved_name(field: str) -> str:
+    """A field key said the way a person would read it: ``work_package`` -> "work package"."""
+    return field.replace("_", " ").strip() or field
+
+
+def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
+    """Keep a field the build cannot emit, as a ``PropertyValue``, instead of deleting it.
+
+    ``_scalar_props`` deletes a key the JSON-LD context does not define, and it
+    must: emitting one fails BASE conformance in a way nobody can repair by
+    editing the crate, because it is regenerated from state on every build.
+
+    Deleting was never the only option, though. ``schema:additionalProperty``
+    takes a PropertyValue node, the context defines it, and the crate already
+    uses it for ISA characteristics — so the value can be kept in a form that
+    validates. ``work_package`` and ``project_reference`` reached a real build,
+    were declared by no entity type (so :mod:`builder.tools.rehome` had nowhere
+    to route them) and were dropped: a WP number somebody typed deliberately,
+    deleted for being unmodelled rather than for being wrong.
+
+    A plain ``PropertyValue`` node, NOT ``ParameterValue``: that class stamps
+    ``additionalType: "ParameterValue"``, which asserts the value is an ISA
+    experimental parameter. A work-package number is not one, and saying so would
+    be inventing a claim about the data in the act of rescuing it.
+
+    Runs after the index is complete, so every entity has a built node to hang
+    the property on, and after ``rehome_misplaced_fields`` has already moved
+    anything that had a home — what reaches here is what nothing else could
+    place.
+    """
+    for entity in state.list_entities():
+        leftovers = {
+            key: value
+            for key, value in entity.fields.items()
+            if field_would_be_dropped(key) and value not in (None, "", [], {})
+        }
+        if not leftovers:
+            continue
+        node = idx.get(f"{entity.type}:{entity.entity_id}") or idx.get(entity.entity_id)
+        if node is None:
+            # No built node to attach to — nothing to do, and inventing one to
+            # hold a stray field would put an entity in the crate that the crate
+            # does not otherwise describe.
+            continue
+        for key, value in leftovers.items():
+            text = str(value)
+            prop = crate.add(
+                ContextEntity(
+                    crate,
+                    param_id(key, text),
+                    properties={
+                        "@type": "PropertyValue",
+                        "name": _preserved_name(key),
+                        "value": text,
+                    },
+                )
+            )
+            node.append_to("additionalProperty", prop)
+            logger.info(
+                "Kept %r on %s as a PropertyValue (no entity type declares it)",
+                key,
+                entity.entity_id,
+            )
+
+
+def field_would_be_dropped(field: str) -> bool:
+    """Whether :func:`_scalar_props` would DELETE *field* rather than emit it.
+
+    The drop rule, asked as a question so the two places that need to know —
+    :mod:`builder.tools.rehome`, which moves such a field to the entity that
+    consumes it, and :func:`_preserve_unowned_fields`, which keeps whatever is
+    left as a PropertyValue — cannot hold their own copy of it and drift.
+
+    Mirrors the branch in ``_scalar_props`` exactly: a snake_case key that no
+    context term defines under either spelling, and that the reference/structural
+    pipelines do not already consume.
+    """
+    if field.startswith("@") or field in (_REF_FIELDS | _STRUCT_FIELDS):
+        return False
+    if "_" not in field or field in _context_terms():
+        return False
+    renamed = _camel_case(field)
+    return renamed not in _context_terms() and renamed not in (_REF_FIELDS | _STRUCT_FIELDS)
+
+
 def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     """Plain-value properties of an entity (references/discriminators removed).
 
@@ -653,8 +739,13 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
             # ("not allowed in the compacted JSON-LD context") in a way the agent
             # cannot fix by editing the crate, because the invalid key is
             # regenerated from state on every build.
-            logger.warning(
-                "Dropped %r from %s (not a term in the crate's JSON-LD context)",
+            # NOT "dropped" any more, and the message must not say so: the key
+            # cannot be emitted as JSON-LD (the context does not define it, and a
+            # bare key fails BASE), but `_preserve_unowned_fields` keeps the
+            # VALUE as a PropertyValue on this same entity. A log line claiming
+            # data loss that did not happen sends the reader looking for a bug.
+            logger.debug(
+                "%r is not a JSON-LD term; keeping it on %s as a PropertyValue",
                 key,
                 entity.entity_id,
             )

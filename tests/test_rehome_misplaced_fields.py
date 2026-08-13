@@ -241,3 +241,76 @@ class TestProvenanceSurvivesTheMove:
         status = _step(state, "EndpointReadout").get_field_status("detection_instrument")
         assert status is not None
         assert status.source == "llm"
+
+
+class TestAnUnownedFieldIsKeptAsAPropertyValue:
+    """No entity type declares `work_package`, so there is nowhere to route it —
+    but deleting it was still the wrong answer.
+
+    `schema:additionalProperty` takes a PropertyValue, the context defines it,
+    and the crate already uses it for ISA characteristics. So the value can be
+    kept in a form that validates. A WP number somebody typed deliberately was
+    being deleted for being unmodelled rather than for being wrong.
+    """
+
+    def _study_with(self, **fields: str):
+        state = CrateState()
+        investigation = draft_investigation(state, {"name": "Investigation"})
+        study = draft_study(
+            state, investigation.entity_id, {"name": "Thyroid hormone disruption study"}
+        )
+        study.set_fields_from_dict(dict(fields), source="user")
+        crate = assemble_crate(state, None, materialize_payload=False, include_all_scanned=False)
+        return study, crate.metadata.generate()["@graph"]
+
+    def test_the_value_survives_as_a_property_value(self) -> None:
+        _study, graph = self._study_with(
+            project_reference="NWA 1292.19.272", work_package="WP2.4"
+        )
+        kept = {
+            node.get("name"): node.get("value")
+            for node in graph
+            if node.get("@type") == "PropertyValue"
+        }
+        assert kept.get("work package") == "WP2.4"
+        assert kept.get("project reference") == "NWA 1292.19.272"
+
+    def test_it_hangs_off_the_entity_it_was_written_on(self) -> None:
+        """A preserved value that nothing references is an orphan — kept in the
+        file, lost to a reader."""
+        _study, graph = self._study_with(work_package="WP2.4")
+        study_node = next(
+            n for n in graph if "Thyroid hormone disruption" in str(n.get("name", ""))
+        )
+        referenced = {
+            ref.get("@id")
+            for ref in (
+                study_node["additionalProperty"]
+                if isinstance(study_node.get("additionalProperty"), list)
+                else [study_node.get("additionalProperty")]
+            )
+            if isinstance(ref, dict)
+        }
+        wp = next(n for n in graph if n.get("name") == "work package")
+        assert wp["@id"] in referenced
+
+    def test_it_is_not_also_emitted_as_a_bare_key(self) -> None:
+        """The reason the drop existed. A bare `work_package` key fails BASE, so
+        preserving the value must not reintroduce it."""
+        _study, graph = self._study_with(work_package="WP2.4")
+        assert all("work_package" not in node for node in graph)
+
+    def test_it_is_a_plain_property_value_not_an_isa_parameter(self) -> None:
+        """`ParameterValue` stamps additionalType "ParameterValue", asserting the
+        value is an ISA experimental parameter. A work-package number is not one,
+        and saying so would invent a claim about the data while rescuing it."""
+        _study, graph = self._study_with(work_package="WP2.4")
+        wp = next(n for n in graph if n.get("name") == "work package")
+        assert wp.get("additionalType") is None
+
+    def test_a_field_that_round_trips_is_not_duplicated(self) -> None:
+        """The control. `description` is a real context term and is emitted
+        normally, so it must not ALSO appear as a PropertyValue."""
+        _study, graph = self._study_with(description="A real description.")
+        names = [n.get("name") for n in graph if n.get("@type") == "PropertyValue"]
+        assert "description" not in names

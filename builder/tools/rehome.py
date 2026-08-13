@@ -84,25 +84,14 @@ def _declares(entity_type: str, field: str) -> bool:
 def _would_be_dropped(field: str) -> bool:
     """Whether the build would delete *field* rather than emit it.
 
-    Deliberately the SAME question ``_scalar_props`` asks, imported from there,
-    so the rescuer and the dropper cannot disagree about which fields are at
-    risk. A rescuer working from its own copy of the rule would either move
-    fields that were never in danger or miss the ones that were.
+    Delegates to `_crate_mapping.field_would_be_dropped`, which lives beside the
+    code that does the dropping. A rescuer working from its own copy of the rule
+    would either move fields that were never in danger or miss the ones that
+    were — so there is exactly one copy, and this is not it.
     """
-    from builder.tools._crate_mapping import (
-        _REF_FIELDS,
-        _STRUCT_FIELDS,
-        _camel_case,
-        _context_terms,
-    )
+    from builder.tools._crate_mapping import field_would_be_dropped
 
-    if field.startswith("@") or field in (_REF_FIELDS | _STRUCT_FIELDS):
-        return False
-    if "_" not in field or field in _context_terms():
-        return False
-    return _camel_case(field) not in _context_terms() and _camel_case(field) not in (
-        _REF_FIELDS | _STRUCT_FIELDS
-    )
+    return field_would_be_dropped(field)
 
 
 def _target_for(
