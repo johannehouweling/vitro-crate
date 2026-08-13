@@ -349,7 +349,7 @@ def _install_offline_context_loader() -> None:
             return _wrapped
         return _original_getattr(self, name)
 
-    requester_cls.__getattr__ = _offline_getattr  # ty: ignore[invalid-assignment]
+    requester_cls.__getattr__ = _offline_getattr
 
     # ``fetch_fresh`` is a real method (not proxied through ``__getattr__``); the
     # cache warm-up uses it. Wrap it too so a bundled context is served from disk
@@ -362,7 +362,7 @@ def _install_offline_context_loader() -> None:
             return local
         return _blocked_remote_response(url)
 
-    requester_cls.fetch_fresh = _offline_fetch_fresh  # ty: ignore[invalid-assignment]
+    requester_cls.fetch_fresh = _offline_fetch_fresh
     requester_cls._vitro_offline_loader_installed = True  # ty: ignore[unresolved-attribute]
 
     # Also wire the rdflib JSON-LD document loader so context expansion goes
