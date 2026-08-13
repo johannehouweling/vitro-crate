@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from builder.agents.llm import ModelOverrides
 from builder.agents.progress_spinner import ProgressSpinner
-from builder.tools.hitl import is_interactive
+from builder.tools.hitl import SYNTHETIC_ANSWER_NOTICE, answers_are_synthetic, is_interactive
 from builder.tools.session import save_session
 
 if TYPE_CHECKING:
@@ -443,7 +443,7 @@ def _run_build_body(
         # (#179, Lane 5; #296 — no second full SHACL sweep). Pure observability —
         # it never prompts and never mutates state (D5).
         logger.debug("Non-interactive build: skipping the HITL guidance tail")
-        export_result = _export_crate_to_disk(engine, exporter, emit)
+        export_result = _export_crate_to_disk(engine, exporter, emit, human)
         emit(format_gap_summary(pipeline_result))
         _final_save(engine)
         return {
@@ -473,7 +473,7 @@ def _run_build_body(
         emit(f"  {unresolved}")
 
     # Export LAST so the guidance-enriched crate is what lands on disk (#233).
-    export_result = _export_crate_to_disk(engine, exporter, emit)
+    export_result = _export_crate_to_disk(engine, exporter, emit, human)
     # FINAL persist (#242): always_write guarantees a populated overview + resume.
     _final_save(engine)
 
@@ -546,6 +546,7 @@ def _export_crate_to_disk(
     engine: AgentEngine,
     exporter: Exporter | None,
     emit: OutputChannel,
+    human: HumanInterface | None = None,
 ) -> dict[str, Any]:
     """Write the built crate to disk and surface its absolute path (#233).
 
@@ -555,6 +556,13 @@ def _export_crate_to_disk(
     ``working_crate/`` fallback. On success the resolved ABSOLUTE crate path is
     emitted via *emit*. On failure the error is logged, emitted, and re-raised as
     :class:`CrateExportError` so the failure is never silently swallowed.
+
+    When the answers came from a frontend that makes them up rather than asking a
+    person (``--smoke-test``, :func:`builder.tools.hitl.answers_are_synthetic`), the
+    notice is emitted immediately after the path. It is said HERE, at the one call
+    site that prints the path, so the two lines cannot drift apart: a crate whose
+    prose fields are placeholders must never be read from scrollback as a real one.
+    Nothing is written INTO the crate — that would be fabricating metadata (D5).
     """
     exporter = exporter or _default_exporter()
     state: CrateState = engine.state
@@ -570,6 +578,8 @@ def _export_crate_to_disk(
     abs_path = Path(result["crate_path"]).resolve()
     logger.info("Crate written to %s", abs_path)
     emit(f"Crate written to: {abs_path}")
+    if answers_are_synthetic(human):
+        emit(SYNTHETIC_ANSWER_NOTICE)
     return result
 
 

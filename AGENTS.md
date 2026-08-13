@@ -1218,6 +1218,46 @@ FastAPI, CLI) supplies its own adapter without monkeypatching the tool
 functions. The module-level `present_to_human` / `request_input` functions
 remain as thin wrappers over a shared default simulator.
 
+Three implementations ship in `builder/tools/hitl.py`:
+
+| Interface | `is_interactive` | Wired by | Answers with |
+| --- | --- | --- | --- |
+| `SimulatedHumanInterface` | `False` | the headless default (batch, eval, tests) | auto-approve; skip every input; **deny** scan roots |
+| `ConsoleHumanInterface` | `True` | `main.py --interactive` | a real person, on stdin |
+| `SmokeTestHumanInterface` | `True` | `main.py --smoke-test` | itself — see below |
+
+**`SmokeTestHumanInterface` (`--smoke-test`) is a TEST harness, not a frontend.**
+It exists so the interactive path — the guidance tail included — can be driven end
+to end with nobody at the keyboard: every `present` confirms the **pre-selected**
+choice (via the shared `_default_choice_index`, never a re-implemented "first
+option") and every `request_input` returns the literal `SMOKE_TEST_ANSWER`,
+`"yes, continue"`. It reports `is_interactive = True` *because that is the point* —
+the tail is gated on that one signal (§14.6.1), so the simulator cannot exercise
+it. Three properties are load-bearing and tested in `tests/test_smoke_test_mode.py`:
+
+- **Scan roots still fail closed.** `_default_choice_index(..., deny_by_default=True)`
+  pre-selects the refusal for a `purpose="scan_root"` escalation (#197), so
+  "confirm the pre-selection" denies filesystem widening. That correctness is
+  *accidental*, so it is pinned by a test that fails if the pre-selection rule
+  changes — an unattended mode that silently widened filesystem access would be
+  the worst bug here.
+- **The run says the answers are synthesised.** `SYNTHETIC_ANSWER_NOTICE` is
+  printed at the start by `main.py` and again beside the exported crate path by
+  `_export_crate_to_disk` (gated on the fail-closed `answers_are_synthetic(human)`
+  reading an optional `synthesizes_answers` attribute, mirroring `is_interactive`).
+  Nothing is written **into** the crate — a "this was a smoke test" marker in the
+  metadata would be fabricating metadata, which D5 forbids.
+- **`select_many` skips and `is_done()` is always `False`.** A multi-select has no
+  pre-selection to confirm, so picking a subset would be inventing an answer; and a
+  mode that volunteered "done" would return before asking anything, exercising
+  nothing. Termination is left to `run_guidance`'s own guards (report exhausted /
+  no progress / `max_rounds`), which never depend on a cooperating frontend.
+
+`--smoke-test` implies `--interactive` (normalised once, in `parse_args`) and
+**refuses `--legacy-react` with a non-zero exit**: the ReAct loop reads the
+conversation from stdin (`ui.boxed_input`), not through the `HumanInterface`, so a
+synthetic interface cannot answer it and the run would hang.
+
 ## 9. Input & Output Formats
 
 ### Input Formats
@@ -1397,6 +1437,7 @@ The `scan_files` tool is restricted to directories the user has explicitly appro
 - The auto-approve-of-first-scan was removed: the agent's own `scan_files` call can never add a root. Roots enter the allowlist only from a user-provided input path or a real approval.
 - A hard denylist (`scanner._is_forbidden_root`) refuses `/`, the user's home directory itself, `/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, and `/Volumes` even if explicitly present in `approved_roots`; it is also enforced in `engine._directory_to_approve` so a forbidden directory can never *become* an approved root. Legitimate subdirectories are unaffected.
 - `SimulatedHumanInterface.present(..., purpose="scan_root")` returns a `rejected` action, so the non-interactive default can never approve a new scan root (benign checkpoints still auto-approve).
+- `SmokeTestHumanInterface` (`--smoke-test`) is `is_interactive = True`, so unlike the simulator it *does* reach the `present` escalation — and denies it, because `_default_choice_index(..., deny_by_default=True)` pre-selects the refusal and the mode only ever confirms the pre-selection. The deny is therefore inherited, not re-implemented; `tests/test_smoke_test_mode.py` asserts it directly (including with the *allow* option listed first) so a change to the pre-selection rule cannot hand an unattended test mode the filesystem.
 - The A/B eval is the one bounded exception, and it lives entirely under `eval/`: `eval.hitl.TrustedCorpusHumanInterface` (a `SimulatedHumanInterface` subclass, `is_interactive = True`) **approves** scan-root escalations, but only against the vetted in-repo corpus fixtures. Without it the ReAct arm — which explores — is refused reading a fixture the pipeline arm never has to ask for, so the A/B would measure this security handicap rather than the architectures. It is eval-only and unreachable from any production wiring; the shipped default stays fail-closed.
 
 **Extended to read + write tools (#167).** The approved-roots boundary previously guarded only `scan_files`, so prompt injection could still escape it via the read tools (arbitrary local file read, e.g. `read_file('/etc/passwd')` or a secrets `.env`) and the export writer (a `..` traversal `dest_path`, or a symlinked source escaping the input tree). The fix adds one shared containment primitive, `scanner._contain(candidate, approved_roots) -> Path | None` (resolve realpath, reject when not inside any approved root, apply the `_is_forbidden_root` denylist, fail closed on empty/None roots), applied at three choke points: the read-tool dispatch in `engine.run_tool` (gates `read_file`/`read_excel`/`read_docx`/`read_file_sample`/`read_multiple_files`/`extract_pdf_text`/`preview_archive`/`unzip_file`), `_crate_mapping._file_dest` (contains `dest_path` under the crate output dir, else `data/<slug>`), and `_crate_mapping._file_source` (refuses sources whose realpath escapes `input_path`). The scanner read functions themselves stay unguarded so `scan_files` can still sample files internally; the gate lives at the orchestration layer.
@@ -2346,7 +2387,10 @@ backed by a real user sets it `True`. The default `SimulatedHumanInterface`
 (used by the A/B eval, batch runs, and the test suite) is `is_interactive = False`,
 so behind it `run_interactive_build` degrades to `run_pipeline` + export alone and
 `run_guidance` is **never invoked** — guidance can never block a headless build,
-but the headless build is **still written to disk**. The pipeline, guidance, and
+but the headless build is **still written to disk**. This gate is also why
+`--smoke-test` needs its own `SmokeTestHumanInterface` (§8) rather than reusing the
+simulator: to exercise the tail an interface must report `is_interactive = True`,
+and the simulator reports `False` by design. The pipeline, guidance, and
 exporter runners are all injectable so the wiring is unit-tested with no SHACL /
 no LLM / no disk / no network (`tests/test_agents_build.py`).
 

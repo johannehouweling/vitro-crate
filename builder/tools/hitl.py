@@ -295,6 +295,33 @@ def _default_choice_index(choices: list[str], *, deny_by_default: bool) -> int:
     return len(choices) - 1
 
 
+def _decision_from_choice(answer: str, *, deny_by_default: bool) -> HumanResponse:
+    """Map a SELECTED choice to the response its frontend must return.
+
+    Shared by every interface that resolves a decision to one of the offered
+    choices (the console user arrowing to a row, the smoke-test interface taking
+    the pre-selected one), so the two can never drift apart: "confirm the
+    pre-selection" is only a meaningful contract while both read a selected row
+    the same way — most of all the ``deny_by_default`` line, where anything that
+    is not an explicit affirmative must deny (#197).
+    """
+    stance = _choice_stance(answer)
+    if stance is not None:
+        # A plain yes/no choice is a decision, not a payload: returning "no"
+        # as comments used to read as an APPROVAL carrying the text "no".
+        return {
+            "action": "approved" if stance else "rejected",
+            "comments": None,
+            "edits": None,
+        }
+    if deny_by_default:
+        # Anything that is not an explicit affirmative denies (#197).
+        return {"action": "rejected", "comments": None, "edits": None}
+    # A real menu choice: hand the selected option back so callers can act on
+    # WHICH option was picked (e.g. an ambiguous publication author).
+    return {"action": "approved", "comments": answer, "edits": None}
+
+
 def match_choice(raw: str, choices: list[str], default: int) -> int | None:
     """Resolve a typed answer to a choice index (``None`` = no match).
 
@@ -487,21 +514,7 @@ class ConsoleHumanInterface:
             self._done = True
             return {"action": "skipped", "comments": None, "edits": None}
 
-        stance = _choice_stance(answer)
-        if stance is not None:
-            # A plain yes/no choice is a decision, not a payload: returning "no"
-            # as comments used to read as an APPROVAL carrying the text "no".
-            return {
-                "action": "approved" if stance else "rejected",
-                "comments": None,
-                "edits": None,
-            }
-        if deny_by_default:
-            # Anything that is not an explicit affirmative denies (#197).
-            return {"action": "rejected", "comments": None, "edits": None}
-        # A real menu choice: hand the selected option back so callers can act on
-        # WHICH option was picked (e.g. an ambiguous publication author).
-        return {"action": "approved", "comments": answer, "edits": None}
+        return _decision_from_choice(answer, deny_by_default=deny_by_default)
 
     def select_many(
         self,
@@ -551,6 +564,169 @@ class ConsoleHumanInterface:
         if not value:
             return {"value": None, "skipped": True}
         return {"value": value, "skipped": False}
+
+
+# The single literal every open field gets in smoke-test mode. It is affirmative
+# (an open "shall I go on?" question reads correctly) and it is obviously not a
+# person's name, a study description or a protocol — so the placeholder is
+# recognisable as one in the crate afterwards, without the mode having to write
+# any marker INTO the crate (that would be fabricating metadata, D5).
+SMOKE_TEST_ANSWER = "yes, continue"
+
+# Printed at the start of a smoke-test run and again beside the exported crate
+# path. Both, deliberately: the opening line makes an accidental ``--smoke-test``
+# obvious before the build spends anything, and the closing line means anyone
+# reading scrollback — or a CI log — later sees WHAT the crate next to it is.
+SYNTHETIC_ANSWER_NOTICE = (
+    "SMOKE TEST — THE ANSWERS IN THIS RUN ARE SYNTHETIC, NOT A PERSON'S.\n"
+    "Every choice prompt confirms its pre-selected option and every open field "
+    f'is answered "{SMOKE_TEST_ANSWER}".\n'
+    "Anything this run recorded as prose (a name, a description) is that "
+    "placeholder — the crate proves the interactive path runs, it is not "
+    "curated metadata."
+)
+
+
+class SmokeTestHumanInterface:
+    """Drives the INTERACTIVE build with nobody at the keyboard (``--smoke-test``).
+
+    A test harness, not a curation frontend: it exists so the HITL path — the
+    guidance tail included — can be exercised end to end unattended. The crate it
+    produces is a by-product; its prose fields hold :data:`SMOKE_TEST_ANSWER`.
+
+    * ``is_interactive`` is ``True``, and that is the whole point. The tail is
+      gated on this one signal (AGENTS.md §14.6.1), which is exactly why
+      :class:`SimulatedHumanInterface` — ``is_interactive = False`` — cannot be
+      used to exercise it: behind the simulator ``run_interactive_build`` degrades
+      to ``run_pipeline`` + export and ``run_guidance`` is never called.
+    * ``synthesizes_answers`` is ``True`` so the build can SAY so next to the
+      crate it wrote (see :func:`answers_are_synthetic`). Nothing about the
+      run is marked inside the crate itself — writing "this was a smoke test"
+      into the metadata would be fabricating metadata, which D5 forbids.
+
+    **Scan roots are refused outright**, before any choice is consulted. The
+    pre-selection rule happens to deny them too, but relying on that was wrong:
+    :func:`_default_choice_index` falls back to the LAST option when no choice is
+    recognisably negative, and a caller offering
+    ``["Show me the folder first", "Yes, allow this folder"]`` therefore had this
+    mode approving filesystem access. No production caller passes options today —
+    which is precisely why the bug was invisible. A test harness must never be
+    the approver for filesystem access (#197), so that is stated here directly
+    rather than inherited from a rule written for a human at a keyboard.
+
+    **A real menu is skipped, not answered.** Confirming a pre-selection means
+    taking the answer an Enter would give; picking row 1 of a list of candidate
+    people is *inventing* one. The only such menu in the tree is the ambiguous
+    -author escalation, where answering it would have this mode silently
+    asserting which human wrote a paper — the same line :meth:`select_many`
+    declines to cross.
+    """
+
+    is_interactive: bool = True
+    synthesizes_answers: bool = True
+
+    def present(
+        self,
+        context: str,
+        options: list[str] | None = None,
+        purpose: str | None = None,
+    ) -> HumanResponse:
+        """Confirm the PRE-SELECTED choice — the same row an Enter would take.
+
+        Reuses :func:`_default_choice_index` rather than "the first option" so the
+        mode answers whatever the console frontend would have offered as its
+        default, including the fail-closed refusal on a scan-root escalation. A
+        reimplementation here would quietly grant filesystem access the moment
+        that rule changed.
+        """
+        if purpose == SCAN_ROOT_PURPOSE:
+            # Refused here, not left to the pre-selection: that rule falls back to
+            # the LAST option when nothing reads as a refusal, so a caller passing
+            # ["Show me the folder first", "Yes, allow this folder"] got an
+            # approval out of this mode. Fail-closed for filesystem access is not
+            # something a test harness may inherit by coincidence (#197).
+            logger.warning("smoke-test: refusing a scan-root escalation (fail-closed): %s", context)
+            return {"action": "rejected", "comments": None, "edits": None}
+
+        choices = list(options or []) or list(_APPROVE_CHOICES)
+        answer = choices[_default_choice_index(choices, deny_by_default=False)]
+        if _choice_stance(answer) is None:
+            # Not a yes/no: this is a menu of alternatives (candidate authors,
+            # say), and no row is pre-selected in any meaningful sense. Returning
+            # row 1 would make the harness assert something — which candidate is
+            # the real person — rather than confirm something.
+            logger.info("smoke-test: skipping a menu it cannot confirm: %s", context)
+            return {"action": "skipped", "comments": None, "edits": None}
+        logger.info("smoke-test: confirming the pre-selected choice %r for: %s", answer, context)
+        return _decision_from_choice(answer, deny_by_default=False)
+
+    def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
+        """Answer every open field with :data:`SMOKE_TEST_ANSWER`.
+
+        A real answer, not a skip: skipping would leave the guidance loop with
+        nothing to commit, so the commit → re-assess → next-gap path this mode
+        exists to exercise would never run.
+
+        An identifier field is safe to answer this way because the value cannot
+        become one: the guidance tail routes every reply through
+        ``_deterministic_decision`` / the interpret leaf, both of which force an
+        identifier-bearing field to a skip (D5), and the citation-author path
+        re-verifies any pasted ORCID against a real lookup before use.
+        """
+        logger.info(
+            "smoke-test: answering %r with the synthetic %r (type=%s)",
+            prompt,
+            SMOKE_TEST_ANSWER,
+            field_type,
+        )
+        return {"value": SMOKE_TEST_ANSWER, "skipped": False}
+
+    def select_many(
+        self,
+        context: str,
+        options: list[str],
+        purpose: str | None = None,
+    ) -> MultiChoiceResponse:
+        """Skip — a multi-select has no pre-selection to confirm.
+
+        Nothing is pre-ticked in a many-of-N box, so there is no "the answer an
+        Enter would give" to stand in for; picking some subset would be this mode
+        inventing an answer rather than taking the offered one, which is the line
+        :class:`SimulatedHumanInterface` also declines to cross. Declared (not
+        left to the degrade path in :func:`select_many`) so the question does not
+        fall through to :meth:`present`, whose pre-selection would look like the
+        user having deliberately ticked the first box.
+        """
+        logger.info(
+            "smoke-test: skipping multi-choice request: %s (%d options)",
+            context,
+            len(options or []),
+        )
+        return {"values": [], "skipped": True}
+
+    def is_done(self) -> bool:
+        """Never end guidance early — the loop's own bounds stop the run.
+
+        Ending at the first opportunity would exercise nothing: the tail would
+        return before asking anything, which is precisely the path this mode is
+        for. So the mode never volunteers "done" and leans on ``run_guidance``'s
+        existing termination guards — the report being exhausted, no gap making
+        progress, and the hard ``max_rounds`` bound — which already guarantee
+        termination without a cooperating frontend.
+        """
+        return False
+
+
+def answers_are_synthetic(human: HumanInterface | None) -> bool:
+    """Whether *human* makes its answers up instead of asking a person.
+
+    Read fail-closed like :func:`is_interactive`: an interface that does not
+    declare ``synthesizes_answers`` is assumed to be relaying a real person, so a
+    build only claims "these answers are synthetic" when the frontend says so.
+    Used by the interactive build to print :data:`SYNTHETIC_ANSWER_NOTICE` beside
+    the exported crate path.
+    """
+    return bool(getattr(human, "synthesizes_answers", False))
 
 
 def supports_multi_choice(human: HumanInterface | None) -> bool:
@@ -650,12 +826,16 @@ def request_input(
 
 __all__ = [
     "SCAN_ROOT_PURPOSE",
+    "SMOKE_TEST_ANSWER",
+    "SYNTHETIC_ANSWER_NOTICE",
     "ConsoleHumanInterface",
     "HumanInterface",
     "HumanResponse",
     "InputResponse",
     "MultiChoiceResponse",
     "SimulatedHumanInterface",
+    "SmokeTestHumanInterface",
+    "answers_are_synthetic",
     "is_interactive",
     "present_to_human",
     "request_input",

@@ -144,6 +144,29 @@ uv run python -m main --interactive --legacy-react -i /path/to/experiment/ \
     --prompt "build the crate"
 ```
 
+**Smoke-testing the interactive path (`--smoke-test`).** For **testing**, not for
+producing a crate you would keep. It runs the same interactive build with nobody at
+the keyboard: every choice prompt confirms its **pre-selected** option and every
+open field is answered with the literal string `"yes, continue"`. That is how the
+HITL path — including the guidance tail, which only runs behind a real interactive
+frontend — can be exercised end to end in CI or a scripted check.
+
+```bash
+uv run python -m main --smoke-test -i /path/to/experiment/
+```
+
+- It **implies `--interactive`** (on its own it would have nothing to answer), and
+  it **refuses `--legacy-react`** with a clear error: the ReAct loop reads your
+  replies straight from stdin rather than through the HITL interface, so nothing
+  can answer it unattended.
+- The run prints a prominent notice that the answers are synthetic — once at the
+  start, and again next to the exported crate path. Nothing is written *into* the
+  crate: `"yes, continue"` lands in prose fields (a name, a description), so the
+  crate **looks** real and is not. Treat its output as a build artifact, never as
+  metadata.
+- Filesystem access is **not** widened: a scan-root escalation pre-selects the
+  refusal, so confirming the pre-selection denies it (see `AGENTS.md` D9).
+
 **Starting the ReAct agent.** The conversational arm greets you and then waits for
 an instruction — on its own it does no work, so a run left at the prompt builds
 nothing. Give it an opening instruction with `--prompt/-P` (or just type one) and
@@ -265,6 +288,11 @@ Options:
                          HITL guidance tail (requires LangChain + API key)
       --legacy-react     With --interactive, use the legacy ReAct agent loop
                          instead of the default pipeline+guidance build
+      --smoke-test       TESTING: drive the interactive build with nobody at the
+                         keyboard — confirm every pre-selected choice, answer
+                         every open field "yes, continue". Implies --interactive;
+                         refuses --legacy-react. The crate it writes holds
+                         synthesised answers, not curated metadata
   -p, --provider STR     LLM provider: 'openai' or 'anthropic' (auto-detected from env)
   -m, --model STR        Model name override (e.g. gpt-4o-mini, llama3.2, claude-sonnet-4)
   -b, --api-base URL     Custom API base URL for OpenAI-compatible providers

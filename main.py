@@ -191,6 +191,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "see AGENTS.md §14)",
     )
     parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Drive the interactive build with NOBODY at the keyboard: every "
+        'choice prompt confirms its pre-selected option and every open field is '
+        'answered "yes, continue". Implies --interactive; refuses --legacy-react. '
+        "For TESTING the HITL path end to end — the crate it produces holds "
+        "synthesised answers and is not curated metadata.",
+    )
+    parser.add_argument(
         "--prompt",
         "-P",
         help="With --interactive --legacy-react, an opening instruction (e.g. "
@@ -284,7 +293,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="With --graph --format html, write the file but do not open a browser",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    # --smoke-test IMPLIES --interactive rather than requiring it. Its whole job is
+    # to drive the interactive build unattended, and a batch run never prompts — so
+    # taking the flag without --interactive and doing nothing HITL-shaped would be
+    # the silent misfire the mode exists to make visible. Normalised here, once, so
+    # every downstream reader (the logging bump, the engine wiring, the build
+    # dispatch) sees a single consistent `interactive` fact.
+    if args.smoke_test:
+        args.interactive = True
+    return args
 
 
 def _run_setup_wizard() -> bool:
@@ -459,6 +477,29 @@ def main(argv: list[str] | None = None) -> int:
 
     logger.info("ISA-Tox RO-Crate Builder v0.1.0")
 
+    if args.smoke_test:
+        from builder.tools.hitl import SYNTHETIC_ANSWER_NOTICE
+
+        if args.legacy_react:
+            # The ReAct loop reads the conversation straight from stdin
+            # (builder.agents.ui.boxed_input) rather than through the
+            # HumanInterface, so a synthetic interface cannot answer it and the
+            # run would sit on an empty terminal forever. Refuse loudly instead of
+            # starting a build that can only hang.
+            print(
+                "--smoke-test cannot drive --legacy-react: the ReAct loop reads "
+                "your replies straight from stdin, not through the HITL "
+                "interface, so nothing can answer it unattended. Drop "
+                "--legacy-react to smoke-test the default pipeline + guidance "
+                "build.",
+                file=sys.stderr,
+            )
+            return 1
+        # Say it FIRST, before the build spends a token: if this mode was engaged
+        # by accident, the very first thing on screen must be that nobody is
+        # answering the prompts. It is repeated beside the exported crate path.
+        print(SYNTHETIC_ANSWER_NOTICE)
+
     # --show-config: print and exit
     if args.show_config:
         _show_config()
@@ -493,7 +534,18 @@ def main(argv: list[str] | None = None) -> int:
     # user-named folder instead of fail-closing — without it a conversational
     # legacy scan of an un-approved folder returns no files. Non-interactive
     # (batch) runs keep the headless simulated default.
-    if args.interactive:
+    if args.smoke_test:
+        # --smoke-test: an interface that answers ITSELF (confirm the pre-selected
+        # choice, "yes, continue" into every open field). It reports
+        # is_interactive = True, which is the point — the guidance tail is gated on
+        # that single signal, so the headless SimulatedHumanInterface can never
+        # exercise it. Scan roots stay fail-closed: confirming the pre-selection
+        # denies a scan_root escalation (#197), pinned by
+        # tests/test_smoke_test_mode.py.
+        from builder.tools.hitl import SmokeTestHumanInterface
+
+        engine = AgentEngine(human_interface=SmokeTestHumanInterface())
+    elif args.interactive:
         from builder.agents import ui
         from builder.tools.hitl import ConsoleHumanInterface
 
