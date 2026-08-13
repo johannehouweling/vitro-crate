@@ -2091,3 +2091,59 @@ class TestEveryClassTheReportEmitsIsStyled:
             f"classes emitted with no rule in maturity_report.css, so they render "
             f"at browser defaults: {unstyled}"
         )
+
+
+class TestActionEntitiesAreMarkedAsEntities:
+    """Entity names ride in `<code>` chips, the same convention the
+    profile-adherence suggestions already use, so a reader can see at a glance
+    which words name things in their crate and which are the instruction."""
+
+    def _section(self) -> str:
+        from builder.tools.validation import ValidationReport
+        from builder.writers.maturity_report import _render_next_steps_section
+
+        graph = {
+            "@graph": [
+                {"@id": "#CellLineSample_cell_h4", "@type": "CellLineSample", "name": "H4"},
+                {"@id": "#File_f1", "@type": "File", "name": "uptake.csv"},
+            ]
+        }
+        val = ValidationReport()
+        val.base_passed = True
+        val.issue_records = [
+            {"profile": "tox", "severity": "recommended",
+             "entity_id": "./#CellLineSample_cell_h4",
+             "message": "Entity SHOULD have a non-empty identifier"},
+            *[
+                {"profile": "base", "severity": "recommended", "entity_id": f"./#File_f{i}",
+                 "message": "A File SHOULD have a mainEntityOfPage"}
+                for i in range(9)
+            ],
+        ]
+        return _render_next_steps_section(val, graph)
+
+    def test_the_name_is_chipped_and_the_type_is_not(self) -> None:
+        """The chip marks the thing, not the classification — "CellLine" is the
+        report talking, "H4" is the crate's own word."""
+        section = self._section()
+        assert "CellLine <code>H4</code>" in section
+        assert "<code>CellLine H4</code>" not in section
+
+    def test_the_instruction_is_never_chipped(self) -> None:
+        section = self._section()
+        assert "<code>Add an identifier</code>" not in section
+
+    def test_the_set_aside_bucket_says_how_many_per_reason(self) -> None:
+        """"119 findings left open on purpose" is a bigger number than most of the
+        actions above it. Without a count per reason a reader cannot tell whether
+        that is 119 decisions or one recommendation repeated per file."""
+        import re
+
+        section = self._section()
+        aside = re.search(r'<details class="na-aside">.*?</details>', section, re.S)
+        assert aside, "nothing was set aside, so this test proves nothing"
+        rows = re.findall(r"<li>(.*?)</li>", aside.group(0))
+        assert len(rows) == 1, "one reason fired, so one row — not one row per entity"
+        assert '<span class="na-n">9</span>' in rows[0], (
+            "the reason must carry the number of findings it accounts for"
+        )

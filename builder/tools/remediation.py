@@ -28,6 +28,7 @@ belong together.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -96,6 +97,15 @@ class Action:
     kind: str
     subject: str
     entity_ids: list[str] = field(default_factory=list)
+    # The subject's entity labels, unjoined. `subject` is the reader-facing
+    # string; this is what it was built FROM, so a renderer can rebuild the same
+    # phrase with each name marked up instead of parsing commas back out of it.
+    subject_names: list[str] = field(default_factory=list)
+    # Parallel to `subject_names`: the reader-facing type word for each ("Person",
+    # "CellLine", …), or "" where the type says nothing worth saying. Kept apart
+    # from the name so the renderer can chip the NAME and leave the type as
+    # ordinary prose — the chip marks what is a thing in the crate.
+    subject_types: list[str] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
     tier: str = _DEFAULT_TIER
     actionable: bool = True
@@ -174,6 +184,22 @@ def _id_variants(entity_id: str) -> tuple[str, ...]:
     return tuple(seen)
 
 
+def _lookup(mapping: dict[str, Any] | None, entity_id: str) -> Any:
+    """Read *entity_id* out of a graph-keyed map, trying every id spelling.
+
+    Shared by the name and the @type lookups so they cannot drift: both are
+    keyed on the graph's `@id` and both are asked with the validator's
+    base-resolved form, and fixing only one of them is exactly the bug that
+    produced "for CellLine H4" in one column and a bare "for H4" in the next.
+    """
+    if not mapping:
+        return None
+    for key in _id_variants(entity_id):
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
 def _entity_label(entity_id: str, labels: dict[str, str] | None) -> str:
     """A name a reader recognises, or an honest description of what the thing is.
 
@@ -182,9 +208,8 @@ def _entity_label(entity_id: str, labels: dict[str, str] | None) -> str:
     name — which for several of these IS the finding being reported — does this
     fall back to describing it, and it never invents one.
     """
-    for key in _id_variants(entity_id):
-        if labels and (name := labels.get(key)):
-            return name
+    if name := _lookup(labels, entity_id):
+        return str(name)
 
     if entity_id in ("./", ".", ""):
         return "the crate itself"
@@ -206,6 +231,53 @@ def _entity_label(entity_id: str, labels: dict[str, str] | None) -> str:
     return tail.replace("_", " ").strip() or entity_id
 
 
+# The @type words worth saying out loud, mapped to how a person says them. A
+# reader scanning "Add an identifier for H4" cannot tell a cell line from a
+# person from a file; "for CellLine H4" costs three characters and removes the
+# question. Types NOT listed are omitted rather than shown raw — "PropertyValue
+# sample role" reads worse than "sample role", and a bare schema.org class name
+# is jargon the report otherwise avoids.
+_TYPE_WORDS: dict[str, str] = {
+    "Person": "Person",
+    "Organization": "Organization",
+    "CellLineSample": "CellLine",
+    "MolecularEntity": "Compound",
+    "Sample": "Sample",
+    "File": "File",
+    "Dataset": "Dataset",
+    "LabProtocol": "Protocol",
+    "LabProcess": "Process",
+    "ScholarlyArticle": "Publication",
+    "Publication": "Publication",
+}
+
+
+def _type_word(entity_type: Any) -> str:
+    """The reader-facing word for an entity's ``@type``, or "" if not worth saying.
+
+    A node's ``@type`` is often a LIST (``["csvw:Column", "schema:DefinedTerm"]``)
+    and often namespaced, so this takes the first recognised word from it rather
+    than assuming a bare string.
+    """
+    candidates = entity_type if isinstance(entity_type, list) else [entity_type]
+    for candidate in candidates:
+        bare = str(candidate or "").rsplit(":", 1)[-1].rsplit("/", 1)[-1]
+        if bare in _TYPE_WORDS:
+            return _TYPE_WORDS[bare]
+    return ""
+
+
+def _display(name: str, type_word: str) -> str:
+    """"Person Nathalie Dierichs" — the type only when it adds something.
+
+    Skipped when the name already opens with the word, so a file called
+    "File manifest.csv" does not become "File File manifest.csv".
+    """
+    if not type_word or name.casefold().startswith(type_word.casefold()):
+        return name
+    return f"{type_word} {name}"
+
+
 def _property_label(prop: str) -> str:
     return (prop or "").rsplit("/", 1)[-1].rsplit("#", 1)[-1] or "property"
 
@@ -214,6 +286,7 @@ def group_findings(
     findings: list[dict[str, Any]],
     *,
     labels: dict[str, str] | None = None,
+    types: dict[str, Any] | None = None,
 ) -> list[Action]:
     """Collapse *findings* into the actions that would clear them, best first.
 
@@ -277,15 +350,19 @@ def group_findings(
     actions: list[Action] = []
 
     def _take(kind: str, subject_id: str, live: list[dict[str, Any]]) -> None:
+        label = (
+            _entity_label(subject_id, labels)
+            if kind == "entity"
+            else _property_label(subject_id)
+        )
+        type_word = _type_word(_lookup(types, subject_id)) if kind == "entity" else ""
         actions.append(
             Action(
                 key=f"{kind}:{subject_id}",
                 kind=kind,
-                subject=(
-                    _entity_label(subject_id, labels)
-                    if kind == "entity"
-                    else _property_label(subject_id)
-                ),
+                subject=_display(label, type_word),
+                subject_names=[label],
+                subject_types=[type_word],
                 entity_ids=sorted({str(f.get("entity_id")) for f in live if f.get("entity_id")}),
                 findings=[str(f.get("message") or "") for f in live],
                 tier=_strongest([str(f.get("severity") or _DEFAULT_TIER).upper() for f in live]),
@@ -342,7 +419,7 @@ def describe(action: Action) -> str:
     return f"{what} for {subject}." if what else f"Complete the metadata for {subject}."
 
 
-def describe_parts(action: Action) -> tuple[str, str]:
+def describe_parts(action: Action, subject: str | None = None) -> tuple[str, str]:
     """*(instruction, subject)* — the same sentence, split where it changes topic.
 
     ``describe`` returns one string because callers that emit plain text want one
@@ -358,11 +435,21 @@ def describe_parts(action: Action) -> tuple[str, str]:
 
     The subject half is empty when the sentence has no entity list to separate
     (a deliberate non-action, whose text is a note about the whole finding).
+
+    Args:
+        action: The action to word.
+        subject: Optional pre-rendered replacement for ``action.subject`` — the
+            HTML list passes the same entities with each one marked up. Nothing
+            else about the sentence changes, so the two renderings stay one
+            wording.
     """
     if not action.actionable:
         return describe(action), ""
     what = _wanted(action.findings)
-    subject = action.subject
+    # An already-rendered subject (the HTML list marks each entity up) is
+    # substituted here rather than assembled by the caller, so this function
+    # stays the ONE place the sentence is composed.
+    subject = action.subject if subject is None else subject
     n = action.cleared
     plural = "entity is" if n == 1 else "entities are"
     if action.kind == "orphan":
@@ -420,12 +507,26 @@ def _wanted(messages: list[str]) -> str:
     return ""
 
 
-def _join(names: list[str], limit: int = 3) -> str:
-    """ "Ada, Grace and 2 others" — a subject line that stays a line."""
+def _join(
+    names: list[str],
+    limit: int = 3,
+    wrap: Callable[[str], str] | None = None,
+) -> str:
+    """ "Ada, Grace and 2 others" — a subject line that stays a line.
+
+    *wrap* decorates each NAME without touching the connective words, so the
+    HTML renderer can put every entity in a ``<code>`` chip and still get this
+    function's wording, counting and pluralisation. Written as a parameter
+    rather than a second formatter next to it: the plain sentence and the
+    rendered one are the same sentence, and two implementations of "and N
+    others" would eventually disagree about N.
+    """
+    mark = wrap or (lambda name: name)
+    shown = [mark(n) for n in names[:limit]]
     if len(names) <= limit:
-        return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+        return shown[0] if len(shown) == 1 else f"{', '.join(shown[:-1])} and {shown[-1]}"
     rest = len(names) - limit
-    return f"{', '.join(names[:limit])} and {rest} other{'s' if rest > 1 else ''}"
+    return f"{', '.join(shown)} and {rest} other{'s' if rest > 1 else ''}"
 
 
 def _merge_identical(actions: list[Action]) -> list[Action]:
@@ -451,12 +552,17 @@ def _merge_identical(actions: list[Action]) -> list[Action]:
         if len(group) == 1:
             merged.append(group[0])
             continue
-        subjects = [a.subject for a in group]
+        # The BARE names and their types, not each action's already-composed
+        # `subject`: re-prefixing a composed one would yield "Person Person Ada".
+        names = [a.subject_names[0] if a.subject_names else a.subject for a in group]
+        type_words = [a.subject_types[0] if a.subject_types else "" for a in group]
         merged.append(
             Action(
                 key="entities:" + "|".join(sorted(a.key for a in group)),
                 kind="entities",
-                subject=_join(subjects),
+                subject=_join([_display(n, t) for n, t in zip(names, type_words)]),
+                subject_names=list(names),
+                subject_types=list(type_words),
                 entity_ids=sorted({e for a in group for e in a.entity_ids}),
                 # Every finding, so `cleared` still totals the whole list.
                 findings=[m for a in group for m in a.findings],
@@ -467,7 +573,12 @@ def _merge_identical(actions: list[Action]) -> list[Action]:
     return merged
 
 
-def group_orphans(orphans: list[str], *, labels: dict[str, str] | None = None) -> list[Action]:
+def group_orphans(
+    orphans: list[str],
+    *,
+    labels: dict[str, str] | None = None,
+    types: dict[str, Any] | None = None,
+) -> list[Action]:
     """Collapse orphaned entities into actions, clustered by what they are.
 
     Thirty-six unreachable AOP nodes are one job — wire the pathway to the assay
@@ -490,6 +601,8 @@ def group_orphans(orphans: list[str], *, labels: dict[str, str] | None = None) -
             key=f"orphan:{name}",
             kind="orphan",
             subject=name,
+            subject_names=[name],
+            subject_types=[""],
             entity_ids=sorted(ids),
             findings=[f"{i} is not reachable from the crate root" for i in sorted(ids)],
             tier=_DEFAULT_TIER,

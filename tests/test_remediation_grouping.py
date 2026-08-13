@@ -437,3 +437,61 @@ class TestTheSplitSentenceIsTheSameSentence:
             instruction, subject = describe_parts(action)
             joined = f"{instruction} {subject}".strip() if subject else instruction
             assert joined == describe(action)
+
+
+class TestAnActionSaysWhatKindOfThingItIsAbout:
+    """"Add an identifier for H4" does not say whether H4 is a cell line, a
+    person or a file. "for CellLine H4" costs three characters."""
+
+    def test_the_type_is_named_when_it_is_worth_naming(self):
+        from builder.tools.remediation import group_findings
+
+        findings = [_f("./#CellLineSample_cell_h4", "SHOULD have a non-empty identifier")]
+        actions = group_findings(
+            findings,
+            labels={"#CellLineSample_cell_h4": "H4"},
+            types={"#CellLineSample_cell_h4": "CellLineSample"},
+        )
+        assert actions[0].subject == "CellLine H4"
+
+    def test_the_type_lookup_takes_the_validators_id_spelling(self):
+        """The name lookup and the type lookup are keyed the same way and asked
+        the same way, so fixing one and not the other gives "CellLine H4" in one
+        row and a bare "H4" in the next. They share `_lookup`."""
+        from builder.tools.remediation import _lookup
+
+        graph_keyed = {"#CellLineSample_cell_h4": "CellLineSample"}
+        assert _lookup(graph_keyed, "./#CellLineSample_cell_h4") == "CellLineSample"
+
+    def test_an_unhelpful_type_is_omitted_rather_than_shown_raw(self):
+        """A bare schema.org class is jargon: "PropertyValue sample role" reads
+        worse than "sample role"."""
+        from builder.tools.remediation import _type_word
+
+        assert _type_word("PropertyValue") == ""
+        assert _type_word(["csvw:Column", "schema:DefinedTerm"]) == ""
+        # …and a namespaced or listed @type still resolves when it IS useful.
+        assert _type_word(["schema:Person"]) == "Person"
+
+    def test_the_type_is_not_repeated_when_the_name_already_says_it(self):
+        from builder.tools.remediation import _display
+
+        assert _display("File manifest.csv", "File") == "File manifest.csv"
+        assert _display("H4", "CellLine") == "CellLine H4"
+
+    def test_merging_does_not_double_the_type_word(self):
+        """`_merge_identical` re-composes the subject from several actions. Taking
+        each one's already-composed `subject` would yield "Person Person Ada"."""
+        from builder.tools.remediation import group_findings
+
+        findings = [
+            _f("./#p1", "The author SHOULD have an organizational affiliation"),
+            _f("./#p2", "The author SHOULD have an organizational affiliation"),
+        ]
+        actions = group_findings(
+            findings,
+            labels={"#p1": "Ada", "#p2": "Grace"},
+            types={"#p1": "Person", "#p2": "Person"},
+        )
+        assert actions[0].subject == "Person Ada and Person Grace"
+        assert "Person Person" not in actions[0].subject
