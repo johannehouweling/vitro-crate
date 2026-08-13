@@ -23,7 +23,7 @@ from __future__ import annotations
 from builder.tools.remediation import Action, describe, group_findings, group_orphans
 
 
-def _f(entity_id, message, prop=None, severity="RECOMMENDED"):
+def _f(entity_id, message, prop=None, severity="recommended"):
     return {
         "entity_id": entity_id,
         "message": message,
@@ -167,23 +167,30 @@ class TestDeliberateFindingsAreNotRecommended:
 
 
 class TestTheStrongestTierWins:
-    def test_a_must_outranks_a_should(self):
+    # NB: "required", not "MUST". These used to say MUST/SHOULD — the verbs the
+    # SHACL messages are written in — and passed while the production vocabulary
+    # ("required"/"recommended"/"optional") matched no rank at all, so every
+    # action tied and tier ordering was a no-op. A test that supplies a
+    # vocabulary no producer emits is how that shipped green; see
+    # TestTheTierVocabularyMatchesTheValidator, which pins the two together.
+
+    def test_a_required_finding_outranks_a_recommended_one(self):
         findings = [
-            _f("#a", "one", severity="RECOMMENDED"),
-            _f("#a", "two", severity="MUST"),
+            _f("#a", "one", severity="recommended"),
+            _f("#a", "two", severity="required"),
         ]
-        assert group_findings(findings)[0].tier == "MUST"
+        assert group_findings(findings)[0].tier == "REQUIRED"
 
     def test_actions_are_ordered_by_tier_then_reach(self):
         findings = [
-            _f("#a", "one", severity="RECOMMENDED"),
-            _f("#a", "two", severity="RECOMMENDED"),
-            _f("#b", "three", severity="MUST"),
-            _f("#b", "four", severity="MUST"),
-            _f("#b", "five", severity="MUST"),
+            _f("#a", "one", severity="recommended"),
+            _f("#a", "two", severity="recommended"),
+            _f("#b", "three", severity="required"),
+            _f("#b", "four", severity="required"),
+            _f("#b", "five", severity="required"),
         ]
         actions = group_findings(findings)
-        assert actions[0].tier == "MUST"
+        assert actions[0].tier == "REQUIRED"
         assert actions[0].cleared == 3
 
 
@@ -255,3 +262,89 @@ class TestTheActionShape:
     def test_an_action_carries_the_entities_it_touches(self):
         findings = [_f("#a", "needs an affiliation"), _f("#a", "needs a URL")]
         assert group_findings(findings)[0].entity_ids == ["#a"]
+
+
+class TestTheTierVocabularyMatchesTheValidator:
+    """`_TIER_RANK` must key on the words the validator actually emits.
+
+    It keyed on "MUST"/"SHOULD"/"MAY" — the verbs the SHACL *messages* are
+    written in — while `group_findings` derives the tier from
+    ``finding["severity"]``, which `builder/tools/validation.py` sets to
+    "required"/"recommended"/"optional". Nothing matched, `.get(tier, 3)`
+    returned 3 for every action, and the tier term dropped silently out of the
+    sort key. The report then ordered purely by size and the cap hid the work
+    that blocks the build.
+
+    Two vocabularies that must agree, in two files, with no type to bind them —
+    so it is asserted rather than trusted.
+    """
+
+    def test_every_severity_the_validator_emits_has_a_rank(self) -> None:
+        from builder.tools.remediation import _TIER_RANK
+
+        # The literal set builder/tools/validation.py writes into issue_records.
+        for severity in ("required", "recommended", "optional"):
+            assert severity.upper() in _TIER_RANK, (
+                f"the validator emits severity={severity!r} and the report has no "
+                f"rank for it, so every action ties and tier ordering is a no-op"
+            )
+
+    def test_required_work_outranks_bulk_advisory_work(self) -> None:
+        """The user-visible consequence, at the size where it bites."""
+        from builder.tools.remediation import _TIER_RANK, group_findings
+
+        records = [
+            {"profile": "tox", "severity": "optional", "entity_id": f"#e{i}",
+             "message": f"SHOULD have a {field} of kind {i}"}
+            for i in range(12)
+            for field in ("description", "url")
+        ]
+        records.append({
+            "profile": "base", "severity": "required", "entity_id": "./",
+            "message": "The root Dataset MUST have a licence",
+        })
+
+        live = [a for a in group_findings(records, labels={}) if a.actionable and a.cleared]
+        live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), -a.cleared, a.subject))
+        assert live[0].tier == "REQUIRED", (
+            "a required conformance failure must lead the list; sorted by size "
+            "alone it ranked 12th of 13 and fell past the cap entirely"
+        )
+
+    def test_an_unknown_severity_sorts_last_rather_than_first(self) -> None:
+        """A new validator severity should rank LOW, not be promoted above real
+        conformance failures by defaulting to the strongest tier."""
+        from builder.tools.remediation import _TIER_RANK, _strongest
+
+        assert _strongest(["SOMETHING_NEW", "OPTIONAL"]) == "OPTIONAL"
+        assert _TIER_RANK.get("SOMETHING_NEW", 3) == 3
+
+
+class TestTheDateInstructionNamesTheRightDate:
+    """A bare "date" needle answered every date question with the same sentence.
+
+    `_wanted` substring-matches the joined message blob, so "date" fired on
+    datePublished and dateModified alike — and on any message containing the
+    letters, e.g. "validate" — and returned "Add the date it was created". A
+    specific, confident, wrong instruction, which is worse than none: the
+    contract for `describe()` is the most specific instruction that FITS.
+    """
+
+    def test_each_date_property_gets_its_own_instruction(self) -> None:
+        from builder.tools.remediation import _wanted
+
+        assert _wanted(["A Dataset SHOULD have a dateCreated"]) == "Add the date it was created"
+        assert _wanted(["A Dataset SHOULD have a datePublished"]) == (
+            "Add the date it was published"
+        )
+        assert _wanted(["A Dataset SHOULD have a dateModified"]) == (
+            "Add the date it was last modified"
+        )
+
+    def test_a_word_that_merely_contains_date_does_not_trip_it(self) -> None:
+        for message in ("the crate must validate against the profile", "SHOULD have an update"):
+            from builder.tools.remediation import _wanted
+
+            assert "date it was" not in _wanted([message]), (
+                f"{message!r} answered with a date instruction"
+            )
