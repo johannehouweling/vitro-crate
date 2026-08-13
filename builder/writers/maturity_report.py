@@ -901,33 +901,63 @@ def _render_topology_detail(nodes: list[dict[str, Any]]) -> str:
     if not orphans and not dangling:
         return ""
 
-    def _rows(items: list[dict[str, Any]], *, with_type: bool) -> str:
-        # Node labels are pre-escaped by build_crate_graph; ids/types are raw.
-        rows = []
-        for n in items[:_TOPO_LIST_CAP]:
+    def _rows(items: list[dict[str, Any]], *, with_type: bool, one: str, many: str) -> str:
+        """The list, with anything past the cap behind a second fold-out.
+
+        The cap bounds the page; it is not a decision about what the reader may
+        see. It used to end at "+7 more", which named a number and then offered
+        no way to reach it — and this report is the ONLY place those ids are
+        written down, so a reader who wanted the eighth orphan had nowhere else
+        to look. Same fix as the profile-adherence tiers (:func:`_apply_cap`):
+        the remainder sits in a nested ``<details>``, closed by default, so the
+        page stays the length it was and is one click from complete.
+        """
+
+        def _row(n: dict[str, Any]) -> str:
+            # Node labels are pre-escaped by build_crate_graph; ids/types are raw.
             ty = str(n.get("type") or "")
             tail = f' <span class="ty">{esc(ty)}</span>' if with_type and ty else ""
-            rows.append(
+            return (
                 f"<li>{_mk('no')} <code>{esc(str(n['id']))}</code>"
                 f"<span>{n.get('label') or ''}{tail}</span></li>"
             )
-        extra = len(items) - _TOPO_LIST_CAP
-        if extra > 0:
-            rows.append(f'<li class="more">+{extra} more</li>')
-        return "".join(rows)
+
+        shown = [_row(n) for n in items[:_TOPO_LIST_CAP]]
+        rest = [_row(n) for n in items[_TOPO_LIST_CAP:]]
+        if not rest:
+            return "".join(shown)
+        # Spelled out rather than "+s": the nouns here are "orphaned entity" and
+        # "dangling reference", and a naive rule renders the first as "entitys".
+        plural = one if len(rest) == 1 else many
+        return "".join(
+            [
+                *shown,
+                '<li class="more">'
+                f'<details class="more-fold"><summary>+{len(rest)} further {plural}</summary>'
+                f'<ul class="ind">{"".join(rest)}</ul>'
+                "</details>"
+                "</li>",
+            ]
+        )
+
+    _orphan_rows = _rows(orphans, with_type=True, one="orphaned entity", many="orphaned entities")
+    _dangling_rows = _rows(
+        dangling, with_type=False, one="dangling reference", many="dangling references"
+    )
 
     groups = []
     if orphans:
         groups.append(
             '<p class="topo-detail-h">Orphaned entities — not reachable from the '
             "crate root; link each via <code>hasPart</code>, <code>result</code>, "
-            f'or <code>about</code></p><ul class="ind">{_rows(orphans, with_type=True)}</ul>'
+            "or <code>about</code></p>"
+            f'<ul class="ind">{_orphan_rows}</ul>'
         )
     if dangling:
         groups.append(
             '<p class="topo-detail-h">Dangling references — a referenced '
             "<code>@id</code> with no matching entity; add the entity or drop the "
-            f'reference</p><ul class="ind">{_rows(dangling, with_type=False)}</ul>'
+            f'reference</p><ul class="ind">{_dangling_rows}</ul>'
         )
 
     def _n(count: int, one: str) -> str:

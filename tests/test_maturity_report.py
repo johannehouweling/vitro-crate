@@ -567,8 +567,9 @@ class TestActionableTopology:
         assert 'class="disc topo-detail"' not in page
 
     def test_orphan_list_is_bounded_with_more_marker(self) -> None:
-        # 12 orphaned files → only the first 10 listed, then "+2 more" (nothing
-        # silently dropped).
+        # 12 orphaned files → the first 10 listed inline, the rest behind a
+        # fold-out. The cap bounds the PAGE, not what the reader may see: this
+        # report is the only place those ids are written down.
         graph = {
             "@graph": [
                 {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
@@ -580,11 +581,14 @@ class TestActionableTopology:
             graph["@graph"].append({"@id": f"#loose{i}", "@type": "File", "name": f"loose{i}.csv"})
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
         assert "12 orphans" in page
-        assert "+2 more" in page
-        # First 10 are listed; the 11th/12th are folded into the "+N more".
+        assert "+2 further orphaned entities" in page
         assert "#loose0" in page
         assert "#loose9" in page
-        assert "#loose11" not in page
+        # The 11th and 12th are BEHIND the fold, not absent from it. This
+        # assertion was previously `not in page` — a capped list that named a
+        # number and gave the reader no way to reach it.
+        assert "#loose10" in page
+        assert "#loose11" in page
 
 
 class TestChemicalsSection:
@@ -1953,3 +1957,60 @@ class TestUnreachableRepairEstimate:
 
         assert "Every entity is reachable from the crate root." in page
         assert "would reconnect" not in page
+
+
+class TestTheOrphanListIsReachable:
+    """The graph view's capped lists must not name a number and stop.
+
+    The profile-adherence tiers already put their overflow behind a fold
+    (`_apply_cap`) for a stated reason: this report is the ONLY place those
+    findings are written down, so "+9 further" with no way to reach them sent the
+    reader nowhere. The topology lists had the same dead end.
+    """
+
+    @staticmethod
+    def _nodes(orphans: int = 0, dangling: int = 0) -> list[dict]:
+        out = [
+            {"id": f"#orphan_{i}", "label": f"Thing {i}", "type": "Sample", "orphan": True}
+            for i in range(orphans)
+        ]
+        out += [{"id": f"#dangle_{i}", "label": "", "status": "dangling"} for i in range(dangling)]
+        return out
+
+    def test_every_orphan_is_reachable_however_many_there_are(self) -> None:
+        from builder.writers.maturity_report import _render_topology_detail
+
+        html = _render_topology_detail(self._nodes(orphans=14))
+
+        assert "+4 further orphaned entities" in html
+        assert 'details class="more-fold"' in html
+        # The point of the fold: the ids past the cap are still IN the document.
+        for i in range(14):
+            assert f"#orphan_{i}" in html, f"orphan {i} is named nowhere in the report"
+
+    def test_dangling_references_fold_the_same_way(self) -> None:
+        from builder.writers.maturity_report import _render_topology_detail
+
+        html = _render_topology_detail(self._nodes(dangling=13))
+
+        assert "+3 further dangling references" in html
+        for i in range(13):
+            assert f"#dangle_{i}" in html
+
+    def test_a_single_overflow_row_reads_singular(self) -> None:
+        """"+1 further orphaned entitys" is the naive-pluralisation tell."""
+        from builder.writers.maturity_report import _render_topology_detail
+
+        html = _render_topology_detail(self._nodes(orphans=11))
+
+        assert "+1 further orphaned entity<" in html
+        assert "entitys" not in html
+
+    def test_a_list_inside_the_cap_gets_no_fold(self) -> None:
+        """The control — a short list must not grow a pointless disclosure."""
+        from builder.writers.maturity_report import _render_topology_detail
+
+        html = _render_topology_detail(self._nodes(orphans=3, dangling=2))
+
+        assert "more-fold" not in html
+        assert "further" not in html
