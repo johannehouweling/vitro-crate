@@ -236,10 +236,67 @@ _is_citation_field = is_citation_field
 # reader has.
 _KEY_EVENT_FIELDS: frozenset[str] = frozenset({"key_event", "keyEvent", "key_events"})
 
+# How many Key Events a prompt lists before summarising the rest. An AOP's whole
+# subgraph can run to dozens; a prompt that prints all of them buries the
+# question it is asking.
+_KEY_EVENT_CHOICES = 12
+
 
 def _is_key_event_field(field: str) -> bool:
     """Whether ``field`` is the Assay's AOP Key Event reference slot (#382)."""
     return field in _KEY_EVENT_FIELDS
+
+
+def _is_key_event_gap(gap: Gap) -> bool:
+    """Whether ``gap`` asks which AOP Key Event an Assay measures.
+
+    Field name alone is not enough. The ISA-Tox shape expresses the annotation as
+    ``schema:mentions`` — the same predicate that carries chemicals, organism and
+    anatomy — so the gap arrives with ``property="mentions"`` and misses
+    ``_KEY_EVENT_FIELDS`` entirely. It was therefore asked through the generic
+    path, whose reference guard rejects any prose answer, and no reply the user
+    could type would ever commit.
+
+    The message is what distinguishes it from the other ``mentions`` gaps, and it
+    is our own shape's wording (``profiles/shapes/tox/7_assay_key_event.ttl``),
+    not a third party's. Matched case-insensitively so a reworded shape keeps
+    working.
+    """
+    if _is_key_event_field(_local_name(gap.property) or (gap.property or "")):
+        return True
+    return "key event" in (gap.message or "").casefold()
+
+
+def _key_event_candidates(engine: AgentEngine) -> list[dict[str, str]]:
+    """The Key Events the crate already holds, as answer options.
+
+    The crate fetches an AOP's whole subgraph, so by the time this gap is asked
+    the Key Events are sitting in state with their names and event types. Asking
+    "which Key Event does this assay measure?" without listing them makes the
+    question unanswerable from memory and invites an invented name that the
+    applier will then refuse — the user answers, nothing commits, and the gap
+    comes round again.
+
+    Offering the crate's own Key Events is the opposite of deciding for the
+    scientist: WHICH one an assay measures stays their call, and a name that is
+    not on this list cannot be resolved to an entity anyway.
+    """
+    out: list[dict[str, str]] = []
+    for entity in engine.state.list_entities("KeyEvent"):
+        name = str((entity.fields or {}).get("name") or "").strip()
+        if not name:
+            continue
+        out.append(
+            {
+                "name": name,
+                "event_type": str((entity.fields or {}).get("eventType") or "").strip(),
+                "id": entity.entity_id,
+            }
+        )
+    # Molecular Initiating Events first: an in-vitro assay most often measures
+    # one, so the likeliest answers lead rather than sitting at position 20.
+    out.sort(key=lambda c: (0 if "initiating" in c["event_type"].casefold() else 1, c["name"]))
+    return out
 
 
 def _gap_is_root(engine: AgentEngine, gap: Gap) -> bool:
@@ -745,7 +802,7 @@ def _apply_value(
     # user pasted) is a reference, not prose, so it falls through to the generic
     # reference path below — sending it to the name matcher would fail to match an
     # IRI against the event NAMES and reject a perfectly good answer.
-    if _is_key_event_field(field) and not is_resolvable_reference(engine.state, value):
+    if _is_key_event_gap(gap) and not is_resolvable_reference(engine.state, value):
         return _apply_key_event_value(engine, gap, value, human=human)
 
     # Assay measurementMethod is a DefinedTerm reference, but the user naturally
@@ -928,6 +985,19 @@ def _ask_user_prompt(gap: Gap, engine: AgentEngine | None = None) -> str:
         lines.append(f"Why: {gap.message}")
     if gap.suggestion:
         lines.append(f"Suggestion: {gap.suggestion}")
+    # A Key Event answer must name one of the crate's own Key Events — anything
+    # else cannot resolve to an entity and is refused. Listing them turns a
+    # question answerable only from memory into one answerable by reading.
+    if engine is not None and _is_key_event_gap(gap):
+        candidates = _key_event_candidates(engine)
+        if candidates:
+            lines.append("The AOP Key Events in this crate are:")
+            lines.extend(
+                f"  · {c['name']}" + (f" ({c['event_type']})" if c["event_type"] else "")
+                for c in candidates[:_KEY_EVENT_CHOICES]
+            )
+            if len(candidates) > _KEY_EVENT_CHOICES:
+                lines.append(f"  · …and {len(candidates) - _KEY_EVENT_CHOICES} more.")
     lines.extend(
         [
             "Enter the suggested value, or type a modified value.",
@@ -1107,6 +1177,14 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
         # (Commit 2, #179) An entity-less but typed gap (MIT, entity_id=None):
         # ground it in the type's real in-state instance(s).
         _ground_entityless_gap(engine, gap, context)
+    # The answerable options for a Key Event gap. Without them the leaf phrases a
+    # question nobody can answer from memory and the applier refuses whatever is
+    # typed, so the gap is asked and retired every round without ever committing.
+    if _is_key_event_gap(gap) and (candidates := _key_event_candidates(engine)):
+        context["candidates"] = [
+            f"{c['name']} ({c['event_type']})" if c["event_type"] else c["name"]
+            for c in candidates
+        ]
     title = (engine.state.metadata.title or "").strip()
     if title:
         context["crate_title"] = title

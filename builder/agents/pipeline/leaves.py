@@ -631,7 +631,10 @@ _PHRASE_SYSTEM_PROMPT = (
     "FORBIDDEN from inventing a specific name, identifier, accession, or example "
     "value to fill the blank — never make up a concrete cell-line / compound name "
     "or a code the data does not provide. D5: never fabricate a specific name, "
-    "identifier, or value the data does not provide."
+    "identifier, or value the data does not provide. When the context lists "
+    "'Options in this crate', those are the ONLY acceptable answers: name them in "
+    "the question so the reader can choose one, and never choose for them — which "
+    "AOP Key Event an assay measures is the scientist's judgement, not yours."
 )
 
 _INTERPRET_SYSTEM_PROMPT = (
@@ -766,7 +769,24 @@ def _gap_context_block(gap_context: dict[str, Any]) -> str:
     suggestion = gap_context.get("suggestion")
     if suggestion:
         parts.append(f"Hint: {suggestion}")
+    # The answers the crate can actually accept. For a gap whose value must
+    # resolve to an entity already in the crate — which AOP Key Event an assay
+    # measures — a free-text question is unanswerable from memory and whatever
+    # is typed gets refused. Listing the options makes it answerable by reading,
+    # and the leaf is told to OFFER them, never to choose.
+    candidates = gap_context.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        shown = [str(c) for c in candidates[:_CANDIDATES_SHOWN] if str(c).strip()]
+        if shown:
+            more = len(candidates) - len(shown)
+            listing = "; ".join(shown) + (f"; …and {more} more" if more > 0 else "")
+            parts.append(f"Options in this crate (offer these, do not pick one): {listing}")
     return "\n".join(parts)
+
+
+# Enough for the reader to recognise the right one without the list swamping the
+# question it is attached to.
+_CANDIDATES_SHOWN = 12
 
 
 def phrase_gap_question(
