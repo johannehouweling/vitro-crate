@@ -153,3 +153,101 @@ class TestFilesystemAccessStaysFailClosed:
         )
 
         assert sent == []
+
+
+class TestABinaryFileIsStillDescribableFromItsContent:
+    """The feature was inert on a real deposit until this.
+
+    `read_file_sample(mode="content")` returns the first LINES of a file, which
+    is right for CSV and text and is **nothing at all** for a binary format.
+    Measured against the shipped corpus, every .xlsx and .docx came back 0
+    characters — and a deposit is mostly .xlsx and .docx, so "describe the payload
+    files" described none of them.
+
+    The file-type summary is still the file's own content — sheet names, column
+    headers, sample paragraphs — just the part that survives not being plain
+    text. Driven against committed fixtures rather than a synthesised workbook,
+    because what broke here was the behaviour of the real readers on real files.
+    """
+
+    FIXTURES = Path(__file__).parent / "fixtures"
+
+    def _describable(self, source: Path, tmp_path: Path) -> list[dict]:
+        import shutil
+
+        shutil.copy(source, tmp_path / source.name)
+        state = CrateState()
+        state.metadata.input_path = str(tmp_path)
+        draft_file(state, name=source.name, path=str(tmp_path / source.name))
+
+        seen: list[dict] = []
+
+        def _describe(files):
+            seen.extend(files)
+            return ["A description." for _ in files]
+
+        describe_payload_files(state, describe_fn=_describe)
+        return seen
+
+    def test_an_xlsx_reaches_the_model_with_its_sheets_and_columns(
+        self, tmp_path: Path
+    ) -> None:
+        source = self.FIXTURES / "svhps22_real_input" / "Metadataveldenlijst_1.2.0.xlsx"
+        assert source.is_file(), "fixture missing; this test would pass vacuously"
+
+        sent = self._describable(source, tmp_path)
+
+        assert len(sent) == 1, "the workbook was skipped as unreadable"
+        preview = sent[0]["preview"]
+        assert "Excel" in preview
+        # The part that makes a description possible: what is actually in it.
+        assert "rows" in preview and "columns" in preview
+
+    def test_a_docx_reaches_the_model_with_its_text(self, tmp_path: Path) -> None:
+        source = (
+            self.FIXTURES
+            / "svhps22_real_input"
+            / "assay_01_TH_uptake"
+            / "3.2 Protocol transporter assay radioactive T3 T4_EN.docx"
+        )
+        assert source.is_file(), "fixture missing; this test would pass vacuously"
+
+        sent = self._describable(source, tmp_path)
+
+        assert len(sent) == 1, "the document was skipped as unreadable"
+        assert "Word" in sent[0]["preview"]
+
+    def test_plain_text_still_uses_its_actual_lines(self, tmp_path: Path) -> None:
+        """The control. The summary is a FALLBACK, not a replacement — the rows
+        of a CSV are better evidence than a description of its shape."""
+        (tmp_path / "uptake.csv").write_text(
+            "well,compound,absorbance\nA1,T4,0.812\n", encoding="utf-8"
+        )
+        state = CrateState()
+        state.metadata.input_path = str(tmp_path)
+        draft_file(state, name="uptake.csv", path=str(tmp_path / "uptake.csv"))
+
+        seen: list[dict] = []
+        describe_payload_files(
+            state,
+            describe_fn=lambda files: seen.extend(files) or ["x" for _ in files],
+        )
+
+        assert "A1,T4,0.812" in seen[0]["preview"]
+        assert "Format:" not in seen[0]["preview"]
+
+    def test_a_file_that_is_not_there_is_still_refused(self, tmp_path: Path) -> None:
+        """The fallback must not become a way to describe a file that does not
+        exist — the summary reader returns nothing for it too, and nothing is
+        exactly what should reach the model."""
+        state = CrateState()
+        state.metadata.input_path = str(tmp_path)
+        draft_file(state, name="absent.xlsx", path=str(tmp_path / "absent.xlsx"))
+
+        seen: list[dict] = []
+        describe_payload_files(
+            state,
+            describe_fn=lambda files: seen.extend(files) or ["x" for _ in files],
+        )
+
+        assert seen == []
