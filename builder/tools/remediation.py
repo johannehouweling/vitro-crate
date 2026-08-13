@@ -236,10 +236,12 @@ def describe(action: Action) -> str:
         return action.note or "Left as-is deliberately."
     what = _wanted(action.findings)
     subject = action.subject
+    n = action.cleared
+    plural = "entity is" if n == 1 else "entities are"
     if action.kind == "orphan":
-        return f"Connect {subject} to the crate — {action.cleared} entities are unreachable."
+        return f"Connect {subject} to the crate — {n} {plural} unreachable."
     if action.kind == "property":
-        return f"Supply {subject} for {action.cleared} entities that are missing it."
+        return f"Supply {subject} for the {n} {'entity' if n == 1 else 'entities'} missing it."
     return f"{what} for {subject}." if what else f"Complete the metadata for {subject}."
 
 
