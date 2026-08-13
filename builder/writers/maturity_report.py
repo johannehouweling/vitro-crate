@@ -699,7 +699,7 @@ def _render_profile_section(
     esc = html.escape
     if stale:
         return (
-            "<section>\n"
+            '<section id="adherence">\n'
             '  <div class="sec-h"><h2>Profile adherence</h2>'
             '<span class="sec-meta">out of date</span></div>\n'
             '  <p class="lead">The last recorded verdict was computed against an earlier '
@@ -709,7 +709,7 @@ def _render_profile_section(
         )
     if tiers is None:
         return (
-            "<section>\n"
+            '<section id="adherence">\n'
             '  <div class="sec-h"><h2>Profile adherence</h2></div>\n'
             '  <p class="lead">Not yet validated — run validation to populate profile '
             "adherence.</p>\n"
@@ -732,7 +732,7 @@ def _render_profile_section(
     sugg = "" if has_findings else f'<p class="good-note">{_clean_note(val)}</p>'
 
     return (
-        "<section>\n"
+        '<section id="adherence">\n'
         '  <div class="sec-h"><h2>Profile adherence</h2>'
         '<span class="sec-meta">3 layers · 3 severity tiers</span></div>\n'
         f'  <div class="prof-grid">{cards}</div>\n'
@@ -925,7 +925,11 @@ def _render_next_steps_section(
     # `_NEXT_STEPS_CAP` then drops it off the list entirely: the report quietly
     # hiding the work that blocks the build, which is the one thing this section
     # exists to surface.
-    live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), -a.cleared, a.subject))
+    # Tier, then IMPACT, then size. Size last on purpose: "add a job title for 8
+    # people" clears more findings than "say which measurement technique was
+    # used", and ranking by count put the first above the second — which is
+    # backwards for anyone who has to reuse the data.
+    live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
     esc = html.escape
     def _subject_html(action: Any) -> str:
         """The subject clause with every entity in a ``<code>`` chip.
@@ -975,8 +979,12 @@ def _render_next_steps_section(
         rows += (
             f'<li><span class="na-n">{rest}</span><span class="na-t">'
             f"…and {len(live) - _NEXT_STEPS_CAP} smaller "
-            f"{'item' if len(live) - _NEXT_STEPS_CAP == 1 else 'items'}, "
-            "listed in full below."
+            f"{'item' if len(live) - _NEXT_STEPS_CAP == 1 else 'items'}, in "
+            # "listed in full below" named a place without pointing at it — on a
+            # page this long "below" is several screens and three sections away.
+            # The findings these actions were built FROM live under Profile
+            # adherence, so say that and link to it.
+            '<a href="#adherence">Profile adherence</a>.'
             "</span></li>"
         )
     settled = [a for a in actions if not a.actionable]
