@@ -25,6 +25,7 @@ from builder.tools._crate_mapping import (
     _file_dest,
     populate_crate,
 )
+from builder.tools.rehome import rehome_misplaced_fields
 from profiles.context import ISA_TOX_CONTEXT
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,31 @@ def assemble_crate(
         A populated :class:`ROCrate`. Nothing is written unless the caller
         invokes ``crate.write()``.
     """
+    # Before anything is composed: move a field written on an entity that cannot
+    # hold it to the one that consumes it. `_scalar_props` would otherwise DELETE
+    # it — correct for a key the model invented, wrong for a field this codebase
+    # asks for by name and then files under the wrong type. Twelve such values
+    # (instrument, manufacturer, measured entity, replicate count, across three
+    # assays) were deleted from one real build, and the report went on to raise
+    # "say which measurement technique was used" about their absence.
+    #
+    # Mutates `state`, deliberately: the crate is built from state on every
+    # export, so rescuing the value only for this build would let the next one
+    # delete it again. Never raises — a rescue that breaks the build is worse
+    # than the deletion it prevents.
+    try:
+        rehomed = rehome_misplaced_fields(state)
+    except Exception:  # noqa: BLE001 — a rescue must never sink an export
+        logger.warning("Could not re-home misplaced fields; continuing", exc_info=True)
+        rehomed = []
+    for move in rehomed:
+        logger.info(
+            "Kept %r by moving it from %s to %s, which is the type that consumes it",
+            move.field,
+            move.from_id,
+            move.to_id,
+        )
+
     crate = ROCrate()
     crate.metadata.extra_contexts = ISA_TOX_CONTEXT
     populate_crate(
