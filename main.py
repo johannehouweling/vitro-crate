@@ -144,6 +144,26 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
             logger.debug("Could not install the notice handler", exc_info=True)
 
 
+def _smoke_test_minutes(raw: str) -> float:
+    """Parse ``--smoke-test MINUTES`` into a positive number of minutes.
+
+    Rejects zero and negatives rather than accepting them as "stop immediately".
+    Both would also make ``args.smoke_test`` FALSY, so the mode would silently
+    not engage at all — a `--smoke-test 0` that quietly runs an ordinary
+    interactive build, waiting for a person who is not there, is exactly the
+    silent misfire this flag exists to make impossible.
+    """
+    try:
+        minutes = float(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number of minutes, got {raw!r}") from None
+    if minutes <= 0:
+        raise argparse.ArgumentTypeError(
+            f"a smoke test needs a positive number of minutes, got {minutes:g}"
+        )
+    return minutes
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="ISA-Tox RO-Crate Builder")
@@ -192,12 +212,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--smoke-test",
-        action="store_true",
+        nargs="?",
+        const=True,
+        default=False,
+        type=_smoke_test_minutes,
+        metavar="MINUTES",
         help="Drive the interactive build with NOBODY at the keyboard: every "
         'choice prompt confirms its pre-selected option and every open field is '
-        'answered "yes, continue". Implies --interactive; refuses --legacy-react. '
-        "For TESTING the HITL path end to end — the crate it produces holds "
-        "synthesised answers and is not curated metadata.",
+        'answered "yes, continue". Implies --interactive; works on both arms. '
+        "Takes an OPTIONAL wall-clock budget in minutes (--smoke-test 20): the "
+        "run winds down at its next question once the time is spent and exports "
+        "what it has. Without one it drives a few turns and stops. For TESTING "
+        "the HITL path end to end — the crate it produces holds synthesised "
+        "answers and is not curated metadata.",
     )
     parser.add_argument(
         "--prompt",
@@ -492,6 +519,15 @@ def main(argv: list[str] | None = None) -> int:
         # by accident, the very first thing on screen must be that nobody is
         # answering the prompts. It is repeated beside the exported crate path.
         print(SYNTHETIC_ANSWER_NOTICE)
+        if isinstance(args.smoke_test, float):
+            # Said in minutes because that is what was asked for, and said as
+            # "winds down at its next question" because that is what happens: the
+            # deadline is read between gaps / between turns, never mid-question,
+            # so a long turn overruns it rather than being cut in half.
+            print(
+                f"Running for about {args.smoke_test:g} minute(s), then winding "
+                "down at the next question and exporting."
+            )
 
     # --show-config: print and exit
     if args.show_config:
@@ -537,7 +573,11 @@ def main(argv: list[str] | None = None) -> int:
         # tests/test_smoke_test_mode.py.
         from builder.tools.hitl import SmokeTestHumanInterface
 
-        engine = AgentEngine(human_interface=SmokeTestHumanInterface())
+        # `--smoke-test` alone is True; `--smoke-test 20` is the float 20.0.
+        # `isinstance(True, float)` is False, so the bare flag never reads as a
+        # budget (unlike `isinstance(True, int)`, which would).
+        minutes = args.smoke_test if isinstance(args.smoke_test, float) else None
+        engine = AgentEngine(human_interface=SmokeTestHumanInterface(minutes=minutes))
     elif args.interactive:
         from builder.agents import ui
         from builder.tools.hitl import ConsoleHumanInterface

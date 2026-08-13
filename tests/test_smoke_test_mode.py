@@ -424,6 +424,78 @@ class TestTheConversationTerminates:
             assert human.request_input("next?", CONVERSATION_FIELD_TYPE)["value"] == expected
 
 
+class TestTheWallClockBudget:
+    """``--smoke-test 20`` — run for a while, then wind down and export.
+
+    Time is exercised with real budgets rather than a patched clock: a budget of
+    an hour cannot expire inside a test, and one of 60 microseconds cannot fail to
+    have expired after a millisecond of sleep. Both directions are decided by
+    margins of several orders of magnitude, so neither depends on scheduling.
+    """
+
+    # Far enough away that nothing in this file can reach it.
+    LIVE = 60.0
+    # Already spent by the time the constructor returns.
+    SPENT = 1e-6
+
+    def _expired(self):
+        """An interface whose budget is definitively spent."""
+        import time
+
+        human = SmokeTestHumanInterface(minutes=self.SPENT)
+        time.sleep(0.001)
+        return human
+
+    def test_the_clock_supersedes_the_turn_cap(self):
+        """The whole point of asking for twenty minutes. A turn count of 3 would
+        otherwise stop the run in under a minute, which is the opposite of what
+        the flag was used for."""
+        from builder.tools.hitl import CONVERSATION_FIELD_TYPE, SMOKE_TEST_CONVERSATION_TURNS
+
+        human = SmokeTestHumanInterface(minutes=self.LIVE)
+        turns = SMOKE_TEST_CONVERSATION_TURNS + 5
+        answers = [human.request_input("next?", CONVERSATION_FIELD_TYPE) for _ in range(turns)]
+        assert all(a["value"] == SMOKE_TEST_ANSWER for a in answers)
+        assert not any(a["skipped"] for a in answers)
+
+    def test_a_spent_clock_ends_the_conversation(self):
+        from builder.tools.hitl import CONVERSATION_FIELD_TYPE
+
+        assert self._expired().request_input("next?", CONVERSATION_FIELD_TYPE) == {
+            "value": None,
+            "skipped": True,
+        }
+
+    def test_a_spent_clock_ends_guidance(self):
+        """run_guidance consults is_done() at the top of every round, so this is
+        what stops the DEFAULT arm — the conversational skip only reaches ReAct."""
+        assert self._expired().is_done() is True
+
+    def test_without_a_budget_guidance_is_never_cut_short(self):
+        """The control, and the pre-existing contract: an unbudgeted smoke test
+        must exercise the tail to exhaustion, not return before asking anything."""
+        assert SmokeTestHumanInterface().is_done() is False
+        assert SmokeTestHumanInterface(minutes=self.LIVE).is_done() is False
+
+    def test_a_question_in_flight_is_still_answered(self):
+        """"Winds down at the next question", not "stops mid-question". The loops
+        read the deadline BETWEEN gaps/turns; a field asked as it lapses is still
+        answered, so nothing lands half-applied."""
+        assert self._expired().request_input("describe the study") == {
+            "value": SMOKE_TEST_ANSWER,
+            "skipped": False,
+        }
+
+    def test_the_deadline_does_not_move_with_the_wall_date(self):
+        """Monotonic, not a wall date: a clock adjustment mid-run must not end a
+        session early or extend one forever."""
+        human = SmokeTestHumanInterface(minutes=self.LIVE)
+        assert human._deadline is not None
+        # A monotonic reading, which is an uptime-relative float — never a POSIX
+        # timestamp (~1.7e9 and climbing).
+        assert human._deadline < 1e9
+
+
 class TestTheLoopReadsTheInterfaceNotStdin:
     """The rewiring itself, driven against the REAL loop.
 
@@ -493,6 +565,54 @@ class TestCli:
     def test_flag_defaults_off(self):
         assert parse_args([]).smoke_test is False
         assert parse_args([]).interactive is False
+
+    def test_minutes_are_optional_and_the_bare_flag_is_not_a_budget(self):
+        """`--smoke-test` stays a boolean; `--smoke-test 20` is a number of
+        minutes. The distinction is `isinstance(x, float)`, which is False for
+        True — unlike `isinstance(x, int)`, which would read the bare flag as a
+        one-minute budget."""
+        assert parse_args(["--smoke-test"]).smoke_test is True
+        assert parse_args(["--smoke-test", "20"]).smoke_test == 20.0
+        assert isinstance(parse_args(["--smoke-test"]).smoke_test, float) is False
+        assert parse_args(["--smoke-test", "0.5"]).smoke_test == 0.5
+
+    def test_a_non_positive_budget_is_refused_not_silently_ignored(self):
+        """0 and -5 are FALSY, so accepting them would leave `args.smoke_test`
+        falsy and quietly run an ordinary interactive build — waiting forever on
+        a person who is not there. Exactly the silent misfire the flag exists to
+        prevent, so argparse rejects them."""
+        for bad in ("0", "-5", "abc"):
+            with pytest.raises(SystemExit):
+                parse_args(["--smoke-test", bad])
+
+    def test_the_budget_reaches_the_interface(self, monkeypatch, capsys, tmp_path):
+        """End to end: the number on the command line becomes the interface's
+        deadline, and the run says so before spending anything."""
+        self._stub_config(monkeypatch)
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "test.txt").write_text("hello\n")
+        seen: list[Any] = []
+
+        import builder.agents.build as build_mod
+
+        monkeypatch.setattr(
+            build_mod,
+            "run_interactive_build",
+            lambda engine, **kw: seen.append(engine.human_interface) or {"pipeline": {}},
+        )
+
+        assert main(["--smoke-test", "20", "--input", str(d)]) == 0
+        human = seen[0]
+        assert isinstance(human, SmokeTestHumanInterface)
+        assert human._deadline is not None, "the budget never reached the interface"
+        assert human.is_done() is False, "20 minutes must not be spent on arrival"
+        assert "20 minute" in capsys.readouterr().out
+
+    def test_a_bare_smoke_test_sets_no_deadline(self):
+        """The control for the test above — without a number nothing is on a
+        clock, so the turn cap stays the bound."""
+        assert SmokeTestHumanInterface()._deadline is None
 
     def test_flag_implies_interactive(self):
         """On its own it would have nothing to answer — a batch run never prompts."""

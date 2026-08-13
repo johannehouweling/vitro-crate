@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
+import time
 from collections.abc import Callable, Iterator
 from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
@@ -586,6 +587,11 @@ CONVERSATION_FIELD_TYPE = "conversation"
 # — reads a turn, acts, comes back for the next — and each extra turn is a real
 # model call spent re-proving it. Three is enough to show the come-back-for-more
 # behaviour that one turn cannot.
+#
+# Superseded by a wall-clock budget when one is given (``--smoke-test 20``): a
+# turn count is a poor stand-in for "run for a while and then export", since turn
+# cost varies by an order of magnitude between a one-tool answer and a full
+# lookup fan-out.
 SMOKE_TEST_CONVERSATION_TURNS = 3
 
 # Printed at the start of a smoke-test run and again beside the exported crate
@@ -640,14 +646,35 @@ class SmokeTestHumanInterface:
     is_interactive: bool = True
     synthesizes_answers: bool = True
 
-    def __init__(self, conversation_turns: int = SMOKE_TEST_CONVERSATION_TURNS) -> None:
+    def __init__(
+        self,
+        conversation_turns: int = SMOKE_TEST_CONVERSATION_TURNS,
+        minutes: float | None = None,
+    ) -> None:
         """Args:
         conversation_turns: How many turns to drive a conversational loop
             (the legacy ReAct arm) before ending the session. Ignored by the
-            default arm, which has no conversational channel. ``<= 0`` ends it
-            at the first prompt.
+            default arm, which has no conversational channel, and superseded
+            entirely when *minutes* is given. ``<= 0`` ends it at the first
+            prompt.
+        minutes: Optional wall-clock budget (``--smoke-test 20``). Once it is
+            spent, both arms wind down at their next question and export what
+            they have. Measured on :func:`time.monotonic` from construction —
+            not a wall date — so a clock adjustment mid-run cannot end a
+            session early or extend one forever.
         """
         self._conversation_budget = int(conversation_turns)
+        self._deadline: float | None = (
+            time.monotonic() + float(minutes) * 60.0 if minutes else None
+        )
+
+    def _time_is_up(self) -> bool:
+        """Whether a wall-clock budget was given and has been spent.
+
+        ``False`` when none was given: an unbudgeted run is bounded by the turn
+        count and by each loop's own guards, exactly as before.
+        """
+        return self._deadline is not None and time.monotonic() >= self._deadline
 
     def present(
         self,
@@ -711,6 +738,15 @@ class SmokeTestHumanInterface:
         re-verifies any pasted ORCID against a real lookup before use.
         """
         if field_type == CONVERSATION_FIELD_TYPE:
+            if self._time_is_up():
+                logger.info("smoke-test: time budget spent — ending the session")
+                return {"value": None, "skipped": True}
+            if self._deadline is not None:
+                # A clock was given, so it is the bound: the turn count would
+                # otherwise stop a `--smoke-test 20` run after three turns, which
+                # is the opposite of what asking for twenty minutes means.
+                logger.info("smoke-test: driving a conversational turn (on the clock)")
+                return {"value": SMOKE_TEST_ANSWER, "skipped": False}
             if self._conversation_budget <= 0:
                 logger.info("smoke-test: conversation budget spent — ending the session")
                 return {"value": None, "skipped": True}
@@ -753,16 +789,24 @@ class SmokeTestHumanInterface:
         return {"values": [], "skipped": True}
 
     def is_done(self) -> bool:
-        """Never end guidance early — the loop's own bounds stop the run.
+        """End guidance only when a wall-clock budget has been spent.
 
-        Ending at the first opportunity would exercise nothing: the tail would
-        return before asking anything, which is precisely the path this mode is
-        for. So the mode never volunteers "done" and leans on ``run_guidance``'s
-        existing termination guards — the report being exhausted, no gap making
-        progress, and the hard ``max_rounds`` bound — which already guarantee
-        termination without a cooperating frontend.
+        Without one this is always ``False``, and deliberately so: ending at the
+        first opportunity would exercise nothing — the tail would return before
+        asking anything, which is precisely the path this mode is for. An
+        unbudgeted run therefore leans on ``run_guidance``'s own termination
+        guards (the report exhausted, no gap making progress, the hard
+        ``max_rounds`` bound), which already guarantee termination without a
+        cooperating frontend.
+
+        A ``--smoke-test 20`` run is the exception, and it is the honest answer
+        to the question this method actually asks — "does the user want to stop
+        now?" — because the user said so up front, in minutes. ``run_guidance``
+        consults this at the TOP of every round, so the deadline lands between
+        gaps and the crate is exported with whatever was answered, never
+        mid-question with a half-applied edit.
         """
-        return False
+        return self._time_is_up()
 
 
 def answers_are_synthetic(human: HumanInterface | None) -> bool:
