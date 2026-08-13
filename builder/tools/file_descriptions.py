@@ -73,7 +73,16 @@ def _preview_for(state: CrateState, entity: Entity) -> str:
         roots.add(str(Path(state.metadata.input_path).resolve()))
     if not roots:
         return ""
-    return _safe_preview(str(source), roots, PREVIEW_LIMIT)
+    # Content first — the actual rows of a CSV are the best evidence of what it
+    # holds. Then the file-type summary, because `mode="content"` returns NOTHING
+    # for a binary format: measured against the real corpus, every .xlsx and
+    # .docx came back 0 characters, which is most of a deposit. The summary gives
+    # sheet names, column headers and sample paragraphs — still the file's own
+    # content, just the part that survives not being plain text.
+    preview = _safe_preview(str(source), roots, PREVIEW_LIMIT)
+    if preview.strip():
+        return preview
+    return _safe_preview(str(source), roots, PREVIEW_LIMIT, mode="summary")
 
 
 def describe_payload_files(

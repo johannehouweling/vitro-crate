@@ -114,15 +114,26 @@ def _role_and_signals(filename: str, preview: str) -> tuple[str, list[str], floa
     return role, reasons, score
 
 
-def _safe_preview(path: str, approved_roots: set[str], limit: int) -> str:
-    """Read a small preview only after approved-root containment succeeds."""
+def _safe_preview(
+    path: str, approved_roots: set[str], limit: int, *, mode: str = "content"
+) -> str:
+    """Read a small preview only after approved-root containment succeeds.
+
+    *mode* is passed through to ``read_file_sample``. It defaults to ``"content"``
+    — the first lines of the file — which is right for CSV and text and returns
+    NOTHING for a binary format: an .xlsx or .docx has no first lines to read.
+    ``"summary"`` gets the file-type-aware digest instead (sheet names, column
+    headers, sample paragraphs), which is what a caller describing a workbook
+    needs. Exposed rather than hard-coded so a caller can ask for the one it
+    needs; the default keeps every existing caller's behaviour unchanged.
+    """
     from builder.tools.scanner import _contain, read_file_sample
 
     contained = _contain(path, approved_roots)
     if contained is None or not contained.is_file():
         return ""
     try:
-        value = read_file_sample(str(contained), lines=40, mode="content")
+        value = read_file_sample(str(contained), lines=40, mode=mode)
     except (OSError, RuntimeError, ValueError):
         return ""
     if not value:
