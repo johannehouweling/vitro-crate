@@ -495,3 +495,75 @@ class TestAnActionSaysWhatKindOfThingItIsAbout:
         )
         assert actions[0].subject == "Person Ada and Person Grace"
         assert "Person Person" not in actions[0].subject
+
+
+class TestActionsAreOrderedByWhatTheFixIsWorth:
+    """Profile tier says what BLOCKS; impact says what the crate is worth once it
+    passes. The report needs both, and it had only the first.
+
+    Calibrated on the user's reading of a real report: "say which measurement
+    technique was used" is "way more impactful", while a job title "is not that
+    important from a dataset perspective" — yet the job-title action cleared 8
+    findings and the technique one cleared 3, so ordering by size put the wrong
+    one first.
+    """
+
+    def test_a_valuable_small_job_outranks_a_bulky_trivial_one(self):
+        from builder.tools.remediation import _TIER_RANK, describe, group_findings
+
+        findings = [
+            *[
+                _f(f"./#p{i}", "A Person SHOULD have a job title")
+                for i in range(8)
+            ],
+            *[
+                _f(f"./#A_{a}", "An Assay SHOULD say which measurement technique was used")
+                for a in ("deiodinase", "gene_expression", "metabolism")
+            ],
+        ]
+        live = [a for a in group_findings(findings, labels={}) if a.actionable and a.cleared]
+        live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
+        assert "measurement technique" in describe(live[0])
+        assert live[0].cleared < live[-1].cleared, (
+            "this test only means something while the valuable action is the SMALLER "
+            "one — otherwise size ordering would have got it right anyway"
+        )
+
+    def test_impact_never_outranks_the_profile_tier(self):
+        """A required conformance failure still leads, however trivial. One blocks
+        the build; the other only improves it."""
+        from builder.tools.remediation import _TIER_RANK, group_findings
+
+        findings = [
+            _f("./#root", "A Person SHOULD have a job title", severity="required"),
+            _f("./#a1", "An Assay SHOULD say which measurement technique was used"),
+        ]
+        live = [a for a in group_findings(findings, labels={}) if a.actionable and a.cleared]
+        live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
+        assert live[0].tier == "REQUIRED"
+
+    def test_an_unclassified_finding_lands_in_the_middle(self):
+        """Not band 0 — an unrecognised message must not jump the queue over
+        things somebody actually judged important."""
+        from builder.tools.remediation import _DEFAULT_IMPACT, _impact
+
+        assert _impact(["something nobody has ever classified"]) == _DEFAULT_IMPACT
+        assert _impact(["An Assay SHOULD say which measurement method was used"]) < _DEFAULT_IMPACT
+        assert _impact(["A Person SHOULD have a job title"]) > _DEFAULT_IMPACT
+
+    def test_a_job_title_is_not_read_as_an_identifier(self):
+        """"job title" sits ABOVE the generic identifier/ORCID band on purpose:
+        those needles are broad, and a message mentioning both would otherwise
+        promote the job title to band 1."""
+        from builder.tools.remediation import _impact
+
+        assert _impact(["A Person SHOULD have a job title and an identifier"]) == 2
+
+    def test_an_entity_is_ranked_by_its_most_valuable_finding(self):
+        """The action clears all of them at once, so ranking by the least
+        valuable would bury a job worth doing."""
+        from builder.tools.remediation import _impact
+
+        assert _impact(
+            ["A Person SHOULD have a job title", "SHOULD say which measurement technique"]
+        ) == 0

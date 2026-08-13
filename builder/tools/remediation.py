@@ -75,6 +75,67 @@ TIER_LABEL = {"REQUIRED": "Required", "RECOMMENDED": "Recommended", "OPTIONAL": 
 _DEFAULT_TIER = "RECOMMENDED"
 
 
+# How much a fix is worth to somebody REUSING the dataset, which is not the same
+# question as how loudly a profile asks for it. Both are needed: the tier says
+# what blocks conformance, this says what the crate is worth once it passes.
+#
+# The calibration is the user's, from reading a real report:
+#
+#   "Say which measurement technique was used …"  -> "this sounds way more impactful"
+#   "Add a job title for Max Tio, W. Edward Visser …"
+#       -> "I don't think the data will be less worth or more worth if we have a
+#           job title of those gentleman, sure we can do but it is not that
+#           important from a dataset perspective"
+#
+# Three bands, and the test for each is a question about the READER of the crate:
+#
+#   0 CAN THEY UNDERSTAND THE EXPERIMENT?   what was measured, how, on what, under
+#     which conditions. Absent, the numbers cannot be interpreted at all.
+#   1 CAN THEY FIND, TRUST AND CITE IT?     identifiers, dates, licence, who did it,
+#     where to write. Absent, the data is usable but the record is weak.
+#   2 COURTESY DETAIL.                      true and worth having; nobody's reuse
+#     turns on it.
+#
+# This is a judgement, so it is written down in one place and ordered
+# most-specific-first like `_WANTED` — not spread through the sort function where
+# it could not be argued with. An unlisted finding lands in band 1: the middle is
+# the honest default for something nobody has classified.
+_IMPACT_BANDS: tuple[tuple[tuple[str, ...], int], ...] = (
+    # --- 0: without this the measurement cannot be interpreted ---------------
+    (("measurement technique", "measurement method"), 0),
+    (("Key Event", "AOP"), 0),
+    (("parameter value", "additional property"), 0),
+    (("protocol",), 0),
+    (("description",), 0),
+    (("measured entity", "endpoint"), 0),
+    # --- 2: nobody's reuse turns on it (checked BEFORE the generic identifier
+    #        band below, which "job title" would otherwise fall into) ---------
+    (("job title",), 2),
+    # --- 1: everything else — findable, trustable, citable -------------------
+    (("ORCID", "identifier"), 1),
+    (("affiliation", "contactPoint", "contact point", "email"), 1),
+    (("licence", "license", "dateCreated", "datePublished", "dateModified"), 1),
+    (("creator", "publisher", "author"), 1),
+)
+
+_DEFAULT_IMPACT = 1
+
+
+def _impact(messages: list[str]) -> int:
+    """Which band the strongest finding in *messages* falls into.
+
+    First match wins, `_WANTED`-style, so the ordering of `_IMPACT_BANDS` is the
+    specification. An entity missing several things is ranked by the most
+    valuable of them — the action clears all of them at once, so ranking it by
+    the least valuable would bury a job worth doing.
+    """
+    blob = " ".join(messages)
+    for needles, band in _IMPACT_BANDS:
+        if any(n in blob for n in needles):
+            return band
+    return _DEFAULT_IMPACT
+
+
 @dataclass
 class Action:
     """One thing a person could do, and what it would clear.
@@ -108,6 +169,10 @@ class Action:
     subject_types: list[str] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
     tier: str = _DEFAULT_TIER
+    # How much the fix is worth to a reuser (0 best). Ordered WITHIN a tier, never
+    # across one: a required conformance failure still outranks the most valuable
+    # recommendation, because one blocks the build and the other improves it.
+    impact: int = _DEFAULT_IMPACT
     actionable: bool = True
     note: str | None = None
 
@@ -366,6 +431,7 @@ def group_findings(
                 entity_ids=sorted({str(f.get("entity_id")) for f in live if f.get("entity_id")}),
                 findings=[str(f.get("message") or "") for f in live],
                 tier=_strongest([str(f.get("severity") or _DEFAULT_TIER).upper() for f in live]),
+                impact=_impact([str(f.get("message") or "") for f in live]),
             )
         )
         for f in live:
@@ -394,7 +460,7 @@ def group_findings(
 
     actions = _merge_identical(actions)
 
-    actions.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), -a.cleared, a.subject))
+    actions.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
     return actions + list(deferred.values())
 
 
@@ -566,10 +632,11 @@ def _merge_identical(actions: list[Action]) -> list[Action]:
                 entity_ids=sorted({e for a in group for e in a.entity_ids}),
                 # Every finding, so `cleared` still totals the whole list.
                 findings=[m for a in group for m in a.findings],
+                impact=min(a.impact for a in group),
                 tier=_strongest([a.tier for a in group]),
             )
         )
-    merged.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), -a.cleared, a.subject))
+    merged.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
     return merged
 
 

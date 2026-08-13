@@ -2147,3 +2147,32 @@ class TestActionEntitiesAreMarkedAsEntities:
         assert '<span class="na-n">9</span>' in rows[0], (
             "the reason must carry the number of findings it accounts for"
         )
+
+
+class TestTheOverflowLinePointsSomewhere:
+    """"listed in full below" named a place without pointing at it — on a page
+    this long "below" is several screens and three sections away."""
+
+    def test_the_overflow_line_links_to_the_findings(self) -> None:
+        import re
+
+        from builder.tools.validation import ValidationReport
+        from builder.writers.maturity_report import _render_next_steps_section
+
+        val = ValidationReport()
+        val.base_passed = True
+        val.issue_records = [
+            {"profile": "tox", "severity": "recommended", "entity_id": f"./#e{i}",
+             "message": f"SHOULD have a thing of kind {i}"}
+            for i in range(12)
+        ]
+        section = _render_next_steps_section(val, None)
+        overflow = re.findall(r"<li>.*?</li>", section)[-1]
+        assert "smaller item" in overflow, "no overflow row rendered; this test is inert"
+        assert 'href="#adherence"' in overflow
+
+    def test_the_anchor_it_points_at_exists_on_the_page(self) -> None:
+        """A link to an id nothing defines is a dead link that still looks fine
+        in the markup — the same class of bug as a class with no CSS rule."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        assert 'id="adherence"' in page
