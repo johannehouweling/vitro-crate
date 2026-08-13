@@ -59,7 +59,7 @@ def _record_outbound() -> Iterator[list[str]]:
             f"network hard-blocked in test: {request.url}"
         )
 
-    HTTPAdapter.send = recording_send  # ty: ignore[invalid-assignment]
+    HTTPAdapter.send = recording_send
     try:
         yield attempted
     finally:

@@ -1083,7 +1083,10 @@ def assert_tool_spec_parity() -> None:
     Called when the ReAct arm builds its LangChain tools, so a mismatch fails fast
     at build time rather than silently advertising the wrong toolbox to the LLM.
     """
-    spec_names = {spec["name"] for spec in TOOL_SPECS}
+    # `str(...)`: a spec's values are heterogeneous (name, description, nested
+    # parameter schemas), so the inferred element type is a wide union and
+    # `sorted` has nothing to order it by. A tool name is always a string.
+    spec_names = {str(spec["name"]) for spec in TOOL_SPECS}
     expected = expected_tool_spec_names()
     missing = expected - spec_names
     extra = spec_names - expected
