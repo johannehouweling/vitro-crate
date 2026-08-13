@@ -507,3 +507,43 @@ def test_the_lookup_advice_lint_flags_a_planted_misdirection():
 
 
 __all__: list[str] = []
+
+
+class TestExportIsDescribedAsAFinalStep:
+    """The spec told the agent to export as soon as REQUIRED went green.
+
+    "Call export_crate once the crate is conformant" reads as an instruction to
+    export the moment the REQUIRED gate passes — which is exactly what one
+    profiled session did, 32 times, 16 of them with `ok=True`. The agent was
+    following the instruction correctly; the instruction was wrong. Conformance
+    is not completion: recommended findings, unanswered questions and unwired
+    entities are all still work.
+
+    The system prompt already said the right thing ("Call export_crate only when
+    you are ready to write the finished crate", "No need to export_crate to
+    check"). The tool description contradicted it, and the description is what
+    the model reads at the moment it chooses a tool.
+    """
+
+    def _description(self) -> str:
+        from builder.agents.react.tools_spec import TOOL_SPECS
+
+        spec = next(s for s in TOOL_SPECS if s["name"] == "export_crate")
+        return str(spec["description"])
+
+    def test_it_does_not_invite_an_export_on_conformance(self):
+        text = self._description().casefold()
+        assert "once the crate is conformant" not in text
+        assert "when the crate is conformant" not in text
+
+    def test_it_says_to_call_it_when_finished(self):
+        text = self._description().casefold()
+        assert "finished" in text
+
+    def test_it_points_at_the_zero_disk_alternative(self):
+        """The agent needs somewhere to go, not just a prohibition."""
+        assert "build_and_validate" in self._description()
+
+    def test_it_says_conformance_is_not_completion(self):
+        text = self._description().casefold()
+        assert "required" in text and "not completion" in text

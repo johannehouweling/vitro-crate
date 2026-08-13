@@ -86,7 +86,12 @@ class TestAnythingThatCouldDifferBustsIt:
         assert _export(state, tmp_path).get("reused", False) is False
 
     def test_a_second_destination_is_a_different_export(self, tmp_path):
-        """The same crate written somewhere else has not been written there."""
+        """`export_crate`'s contract: an explicit path is honoured.
+
+        Keeping ONE crate per session is the AGENT's constraint and is enforced
+        in the loop, not here — the CLI and library callers rely on an explicit
+        argument winning.
+        """
         state = _state()
         _export(state, tmp_path / "one")
         result = _export(state, tmp_path / "two")
@@ -149,3 +154,60 @@ class TestTheMemoStaysSmall:
         for n in range(builder_mod._EXPORT_MEMO_MAX + 3):
             _export(_state(f"Crate {n}"), tmp_path / f"c{n}")
         assert len(builder_mod._EXPORT_MEMO) <= builder_mod._EXPORT_MEMO_MAX
+
+
+class TestTheAgentKeepsToOneCratePerSession:
+    """The agent must not invent a destination mid-run for a crate it is editing.
+
+    A profiled session exported 32 times to TWELVE directories (…_crate_v64 …
+    _v75, one save labelled "svhps26_complete_validated_v68") because the model
+    minted a fresh versioned path per export. Each is a complete copy —
+    `output/` had reached 75 crates and 367 MB — and naming a path also stepped
+    around the loop's unchanged-crate guard, which only applies when none is
+    given.
+
+    Enforced in the LOOP, not in `export_crate`: that function's contract is
+    that an explicit argument wins, and the CLI and library callers rely on it.
+    A human passing `--output` still decides where the crate lives.
+    """
+
+    def _tool(self, engine, name="export_crate"):
+        from builder.agents.react.agent_loop import _build_langchain_tools
+
+        return next(t for t in _build_langchain_tools(engine) if t.name == name)
+
+    def _engine(self, destination):
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.state = _state()
+        engine.state.metadata.output_path = str(destination)
+        return engine
+
+    def test_a_path_the_agent_invents_is_redirected(self, tmp_path, monkeypatch):
+        seen: list = []
+        engine = self._engine(tmp_path / "crate_v64")
+        monkeypatch.setattr(
+            engine, "run_tool", lambda name, **kw: seen.append(kw.get("output_path")) or {}
+        )
+        self._tool(engine).func(output_path=str(tmp_path / "crate_v65"))
+        assert seen == [str(tmp_path / "crate_v64")]
+
+    def test_the_established_destination_is_left_alone(self, tmp_path, monkeypatch):
+        seen: list = []
+        engine = self._engine(tmp_path / "crate_v64")
+        monkeypatch.setattr(
+            engine, "run_tool", lambda name, **kw: seen.append(kw.get("output_path")) or {}
+        )
+        self._tool(engine).func(output_path=str(tmp_path / "crate_v64"))
+        assert seen == [str(tmp_path / "crate_v64")]
+
+    def test_with_no_established_destination_nothing_is_redirected(self, tmp_path, monkeypatch):
+        seen: list = []
+        engine = self._engine("")
+        engine.state.metadata.output_path = None
+        monkeypatch.setattr(
+            engine, "run_tool", lambda name, **kw: seen.append(kw.get("output_path")) or {}
+        )
+        self._tool(engine).func(output_path=str(tmp_path / "first"))
+        assert seen == [str(tmp_path / "first")]
