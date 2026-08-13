@@ -55,9 +55,10 @@ from builder.tools.lookups import (
 # entity type from" — imported rather than restated so the two cannot drift.
 from builder.tools.provenance import _PROCESS_LINK_HOMES as _BUILD_HONOURED_HOMES
 from builder.tools.verification import verify_identifier
+from lookups.affiliation_from_works import cached_affiliation_from_works, institution_of
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
-from lookups.ror import fetch_ror_by_id
+from lookups.ror import fetch_ror_by_id, search_ror
 
 logger = logging.getLogger(__name__)
 
@@ -1025,6 +1026,86 @@ def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = 
     return org.entity_id
 
 
+def _affiliation_from_papers(orcid: str, family: str) -> str:
+    """An institution the person's own papers agree on, or ``""`` — never raises.
+
+    The fallback for the many ORCID records that carry no employment section at
+    all. It is still retrieval, not inference: the value is what Crossref
+    published on the author line of a paper this ORCID record itself lists, and
+    it is only believed when the papers agree (see
+    :mod:`lookups.affiliation_from_works` for the rule). A conflict returns
+    nothing so the question reaches a human rather than being settled by a guess.
+
+    Failure is silent by design — a missing affiliation is a recommendation, an
+    author cascade that dies because Crossref is briefly down is a broken build.
+    """
+    if not orcid:
+        return ""
+    try:
+        return cached_affiliation_from_works(orcid, family or "")
+    except Exception:
+        logger.debug("affiliation-from-works lookup failed for %s", orcid, exc_info=True)
+        return ""
+
+
+def _registered_institution(affiliation: str) -> tuple[str, str | None]:
+    """A Crossref affiliation string resolved to a registered institution.
+
+    Crossref publishes affiliations as free text with the department, street and
+    postcode attached. Stored verbatim that becomes an Organization named
+    "Centre for Pollution Research and Policy, Brunel University London,
+    Kingston Lane, Uxbridge UB8 3PH, U.K." — which will never match another
+    spelling of the same employer and is not what anyone calls the institution.
+
+    So the employer is picked out of the string and looked up in ROR, which is
+    the registry built for exactly this. The match is CHECKED rather than
+    trusted: ROR's name must actually appear in the affiliation the paper
+    printed. A search is a guess, and a guess that quietly renames someone's
+    employer is the kind of error nobody reads twice. Unverified, the extracted
+    institution is kept as a plain name with no ROR attached — still better than
+    the postcode, and still only what the paper said.
+    """
+    institution = institution_of(affiliation) or affiliation
+    try:
+        match = search_ror(institution) or {}
+    except Exception:
+        logger.debug("ROR search failed for %r", institution, exc_info=True)
+        return institution, None
+    name = str(match.get("name") or "").strip()
+    if name and _same_institution(name, institution):
+        return name, str(match.get("@id") or "") or None
+    return institution, None
+
+
+# Connectives that differ between an institution's registered name and the way a
+# paper prints it, and carry no identifying weight either way.
+_NAME_NOISE = frozenset({"of", "the", "and", "at", "for", "de", "der", "van", "di", "du"})
+
+
+def _significant(name: str) -> set[str]:
+    return {w for w in re.split(r"[^\w]+", name.casefold()) if w and w not in _NAME_NOISE}
+
+
+def _same_institution(ror_name: str, printed: str) -> bool:
+    """Whether a ROR match and a printed affiliation name the same employer.
+
+    Checked BOTH ways, because each direction catches a different mistake.
+
+    ROR's registered name rarely matches the printed one character for
+    character — it registers "Brunel University of London" where the paper
+    prints "Brunel University London" — so requiring containment rejects correct
+    matches over a connective. Requiring only that ROR's words appear in the
+    printed name accepts a wrong one: "University of London" is a real and
+    different institution whose words all appear inside "Brunel University
+    London".
+
+    Demanding the significant words agree in both directions keeps the first and
+    refuses the second, because "Brunel" is missing from one side.
+    """
+    left, right = _significant(ror_name), _significant(printed)
+    return bool(left) and bool(right) and left == right
+
+
 def _ror_website(ror_id: str) -> dict[str, str]:
     """``{"url": ...}`` for a known ROR id, or ``{}`` — never raises.
 
@@ -1075,8 +1156,11 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
     # and wire the Person's `affiliation` to that Organization's reference id —
     # the build's `_wire_reference` then resolves it to the Organization node.
     affiliation_name = data.get("affiliation_name")
+    affiliation_ror = data.get("affiliation_ror")
+    if not affiliation_name and (from_papers := _affiliation_from_papers(bare, str(family or ""))):
+        affiliation_name, affiliation_ror = _registered_institution(from_papers)
     if affiliation_name:
-        org_id = _find_or_draft_organization(state, affiliation_name, data.get("affiliation_ror"))
+        org_id = _find_or_draft_organization(state, affiliation_name, affiliation_ror)
         if org_id is not None:
             fields["affiliation"] = {"@id": org_id}
     # The ISA profile asks every Person for a job title, and ORCID publishes one
