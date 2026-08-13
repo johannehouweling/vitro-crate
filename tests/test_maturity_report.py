@@ -2014,3 +2014,80 @@ class TestTheOrphanListIsReachable:
 
         assert "more-fold" not in html
         assert "further" not in html
+
+
+class TestEveryClassTheReportEmitsIsStyled:
+    """A class in the HTML with no rule in the CSS renders at browser defaults.
+
+    "What to do next" shipped with four such classes. The section still LOOKED
+    plausible in a diff — the markup is correct and the text is right — but the
+    count and the sentence are two adjacent inline spans, so with no rule they
+    ran together as "36Connect the AOP-Wiki subgraph". Nothing failed; the page
+    was just wrong.
+
+    Scoped to the classes the report defines for ITSELF. Bare element styling
+    and any class inherited from elsewhere are not this test's business — the
+    claim is only that a class this file invents has somewhere to get its layout
+    from.
+    """
+
+    def _emitted_classes(self, page: str) -> set[str]:
+        import re
+
+        return {
+            cls
+            for attr in re.findall(r'class="([^"]+)"', page)
+            for cls in attr.split()
+        }
+
+    def _next_steps_html(self) -> str:
+        """The "What to do next" section, actually rendered.
+
+        Built here rather than taken from a fixture page because NO fixture
+        produces it: it needs a ValidationReport carrying `issue_records`, and
+        every golden crate renders the page without one. That is how four
+        unstyled classes shipped — and it is also why the first version of this
+        test passed with the rules deleted. It searched the whole page for the
+        class NAME, and the page INLINES the stylesheet, so every class matched
+        itself in the `<style>` block whether or not the markup used it.
+        """
+        from builder.tools.validation import ValidationReport
+        from builder.writers.maturity_report import _render_next_steps_section
+
+        val = ValidationReport()
+        val.base_passed = True
+        val.issue_records = [
+            {"profile": "base", "severity": "required", "entity_id": "./",
+             "message": "The root Dataset MUST have a licence"},
+            *[
+                {"profile": "tox", "severity": "optional", "entity_id": f"#e{i}",
+                 "message": f"A Sample SHOULD have a description of kind {i}"}
+                for i in range(11)
+            ],
+        ]
+        html_out = _render_next_steps_section(val, None)
+        assert 'class="na-n"' in html_out, "the section did not render; this test is inert"
+        return html_out
+
+    def test_no_class_in_the_page_is_missing_from_the_stylesheet(self) -> None:
+        from pathlib import Path
+
+        css = Path("builder/writers/maturity_report.css").read_text(encoding="utf-8")
+        # The whole page PLUS the section no fixture renders. Concatenated so one
+        # assertion covers both, and the section's classes cannot be quietly
+        # dropped from coverage again.
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21")) + self._next_steps_html()
+
+        # Classes the page carries but the stylesheet never mentions. `.mat` is
+        # the wrapper the stylesheet keys everything off, and `mermaid` is the
+        # renderer's own hook — neither is styled here by design.
+        exempt = {"mat", "mermaid"}
+        unstyled = sorted(
+            cls
+            for cls in self._emitted_classes(page)
+            if cls not in exempt and f".{cls}" not in css
+        )
+        assert unstyled == [], (
+            f"classes emitted with no rule in maturity_report.css, so they render "
+            f"at browser defaults: {unstyled}"
+        )

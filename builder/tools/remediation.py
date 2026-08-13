@@ -54,6 +54,26 @@ _NOT_ACTIONABLE: tuple[tuple[str, str], ...] = (
 )
 
 
+# Keyed on the vocabulary the VALIDATOR emits, upper-cased. This used to read
+# {"MUST", "SHOULD", "MAY"} — the words the SHACL messages are written in — while
+# `group_findings` derives the tier from `finding["severity"]`, which
+# `builder/tools/validation.py` sets to "required" / "recommended" / "optional".
+# Nothing matched, so `.get(tier, 3)` returned 3 for EVERY action, every sort key
+# tied, and the tier term silently dropped out: ordering collapsed to "whichever
+# clears the most". A required-conformance action clearing one finding then ranked
+# below any bulk advisory action and could fall past `_NEXT_STEPS_CAP` entirely —
+# the report hiding the work that actually blocks the build, which is the one
+# thing this section exists to surface.
+_TIER_RANK = {"REQUIRED": 0, "RECOMMENDED": 1, "OPTIONAL": 2}
+
+# What each tier is called in the report. The validator's own word, not the
+# SHACL verb: a reader who sees "Required" beside an action can match it to the
+# "Required" count in the conformance table above it.
+TIER_LABEL = {"REQUIRED": "Required", "RECOMMENDED": "Recommended", "OPTIONAL": "Optional"}
+
+_DEFAULT_TIER = "RECOMMENDED"
+
+
 @dataclass
 class Action:
     """One thing a person could do, and what it would clear.
@@ -65,7 +85,9 @@ class Action:
         subject: What the action is about — an entity label, or a property name.
         entity_ids: Every entity the action touches.
         findings: The finding messages this action would clear.
-        tier: The strongest tier among those findings (MUST > SHOULD > MAY).
+        tier: The strongest tier among those findings
+            (REQUIRED > RECOMMENDED > OPTIONAL — the validator's own
+            vocabulary, so it lines up with the conformance table).
         actionable: False for a finding that is deliberately left open.
         note: Why it is not actionable, when it is not.
     """
@@ -75,7 +97,7 @@ class Action:
     subject: str
     entity_ids: list[str] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
-    tier: str = "SHOULD"
+    tier: str = _DEFAULT_TIER
     actionable: bool = True
     note: str | None = None
 
@@ -85,11 +107,15 @@ class Action:
         return len(self.findings)
 
 
-_TIER_RANK = {"MUST": 0, "SHOULD": 1, "MAY": 2}
-
-
 def _strongest(tiers: list[str]) -> str:
-    return sorted(tiers, key=lambda t: _TIER_RANK.get(t, 3))[0] if tiers else "SHOULD"
+    """The most severe tier in *tiers* — REQUIRED beats RECOMMENDED beats OPTIONAL.
+
+    An unrecognised tier sorts last rather than raising: a new validator severity
+    should make an action rank low, not crash the report. It is the DEFAULT that
+    carries the risk, so it stays "RECOMMENDED" — defaulting an unknown to
+    REQUIRED would push unclassified work above real conformance failures.
+    """
+    return sorted(tiers, key=lambda t: _TIER_RANK.get(t, 3))[0] if tiers else _DEFAULT_TIER
 
 
 def _not_actionable_note(message: str) -> str | None:
@@ -191,7 +217,7 @@ def group_findings(
                 ),
                 entity_ids=sorted({str(f.get("entity_id")) for f in live if f.get("entity_id")}),
                 findings=[str(f.get("message") or "") for f in live],
-                tier=_strongest([str(f.get("severity") or "SHOULD").upper() for f in live]),
+                tier=_strongest([str(f.get("severity") or _DEFAULT_TIER).upper() for f in live]),
             )
         )
         for f in live:
@@ -259,7 +285,14 @@ _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
     (("measurement method",), "Say which measurement method was used"),
     (("Key Event", "AOP"), "Link the measured endpoint to its AOP-Wiki Key Event"),
     (("creator",), "Name who created it"),
-    (("dateCreated", "date"), "Add the date it was created"),
+    # NOT a bare "date" needle. `_wanted` substring-matches the whole message
+    # blob, so "date" fired on datePublished / dateModified / "validate" alike and
+    # answered every one of them with "Add the date it was created" — a specific,
+    # confident, wrong instruction. The contract for `describe()` is the MOST
+    # SPECIFIC instruction that fits; a needle this broad is the opposite.
+    (("dateCreated",), "Add the date it was created"),
+    (("datePublished",), "Add the date it was published"),
+    (("dateModified",), "Add the date it was last modified"),
     (("description",), "Add a description"),
     (("termCode",), "Add the ontology code"),
     (("parameter value", "additional property"), "Record the parameters used"),
@@ -356,7 +389,7 @@ def group_orphans(orphans: list[str], *, labels: dict[str, str] | None = None) -
             subject=name,
             entity_ids=sorted(ids),
             findings=[f"{i} is not reachable from the crate root" for i in sorted(ids)],
-            tier="SHOULD",
+            tier=_DEFAULT_TIER,
         )
         for name, ids in clusters.items()
     ]
