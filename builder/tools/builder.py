@@ -612,10 +612,33 @@ def export_crate(
                 Absent when ``validate=False``.
     """
     try:
-        if not output_path:
-            # Honor the user-configured destination (set from the CLI --output /
-            # state.metadata.output_path) before falling back to the session dir.
-            output_path = state.metadata.output_path or _default_crate_path(state)
+        # ONE SESSION, ONE CRATE. The destination belongs to the session, not to
+        # the call: a session is the agent improving a single crate over time, so
+        # the second export supersedes the first rather than standing beside it.
+        #
+        # A profiled session exported 32 times to TWELVE directories
+        # (…_crate_v64 … _v75, one of them labelled "svhps26_complete_validated_v68")
+        # because the agent minted a fresh versioned path per export. That left
+        # twelve complete copies on disk, defeated the loop's export guard — which
+        # only applies when no output_path is given — and made every export a
+        # first export. `output/` had grown to 75 crates and 367 MB.
+        #
+        # The user's destination still decides where that is: `--output` and
+        # `--resume` set `metadata.output_path` before the loop starts, and a
+        # previous session's build is still never clobbered. What is refused is
+        # an agent inventing a NEW destination mid-run for a crate it is editing.
+        established = (state.metadata.output_path or "").strip()
+        if output_path and established and str(Path(output_path)) != str(Path(established)):
+            logger.info(
+                "Export redirected to this session's crate: %s (asked for %s)",
+                established,
+                output_path,
+            )
+            redirected_from, output_path = output_path, established
+        else:
+            redirected_from = None
+            if not output_path:
+                output_path = established or _default_crate_path(state)
 
         output_dir = Path(output_path)
         # An export nobody's changes have reached is the same export. One
@@ -631,7 +654,17 @@ def export_crate(
         if memo_key is not None and (cached := _EXPORT_MEMO.get(memo_key)) is not None:
             if _export_is_intact(output_dir):
                 logger.info("Crate already exported and unchanged: %s", output_dir)
-                return {**cached, "reused": True}
+                reuse = {**cached, "reused": True}
+                if redirected_from is not None:
+                    # The redirect still has to be reported on a cache hit, or an
+                    # agent that asked for a new path is told "done" and reasonably
+                    # concludes its crate is at the path it named.
+                    reuse["note"] = (
+                        f"This session's crate at {output_path} is already current; "
+                        f"nothing was written to {redirected_from}. A session improves "
+                        "ONE crate, so each export supersedes the last."
+                    )
+                return reuse
             # Someone removed or emptied it since; fall through and write again.
             _EXPORT_MEMO.pop(memo_key, None)
 
@@ -745,6 +778,14 @@ def export_crate(
             out["provisional_tables"] = provisional
         if wiring["wired"] or wiring["ambiguous"]:
             out["wiring"] = wiring
+        if redirected_from is not None:
+            # Said out loud, so the agent learns where its crate lives instead of
+            # concluding the write went somewhere else and asking again.
+            out["note"] = (
+                f"Written to this session's crate at {output_path} rather than "
+                f"{redirected_from} — a session improves ONE crate, so each export "
+                "supersedes the last instead of leaving another copy on disk."
+            )
         # Remembered AFTER the write, and only on success, so a failed export is
         # never reported as a completed one on the next call.
         _remember_export(memo_key, out)
