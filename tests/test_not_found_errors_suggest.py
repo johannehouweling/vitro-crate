@@ -100,3 +100,87 @@ class TestTheMessageStaysUseful:
         state = _state(("sample_alpha", "Sample"), ("proc_a", "LabProcess"))
         with pytest.raises(ValueError, match="minted by the drafting tools"):
             link(state, "proc_a", "input", "sample_alfa")
+
+
+class TestAnIdSchemeChangeIsBridgedByName:
+    """String similarity cannot connect two id schemes; the name can.
+
+    A resolved author is keyed by their ORCID URL, while the agent addresses
+    them by the id it expected a drafter to mint. `person_nathalie_dierichs` and
+    `https://orcid.org/0009-0000-5074-6239` share no characters, so difflib
+    scores zero and the agent is handed a list of unrelated ids for someone who
+    IS in the crate. One profiled session failed twenty-one set_fields calls
+    that way, each name attempted twice — the agent had no bridge, so it simply
+    tried again.
+    """
+
+    def _person(self, entity_id: str, name: str) -> Entity:
+        entity = Entity(
+            entity_id=entity_id, type="Person", _provenance=EntityProvenance(created_by="lookup")
+        )
+        entity.set_fields_from_dict({"name": name}, source="lookup")
+        return entity
+
+    def _state_with(self, *people: tuple[str, str]) -> CrateState:
+        state = CrateState()
+        for entity_id, name in people:
+            state.add_entity(self._person(entity_id, name))
+        return state
+
+    def test_a_name_derived_guess_finds_the_orcid_keyed_person(self):
+        from builder.tools.management import entity_not_found_message
+
+        state = self._state_with(("https://orcid.org/0009-0000-5074-6239", "Nathalie Dierichs"))
+        message = entity_not_found_message(state, "person_nathalie_dierichs")
+        assert "0009-0000-5074-6239" in message
+        assert "Nathalie Dierichs" in message
+
+    def test_initials_in_the_name_do_not_break_it(self):
+        from builder.tools.management import entity_not_found_message
+
+        state = self._state_with(("https://orcid.org/0000-0002-5248-863X", "W. Edward Visser"))
+        assert "0000-0002-5248-863X" in entity_not_found_message(state, "person_w_edward_visser")
+
+    def test_an_organization_is_bridged_too(self):
+        from builder.tools.management import entity_not_found_message
+
+        state = CrateState()
+        org = Entity(
+            entity_id="https://ror.org/00dn4t376",
+            type="Organization",
+            _provenance=EntityProvenance(created_by="lookup"),
+        )
+        org.set_fields_from_dict({"name": "Brunel University of London"}, source="lookup")
+        state.add_entity(org)
+        message = entity_not_found_message(state, "org_brunel_university_of_london")
+        assert "00dn4t376" in message
+
+    def test_a_different_person_is_not_offered(self):
+        """A partial overlap must not drag in somebody else."""
+        from builder.tools.management import entity_not_found_message
+
+        state = self._state_with(
+            ("https://orcid.org/0000-0000-0000-0001", "Nathalie Bernard"),
+            ("https://orcid.org/0000-0000-0000-0002", "Peter Dierichs"),
+        )
+        message = entity_not_found_message(state, "person_nathalie_dierichs")
+        assert "Did you mean" not in message
+        assert "Existing ids include" in message
+
+    def test_a_genuine_miss_still_lists_real_ids(self):
+        from builder.tools.management import entity_not_found_message
+
+        state = self._state_with(("https://orcid.org/0009-0000-5074-6239", "Nathalie Dierichs"))
+        message = entity_not_found_message(state, "person_nobody_here")
+        assert "Existing ids include" in message
+
+    def test_an_underscored_id_is_split_into_words(self):
+        """`\\w` includes the underscore, so the naive split never matches."""
+        from builder.tools.management import _name_words
+
+        assert _name_words("person_nathalie_dierichs") == {"nathalie", "dierichs"}
+
+    def test_the_type_prefix_is_not_evidence(self):
+        from builder.tools.management import _name_words
+
+        assert "person" not in _name_words("person_ada_lovelace")
