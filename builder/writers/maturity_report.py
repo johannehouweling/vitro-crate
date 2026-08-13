@@ -882,7 +882,13 @@ def _render_next_steps_section(
     Renders nothing when there is nothing to act on — an empty exhortation is
     worse than silence.
     """
-    from builder.tools.remediation import describe, group_findings, group_orphans
+    from builder.tools.remediation import (
+        _TIER_RANK,
+        TIER_LABEL,
+        describe,
+        group_findings,
+        group_orphans,
+    )
     from builder.writers.provenance_dag import build_crate_graph
 
     if val is None or not _validation_has_signal(val):
@@ -907,18 +913,35 @@ def _render_next_steps_section(
     if not live:
         return ""
 
-    live.sort(key=lambda a: -a.cleared)
+    # Tier FIRST, then size — the same key `group_findings` sorted by, rather than
+    # re-sorting on `-cleared` alone. Sorting purely by size ranks a required
+    # conformance failure clearing one finding below any bulk advisory action, and
+    # `_NEXT_STEPS_CAP` then drops it off the list entirely: the report quietly
+    # hiding the work that blocks the build, which is the one thing this section
+    # exists to surface.
+    live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), -a.cleared, a.subject))
     esc = html.escape
     rows = "".join(
         f'<li><span class="na-n">{a.cleared}</span>'
-        f'<span class="na-t">{esc(describe(a))}</span></li>'
+        f'<span class="na-t">{esc(describe(a))}'
+        # The tier is named only when it BLOCKS. Marking all three would put a
+        # badge on every row and mark nothing; the reader's question here is
+        # "what must I fix before this crate is conformant?".
+        + (
+            f'<span class="na-req">{esc(TIER_LABEL[a.tier])}</span>'
+            if _TIER_RANK.get(a.tier, 3) == 0
+            else ""
+        )
+        + "</span></li>"
         for a in live[:_NEXT_STEPS_CAP]
     )
     if len(live) > _NEXT_STEPS_CAP:
         rest = sum(a.cleared for a in live[_NEXT_STEPS_CAP:])
         rows += (
             f'<li><span class="na-n">{rest}</span><span class="na-t">'
-            f"…and {len(live) - _NEXT_STEPS_CAP} smaller items, listed in full below."
+            f"…and {len(live) - _NEXT_STEPS_CAP} smaller "
+            f"{'item' if len(live) - _NEXT_STEPS_CAP == 1 else 'items'}, "
+            "listed in full below."
             "</span></li>"
         )
     settled = [a for a in actions if not a.actionable]
@@ -927,15 +950,17 @@ def _render_next_steps_section(
         notes = "".join(f"<li>{esc(a.note or '')}</li>" for a in settled)
         total = sum(a.cleared for a in settled)
         aside = (
-            f'  <details class="na-aside"><summary>{total} findings left open on '
+            f'  <details class="na-aside"><summary>{total} '
+            f"{'finding' if total == 1 else 'findings'} left open on "
             f"purpose</summary><ul>{notes}</ul></details>\n"
         )
     covered = sum(a.cleared for a in live)
     return (
         "<section>\n"
         '  <div class="sec-h"><h2>What to do next</h2>'
-        f'<span class="sec-meta"><b>{len(live)}</b> actions clear '
-        f"<b>{covered}</b> findings</span></div>\n"
+        f'<span class="sec-meta"><b>{len(live)}</b> '
+        f"{'action clears' if len(live) == 1 else 'actions clear'} "
+        f"<b>{covered}</b> {'finding' if covered == 1 else 'findings'}</span></div>\n"
         f'  <ol class="next-actions">{rows}</ol>\n'
         f"{aside}"
         "</section>\n"

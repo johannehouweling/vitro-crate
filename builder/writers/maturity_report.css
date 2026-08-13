@@ -388,3 +388,32 @@ __CATEGORY_STYLES__
 .mat li.more > details.more-fold > summary:hover { color:var(--ink); }
 .mat li.more > details.more-fold > ul.sugg,
 .mat li.more > details.more-fold > ul.ind { margin:.35rem 0 0; font-style:normal; }
+
+/* --- What to do next (#561) -------------------------------------------------
+   These four classes shipped in the HTML with no rule anywhere, so the whole
+   section rendered at browser defaults: a bare <ol> with its count and its
+   sentence as two adjacent inline spans, which run together as "36Connect the
+   AOP-Wiki subgraph". The count is a figure, not a word in the sentence, so it
+   needs a column of its own — the same treatment the tier lists already give
+   their leading marks. */
+.mat ol.next-actions { list-style:none; margin:.35rem 0 0; padding:0; }
+.mat ol.next-actions > li { display:flex; gap:.6rem; align-items:baseline;
+  padding:.32rem 0; border-top:1px solid var(--hairline); }
+.mat ol.next-actions > li:first-child { border-top:0; }
+/* Tabular figures and a fixed column so the numbers line up as a column rather
+   than ragging with the width of each count. */
+.mat .na-n { flex:0 0 2.4rem; text-align:right; font-weight:650; color:var(--ink);
+  font-variant-numeric:tabular-nums; }
+.mat .na-t { color:var(--ink-2); }
+/* Named only on the tier that BLOCKS conformance — a badge on every row would
+   mark nothing. Warn, not bad: this is work outstanding, not a failure. */
+.mat .na-req { margin-left:.45rem; font-size:.7rem; text-transform:uppercase;
+  letter-spacing:.05em; padding:.05rem .3rem; border-radius:.3rem;
+  color:var(--warn-ink); background:color-mix(in srgb,var(--warn) 15%,transparent);
+  border:1px solid color-mix(in srgb,var(--warn) 45%,transparent); }
+.mat details.na-aside { margin:.5rem 0 0; }
+.mat details.na-aside > summary { cursor:pointer; color:var(--muted);
+  font-size:.86rem; }
+.mat details.na-aside > summary:hover { color:var(--ink); }
+.mat details.na-aside ul { margin:.35rem 0 0; color:var(--muted);
+  font-size:.86rem; }
