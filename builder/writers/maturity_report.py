@@ -885,7 +885,7 @@ def _render_next_steps_section(
     from builder.tools.remediation import (
         _TIER_RANK,
         TIER_LABEL,
-        describe,
+        describe_parts,
         group_findings,
         group_orphans,
     )
@@ -921,20 +921,23 @@ def _render_next_steps_section(
     # exists to surface.
     live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), -a.cleared, a.subject))
     esc = html.escape
-    rows = "".join(
-        f'<li><span class="na-n">{a.cleared}</span>'
-        f'<span class="na-t">{esc(describe(a))}'
-        # The tier is named only when it BLOCKS. Marking all three would put a
-        # badge on every row and mark nothing; the reader's question here is
-        # "what must I fix before this crate is conformant?".
-        + (
-            f'<span class="na-req">{esc(TIER_LABEL[a.tier])}</span>'
-            if _TIER_RANK.get(a.tier, 3) == 0
+    def _row(action: Any) -> str:
+        instruction, subject = describe_parts(action)
+        # The tier is named only when it BLOCKS. A badge on every row marks
+        # nothing; the reader's question here is "what must I fix before this
+        # crate is conformant?".
+        mark = (
+            f'<span class="na-req">{esc(TIER_LABEL[action.tier])}</span>'
+            if _TIER_RANK.get(action.tier, 3) == 0
             else ""
         )
-        + "</span></li>"
-        for a in live[:_NEXT_STEPS_CAP]
-    )
+        return (
+            f'<li><span class="na-n">{action.cleared}</span>'
+            f'<span class="na-t"><span class="na-do">{esc(instruction)}</span> '
+            f'<span class="na-of">{esc(subject)}</span>{mark}</span></li>'
+        )
+
+    rows = "".join(_row(a) for a in live[:_NEXT_STEPS_CAP])
     if len(live) > _NEXT_STEPS_CAP:
         rest = sum(a.cleared for a in live[_NEXT_STEPS_CAP:])
         rows += (

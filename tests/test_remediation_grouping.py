@@ -348,3 +348,92 @@ class TestTheDateInstructionNamesTheRightDate:
             assert "date it was" not in _wanted([message]), (
                 f"{message!r} answered with a date instruction"
             )
+
+
+class TestActionsNameEntitiesAReaderRecognises:
+    """The list said "PropertyValue pv sample role" while the crate knew the name.
+
+    `labels` is keyed on the graph's `@id` (`#Thing`), but the validator reports
+    the same entity resolved against the crate base (`./#Thing`). Not one node in
+    a real crate carries the `./#` form, so the exact-match lookup missed EVERY
+    fragment entity and each one fell through to mangling its id — in a list
+    whose whole job is telling a human what to go and fix.
+    """
+
+    def test_a_validator_id_finds_the_graph_name(self):
+        from builder.tools.remediation import _entity_label
+
+        labels = {"#PropertyValue_pv_sample_role": "sample role"}
+        assert _entity_label("./#PropertyValue_pv_sample_role", labels) == "sample role"
+        # …and the bare form still works, so nothing that resolved before stops.
+        assert _entity_label("#PropertyValue_pv_sample_role", labels) == "sample role"
+
+    def test_an_unnamed_entity_is_described_not_reduced_to_digits(self):
+        """A reader shown "0000-0002-7685-9462" cannot tell a person from a grant.
+
+        This entity has no name ON PURPOSE in the data — "MUST have a name" is
+        the finding being reported — so there is nothing to look up and nothing
+        may be invented. Saying what the thing IS costs nothing and is honest.
+        """
+        from builder.tools.remediation import _entity_label
+
+        assert (
+            _entity_label("https://orcid.org/0000-0002-7685-9462", {})
+            == "the person with ORCID 0000-0002-7685-9462"
+        )
+        assert _entity_label("https://ror.org/012p63287", {}) == (
+            "the organization with ROR 012p63287"
+        )
+
+    def test_a_name_in_the_graph_still_wins_over_the_description(self):
+        """The control: describing is the FALLBACK, never a replacement. A reader
+        searches the report for the name the crate uses."""
+        from builder.tools.remediation import _entity_label
+
+        labels = {"https://orcid.org/0000-0002-7685-9462": "Nathalie Dierichs"}
+        assert (
+            _entity_label("https://orcid.org/0000-0002-7685-9462", labels)
+            == "Nathalie Dierichs"
+        )
+
+    def test_the_root_is_called_the_crate_not_a_dot_slash(self):
+        from builder.tools.remediation import _entity_label
+
+        assert _entity_label("./", {}) == "the crate itself"
+
+    def test_the_repeated_type_token_is_dropped(self):
+        """`_make_entity_id` builds `#<Type>_<internal_id>` and the internal id
+        usually repeats the type, so stripping one layer left "Sample sample proc
+        … output sample"."""
+        from builder.tools.remediation import _entity_label
+
+        assert _entity_label("./#Sample_sample_proc_x_output_sample", {}) == (
+            "proc x output sample"
+        )
+        assert _entity_label("./#LabProcess_proc_exposure_process", {}) == "exposure process"
+
+
+class TestTheSplitSentenceIsTheSameSentence:
+    """`describe_parts` exists so the HTML can weight the two halves differently.
+
+    It must not become a second, drifting wording: the plain-text sentence and
+    the rendered one are the same claim, and a reader comparing them should not
+    find two different instructions.
+    """
+
+    def test_the_parts_rejoin_into_describe_exactly(self):
+        from builder.tools.remediation import Action, describe, describe_parts
+
+        actions = [
+            Action(key="k", kind="entity", subject="a.csv and 15 others",
+                   findings=["SHOULD have an identifier"] * 16),
+            Action(key="k", kind="orphan", subject="the AOP-Wiki subgraph",
+                   findings=["unreachable"] * 36),
+            Action(key="k", kind="property", subject="name", findings=["x"] * 3),
+            Action(key="k", kind="entity", subject="X", findings=["y"],
+                   actionable=False, note="Left as-is."),
+        ]
+        for action in actions:
+            instruction, subject = describe_parts(action)
+            joined = f"{instruction} {subject}".strip() if subject else instruction
+            assert joined == describe(action)
