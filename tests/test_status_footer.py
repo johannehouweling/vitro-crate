@@ -117,6 +117,75 @@ class TestTheMiddleSlot:
         assert "req/rec/opt locked" in line
 
 
+class TestASweptTierNeverLocksAgain:
+    """Retirement is about freshness, and the footer read it as ignorance.
+
+    A REQUIRED-gated sweep over an edited crate retires the wider tiers — their
+    findings described the crate as it was. The counts were then dropped and the
+    tiers rendered exactly like tiers nobody had ever run, so a session that had
+    been reporting "121 rec 66 opt" for half its life went back to "rec/opt
+    locked". The user's rule: once a tier has been shown, it stays shown.
+    """
+
+    def test_a_retired_tier_keeps_its_count(self):
+        line = _plain(
+            render_status_markup(
+                _snap(
+                    entity_count=97,
+                    required_issue_count=3,
+                    assessed_tiers=("required",),
+                    stale_tier_counts=(("optional", 66), ("recommended", 121)),
+                )
+            )
+        )
+        assert "3 req" in line
+        assert "121 rec?" in line
+        assert "66 opt?" in line
+        assert "locked" not in line
+
+    def test_a_stale_zero_is_marked_unverified(self):
+        """`0 rec` is a clean bill of health; `0 rec?` is what we last saw."""
+        line = _plain(
+            render_status_markup(
+                _snap(
+                    entity_count=97,
+                    assessed_tiers=("required",),
+                    stale_tier_counts=(("recommended", 0),),
+                )
+            )
+        )
+        assert "0 rec?" in line
+
+    def test_a_tier_nobody_ran_is_still_locked(self):
+        """Only what has actually been swept is remembered — the rest is unknown."""
+        line = _plain(
+            render_status_markup(
+                _snap(
+                    entity_count=97,
+                    assessed_tiers=("required",),
+                    stale_tier_counts=(("recommended", 121),),
+                )
+            )
+        )
+        assert "121 rec?" in line
+        assert "opt locked" in line
+
+    def test_a_fresh_sweep_wins_over_the_memory(self):
+        """The stale count is a fallback, never something that shadows a result."""
+        line = _plain(
+            render_status_markup(
+                _snap(
+                    entity_count=97,
+                    should_issue_count=4,
+                    assessed_tiers=("required", "recommended"),
+                    stale_tier_counts=(("recommended", 121),),
+                )
+            )
+        )
+        assert "4 rec" in line
+        assert "121" not in line
+
+
 class TestFader:
     def test_issue_counts_are_comparable_for_highlighting(self):
         """The fader tints a field when its value changes, so the new slot needs one."""
