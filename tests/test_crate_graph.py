@@ -341,6 +341,68 @@ def test_the_root_licence_is_reachable() -> None:
     assert nodes[licence_id]["orphan"] is False
 
 
+def test_a_role_term_referenced_by_job_title_is_reachable() -> None:
+    """A crate that models an author's role as a DefinedTerm still wires it.
+
+    `jobTitle` usually carries a plain string, which is no edge at all. When it
+    carries a term instead, that term is reached through it — otherwise the crate
+    reports its own role vocabulary as orphaned while every author points at it.
+    """
+    crate = _crate()
+    term_id = "#DefinedTerm_dt_corresponding_author"
+    root = next(n for n in crate["@graph"] if n["@id"] == "./")
+    root["author"] = {"@id": "#person_a"}
+    crate["@graph"].append(
+        {"@id": "#person_a", "@type": "Person", "name": "Ada", "jobTitle": {"@id": term_id}}
+    )
+    crate["@graph"].append(
+        {"@id": term_id, "@type": "DefinedTerm", "name": "Corresponding author"}
+    )
+    nodes = _by_id(build_crate_graph(crate))
+    assert nodes[term_id]["orphan"] is False
+
+
+def test_a_dot_slash_reference_finds_its_node() -> None:
+    """`./#term` and `#term` are the same IRI once resolved against the base.
+
+    Matching ids as text made them two nodes, so a perfectly wired reference read
+    as a dangling pointer and its target as an orphan.
+    """
+    crate = _crate()
+    term_id = "#DefinedTerm_dt_role"
+    root = next(n for n in crate["@graph"] if n["@id"] == "./")
+    root["author"] = {"@id": "#person_b"}
+    crate["@graph"].append(
+        {
+            "@id": "#person_b",
+            "@type": "Person",
+            "name": "Grace",
+            "jobTitle": {"@id": f".{'/'}{term_id}"},  # "./#DefinedTerm_dt_role"
+        }
+    )
+    crate["@graph"].append({"@id": term_id, "@type": "DefinedTerm", "name": "A role"})
+    nodes = _by_id(build_crate_graph(crate))
+    assert nodes[term_id]["orphan"] is False
+    assert nodes[term_id]["status"] != "dangling"
+
+
+def test_a_genuinely_missing_target_is_still_dangling() -> None:
+    """Normalising spellings must not paper over a reference to nothing."""
+    crate = _crate()
+    root = next(n for n in crate["@graph"] if n["@id"] == "./")
+    root["author"] = {"@id": "#person_c"}
+    crate["@graph"].append(
+        {
+            "@id": "#person_c",
+            "@type": "Person",
+            "name": "Alan",
+            "jobTitle": {"@id": "./#DefinedTerm_never_created"},
+        }
+    )
+    nodes = _by_id(build_crate_graph(crate))
+    assert "#DefinedTerm_never_created" not in nodes
+
+
 def test_a_bare_string_licence_creates_no_node() -> None:
     """An unrecognised licence stays a literal, and a literal is not an entity."""
     crate = _crate()

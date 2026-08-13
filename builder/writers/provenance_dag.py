@@ -1123,6 +1123,18 @@ _LICENSE_KEYS = (
     "http://schema.org/license",
     "https://schema.org/license",
 )
+# A person's role or title WHEN it carries a term rather than a plain string.
+# `_refs` ignores literals, so "Associate Professor" contributes no edge and only
+# a `{"@id": …}` does — which is how a crate that models the role as a DefinedTerm
+# reaches it. Without this the term is reported as an orphan while every author
+# points straight at it.
+_ROLE_KEYS = (
+    "jobTitle",
+    "roleName",
+    "http://schema.org/jobTitle",
+    "https://schema.org/jobTitle",
+    "http://schema.org/roleName",
+)
 _PARAM_KEYS = (
     "parameter",
     "parameterValue",
@@ -1155,6 +1167,7 @@ _SECONDARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_CONFORMSTO_KEYS, "conformsTo", False),
     (_CITATION_KEYS, "citation", False),
     (_LICENSE_KEYS, "license", False),
+    (_ROLE_KEYS, "jobTitle", False),
     (_MEASTECH_KEYS, "measurementTechnique", False),
     (_PARAM_KEYS, "parameter", False),
     (_IDENTIFIER_REL_KEYS, "identifier", False),
@@ -1330,6 +1343,34 @@ def _all_relations(all_edges: bool) -> tuple[tuple[tuple[str, ...], str, bool], 
     return _PRIMARY_RELATIONS + _SECONDARY_RELATIONS if all_edges else _PRIMARY_RELATIONS
 
 
+def _id_aliases(ref: str) -> tuple[str, ...]:
+    """Spellings of *ref* that name the same node once resolved against the base.
+
+    RO-Crate ids are relative, so ``./#term`` and ``#term`` are the SAME IRI —
+    both resolve to ``<base>#term`` — and so are ``./data/x.csv`` and
+    ``data/x.csv``. This graph matches ids as text, so the two spellings read as
+    two different nodes: a crate that wired a Person's ``jobTitle`` to
+    ``./#DefinedTerm_dt_corresponding_author`` had that term reported as an
+    orphan while the reference resolved to it perfectly well in RDF.
+
+    The bare root ``./`` is left alone — stripping it yields the empty string,
+    which is a different node entirely.
+    """
+    if not ref or ref == "./":
+        return (ref,)
+    if ref.startswith("./"):
+        return (ref, ref[2:])
+    return (ref, f"./{ref}")
+
+
+def _canonical_ref(ref: str, nodes: dict[str, Any]) -> str:
+    """*ref* rewritten to the node id it names, or unchanged when it names none."""
+    for alias in _id_aliases(ref):
+        if alias in nodes:
+            return alias
+    return ref
+
+
 def _extract_edges(
     nodes: dict[str, Any], relations: tuple[tuple[tuple[str, ...], str, bool], ...]
 ) -> list[dict[str, str]]:
@@ -1339,7 +1380,8 @@ def _extract_edges(
     seen: set[tuple[str, str, str]] = set()
     for nid, node in nodes.items():
         for keys, label, reverse in relations:
-            for ref in _refs(node, keys):
+            for raw in _refs(node, keys):
+                ref = _canonical_ref(raw, nodes)
                 src, dst = (ref, nid) if reverse else (nid, ref)
                 key = (src, dst, label)
                 if src != dst and key not in seen:
