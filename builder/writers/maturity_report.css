@@ -85,6 +85,23 @@
 .mat .sec-meta { font-size:.82rem; color:var(--muted); } .mat .sec-meta b { color:var(--ink-2); }
 .mat .lead,.mat p.lead { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; max-width:56ch; }
 
+/* The jump to "What to do next". The actions close the report — assessment
+   first, then what to do about it — which puts them below several screens of
+   evidence, so the top of the page carries a link that names the section AND
+   its size. Styled as a band rather than a bare link: it is the one thing on
+   the page a reader can ACT on, and an underlined phrase between two tile grids
+   reads as a footnote. */
+.mat a.jump { display:flex; align-items:baseline; gap:.6rem; flex-wrap:wrap;
+  margin:.85rem 0; padding:.7rem .95rem; border-radius:12px; text-decoration:none;
+  background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 30%,transparent); }
+.mat a.jump:hover { border-color:var(--accent); }
+.mat .jump-t { font-weight:660; color:var(--accent); }
+.mat .jump-m { font-size:.82rem; color:var(--ink-2); }
+.mat .jump-m b { color:var(--ink); }
+/* Pushed to the far end and quiet: the arrow says "further down the page", and
+   is the least of the three things this band says. */
+.mat .jump-a { margin-left:auto; color:var(--accent); }
+
 /* FAIR pillars */
 .mat .pillars { display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:.7rem; }
 .mat .pillar { border:1px solid var(--border); border-radius:10px; padding:.7rem .8rem;
@@ -365,6 +382,8 @@ __CATEGORY_STYLES__
 }
 @media print{
   .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
+  /* Nothing to jump to on paper — the section it points at is a few pages on. */
+  .mat a.jump{display:none;}
   .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}
   .mat details{display:block;} .mat .disc[open] summary{display:none;}
   /* A severity row is the index of what it holds, so print keeps the row AND
