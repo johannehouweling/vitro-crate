@@ -1653,6 +1653,7 @@ def _materialize_plan(
         "study": 0,
         "compounds": 0,
         "cell_lines": 0,
+        "described_files": 0,
         "protocols": 0,
         "processes": 0,
         "files": 0,
@@ -1807,6 +1808,22 @@ def _materialize_plan(
         exposure_id = exposure_step.get("process_id") if exposure_step else None
         if exposure_id:
             _set_ref_field(engine, str(exposure_id), "chemicals", compound_ids)
+
+    # --- payload descriptions: say what each file CONTAINS ---------------------
+    # The largest single gap in a real report ("Add a description for … and 40
+    # others"), and one a model can actually close: the files are in the crate
+    # and their content is readable. Grounded in a content preview, never in the
+    # filename — see builder.tools.file_descriptions, which refuses a file it
+    # could not read rather than guessing from its name. Recorded source="llm",
+    # like every other sentence the model writes, so the crate's completion
+    # record says who wrote it. Non-fatal: a description is enrichment.
+    try:
+        from builder.tools.file_descriptions import describe_payload_files
+
+        result["described_files"] = len(describe_payload_files(engine.state))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("File description pass failed (non-fatal): %s", exc)
+        result["described_files"] = 0
 
     # --- condition table (#408): the plan already classified one file as the
     # per-well design table; write it into the Exposure's typed CSVW table rather
