@@ -379,8 +379,12 @@ __CATEGORY_STYLES__
   .mat .panel > .panel-h{display:block; font-size:.95rem; font-weight:660; margin:0 0 .6rem;}
 }
 
-/* The overflow fold inside a findings list: same muted voice as the
-   '+N further' line it replaces, but reachable. */
-.mat ul.sugg li.more > details.more-fold > summary { cursor:pointer; font-style:italic; }
-.mat ul.sugg li.more > details.more-fold > summary:hover { color:var(--ink); }
-.mat ul.sugg li.more > details.more-fold > ul.sugg { margin:.35rem 0 0; font-style:normal; }
+/* The overflow fold inside a capped list: same muted voice as the '+N further'
+   line it replaces, but reachable. Selectors are on li.more rather than on the
+   list class, because the same fold now serves the profile tiers (ul.sugg) and
+   the graph view's orphan / dangling lists (ul.ind) — keying it to one list
+   class is what left the second one unstyled. */
+.mat li.more > details.more-fold > summary { cursor:pointer; font-style:italic; }
+.mat li.more > details.more-fold > summary:hover { color:var(--ink); }
+.mat li.more > details.more-fold > ul.sugg,
+.mat li.more > details.more-fold > ul.ind { margin:.35rem 0 0; font-style:normal; }
