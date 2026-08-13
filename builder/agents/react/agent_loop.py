@@ -2163,6 +2163,34 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         # already been handed is the clearest no-progress signal
                         # there is.
                         return _track_progress(engine, tool_name, progress_before, served)
+                if tool_name in ("export_crate", "build_crate") and kwargs.get("output_path"):
+                    # ONE SESSION, ONE CRATE. A session is the agent improving a
+                    # single crate over time, so a later export supersedes the
+                    # earlier one rather than standing beside it.
+                    #
+                    # A profiled session exported 32 times to TWELVE directories
+                    # (…_crate_v64 … _v75, one save labelled
+                    # "svhps26_complete_validated_v68") because the model minted a
+                    # fresh versioned path per export. Each is a complete copy —
+                    # `output/` had reached 75 crates and 367 MB — and naming a
+                    # path also stepped around the unchanged-crate guard below,
+                    # which only applies when none is given.
+                    #
+                    # Enforced HERE and not in `export_crate`: that function's
+                    # contract is that an explicit argument wins, which the CLI
+                    # and library callers rely on. It is the AGENT that must not
+                    # invent a destination mid-run for a crate it is editing; a
+                    # human passing --output still decides where the crate lives.
+                    established = (engine.state.metadata.output_path or "").strip()
+                    asked = str(kwargs.get("output_path") or "").strip()
+                    if established and asked and Path(asked) != Path(established):
+                        logger.info(
+                            "Export redirected to this session's crate: %s (asked for %s)",
+                            established,
+                            asked,
+                        )
+                        kwargs = {**kwargs, "output_path": established}
+                        _log_suppressed(engine, tool_name, "export_path_redirected", {"to": asked})
                 if tool_name in ("export_crate", "build_crate") and not kwargs.get("output_path"):
                     # Exporting an unchanged crate rewrites the identical bytes.
                     # One session called export_crate FIFTEEN times, twice per
