@@ -238,6 +238,10 @@ class UiSnapshot:
     should_issue_count: int = 0
     may_issue_count: int = 0
     assessed_tiers: tuple[str, ...] = ()
+    # ``(tier, count)`` for tiers whose findings were retired as stale. A tier
+    # that HAS been swept and one that never has are different facts, and
+    # `_work_field` reports them differently.
+    stale_tier_counts: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass
@@ -398,6 +402,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
         should_issue_count=len(val.should_issues),
         may_issue_count=len(val.may_issues),
         assessed_tiers=tuple(sorted(getattr(val, "assessed_tiers", ()) or ())),
+        stale_tier_counts=tuple(sorted((getattr(val, "stale_tier_counts", None) or {}).items())),
     )
 
 
@@ -459,17 +464,28 @@ def _work_field(snap: UiSnapshot) -> tuple[str, str]:
     "54 files" telling it nothing. Once drafting begins the slot earns its place
     by showing the open findings instead.
 
-    A tier that has not been swept shows as **locked** rather than as ``0``. This
-    is honest, not decorative: ``build_and_validate`` defaults to the REQUIRED
-    gate, and a gate is a floor — RECOMMENDED and OPTIONAL checks are not
-    evaluated at all until the gate is lowered, so their counts are genuinely
-    unknown, not zero. ``assessed_tiers`` is what the validator actually
-    assessed, so it is the thing to read.
+    A tier has three states here, not two:
+
+    * **swept** — ``4 rec``, the count this verdict answers for;
+    * **stale** — ``4 rec?``, what the last sweep found, with the crate edited
+      since. The findings are retired (they described an older crate) but the
+      number is still the best thing known, and far better than the alternatives:
+      ``0 rec`` reads as a clean bill, and "locked" reads as never-looked-at;
+    * **locked** — never swept. ``build_and_validate`` defaults to the REQUIRED
+      gate, and a gate is a floor: RECOMMENDED and OPTIONAL checks are not
+      evaluated at all until the gate is lowered, so their counts are genuinely
+      unknown, not zero.
+
+    Which is why a tier only ever moves BACK to locked when nothing has looked at
+    it. Once a tier has been swept, the footer keeps reporting it — the run that
+    reported "3 req · rec/opt locked" after having shown those counts for half a
+    session was reading retirement as ignorance.
     """
     if snap.entity_count == 0:
         return "files", f"{snap.file_count} files"
 
     assessed = set(snap.assessed_tiers)
+    stale = dict(snap.stale_tier_counts)
     parts: list[str] = []
     locked: list[str] = []
     for tier, label, count in (
@@ -479,6 +495,8 @@ def _work_field(snap: UiSnapshot) -> tuple[str, str]:
     ):
         if tier in assessed:
             parts.append(f"{count} {label}")
+        elif tier in stale:
+            parts.append(f"{stale[tier]} {label}?")
         else:
             locked.append(label)
     if locked:
@@ -566,6 +584,7 @@ def status_field_values(snap: UiSnapshot) -> dict[str, Any]:
             snap.should_issue_count,
             snap.may_issue_count,
             snap.assessed_tiers,
+            snap.stale_tier_counts,
         ),
         "base": snap.base_passed,
         "isa": snap.isa_passed,

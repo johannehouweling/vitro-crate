@@ -132,6 +132,14 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
         required_issues=required_issues,
         should_issues=should_issues,
         may_issues=may_issues,
+        # Every pass here runs at `Severity.OPTIONAL` — the widest gate — so this
+        # verdict answers for all three tiers. Saying so is not bookkeeping: the
+        # footer and the maturity report both read `assessed_tiers` to tell "no
+        # findings" from "never ran", and leaving it empty made a full disk
+        # validation render as three locked tiers sitting beside its own findings.
+        # Only the success path claims this; the early returns above are failures
+        # that swept nothing.
+        assessed_tiers=set(_TIER_ORDER),
         issue_records=issue_records,
         # This path validated a directory, so the payload checks the in-memory
         # gate cannot run did run here — the verdict covers the files too (#530).
@@ -810,6 +818,15 @@ def apply_validation_result(
     """
     if tool_name == "validate" and isinstance(result, ValidationReport):
         result.input_fingerprint = state.validation_fingerprint()
+        # A whole report replaces the previous one, so anything the old verdict
+        # remembered goes with it — except for a tier this one did not answer
+        # for (the failure reports `validate` returns when the validator is
+        # missing or the directory is not there assess nothing at all).
+        result.stale_tier_counts = {
+            tier: count
+            for tier, count in state.validation.stale_tier_counts.items()
+            if tier not in result.assessed_tiers
+        }
         state.validation = result
         return
     if tool_name != "build_and_validate" or not isinstance(result, dict):
@@ -851,6 +868,15 @@ def apply_validation_result(
     if report.input_fingerprint and report.input_fingerprint != fingerprint:
         for tier in _TIER_ORDER:
             if tier not in covered:
+                # Retire the FINDINGS, remember the COUNT. Retirement says the
+                # findings no longer describe this crate; it does not say the
+                # tier was never looked at, and the footer could not tell those
+                # apart — so a run that had been showing "4 rec 11 opt" went back
+                # to "rec/opt locked" the moment a REQUIRED-gated sweep followed
+                # an edit. The count is what the footer needs to say "4, as of
+                # the last sweep" rather than to claim ignorance or print a 0.
+                if tier in report.assessed_tiers:
+                    report.stale_tier_counts[tier] = len(getattr(report, _TIER_FIELDS[tier]) or [])
                 setattr(report, _TIER_FIELDS[tier], [])
                 report.assessed_tiers.discard(tier)
                 tier_records[tier] = []
@@ -861,6 +887,7 @@ def apply_validation_result(
     for tier in covered:
         setattr(report, _TIER_FIELDS[tier], order_issues(issues, tier))
         report.assessed_tiers.add(tier)
+        report.stale_tier_counts.pop(tier, None)  # answered again; nothing to remember
         tier_records[tier] = _issue_records(issues, tier)
     report.issue_records = [r for tier in _TIER_ORDER for r in tier_records[tier]] + [
         r for tier, records in tier_records.items() if tier not in _TIER_ORDER for r in records

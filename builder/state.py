@@ -641,6 +641,21 @@ class ValidationReport:
             renderers (the maturity report's per-profile fold-outs, #510) never
             have to re-parse that display format. Empty on a verdict recorded
             before the field existed — consumers must fall back, not infer.
+        assessed_tiers: The tiers whose findings this verdict CURRENTLY answers
+            for. A gate is a floor, so a "recommended" sweep marks both
+            ``required`` and ``recommended``; a tier the crate has moved on from
+            is retired here rather than left describing an older crate.
+        stale_tier_counts: How many findings a RETIRED tier held when it was
+            last swept. Retirement is about freshness, but the status footer read
+            it as ignorance and printed "rec/opt locked" — the very same thing it
+            shows for a tier nobody ever ran, so a session that had been
+            reporting "4 rec 11 opt" appeared to lock them again after one
+            REQUIRED-gated run over an edited crate. Keeping the last count lets
+            the footer say what it knew and mark it unverified, instead of
+            choosing between claiming ignorance and printing a 0 that reads as
+            clean. Not serialized: a resumed session restores its own verdict,
+            and this only ever describes findings THIS process computed and then
+            retired.
         payload_checked: Whether anything actually looked at the crate's files.
             The in-memory gate validates a document, so checks that need a
             payload — "is every declared Data Entity present?" — emit nothing
@@ -659,6 +674,7 @@ class ValidationReport:
     should_issues: list[str] = field(default_factory=list)
     may_issues: list[str] = field(default_factory=list)
     assessed_tiers: set[str] = field(default_factory=set)
+    stale_tier_counts: dict[str, int] = field(default_factory=dict, repr=False)
     issue_records: list[dict[str, str]] = field(default_factory=list)
     payload_checked: bool = False
     input_fingerprint: str = ""
@@ -1258,9 +1274,7 @@ class CrateState:
         validator could observe busts the cache, while a change to a pure output
         (a verdict, a score) does not.
         """
-        metadata = (
-            self.metadata.to_dict() if hasattr(self.metadata, "to_dict") else None
-        )
+        metadata = self.metadata.to_dict() if hasattr(self.metadata, "to_dict") else None
         if metadata is not None:
             # WHERE the crate was written and WHEN — neither is anything the
             # validator can observe. Two exports of an identical crate to
@@ -1488,8 +1502,7 @@ class StateSerializer:
             # thing persisting them was meant to prevent. Coerced so a
             # hand-edited session file cannot inject non-bool values.
             validation_preferences={
-                str(k): bool(v)
-                for k, v in (data.get("validation_preferences") or {}).items()
+                str(k): bool(v) for k, v in (data.get("validation_preferences") or {}).items()
             },
             user_answers=[
                 {"question": str(a.get("question", "")), "answer": str(a.get("answer", ""))}

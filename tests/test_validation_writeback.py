@@ -185,9 +185,7 @@ class TestValidationFreshness:
             {"ok": True, "conformance": {"base": True, "isa": True, "tox": True}, "issues": []},
             severity="required",
         )
-        assert engine.state.validation.input_fingerprint == (
-            engine.state.validation_fingerprint()
-        )
+        assert engine.state.validation.input_fingerprint == (engine.state.validation_fingerprint())
 
 
 class TestIssueRecords:
@@ -274,19 +272,68 @@ class TestIssueRecords:
         assert any(r["severity"] == "recommended" for r in state.validation.issue_records)
 
         # Same state: a REQUIRED-only refresh must not discard fresh advisory records.
-        apply_validation_result(
-            state, "build_and_validate", self._result([]), severity="required"
-        )
+        apply_validation_result(state, "build_and_validate", self._result([]), severity="required")
         assert any(r["severity"] == "recommended" for r in state.validation.issue_records)
 
         # Crate changed: the advisory records describe an older crate — retire
         # them alongside the advisory string lists.
         state.metadata.title = "Edited after validating"
-        apply_validation_result(
-            state, "build_and_validate", self._result([]), severity="required"
-        )
+        apply_validation_result(state, "build_and_validate", self._result([]), severity="required")
         assert state.validation.issue_records == []
         assert state.validation.should_issues == []
+
+    def test_a_retired_tier_leaves_its_count_behind(self) -> None:
+        """Retiring findings must not also erase that the tier was ever swept.
+
+        The status footer had no way to tell a retired tier from one nobody had
+        run, so it locked both — and a session that had been reporting its
+        RECOMMENDED count went back to "rec/opt locked" after a single
+        REQUIRED-gated sweep over an edited crate.
+        """
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        advisory = {
+            "severity": "recommended",
+            "profile": "isa",
+            "entity_id": "#s",
+            "message": "consider a license",
+        }
+        apply_validation_result(
+            state, "build_and_validate", self._result([advisory]), severity="recommended"
+        )
+        assert state.validation.stale_tier_counts == {}, "a fresh tier remembers nothing"
+
+        state.metadata.title = "Edited after validating"
+        apply_validation_result(state, "build_and_validate", self._result([]), severity="required")
+        assert state.validation.should_issues == []
+        assert "recommended" not in state.validation.assessed_tiers
+        assert state.validation.stale_tier_counts["recommended"] == 1
+        # OPTIONAL was never swept, so there is nothing to remember about it —
+        # unknown and stale are different answers.
+        assert "optional" not in state.validation.stale_tier_counts
+
+    def test_sweeping_a_tier_again_clears_its_memory(self) -> None:
+        from builder.tools.validation import apply_validation_result
+
+        state = self._state()
+        advisory = {
+            "severity": "recommended",
+            "profile": "isa",
+            "entity_id": "#s",
+            "message": "consider a license",
+        }
+        apply_validation_result(
+            state, "build_and_validate", self._result([advisory]), severity="recommended"
+        )
+        state.metadata.title = "Edited after validating"
+        apply_validation_result(state, "build_and_validate", self._result([]), severity="required")
+        assert state.validation.stale_tier_counts
+
+        apply_validation_result(
+            state, "build_and_validate", self._result([]), severity="recommended"
+        )
+        assert state.validation.stale_tier_counts == {}
 
     def test_a_covered_tier_replaces_its_records_rather_than_accumulating(self) -> None:
         from builder.tools.validation import apply_validation_result
@@ -298,7 +345,9 @@ class TestIssueRecords:
             "entity_id": "./",
             "message": "missing identifier",
         }
-        apply_validation_result(state, "build_and_validate", self._result([first]), severity="required")
+        apply_validation_result(
+            state, "build_and_validate", self._result([first]), severity="required"
+        )
         second = {**first, "message": "still missing a name"}
         apply_validation_result(
             state, "build_and_validate", self._result([second]), severity="required"
