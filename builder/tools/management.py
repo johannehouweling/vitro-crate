@@ -7,6 +7,7 @@ field-level completion tracking.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from builder.state import (
@@ -294,6 +295,70 @@ def resolve_entity_id(state: CrateState, raw: str) -> str:
 _ROOT_ALIASES: frozenset[str] = frozenset({"./", ".", "/", "#", "./#", "root", "#root", "./#root"})
 
 
+def _name_words(text: str) -> set[str]:
+    """The identifying words in an id or a name, for comparing the two.
+
+    An id is a slugged name (``person_nathalie_dierichs``), so dropping the type
+    prefix and the separators leaves the words the name itself carries. Short
+    tokens go too: an initial matches far too much to be evidence.
+    """
+    # `[\W_]` and not `[^\w]`: \w INCLUDES the underscore, so the latter leaves
+    # `person_nathalie_dierichs` as a single "word" and the comparison below can
+    # never match the name it was built from.
+    words = {w for w in re.split(r"[\W_]+", str(text or "").casefold()) if len(w) > 2}
+    return words - _ID_PREFIX_WORDS
+
+
+# Type prefixes the drafters mint ids with. They say what KIND of thing this is,
+# not which one, so they are noise when matching an id against a name.
+_ID_PREFIX_WORDS: frozenset[str] = frozenset(
+    {
+        "person",
+        "org",
+        "organization",
+        "assay",
+        "study",
+        "inv",
+        "investigation",
+        "proto",
+        "protocol",
+        "proc",
+        "process",
+        "sample",
+        "file",
+        "pub",
+        "publication",
+        "term",
+        "chem",
+        "compound",
+    }
+)
+
+
+def _entities_named_like(state: CrateState, entity_id: str, limit: int) -> list[tuple[str, str]]:
+    """``(entity_id, name)`` for entities whose NAME matches a missing id's words.
+
+    Requires every identifying word of the guess to appear in the entity's name,
+    so "nathalie dierichs" finds Nathalie Dierichs while a partial overlap does
+    not drag in a different person. An empty guess matches nothing.
+    """
+    wanted = _name_words(entity_id)
+    if not wanted:
+        return []
+    out: list[tuple[str, str]] = []
+    try:
+        entities = state.list_entities()
+    except Exception:  # noqa: BLE001 — an error message must never raise
+        return []
+    for entity in entities:
+        name = str((entity.fields or {}).get("name") or "").strip()
+        if name and wanted <= _name_words(name):
+            out.append((entity.entity_id, name))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def entity_not_found_message(state: CrateState, entity_id: str, *, limit: int = 3) -> str:
     """ "Entity not found", plus the ids it was most likely reaching for.
 
@@ -347,6 +412,24 @@ def entity_not_found_message(state: CrateState, entity_id: str, *, limit: int = 
 
     close = difflib.get_close_matches(str(entity_id), known, n=limit, cutoff=0.6)
     if not close:
+        # String similarity cannot bridge two id SCHEMES. A resolved author is
+        # keyed by their ORCID URL, while an agent addresses them by the id it
+        # expected a drafter to mint — `person_nathalie_dierichs` against
+        # `https://orcid.org/0009-0000-5074-6239`. Those share no characters, so
+        # the comparison above scores zero and the agent is handed a list of
+        # unrelated ids for someone who IS in the crate. One session failed
+        # twenty-one set_fields calls this way, each name attempted twice.
+        #
+        # So the miss is also read as a NAME. It is the same person, and the
+        # crate knows their name even when it does not know that id.
+        if named := _entities_named_like(state, entity_id, limit):
+            suggestions = ", ".join(f"{eid} ({name})" for eid, name in named)
+            return (
+                f"{base}. Did you mean: {suggestions}? "
+                "That entity is in the crate under a different id — a looked-up "
+                "person or organization is keyed by its registry IRI, not by a "
+                "name-derived id. Use the id as listed."
+            )
         # Nothing similar: naming a few real ids still beats a dead end, and the
         # count tells the model whether the list it is seeing is the whole crate.
         shown = ", ".join(known[:limit])
