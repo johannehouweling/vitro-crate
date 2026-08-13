@@ -480,21 +480,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.smoke_test:
         from builder.tools.hitl import SYNTHETIC_ANSWER_NOTICE
 
-        if args.legacy_react:
-            # The ReAct loop reads the conversation straight from stdin
-            # (builder.agents.ui.boxed_input) rather than through the
-            # HumanInterface, so a synthetic interface cannot answer it and the
-            # run would sit on an empty terminal forever. Refuse loudly instead of
-            # starting a build that can only hang.
-            print(
-                "--smoke-test cannot drive --legacy-react: the ReAct loop reads "
-                "your replies straight from stdin, not through the HITL "
-                "interface, so nothing can answer it unattended. Drop "
-                "--legacy-react to smoke-test the default pipeline + guidance "
-                "build.",
-                file=sys.stderr,
-            )
-            return 1
+        # NOTE: this used to refuse --legacy-react outright, because the ReAct
+        # loop read its conversation straight off stdin
+        # (builder.agents.ui.boxed_input) with no HumanInterface in the path, so a
+        # synthetic interface had nothing to answer and the run sat on an empty
+        # terminal. That read now goes through the interface when the answers are
+        # synthetic (agent_loop, CONVERSATION_FIELD_TYPE), and a spent budget ends
+        # the session the way Ctrl+D does — so the arm this mode most needs to
+        # exercise unattended is reachable rather than refused.
         # Say it FIRST, before the build spends a token: if this mode was engaged
         # by accident, the very first thing on screen must be that nobody is
         # answering the prompts. It is repeated beside the exported crate path.

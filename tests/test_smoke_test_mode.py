@@ -21,12 +21,15 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from builder.engine import AgentEngine
 from builder.state import CrateState
 from builder.tools.hitl import (
     SCAN_ROOT_PURPOSE,
     SMOKE_TEST_ANSWER,
     SYNTHETIC_ANSWER_NOTICE,
+    ConsoleHumanInterface,
     HumanInterface,
     SmokeTestHumanInterface,
     answers_are_synthetic,
@@ -360,8 +363,124 @@ class TestTheRunSaysTheAnswersAreSynthetic:
         assert not any("SMOKE TEST" in line for line in lines)
 
 
+class TestTheConversationTerminates:
+    """The bound that makes ``--smoke-test --legacy-react`` finite.
+
+    Every OTHER channel this mode drives stops on its own: guidance runs out of
+    gaps, the report runs out of findings, ``max_rounds`` bounds the rest. A
+    conversational loop has no such bound — it ends when the person says so. And
+    :data:`SMOKE_TEST_ANSWER` is not a stop word, so an unbounded synthetic
+    interface does not hang (the old failure mode) but something worse: it drives
+    turns forever, one model call each. These tests exist for that.
+    """
+
+    def test_the_conversation_channel_runs_out(self):
+        from builder.tools.hitl import (
+            CONVERSATION_FIELD_TYPE,
+            SMOKE_TEST_ANSWER,
+            SMOKE_TEST_CONVERSATION_TURNS,
+            SmokeTestHumanInterface,
+        )
+
+        human = SmokeTestHumanInterface()
+        answers = [
+            human.request_input("next?", CONVERSATION_FIELD_TYPE)
+            for _ in range(SMOKE_TEST_CONVERSATION_TURNS + 3)
+        ]
+        driven = answers[:SMOKE_TEST_CONVERSATION_TURNS]
+        after = answers[SMOKE_TEST_CONVERSATION_TURNS:]
+        assert [a["value"] for a in driven] == [SMOKE_TEST_ANSWER] * len(driven)
+        # A SKIP, which the loop reads as end-of-input — not a "quit" string,
+        # which would be this mode typing a command the user never typed.
+        assert all(a["skipped"] and a["value"] is None for a in after)
+
+    def test_the_budget_does_not_bleed_into_metadata_fields(self):
+        """The two channels are separate. A field is a field however long the
+        conversation ran — bounding open fields would silently stop answering
+        guidance questions, which is the path the mode exists to exercise."""
+        from builder.tools.hitl import (
+            CONVERSATION_FIELD_TYPE,
+            SMOKE_TEST_ANSWER,
+            SmokeTestHumanInterface,
+        )
+
+        human = SmokeTestHumanInterface(conversation_turns=1)
+        human.request_input("next?", CONVERSATION_FIELD_TYPE)
+        assert human.request_input("next?", CONVERSATION_FIELD_TYPE)["skipped"] is True
+        for _ in range(5):
+            assert human.request_input("describe the study") == {
+                "value": SMOKE_TEST_ANSWER,
+                "skipped": False,
+            }
+
+    def test_a_real_frontend_is_not_bounded(self):
+        """The console interface must not inherit any of this: a person is not on
+        a turn budget, and `conversation` is just a text field to them."""
+        from builder.tools.hitl import CONVERSATION_FIELD_TYPE, ConsoleHumanInterface
+
+        typed = ["first", "second", "third", "fourth"]
+        human = ConsoleHumanInterface(prompt_func=lambda _ft: typed.pop(0))
+        for expected in ("first", "second", "third", "fourth"):
+            assert human.request_input("next?", CONVERSATION_FIELD_TYPE)["value"] == expected
+
+
+class TestTheLoopReadsTheInterfaceNotStdin:
+    """The rewiring itself, driven against the REAL loop.
+
+    Everything else in this file stubs ``run_interactive_agent`` out, so nothing
+    there would notice the read site reverting to ``ui.boxed_input``. These drive
+    the actual loop with ``boxed_input`` booby-trapped: if the conversational read
+    ever goes back to stdin, it raises instead of blocking forever, which is the
+    only way a test can catch the old failure mode at all.
+    """
+
+    def _stub_model(self, monkeypatch):
+        """Get the driver as far as the prompt without a provider or a network."""
+        import builder.agents.react.agent_loop as loop_mod
+
+        monkeypatch.setattr(loop_mod, "_build_chat_model", lambda **kw: object())
+        monkeypatch.setattr(
+            loop_mod, "_build_agent_graph", lambda llm, tools, engine=None: object()
+        )
+
+    def _trap_stdin(self, monkeypatch):
+        import builder.agents.ui as ui
+
+        def _boom(*a, **kw):
+            raise AssertionError("the loop read stdin instead of the HumanInterface")
+
+        monkeypatch.setattr(ui, "boxed_input", _boom)
+
+    def test_a_synthetic_interface_drives_and_ends_the_session(self, monkeypatch):
+        """Budget 0 => the first read is a skip, which ends the session the way
+        Ctrl+D does — no model turn is spent proving the wiring."""
+        import builder.agents.react.agent_loop as loop_mod
+
+        self._stub_model(monkeypatch)
+        self._trap_stdin(monkeypatch)
+
+        engine = AgentEngine(human_interface=SmokeTestHumanInterface(conversation_turns=0))
+        engine.initialize()
+        # Returns rather than hanging or raising: the loop asked the interface,
+        # got a skip, finalised and broke.
+        loop_mod.run_interactive_agent(engine)
+
+    def test_a_real_frontend_still_reads_stdin(self, monkeypatch):
+        """The control. Without it the test above passes just as well on a loop
+        that never prompts at all, which would be a different bug entirely."""
+        import builder.agents.react.agent_loop as loop_mod
+
+        self._stub_model(monkeypatch)
+        self._trap_stdin(monkeypatch)
+
+        engine = AgentEngine(human_interface=ConsoleHumanInterface(prompt_func=lambda _ft: "hi"))
+        engine.initialize()
+        with pytest.raises(AssertionError, match="read stdin"):
+            loop_mod.run_interactive_agent(engine)
+
+
 class TestCli:
-    """``--smoke-test`` implies --interactive, refuses --legacy-react, wires the mode."""
+    """``--smoke-test`` implies --interactive and wires the mode on both arms."""
 
     def _stub_config(self, monkeypatch):
         """Make the interactive path proceed without a real LLM config check."""
@@ -381,19 +500,33 @@ class TestCli:
         assert args.smoke_test is True
         assert args.interactive is True
 
-    def test_legacy_react_combination_is_refused(self, monkeypatch, capsys):
-        """The ReAct loop reads stdin directly, so nothing could answer it — say so
-        and exit non-zero rather than starting a build that can only hang."""
-        calls: list[str] = []
+    def test_legacy_react_is_driven_not_refused(self, monkeypatch, capsys, tmp_path):
+        """The combination this mode most needs, and the one it used to refuse.
+
+        The refusal was real while it stood: the ReAct loop read its conversation
+        straight off stdin, so a synthetic interface had nothing to answer and the
+        run sat on an empty terminal. Now that the read goes through the
+        interface, refusing would be turning away the arm a smoke test is FOR.
+        """
+        self._stub_config(monkeypatch)
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "test.txt").write_text("hello\n")
+        seen: list[Any] = []
+
         import builder.agents.react.agent_loop as agent_loop
 
         monkeypatch.setattr(
-            agent_loop, "run_interactive_agent", lambda *a, **kw: calls.append("react")
+            agent_loop,
+            "run_interactive_agent",
+            lambda engine, *a, **kw: seen.append(engine.human_interface),
         )
 
-        assert main(["--smoke-test", "--legacy-react"]) == 1
-        assert calls == [], "the ReAct loop must not be started"
-        assert "--legacy-react" in capsys.readouterr().err
+        assert main(["--smoke-test", "--legacy-react", "--input", str(d)]) == 0
+        assert len(seen) == 1, "the ReAct loop must actually be started"
+        assert isinstance(seen[0], SmokeTestHumanInterface)
+        # The notice is not skipped just because this is the other arm.
+        assert "SMOKE TEST" in capsys.readouterr().out
 
     def test_wires_the_smoke_interface_and_prints_the_opening_notice(
         self, monkeypatch, capsys, tmp_path
