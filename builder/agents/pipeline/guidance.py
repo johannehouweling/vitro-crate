@@ -267,6 +267,20 @@ def _is_key_event_gap(gap: Gap) -> bool:
     return "key event" in (gap.message or "").casefold()
 
 
+def _split_key_event_answer(text: str) -> list[str]:
+    """One answer naming several Key Events, split into names.
+
+    NOT on the comma. AOP-Wiki names contain them — "Inhibition, organic
+    anion-transporting polypeptide 1C1 (OATP1C1)" — so a comma split tears every
+    real name in half and then matches none of them. Semicolons, newlines and a
+    spelled-out "and" are what someone listing two events actually types, and
+    none of them appear inside a Key Event name.
+    """
+    parts = re.split(r"[;\n]| and (?![a-z]*ase\b)", text)
+    names = [p.strip(" .;") for p in parts if p and p.strip(" .;")]
+    return names or [text.strip()]
+
+
 def _key_event_candidates(engine: AgentEngine) -> list[dict[str, str]]:
     """The Key Events the crate already holds, as answer options.
 
@@ -675,13 +689,33 @@ def _apply_key_event_value(
             return False
         assay_id = instances[0].entity_id
 
+    # An assay can measure more than one Key Event — a viability control beside
+    # the inhibition it is built to detect is one experiment reporting two — so
+    # an answer naming several is a normal answer, not a malformed one. Split on
+    # separators a person actually types; a Key Event name contains commas
+    # ("Inhibition, OATP1C1"), which is exactly why the split is on ';' and
+    # ' and ' rather than the comma that would tear those names in half.
+    names = _split_key_event_answer(text)
     try:
-        result = engine.run_tool("link_assay_to_key_event", assay_id=assay_id, event_name=text)
+        result = engine.run_tool(
+            "link_assay_to_key_event",
+            assay_id=assay_id,
+            event_name=names if len(names) > 1 else names[0],
+        )
     except Exception as exc:  # noqa: BLE001 — a tool failure is a guidance skip
         logger.warning("guidance: key event link failed for %r: %s", text, exc)
         return False
 
     if isinstance(result, dict) and result.get("ok"):
+        # A partly-resolved answer is progress, but the reader is told which
+        # names went nowhere rather than left assuming all of them landed.
+        unmatched = [str(u.get("name")) for u in (result.get("unmatched") or [])]
+        if unmatched:
+            _notify(
+                human,
+                f"linked {len(result.get('key_event_ids') or [])} key event(s); "
+                f"{', '.join(unmatched)} did not name one in the crate and was not stored.",
+            )
         return True
 
     offered = result.get("candidates") or [] if isinstance(result, dict) else []

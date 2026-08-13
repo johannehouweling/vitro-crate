@@ -657,18 +657,37 @@ def _event_tokens(text: str) -> frozenset[str]:
     return frozenset(cleaned.split())
 
 
-def link_assay_to_key_event(state: CrateState, assay_id: str, event_name: str) -> dict[str, Any]:
-    """Link an Assay to the AOP Key Event it measures, by Key Event name.
+def link_assay_to_key_event(
+    state: CrateState, assay_id: str, event_name: str | list[str]
+) -> dict[str, Any]:
+    """Link an Assay to the AOP Key Event(s) it measures, by Key Event name.
+
+    An assay can measure more than one Key Event — a viability control beside
+    the transporter inhibition it is built to detect is one experiment reporting
+    two events — so ``event_name`` takes a list as well as a single name. The
+    single-name form is unchanged for existing callers.
+
+    Names are resolved INDEPENDENTLY and each is held to the same standard: a
+    name matching zero or several Key Events is reported and not written, while
+    the ones that matched exactly one are linked. Refusing the whole answer over
+    a single typo would throw away correct science; claiming the typo resolved
+    would invent it. The result says which did and which did not.
+
+    Links ACCUMULATE rather than replace. Each call states something the assay
+    measures, and a later call naming one event is not a claim that the earlier
+    ones were wrong — so a second answer adds to the first, deduplicated.
+    Removing a link is `set_fields`' job, where it is explicit.
 
     Args:
         state: The crate state holding the Assay and the materialized Key Events.
         assay_id: ``entity_id`` of the Assay.
-        event_name: The Key Event's name as written by the depositor.
+        event_name: One Key Event name, or several.
 
     Returns:
-        ``{"ok": True, "assay_id", "key_event_id", "matched_name"}`` on a single
-        unambiguous match, else ``{"ok": False, "error", "candidates"}`` with
-        nothing written.
+        ``{"ok": True, "assay_id", "key_event_ids", "matched_names", "unmatched"}``
+        when at least one name resolved (``key_event_id``/``matched_name`` are
+        kept as the first match for existing callers), else
+        ``{"ok": False, "error", "candidates"}`` with nothing written.
     """
     from builder.tools.management import set_fields
 
@@ -687,8 +706,67 @@ def link_assay_to_key_event(state: CrateState, assay_id: str, event_name: str) -
             "candidates": [],
         }
 
-    wanted = _event_tokens(event_name)
-    matches = [
+    candidates = [{"@id": e.entity_id, "name": e.fields.get("name")} for e in events]
+    wanted_names = [event_name] if isinstance(event_name, str) else list(event_name)
+    wanted_names = [str(n).strip() for n in wanted_names if str(n).strip()]
+    if not wanted_names:
+        return {"ok": False, "error": "no Key Event name given", "candidates": candidates}
+
+    linked: list[Entity] = []
+    unmatched: list[dict[str, Any]] = []
+    for name in wanted_names:
+        matches = _key_events_named(events, name)
+        if len(matches) != 1:
+            unmatched.append({"name": name, "matches": len(matches)})
+            continue
+        if matches[0] not in linked:
+            linked.append(matches[0])
+
+    if not linked:
+        detail = "; ".join(f"{u['matches']} match {u['name']!r}" for u in unmatched)
+        return {
+            "ok": False,
+            "error": (f"{detail}; refusing to guess which Key Event this assay measures"),
+            "candidates": candidates,
+        }
+
+    # Union with what is already recorded: a second answer adds to the first.
+    # `set_fields` normalises a `{"@id": …}` reference down to the bare id, so
+    # what comes back out is a string even though a dict went in — read both, or
+    # the union sees nothing and the second answer silently REPLACES the first.
+    existing = [
+        ref.get("@id") if isinstance(ref, dict) else str(ref)
+        for ref in _as_reference_list(assay.fields.get("keyEvent"))
+        if ref
+    ]
+    ids = list(dict.fromkeys([i for i in existing if i] + [e.entity_id for e in linked]))
+    value: Any = [{"@id": i} for i in ids]
+    set_fields(
+        state,
+        assay_id,
+        {"keyEvent": value if len(value) > 1 else value[0]},
+        source="lookup",
+    )
+
+    result: dict[str, Any] = {
+        "ok": True,
+        "assay_id": assay_id,
+        "key_event_ids": ids,
+        "matched_names": [e.fields.get("name") for e in linked],
+        # Kept singular for callers written against the one-event form.
+        "key_event_id": linked[0].entity_id,
+        "matched_name": linked[0].fields.get("name"),
+    }
+    if unmatched:
+        result["unmatched"] = unmatched
+        result["candidates"] = candidates
+    return result
+
+
+def _key_events_named(events: list[Entity], name: str) -> list[Entity]:
+    """Key Events whose name (or a known alias) is *name*."""
+    wanted = _event_tokens(name)
+    return [
         event
         for event in events
         if any(
@@ -701,25 +779,13 @@ def link_assay_to_key_event(state: CrateState, assay_id: str, event_name: str) -
             if alias
         )
     ]
-    candidates = [{"@id": e.entity_id, "name": e.fields.get("name")} for e in events]
-    if len(matches) != 1:
-        return {
-            "ok": False,
-            "error": (
-                f"{len(matches)} Key Events match {event_name!r}; refusing to guess "
-                "which one this assay measures"
-            ),
-            "candidates": candidates,
-        }
 
-    event = matches[0]
-    set_fields(state, assay_id, {"keyEvent": {"@id": event.entity_id}}, source="lookup")
-    return {
-        "ok": True,
-        "assay_id": assay_id,
-        "key_event_id": event.entity_id,
-        "matched_name": event.fields.get("name"),
-    }
+
+def _as_reference_list(value: Any) -> list[Any]:
+    """A reference field's value as a list, whether it held one or many."""
+    if value in (None, "", [], {}):
+        return []
+    return list(value) if isinstance(value, list) else [value]
 
 
 # ---------------------------------------------------------------------------
