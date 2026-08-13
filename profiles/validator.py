@@ -17,6 +17,7 @@ composition is verified working as of roc-validator 0.10.0.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.metadata as _metadata
 import json
 import logging
@@ -379,6 +380,31 @@ def _install_offline_context_loader() -> None:
 _install_offline_context_loader()
 
 
+class ValidationEngineError(RuntimeError):
+    """Raised when a validation pass could not RUN its checks.
+
+    Distinct from :class:`ValidationTransportError` (a real check that could not
+    reach the network) and from any content violation: this means the check never
+    executed, so the pass says nothing about the crate.
+
+    rocrate_validator wraps every check in a bare ``except Exception``
+    (``models/requirement.py``), logs ``"Unexpected error during check"`` at
+    WARNING, and carries on. The check contributes NO issue, so a broken engine is
+    indistinguishable from a clean crate by looking at the result — an empty issue
+    list means "nothing wrong" and "nothing ran" alike.
+
+    That is how a pyshacl upgrade silently emptied every pass: roc-validator
+    imports ``ConjunctiveLike`` from ``pyshacl.rdfutil.consts``, which is not part
+    of pyshacl's public API and was removed in 0.40.0. Every check raised
+    ImportError, every warning was swallowed, and a crate that had never been
+    examined came back conformant. Assertions of the form
+    ``conformance == {base: True, ...}`` go GREEN on that.
+
+    So the warning is promoted to an exception. A validator that cannot run is a
+    broken tool, not a passing crate.
+    """
+
+
 class ValidationTransportError(RuntimeError):
     """Raised when a validation pass fails on a network transport error.
 
@@ -572,7 +598,8 @@ def _validate_one_pass(
         requirement_severity=gate,
         **extra,
     )
-    result = services.validate_metadata_as_dict(metadata_doc, settings)
+    with _checks_must_run(key):
+        result = services.validate_metadata_as_dict(metadata_doc, settings)
     # Drop file-only checks that can't apply to an in-memory document (see
     # _DICT_PATH_NA_CHECKS), then derive pass/fail from the filtered issues.
     issues = [
@@ -653,6 +680,54 @@ def _validate_passes_parallel(
         return None
 
 
+_UNRUNNABLE_CHECK_MARKER = "Unexpected error during check"
+
+
+@contextlib.contextmanager
+def _checks_must_run(profile: str):
+    """Turn rocrate_validator's swallowed check errors into a raised failure.
+
+    Listens on the ``rocrate_validator`` logger for the warning it emits when a
+    check raises, because that warning is the ONLY evidence: the check adds no
+    issue, so the result cannot be inspected for it (see
+    :class:`ValidationEngineError`).
+
+    Scoped to one pass and restored in a ``finally`` so a raise inside the pass
+    cannot leave the handler attached. The handler only records; the decision is
+    taken here, after the pass, so a single flaky check does not abort a run
+    mid-way through with the engine half-used.
+    """
+    records: list[str] = []
+
+    class _Collector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            try:
+                message = record.getMessage()
+            except Exception:  # noqa: BLE001 — a broken record must not break validation
+                return
+            if record.name.startswith("rocrate_validator") and _UNRUNNABLE_CHECK_MARKER in message:
+                records.append(message)
+
+    # Attached to the ROOT logger, not to "rocrate_validator": a handler on a
+    # named logger is only reached by propagation, and pytest's logging plugin
+    # manipulates that path — the listener saw nothing under pytest while the
+    # record was demonstrably emitted. Root is where every propagated record
+    # arrives regardless, so the name is matched on the record instead.
+    root = logging.getLogger()
+    handler = _Collector(level=logging.WARNING)
+    root.addHandler(handler)
+    try:
+        yield
+    finally:
+        root.removeHandler(handler)
+
+    if records:
+        raise ValidationEngineError(
+            f"Validation pass {profile!r} could not run {len(records)} check(s); "
+            f"its result describes nothing. First failure: {records[0]}"
+        )
+
+
 def _raise_on_transport_failure(issues, profile: str) -> None:
     """Reclassify transport-failure issues as a :class:`ValidationTransportError`.
 
@@ -708,7 +783,8 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
         profile_identifier="ro-crate-1.2",
         requirement_severity=models.Severity.OPTIONAL,
     )
-    result = services.validate(settings)
+    with _checks_must_run("base"):
+        result = services.validate(settings)
     _raise_on_transport_failure_result(result, profile="Base RO-Crate 1.2")
     results.append(
         ValidationResult(
@@ -732,7 +808,8 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
         requirement_severity=models.Severity.OPTIONAL,
         disable_inherited_profiles_issue_reporting=True,
     )
-    isa_result = services.validate(isa_settings)
+    with _checks_must_run("isa"):
+        isa_result = services.validate(isa_settings)
     _raise_on_transport_failure_result(isa_result, profile="ISA RO-Crate Profile")
     results.append(
         ValidationResult(
@@ -757,7 +834,8 @@ def validate_crate(crate_dir: Path) -> list[ValidationResult]:
         requirement_severity=models.Severity.OPTIONAL,
         disable_inherited_profiles_issue_reporting=True,
     )
-    tox_result = services.validate(tox_settings)
+    with _checks_must_run("tox"):
+        tox_result = services.validate(tox_settings)
     _raise_on_transport_failure_result(tox_result, profile="ISA-Tox RO-Crate Profile")
     results.append(
         ValidationResult(
