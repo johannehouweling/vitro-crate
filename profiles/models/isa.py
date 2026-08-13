@@ -1,6 +1,7 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
+import functools
 import hashlib
 import re
 from pathlib import Path
@@ -17,6 +18,58 @@ def param_id(name: str, value: str) -> str:
     digest = hashlib.sha1(f"{name}|{value}".encode("utf-8")).hexdigest()[:10]
     base = re.sub(r"[^\w.-]", "_", name or "").strip("_") or "param"
     return f"#param_{base}_{digest}"
+
+
+def reader_compatible(cls):
+    """Let ro-crate-py's READER construct this class, without changing our own API.
+
+    ``ROCrate(path)`` builds its class map from every imported subclass of
+    ``ContextEntity``, keys it by class NAME, and constructs the match
+    positionally (``rocrate.py:294``)::
+
+        type_map = {_.__name__: _ for _ in subclasses(ContextEntity)}
+        cls = pick_type(entity, type_map, fallback=ContextEntity)
+        self.add(cls(self, identifier, entity))    # (crate, identifier, properties)
+
+    Our modelling classes are written for the WRITE path, where the third
+    parameter is the thing the entity is about — ``Sample(crate, id, name)``,
+    ``LabProcess(crate, id, labprotocol)``. Under the reader the properties dict
+    binds to that parameter instead, and the entity is built with ``name`` set to
+    a whole JSON-LD dict, which dies as ``ValueError: no @id in {...}``.
+
+    Merely IMPORTING ``profiles.models`` arms this — no registration call is
+    involved — so any crate carrying a ``Sample``, a ``LabProcess`` or a
+    ``ParameterValue`` was unreadable inside this repo's own process, including
+    ``read_existing_crate`` and every build→read→build round trip. External
+    consumers were never affected: without these imports ``pick_type`` falls back
+    to plain ``ContextEntity`` (#544).
+
+    The read path does not need the rich classes — it needs not to crash. So a
+    third positional argument that is a ``dict`` is taken as the reader's
+    ``properties`` and handed to ``ContextEntity`` directly. That test is
+    unambiguous rather than merely convenient: across all eleven affected classes
+    the third parameter is a ``str``, a ``list`` or a ``LabProtocol``, and not one
+    of them accepts a mapping, so no legitimate write-path call can be mistaken
+    for a read.
+
+    Deliberately NOT done by reordering every signature to put ``properties``
+    third: that is the more principled fix and it churns every construction site
+    in the codebase, for a benefit the reader alone consumes.
+    """
+    original_init = cls.__init__
+
+    @functools.wraps(original_init)
+    def __init__(self, crate, identifier=None, *args, **kwargs):
+        if args and isinstance(args[0], dict):
+            # ro-crate-py's reader. Bypass this class's own __init__ entirely:
+            # it exists to COMPOSE an entity from parts, and the reader already
+            # has the finished JSON-LD.
+            ContextEntity.__init__(self, crate, identifier, args[0])
+            return
+        original_init(self, crate, identifier, *args, **kwargs)
+
+    cls.__init__ = __init__
+    return cls
 
 
 class AutoAddContextEntity(ContextEntity):
@@ -64,6 +117,7 @@ class AutoAddFile(File):
 
 
 # Lab Process
+@reader_compatible
 class LabProcess(AutoAddContextEntity):
     """Bioschemas LabProcess (DRAFT) mapping of an ISA-JSON Process.
 
@@ -280,6 +334,7 @@ class LabProtocol(AutoAddFile):
 
 
 # Parameter defines the specific settings or values used in a protocol (e.g., temperature, duration, operator).
+@reader_compatible
 class ParameterValue(AutoAddContextEntity):
     def __init__(
         self,
@@ -309,6 +364,7 @@ class ParameterValue(AutoAddContextEntity):
 
 
 # Factor represents an independent variable manipulated by the researcher to affect a biological system.
+@reader_compatible
 class FactorValue(ParameterValue):
     def __init__(
         self,
@@ -337,6 +393,7 @@ class FactorValue(ParameterValue):
 
 
 # Factor represents an independent variable manipulated by the researcher to affect a biological system.
+@reader_compatible
 class CharacteristicValue(ParameterValue):
     def __init__(
         self,
@@ -365,6 +422,7 @@ class CharacteristicValue(ParameterValue):
 
 
 # Factor represents an independent variable manipulated by the researcher to affect a biological system.
+@reader_compatible
 class Component(ParameterValue):
     def __init__(
         self,
@@ -449,6 +507,7 @@ class NamedFile(AutoAddFile):
         ]
 
 
+@reader_compatible
 class Sample(AutoAddContextEntity):
     def __init__(
         self,

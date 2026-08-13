@@ -7,6 +7,7 @@ from profiles.models.isa import (
     ParameterValue,
     Sample,
     param_id,
+    reader_compatible,
 )
 from profiles.ontology_iris import iri
 
@@ -65,6 +66,7 @@ def _pvs(*candidates):
     return [p for p in candidates if p is not None]
 
 
+@reader_compatible
 class LabProcessExposure(LabProcess):
     """Exposure step (additionalType "Exposure").
 
@@ -137,6 +139,7 @@ class LabProcessExposure(LabProcess):
         )
 
 
+@reader_compatible
 class LabProcessEndpointReadout(LabProcess):
     def __init__(
         self,
@@ -233,6 +236,7 @@ class LabProcessEndpointReadout(LabProcess):
         )
 
 
+@reader_compatible
 class LabProcessCellCulture(LabProcess):
     def __init__(
         self,
@@ -270,6 +274,7 @@ class LabProcessCellCulture(LabProcess):
         )
 
 
+@reader_compatible
 class LabProcessDataAnalysis(LabProcess):
     """Data analysis process: turns the EndpointReadout's raw measurements into
     reported results. Consumes raw-data File(s) as ``object`` and emits the
@@ -337,6 +342,7 @@ class LabProcessDataAnalysis(LabProcess):
 # Toxicology-specific Sample class for the Tox ISA RO-Crate Profile
 
 
+@reader_compatible
 class CellLineSample(Sample):
     """The cell-based test system, modelled as a Sample carrying a categorical
     annotation via ``sampleType`` (a schema:DefinedTerm) and a cell-line identity
