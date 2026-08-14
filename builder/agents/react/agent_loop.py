@@ -3662,13 +3662,28 @@ def _trim_history(messages: list, *, max_tokens: int) -> list:
        AI(tool_call) → ToolMessage pairing is preserved.
     2. **Token-budget trim** — keep the most recent messages within
        ``max_tokens`` using ``langchain_core.messages.trim_messages`` with
-       ``strategy="last"`` and ``start_on="human"``. ``start_on="human"``
-       guarantees the trimmed window never *begins* with a dangling
-       ``ToolMessage`` (or an ``AIMessage`` whose tool_call lost its answer),
-       i.e. it never produces orphaned tool messages — the provider API rejects
-       those. Orphans that arrive already in the history — an interrupted turn
-       leaves a tool_call nobody answered — are removed by
-       ``_drop_unanswered_tool_calls`` before either step.
+       ``strategy="last"``. The window may begin on a HUMAN **or an AI**
+       message; either way it never *begins* with a dangling ``ToolMessage``,
+       so it never produces the orphans the provider API rejects. Orphans that
+       arrive already in the history — an interrupted turn leaves a tool_call
+       nobody answered — are removed by ``_drop_unanswered_tool_calls`` before
+       either step, which is what makes an AI-anchored window safe.
+
+       ``start_on="human"`` ALONE is what this used to say, and it is why 36%
+       of a profiled session's model turns ran with no history whatsoever. A
+       ``HumanMessage`` enters the graph only at invocation start; every tool
+       result and every guard corrective is a ToolMessage. So once the AI/Tool
+       tail outgrew the budget, the retained window could no longer reach back
+       to that single anchor, and ``trim_messages`` returned **the empty list**
+       rather than a short window. Not a taper — a cliff: 31 messages in, 31
+       kept; 37 in, 0 kept. From there every turn sent the system prompt and
+       the state brief and nothing else, so the model re-issued the same reads
+       and rebuilt entity ids by guessing at a naming convention, which is what
+       produced 77 suppressions and 21 "Entity not found: person_<slug>"
+       failures in one session.
+
+       The tests missed it because each of them injects a HumanMessage per
+       TURN; the real graph injects one per INVOCATION.
 
     The leading system prompt and trailing state brief are added by
     ``_assemble_model_messages`` *around* the result, so they are intentionally
@@ -3694,7 +3709,7 @@ def _trim_history(messages: list, *, max_tokens: int) -> list:
             max_tokens=max_tokens,
             token_counter="approximate",
             strategy="last",
-            start_on="human",
+            start_on=("human", "ai"),
             include_system=False,
             allow_partial=False,
         )
@@ -3703,6 +3718,17 @@ def _trim_history(messages: list, *, max_tokens: int) -> list:
         # to the pruned (but untrimmed) history keeps the agent running; the
         # pruning alone already removes the heaviest verbose payloads.
         logger.warning("History trim failed (%s); using pruned history", exc)
+        return pruned
+
+    # A trim that keeps NOTHING out of a non-empty history is not a trim, it is
+    # amnesia — and it arrives silently, as a model turn that simply performs
+    # worse. Whatever anchor rule a future edit lands on, this is the invariant
+    # that must survive it: the untrimmed history is always a better answer than
+    # no history, and the budget is a target, not a reason to send nothing.
+    if not trimmed:
+        logger.warning(
+            "History trim kept nothing of %d messages; using pruned history", len(pruned)
+        )
         return pruned
 
     return list(trimmed)
