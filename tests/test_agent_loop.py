@@ -821,6 +821,83 @@ class TestTrimHistory:
         # And it must be strictly smaller than the full (unbounded) history.
         assert count_tokens_approximately(trimmed) < count_tokens_approximately(history)
 
+    def _one_human_then_tool_pairs(self, pairs: int, size: int = 3000) -> list:
+        """The shape the real graph produces, which no other test here builds.
+
+        A ``HumanMessage`` enters the graph once per INVOCATION; everything
+        after it is AI(tool_call)/ToolMessage. Every other test in this class
+        injects a human message per TURN, and that difference is the whole bug:
+        with an anchor every third message, ``start_on="human"`` always finds
+        one, so the cliff below is invisible.
+        """
+        from langchain_core.messages import HumanMessage, ToolMessage
+
+        history: list = [HumanMessage(content="Build a crate from this deposit.")]
+        for i in range(pairs):
+            cid = f"call_{i}"
+            history.append(self._ai_tool_call("", cid, name="list_entities"))
+            history.append(ToolMessage(content="X" * size, tool_call_id=cid))
+        return history
+
+    def test_a_long_tool_only_run_keeps_history(self):
+        """The trim must taper, never collapse.
+
+        `trim_messages(start_on="human")` returned the EMPTY list once the
+        AI/Tool tail outgrew the budget, because the retained window could no
+        longer reach the single leading human message. 31 messages in kept 31;
+        37 in kept 0. The model then ran on the system prompt and the state
+        brief alone — 36% of a profiled session's turns — re-issuing reads it
+        had already made and inventing entity ids it had already been told.
+        """
+        from builder.agents.react.agent_loop import _trim_history
+
+        for pairs in (10, 18, 25, 50):
+            history = self._one_human_then_tool_pairs(pairs)
+            trimmed = _trim_history(history, max_tokens=12_000)
+            assert trimmed, (
+                f"{len(history)} messages trimmed to nothing — a turn with no history"
+            )
+            assert self._no_orphans(trimmed)
+
+    def test_the_window_still_honours_the_budget(self):
+        """…and tapering is not an excuse to send everything."""
+        from langchain_core.messages.utils import count_tokens_approximately
+
+        from builder.agents.react.agent_loop import _trim_history
+
+        history = self._one_human_then_tool_pairs(50)
+        trimmed = _trim_history(history, max_tokens=12_000)
+        assert count_tokens_approximately(trimmed) <= 12_000
+        assert len(trimmed) < len(history)
+
+    def test_an_empty_window_falls_back_to_the_whole_history(self, monkeypatch):
+        """The invariant that must outlive whatever anchor rule is in force.
+
+        Driven through a stubbed trimmer rather than through a message shape:
+        the current anchor rule never returns empty, so there is no history that
+        could exercise this — and a guard with no test is the one a later edit
+        deletes. Sending the untrimmed history costs tokens; sending none costs
+        the model everything it knows.
+        """
+        import langchain_core.messages as lcm
+
+        from builder.agents.react.agent_loop import _trim_history
+
+        monkeypatch.setattr(lcm, "trim_messages", lambda *a, **kw: [])
+        history = self._one_human_then_tool_pairs(6)
+        trimmed = _trim_history(history, max_tokens=12_000)
+
+        assert trimmed, "an empty trim must never reach the model as a turn with no history"
+        assert len(trimmed) == len(history)
+
+    def test_the_window_stops_growing_with_the_run(self):
+        """A bounded window is the point: 50 pairs must cost no more than 25."""
+        from builder.agents.react.agent_loop import _trim_history
+
+        at_25 = _trim_history(self._one_human_then_tool_pairs(25), max_tokens=12_000)
+        at_100 = _trim_history(self._one_human_then_tool_pairs(100), max_tokens=12_000)
+        assert len(at_100) <= len(at_25)
+
     def test_consumed_scan_output_is_pruned(self):
         """A consumed verbose scan ToolMessage (its data already in CrateState)
         is pruned/summarized — its large body is replaced by a short stub, so it
