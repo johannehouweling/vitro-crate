@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
@@ -359,20 +360,36 @@ def draft_process_chain(
         # output to the build (the chain still flows downstream via its inputs). ---
         outputs = _explicit_ids(step, "result", "output")
         if not outputs and ptype not in _BUILD_SYNTHESIZES_OUTPUT:
-            placeholder = _synthesize_output(state, proc, ptype, draft_sample, draft_file)
-            synthesized.append(placeholder.entity_id)
-            outputs = [placeholder.entity_id]
+            # Ask the deposit before manufacturing anything (#589). A step whose
+            # output the depositor actually submitted must point AT that file;
+            # synthesizing regardless is what left every chain in a real crate
+            # ending at an empty stub while the measurements sat beside them,
+            # referenced by nothing.
+            deposited = _deposited_outputs(state, assay_id, ptype)
+            if deposited:
+                outputs = [entity.entity_id for entity in deposited]
+            else:
+                placeholder = _synthesize_output(state, proc, ptype, draft_sample, draft_file)
+                synthesized.append(placeholder.entity_id)
+                outputs = [placeholder.entity_id]
         for tid in outputs:
             if state.get_entity(tid) is not None:
                 link(state, proc.entity_id, "result", tid)
 
         # DataAnalysis MUST also carry schema:object (its raw/condition input).
-        # If nothing was wired as input, synthesize a placeholder input File too.
+        # What it analysed is the deposit's raw tier — the same files an upstream
+        # EndpointReadout would have handed down — so a chain that starts at the
+        # analysis reaches them directly rather than through a stub (#589).
         if ptype == "DataAnalysis" and not inputs:
-            placeholder_in = _synthesize_input(state, proc, draft_file)
-            synthesized.append(placeholder_in.entity_id)
-            link(state, proc.entity_id, "object", placeholder_in.entity_id)
-            inputs = [placeholder_in.entity_id]
+            analysed = _deposited_outputs(state, assay_id, "EndpointReadout")
+            if analysed:
+                inputs = [entity.entity_id for entity in analysed]
+            else:
+                placeholder_in = _synthesize_input(state, proc, draft_file)
+                synthesized.append(placeholder_in.entity_id)
+                inputs = [placeholder_in.entity_id]
+            for tid in inputs:
+                link(state, proc.entity_id, "object", tid)
 
         process_ids.append(proc.entity_id)
         step_summaries.append(
@@ -404,14 +421,141 @@ def draft_process_chain(
     return result
 
 
-# Which minimal table a synthesized placeholder should carry (#438). An
-# EndpointReadout emits per-well measurements; a DataAnalysis emits summarised
-# results. The columns themselves live in ``_crate_mapping`` next to the existing
-# CSVW table contracts, so every table the crate ships is typed the same way.
-_PROVISIONAL_TABLE_KIND: dict[str, str] = {
-    "EndpointReadout": "measurements",
-    "DataAnalysis": "analysis",
+# --- the deposited file IS the step's output (#589) --------------------------
+#
+# Which step produced which file is a fact only the depositor holds, and they
+# state it by filing: measurements go in a "raw" directory, the analysis that
+# reduced them in a "processed" one. That is read from the DIRECTORY, never the
+# filename — "raw" in a file's name describes its content, not its place in the
+# derivation chain.
+#
+# Anchored at a token boundary, not as a bare substring: `raw` alone also matches
+# "drawings", and `process` matches "unprocessed" — which means the OPPOSITE tier
+# and would have been filed as processed. A leading non-letter (or start of
+# segment) admits `raw data`, `assay1_rawdata`, `Raw`, `processed data`,
+# `assay1_processeddata` and `data processing` while excluding those two.
+_TIER_DIRECTORY: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("raw", re.compile(r"(?:^|[^a-z])raw", re.I)),
+    ("processed", re.compile(r"(?:^|[^a-z])process", re.I)),
+)
+
+# The output tier each data-producing subtype claims.
+_TIER_FOR_PROCESS: dict[str, str] = {
+    "EndpointReadout": "raw",
+    "DataAnalysis": "processed",
 }
+
+# A step's result is a data table. A protocol filed beside the measurements is
+# still a protocol, so the tier alone must not promote it — gated on the format
+# family rather than on a keyword, which no filing convention controls.
+#
+# ``.txt`` and ``.json`` are deliberately absent. Both occur in these deposits,
+# and in the real one every ``.txt`` inside a data directory was a README: on
+# svhps22 including them wired `assay1_processeddata/README.txt` in as a
+# measurement result. A tabular extension is weak evidence of data; ``.txt`` is
+# weaker evidence still, and the cost of a wrong promotion is a crate asserting
+# that a readme is what the instrument produced.
+_TABULAR_SUFFIXES = frozenset({".csv", ".tsv", ".xlsx", ".xls", ".parquet"})
+
+
+def _path_tier(relative_path: str) -> str | None:
+    """``"raw"`` / ``"processed"`` for a deposit-relative path, else ``None``.
+
+    ``None`` when the directories name BOTH tiers or neither — the refusal is
+    the point, and it is not a corner case. Of the three real deposits only
+    svhps22 separates ``raw data/`` from ``assay1_processeddata/``; svhps21 and
+    svhps26 file both tiers in one ``Raw data + individual processed data/``.
+    Reading just the first match there would hand every processed file in those
+    two deposits to the EndpointReadout, so an ambiguous directory resolves to
+    nothing at all — the same refusal ``_populate_condition_table_from_plan``
+    makes when several files could be the condition table (#408).
+    """
+    directories = PurePosixPath(relative_path.replace("\\", "/")).parts[:-1]
+    named = {
+        tier
+        for tier, pattern in _TIER_DIRECTORY
+        if any(pattern.search(part) for part in directories)
+    }
+    return named.pop() if len(named) == 1 else None
+
+
+def _candidate_files(state: CrateState, assay_id: str) -> list[Any]:
+    """The scanned files that could be *this* assay's output.
+
+    One Assay owns the whole deposit, so every scanned file is a candidate. With
+    several, which folder belongs to which assay is not derivable from the crate
+    — so the only honest scope is what has already been attached to this one, and
+    an assay with nothing attached yet gets no candidates rather than its
+    neighbour's measurements.
+    """
+    from builder.tools.provenance import _scanned_dest
+
+    if len(state.list_entities("Assay")) <= 1:
+        return list(state.scanned_files)
+
+    assay = state.get_entity(assay_id)
+    attached = _ref_ids(assay.fields.get("hasPart")) if assay is not None else set()
+    if not attached:
+        return []
+    # Matched on ``dest_path``, which the scan derives deterministically, rather
+    # than on the resolved on-disk source: the source resolves only for a file
+    # that exists at build time, so keying on it made an attached file invisible
+    # whenever the deposit was not mounted — silently, as "nothing deposited".
+    input_path = state.metadata.input_path
+    destinations = set()
+    for file_id in attached:
+        entity = state.get_entity(file_id)
+        if entity is None or entity.type != "File":
+            continue
+        dest = str(entity.fields.get("dest_path") or "")
+        if dest:
+            destinations.add(dest)
+    return [
+        fc
+        for fc in state.scanned_files
+        if _scanned_dest(fc.path, fc.filename, input_path) in destinations
+    ]
+
+
+def _deposited_outputs(state: CrateState, assay_id: str, ptype: str) -> list[Entity]:
+    """The deposited files this step produced — empty when the deposit is silent.
+
+    The depositor's raw tables are what the EndpointReadout measured; the
+    processed ones are what the DataAnalysis produced. Returning them makes the
+    derivation chain terminate in the actual numbers instead of in a stub that
+    stood in front of them (#589): a real submission put 1048 measured rows in
+    the crate as a File no process referenced, while every chain ended at a
+    header-only CSV.
+
+    ``schema:result`` takes "at least one", so a tier's files are wired whole
+    rather than one being chosen as representative.
+    """
+    from builder.tools.provenance import file_index_by_source, find_or_create_file
+
+    tier = _TIER_FOR_PROCESS.get(ptype)
+    if tier is None:
+        return []
+    input_path = state.metadata.input_path
+    matched = [
+        fc
+        for fc in _candidate_files(state, assay_id)
+        if Path(fc.filename).suffix.lower() in _TABULAR_SUFFIXES
+        and _path_tier(_deposit_relative(fc.path, input_path)) == tier
+    ]
+    if not matched:
+        return []
+    index = file_index_by_source(state)
+    return [find_or_create_file(state, fc, role=f"{tier}_data", index=index) for fc in matched]
+
+
+def _deposit_relative(path: str, input_path: str | None) -> str:
+    """A scanned path relative to the deposit root (unchanged when outside it)."""
+    if not input_path:
+        return path
+    try:
+        return str(Path(path).resolve().relative_to(Path(input_path).resolve()))
+    except (OSError, ValueError):
+        return path
 
 
 def _synthesize_output(
@@ -438,9 +582,14 @@ def _synthesize_output(
         if upstream is not None:
             sample_hints["derives_from"] = upstream
         return draft_sample_fn(state, sample_hints)
-    # Data producer: a placeholder result File. It is marked PROVISIONAL so the
-    # build materialises a minimal typed table for it (#438) — an entity alone
-    # left the exported crate claiming a file that was never written.
+    # Data producer with nothing deposited: a placeholder result File, marked
+    # PROVISIONAL so the build materialises it (#438) — an entity alone left the
+    # exported crate claiming a file that was never written.
+    #
+    # It carries no column contract. It used to be dressed as a csvw:Table with a
+    # typed schema over columns taken from a module constant, identical in every
+    # crate; that said nothing about this experiment and cost 110 column entities
+    # in one real build (#589). A file nobody deposited has no shape to declare.
     name = f"{proc.entity_id}_result.csv"
     file_id = f"file_{_slug(name)}"
     existing = state.get_entity(file_id)
@@ -453,7 +602,6 @@ def _synthesize_output(
         role="processed_data",
     )
     placeholder.fields["provisional"] = True
-    placeholder.fields["table_kind"] = _PROVISIONAL_TABLE_KIND.get(ptype, "measurements")
     return placeholder
 
 
@@ -469,10 +617,7 @@ def _synthesize_input(state: CrateState, proc: Entity, draft_file_fn: Any) -> En
     if existing is not None:
         return existing
     placeholder = draft_file_fn(state, name=name, path=f"data/{name}", role="raw_data")
-    # A DataAnalysis consumes measurements, so its provisional input carries the
-    # per-well measurement shape rather than the analysis-result shape.
     placeholder.fields["provisional"] = True
-    placeholder.fields["table_kind"] = "measurements"
     return placeholder
 
 

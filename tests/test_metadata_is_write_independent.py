@@ -7,10 +7,12 @@ validating a graph that differed from the crate it would produce — and the
 difference only appeared after export, when the loop that could have acted on it
 had finished.
 
-Three landed that way before this was pinned: the provisional tables' description
-and co-type, `contentSize`, and the CSVW schemas — nine nodes the in-loop
-validation never saw, carrying what was historically the project's largest
-finding bucket.
+Three landed that way before this was pinned: the placeholders' description and
+co-type, `contentSize`, and the CSVW schemas — nine nodes the in-loop validation
+never saw, carrying what was historically the project's largest finding bucket.
+The schemas have since been removed outright (#589); what is left is still held
+to the same rule, and the removal is pinned on both paths so it cannot return on
+one of them.
 
 The flag means "resolve a source path so ro-crate-py copies the payload". It does
 not mean "should this metadata exist". This test is what keeps those apart.
@@ -61,7 +63,6 @@ def graphs():
                     "dest_path": "data/p.csv",
                     "name": "p.csv",
                     "provisional": True,
-                    "table_kind": "measurements",
                 },
             )
         )
@@ -96,31 +97,56 @@ class TestTheGraphsAgree:
         assert not differing, f"property sets differ between the two paths: {differing}"
 
 
-class TestTheColumnsAreDeclared:
-    def test_a_provisional_table_declares_its_schema_in_memory(self):
-        """We generate these columns, so the crate can declare them either way."""
-        state = CrateState()
-        draft_investigation(state, {"name": "T", "description": "D"})
+class TestThePlaceholderSaysTheSameThingBothWays:
+    """The name and description are the whole of what a placeholder declares now.
+
+    They used to be joined by a ``csvw:Table`` co-type and a generated schema, and
+    keeping those two paths in step is what this file exists for. The schema is
+    gone (#589) — a file nobody deposited has no shape to declare — so the
+    invariant now covers what remains, and additionally pins the removal: the
+    validated graph must not grow columns the written one lacks, or vice versa.
+    """
+
+    @staticmethod
+    def _graph_both_ways():
         from builder.state import Entity
 
-        state.add_entity(
-            Entity(
-                entity_id="file_prov",
-                type="File",
-                fields={
-                    "dest_path": "data/p.csv",
-                    "name": "p.csv",
-                    "provisional": True,
-                    "table_kind": "measurements",
-                },
+        def factory():
+            state = CrateState()
+            draft_investigation(state, {"name": "T", "description": "D"})
+            state.add_entity(
+                Entity(
+                    entity_id="file_prov",
+                    type="File",
+                    fields={
+                        "dest_path": "data/p.csv",
+                        "name": "p.csv",
+                        "provisional": True,
+                    },
+                )
             )
-        )
-        graph = assemble_crate(
-            state, output_dir=None, materialize_payload=False
-        ).metadata.generate()["@graph"]
-        schemas = [n for n in graph if "csvw:Schema" in str(n.get("@type"))]
-        columns = [n for n in graph if "csvw:Column" in str(n.get("@type"))]
-        assert schemas, "no CSVW schema without writing the payload"
-        assert columns, "no CSVW columns without writing the payload"
-        table = next(n for n in graph if str(n.get("@id", "")).endswith("p.csv"))
-        assert table.get("tableSchema"), "the table does not point at its schema"
+            return state
+
+        with tempfile.TemporaryDirectory() as td:
+            written = assemble_crate(
+                factory(), output_dir=Path(td), materialize_payload=True
+            ).metadata.generate()["@graph"]
+            in_memory = assemble_crate(
+                factory(), output_dir=None, materialize_payload=False
+            ).metadata.generate()["@graph"]
+        return written, in_memory
+
+    def test_it_states_that_no_output_was_deposited_on_both_paths(self):
+        for graph in self._graph_both_ways():
+            table = next(n for n in graph if str(n.get("@id", "")).endswith("p.csv"))
+            assert "NO data" in str(table.get("description")), table
+
+    def test_neither_path_declares_a_column_contract_for_it(self):
+        for graph in self._graph_both_ways():
+            assert [n for n in graph if "csvw:Schema" in str(n.get("@type"))] == []
+            assert [n for n in graph if "csvw:Column" in str(n.get("@type"))] == []
+
+    def test_neither_path_types_it_as_a_table(self):
+        for graph in self._graph_both_ways():
+            table = next(n for n in graph if str(n.get("@id", "")).endswith("p.csv"))
+            assert "csvw:Table" not in str(table.get("@type")), table

@@ -68,22 +68,28 @@ class TestWhereTheSizeComesFrom:
         assert _known_file_size(state, fe, None) is None
 
 
-class TestProvisionalTables:
-    def test_a_provisional_table_is_sized_from_its_header(self, state):
-        """It has no file in memory, but its payload is the header about to be
-        written — so the length is known without writing it, and the validated
-        crate says the same thing as the written one."""
-        fe = _file_entity(
-            state, "file_prov", dest_path="data/p.csv", provisional=True, table_kind="measurements"
-        )
-        size = _known_file_size(state, fe, None)
-        assert size is not None and size > 0
+class TestUndepositedOutputPlaceholders:
+    """A step whose output the deposit does not contain (#438, #589).
 
-    def test_an_unknown_table_kind_states_nothing(self, state):
-        fe = _file_entity(
-            state, "file_prov", dest_path="data/p.csv", provisional=True, table_kind="nonsense"
-        )
-        assert _known_file_size(state, fe, None) is None
+    The placeholder used to be sized from the header line the build was about to
+    write. There is no header now — the file is created empty — so the size is a
+    fact rather than a prediction, and the in-memory and written crates still
+    agree about it.
+    """
+
+    def test_a_placeholder_for_an_undeposited_output_is_empty(self, state):
+        fe = _file_entity(state, "file_prov", dest_path="data/p.csv", provisional=True)
+
+        assert _known_file_size(state, fe, None) == 0
+
+    def test_the_size_matches_the_file_the_build_actually_writes(self, tmp_path, state):
+        """The whole point of sizing in memory: both crates say the same thing."""
+        from builder.tools._crate_mapping import _materialize_missing_output
+
+        fe = _file_entity(state, "file_prov", dest_path="data/p.csv", provisional=True)
+        written = _materialize_missing_output(fe, tmp_path, "data/p.csv")
+
+        assert Path(written).stat().st_size == _known_file_size(state, fe, None)
 
 
 class TestItReachesTheGraph:

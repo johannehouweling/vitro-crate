@@ -9,11 +9,18 @@ Two deterministic build-path enhancements (no new LLM tools):
     each carrying ``datatype`` + ``propertyUrl`` (and ``valueUrl`` for the
     cell-line / compound columns).
 
-(b) An EndpointReadout that already emits result file(s) additionally emits a
-    typed ``raw_measurements.csv`` ``csvw:Table`` (3 columns: ``well_id``,
-    ``measured_value``, ``measured_unit``) — typed the same way the condition
-    table is. No measurement rows are fabricated (D5): the CSV is a header-only
-    placeholder carrying its machine-readable schema.
+(b) An EndpointReadout's result is what it measured, and nothing is appended to
+    it. It used to additionally emit a ``raw_measurements.csv`` ``csvw:Table``
+    over three columns from a module constant — the same header in every crate,
+    fired by the step merely *having* a result. Once the deposit's raw tier
+    became that result (#589) the table's only effect was to stand an empty stub
+    beside the real measurements, so it was removed; (b) is now its guard.
+
+The two are asymmetric on purpose. The condition table's schema resolves
+``valueUrl`` to this crate's own Sample / MolecularEntity ids — it states which
+compounds at which doses THIS experiment expected, which is worth declaring
+before a single row lands. A constant header states nothing about any
+experiment.
 
 Graph-only assertions (no ``build_and_validate``) so the suite stays fast.
 """
@@ -81,13 +88,6 @@ _EXPECTED_CONDITION_COLUMNS = [
     ("technical_replicate", "string", "http://www.ebi.ac.uk/efo/EFO_0002090", None),
     ("control", "string", "http://purl.obolibrary.org/obo/NCIT_C28143", None),
 ]
-
-_EXPECTED_RAW_COLUMNS = [
-    ("well_id", "string", "http://purl.org/dc/terms/identifier"),
-    ("measured_value", "double", "http://purl.obolibrary.org/obo/IAO_0000109"),
-    ("measured_unit", "string", "http://purl.obolibrary.org/obo/IAO_0000039"),
-]
-
 
 # --- (a) Condition-table 10-column schema -----------------------------------
 
@@ -196,7 +196,14 @@ def test_an_exposure_without_a_declared_result_still_gets_the_table():
     assert [r for r in _ids(process.get("output")) if r.endswith("condition_table.csv")]
 
 
-# --- (b) raw_measurements typed csvw:Table ----------------------------------
+# --- (b) the readout's result is what it measured ---------------------------
+#
+# An EndpointReadout used to get a synthesized `raw_measurements.csv` bolted
+# beside its real result: a csvw:Table over three columns read from a module
+# constant, identical in every crate. It fired on `if er_result:` — so once the
+# deposit's raw tier became the result (#589) it would have appended an empty
+# stub next to the actual measurements. The tests below are the regression guard
+# that it stays gone.
 
 
 def _endpoint_readout_state() -> CrateState:
@@ -221,41 +228,33 @@ def _endpoint_readout_state() -> CrateState:
     return state
 
 
-def test_endpoint_readout_emits_typed_raw_measurements_table():
+def test_the_readouts_result_is_its_deposited_file_and_nothing_else():
     by_id = _by_id(_assemble(_endpoint_readout_state()))
     proc = by_id["#LabProcess_proc_er"]
-    out_ids = _ids(proc.get("output"))
-    # Explicit result file is preserved …
-    assert "data/raw.csv" in out_ids
-    # … and a typed raw_measurements table is emitted alongside it.
-    rm_ids = [i for i in out_ids if str(i).endswith("raw_measurements.csv")]
-    assert rm_ids, f"expected a raw_measurements.csv output, got {out_ids}"
-    rm = by_id[rm_ids[0]]
-    tt = rm["@type"] if isinstance(rm["@type"], list) else [rm["@type"]]
-    assert "File" in tt and "csvw:Table" in tt
+
+    assert _ids(proc.get("output")) == ["data/raw.csv"]
 
 
-def test_raw_measurements_schema_has_three_typed_columns():
-    by_id = _by_id(_assemble(_endpoint_readout_state()))
-    proc = by_id["#LabProcess_proc_er"]
-    rm_id = next(
-        i for i in _ids(proc.get("output")) if str(i).endswith("raw_measurements.csv")
-    )
-    rm = by_id[rm_id]
-    schema_ids = [s for s in _ids(rm.get("conformsTo")) if "schema" in str(s)]
-    assert schema_ids, "raw_measurements must conformTo a schema entity"
-    schema = by_id[schema_ids[0]]
-    stype = schema["@type"] if isinstance(schema["@type"], list) else [schema["@type"]]
-    assert "csvw:Schema" in stype
-    cols = [by_id[cid] for cid in _ids(schema.get("columns"))]
-    got = [(c["titles"], c["datatype"], _iri(c["propertyUrl"])) for c in cols]
-    assert got == _EXPECTED_RAW_COLUMNS
-    for c in cols:
-        assert c["@type"] == "csvw:Column"
+def test_no_synthesized_measurements_table_is_appended_to_any_readout():
+    """The stub used to arrive precisely BECAUSE the step already had a result."""
+    graph = _assemble(_endpoint_readout_state())
+
+    manufactured = [
+        n["@id"] for n in graph if str(n.get("@id", "")).endswith("raw_measurements.csv")
+    ]
+    assert manufactured == [], manufactured
 
 
-def test_endpoint_readout_with_raw_measurements_validates_clean():
-    """The synthesized raw_measurements csvw:Table passes full ISA-Tox SHACL."""
+def test_a_readout_with_a_deposited_result_carries_no_orphan_schema():
+    """Its 3 columns + schema were 4 of the 152 stub entities in a real crate."""
+    graph = _assemble(_endpoint_readout_state())
+
+    assert [n["@id"] for n in graph if "csvw:Schema" in str(n.get("@type"))] == []
+    assert [n["@id"] for n in graph if "csvw:Column" in str(n.get("@type"))] == []
+
+
+def test_endpoint_readout_with_a_deposited_result_validates_clean():
+    """Removing the appended table must not cost the readout its tox conformance."""
     state = CrateState()
     state.metadata.title = "Readout crate"
     state.add_entity(_ent("inv_1", "Investigation", name="Inv"))
@@ -282,10 +281,13 @@ def test_endpoint_readout_with_raw_measurements_validates_clean():
     assert result["conformance"] == {"base": True, "isa": True, "tox": True}
 
 
-def test_endpoint_readout_without_result_emits_no_raw_measurements():
-    """No explicit result => no synthesized table (D5; preserves repair contract)."""
+def test_a_resultless_readout_still_fires_its_required_issue():
+    """The repair contract (#179) depends on the gap being reported, not papered over."""
     state = CrateState()
-    state.add_entity(_ent("assay_1", "Assay", name="A"))
+    state.metadata.title = "Readout crate"
+    state.add_entity(_ent("inv_1", "Investigation", name="Inv"))
+    state.add_entity(_ent("study_1", "Study", name="Study", investigation_id="inv_1"))
+    state.add_entity(_ent("assay_1", "Assay", name="Assay", study_id="study_1"))
     state.add_entity(
         _ent(
             "proc_er",
@@ -295,13 +297,16 @@ def test_endpoint_readout_without_result_emits_no_raw_measurements():
             assay_id="assay_1",
             samples="sample_x",
             endpoint="viability",
+            detection_instrument="plate reader",
         )
     )
     state.add_entity(_ent("sample_x", "Sample", name="exposed"))
-    by_id = _by_id(_assemble(state))
-    proc = by_id["#LabProcess_proc_er"]
-    out_ids = _ids(proc.get("output"))
-    assert not any(str(i).endswith("raw_measurements.csv") for i in out_ids), out_ids
+
+    result = build_and_validate(state, severity="required")
+
+    assert any("result" in str(i.get("message", "")).lower() for i in result["issues"]), (
+        result["issues"]
+    )
 
 
 class TestEmptyConditionTableSaysSo:

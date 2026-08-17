@@ -99,10 +99,10 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
         processes,
         ("detection_instrument", "instrument_manufacturer", "software", "data_processing"),
     )
-    # A provisional placeholder now materialises as a real (header-only) file so
-    # the crate stops claiming files it does not contain (#438) — but it holds no
-    # measurements, so counting it here would turn "data files included" green for
-    # a crate whose data is still entirely absent.
+    # A placeholder for an undeposited output materialises as a real (empty) file
+    # so the crate stops claiming files it does not contain (#438) — but it holds
+    # no measurements, so counting it here would turn "data files included" green
+    # for a crate whose data is still entirely absent.
     data_ok = any(not f.fields.get("provisional") for f in state.list_entities("File"))
     investigations = state.list_entities("Investigation")
     attribution_ok = (
