@@ -33,7 +33,7 @@ tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
         a sh:PropertyShape ;
         sh:path schema:license ;
         sh:minCount 1 ;
-        sh:message "Investigation MUST specify a schema:license (use 'ALL RIGHTS RESERVED BY THE AUTHORS' if none available)" ;
+        sh:message "Investigation MUST specify a schema:license — the terms under which this crate may be reused, as stated by the depositor" ;
         sh:severity sh:Violation ;
     ] ;
     sh:property [
