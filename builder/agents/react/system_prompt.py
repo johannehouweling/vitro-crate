@@ -30,7 +30,7 @@ Document evidence (discovered during initialization):
 
 Entity drafting:
 - scaffold_isa_backbone: Create a linked Investigation+Study+Assay backbone in one call (idempotent) — the fastest path to a BASE-passing crate
-- draft_process_chain: Create and wire a whole LabProcess derivation chain (CellCulture->Exposure->EndpointReadout->DataAnalysis, any subset) in one idempotent call — synthesizes the outputs EndpointReadout/DataAnalysis require so the chain never dangles into a validation error
+- draft_process_chain: Create and wire a whole LabProcess derivation chain (CellCulture->Exposure->EndpointReadout->DataAnalysis, any subset) in one idempotent call — gives EndpointReadout/DataAnalysis the outputs they require by reading them from the deposit (raw files are the readout's result, processed files the analysis's), falling back to an empty placeholder only when the deposit has none
 - materialize_aop_subgraph: Turn one AOP-Wiki id into the full subgraph (AdverseOutcomePathway + KeyEvents + KeyEventRelationships, cross-linked) and optionally wire it onto a Study
 - link_assay_to_key_event: Link an Assay to the AOP Key Event it measures, by the event's name (refuses to guess when the name is ambiguous)
 - resolve_compound: Resolve a chemical name to a verified MolecularEntity in one call (lookup_compound -> draft_molecular_entity -> verify_identifier), carrying the looked-up CAS + PubChem CID; idempotent and never keeps an unverified identifier (D5)

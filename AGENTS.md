@@ -916,10 +916,21 @@ is threaded into the next step's input, so the chain is fully connected and
 referenceable. **Its load-bearing job (§14.3):** `EndpointReadout`/`DataAnalysis`
 have **no build-time output fallback**, so a process with no explicit `result`
 (and, for DataAnalysis, no `object`) fires a tox REQUIRED Violation. The composite
-**synthesizes** the missing output — a placeholder `Sample` (via `draft_sample`)
-for a material producer (CellCulture) or a placeholder `File` (via `draft_file`)
-for a data producer (EndpointReadout/DataAnalysis) — and `link`s it, so
-the chain never dangles. **The Exposure is the deliberate exception (#285):** it is
+closes that trap, but **asks the deposit first** (#589): the scanned files filed
+under a raw directory are the `EndpointReadout`'s result and the processed ones
+the `DataAnalysis`'s, found by `_deposited_outputs` and wired whole
+(`schema:result` takes "at least one"). Only when the deposit is silent — or its
+directories are ambiguous about which tier they hold — does it **synthesize** a
+placeholder: a `Sample` (via `draft_sample`) for a material producer
+(CellCulture), an empty `File` (via `draft_file`) for a data producer. Scoped to
+the assay: one Assay owns the whole deposit, several means only what is already
+attached counts, so no assay is given its neighbour's measurements.
+
+Asking first is what keeps the chain pointing at evidence: a composite that
+synthesizes regardless produces a crate whose every chain ends at an empty stub
+while the deposit's measurements sit beside it, referenced by nothing.
+
+**The Exposure is the deliberate exception (#285):** it is
 NOT given a generic placeholder result here, because its build-time fallback
 (`_crate_mapping._synth_condition_table`) is the *semantically-correct* output — the
 CSVW **condition table** that `schema:about`-references the test MolecularEntities
@@ -929,15 +940,19 @@ link, demoting the compounds to the weaker Study `schema:mentions` backstop. So 
 Exposure step is left output-less in state and the build emits the condition table
 as its result; the material flow still passes downstream via the step's inputs.
 **Requires:** an existing `assay_id` + each step's
-`process_type`. **Synthesizes (only when not supplied/derivable):** the produced
-output entity for EndpointReadout/DataAnalysis (and a DataAnalysis input `File`
-when it has no upstream step); the Exposure's output is the build's condition table.
-**Respects:** any explicit `object`/`result` you pass — those win over synthesis.
+`process_type`. **Reads from the deposit (before synthesizing):** the raw /
+processed files that are the step's real output. **Synthesizes (only when the
+deposit has none):** the produced output entity for EndpointReadout/DataAnalysis
+(and a DataAnalysis input `File` when it has no upstream step); the Exposure's
+output is the build's condition table.
+**Respects:** any explicit `object`/`result` you pass — those win over both.
 Placeholders carry only structural metadata (name, crate path, role); they
-**never fabricate measurement values or identifiers** (D5) — they are header-less
-stubs to be filled with `populate_condition_table` / `set_fields`. Idempotent:
-placeholder/process ids are derived deterministically from the step, so re-running
-reuses them rather than duplicating.
+**never fabricate measurement values or identifiers** (D5), and they declare no
+column contract, because a file nobody deposited has no shape to declare.
+Idempotent: placeholder/process ids are derived deterministically from the step,
+so re-running reuses them rather than duplicating; deposited files are found-or-
+created by `provenance.find_or_create_file`, deduped on destination and source so
+`attach_files` and the chain converge on one entity per file rather than two.
 `attach_files` is the bulk *placement* verb (#177): it associates a **group** of
 scanned files with a Study or Assay in one call (select by `name_contains` /
 `mime_contains` / explicit `paths`, stamp an optional `role`). For each match it
@@ -1025,13 +1040,26 @@ single source of truth — `_CONDITION_TABLE_HEADER` is also derived from the
 column constant, so the placeholder header and the typed schema cannot drift),
 so `validate_table` needs no hand-authored schema for the populated table.
 
-An `EndpointReadout` that already emits result file(s) additionally emits a typed
-`raw_measurements.csv` `csvw:Table` (#180, Lane D) — 3 columns (`well_id`,
-`measured_value`, `measured_unit`), typed the same way the condition table is
-(`datatype` + `propertyUrl`). It is **appended** to the readout's results, never
-substituted, so a resultless readout still fires the "MUST have a result" issue
-for `fix_required_issues`. The CSV is header-only — no measurement rows are
-fabricated (D5). Both tables emit `propertyUrl`/`valueUrl` as `{@id}` references
+An `EndpointReadout`'s results are the files it measured, and nothing is appended
+to them. **The deposit decides what a step produced** (#589): raw data files are
+the `EndpointReadout`'s `schema:result`, processed ones the `DataAnalysis`'s,
+read from the directory the depositor filed them under
+(`composites._deposited_outputs`). A directory naming both tiers, or neither,
+resolves to neither — the same refusal `_populate_condition_table_from_plan`
+makes on ambiguous candidates, and not a corner case: of the three real deposits
+only svhps22 separates the tiers, while svhps21 and svhps26 file both in one
+`Raw data + individual processed data/`.
+
+Only a step whose output the deposit does **not** contain gets a placeholder, and
+that placeholder is an empty `File` — no `csvw:Table` co-type, no schema, no
+columns. Declaring a column contract for a file nobody produced is a claim about
+data that does not exist; over zero rows its conformance was vacuously true
+(#473), and the columns came from a module constant identical in every crate.
+The condition table is the deliberate contrast: its schema resolves `valueUrl` to
+this crate's own `Sample` / `MolecularEntity` ids, so it states which compounds at
+which doses *this* experiment expected — worth declaring before a row lands.
+
+The condition table emits `propertyUrl`/`valueUrl` as `{@id}` references
 (not bare strings): RO-Crate 1.2's base profile flags an IRI value used as a
 string when that IRI is also a described entity (e.g. the cell-line `NCIT_C16403`,
 which a `CellLineSample` materialises as a `cell line` `DefinedTerm`).
@@ -1969,9 +1997,9 @@ D5 — identifiers come from lookups or the value is dropped, never fabricated):
 - **Reference wiring** — root `funder` → Organization, root `about` → the DataAnalysis
   LabProcess, Assay `measurementMethod` → BAO `DefinedTerm`, and the hasPart-family
   aliases re-emitted as resolved File refs nested under the assay.
-- **CSVW payload** — the full Exposure condition table plus a synthesized, header-only
-  `raw_measurements.csv` `csvw:Table` appended to an EndpointReadout that already has
-  a result (never substituting the required result; never fabricating rows).
+- **CSVW payload** — the full Exposure condition table. Nothing is appended to an
+  EndpointReadout: its result is the deposit's raw tier (#589), never a manufactured
+  table standing beside it.
 - **Characteristics/properties** — CellLineSample `organ`/`tissue` and LabProcess
   `additionalProperty` as PropertyValue characteristics, and source-code co-typing
   (`@type:[File, SoftwareSourceCode]` with `schema:programmingLanguage`).

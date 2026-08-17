@@ -761,14 +761,17 @@ def export_crate(
         out: dict[str, Any] = {"success": True, "crate_path": output_path, "error": None}
         if validation_info is not None:
             out["validation"] = validation_info
-        # Empty templates written to keep the derivation chain complete (#438).
-        # Returned so the caller can ask the user to confirm or replace them —
-        # they are the one part of the payload that carries no real data.
-        provisional = sorted(
+        # Steps whose output the deposit did not contain, so the build wrote an
+        # empty stand-in to keep the derivation chain complete (#438). Returned so
+        # the caller can ask the user to supply or explain them — they are the one
+        # part of the payload that carries no real data. Named for what they are
+        # rather than "provisional_tables": they stopped being tables when the
+        # manufactured column contract went (#589).
+        undeposited = sorted(
             _file_dest(fe) for fe in state.list_entities("File") if fe.fields.get("provisional")
         )
-        if provisional:
-            out["provisional_tables"] = provisional
+        if undeposited:
+            out["undeposited_outputs"] = undeposited
         if wiring["wired"] or wiring["ambiguous"]:
             out["wiring"] = wiring
         # Remembered AFTER the write, and only on success, so a failed export is

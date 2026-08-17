@@ -22,6 +22,7 @@ provenance graph dangles. These tools give the agent explicit verbs:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,7 @@ def draft_file(
     encoding_format: str | None = None,
     additional_types: list[str] | None = None,
     programming_language: str | None = None,
+    entity_id: str | None = None,
 ) -> Entity:
     """Create a File data entity in the state.
 
@@ -110,6 +112,10 @@ def draft_file(
             (gold ``plot.py``). When omitted the node stays a plain ``File``.
         programming_language: Optional schema:programmingLanguage (e.g. "Python")
             — for a source-code File. Left unset when omitted.
+        entity_id: Optional explicit id. Ids are normally minted from ``name``,
+            which collides for two files sharing a basename in different
+            directories; :func:`_unclaimed_file_id` passes a qualified id in
+            exactly that case and ``None`` otherwise.
 
     Returns:
         The newly created File Entity.
@@ -137,7 +143,7 @@ def draft_file(
     if programming_language:
         fields["programmingLanguage"] = programming_language
     entity = Entity(
-        entity_id=_make_entity_id("file", name, {}),
+        entity_id=_make_entity_id("file", name, {"entity_id": entity_id} if entity_id else {}),
         type="File",
         _provenance=EntityProvenance(created_by="llm"),
     )
@@ -253,6 +259,116 @@ def _append_haspart(entity: Entity, child_id: str) -> None:
     entity.set_field_status("hasPart", "filled", "llm")
 
 
+def _unclaimed_file_id(state: CrateState, filename: str, dest: str) -> str | None:
+    """An entity_id for *dest* that no OTHER file already holds.
+
+    File ids are minted from the file's name, so two deposited files sharing a
+    basename in different directories mint the same id and the second silently
+    replaced the first — on svhps22, `characterisation/README.txt` and
+    `processeddata/README.txt`, leaving one entity that two different steps then
+    claimed as their output.
+
+    Returns ``None`` when the name-derived id is free (the overwhelming case), so
+    ids stay readable and unchanged; only an actual clash is qualified, by a
+    digest of the destination path so the result is stable across runs.
+
+    Args:
+        state: The crate state to check for a claimant.
+        filename: The file's basename, from which the id is normally minted.
+        dest: The crate-relative destination that identifies this file.
+
+    Returns:
+        A distinct entity_id, or ``None`` to let the caller mint the usual one.
+    """
+    minted = _make_entity_id("file", filename, {})
+    claimant = state.get_entity(minted)
+    if claimant is None or str(claimant.fields.get("dest_path") or "") == dest:
+        return None
+    digest = hashlib.blake2s(dest.encode("utf-8"), digest_size=4).hexdigest()
+    return f"{minted}_{digest}"
+
+
+def file_index_by_source(state: CrateState) -> dict[str, Entity]:
+    """Existing File entities keyed by resolved on-disk source AND by destination.
+
+    The index behind find-or-create. Built once by a bulk caller and threaded
+    through :func:`find_or_create_file`, so placing fifty files is one pass over
+    the entities rather than fifty.
+
+    Keyed both ways because neither key alone is enough. The resolved source
+    catches one file reachable by two different scanned paths — but it resolves
+    only for a file that exists at build time, so on its own it silently stopped
+    deduping whenever the deposit was not mounted, and the entity a chain had
+    already wired as a step's result was minted a second time by ``attach_files``
+    (each copy then carrying half the metadata). ``dest_path`` is derived from the
+    scan and always available, so it closes that gap.
+    """
+    input_path = state.metadata.input_path
+    out: dict[str, Entity] = {}
+    for fe in state.list_entities("File"):
+        dest = str(fe.fields.get("dest_path") or "")
+        if dest:
+            out.setdefault(dest, fe)
+        src = _file_source(fe, input_path)
+        if src:
+            out[str(Path(src).resolve())] = fe
+    return out
+
+
+def find_or_create_file(
+    state: CrateState,
+    fc: Any,
+    *,
+    role: str | None = None,
+    index: dict[str, Entity] | None = None,
+) -> Entity:
+    """The File entity for a scanned file — created once, then reused (#177, #589).
+
+    Deduped by resolved on-disk source and by destination (see
+    :func:`file_index_by_source`), so one deposited file is never represented
+    twice however it is reached: ``attach_files`` placing it under an Assay and
+    ``draft_process_chain`` wiring it as a step's result converge on the same
+    entity instead of minting rivals that would each carry half the metadata.
+
+    Two *different* files sharing a basename are the opposite hazard — they mint
+    one id and silently overwrite each other — which :func:`_unclaimed_file_id`
+    resolves.
+
+    Args:
+        state: The crate state to find or create in.
+        fc: The scanned-file record (``FileClassification``).
+        role: Optional role to stamp — set on creation, refreshed on a hit.
+        index: Optional prebuilt source→Entity index from
+            :func:`file_index_by_source`; built on demand when omitted. A caller
+            passing one must reuse it across the batch, since new entities are
+            recorded there.
+
+    Returns:
+        The File entity representing *fc*.
+    """
+    input_path = state.metadata.input_path
+    if index is None:
+        index = file_index_by_source(state)
+    key = _scanned_abspath(fc.path, input_path)
+    dest = _scanned_dest(fc.path, fc.filename, input_path)
+    fe = index.get(key) or index.get(dest)
+    if fe is None:
+        fe = draft_file(
+            state,
+            name=fc.filename,
+            path=dest,
+            role=role,
+            encoding_format=fc.mime_type or None,
+            entity_id=_unclaimed_file_id(state, fc.filename, dest),
+        )
+        index[key] = fe
+        index[dest] = fe
+    elif role:
+        fe.fields["role"] = role
+        fe.set_field_status("role", "filled", "llm")
+    return fe
+
+
 def attach_files(
     state: CrateState,
     to: str,
@@ -294,7 +410,6 @@ def attach_files(
             f"{target.type}. Use draft_file + link for process inputs/outputs."
         )
 
-    input_path = state.metadata.input_path
     name_q = name_contains.lower() if name_contains else None
     mime_q = mime_contains.lower() if mime_contains else None
     explicit = {str(p) for p in paths} if paths else None
@@ -310,31 +425,13 @@ def attach_files(
             return False
         return True
 
-    # Index existing File entities by resolved on-disk source (find-or-create).
-    existing: dict[str, Entity] = {}
-    for fe in state.list_entities("File"):
-        src = _file_source(fe, input_path)
-        if src:
-            existing[str(Path(src).resolve())] = fe
+    existing = file_index_by_source(state)
 
     file_ids: list[str] = []
     for fc in state.scanned_files:
         if not _matches(fc):
             continue
-        key = _scanned_abspath(fc.path, input_path)
-        fe = existing.get(key)
-        if fe is None:
-            fe = draft_file(
-                state,
-                name=fc.filename,
-                path=_scanned_dest(fc.path, fc.filename, input_path),
-                role=role,
-                encoding_format=fc.mime_type or None,
-            )
-            existing[key] = fe
-        elif role:
-            fe.fields["role"] = role
-            fe.set_field_status("role", "filled", "llm")
+        fe = find_or_create_file(state, fc, role=role, index=existing)
         _append_haspart(target, fe.entity_id)
         if fe.entity_id not in file_ids:
             file_ids.append(fe.entity_id)
