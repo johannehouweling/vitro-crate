@@ -130,6 +130,7 @@ def _placeholder_values() -> frozenset[str]:
     """
     global _PLACEHOLDER_CACHE
     if _PLACEHOLDER_CACHE is None:
+        from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
         from builder.tools.builder import (
             _DEFAULT_ROOT_NAME,
             _PLACEHOLDER_ROOT_DESCRIPTION,
@@ -142,10 +143,14 @@ def _placeholder_values() -> frozenset[str]:
                 _PLACEHOLDER_ROOT_NAME,
                 _DEFAULT_ROOT_NAME,
                 _PLACEHOLDER_ROOT_DESCRIPTION,
-                # _crate_mapping's default root license; there is no constant for
-                # it, and the module already refuses to credit `conditionsOfAccess`
-                # from it for the same reason.
-                "ALL RIGHTS RESERVED BY THE AUTHORS",
+                # The licence entity a crate carries when the depositor stated no
+                # terms (#540). Discounted for the same reason its all-rights-
+                # reserved predecessor was: crediting it would read an unanswered
+                # question as answered and stop the loop asking for the real one.
+                # Keyed on the entity id, so the discount follows the value rather
+                # than a spelling — the module already refuses `conditionsOfAccess`
+                # derived from it on the same grounds.
+                LICENCE_NOT_STATED_ID,
             )
         )
     return _PLACEHOLDER_CACHE
@@ -174,15 +179,24 @@ def _additional_type_of(node: dict[str, Any]) -> str | None:
 def _nonempty(value: Any) -> bool:
     """A property counts as filled when it carries a real, non-placeholder value.
 
-    A bare ``{"@id": …}`` reference or a list of them counts. A value the BUILD
-    synthesized in the user's absence does not — see :data:`_PLACEHOLDER_VALUES`.
+    A bare ``{"@id": …}`` reference or a list of them counts — unless the thing
+    it points AT is itself synthesized. A placeholder is not made real by being
+    modelled as an entity: the root's licence is a reference now (#540), and
+    crediting it would read an unanswered question as answered and stop the loop
+    asking for the real one. Values the BUILD synthesized in the user's absence
+    never count, whether they arrive as a string or as a reference to one — see
+    :func:`_placeholder_values`.
     """
     if value is None:
         return False
     if isinstance(value, str):
         return bool(value) and value.strip().lower() not in _placeholder_values()
-    if isinstance(value, (list, dict)):
+    if isinstance(value, dict):
+        if set(value) == {"@id"}:
+            return _nonempty(value["@id"])
         return len(value) > 0
+    if isinstance(value, list):
+        return any(_nonempty(item) for item in value)
     return True
 
 

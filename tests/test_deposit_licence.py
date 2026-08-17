@@ -180,3 +180,94 @@ class TestTheDeclaredLicenceReachesTheCrate:
         assert licence.id == "https://creativecommons.org/licenses/by/4.0/legalcode"
         assert licence["name"] == "Creative Commons Attribution 4.0 International"
         assert licence["description"]
+
+
+class TestAnUnstatedLicenceSaysSo:
+    """The root carries a licence entity that states the absence (#540).
+
+    ``license`` is a base MUST, so the field cannot simply be dropped — the
+    earlier attempt cost 56 tests and every licence-less crate its base verdict.
+    But answering that MUST with ``ALL RIGHTS RESERVED BY THE AUTHORS`` converts
+    an unanswered question into the most restrictive claim available, asserted
+    by machine over someone else's data.
+
+    RO-Crate lets ``license`` be a ``CreativeWork`` rather than a URL, so the
+    crate can satisfy the requirement while claiming nothing: an entity whose
+    name and description say the terms were never stated. A consumer branches on
+    its ``@id`` instead of string-matching English prose.
+    """
+
+    @staticmethod
+    def _root(license: str | None) -> tuple[dict, dict]:
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+
+        state = CrateState()
+        state.metadata.title = "A crate"
+        state.metadata.license = license
+        crate = ROCrate()
+        populate_crate(state, crate, None, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+        root = next(n for n in graph if n.get("@id") == "./")
+        return root, {str(n.get("@id")): n for n in graph}
+
+    def test_the_licence_is_an_entity_not_a_restrictive_string(self) -> None:
+        from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
+
+        root, by_id = self._root(None)
+
+        assert root["license"] == {"@id": LICENCE_NOT_STATED_ID}
+        entity = by_id[LICENCE_NOT_STATED_ID]
+        assert entity["@type"] == "CreativeWork"
+        assert entity["name"]
+        assert entity["description"]
+
+    def test_it_claims_neither_rights_nor_restrictions(self) -> None:
+        from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
+
+        _root, by_id = self._root(None)
+        text = f"{by_id[LICENCE_NOT_STATED_ID]['name']} {by_id[LICENCE_NOT_STATED_ID]['description']}"
+
+        assert "all rights reserved" not in text.lower()
+        # It must not read as a grant either — an unknown licence is not open.
+        for grant in ("public domain", "freely available", "may be reused without"):
+            assert grant not in text.lower(), grant
+
+    def test_the_base_requirement_is_still_satisfied(self) -> None:
+        """The whole point of an entity over an omission: crates stay conformant."""
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from profiles.validator import validate_crate_dict
+
+        state = CrateState()
+        state.metadata.title = "A crate"
+        crate = ROCrate()
+        populate_crate(state, crate, None, materialize_payload=False)
+        doc = crate.metadata.generate()
+
+        messages = [
+            issue.message
+            for result in validate_crate_dict(doc, severity="required", profile="base")
+            for issue in result.issues
+            if issue.severity == "required"
+        ]
+        assert not any("license" in m.lower() for m in messages), messages
+
+    def test_a_declared_licence_is_untouched(self) -> None:
+        root, by_id = self._root("https://creativecommons.org/licenses/by/4.0/")
+        assert root["license"] == {"@id": "https://creativecommons.org/licenses/by/4.0/"}
+        assert by_id["https://creativecommons.org/licenses/by/4.0/"]["name"]
+
+    def test_an_unstated_licence_never_counts_as_filled(self) -> None:
+        """It must not stop the loop asking for the real one.
+
+        The MIT scorer discounted the old placeholder string for exactly this
+        reason; the discount has to follow the value, not the spelling.
+        """
+        from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
+        from builder.tools.mit_assessment import _nonempty, _placeholder_values
+
+        assert not _nonempty({"@id": LICENCE_NOT_STATED_ID})
+        assert LICENCE_NOT_STATED_ID.lower() in {v.lower() for v in _placeholder_values()}

@@ -133,10 +133,32 @@ class TestTheLicenceSaysWhatItIs:
         assert root is not None
         assert root["license"] == "https://example.org/lab-terms"
 
-    def test_the_placeholder_stays_a_string(self):
-        root = _node(_doc(CrateState()), "./")
+    def test_an_unstated_licence_is_an_entity_that_says_so(self):
+        """Was ``test_the_placeholder_stays_a_string`` (#540).
+
+        The placeholder used to be the literal "ALL RIGHTS RESERVED BY THE
+        AUTHORS", and this pinned it staying a plain string rather than being
+        dressed up as a described licence entity — which was right, because
+        naming it as a licence would have made the invented claim look
+        deliberate.
+
+        It is no longer a claim to dress up: an unstated licence is now an
+        entity that states the absence, so it satisfies the base MUST while
+        asserting no terms at all. The distinction the original test protected
+        still holds — a real licence and an unstated one must never be
+        indistinguishable — and is asserted here on the new shape.
+        """
+        from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
+
+        doc = _doc(CrateState())
+        root = _node(doc, "./")
         assert root is not None
-        assert root["license"] == "ALL RIGHTS RESERVED BY THE AUTHORS"
+        assert root["license"] == {"@id": LICENCE_NOT_STATED_ID}
+
+        entity = _node(doc, LICENCE_NOT_STATED_ID)
+        assert entity is not None
+        assert entity["@type"] == "CreativeWork"
+        assert "all rights reserved" not in entity["description"].lower()
 
     @pytest.mark.parametrize(
         ("url", "expected"),

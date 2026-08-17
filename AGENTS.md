@@ -1541,6 +1541,18 @@ warning, so the heaviest payloads are still removed.
 The Investigation **is** the Root Data Entity (`./`); the ISA RO-Crate profile mandates this and
 the SHACL shapes forbid alternatives (a Study carrying `additionalType "Study"` MUST be `hasPart`
 of the root via `StudyMustBeReferencedFromInvestigation`, so the root cannot itself be a Study).
+**An unstated licence says so, and claims nothing (#540).** `license` is a base MUST, so the field
+cannot be left empty — but answering it with `ALL RIGHTS RESERVED BY THE AUTHORS`, as it once did,
+converts an unanswered question into the most restrictive claim available, asserted by machine over
+someone else's data by a tool whose purpose is FAIR outputs. RO-Crate allows `license` to be a
+`CreativeWork` rather than a URL, so a crate with no declared terms carries `LICENCE_NOT_STATED_ID`
+(`#licence-not-stated`) — an entity whose name and description record that the depositor stated
+nothing, which is neither a grant nor a restriction. It satisfies the requirement, keeps the crate
+conformant, and is machine-readable: a consumer branches on the `@id` rather than string-matching
+prose. A licence the depositor *did* state always wins, and is emitted as a described entity when
+`describe_license` recognises it (never renamed when it does not). The gap engine and MIT scorer
+discount the entity by id, so an unstated licence never reads as filled — see §Gap Analysis.
+
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 
 - **Folds a single Investigation entity onto the root** instead of emitting a duplicate
@@ -2477,10 +2489,12 @@ imports and calls it. It calls (does not re-implement) the three assessors:
   engine is what made the loop ask for identifiers the crate already carried. The
   document assembled for the SHACL sweep is threaded into the MIT pass, so a
   `GapReport` costs **one** assembly, not two. A value the build *synthesized* in
-  the user's absence (the placeholder root name/description, the default
-  `license`) never counts as filled — crediting it would stop the loop asking for
-  the real one; the values are imported from the build's own constants rather
-  than duplicated.
+  the user's absence (the placeholder root name/description, the "licence not
+  stated" entity) never counts as filled — crediting it would stop the loop asking
+  for the real one; the values are imported from the build's own constants rather
+  than duplicated. The licence discount is keyed on `LICENCE_NOT_STATED_ID`, and
+  `_nonempty` unwraps a single-key `{"@id": …}` before checking, so a placeholder
+  is not made real by being modelled as an entity rather than a string (#540).
 - `assess_fair_maturity` — every *failing* indicator is a gap.
 
 **Tiering** mirrors the §6 validation layers (MUST = blocking, SHOULD =

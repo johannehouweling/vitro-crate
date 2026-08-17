@@ -1143,6 +1143,41 @@ def _mirror_profile_predicates(crate: ROCrate) -> None:
 # not an oversight.
 
 
+# The licence entity a crate carries when the depositor stated no terms (#540).
+# `license` is a base MUST, so the field cannot be left empty — but answering it
+# with "ALL RIGHTS RESERVED BY THE AUTHORS", as this did, turns an unanswered
+# question into the most restrictive claim available, asserted by machine over
+# someone else's data by a tool whose purpose is FAIR outputs.
+#
+# RO-Crate allows `license` to be a CreativeWork rather than a URL, so the crate
+# satisfies the requirement while claiming nothing. The id is stable and local so
+# a consumer can branch on it instead of string-matching English prose, and so
+# `mit_assessment` can keep refusing to credit it — an unstated licence must not
+# read as filled, or the loop stops asking for the real one.
+LICENCE_NOT_STATED_ID = "#licence-not-stated"
+_LICENCE_NOT_STATED_NAME = "Licence not stated"
+_LICENCE_NOT_STATED_DESCRIPTION = (
+    "The depositor did not state licence terms for this dataset. This is neither "
+    "a grant of rights nor a restriction — the terms are simply unknown. Ask the "
+    "depositor before reusing this data."
+)
+
+
+def _licence_not_stated(crate: ROCrate) -> Any:
+    """The licence entity for a crate whose depositor stated no terms (#540)."""
+    return crate.add(
+        ContextEntity(
+            crate,
+            LICENCE_NOT_STATED_ID,
+            properties={
+                "@type": "CreativeWork",
+                "name": _LICENCE_NOT_STATED_NAME,
+                "description": _LICENCE_NOT_STATED_DESCRIPTION,
+            },
+        )
+    )
+
+
 def _license_value(crate: ROCrate, license_value: str) -> Any:
     """The root's ``license``: a described contextual entity when we can name it.
 
@@ -1185,12 +1220,13 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     if m.date_modified:
         crate.root_dataset["dateModified"] = m.date_modified
     crate.root_dataset["additionalType"] = "Investigation"
-    # Base RO-Crate MUST: the Root Data Entity has a license. A license the user
-    # gave wins; the ISA-Tox shape endorses this placeholder when none is known.
+    # Base RO-Crate MUST: the Root Data Entity has a license. One the depositor
+    # stated wins; otherwise the crate says the terms were never stated rather
+    # than asserting the most restrictive ones on their behalf (#540).
     if m.license:
         crate.root_dataset["license"] = _license_value(crate, m.license)
     elif not crate.root_dataset.get("license"):
-        crate.root_dataset["license"] = "ALL RIGHTS RESERVED BY THE AUTHORS"
+        crate.root_dataset["license"] = _licence_not_stated(crate)
 
     # Conformance placement follows RO-Crate 1.2 (ro-crate-1.2.0.md §Profiles,
     # isa_tox.md §Conformance): the metadata file descriptor's conformsTo is
