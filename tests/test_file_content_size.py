@@ -89,6 +89,9 @@ class TestUndepositedOutputPlaceholders:
         fe = _file_entity(state, "file_prov", dest_path="data/p.csv", provisional=True)
         written = _materialize_missing_output(fe, tmp_path, "data/p.csv")
 
+        # It returns None when there is nothing to write; a silent None here
+        # would make the size comparison below vacuous rather than failing.
+        assert written is not None, "the placeholder was never materialised"
         assert Path(written).stat().st_size == _known_file_size(state, fe, None)
 
 
