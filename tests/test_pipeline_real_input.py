@@ -483,9 +483,21 @@ class TestRealInputPipeline:
         DataAnalysis does not, and cannot: the SOP describes its statistics
         (GraphPad/Prism, regression) only past offset ~17,000, far outside the
         2,000-char slice that tier receives — so the value never reaches the
-        extraction leaf, and `_pv` will not invent one (D5). Its
-        additionalProperty MUST is therefore the ONE outstanding issue; any other
-        issue here is a real regression.
+        extraction leaf, and `_pv` will not invent one (D5).
+
+        TWO issue classes are outstanding, and both are honest reports rather
+        than regressions:
+
+        * that DataAnalysis `additionalProperty`, as above;
+        * `schema:result` on the data-producing steps. This deposit DOES ship its
+          measurements, but it files both tiers in one
+          `raw data+individual processed data/` directory, so nothing can yet say
+          which step produced which file (#591). Rather than invent an empty CSV
+          to satisfy the shape, the steps keep no result and the Violation says
+          so (#592). When #591 lands and the files classify, these clear and the
+          only remaining issue is the DataAnalysis one.
+
+        Any OTHER issue here is a real regression.
         """
         from builder.agents.pipeline.pipeline import run_pipeline
 
@@ -496,9 +508,16 @@ class TestRealInputPipeline:
         assert result["conformance"]["isa"] is True, result["issues"]
         outstanding = result.get("issues") or []
         assert all(
-            str(i.get("property", "")).endswith("additionalProperty")
-            and "DataAnalysis" in str(i.get("message", ""))
+            (
+                str(i.get("property", "")).endswith("additionalProperty")
+                and "DataAnalysis" in str(i.get("message", ""))
+            )
+            or str(i.get("property", "")).endswith("result")
             for i in outstanding
+        ), outstanding
+        # The result gaps are reported, not papered over with a manufactured file.
+        assert not any(
+            str(i.get("entity_id", "")).startswith("data/") for i in outstanding
         ), outstanding
 
     def test_backbone_compound_and_protocol_materialized_from_real_input(

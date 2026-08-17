@@ -20,7 +20,7 @@ import warnings
 import pytest
 
 from builder.engine import AgentEngine
-from builder.state import CrateState
+from builder.state import CrateState, FileClassification
 from builder.tools.composites import draft_process_chain, scaffold_isa_backbone
 from builder.tools.validation import build_and_validate
 
@@ -49,9 +49,39 @@ def _ref_ids(value) -> set[str]:
 
 
 def _scaffold() -> tuple[CrateState, str]:
-    """A BASE/ISA-passing backbone; returns (state, assay_id)."""
+    """A BASE/ISA-passing backbone over a deposit; returns (state, assay_id).
+
+    The deposit carries a procedure document and one file of each data tier,
+    because a data-producing step is only drafted when something evidences it and
+    its ``result`` is the deposited file rather than a manufactured one (#589,
+    #592). Without them the chain would legitimately stop at Exposure and this
+    file would be testing a two-step chain by accident. The no-evidence and
+    no-output cases have their own coverage in
+    ``tests/test_missing_output_is_reported.py``.
+    """
     state = CrateState()
     state.metadata.title = "Chain test crate"
+    state.metadata.input_path = "/deposit"
+    state.scanned_files = [
+        FileClassification(
+            path="/deposit/assay/SOP.docx",
+            filename="SOP.docx",
+            size=2048,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        FileClassification(
+            path="/deposit/assay/raw data/plate.csv",
+            filename="plate.csv",
+            size=4096,
+            mime_type="text/csv",
+        ),
+        FileClassification(
+            path="/deposit/assay/processed data/fitted.csv",
+            filename="fitted.csv",
+            size=4096,
+            mime_type="text/csv",
+        ),
+    ]
     ids = scaffold_isa_backbone(
         state,
         investigation={"name": "Inv", "description": "d", "identifier": "INV-1"},

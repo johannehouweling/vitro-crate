@@ -436,8 +436,26 @@ def attach_files(
         if fe.entity_id not in file_ids:
             file_ids.append(fe.entity_id)
 
-    logger.debug("attach_files: %d file(s) -> %s", len(file_ids), to)
-    return {"attached": len(file_ids), "file_ids": file_ids, "to": to}
+    # Attachment is when the deposit's evidence arrives, so it is where "what did
+    # this step produce?" gets answered for any step still without an output
+    # (#592). Asking only at draft time made the answer depend on call order, and
+    # the real agent attaches AFTER drafting the chain — so the question was put
+    # when nothing was attached and answered "nothing deposited". Placement stays
+    # this verb's job; completing a wiring the deposit now supports is the same
+    # fact reaching the graph a moment later.
+    wired: list[str] = []
+    if target.type == "Assay":
+        from builder.tools.composites import wire_deposited_outputs
+
+        wired = wire_deposited_outputs(state, to)
+
+    logger.debug(
+        "attach_files: %d file(s) -> %s, wired %d process(es)", len(file_ids), to, len(wired)
+    )
+    result: dict[str, Any] = {"attached": len(file_ids), "file_ids": file_ids, "to": to}
+    if wired:
+        result["wired_outputs"] = wired
+    return result
 
 
 def _ref_ids(value: Any) -> set[str]:

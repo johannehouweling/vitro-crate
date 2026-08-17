@@ -63,10 +63,44 @@ def _entity(entity_id: str, type_: EntityType, **fields) -> Entity:
     )
 
 
-def _engine(state: CrateState | None = None) -> AgentEngine:
+# A minimal realistic deposit: a procedure document and one file of each data
+# tier. A data-producing step is only drafted when something evidences it, and
+# its result is the deposited file rather than a manufactured one (#589, #592),
+# so a test whose subject is the chain, its parameters or the plan needs a
+# deposit to be testing the full chain at all. Tests whose subject IS emptiness
+# keep the bare engine.
+def _deposit_files() -> list[FileClassification]:
+    return [
+        FileClassification(
+            path="/deposit/assay/SOP.docx",
+            filename="SOP.docx",
+            size=2048,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        FileClassification(
+            path="/deposit/assay/raw data/plate.csv",
+            filename="plate.csv",
+            size=4096,
+            mime_type="text/csv",
+        ),
+        FileClassification(
+            path="/deposit/assay/processed data/fitted.csv",
+            filename="fitted.csv",
+            size=4096,
+            mime_type="text/csv",
+        ),
+    ]
+
+
+def _engine(
+    state: CrateState | None = None, *, deposit: bool = False
+) -> AgentEngine:
     """A headless engine on *state* (no scan), session_id assigned via initialize()."""
     engine = AgentEngine(state=state or CrateState(), human_interface=SimulatedHumanInterface())
     engine.initialize()  # assigns session_id + opens profiler; no input_path => no scan
+    if deposit:
+        engine.state.metadata.input_path = "/deposit"
+        engine.state.scanned_files = _deposit_files()
     return engine
 
 
@@ -914,7 +948,7 @@ class TestMaterializePlan:
         seen = self._stub_extract_plan(monkeypatch)
         self._stub_lookups(monkeypatch)
 
-        engine = _engine(self._titled_state())
+        engine = _engine(self._titled_state(), deposit=True)
         # Scaffold first so the assay/study ids exist for the chain/aop wiring.
         pipeline_mod._scaffold_backbone(engine)
         result = pipeline_mod._materialize_plan(engine)
@@ -1339,7 +1373,7 @@ class TestMaterializePlan:
 
         monkeypatch.setattr(pipeline_mod, "extract_plan", boom)
 
-        engine = _engine(self._titled_state())
+        engine = _engine(self._titled_state(), deposit=True)
         pipeline_mod._scaffold_backbone(engine)
         result = pipeline_mod._materialize_plan(engine)
 
@@ -1377,9 +1411,12 @@ class TestMaterializePlan:
         assert result.get("compounds") == 0
         assert result.get("aops") == 0
         assert self._by_type(engine, "MolecularEntity") == []
-        # No scanned files ⇒ nothing attached, but the chain still ran.
+        # No scanned files ⇒ nothing attached, and the chain stops at Exposure:
+        # with neither data nor a procedure document, nothing evidences a readout
+        # or an analysis, so drafting them would invent the steps (#592). The
+        # deterministic path still runs — that is what this test is about.
         assert result.get("files") == 0
-        assert result.get("processes") == 4
+        assert result.get("processes") == 2
 
     def test_idempotent_no_duplicates(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
@@ -2739,7 +2776,7 @@ class TestDraftPersonSplit:
     passes wins. ORCID stays empty (D5)."""
 
     def test_falls_back_to_split_when_no_hint(self) -> None:
-        from builder.state import CrateState
+        from builder.state import CrateState, FileClassification
         from builder.tools.drafters import draft_person
 
         state = CrateState()
@@ -3063,7 +3100,7 @@ class TestMaterializeStandardProcessChain:
 
         self._no_provider(monkeypatch)
 
-        engine = _engine(self._titled_state())
+        engine = _engine(self._titled_state(), deposit=True)
         pipeline_mod._scaffold_backbone(engine)
         result = pipeline_mod._materialize_plan(engine)
 
@@ -3093,7 +3130,7 @@ class TestMaterializeStandardProcessChain:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
-        engine = _engine(self._titled_state())
+        engine = _engine(self._titled_state(), deposit=True)
         pipeline_mod._scaffold_backbone(engine)
         pipeline_mod._materialize_plan(engine)
 
@@ -3109,7 +3146,7 @@ class TestMaterializeStandardProcessChain:
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._no_provider(monkeypatch)
-        engine = _engine(self._titled_state())
+        engine = _engine(self._titled_state(), deposit=True)
         pipeline_mod._scaffold_backbone(engine)
         pipeline_mod._materialize_plan(engine)
         n1 = len(self._by_type(engine, "LabProcess"))
@@ -3124,7 +3161,7 @@ class TestMaterializeStandardProcessChain:
         from builder.agents.pipeline.pipeline import run_pipeline
 
         self._no_provider(monkeypatch)
-        engine = _engine(self._titled_state())
+        engine = _engine(self._titled_state(), deposit=True)
         run_pipeline(engine)
         procs = self._by_type(engine, "LabProcess")
         assert {p.fields.get("process_type") for p in procs} == {
