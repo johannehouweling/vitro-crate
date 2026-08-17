@@ -2780,7 +2780,7 @@ def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]
         if attribution:
             items.append(f"crate attribution: {', '.join(attribution)} not set")
         if not getattr(meta, "license", None):
-            items.append("licence not chosen (the crate will say ALL RIGHTS RESERVED)")
+            items.append("licence not chosen (the crate will say the terms were never stated)")
 
         # A submission that ships four assay folders and gets modelled as one
         # assay validates perfectly and is three-quarters missing. Nothing in the
@@ -3074,9 +3074,9 @@ def _completeness_nudge(state: CrateState) -> str:
     # "complete" naming six publication authors and no owner at all.
     meta = state.metadata
     has_attribution = bool(meta.publisher or meta.creator or meta.contact)
-    # No licence means the crate ships the "ALL RIGHTS RESERVED" fallback the
-    # BASE shape requires — legally the most restrictive option, chosen by
-    # nobody. That silence is worth one question.
+    # No licence means the crate ships the "licence not stated" entity the BASE
+    # shape requires it to carry — honest, but no use to anyone wanting to reuse
+    # the data, since unknown terms are not permission. Worth one question.
     has_license = bool(meta.license)
     orphans = _unreferenced_entities(state)
 
@@ -3108,7 +3108,7 @@ def _completeness_nudge(state: CrateState) -> str:
     if not has_attribution:
         missing.append("crate owner (publisher/creator/contact)")
     if not has_license:
-        missing.append("licence (defaulting to ALL RIGHTS RESERVED)")
+        missing.append("licence (the crate will record that none was stated)")
     if orphans:
         detail = ", ".join(f"{len(ids)} {t}" for t, ids in sorted(orphans.items()))
         missing.append(f"links for {detail}")

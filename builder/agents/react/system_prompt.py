@@ -181,9 +181,10 @@ have no owner.
 ### The Licence: Ask, With the Trade-offs
 
 A crate with no licence does not ship "no licence" — BASE requires one, so it
-ships **ALL RIGHTS RESERVED BY THE AUTHORS**, the most restrictive option there
-is, chosen by nobody. So ask, once, before export, and give the user enough to
-decide. Record the answer with `set_crate_metadata(license=<URL>)`.
+ships an entity saying the depositor never stated any terms. That is honest, and
+it is still a dead end for anyone wanting to reuse the data: unknown terms are
+not permission. So ask, once, before export, and give the user enough to decide.
+Record the answer with `set_crate_metadata(license=<URL>)`.
 
 Offer these, with the trade-off stated plainly — a licence is a legal decision
 about someone else's data, so **never pick one silently**:
