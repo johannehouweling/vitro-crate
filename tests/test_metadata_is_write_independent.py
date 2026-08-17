@@ -52,9 +52,10 @@ def graphs():
 
         state = CrateState()
         draft_investigation(state, {"name": "T", "description": "D"})
-        # A provisional table, because that is where every divergence so far has
-        # lived. Without one the comparison below passes vacuously — there is
-        # nothing in the crate whose metadata the write flag could have changed.
+        # A File carrying the legacy `provisional` flag, because that is where
+        # every divergence so far has lived. Without one the comparison below
+        # passes vacuously — there is nothing in the crate whose metadata the
+        # write flag could have changed.
         state.add_entity(
             Entity(
                 entity_id="file_prov",
@@ -97,14 +98,14 @@ class TestTheGraphsAgree:
         assert not differing, f"property sets differ between the two paths: {differing}"
 
 
-class TestThePlaceholderSaysTheSameThingBothWays:
-    """The name and description are the whole of what a placeholder declares now.
+class TestALegacyPlaceholderExportsClean:
+    """`provisional` is no longer written, but old sessions still carry it (#592).
 
-    They used to be joined by a ``csvw:Table`` co-type and a generated schema, and
-    keeping those two paths in step is what this file exists for. The schema is
-    gone (#589) — a file nobody deposited has no shape to declare — so the
-    invariant now covers what remains, and additionally pins the removal: the
-    validated graph must not grow columns the written one lacks, or vice versa.
+    A step with no deposited output now gets no File at all, so there is no
+    placeholder left to keep in step across the two paths. What remains is the
+    compatibility case: a session saved before the change holds File entities
+    still flagged `provisional`, and resuming one must not emit that flag into
+    the crate as a stray literal — on either path.
     """
 
     @staticmethod
@@ -116,7 +117,7 @@ class TestThePlaceholderSaysTheSameThingBothWays:
             draft_investigation(state, {"name": "T", "description": "D"})
             state.add_entity(
                 Entity(
-                    entity_id="file_prov",
+                    entity_id="file_legacy",
                     type="File",
                     fields={
                         "dest_path": "data/p.csv",
@@ -136,10 +137,10 @@ class TestThePlaceholderSaysTheSameThingBothWays:
             ).metadata.generate()["@graph"]
         return written, in_memory
 
-    def test_it_states_that_no_output_was_deposited_on_both_paths(self):
+    def test_the_legacy_flag_never_reaches_the_crate(self):
         for graph in self._graph_both_ways():
-            table = next(n for n in graph if str(n.get("@id", "")).endswith("p.csv"))
-            assert "NO data" in str(table.get("description")), table
+            node = next(n for n in graph if str(n.get("@id", "")).endswith("p.csv"))
+            assert "provisional" not in node, node
 
     def test_neither_path_declares_a_column_contract_for_it(self):
         for graph in self._graph_both_ways():
@@ -148,5 +149,5 @@ class TestThePlaceholderSaysTheSameThingBothWays:
 
     def test_neither_path_types_it_as_a_table(self):
         for graph in self._graph_both_ways():
-            table = next(n for n in graph if str(n.get("@id", "")).endswith("p.csv"))
-            assert "csvw:Table" not in str(table.get("@type")), table
+            node = next(n for n in graph if str(n.get("@id", "")).endswith("p.csv"))
+            assert "csvw:Table" not in str(node.get("@type")), node

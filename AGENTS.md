@@ -920,15 +920,38 @@ closes that trap, but **asks the deposit first** (#589): the scanned files filed
 under a raw directory are the `EndpointReadout`'s result and the processed ones
 the `DataAnalysis`'s, found by `_deposited_outputs` and wired whole
 (`schema:result` takes "at least one"). Only when the deposit is silent — or its
-directories are ambiguous about which tier they hold — does it **synthesize** a
-placeholder: a `Sample` (via `draft_sample`) for a material producer
-(CellCulture), an empty `File` (via `draft_file`) for a data producer. Scoped to
-the assay: one Assay owns the whole deposit, several means only what is already
-attached counts, so no assay is given its neighbour's measurements.
+directories are ambiguous about which tier they hold — the step is left **without
+a result**, so the tox Violation fires and the gap is reported (#592). Nothing is
+manufactured to make the shape pass: an empty stand-in bought a green profile at
+the cost of a 0-byte CSV a consumer reads as data, with nothing telling the
+depositor what was missing. A material producer (CellCulture) still gets a
+`Sample` via `draft_sample` — that is modelled material, not a stand-in for a
+file nobody deposited.
+
+**Whether the step exists at all is a separate question** (`_deposit_evidences`),
+asked of the whole deposit: any data file, or any document describing the
+procedure. Either makes it real; a deposit holding neither leaves nothing to
+model, and drafting a step there would invent it exactly as an empty output file
+used to invent its result — so it is skipped and reported under `skipped`. A
+protocol counts on its own because the step carries more than its output: on
+svhps26 the SOP yields `Detection Instrument = "gamma counter"`, which reaches
+the crate only because an EndpointReadout exists to hold it. Not tier-specific,
+deliberately: a deposit with only processed data still evidences that a
+measurement happened — its raw output was simply not submitted, and that gap is
+the Violation's to report.
+
+Scoped to the assay: one Assay owns the whole deposit, several means only what is
+already attached counts, so no assay is given its neighbour's measurements. That
+scope made the answer depend on call order — the real agent drafts the chain
+before it attaches files — so `attach_files` re-asks the question for any step
+still unwired (`composites.wire_deposited_outputs`). Evidence arriving is when
+the answer can change; asking once at draft time silently answered "nothing
+deposited" for 5 of 8 steps whose output was in the deposit all along.
 
 Asking first is what keeps the chain pointing at evidence: a composite that
 synthesizes regardless produces a crate whose every chain ends at an empty stub
-while the deposit's measurements sit beside it, referenced by nothing.
+while the deposit's measurements sit beside it, referenced by nothing — and a
+crate that reports no problem, because the stub satisfied the shape.
 
 **The Exposure is the deliberate exception (#285):** it is
 NOT given a generic placeholder result here, because its build-time fallback
@@ -941,14 +964,15 @@ Exposure step is left output-less in state and the build emits the condition tab
 as its result; the material flow still passes downstream via the step's inputs.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
-processed files that are the step's real output. **Synthesizes (only when the
-deposit has none):** the produced output entity for EndpointReadout/DataAnalysis
-(and a DataAnalysis input `File` when it has no upstream step); the Exposure's
-output is the build's condition table.
+processed files that are the step's real output. **Synthesizes:** only a
+CellCulture's output `Sample`; the Exposure's output is the build's condition
+table. **Skips (and reports under `skipped`):** a data producer nothing in the
+deposit evidences. **Reports rather than fills:** a data producer that IS
+evidenced but whose output the deposit lacks keeps no `result`, and the tox
+Violation carries that to the report.
 **Respects:** any explicit `object`/`result` you pass — those win over both.
-Placeholders carry only structural metadata (name, crate path, role); they
-**never fabricate measurement values or identifiers** (D5), and they declare no
-column contract, because a file nobody deposited has no shape to declare.
+The `Sample` carries only structural metadata (name, crate path, role) and
+**never fabricates measurement values or identifiers** (D5).
 Idempotent: placeholder/process ids are derived deterministically from the step,
 so re-running reuses them rather than duplicating; deposited files are found-or-
 created by `provenance.find_or_create_file`, deduped on destination and source so
@@ -1050,11 +1074,12 @@ makes on ambiguous candidates, and not a corner case: of the three real deposits
 only svhps22 separates the tiers, while svhps21 and svhps26 file both in one
 `Raw data + individual processed data/`.
 
-Only a step whose output the deposit does **not** contain gets a placeholder, and
-that placeholder is an empty `File` — no `csvw:Table` co-type, no schema, no
-columns. Declaring a column contract for a file nobody produced is a claim about
-data that does not exist; over zero rows its conformance was vacuously true
-(#473), and the columns came from a module constant identical in every crate.
+A step whose output the deposit does **not** contain gets nothing — no entity, no
+file, no `result` — and the tox Violation reports it (#592). Writing a file for a
+file nobody produced is a claim about data that does not exist; dressing it in a
+column contract made that claim machine-readable and vacuously true over zero
+rows (#473), and the columns came from a module constant identical in every
+crate.
 The condition table is the deliberate contrast: its schema resolves `valueUrl` to
 this crate's own `Sample` / `MolecularEntity` ids, so it states which compounds at
 which doses *this* experiment expected — worth declaring before a row lands.
@@ -1913,7 +1938,13 @@ are both code-fixable (document for callers):
    `@id`-wraps it — a bare string literal is a Violation.
 2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
    (unlike CellCulture/Exposure); a process with no explicit output fires a Violation.
-   `draft_process_chain` synthesizes/`link`s the outputs to close it.
+   `draft_process_chain` closes it from the DEPOSIT (raw files → the readout,
+   processed → the analysis), and `attach_files` completes any step still unwired.
+   When the deposit holds no such file the Violation is **left to fire** (#592):
+   this trap is closed with evidence or reported, never with a manufactured file.
+   A step nothing evidences at all — neither data nor a procedure document — is
+   not drafted, so an empty crate keeps conforming without asserting an
+   experiment it cannot show.
 
 ### 14.4 Pipeline composition
 
@@ -1925,7 +1956,7 @@ re-implementation. Its parts:
 - **Drafter leaves** — bounded LLM extraction (`leaves.py`, below), wired into the
   spine's `_draft_entities` step and gated to a strict no-op when no LLM provider is
   configured.
-- **Composite meta-tools** — e.g. `draft_process_chain`, which synthesizes the
+- **Composite meta-tools** — e.g. `draft_process_chain`, which wires the
   EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
   Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
   Chain Tools).
@@ -2163,8 +2194,7 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   the compound THROUGH the Exposure's CSVW condition table, `schema:about` →
   MolecularEntity + the `compound` column's `valueUrl`; `_crate_mapping
   ._build_process`/`_synth_condition_table`); the resolved `CellLineSample` → the
-  **CellCulture** LabProcess via `cell_line` (its consumed input, replacing the
-  synthesized generic `..._input` placeholder); and BOTH are surfaced on the
+  **CellCulture** LabProcess via `cell_line` (its consumed input); and BOTH are surfaced on the
   scaffolded Study via `schema:mentions` (the `chemicals` / `cell_lines`→
   `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
   compounds alike — is reachable from the backbone at a glance (orphan count → 0).

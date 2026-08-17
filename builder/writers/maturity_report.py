@@ -99,11 +99,16 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
         processes,
         ("detection_instrument", "instrument_manufacturer", "software", "data_processing"),
     )
-    # A placeholder for an undeposited output materialises as a real (empty) file
-    # so the crate stops claiming files it does not contain (#438) — but it holds
-    # no measurements, so counting it here would turn "data files included" green
-    # for a crate whose data is still entirely absent.
-    data_ok = any(not f.fields.get("provisional") for f in state.list_entities("File"))
+    # Every File in the crate is now one the deposit actually contains: a step
+    # with no deposited output is left unwired rather than given an empty
+    # stand-in (#592), so this no longer has to exclude the stand-ins to avoid
+    # turning green on a crate whose data is entirely absent.
+    #
+    # It still counts any File, protocols included, which is more generous than
+    # "data files included" claims. Narrowing it needs the raw/processed
+    # classification (#591) — until that lands, a crate holding only protocols
+    # reads as having data.
+    data_ok = bool(state.list_entities("File"))
     investigations = state.list_entities("Investigation")
     attribution_ok = (
         bool(state.metadata.title)

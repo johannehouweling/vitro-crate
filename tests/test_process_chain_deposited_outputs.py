@@ -233,34 +233,44 @@ class TestTheTierRuleItself:
 
 
 class TestAmbiguousTierIsNotGuessed:
-    def test_a_directory_naming_both_tiers_wires_no_deposited_file(self):
-        """Reading only 'raw' would hand svhps21/26's processed files to the readout."""
+    def test_the_steps_are_real_but_nothing_is_wired_to_them(self):
+        """The svhps21 / svhps26 story: reading only 'raw' would hand their
+        processed files to the readout, so neither tier resolves.
+
+        The deposit HAS data, so the steps are real and are drafted — with no
+        result, because nothing can yet say which file each produced. The tox
+        Violation reports that, rather than an empty CSV satisfying the shape
+        (#592); #591 is what will place these files.
+        """
+        state, (assay_id,) = _scaffold(_COMBINED)
+
+        result = draft_process_chain(state, assay_id, chain=_CHAIN)
+
+        assert {p.fields.get("process_type") for p in state.list_entities("LabProcess")} == {
+            "EndpointReadout",
+            "DataAnalysis",
+        }
+        assert "skipped" not in result
+        for process_type in ("EndpointReadout", "DataAnalysis"):
+            assert _result_entities(state, process_type) == [], process_type
+
+    def test_nothing_is_manufactured_for_the_unclassifiable_files(self):
         state, (assay_id,) = _scaffold(_COMBINED)
 
         draft_process_chain(state, assay_id, chain=_CHAIN)
 
-        deposited = {p for p in _COMBINED}
-        for process_type in ("EndpointReadout", "DataAnalysis"):
-            wired = _sources(_result_entities(state, process_type))
-            assert not (wired & deposited), f"{process_type} guessed: {wired}"
-
-    def test_the_step_still_gets_an_output_so_the_chain_does_not_dangle(self):
-        """EndpointReadout MUST have a schema:result (tox sh:Violation)."""
-        state, (assay_id,) = _scaffold(_COMBINED)
-
-        draft_process_chain(state, assay_id, chain=_CHAIN)
-
-        for process_type in ("EndpointReadout", "DataAnalysis"):
-            assert _result_entities(state, process_type), process_type
+        assert state.list_entities("File") == []
 
 
-class TestUnchangedWhenTheDepositHasNothing:
-    def test_a_deposit_with_no_data_files_still_synthesizes_a_placeholder(self):
+class TestWhenTheDepositHasNothing:
+    def test_a_deposit_with_no_data_files_manufactures_nothing(self):
+        """No File is invented for a step whose output was never deposited (#592)."""
         state, (assay_id,) = _scaffold(["README.txt", "protocol.docx"])
 
         result = draft_process_chain(state, assay_id, chain=_CHAIN)
 
-        assert len(result["synthesized"]) == 2
+        assert result["synthesized"] == []
+        assert state.list_entities("File") == []
 
 
 class TestTwoFilesSharingABasename:

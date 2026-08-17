@@ -45,7 +45,7 @@ from typing import Any
 import pytest
 
 from builder.engine import AgentEngine
-from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.state import CrateState, FileClassification, Entity, EntityProvenance, EntityType
 from builder.tools.hitl import SimulatedHumanInterface
 
 # run_pipeline drives build_and_validate / fix_required_issues, which run the
@@ -70,12 +70,46 @@ def _entity(entity_id: str, type_: EntityType, **fields: Any) -> Entity:
     )
 
 
-def _engine(state: CrateState | None = None) -> AgentEngine:
+# A minimal realistic deposit: a procedure document and one file of each data
+# tier. A data-producing step is only drafted when something evidences it, and
+# its result is the deposited file rather than a manufactured one (#589, #592),
+# so a test whose subject is the chain, its parameters or the plan needs a
+# deposit to be testing the full chain at all. Tests whose subject IS emptiness
+# keep the bare engine.
+def _deposit_files() -> list[FileClassification]:
+    return [
+        FileClassification(
+            path="/deposit/assay/SOP.docx",
+            filename="SOP.docx",
+            size=2048,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        FileClassification(
+            path="/deposit/assay/raw data/plate.csv",
+            filename="plate.csv",
+            size=4096,
+            mime_type="text/csv",
+        ),
+        FileClassification(
+            path="/deposit/assay/processed data/fitted.csv",
+            filename="fitted.csv",
+            size=4096,
+            mime_type="text/csv",
+        ),
+    ]
+
+
+def _engine(
+    state: CrateState | None = None, *, deposit: bool = False
+) -> AgentEngine:
     """A headless engine on *state* (no scan); session_id assigned via initialize()."""
     engine = AgentEngine(
         state=state or CrateState(), human_interface=SimulatedHumanInterface()
     )
     engine.initialize()  # assigns session_id + opens profiler; no input_path => no scan
+    if deposit:
+        engine.state.metadata.input_path = "/deposit"
+        engine.state.scanned_files = _deposit_files()
     return engine
 
 
@@ -424,7 +458,7 @@ class TestPipelineE2EConformanceAndFidelity:
         from builder.agents.pipeline.pipeline import run_pipeline
 
         _stub_leaves(monkeypatch)
-        engine = _engine(_titled_state())
+        engine = _engine(_titled_state(), deposit=True)
         run_pipeline(engine)
 
         state = engine.state
@@ -839,7 +873,7 @@ class TestProcessParametersReachTheGraph:
         from builder.agents.pipeline.pipeline import run_pipeline
 
         _stub_leaves(monkeypatch)
-        engine = _engine(_titled_state())
+        engine = _engine(_titled_state(), deposit=True)
         run_pipeline(engine)
 
         values = self._parameter_values(engine.state)

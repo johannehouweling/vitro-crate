@@ -304,7 +304,7 @@ def draft_process_chain(
         ValueError: If ``assay_id`` is missing/not an Assay, or a step has an
             invalid ``process_type``.
     """
-    from builder.tools.provenance import draft_file, link
+    from builder.tools.provenance import link
 
     assay = state.get_entity(assay_id)
     if assay is None:
@@ -332,12 +332,39 @@ def draft_process_chain(
     process_ids: list[str] = []
     step_summaries: list[dict[str, Any]] = []
     synthesized: list[str] = []
+    # Steps the deposit gave no evidence for. Returned, never dropped in silence:
+    # a chain that quietly loses two of its four steps looks identical to one that
+    # was only ever asked for two.
+    skipped: list[dict[str, str]] = []
     # The most recent step's produced output id(s) — fed to the next step's input.
     upstream_output: list[str] = []
 
     for step in ordered:
         ptype = str(step["process_type"])
         hints = dict(step.get("hints") or {})
+
+        # --- should this step exist at all? (#592) -------------------------
+        # A data producer asserts a measurement or an analysis happened. Drafting
+        # one for a deposit holding no data and no procedure document invents the
+        # step itself — the same act as inventing the empty output file it used to
+        # be handed, one level up.
+        #
+        # A protocol counts as evidence: the step is real, and it carries the
+        # instrument and endpoint the extraction leaves read out of that document.
+        # Its output may still be absent, which is reported, not filled in.
+        if not _explicit_ids(step, "result", "output") and not _deposit_evidences(state, ptype):
+            skipped.append(
+                {
+                    "process_type": ptype,
+                    "reason": (
+                        f"the deposit holds no data file and no procedure document, so "
+                        f"nothing evidences this {ptype}; pass `result` explicitly to "
+                        "record it anyway"
+                    ),
+                }
+            )
+            continue
+
         proc = draft_process(state, assay_id, ptype, hints)
 
         # --- inputs: explicit wins; otherwise inherit the upstream output ---
@@ -368,10 +395,16 @@ def draft_process_chain(
             deposited = _deposited_outputs(state, assay_id, ptype)
             if deposited:
                 outputs = [entity.entity_id for entity in deposited]
-            else:
-                placeholder = _synthesize_output(state, proc, ptype, draft_sample, draft_file)
+            elif ptype in _SAMPLE_PRODUCERS:
+                placeholder = _synthesize_output(state, proc, draft_sample)
                 synthesized.append(placeholder.entity_id)
                 outputs = [placeholder.entity_id]
+            # The step exists (the deposit holds data of its tier) but none of it
+            # is attached to THIS assay yet — the agent attaches after drafting.
+            # Left unwired rather than given a stand-in: `attach_files` completes
+            # it when the files arrive, and if they never do, the tox "MUST have a
+            # schema:result" Violation reports the gap instead of a 0-byte CSV
+            # satisfying the shape while telling the depositor nothing (#592).
         for tid in outputs:
             if state.get_entity(tid) is not None:
                 link(state, proc.entity_id, "result", tid)
@@ -382,12 +415,7 @@ def draft_process_chain(
         # analysis reaches them directly rather than through a stub (#589).
         if ptype == "DataAnalysis" and not inputs:
             analysed = _deposited_outputs(state, assay_id, "EndpointReadout")
-            if analysed:
-                inputs = [entity.entity_id for entity in analysed]
-            else:
-                placeholder_in = _synthesize_input(state, proc, draft_file)
-                synthesized.append(placeholder_in.entity_id)
-                inputs = [placeholder_in.entity_id]
+            inputs = [entity.entity_id for entity in analysed]
             for tid in inputs:
                 link(state, proc.entity_id, "object", tid)
 
@@ -412,6 +440,8 @@ def draft_process_chain(
         "steps": step_summaries,
         "synthesized": synthesized,
     }
+    if skipped:
+        result["skipped"] = skipped
 
     if validate_after:
         from builder.tools.validation import build_and_validate
@@ -517,6 +547,83 @@ def _candidate_files(state: CrateState, assay_id: str) -> list[Any]:
     ]
 
 
+# A document that could describe how the experiment was run. A protocol or SOP
+# evidences that a readout happened just as its output file does — and carries
+# the instrument, endpoint and replicate count the extraction leaves read out of
+# it. Dropping the step for want of a data file would delete all of that: on
+# svhps26 the SOP yields `Detection Instrument = "gamma counter"`, which only
+# reaches the crate because an EndpointReadout exists to carry it.
+_PROCEDURAL_SUFFIXES = frozenset({".doc", ".docx", ".pdf", ".txt", ".md", ".rst", ".odt"})
+
+
+def _deposit_evidences(state: CrateState, ptype: str) -> bool:
+    """Is there anything in the deposit this step could be modelled from?
+
+    Any data file, or any document describing the procedure. Deliberately NOT
+    tier-specific: a deposit holding only processed data and an SOP still
+    evidences that a measurement happened — its raw output simply was not
+    submitted, which is the gap :func:`_deposited_outputs` leaves for the tox
+    Violation to report. Only a deposit holding neither leaves nothing to model,
+    and drafting a step there would invent it exactly as an empty output file
+    used to invent its result.
+
+    The step being real does NOT mean its output is present — that is
+    :func:`_deposited_outputs`, and a step with no output keeps none, so the tox
+    Violation reports the gap (#592).
+
+    Deposit-wide on purpose: assay scoping depends on attachment, which the agent
+    does after drafting the chain, so an assay-scoped answer here would read "no
+    evidence" on every run and delete the chain outright.
+
+    ``True`` for a subtype claiming no tier (CellCulture, Exposure), whose output
+    is a Sample or the build's condition table rather than a deposited file.
+    """
+    if _TIER_FOR_PROCESS.get(ptype) is None:
+        return True
+    return any(
+        Path(fc.filename).suffix.lower() in (_TABULAR_SUFFIXES | _PROCEDURAL_SUFFIXES)
+        for fc in state.scanned_files
+    )
+
+
+def wire_deposited_outputs(state: CrateState, assay_id: str) -> list[str]:
+    """Give every still-unwired step under *assay_id* the output it produced.
+
+    ``draft_process_chain`` asks the deposit at draft time, but on a real run the
+    agent drafts the chain BEFORE it attaches the files (session
+    ``20260817_190026``: four chains at 6.7 min, four ``attach_files`` at
+    7.0 min). Scoped to what is attached, the question therefore got asked when
+    every ``hasPart`` was still empty and answered "nothing deposited" — silently,
+    for 5 of 8 steps whose real output was in the deposit all along.
+
+    So the answer is revisited when the evidence arrives rather than assumed
+    settled at draft time. Only steps with no ``result`` are touched, so an
+    explicit or already-derived wiring is never overwritten, and re-running
+    changes nothing.
+
+    Args:
+        state: The crate state to wire in place.
+        assay_id: The Assay whose processes to complete.
+
+    Returns:
+        The entity_ids of the processes that gained an output.
+    """
+    from builder.tools.provenance import link
+
+    wired: list[str] = []
+    for proc in state.list_entities("LabProcess"):
+        if str(proc.fields.get("assay_id") or "") != assay_id:
+            continue
+        ptype = str(proc.fields.get("process_type") or proc.fields.get("additionalType") or "")
+        if ptype not in _TIER_FOR_PROCESS or proc.fields.get("result"):
+            continue
+        for entity in _deposited_outputs(state, assay_id, ptype):
+            link(state, proc.entity_id, "result", entity.entity_id)
+            if proc.entity_id not in wired:
+                wired.append(proc.entity_id)
+    return wired
+
+
 def _deposited_outputs(state: CrateState, assay_id: str, ptype: str) -> list[Entity]:
     """The deposited files this step produced — empty when the deposit is silent.
 
@@ -558,67 +665,32 @@ def _deposit_relative(path: str, input_path: str | None) -> str:
         return path
 
 
-def _synthesize_output(
-    state: CrateState,
-    proc: Entity,
-    ptype: str,
-    draft_sample_fn: Any,
-    draft_file_fn: Any,
-) -> Entity:
-    """Create (deterministically) the placeholder output entity for ``proc``.
+def _synthesize_output(state: CrateState, proc: Entity, draft_sample_fn: Any) -> Entity:
+    """The Sample a material producer (CellCulture) yields, created deterministically.
 
-    A material producer (CellCulture) yields a placeholder Sample; a data
-    producer (EndpointReadout / DataAnalysis) yields a placeholder File. The id
-    is derived from the process so re-running reuses it (idempotent). The
-    placeholder carries only structural metadata — never a fabricated value (D5).
+    Materials only. A data producer used to get a placeholder ``File`` here when
+    the deposit held no output for it, so that the tox "MUST have a result"
+    Violation was satisfied and the crate did not reference an unshipped file
+    (#438). That bought a green shape with a 0-byte CSV a consumer reads as data,
+    and left the depositor with nothing to act on. Such a step is now left
+    unwired and the Violation reports the gap (#592).
+
+    A Sample is a different act: it is not a stand-in for a file nobody
+    deposited, it is the modelled material the culture produced, which no file
+    would represent in any case.
+
+    The id derives from the process so re-running reuses it (idempotent), and it
+    carries only structural metadata — never a fabricated value (D5).
     """
-    if ptype in _SAMPLE_PRODUCERS:
-        name = f"{proc.entity_id} output sample"
-        existing = state.get_entity(f"sample_{_slug(name)}")
-        if existing is not None:
-            return existing
-        sample_hints: dict[str, Any] = {"name": name}
-        upstream = _input_ref(proc)
-        if upstream is not None:
-            sample_hints["derives_from"] = upstream
-        return draft_sample_fn(state, sample_hints)
-    # Data producer with nothing deposited: a placeholder result File, marked
-    # PROVISIONAL so the build materialises it (#438) — an entity alone left the
-    # exported crate claiming a file that was never written.
-    #
-    # It carries no column contract. It used to be dressed as a csvw:Table with a
-    # typed schema over columns taken from a module constant, identical in every
-    # crate; that said nothing about this experiment and cost 110 column entities
-    # in one real build (#589). A file nobody deposited has no shape to declare.
-    name = f"{proc.entity_id}_result.csv"
-    file_id = f"file_{_slug(name)}"
-    existing = state.get_entity(file_id)
+    name = f"{proc.entity_id} output sample"
+    existing = state.get_entity(f"sample_{_slug(name)}")
     if existing is not None:
         return existing
-    placeholder = draft_file_fn(
-        state,
-        name=name,
-        path=f"data/{name}",
-        role="processed_data",
-    )
-    placeholder.fields["provisional"] = True
-    return placeholder
-
-
-def _synthesize_input(state: CrateState, proc: Entity, draft_file_fn: Any) -> Entity:
-    """Create the placeholder *input* File a DataAnalysis needs (schema:object).
-
-    Only used when a DataAnalysis has no upstream output and no explicit object —
-    it must still declare its analysed input, so we mint a header-less stub.
-    """
-    name = f"{proc.entity_id}_input.csv"
-    file_id = f"file_{_slug(name)}"
-    existing = state.get_entity(file_id)
-    if existing is not None:
-        return existing
-    placeholder = draft_file_fn(state, name=name, path=f"data/{name}", role="raw_data")
-    placeholder.fields["provisional"] = True
-    return placeholder
+    sample_hints: dict[str, Any] = {"name": name}
+    upstream = _input_ref(proc)
+    if upstream is not None:
+        sample_hints["derives_from"] = upstream
+    return draft_sample_fn(state, sample_hints)
 
 
 def _input_ref(proc: Entity) -> Any:
@@ -2527,20 +2599,6 @@ _DOMAIN_WIRING: tuple[tuple[str, str, str, bool, str], ...] = (
 _CONTAINER_FALLBACK: tuple[str, ...] = ("Study",)
 
 
-def _is_referenced(state: CrateState, target_id: str) -> bool:
-    """True when any OTHER entity references *target_id* in any of its fields."""
-    for ent in state.list_entities():
-        if ent.entity_id == target_id:
-            continue
-        for value in ent.fields.values():
-            items = value if isinstance(value, list) else [value]
-            for item in items:
-                ref = item.get("@id") if isinstance(item, dict) else item
-                if isinstance(ref, str) and ref.lstrip("#") == target_id.lstrip("#"):
-                    return True
-    return False
-
-
 # The fields through which a process actually CONSUMES or PRODUCES something.
 # Deliberately not every reference field: a Study listing a cell line under
 # `cell_lines` says the study is about it, and a placeholder Sample whose
@@ -2561,8 +2619,8 @@ _PROCESS_IO_FIELDS: tuple[str, ...] = (
 def _is_consumed_by_process(state: CrateState, target_id: str) -> bool:
     """True when some LabProcess takes *target_id* as an input or output.
 
-    The stricter half of :func:`_is_referenced`. A domain entity earns its place
-    in the provenance graph by being used by a process — mentions and derivation
+    Stricter than being referenced anywhere: a domain entity earns its place in
+    the provenance graph by being USED by a process — mentions and derivation
     notes describe it, but only a process records that the experiment touched it.
     """
     wanted = target_id.lstrip("./").lstrip("#")

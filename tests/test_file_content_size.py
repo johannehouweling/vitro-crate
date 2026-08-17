@@ -68,33 +68,6 @@ class TestWhereTheSizeComesFrom:
         assert _known_file_size(state, fe, None) is None
 
 
-class TestUndepositedOutputPlaceholders:
-    """A step whose output the deposit does not contain (#438, #589).
-
-    The placeholder used to be sized from the header line the build was about to
-    write. There is no header now — the file is created empty — so the size is a
-    fact rather than a prediction, and the in-memory and written crates still
-    agree about it.
-    """
-
-    def test_a_placeholder_for_an_undeposited_output_is_empty(self, state):
-        fe = _file_entity(state, "file_prov", dest_path="data/p.csv", provisional=True)
-
-        assert _known_file_size(state, fe, None) == 0
-
-    def test_the_size_matches_the_file_the_build_actually_writes(self, tmp_path, state):
-        """The whole point of sizing in memory: both crates say the same thing."""
-        from builder.tools._crate_mapping import _materialize_missing_output
-
-        fe = _file_entity(state, "file_prov", dest_path="data/p.csv", provisional=True)
-        written = _materialize_missing_output(fe, tmp_path, "data/p.csv")
-
-        # It returns None when there is nothing to write; a silent None here
-        # would make the size comparison below vacuous rather than failing.
-        assert written is not None, "the placeholder was never materialised"
-        assert Path(written).stat().st_size == _known_file_size(state, fe, None)
-
-
 class TestItReachesTheGraph:
     def test_a_drafted_and_scanned_file_carries_a_size(self, state):
         """The regression case: drafted AND scanned, so neither loop set it."""
