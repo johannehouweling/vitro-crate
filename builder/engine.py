@@ -316,9 +316,13 @@ def _run_document_discovery(engine: AgentEngine) -> None:
         input_root=root,
         approved_roots=engine.state.approved_scan_roots,
     )
-    context = format_document_context(candidates)
+    # Pass the scan size so the context can say what it left out: the ranking
+    # decides what the agent sees at all, and a silent cap reads as "this is
+    # everything" (#587).
+    context = format_document_context(candidates, total_scanned=len(engine.state.scanned_files))
     engine.state.documents = [
         {
+            "kind": c.kind,
             "role": c.role,
             "filename": c.filename,
             "relative_path": c.relative_path,
