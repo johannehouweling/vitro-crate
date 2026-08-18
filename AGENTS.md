@@ -308,6 +308,72 @@ call again** and returns a forceful corrective message carrying the live
 call or any *progress* result resets the counter, so legitimately-repeated different
 calls and a single normal retry never trip it.
 
+#### File classification & document discovery (`builder/tools/document_discovery.py`)
+
+Two questions about the same file, answered once and read by everything.
+
+**What a file IS — one classification, four values** (#591). `classify_file`
+returns exactly one of `metadata` / `protocol` / `raw_data_file` /
+`processed_data_file`, plus the signal that decided it. `metadata` covers the
+deposit record, assay-metadata workbooks, publications and plate maps;
+`protocol` covers SOPs, lab protocols and analysis scripts; the other two are
+the data tiers a derivation chain is wired from. A plate map is `metadata` — it
+states the design that was intended, not a value that was measured.
+
+The order is **content → filename → path**, and it is load-bearing in both
+directions: letting the extension outrank the content files an instrument
+printout under `raw data/` as a protocol because it is a `.pdf`, and letting the
+path outrank the filename files `assay1_rawdata/README.txt` as a measurement.
+Within the filename step, *what a file is* outranks *which tier it would be* — a
+paper titled "Normalization of Data for Viability…" is a publication, not
+processed data. Terms are matched at a word boundary and open at the end, so one
+spelling covers a family (`normali` catches "normalised") while `raw` still
+refuses "drawings" and `process` refuses "unprocessed", which names the opposite
+tier. A word-processor format is never placed by its folder: nothing but a person
+writes a `.docx`, so bench notes filed beside the measurements are not
+measurements.
+
+The classification is **stamped on every scanned file** (`classify_scanned_files`
+→ `FileClassification.classification`), not on the ranked subset — what the crate
+is built from must not depend on what fits in a context window.
+`classification_of` answers for a record that was never stamped (a session saved
+before #591, or any caller holding the inventory without the deposit mounted)
+from the record alone, without touching the disk.
+
+This replaced four disagreeing vocabularies. Two of them labelled FORM ("this is
+a table") and two labelled FUNCTION ("this is metadata"), so a tabular metadata
+workbook could only be one and lost the other. Its consumers are
+`composites._deposited_outputs` and `_deposit_evidences` (§5, *Derivation Chain
+Tools*), `provenance.attach_files` (which stamps it as the File's `role` unless
+the caller names one), the pipeline spine's `_attach_scanned_files`, the ReAct
+gap engine, and the maturity report's "data files included" row. The one holdout
+is the extraction leaf's `condition_table` plan role (#594).
+
+`File.role` is the *stamp*, not the classification. It is free text — `draft_file`
+records whatever the agent passes, and the spine stamped `raw_data`/`processed_data`
+before the classification existed, which a resumed session carries for the rest of
+its life. A reader deriving a class from it therefore accepts only a value in
+`FILE_CLASSES` and classifies the file otherwise; nothing may take the field at its
+word. The role never reaches the crate in any case — `_crate_mapping` drops it, as
+it is absent from the RO-Crate `@context`.
+
+**What reaches the prompt — ranking.** `discover_documents` screens and ranks
+readable documentation into a bounded context, reusing the previews
+classification already read. It reports `kind` (descriptor / tabular / narrative
+/ opaque) alongside the classification, because form decides how a file is
+*rendered* — a data table contributes its shape, prose contributes its text — and
+the two questions have different answers for the same file. Narrative and tabular
+are interleaved by their own rank rather than competing on one scale, and the cap
+is stated in the context rather than applied silently (#587).
+
+The character budget is split **max-min fair** across the candidates, not spent in
+rank order: rank order let three long READMEs consume the whole ceiling and delete
+every cheaper entry behind them, and a file that is never named is a file the agent
+cannot read. A share too small to carry even the entry's `[kind/class] path` header
+buys nothing, so that entry is dropped and its share returned rather than emitted as
+a fragment. The SLOT allocation is not fair in the same sense yet — the ranking does
+not use the classification to decide which 20 files compete — which is #595.
+
 #### Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.
 Each drafter collects hints, calls the LLM, and ensures identifiers come from
@@ -916,12 +982,12 @@ is threaded into the next step's input, so the chain is fully connected and
 referenceable. **Its load-bearing job (§14.3):** `EndpointReadout`/`DataAnalysis`
 have **no build-time output fallback**, so a process with no explicit `result`
 (and, for DataAnalysis, no `object`) fires a tox REQUIRED Violation. The composite
-closes that trap, but **asks the deposit first** (#589): the scanned files filed
-under a raw directory are the `EndpointReadout`'s result and the processed ones
-the `DataAnalysis`'s, found by `_deposited_outputs` and wired whole
-(`schema:result` takes "at least one"). Only when the deposit is silent — or its
-directories are ambiguous about which tier they hold — the step is left **without
-a result**, so the tox Violation fires and the gap is reported (#592). Nothing is
+closes that trap, but **asks the deposit first** (#589): the scanned files
+classified `raw_data_file` are the `EndpointReadout`'s result and the
+`processed_data_file`s the `DataAnalysis`'s, found by `_deposited_outputs` and
+wired whole (`schema:result` takes "at least one"). Only when the deposit holds
+no file of that class is the step left **without a result**, so the tox Violation
+fires and the gap is reported (#592). Nothing is
 manufactured to make the shape pass: an empty stand-in bought a green profile at
 the cost of a 0-byte CSV a consumer reads as data, with nothing telling the
 depositor what was missing. A material producer (CellCulture) still gets a
@@ -935,7 +1001,7 @@ model, and drafting a step there would invent it exactly as an empty output file
 used to invent its result — so it is skipped and reported under `skipped`. A
 protocol counts on its own because the step carries more than its output: on
 svhps26 the SOP yields `Detection Instrument = "gamma counter"`, which reaches
-the crate only because an EndpointReadout exists to hold it. Not tier-specific,
+the crate only because an EndpointReadout exists to hold it. Not class-specific,
 deliberately: a deposit with only processed data still evidences that a
 measurement happened — its raw output was simply not submitted, and that gap is
 the Violation's to report.
@@ -1065,14 +1131,12 @@ column constant, so the placeholder header and the typed schema cannot drift),
 so `validate_table` needs no hand-authored schema for the populated table.
 
 An `EndpointReadout`'s results are the files it measured, and nothing is appended
-to them. **The deposit decides what a step produced** (#589): raw data files are
-the `EndpointReadout`'s `schema:result`, processed ones the `DataAnalysis`'s,
-read from the directory the depositor filed them under
-(`composites._deposited_outputs`). A directory naming both tiers, or neither,
-resolves to neither — the same refusal `_populate_condition_table_from_plan`
-makes on ambiguous candidates, and not a corner case: of the three real deposits
-only svhps22 separates the tiers, while svhps21 and svhps26 file both in one
-`Raw data + individual processed data/`.
+to them. **The deposit decides what a step produced** (#589): `raw_data_file`s
+are the `EndpointReadout`'s `schema:result` and `processed_data_file`s the
+`DataAnalysis`'s, read off the file classification
+(`composites._deposited_outputs`). An earlier version read only the containing
+directory, which resolved nothing at all in the two of three real deposits that
+file both tiers under one `Raw data + individual processed data/` (#591).
 
 A step whose output the deposit does **not** contain gets nothing — no entity, no
 file, no `result` — and the tox Violation reports it (#592). Writing a file for a
@@ -1390,7 +1454,7 @@ Input comes in tiers of readiness. The agent should prefer the most structured f
 └── runs/<run>/                 parameters + inputs for one execution of a workflow
 ```
 
-The `arc_writer` maps CrateState entities (`Investigation`, `Study`, `Assay`, `LabProcess`, `Sample`, `File`) onto this directory structure. Each assay gets a `ToxTemp_<assay>.md` derived from LabProcess metadata. Protocols are exported from `LabProtocol` entities. Raw and processed data files are placed under `dataset/raw_data/` and `dataset/processed_data/` based on their `File.role`.
+The `arc_writer` maps CrateState entities (`Investigation`, `Study`, `Assay`, `LabProcess`, `Sample`, `File`) onto this directory structure. Each assay gets a `ToxTemp_<assay>.md` derived from LabProcess metadata. Protocols are exported from `LabProtocol` entities. The `dataset/raw_data/` and `dataset/processed_data/` trees are where a file's classification (§4, *File classification & document discovery*) places it — the writer creates both today and does not yet file into them (#360).
 
 ## 10. Lookup Services
 
