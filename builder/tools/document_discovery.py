@@ -486,6 +486,53 @@ def classification_of(file: FileClassification, *, input_root: str = "") -> str:
     return classify_file(file.filename, preview, _relative(file.path, input_root))[0]
 
 
+# How many files of a folder are opened to decide what the folder holds (#598).
+# A deposit is a handful of homogeneous groups, not N distinct things: svhps22's
+# 1468 scanned files fall into 149 `(directory, extension)` groups, the largest
+# holding 84 gamma-counter printouts. Opening one of those says what the other
+# 83 are; opening all 84 costs 84 PDF parses to learn nothing. Three leaves that
+# deposit reading 324 of its 1468 files, and every file of the other two.
+_EXEMPLARS_PER_GROUP = 3
+
+# The one class a folder may be summarised into. Instrument output is what makes
+# a deposit big and what makes its files interchangeable: 1358 of svhps22's 1468
+# files, and a gamma-counter printout says nothing its 83 siblings did not. The
+# other three tiers are read in full however large the folder, because a
+# propagated file has no preview, and a workbook with no preview is ranked on
+# its filename alone — the defect #587 fixed.
+_SUMMARISABLE_CLASSES = frozenset({CLASS_RAW_DATA})
+
+# How big a folder must be before summarising it is worth being blind to the
+# rest of it — four times the sample. Below that the saving is a rounding error
+# and the cost is real: svhps26 files six per-plate workbooks per run directory,
+# and summarising those cost eight of the twenty ranked slots while saving 20
+# reads of 91. Measured across 4..48, the deposits are flat between 4 and 32
+# (svhps22: 292 to 392 reads of 1468) and collapse at 48, where its own
+# printout folders start falling under the floor.
+_MIN_SUMMARISABLE_GROUP = 4 * _EXEMPLARS_PER_GROUP
+
+
+def _group_key(file: FileClassification) -> tuple[str, str]:
+    """What makes two scanned files the same kind of thing: one folder, one format."""
+    name = file.filename or Path(file.path).name
+    return str(Path(file.path).parent), Path(name).suffix.lower()
+
+
+def _exemplar_indexes(size: int, count: int) -> list[int]:
+    """*count* indexes spread evenly across ``range(size)``, both ends included.
+
+    Spread rather than the first *count*: a folder sorted by run date puts its
+    exception at the end as often as at the front, and a sample that never
+    reaches the last file cannot see it.
+    """
+    if size <= count:
+        return list(range(size))
+    if count <= 1:
+        return [0]
+    step = (size - 1) / (count - 1)
+    return sorted({round(i * step) for i in range(count)})
+
+
 def classify_scanned_files(
     files: list[FileClassification], *, input_root: str, approved_roots: set[str]
 ) -> dict[str, str]:
@@ -495,18 +542,61 @@ def classify_scanned_files(
     candidates because its job is filling a bounded prompt, and what gets wired
     into the crate must not depend on what fits in a context window.
 
+    Not every file is OPENED, though (#598). Files are grouped by containing
+    directory and extension, :data:`_EXEMPLARS_PER_GROUP` files spread across
+    each group are read, and a group whose sample agrees takes that verdict
+    across the rest without touching them. A group is opened in full when it is
+    under :data:`_MIN_SUMMARISABLE_GROUP`, when its sample DISAGREES — the
+    folder is heterogeneous and cannot be summarised — or when the sample lands
+    on anything but :data:`_SUMMARISABLE_CLASSES`.
+
+    What this cannot see is a file whose CONTENT alone makes it an exception,
+    sitting in the interior of a large uniform folder: nothing about its name,
+    extension or directory sets it apart, so only opening it would tell. On the
+    three real deposits it costs nothing — every one of 1622 files keeps the
+    class a full read gives it, and every top-20 ranking is unchanged — while
+    svhps22 drops from 1468 reads to 324, about ten times faster.
+
     Returns:
-        ``{path: preview}``, so the ranking that follows reads each file once.
+        ``{path: preview}`` for every file, so the ranking that follows reads
+        none of them again. A file the sample spoke for maps to ``""``: it has
+        no preview, and the empty string is what stops :func:`discover_documents`
+        from opening the deposit a second time to find one.
     """
     previews: dict[str, str] = {}
-    for file in files:
+
+    def read_and_stamp(file: FileClassification) -> str:
         preview = _safe_preview(
             file.path, approved_roots, _MAX_PREVIEW_CHARS, mode=preview_mode_for(file.filename)
         )
         previews[file.path] = preview
-        file.classification = classify_file(
-            file.filename, preview, _relative(file.path, input_root)
-        )[0]
+        decided = classify_file(file.filename, preview, _relative(file.path, input_root))[0]
+        file.classification = decided
+        return decided
+
+    groups: dict[tuple[str, str], list[FileClassification]] = {}
+    for file in files:
+        groups.setdefault(_group_key(file), []).append(file)
+
+    for group in groups.values():
+        group.sort(key=lambda file: file.path)
+        sampled = set(_exemplar_indexes(len(group), _EXEMPLARS_PER_GROUP))
+        verdicts = {read_and_stamp(group[index]) for index in sampled}
+        rest = [file for index, file in enumerate(group) if index not in sampled]
+        if not rest:
+            continue
+        if (
+            len(group) < _MIN_SUMMARISABLE_GROUP
+            or len(verdicts) > 1
+            or not verdicts <= _SUMMARISABLE_CLASSES
+        ):
+            for file in rest:
+                read_and_stamp(file)
+            continue
+        agreed = next(iter(verdicts))
+        for file in rest:
+            previews[file.path] = ""
+            file.classification = agreed
     return previews
 
 
@@ -614,8 +704,11 @@ def discover_documents(
     remain eligible: assay SOPs and publications are often nested.  The result
     is stable for equal scores and contains only bounded previews.
 
-    *previews* are the reads :func:`classify_scanned_files` already made, keyed
-    by path; supplying them keeps the deposit read once rather than twice.
+    *previews* are what :func:`classify_scanned_files` already read, keyed by
+    path; supplying them keeps the deposit read once rather than twice. An entry
+    is present but empty for a file that classification summarised rather than
+    opened (#598) — which is what stops this from opening it after all, and
+    leaves it ranked and rendered like any other file with no readable preview.
     """
     ranked: list[DocumentationCandidate] = []
     for file in files:

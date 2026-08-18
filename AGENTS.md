@@ -340,6 +340,26 @@ is built from must not depend on what fits in a context window.
 before #591, or any caller holding the inventory without the deposit mounted)
 from the record alone, without touching the disk.
 
+Stamping every file does not mean OPENING every file (#598). A deposit is a
+handful of homogeneous folders, not N distinct things — svhps22's 1468 scanned
+files fall into 149 `(directory, extension)` groups, the largest holding 84
+gamma-counter printouts. So files are grouped that way, a spread sample of each
+group is read, and a group whose sample agrees takes that verdict across the
+rest. The sample is spread rather than taken from the front, because a folder
+sorted by run date puts its exception at the end as often as at the start. A
+group is opened in full when it is smaller than four times the sample — below
+that the saving is a rounding error and the cost is not — when its sample
+DISAGREES, which is what says the folder is heterogeneous and cannot be
+summarised at all, or when the sample is anything but `raw_data_file`.
+Instrument output is the only tier whose files are interchangeable, and it is
+92% of the deposit; a propagated file has no preview, and a workbook with no
+preview is ranked on its filename alone, which is the defect #587 fixed. What
+this cannot see is a file whose CONTENT alone makes it an exception in the
+interior of a large uniform folder. On the three real deposits that costs
+nothing — all 1622 files keep the class a full read gives them and every
+top-20 ranking is unchanged — while svhps22's classification pass drops from
+1468 reads to 324, about ten times faster.
+
 This replaced four disagreeing vocabularies. Two of them labelled FORM ("this is
 a table") and two labelled FUNCTION ("this is metadata"), so a tabular metadata
 workbook could only be one and lost the other. Its consumers are
