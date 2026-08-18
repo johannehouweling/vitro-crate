@@ -41,6 +41,7 @@ from builder.agents.progress_spinner import ProgressSpinner
 from builder.agents.react.system_prompt import SYSTEM_PROMPT
 from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
+from builder.tools.document_discovery import looks_like_publication
 from builder.tools.hitl import CONVERSATION_FIELD_TYPE, answers_are_synthetic, is_interactive
 
 if TYPE_CHECKING:
@@ -2793,7 +2794,7 @@ def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]
             str(doc.get("relative_path", "")).split("/")[0]
             for doc in (getattr(state, "documents", None) or [])
             if "/" in str(doc.get("relative_path", ""))
-            and str(doc.get("role", "")).lower() in ("metadata", "assay_protocol")
+            and str(doc.get("classification", "")).lower() in ("metadata", "protocol")
         }
         assays = state.list_entities("Assay")
         studies = state.list_entities("Study")
@@ -2863,14 +2864,20 @@ def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]
                 "no experiment"
             )
 
-        # A document ranked as the publication, with no publication recorded, is
-        # a whole layer of the crate missing: the article, its authors, and the
-        # compounds it lists. Counting entities cannot see it — a crate with a
-        # backbone and one Person looks populated — so it is derived from the
-        # discovery roles, which is where the fact actually lives.
+        # A deposited article, with no publication recorded, is a whole layer of
+        # the crate missing: the article, its authors, and the compounds it
+        # lists. Counting entities cannot see it — a crate with a backbone and
+        # one Person looks populated — so it is read off the discovered
+        # documents, which is where the fact actually lives.
+        #
+        # Asked of the filename rather than of the classification: a publication
+        # classifies as `metadata`, because it describes the study rather than
+        # measuring it, and that class alone cannot single one out (#591). Not of
+        # the CONTENT either — the deposit record names a `DOI` field and a README
+        # template shows a worked citation, and neither is an article.
         publications = state.list_entities("Publication")
         if not publications and any(
-            str(d.get("role", "")).lower() == "publication"
+            looks_like_publication(str(d.get("filename") or d.get("relative_path") or ""))
             for d in (getattr(state, "documents", None) or [])
         ):
             items.append(
@@ -3546,10 +3553,11 @@ def _format_document_evidence(engine: AgentEngine, *, limit: int = _EVIDENCE_BRI
 
 
 # Display labels for the discovery roles whose casing is not sentence case.
-_DOCUMENT_ROLE_LABELS: dict[str, str] = {
-    "sop": "SOP",
-    "other_document": "Other document",
-    "readme": "README",
+_DOCUMENT_CLASS_LABELS: dict[str, str] = {
+    "metadata": "Metadata",
+    "protocol": "Protocol",
+    "raw_data_file": "Raw data",
+    "processed_data_file": "Processed data",
 }
 
 
@@ -3580,13 +3588,11 @@ def _format_document_context(documents: list[dict[str, Any]] | None) -> str:
         return ""
     lines: list[str] = []
     for number, doc in enumerate(documents[:20], 1):  # safety cap — never exceed 20
-        raw = str(doc.get("role", "document")).strip() or "document"
-        # Acronyms keep their case; everything else is sentence case. Blind
-        # title-casing rendered the standard operating procedure as "[Sop]".
-        role = _DOCUMENT_ROLE_LABELS.get(raw.lower())
-        if role is None:
+        raw = str(doc.get("classification", "document")).strip() or "document"
+        label = _DOCUMENT_CLASS_LABELS.get(raw.lower())
+        if label is None:
             spaced = raw.replace("_", " ")
-            role = spaced[:1].upper() + spaced[1:]
+            label = spaced[:1].upper() + spaced[1:]
         # The RELATIVE PATH, not the bare filename. A nested submission has five
         # different README.txt files, and a list of five identical names is both
         # unreadable and unusable: the reader gate refuses a basename that
@@ -3596,7 +3602,7 @@ def _format_document_context(documents: list[dict[str, Any]] | None) -> str:
         # relative path IS the filename, so nothing is lost by always using it.
         name = doc.get("relative_path") or doc.get("filename") or "?"
         score = doc.get("score", 0.0)
-        lines.append(f"{number}. **[{role}]** `{name}` — score {score:.2f}")
+        lines.append(f"{number}. **[{label}]** `{name}` — score {score:.2f}")
     return "\n".join(lines)
 
 
@@ -4321,10 +4327,10 @@ def run_interactive_agent(
         documents = getattr(engine.state, "documents", [])
         document_lines = []
         for doc in documents[:20]:
-            role = doc.get("role", "document")
+            label = doc.get("classification", "document")
             name = doc.get("filename", doc.get("relative_path", "?"))
             score = doc.get("score", 0.0)
-            document_lines.append(f"- [{role}] {name} (score: {score:.2f})")
+            document_lines.append(f"- [{label}] {name} (score: {score:.2f})")
         discovered = "\n".join(document_lines) or "- No ranked document evidence available."
         approved_roots = sorted(getattr(engine.state, "approved_scan_roots", set()))
         input_root = approved_roots[0] if approved_roots else engine.state.metadata.input_path

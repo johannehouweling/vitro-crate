@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
-from pathlib import Path, PurePosixPath
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
@@ -27,6 +26,12 @@ from builder.tools._resolve_cache import (
     normalize_compound_name,
     resolve_concurrency,
     run_with_timeout,
+)
+from builder.tools.document_discovery import (
+    CLASS_PROCESSED_DATA,
+    CLASS_PROTOCOL,
+    CLASS_RAW_DATA,
+    classification_of,
 )
 from builder.tools.drafters import (
     VALID_PROCESS_TYPES,
@@ -453,60 +458,19 @@ def draft_process_chain(
 
 # --- the deposited file IS the step's output (#589) --------------------------
 #
-# Which step produced which file is a fact only the depositor holds, and they
-# state it by filing: measurements go in a "raw" directory, the analysis that
-# reduced them in a "processed" one. That is read from the DIRECTORY, never the
-# filename — "raw" in a file's name describes its content, not its place in the
-# derivation chain.
-#
-# Anchored at a token boundary, not as a bare substring: `raw` alone also matches
-# "drawings", and `process` matches "unprocessed" — which means the OPPOSITE tier
-# and would have been filed as processed. A leading non-letter (or start of
-# segment) admits `raw data`, `assay1_rawdata`, `Raw`, `processed data`,
-# `assay1_processeddata` and `data processing` while excluding those two.
-_TIER_DIRECTORY: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("raw", re.compile(r"(?:^|[^a-z])raw", re.I)),
-    ("processed", re.compile(r"(?:^|[^a-z])process", re.I)),
-)
+# Which step produced which file is a fact only the depositor holds, and
+# :func:`~builder.tools.document_discovery.classify_file` reads it out of the
+# file: the instrument's own column headers, a GraphPad project's XML root, the
+# filename, and only then the folder it was filed in (#591). This asks for that
+# answer rather than deriving a second one — an earlier version read only the
+# directory, which resolved nothing at all in the two deposits that file both
+# tiers under one ``Raw data + individual processed data/``.
 
-# The output tier each data-producing subtype claims.
-_TIER_FOR_PROCESS: dict[str, str] = {
-    "EndpointReadout": "raw",
-    "DataAnalysis": "processed",
+# The class of output each data-producing subtype claims.
+_CLASS_FOR_PROCESS: dict[str, str] = {
+    "EndpointReadout": CLASS_RAW_DATA,
+    "DataAnalysis": CLASS_PROCESSED_DATA,
 }
-
-# A step's result is a data table. A protocol filed beside the measurements is
-# still a protocol, so the tier alone must not promote it — gated on the format
-# family rather than on a keyword, which no filing convention controls.
-#
-# ``.txt`` and ``.json`` are deliberately absent. Both occur in these deposits,
-# and in the real one every ``.txt`` inside a data directory was a README: on
-# svhps22 including them wired `assay1_processeddata/README.txt` in as a
-# measurement result. A tabular extension is weak evidence of data; ``.txt`` is
-# weaker evidence still, and the cost of a wrong promotion is a crate asserting
-# that a readme is what the instrument produced.
-_TABULAR_SUFFIXES = frozenset({".csv", ".tsv", ".xlsx", ".xls", ".parquet"})
-
-
-def _path_tier(relative_path: str) -> str | None:
-    """``"raw"`` / ``"processed"`` for a deposit-relative path, else ``None``.
-
-    ``None`` when the directories name BOTH tiers or neither — the refusal is
-    the point, and it is not a corner case. Of the three real deposits only
-    svhps22 separates ``raw data/`` from ``assay1_processeddata/``; svhps21 and
-    svhps26 file both tiers in one ``Raw data + individual processed data/``.
-    Reading just the first match there would hand every processed file in those
-    two deposits to the EndpointReadout, so an ambiguous directory resolves to
-    nothing at all — the same refusal ``_populate_condition_table_from_plan``
-    makes when several files could be the condition table (#408).
-    """
-    directories = PurePosixPath(relative_path.replace("\\", "/")).parts[:-1]
-    named = {
-        tier
-        for tier, pattern in _TIER_DIRECTORY
-        if any(pattern.search(part) for part in directories)
-    }
-    return named.pop() if len(named) == 1 else None
 
 
 def _candidate_files(state: CrateState, assay_id: str) -> list[Any]:
@@ -547,20 +511,20 @@ def _candidate_files(state: CrateState, assay_id: str) -> list[Any]:
     ]
 
 
-# A document that could describe how the experiment was run. A protocol or SOP
-# evidences that a readout happened just as its output file does — and carries
-# the instrument, endpoint and replicate count the extraction leaves read out of
-# it. Dropping the step for want of a data file would delete all of that: on
-# svhps26 the SOP yields `Detection Instrument = "gamma counter"`, which only
-# reaches the crate because an EndpointReadout exists to carry it.
-_PROCEDURAL_SUFFIXES = frozenset({".doc", ".docx", ".pdf", ".txt", ".md", ".rst", ".odt"})
+# What can evidence that a measurement or an analysis happened. A protocol or SOP
+# does so just as its output file does — and carries the instrument, endpoint and
+# replicate count the extraction leaves read out of it. Dropping the step for want
+# of a data file would delete all of that: on svhps26 the SOP yields
+# `Detection Instrument = "gamma counter"`, which only reaches the crate because
+# an EndpointReadout exists to carry it.
+_EVIDENCE_CLASSES = frozenset({CLASS_RAW_DATA, CLASS_PROCESSED_DATA, CLASS_PROTOCOL})
 
 
 def _deposit_evidences(state: CrateState, ptype: str) -> bool:
     """Is there anything in the deposit this step could be modelled from?
 
     Any data file, or any document describing the procedure. Deliberately NOT
-    tier-specific: a deposit holding only processed data and an SOP still
+    class-specific: a deposit holding only processed data and an SOP still
     evidences that a measurement happened — its raw output simply was not
     submitted, which is the gap :func:`_deposited_outputs` leaves for the tox
     Violation to report. Only a deposit holding neither leaves nothing to model,
@@ -575,13 +539,14 @@ def _deposit_evidences(state: CrateState, ptype: str) -> bool:
     does after drafting the chain, so an assay-scoped answer here would read "no
     evidence" on every run and delete the chain outright.
 
-    ``True`` for a subtype claiming no tier (CellCulture, Exposure), whose output
-    is a Sample or the build's condition table rather than a deposited file.
+    ``True`` for a subtype producing no data file (CellCulture, Exposure), whose
+    output is a Sample or the build's condition table.
     """
-    if _TIER_FOR_PROCESS.get(ptype) is None:
+    if _CLASS_FOR_PROCESS.get(ptype) is None:
         return True
+    input_path = state.metadata.input_path or ""
     return any(
-        Path(fc.filename).suffix.lower() in (_TABULAR_SUFFIXES | _PROCEDURAL_SUFFIXES)
+        classification_of(fc, input_root=input_path) in _EVIDENCE_CLASSES
         for fc in state.scanned_files
     )
 
@@ -615,7 +580,7 @@ def wire_deposited_outputs(state: CrateState, assay_id: str) -> list[str]:
         if str(proc.fields.get("assay_id") or "") != assay_id:
             continue
         ptype = str(proc.fields.get("process_type") or proc.fields.get("additionalType") or "")
-        if ptype not in _TIER_FOR_PROCESS or proc.fields.get("result"):
+        if ptype not in _CLASS_FOR_PROCESS or proc.fields.get("result"):
             continue
         for entity in _deposited_outputs(state, assay_id, ptype):
             link(state, proc.entity_id, "result", entity.entity_id)
@@ -634,35 +599,24 @@ def _deposited_outputs(state: CrateState, assay_id: str, ptype: str) -> list[Ent
     the crate as a File no process referenced, while every chain ended at a
     header-only CSV.
 
-    ``schema:result`` takes "at least one", so a tier's files are wired whole
+    ``schema:result`` takes "at least one", so a class's files are wired whole
     rather than one being chosen as representative.
     """
     from builder.tools.provenance import file_index_by_source, find_or_create_file
 
-    tier = _TIER_FOR_PROCESS.get(ptype)
-    if tier is None:
+    wanted = _CLASS_FOR_PROCESS.get(ptype)
+    if wanted is None:
         return []
-    input_path = state.metadata.input_path
+    input_path = state.metadata.input_path or ""
     matched = [
         fc
         for fc in _candidate_files(state, assay_id)
-        if Path(fc.filename).suffix.lower() in _TABULAR_SUFFIXES
-        and _path_tier(_deposit_relative(fc.path, input_path)) == tier
+        if classification_of(fc, input_root=input_path) == wanted
     ]
     if not matched:
         return []
     index = file_index_by_source(state)
-    return [find_or_create_file(state, fc, role=f"{tier}_data", index=index) for fc in matched]
-
-
-def _deposit_relative(path: str, input_path: str | None) -> str:
-    """A scanned path relative to the deposit root (unchanged when outside it)."""
-    if not input_path:
-        return path
-    try:
-        return str(Path(path).resolve().relative_to(Path(input_path).resolve()))
-    except (OSError, ValueError):
-        return path
+    return [find_or_create_file(state, fc, role=wanted, index=index) for fc in matched]
 
 
 def _synthesize_output(state: CrateState, proc: Entity, draft_sample_fn: Any) -> Entity:

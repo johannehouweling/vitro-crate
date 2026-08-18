@@ -302,6 +302,7 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     A failure never breaks initialization — it just leaves ``state.documents`` empty.
     """
     from builder.tools.document_discovery import (
+        classify_scanned_files,
         discover_documents,
         format_document_context,
     )
@@ -311,10 +312,20 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     if not root:
         return
 
+    # Classify EVERY scanned file before ranking any of them (#591). The ranking
+    # exists to fill a bounded prompt and shows 20 of them; what the crate is
+    # built from must not depend on what fits in a context window. The previews
+    # are handed on so the deposit is read once.
+    previews = classify_scanned_files(
+        engine.state.scanned_files,
+        input_root=root,
+        approved_roots=engine.state.approved_scan_roots,
+    )
     candidates = discover_documents(
         engine.state.scanned_files,
         input_root=root,
         approved_roots=engine.state.approved_scan_roots,
+        previews=previews,
     )
     # Pass the scan size so the context can say what it left out: the ranking
     # decides what the agent sees at all, and a silent cap reads as "this is
@@ -323,7 +334,7 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     engine.state.documents = [
         {
             "kind": c.kind,
-            "role": c.role,
+            "classification": c.classification,
             "filename": c.filename,
             "relative_path": c.relative_path,
             "score": c.score,
