@@ -182,6 +182,9 @@ CrateState {
         # whether anything actually looked at the crate's FILES (#530) — the
         # in-memory gate validates a document, where payload checks emit nothing
         payload_checked: bool,
+        # whether anything asked which entities the ISA backbone reaches (#537) —
+        # the profile's own rules cannot, so a detached entity is skipped not failed
+        isa_reachability_checked: bool,
         input_fingerprint: str,
     },
     mit_assessment: { module_scores: { m: { completed, total } }, overall_score },
@@ -1787,6 +1790,23 @@ write could never reach the report shipping inside the crate — and files what 
 issues, so the existing rendering flips the header verdict without knowing this check exists.
 `payload_checked` records that something looked; a verdict where nothing did says so rather than
 implying a clean sheet it did not earn.
+
+**A rule that infers its own target cannot fail on a missing edge (#537).** The ISA shapes mint
+their target class *from* the very edge whose absence is the defect: `FindISAProcesses` stamps
+`isa-ro-crate:Process` only on a `bioschemas:LabProcess` some Dataset already points at, and
+`ProcessMustBeReferencedFromDataset` then targets that inferred class — so a process nothing
+references never earns the label, the rule written to catch exactly this defect has no target, and
+every rule keyed to the class goes silent with it. 11 of the profile's 12 shape files are built this
+way, and our `tox/7_assay_key_event.ttl` rides on `isa-ro-crate:Assay`, so the blind spot is
+general: a missing structural edge switches off the whole rule-set for that layer, and the crate
+reports conformant precisely when its structure is most broken. The upstream shapes are not ours to
+restructure, so `verify_isa_reachability` asserts the invariant on our side, the one way an absent
+edge cannot game — an entity nothing points at is detached, whatever the profile could evaluate.
+Reachability here is **directed**: `provenance_dag.build_crate_graph` already flags orphans, but
+over an *undirected* walk, where a process pointing at the files it produced counts as connected
+though nothing points at it. Entities named by an absolute URI are described here and live
+elsewhere, the same line `verify_payload` draws. `isa_reachability_checked` records that something
+asked.
 
 **Every finding folds out of the severity row it belongs to** (#510). Severity is the primary axis
 because it is the fix order — REQUIRED blocks the build, the advisory tiers do not — so a tier row

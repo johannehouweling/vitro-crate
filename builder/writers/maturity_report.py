@@ -724,6 +724,28 @@ def _payload_caveat(val: ValidationReport) -> str:
     )
 
 
+def _backbone_caveat(val: ValidationReport) -> str:
+    """Name the one question the ISA profile cannot answer of itself (#537).
+
+    Whether the backbone reaches the structural entities the crate mints is
+    REQUIRED, and unaskable by the profile: its rules target a class inferred
+    from the very edge whose absence is the defect, so a detached process is
+    skipped rather than failed and the silence reads as a pass. A verdict from
+    the in-memory gate never asked. Export asks and clears it.
+
+    Rendered on the same terms as :func:`_payload_caveat`, and for the same
+    reason: a verdict clean at REQUIRED is exactly where the green pill
+    over-claims hardest.
+    """
+    if val.isa_reachability_checked:
+        return ""
+    return (
+        '<p class="lead payload-note">The crate\'s ISA backbone was not checked for '
+        "detached entities — this verdict cannot say whether every process, protocol "
+        "and sample it describes is connected to anything.</p>"
+    )
+
+
 def _render_profile_section(
     val: ValidationReport, tiers: list[dict[str, str]] | None, *, stale: bool = False
 ) -> str:
@@ -770,6 +792,7 @@ def _render_profile_section(
         f"  {severity_detail}\n"
         f"  {sugg}\n"
         f"  {_payload_caveat(val)}\n"
+        f"  {_backbone_caveat(val)}\n"
         "</section>\n"
     )
 

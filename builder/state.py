@@ -671,6 +671,12 @@ class ValidationReport:
             payload — "is every declared Data Entity present?" — emit nothing
             there, and their silence must not be read as a pass (#530). False on
             a verdict that only ever saw the metadata.
+        isa_reachability_checked: Whether anything asked which structural
+            entities the ISA backbone actually reaches. The profile's own rules
+            cannot ask — they target a class that is only minted once the
+            reference exists, so a detached entity is skipped rather than
+            failed, and the silence reads as a pass (#537). False on a verdict
+            that never looked.
         input_fingerprint: :meth:`CrateState.validation_fingerprint` as it was
             when this verdict was recorded — the answer to "does this verdict
             still describe the crate?". Empty means unknown (a report restored
@@ -687,6 +693,7 @@ class ValidationReport:
     stale_tier_counts: dict[str, int] = field(default_factory=dict, repr=False)
     issue_records: list[dict[str, str]] = field(default_factory=list)
     payload_checked: bool = False
+    isa_reachability_checked: bool = False
     input_fingerprint: str = ""
 
     def is_stale_for(self, state: CrateState) -> bool:
@@ -711,6 +718,7 @@ class ValidationReport:
             "assessed_tiers": sorted(self.assessed_tiers),
             "issue_records": [dict(r) for r in self.issue_records],
             "payload_checked": self.payload_checked,
+            "isa_reachability_checked": self.isa_reachability_checked,
             "input_fingerprint": self.input_fingerprint,
         }
 
@@ -726,6 +734,7 @@ class ValidationReport:
             assessed_tiers=set(data.get("assessed_tiers", [])),
             issue_records=data.get("issue_records", []),
             payload_checked=data.get("payload_checked", False),
+            isa_reachability_checked=data.get("isa_reachability_checked", False),
             input_fingerprint=data.get("input_fingerprint", ""),
         )
 
