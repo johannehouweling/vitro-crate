@@ -1194,6 +1194,61 @@ def _scanned_path_for_name(
     return None
 
 
+_DESIGN_TABLE_SUFFIXES = frozenset({".csv", ".tsv", ".tab", ".xlsx", ".xlsm"})
+
+
+def _design_table_candidates(
+    engine: AgentEngine,
+) -> tuple[list[tuple[int, int, str]], list[tuple[str, str]]]:
+    """Scanned tables that read as a per-condition design table, best first (#594).
+
+    Every scanned table is tried, not the ones classified `metadata`. The class
+    says what a file IS and cannot scope this search: measured over the three real
+    deposits the only table that passes is svhps22's tidy per-condition export,
+    which is `processed_data_file` — it carries one row per well AND the value
+    measured there, so it is genuinely derived data and genuinely the design
+    table. The same content classifies `metadata` as `plate_map.csv` and
+    `raw_data_file` as `conditions.csv`, so the name decides the class while only
+    the rows decide this.
+
+    Reading is fail-closed to ``approved_scan_roots`` — the same guard
+    :func:`_scanned_path_for_name` applies, for the same reason.
+
+    Returns:
+        ``(candidates, unreadable)`` — ``[(wells, mapped_columns, path)]`` sorted
+        best first, and ``[(path, error)]`` for tables no reader could open.
+        Candidates are usually empty: two of the three real deposits carry no
+        such table at all.
+
+        The unreadable list is kept separate and reported, because a table that
+        reads fine and is simply not per-condition is the ordinary case — most
+        tables in a submission are measurements — while one that cannot be opened
+        is the failure #422 exists to stop hiding behind a header-only export.
+    """
+    from pathlib import Path, PurePath
+
+    from builder.tools.data_content import condition_table_fit_of
+    from builder.tools.scanner import _contain
+
+    roots = engine.state.approved_scan_roots
+    found: list[tuple[int, int, str]] = []
+    unreadable: list[tuple[str, str]] = []
+    for f in engine.state.scanned_files:
+        name = f.filename or PurePath(f.path).name
+        if PurePath(name).suffix.lower() not in _DESIGN_TABLE_SUFFIXES:
+            continue
+        if _contain(f.path, roots) is None:
+            logger.debug("Scanned file %s is outside approved scan roots — refusing.", f.path)
+            continue
+        wells, mapped, error = condition_table_fit_of(Path(f.path))
+        if wells:
+            found.append((wells, mapped, f.path))
+        elif error:
+            unreadable.append((f.path, error))
+    found.sort(reverse=True)
+    return found, unreadable
+
+
 def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
     """Path of the scanned PDF a plan publication *title* refers to, or ``None``.
 
@@ -1269,22 +1324,29 @@ def _fall_back_to_proposal(
     return primary
 
 
-def _populate_condition_table_from_plan(
-    engine: AgentEngine, plan: dict[str, Any], exposure_id: str
+def _populate_condition_table_from_deposit(
+    engine: AgentEngine, exposure_id: str
 ) -> dict[str, Any]:
-    """Write the plan's ``condition_table`` file into the Exposure's CSV (#408).
+    """Write the deposit's design table into the Exposure's CSV (#408, #594).
 
-    The extraction leaf classifies every plan file into
-    ``raw``/``processed``/``condition_table``/``other``, and the spine reads that
-    answer here rather than re-deriving one — an earlier version derived a role
-    from the filename and could only ever return raw or processed, so
-    ``condition_table`` was unreachable and every exported table shipped
-    header-only while the per-well payload sat beside it as an untyped ``File``.
+    Which file is the design table is a question its ROWS answer. It used to be
+    answered by a ``condition_table`` label the extraction leaf assigned from a
+    filename listing — the last vocabulary outside the one file classification
+    (#591), and a guess made before anything was read. A file mislabelled ``raw``
+    shipped a header-only table while its per-well payload sat on disk.
 
-    This plan role is the last consumer of a vocabulary other than the one file
-    classification (#591): a plate map classifies as ``metadata``, so finding
-    which metadata file IS the plate map has to become the same content-first
-    question — a metadata table carrying one row per well. Tracked in #594.
+    Every scanned table is now tried against :func:`~builder.tools.data_content.
+    condition_table_fit`: does it carry a well key AND columns that map onto the
+    canonical schema? That is the same predicate ``populate_condition_table``
+    must satisfy to write anything, so what is detected and what is writable
+    cannot disagree — which a separate filename heuristic would eventually let
+    them do.
+
+    The file CLASS cannot scope this search, though it is tempting: measured over
+    the three real deposits the only table that passes is svhps22's tidy
+    per-condition export, classified ``processed_data_file`` because it carries
+    the measured value alongside the design. The same content is ``metadata`` as
+    ``plate_map.csv`` and ``raw_data_file`` as ``conditions.csv``.
 
     Deterministic and conservative:
 
@@ -1311,44 +1373,67 @@ def _populate_condition_table_from_plan(
         result carrying ``proposed`` / ``fallback_from``. Surfaced in
         :func:`_materialize_plan`'s result so it reaches ``run_pipeline``.
     """
-    entries = [f for f in (plan.get("files") or []) if isinstance(f, dict)]
-    candidates = [e for e in entries if str(e.get("role") or "").strip() == "condition_table"]
+    from pathlib import PurePath
+
+    candidates, unreadable = _design_table_candidates(engine)
     if not candidates:
-        # The user supplied no plate map. Rather than shipping a header-only
-        # table beside compounds it should have named, PROPOSE the design from
-        # what the crate already knows (#438) — compound identity, cell line and
-        # assay are entities, so restating them asserts nothing new. Anything the
-        # crate never states stays blank and comes back as a question for the
-        # human; no concentration is ever invented.
-        return _propose_condition_table(engine, exposure_id)
-    if len(candidates) > 1:
-        # Deliberately NO proposal fallback here (#422): several claimed plate
-        # maps is genuine ambiguity a human must settle — synthesizing rows
-        # while real design tables sit unread would paper over the question.
-        names = ", ".join(sorted(str(c.get("path") or "?") for c in candidates))
-        return {
-            "populated": False,
-            "reason": f"{len(candidates)} condition_table candidates ({names}) — refusing to guess",
-        }
-
-    named = str(candidates[0].get("path") or "").strip()
-    if not named:
-        return _fall_back_to_proposal(
-            engine,
-            exposure_id,
-            {"populated": False, "reason": "the condition_table entry carries no path"},
-        )
-
-    path = _scanned_path_for_name(engine, named)
-    if path is None:
+        # No table in the deposit carries per-condition rows. This is the ORDINARY
+        # case, not the edge — two of the three real deposits are like this — so
+        # rather than ship a header-only table the design is PROPOSED from what
+        # the crate already states (#438): compound identity, cell line and assay
+        # are entities, so restating them asserts nothing new. Anything the crate
+        # never states stays blank and comes back as a question for the human; no
+        # concentration is ever invented.
+        #
+        # Routed through the same fallback as every other unusable outcome so the
+        # provenance survives either way (#422): on success the rows carry
+        # `fallback_from`, and if the proposal ALSO fails this reason survives as
+        # the primary with the proposal's own alongside it.
+        if unreadable:
+            # A table that could not be OPENED is a different fact from one that
+            # read fine and simply is not per-condition, and #422 exists because
+            # the two used to be indistinguishable while the crate shipped a
+            # header-only table either way. Name the files, loudly.
+            names = ", ".join(sorted(PurePath(path).name for path, _ in unreadable))
+            logger.warning(
+                "Condition table: %d scanned table(s) could not be READ (%s); "
+                "proposing from crate entities instead (#422).",
+                len(unreadable),
+                names,
+            )
+            return _fall_back_to_proposal(
+                engine,
+                exposure_id,
+                {
+                    "populated": False,
+                    "reason": f"{len(unreadable)} table(s) could not be read ({names})",
+                    "read_failed": True,
+                },
+            )
         return _fall_back_to_proposal(
             engine,
             exposure_id,
             {
                 "populated": False,
-                "reason": f"{named!r} matches no scanned file inside the approved scan roots",
+                "reason": "no scanned table carries per-condition rows "
+                "(a well key and a column that maps onto the schema)",
             },
         )
+
+    if len(candidates) > 1:
+        # Deliberately NO proposal fallback here (#422): several tables that each
+        # read as the design is genuine ambiguity a human must settle —
+        # synthesizing rows while real design tables sit unread would paper over
+        # the question. Measured over the three real deposits this does not fire:
+        # svhps22 has exactly one such table and the other two have none.
+        names = ", ".join(sorted(PurePath(c[2]).name for c in candidates))
+        return {
+            "populated": False,
+            "reason": f"{len(candidates)} design-table candidates ({names}) — refusing to guess",
+        }
+
+    _wells, _mapped, path = candidates[0]
+    named = PurePath(path).name
 
     try:
         outcome = engine.run_tool(
@@ -1508,14 +1593,13 @@ def _materialize_plan(
       ``process_chain``, each plan step's ``name`` is overlaid onto the matching
       ``process_type`` so the two paths share ONE chain (no duplicate processes).
       This runs even with NO provider, so the crate is never structurally hollow.
-    * **condition table (#408).** The ONE plan file classified
-      ``role == "condition_table"`` is written into the Exposure's typed CSVW table
-      via ``populate_condition_table``
-      (:func:`_populate_condition_table_from_plan`) — the leaf already emits that
-      role and the spine used to discard it, so every crate declared a ten-column
-      ``csvw:Table`` and shipped it header-only. Zero or several candidates → the
-      spine records why and writes nothing rather than guess. The outcome is
-      surfaced on this function's result.
+    * **condition table (#408, #594).** The ONE scanned table whose rows carry a
+      well key and map onto the canonical schema is written into the Exposure's
+      typed CSVW table via ``populate_condition_table``
+      (:func:`_populate_condition_table_from_deposit`). Several such tables → the
+      spine records why and writes nothing rather than guess; none → the design is
+      proposed from what the crate already states (#438). The outcome is surfaced
+      on this function's result.
     * **scanned files — ALWAYS, regardless of provider (#262).** Every
       ``engine.state.scanned_files`` entry is added as a ``File`` entity and placed
       under the scaffolded Assay (else Study) ``hasPart`` via the idempotent
@@ -1760,8 +1844,8 @@ def _materialize_plan(
     # no compound resolved. ---
     exposure_for_table = (chain_by_type.get("Exposure") or {}).get("process_id")
     if exposure_for_table:
-        result["condition_table"] = _populate_condition_table_from_plan(
-            engine, plan, str(exposure_for_table)
+        result["condition_table"] = _populate_condition_table_from_deposit(
+            engine, str(exposure_for_table)
         )
     else:
         result["condition_table"] = {

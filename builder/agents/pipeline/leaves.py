@@ -228,7 +228,7 @@ _PLAN_SYSTEM_PROMPT = (
     "and connections the documents support: the study, test/control compounds, "
     "cell lines, the CellCulture -> Exposure -> EndpointReadout -> DataAnalysis "
     "process chain, AOPs (only if an AOP id is explicitly stated), people, "
-    "publications, and files. This is a PROPOSAL for the user to confirm, not "
+    "and publications. This is a PROPOSAL for the user to confirm, not "
     "committed truth. Propose ONLY what the documents support; leave any field "
     "you cannot support empty and record ambiguities or things the user should "
     "confirm in 'notes'. "
@@ -416,32 +416,15 @@ def _plan_schema() -> dict[str, Any]:
                 {"title": {**str_field, "description": "Publication title only (no DOI)."}},
                 required=["title"],
             ),
-            "files": _array_of(
-                {
-                    "path": {**str_field, "description": "File path or name."},
-                    # The last vocabulary #591 did not absorb. Three of these
-                    # four values are answered better by the file classification
-                    # (`metadata`/`protocol`/`raw_data_file`/`processed_data_file`,
-                    # read from the file's own content); the fourth has no home
-                    # in it, because a plate map classifies as `metadata`. Only
-                    # `condition_table` is read — by
-                    # `_populate_condition_table_from_plan` — and replacing it
-                    # needs a content-first detector rather than a lookup (#594).
-                    "role": {
-                        "type": "string",
-                        "enum": ["raw", "processed", "condition_table", "other"],
-                        "description": (
-                            "What kind of data file this is. `condition_table` "
-                            "means a per-well experimental DESIGN table or plate "
-                            "map — rows or grid cells per well giving compound, "
-                            "concentration, duration. A metadata or parameter "
-                            "template (Parameter/Value sheets) is `other`, never "
-                            "`condition_table`."
-                        ),
-                    },
-                },
-                required=["path"],
-            ),
+            # NO `files` array (#594). It carried `path` plus a
+            # raw/processed/condition_table/other `role`, and both are gone: the
+            # role was a label a cheap model assigned from filenames it was shown
+            # in a listing, and the spine now finds the design table by trying the
+            # projection on the deposit's own tables — the same predicate
+            # `populate_condition_table` must satisfy to write anything, so what
+            # is detected and what is writable cannot disagree. With the role
+            # retired nothing read `path` either, so asking for the array at all
+            # was tokens spent inviting a model to invent paths.
             "notes": {
                 **str_field,
                 "description": (

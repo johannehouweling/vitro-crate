@@ -138,27 +138,41 @@ class TestDrafterTier:
         assert rec["calls"][0].get("model") == "gpt-4o-mini"
 
 
-class TestConditionTableRoleGuidance:
-    """#422: the plan schema must define what a ``condition_table`` IS.
+def _plan_schema_properties() -> dict[str, Any]:
+    from builder.agents.pipeline.leaves import _plan_schema
 
-    The real S-VHPS26 mislabel: with the role described only as "What kind of
-    data file this is.", the leaf labelled a Parameter|Value assay-metadata
-    template ``condition_table``, and the populator was handed a file that can
-    never map. The enum description is the leaf's ONLY definition of the term —
-    it must say per-well design/plate map and steer templates to ``other``.
+    return _plan_schema()["properties"]
+
+
+class TestTheLeafIsNotAskedToLabelFiles:
+    """The plan cannot mislabel a file it is never asked about (#594).
+
+    #422 came from the real S-VHPS26 mislabel: the leaf called a Parameter|Value
+    assay-metadata template a ``condition_table`` and the populator was handed a
+    file that can never map. The fix then was to DEFINE the term better in the
+    enum's description, and a test pinned that wording — a prompt guard against a
+    model's judgement, which is the weakest kind there is.
+
+    The question is gone instead. Which file is the design table is decided by
+    reading rows (``data_content.condition_table_fit``), so there is no label to
+    get wrong. This asserts the schema stays that way: re-adding a files array
+    would restore the failure mode the wording was defending against.
     """
 
-    def test_role_description_defines_condition_table_and_steers_templates(self) -> None:
+    def test_the_plan_schema_asks_for_no_files(self) -> None:
         from builder.agents.pipeline.leaves import _plan_schema
 
-        role = _plan_schema()["properties"]["files"]["items"]["properties"]["role"]
-        desc = str(role.get("description") or "").lower()
-        assert "per-well" in desc or "per well" in desc, (
-            "the description must define condition_table as a per-well design table"
+        assert "files" not in _plan_schema()["properties"], (
+            "the plan must not ask the leaf to classify files — the deposit's "
+            "rows answer that (#594)"
         )
-        assert "template" in desc and "other" in desc, (
-            "metadata/parameter templates must be steered to the `other` role"
-        )
+
+    def test_the_leaf_still_proposes_the_entities_it_is_for(self) -> None:
+        """Control: removing `files` must not have emptied the schema."""
+        properties = _plan_schema_properties()
+
+        for expected in ("study", "compounds", "cell_lines", "publications"):
+            assert expected in properties, f"the plan lost {expected!r}"
 
 
 class TestStructuredOutput:

@@ -622,7 +622,63 @@ def reference_cell_allowlist(state: CrateState, entity_type: str) -> list[str]:
 # rather than failing in a way that reads like "the plate map was unusable".
 
 _TEXT_TABLE_SUFFIXES: dict[str, str] = {".csv": ",", ".tsv": "\t", ".tab": "\t"}
+
+# A workbook that opened fine and simply holds no per-condition sheet. Reported
+# through the same `error` channel as a genuine read failure because
+# `populate_condition_table`'s caller asked for ONE named file and either way got
+# nothing — but the two are not the same fact, and #594's search over every
+# scanned table has to tell them apart or it calls a deposit's whole workbook
+# collection unreadable (20 of svhps22's tables, every one of them fine).
+_NO_QUALIFYING_SHEET = "no sheet has both a mapped condition-table column and a well_id"
 _EXCEL_SUFFIXES: frozenset[str] = frozenset({".xlsx", ".xlsm"})
+
+
+def condition_table_fit(rows: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
+    """How well *rows* serve as a condition table: ``(wells, mapped_columns)``.
+
+    ``(0, 0)`` means they do not. A design table is one that carries a well key
+    AND columns that map onto the canonical schema — a table with wells but no
+    mapped column describes nothing, and one with mapped columns but no well key
+    is not per-condition.
+
+    This is the ONE plate-map test (#594). It is the same predicate
+    :func:`populate_condition_table` has to satisfy to write anything, so
+    "this file is the design table" and "this file can be written" cannot
+    disagree — which a separate filename-and-header heuristic would eventually
+    let them do, in the way the four file vocabularies #591 replaced did.
+
+    Sorting by the pair prefers the table describing more wells, and breaks a tie
+    on how much of the schema it fills.
+    """
+    projection = project_condition_rows(rows)
+    wells = sum(1 for r in projection["rows"] if _has_value(r.get("well_id")))
+    mapped = len(projection["mapped_columns"])
+    return (wells, mapped) if wells and mapped else (0, 0)
+
+
+def condition_table_fit_of(src: Path) -> tuple[int, int, str | None]:
+    """:func:`condition_table_fit` for a file on disk, plus any READ error.
+
+    Returns ``(wells, mapped, error)``. The error is reported separately from the
+    fit because the two are different facts about a deposit: a table that reads
+    fine and simply is not per-condition is the ordinary case — most tables in a
+    submission are measurements — while one that cannot be OPENED is a problem
+    the depositor should hear about, and #422 exists because those two used to be
+    indistinguishable.
+
+    Never raises: a deposit holds workbooks no reader can open, and one of them
+    must not stop the search.
+    """
+    try:
+        rows, _reader, error, _sheet = _rows_from_file(src)
+    except Exception as exc:  # noqa: BLE001 - an unreadable file is not the table
+        return (0, 0, str(exc))
+    if error:
+        # "Opened fine, holds no per-condition sheet" is an ordinary answer to
+        # this search, not a failure to report — most tables in a submission are
+        # measurements.
+        return (0, 0, None) if error.startswith(_NO_QUALIFYING_SHEET) else (0, 0, error)
+    return (*condition_table_fit(rows), None) if rows else (0, 0, None)
 
 
 def _rows_from_file(
@@ -663,20 +719,16 @@ def _rows_from_file(
             tried.append(f"{name} ({', '.join(list(rows[0])[:6]) if rows else 'empty'})")
             if not rows:
                 continue
-            projection = project_condition_rows(rows)
-            wells = sum(1 for r in projection["rows"] if _has_value(r.get("well_id")))
-            mapped = len(projection["mapped_columns"])
-            if not mapped or not wells:
+            wells, mapped = condition_table_fit(rows)
+            if not wells:
                 continue
-            score = (wells, mapped)
-            if best is None or score > (best[0], best[1]):
+            if best is None or (wells, mapped) > (best[0], best[1]):
                 best = (wells, mapped, name, rows)
         if best is None:
             return (
                 [],
                 reader_name,
-                "no sheet has both a mapped condition-table column and a well_id; "
-                "tried " + "; ".join(tried),
+                _NO_QUALIFYING_SHEET + "; tried " + "; ".join(tried),
                 None,
             )
         return list(best[3]), reader_name, None, best[2]
