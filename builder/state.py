@@ -253,6 +253,13 @@ class FileClassification:
         first_rows: Preview of the first rows for CSV/TSV/XLSX files (None for
             other formats or when the preview could not be read).
         reviewed_by_user: Whether a human has reviewed this classification.
+        classification: What the file IS — one of
+            :data:`~builder.tools.document_discovery.FILE_CLASSES` — stamped
+            once, from a real preview, by
+            :func:`~builder.tools.document_discovery.classify_scanned_files`
+            (#591). ``None`` until then, and on a session saved before it
+            existed; :func:`~builder.tools.document_discovery.classification_of`
+            derives an answer for those from this record alone.
     """
 
     path: str
@@ -261,6 +268,7 @@ class FileClassification:
     mime_type: str
     first_rows: list[str] | None = None
     reviewed_by_user: bool = False
+    classification: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -270,6 +278,7 @@ class FileClassification:
             "mime_type": self.mime_type,
             "first_rows": self.first_rows,
             "reviewed_by_user": self.reviewed_by_user,
+            "classification": self.classification,
         }
 
     @classmethod
@@ -281,6 +290,7 @@ class FileClassification:
             mime_type=data["mime_type"],
             first_rows=data.get("first_rows"),
             reviewed_by_user=data.get("reviewed_by_user", False),
+            classification=data.get("classification"),
         )
 
 
@@ -1398,6 +1408,32 @@ class CrateState:
         return StateSerializer.from_json(data)
 
 
+def _migrate_documents(documents: list[Any]) -> list[Any]:
+    """Read a pre-#591 session's discovered documents under the current key.
+
+    Document discovery labelled each candidate ``role``; it now answers with the
+    one file ``classification``. ``--resume`` bypasses ``initialize()``, so
+    discovery never re-runs and the saved dicts are what the readers see for the
+    rest of the session — and one reader is not cosmetic: the ReAct gap engine
+    counts assay folders by the documents classified ``metadata`` or
+    ``protocol``, so an old session produced none and the "N assay folders, M
+    Assays" item stopped appearing.
+
+    Renamed once here rather than by teaching four readers two spellings. The
+    current key wins where a session somehow carries both, and anything that is
+    not a dict is passed through: ``documents`` is free-form JSON on disk and a
+    hand-edited file must not break the load.
+    """
+    migrated: list[Any] = []
+    for document in documents:
+        if isinstance(document, dict) and "role" in document:
+            document = {
+                k: v for k, v in document.items() if k != "role"
+            } | {"classification": document.get("classification") or document["role"]}
+        migrated.append(document)
+    return migrated
+
+
 # ===================================================================
 # StateSerializer - JSON (de)serialization for CrateState
 # ===================================================================
@@ -1491,7 +1527,7 @@ class StateSerializer:
             entities=EntityStore.from_dict(data.get("entities", {})),
             approved_scan_roots=set(data.get("approved_scan_roots", [])),
             scanned_files=[FileClassification.from_dict(f) for f in data.get("scanned_files", [])],
-            documents=list(data.get("documents") or []),
+            documents=_migrate_documents(data.get("documents") or []),
             document_evidence=dict(data.get("document_evidence") or {}),
             validation=ValidationReport.from_dict(data.get("validation", {})),
             mit_assessment=MITReport.from_dict(data.get("mit_assessment", {})),

@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from builder.state import FileClassification
@@ -23,33 +23,8 @@ _DOCUMENT_SUFFIXES = {
 _TEXT_MIMES = ("text/", "application/json", "application/xml", "application/pdf")
 _MAX_PREVIEW_CHARS = 3_000
 _MAX_CONTEXT_CHARS = 12_000
-_ROLE_TERMS: dict[str, tuple[str, ...]] = {
-    "publication": ("doi", "pmid", "journal", "abstract", "references", "supplementary"),
-    "assay_protocol": (
-        "assay", "test method", "experimental procedure", "endpoint", "readout"
-    ),
-    "sop": (
-        "sop", "standard operating procedure", "work instruction", "laboratory procedure"
-    ),
-    "study_plan": (
-        "study design", "study plan", "objective", "investigation", "experimental design"
-    ),
-    "metadata": (
-        "metadata", "data dictionary", "sample sheet", "plate map", "condition table"
-    ),
-    "analysis_method": (
-        "data analysis", "analysis method", "statistics", "normalization", "pipeline"
-    ),
-}
-_FILENAME_TERMS = {
-    "publication": ("publication", "paper", "article", "doi", "pmid"),
-    "assay_protocol": ("assay", "protocol", "method"),
-    "sop": ("sop", "standard_operating", "work_instruction"),
-    "study_plan": ("study", "investigation", "experiment", "design"),
-    "metadata": ("metadata", "sample", "plate", "dictionary", "condition"),
-    "analysis_method": ("analysis", "pipeline", "statistics"),
-}
-
+_JOINER = "\n\n"
+_TRUNCATED = " […]"
 
 @dataclass
 class DocumentationCandidate:
@@ -59,7 +34,7 @@ class DocumentationCandidate:
     filename: str
     relative_path: str
     kind: str
-    role: str
+    classification: str
     score: float
     reasons: list[str] = field(default_factory=list)
     preview: str = ""
@@ -70,7 +45,7 @@ class DocumentationCandidate:
             "filename": self.filename,
             "relative_path": self.relative_path,
             "kind": self.kind,
-            "role": self.role,
+            "classification": self.classification,
             "score": self.score,
             "reasons": list(self.reasons),
             "preview": self.preview,
@@ -212,57 +187,389 @@ def _tabular_signals(preview: str) -> tuple[list[str], float]:
     return reasons, score
 
 
-def _narrative_signals(name: str, preview: str) -> tuple[str, list[str], float]:
-    """Score prose by how much of a role's vocabulary it actually covers.
+# --- one file classification (#591) ------------------------------------------
+#
+# What a file IS, in four values, answered once for every scanned file and read
+# by everything downstream. It replaces four competing vocabularies — a
+# discovery `role`, the pipeline plan's raw/processed/condition_table, the
+# spine's raw_data/processed_data, and the process chain's raw/processed folder
+# tier — which disagreed because two of them labelled FORM ("this is a table")
+# and two labelled FUNCTION ("this is metadata"), so a tabular metadata workbook
+# could only be one and lost the other.
+#
+# `metadata` and `protocol` are about what the file says; the two data classes
+# are about which step produced it. A plate map is `metadata` — it states the
+# design that was intended, not a value that was measured (owner's call on #591).
+CLASS_METADATA = "metadata"
+CLASS_PROTOCOL = "protocol"
+CLASS_RAW_DATA = "raw_data_file"
+CLASS_PROCESSED_DATA = "processed_data_file"
+FILE_CLASSES: tuple[str, ...] = (
+    CLASS_METADATA, CLASS_PROTOCOL, CLASS_RAW_DATA, CLASS_PROCESSED_DATA,
+)
 
-    Coverage rather than presence: the old count saturated at five distinct
-    terms and treated one incidental mention of "assay" as evidence — which is
-    how a top-level README came to be labelled an assay protocol.
+# CONTENT, then FILENAME, then PATH — the inverse of the folder-tier rule this
+# replaces, and the order matters at every step. A first crude pass let the
+# extension outrank the content and filed an instrument printout under `raw
+# data/` as a protocol because it was a .pdf; letting the path outrank the
+# filename filed `assay1_rawdata/README.txt` as a measurement.
+#
+# Within the filename step, WHAT A FILE IS outranks WHICH TIER it would be: a
+# paper called "Normalization of Data for Viability…" is a publication, not
+# processed data, even though `normali` is a derived-data word.
+
+_NON_WORD = re.compile(r"[^0-9a-z]+")
+
+
+def _normalise(text: str) -> str:
+    """Casefold and reduce every separator to one space, so terms match tokens.
+
+    ``assay1_processeddata`` becomes ``assay1 processeddata``, which the
+    token-anchored terms below then read as the processed tier.
     """
-    text = f"{name}\n{preview.casefold()}"
-    coverage = {
-        role: sum(term in text for term in terms) / len(terms)
-        for role, terms in _ROLE_TERMS.items()
+    return _NON_WORD.sub(" ", text.casefold()).strip()
+
+
+def _hits(text: str, terms: tuple[str, ...]) -> list[str]:
+    """Which of *terms* start a word in *text* (already normalised).
+
+    Anchored at the START of a word and open at the end, so one spelling covers
+    a family — `normali` catches "normalised" and "normalization", `count`
+    catches "counts" — while `raw` still refuses "drawings" and `process`
+    refuses "unprocessed", which names the OPPOSITE tier.
+    """
+    return [t for t in terms if re.search(r"\b" + re.escape(t), text)]
+
+
+# Content — a table's own column and sheet names.
+_METADATA_TABLE = ("metadata", "data dictionary", "sample sheet", "controlled vocabular")
+# The VHP4Safety assay-metadata workbooks: one column names a field, the next
+# holds its value. That pairing is what a descriptive template looks like in any
+# dialect, and no measurement table has it.
+_METADATA_TABLE_KEY = ("field", "parameter")
+_METADATA_TABLE_VALUE = ("value",)
+_PROCESSED_TABLE = (
+    "summar", "combin", "normali", "averag", "statistic", "mean", "median",
+    "sd", "sem", "stdev", "auc", "ic50", "ec50", "conversion", "relative",
+    "fold change", "tidy", "fitted",
+)
+_RAW_TABLE = (
+    "protocol id", "protocol name", "measurement date", "completion status",
+    "sample code", "plate readout", "microplate", "end point",
+    "cpm", "count", "absorbance", "luminescence", "fluorescence",
+)
+# Content — prose. The two vocabularies compete on coverage, and a document
+# covering neither falls through to its filename rather than being guessed at.
+_PROTOCOL_PROSE = (
+    "standard operating procedure", "sop", "protocol", "work instruction",
+    "materials and methods", "procedure", "incubat", "pipett", "reagent",
+    "buffer", "centrifug", "step 1",
+)
+_METADATA_PROSE = (
+    "readme", "metadata", "data dictionary", "sample sheet", "plate map",
+    "doi", "pmid", "journal", "abstract", "supplementary", "this folder",
+    "file naming", "contents",
+)
+# GraphPad writes its fitted curves and analyses as this XML root, whatever the
+# extension. Content rather than filename, because svhps26 files the project
+# beside the instrument export it was fitted from, in one directory naming both
+# tiers — the case no folder rule can reach.
+_ANALYSIS_PROJECT_ROOT = "graphpadprismfile"
+
+# Filename.
+_SCRIPT_SUFFIXES = frozenset({".py", ".r", ".sh", ".ipynb", ".rmd", ".m", ".do", ".sql", ".jl"})
+_ANALYSIS_PROJECT_SUFFIXES = frozenset({".prism", ".pzfx", ".pzf"})
+_PUBLICATION_NAME = ("et al", "doi", "pmid", "preprint", "manuscript", "supplementary")
+_METADATA_NAME = (
+    "readme", "metadata", "sample sheet", "samplesheet", "plate map", "platemap",
+    "data dictionary", "codebook", "manifest", "condition table",
+)
+_PROTOCOL_NAME = ("protocol", "sop", "standard operating", "procedure", "work instruction")
+# Only for a document format. "Assay" names half the files in a deposit and says
+# nothing about a table, but a .docx called "Deiodinase activity assay" is the
+# protocol for it.
+_PROTOCOL_DOCUMENT_NAME = ("assay", "method")
+_PROCESSED_NAME = (
+    "process", "combin", "tidy", "summar", "analy", "result", "normali",
+    "averag", "mean", "statistic", "stats", "figure", "plot", "graph", "curve",
+    "ic50", "ec50", "fitted",
+)
+_RAW_NAME = ("raw",)
+
+# Path — the last resort, and still the depositor's clearest statement when the
+# file itself is silent: an unreadable instrument printout with a timestamp for
+# a name is raw because of the folder it was filed in, and nothing else.
+_RAW_DIRECTORY = ("raw",)
+_PROCESSED_DIRECTORY = ("process",)
+
+# Formats that carry words rather than measurements. Their default is metadata:
+# calling a document a measurement would put prose into the derivation chain as
+# the instrument's output, which is the more damaging of the two wrong answers.
+_DOCUMENT_FORMATS = frozenset(
+    {".txt", ".md", ".rst", ".doc", ".docx", ".odt", ".pdf", ".html", ".htm",
+     ".xml", ".json", ".yaml", ".yml"}
+)
+# Of those, the ones only a PERSON ever writes — so the folder they were filed in
+# says nothing about them, and the metadata default stands even inside `raw
+# data/`. The distinction earns its keep in both directions on svhps22: bench
+# notes filed beside the measurements are not measurements, while four of the
+# deposit's raw outputs ARE `.pdf`, printed by the counter with a timestamp for
+# a filename and no extractable text — for those the folder is all there is.
+_AUTHORED_FORMATS = frozenset({".doc", ".docx", ".odt", ".md", ".rst"})
+
+
+def looks_like_publication(filename: str) -> bool:
+    """Whether *filename* reads as a journal article.
+
+    Publications classify as ``metadata`` — they describe the study rather than
+    measure it — so the class alone cannot tell the ReAct gap engine that an
+    article was deposited and never recorded. This names that signal once,
+    beside the classification that consumes it.
+
+    The NAME only, deliberately. Contents mention these words without being an
+    article: the deposit record carries ``DOI`` as one of its field names, and an
+    assay README template carries "et al" in a worked citation example — both
+    fire on content across all three real deposits, and neither is a paper.
+    Measured over the same three, the filename alone finds the one article any of
+    them ships (``Krebs et al (2018) - Normalization … (ALTEX).pdf``) and nothing
+    else.
+    """
+    return bool(_hits(_normalise(Path(filename).stem), _PUBLICATION_NAME))
+
+
+def _tabular_class(text: str) -> tuple[str, str] | None:
+    """A table's class from its own headers, or ``None`` when they say nothing."""
+    if _hits(text, _METADATA_TABLE) or (
+        _hits(text, _METADATA_TABLE_KEY) and _hits(text, _METADATA_TABLE_VALUE)
+    ):
+        return CLASS_METADATA, "content: descriptive columns, not measured values"
+    # Processed is asked first because a processed workbook routinely EMBEDS its
+    # raw tab — svhps22's own README says so ("Raw data files matching the
+    # processed data … can be found in processsed data file: tab: 'Raw data
+    # \"date\"'") — so a file naming both is the derived one.
+    if hits := _hits(text, _PROCESSED_TABLE):
+        return CLASS_PROCESSED_DATA, f"content: derived columns ({', '.join(hits[:3])})"
+    if hits := _hits(text, _RAW_TABLE):
+        return CLASS_RAW_DATA, f"content: instrument columns ({', '.join(hits[:3])})"
+    return None
+
+
+# How far ahead a vocabulary must be to have decided anything. The two lists are
+# not the same length, so one hit each is 8.3% against 7.7% — a winner produced
+# by the denominator rather than by the document. That margin handed the study
+# README to `protocol` on the strength of the word "incubated"; below it, the
+# prose is not decisive and the filename answers instead.
+_DECISIVE_COVERAGE_RATIO = 1.5
+
+
+def _prose_class(text: str) -> tuple[str, str] | None:
+    """A document's class from the vocabulary its prose covers, or ``None``.
+
+    Coverage, not presence: one incidental "assay" is not a protocol. A README
+    describing what a folder holds is metadata; one describing how the assay was
+    run is a protocol, and only the words decide which — when they say enough to
+    decide at all.
+    """
+    (share, name), (runner_up, _) = sorted(
+        (
+            (len(_hits(text, terms)) / len(terms), name)
+            for name, terms in (
+                (CLASS_PROTOCOL, _PROTOCOL_PROSE),
+                (CLASS_METADATA, _METADATA_PROSE),
+            )
+        ),
+        reverse=True,
+    )
+    if share <= 0 or share < runner_up * _DECISIVE_COVERAGE_RATIO:
+        return None
+    return name, f"content: {name} vocabulary {share:.0%} covered"
+
+
+def _filename_class(stem: str, suffix: str) -> tuple[str, str] | None:
+    """A file's class from its own name, or ``None`` when the name says nothing."""
+    if suffix in _SCRIPT_SUFFIXES:
+        return CLASS_PROTOCOL, "an analysis script is how the work was done"
+    if suffix in _ANALYSIS_PROJECT_SUFFIXES:
+        return CLASS_PROCESSED_DATA, f"{suffix} is a fitted-curve analysis project"
+    text = _normalise(stem)
+    if _hits(text, _PUBLICATION_NAME):
+        return CLASS_METADATA, "filename: reads as a publication"
+    if hits := _hits(text, _METADATA_NAME):
+        return CLASS_METADATA, f"filename: {hits[0]!r}"
+    named_protocol = _hits(text, _PROTOCOL_NAME) or (
+        _hits(text, _PROTOCOL_DOCUMENT_NAME) if suffix in _DOCUMENT_FORMATS else []
+    )
+    if named_protocol:
+        return CLASS_PROTOCOL, f"filename: {named_protocol[0]!r}"
+    if hits := _hits(text, _PROCESSED_NAME):
+        return CLASS_PROCESSED_DATA, f"filename: {hits[0]!r}"
+    if hits := _hits(text, _RAW_NAME):
+        return CLASS_RAW_DATA, f"filename: {hits[0]!r}"
+    return None
+
+
+def _directory_class(relative_path: str) -> tuple[str, str] | None:
+    """The tier the containing directories declare, or ``None``.
+
+    ``None`` when they name BOTH tiers or neither, and the refusal is not a
+    corner case: svhps21 and svhps26 file every run under one ``Raw data +
+    individual processed data/``. Reading just the first match there would hand
+    every processed file in both deposits to the EndpointReadout.
+    """
+    directories = _normalise(" ".join(PurePosixPath(relative_path.replace("\\", "/")).parts[:-1]))
+    named = {
+        cls
+        for cls, terms in (
+            (CLASS_RAW_DATA, _RAW_DIRECTORY),
+            (CLASS_PROCESSED_DATA, _PROCESSED_DIRECTORY),
+        )
+        if _hits(directories, terms)
     }
-    role, share = max(coverage.items(), key=lambda item: (item[1], item[0]))
-    reasons: list[str] = []
-    if share <= 0:
-        return "other_document", ["no role vocabulary matched"], 0.10
-    reasons.append(f"{role.replace('_', ' ')} vocabulary {share:.0%} covered")
-    score = 0.20 + min(0.45, share * 0.9)
-    if any(term in name for term in _FILENAME_TERMS[role]):
-        reasons.append("filename supports role")
-    return role, reasons, score
+    if len(named) != 1:
+        return None
+    cls = named.pop()
+    return cls, "the containing directory declares the tier"
 
 
-def _role_and_signals(filename: str, preview: str) -> tuple[str, list[str], float]:
-    """Legacy entry point: the narrative scorer, kept for callers that ask for a role."""
-    return _narrative_signals(filename.casefold().replace("-", "_"), preview)
+def classify_file(filename: str, preview: str, relative_path: str = "") -> tuple[str, str]:
+    """``(class, reason)`` for one file — content first, then name, then folder.
+
+    Args:
+        filename: The file's base name; its suffix decides which content rules
+            apply and what the fallback is.
+        preview: A bounded read of the file, in whichever mode
+            :func:`preview_mode_for` asks for. Empty is normal — every ``.docx``
+            in these deposits previews as nothing.
+        relative_path: The path within the deposit, used only for the folder
+            tier. Defaults to *filename*, i.e. no containing directories.
+
+    Returns:
+        One of :data:`FILE_CLASSES`, and the signal that decided it.
+    """
+    suffix = Path(filename).suffix.lower()
+    text = _normalise(preview)
+    if text:
+        if _ANALYSIS_PROJECT_ROOT in text:
+            return CLASS_PROCESSED_DATA, "content: a GraphPad Prism analysis project"
+        if suffix in _STRUCTURED_SUFFIXES and structured_field_count(preview) >= _MIN_RECORD_FIELDS:
+            return CLASS_METADATA, "content: a structured record, many distinct field names"
+        decided = (
+            _tabular_class(text)
+            if evidence_kind(filename, preview) == KIND_TABULAR
+            else _prose_class(text)
+        )
+        if decided:
+            return decided
+    if decided := _filename_class(Path(filename).stem, suffix):
+        return decided
+    if suffix not in _AUTHORED_FORMATS:
+        if decided := _directory_class(relative_path or filename):
+            return decided
+    if suffix in _DOCUMENT_FORMATS:
+        return CLASS_METADATA, "nothing said otherwise, and a document is not a measurement"
+    return CLASS_RAW_DATA, "nothing said otherwise; least-transformed is the safer default"
 
 
-def _kind_and_signals(filename: str, preview: str) -> tuple[str, str, list[str], float]:
-    """``(kind, role, reasons, score)`` — the ranking's whole judgement of a file."""
+def classification_of(file: FileClassification, *, input_root: str = "") -> str:
+    """The class of an inventory record, derived on the spot if not yet stamped.
+
+    :func:`classify_scanned_files` stamps every file once, from a real preview.
+    This answers for a record that never went through it — a resumed session
+    saved before #591, or any caller holding the inventory without the deposit
+    mounted — using the scanner's own ``first_rows`` as the content. Never
+    touches the disk, because the callers that need it (the process chain) run
+    with no approved roots and often no deposit at all.
+    """
+    if file.classification:
+        return file.classification
+    preview = "\n".join(file.first_rows or [])
+    return classify_file(file.filename, preview, _relative(file.path, input_root))[0]
+
+
+def classify_scanned_files(
+    files: list[FileClassification], *, input_root: str, approved_roots: set[str]
+) -> dict[str, str]:
+    """Stamp every scanned file with its class, and return the previews read.
+
+    EVERY file, not the ranked subset: :func:`discover_documents` caps at 20
+    candidates because its job is filling a bounded prompt, and what gets wired
+    into the crate must not depend on what fits in a context window.
+
+    Returns:
+        ``{path: preview}``, so the ranking that follows reads each file once.
+    """
+    previews: dict[str, str] = {}
+    for file in files:
+        preview = _safe_preview(
+            file.path, approved_roots, _MAX_PREVIEW_CHARS, mode=preview_mode_for(file.filename)
+        )
+        previews[file.path] = preview
+        file.classification = classify_file(
+            file.filename, preview, _relative(file.path, input_root)
+        )[0]
+    return previews
+
+
+# The prose analogue of :data:`_EXPERIMENTAL_HEADER_TERMS`, and a RANKING list,
+# not a classifying one. Ranking asks how much a document would tell a model
+# about the study; classification asks what the document is. Answering the second
+# needs words that separate a procedure from a description, and those are
+# deliberately narrow — which makes them a poor measure of the first, because a
+# README covering the whole study earns one hit for "incubated". Two questions,
+# two vocabularies; what #591 collapsed was four lists all answering the SAME
+# question differently.
+#
+# The ranking does NOT yet use the classification to allocate its 20 slots, and
+# should: a `.docx` previews as a paragraph count, so a protocol's score comes
+# almost entirely from which of these words are in its FILENAME, and 7 of
+# svhps22's 13 protocol documents miss the cut while 9 of its 14 metadata files
+# are named. Tracked in #595.
+_STUDY_PROSE_TERMS = (
+    "assay", "endpoint", "readout", "cell", "compound", "substance",
+    "concentration", "dose", "exposure", "incubat", "replicate", "protocol",
+    "study", "experiment", "control", "measur",
+)
+
+
+def _narrative_signals(text: str) -> tuple[list[str], float]:
+    """Score prose by how much of the study's vocabulary it actually covers.
+
+    Coverage rather than presence: a count saturated at five distinct terms and
+    treated one incidental mention of "assay" as evidence, which is how a
+    top-level README came to be ranked an assay protocol (#587).
+    """
+    hits = _hits(text, _STUDY_PROSE_TERMS)
+    if not hits:
+        return ["no study vocabulary matched"], 0.10
+    share = len(hits) / len(_STUDY_PROSE_TERMS)
+    return [f"study vocabulary {share:.0%} covered"], 0.20 + min(0.45, share * 0.9)
+
+
+def _kind_and_signals(
+    filename: str, preview: str, relative_path: str = ""
+) -> tuple[str, str, list[str], float]:
+    """``(kind, classification, reasons, score)`` — the ranking's whole judgement.
+
+    *kind* is the file's FORM and drives how it is rendered into the prompt;
+    *classification* is what it IS and is what the crate is built from. Both are
+    reported because they answer different questions about the same file.
+    """
     kind = evidence_kind(filename, preview)
+    classification, reason = classify_file(filename, preview, relative_path or filename)
     if kind == KIND_DESCRIPTOR:
         # A structured record: many distinct field names rather than many rows of
         # one shape. Density is the evidence — a three-field config is not a
         # deposit record, and nothing here needs to know which registry wrote it.
         fields = structured_field_count(preview)
-        return (
-            kind,
-            "structured_record",
-            [f"structured record, {fields} distinct field(s)"],
-            0.60 + min(0.40, fields / 30),
-        )
-    if kind == KIND_TABULAR:
+        reasons = [f"structured record, {fields} distinct field(s)"]
+        score = 0.60 + min(0.40, fields / 30)
+    elif kind == KIND_TABULAR:
         reasons, score = _tabular_signals(preview)
-        return kind, "data_table", reasons, score
-    if kind == KIND_OPAQUE:
-        return kind, "other_document", ["no readable text (binary or unsupported)"], 0.10
-    role, reasons, score = _narrative_signals(
-        filename.casefold().replace("-", "_"), preview
-    )
-    return kind, role, reasons, score
+    elif kind == KIND_OPAQUE:
+        reasons, score = ["no readable text (binary or unsupported)"], 0.10
+    else:
+        reasons, score = _narrative_signals(_normalise(f"{filename} {preview}"))
+    return kind, classification, [*reasons, reason], score
 
 
 def _safe_preview(
@@ -299,12 +606,16 @@ def discover_documents(
     approved_roots: set[str],
     max_candidates: int = 20,
     max_context_chars: int = _MAX_CONTEXT_CHARS,
+    previews: dict[str, str] | None = None,
 ) -> list[DocumentationCandidate]:
     """Screen and rank readable scientific documentation deterministically.
 
     Root and immediate-child files receive a location bonus, but deeper files
     remain eligible: assay SOPs and publications are often nested.  The result
     is stable for equal scores and contains only bounded previews.
+
+    *previews* are the reads :func:`classify_scanned_files` already made, keyed
+    by path; supplying them keeps the deposit read once rather than twice.
     """
     ranked: list[DocumentationCandidate] = []
     for file in files:
@@ -315,13 +626,17 @@ def discover_documents(
         # Ask each format for the preview it can actually give: `content` returns
         # nothing for a workbook, which is why the assay-metadata .xlsx files were
         # ranked on their filenames alone (#587).
-        preview = _safe_preview(
-            file.path,
-            approved_roots,
-            _MAX_PREVIEW_CHARS,
-            mode=preview_mode_for(file.filename),
+        preview = (previews or {}).get(file.path)
+        if preview is None:
+            preview = _safe_preview(
+                file.path,
+                approved_roots,
+                _MAX_PREVIEW_CHARS,
+                mode=preview_mode_for(file.filename),
+            )
+        kind, classification, reasons, score = _kind_and_signals(
+            file.filename, preview, relative
         )
-        kind, role, reasons, score = _kind_and_signals(file.filename, preview)
         # Depth is a tiebreak, not a third of the score. Where a file sits says
         # something about how central it is, and nothing about what it holds.
         score += max(0.0, 0.05 - depth * 0.01)
@@ -332,7 +647,7 @@ def discover_documents(
                 filename=file.filename,
                 relative_path=relative,
                 kind=kind,
-                role=role,
+                classification=classification,
                 score=round(score, 4),
                 reasons=reasons,
                 preview=preview,
@@ -403,6 +718,32 @@ def _context_body(candidate: DocumentationCandidate) -> str:
     return f"(data table — {shape}" + (f"; columns: {columns})" if columns else ")")
 
 
+def _fair_shares(needs: list[int], budget: int) -> list[int]:
+    """Split *budget* over *needs* so no one entry can crowd out the others.
+
+    Walking the list in rank order and spending until the budget ran out meant a
+    long document silently deleted every cheaper one behind it: on svhps22 three
+    READMEs at ~2 500 characters each consumed the whole context and all five
+    protocols dropped out of the listing — not shortened, never named, and the
+    agent cannot read a file it was not told exists.
+
+    Max-min fair instead, which needs no per-file constant to tune: every entry is
+    offered an equal share, anything asking for less than its share is met in
+    full, and what it does not spend flows to the entries that want more. Small
+    entries (a data table's one-line shape, a ``.docx`` whose preview is a
+    paragraph count) are therefore always affordable, and the long documents
+    divide what is left between them.
+    """
+    shares = [0] * len(needs)
+    remaining, left = budget, len(needs)
+    for index in sorted(range(len(needs)), key=lambda i: needs[i]):
+        grant = min(needs[index], remaining // left)
+        shares[index] = grant
+        remaining -= grant
+        left -= 1
+    return shares
+
+
 def format_document_context(
     candidates: list[DocumentationCandidate],
     *,
@@ -416,20 +757,29 @@ def format_document_context(
     the same reason the maturity report names the findings it hid rather than
     trailing off (#587).
     """
+    headers = [f"[{c.kind}/{c.classification}] {c.relative_path}\n" for c in candidates]
+    bodies = [_context_body(c) for c in candidates]
+    blocks = [header + body for header, body in zip(headers, bodies)]
+    # Each block's share has to cover the separator that follows it, or the
+    # emitted total overruns the ceiling by two characters per candidate.
+    needs = [len(block) + len(_JOINER) for block in blocks]
     parts: list[str] = []
-    used = 0
-    for candidate in candidates:
-        header = f"[{candidate.kind}/{candidate.role}] {candidate.relative_path}\n"
-        body = _context_body(candidate)
-        block = header + body
-        remaining = max_chars - used
-        if remaining <= 0:
-            break
-        if len(block) > remaining:
-            block = block[:remaining].rstrip() + " […]"
-        parts.append(block)
-        used += len(block) + 2
-    context = "\n\n".join(parts)
+    shares = _fair_shares(needs, max_chars)
+    for header, body, block, allowed in zip(headers, bodies, blocks, shares):
+        room = allowed - len(_JOINER)
+        if room >= len(block):
+            parts.append(block)
+        # Only the BODY is truncated, and only once the header is paid for in
+        # full. An equal share of a small enough budget otherwise lands inside
+        # the header, and the listing becomes a column of `[nar […]` naming
+        # nothing — twenty entries worse than the rank-order spend this replaced,
+        # which at least bought one readable one. The agent cannot read a file it
+        # was not told the name of, so a block that cannot carry its own header
+        # is not written and its share goes to the candidates that can use it.
+        elif room >= len(header) + len(_TRUNCATED):
+            kept = body[: room - len(header) - len(_TRUNCATED)].rstrip()
+            parts.append(header + kept + _TRUNCATED)
+    context = _JOINER.join(parts)
     if total_scanned is not None and total_scanned > len(candidates):
         hidden = total_scanned - len(candidates)
         context += (
