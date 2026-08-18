@@ -22,7 +22,7 @@ fixtures do not share one convention:
 
 A folder-name rule that only reads "raw" would hand every processed file in
 those two deposits to the EndpointReadout. So a directory naming both tiers
-resolves to neither, on the ``_populate_condition_table_from_plan`` precedent
+resolves to neither, on the ``_populate_condition_table_from_deposit`` precedent
 (#408) of refusing to guess between ambiguous candidates.
 """
 

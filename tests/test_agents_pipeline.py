@@ -3617,6 +3617,52 @@ class TestConditionTableFromPlan:
         assert "Thyroxine" in "\n".join(rows)
         assert result.get("condition_table")
 
+    def test_the_plate_map_is_found_when_the_plan_never_names_it(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """The deposit answers, not the plan (#594).
+
+        The plan role is a label a model assigned in advance from a filename it
+        was shown; whether a file IS the design table is a question its content
+        answers. Here the plan names no file at all — as a real extraction
+        routinely leaves it — and the table is still populated, from the one
+        scanned table whose rows carry well ids and map onto the canonical
+        columns.
+
+        ``Thyroxine`` is the discriminator: it appears only in the CSV on disk.
+        The #438 proposal builds rows from what the crate already knows, and this
+        plan states no compound, so a proposal cannot produce that name.
+        """
+        state, _ = self._state(tmp_path)
+        state.metadata.output_path = str(tmp_path / "crate")
+        engine, result = self._run(monkeypatch, state, [])
+
+        table = self._table_path(engine)
+        assert table is not None and table.is_file(), "no condition table was written"
+        body = table.read_text(encoding="utf-8")
+        assert len(body.strip().splitlines()) > 1, "still header-only"
+        assert "Thyroxine" in body, (
+            "the rows did not come from the deposit's table — a proposal cannot "
+            "know that compound"
+        )
+        assert not (result.get("condition_table") or {}).get("proposed")
+
+    def test_a_deposit_with_no_design_table_still_falls_back_to_the_proposal(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """Zero candidates keeps the #438 behaviour, not a new refusal.
+
+        Two of the three real deposits carry no table that maps onto the
+        condition-table columns at all, so this is the common path, not the edge.
+        """
+        state, _ = self._state(tmp_path, name="notes.csv", body="a,b\n1,2\n")
+        state.metadata.output_path = str(tmp_path / "crate")
+        engine, result = self._run(monkeypatch, state, [])
+
+        assert not (result.get("condition_table") or {}).get("populated"), (
+            "a table with no well ids must not be read as the design table"
+        )
+
     def test_the_model_can_only_return_a_basename_so_an_exact_path_would_never_fire(
         self, monkeypatch, tmp_path: Path
     ) -> None:
@@ -3686,13 +3732,26 @@ class TestConditionTableFromPlan:
         assert not outcome.get("populated"), "two candidates — the spine must not guess"
         assert outcome.get("reason"), "the refusal must be recorded, not silent"
 
-    def test_no_condition_table_role_records_a_reason(self, monkeypatch, tmp_path: Path) -> None:
+    def test_a_wrong_plan_role_no_longer_suppresses_a_real_design_table(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """The inversion #594 is for: the plan is wrong and the deposit wins.
+
+        This file IS a per-condition design table — well ids, compound,
+        concentration. The plan calls it ``raw``, which is exactly the mistake a
+        model makes when it is shown filenames and asked to label them in
+        advance. That label used to be the whole answer, so one bad guess shipped
+        a header-only table while the rows sat on disk.
+        """
         state, _ = self._state(tmp_path)
         state.metadata.output_path = str(tmp_path / "crate")
         engine, result = self._run(monkeypatch, state, [{"path": self._PLATE, "role": "raw"}])
+
         outcome = result.get("condition_table") or {}
-        assert not outcome.get("populated")
-        assert outcome.get("reason")
+        assert outcome.get("populated"), f"the plan's wrong label still won: {outcome}"
+        assert not outcome.get("proposed"), "these rows must come from the file, not a proposal"
+        table = self._table_path(engine)
+        assert table is not None and "Thyroxine" in table.read_text(encoding="utf-8")
 
     # -- #422: an unusable candidate must not beat having no candidate at all --
 

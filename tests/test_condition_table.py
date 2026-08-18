@@ -1032,3 +1032,69 @@ class TestPayloadLayerRunsOnThePipelineArm:
         assert issues
         assert all(i["profile"] == "data" for i in issues)
         assert all(i["profile"] not in {"base", "isa", "tox"} for i in issues)
+
+
+class TestAWorkbookThatIsSimplyNotTheDesignTable:
+    """"Opened fine, holds no per-condition sheet" is not a read failure (#594).
+
+    ``_rows_from_file`` reports both through its ``error`` channel, which was
+    harmless while a caller named ONE file and either way got nothing. Searching
+    every scanned table for the design table makes the difference load-bearing:
+    read as failures, svhps22's twenty perfectly good workbooks would fire the
+    #422 "could not READ" warning and put a false ``read_failed`` on the result.
+    """
+
+    @staticmethod
+    def _measurements(path) -> None:
+        import openpyxl
+
+        book = openpyxl.Workbook()
+        sheet = book.active
+        sheet.title = "Readings"
+        sheet.append(["timepoint", "absorbance", "operator"])
+        sheet.append([0, 0.412, "AB"])
+        sheet.append([30, 0.688, "AB"])
+        book.save(path)
+
+    def test_it_reports_no_error(self, tmp_path) -> None:
+        from builder.tools.data_content import condition_table_fit_of
+
+        book = tmp_path / "readings.xlsx"
+        self._measurements(book)
+
+        wells, mapped, error = condition_table_fit_of(book)
+
+        assert (wells, mapped) == (0, 0), "a measurement sheet is not a design table"
+        assert error is None, f"a readable workbook must not be reported as failed: {error}"
+
+    def test_a_workbook_that_cannot_be_opened_still_does(self, tmp_path) -> None:
+        """The control: the #422 signal must survive the distinction above."""
+        from builder.tools.data_content import condition_table_fit_of
+
+        broken = tmp_path / "plate_map.xlsx"
+        broken.write_text("this is not a workbook", encoding="utf-8")
+
+        wells, mapped, error = condition_table_fit_of(broken)
+
+        assert (wells, mapped) == (0, 0)
+        assert error, "an unopenable workbook must still be reported"
+
+    def test_a_real_plate_map_still_wins(self, tmp_path) -> None:
+        """The other control: the predicate still finds the design table."""
+        import openpyxl
+
+        from builder.tools.data_content import condition_table_fit_of
+
+        book = tmp_path / "design.xlsx"
+        wb = openpyxl.Workbook()
+        wb.active.title = "Cover"
+        wb.active.append(["Depositor", "Lab X"])
+        plate = wb.create_sheet("Plate map")
+        plate.append(["well_id", "compound", "concentration_value", "concentration_unit"])
+        plate.append(["A1", "BPA", 10.0, "uM"])
+        wb.save(book)
+
+        wells, mapped, error = condition_table_fit_of(book)
+
+        assert error is None
+        assert wells == 1 and mapped >= 3

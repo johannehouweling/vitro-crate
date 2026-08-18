@@ -573,31 +573,25 @@ class TestRealInputPipeline:
             "the LabProtocol must be linked to a LabProcess"
         )
 
-    def test_a_mislabelled_metadata_workbook_still_yields_a_populated_table(
+    def test_a_deposit_with_no_design_table_still_yields_a_populated_one(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """#422 acceptance, on the genuine fixture: the real leaf labels the
-        assay-metadata workbook ``condition_table``. The tool reads it (#469's
-        Excel intake) and correctly refuses — it is a Parameter|Value template
-        with no per-well rows — and the spine must then fall back to the #438
-        proposal built from the entities the SAME plan materialized, landing
-        real rows: ``condition_table.populated is True`` on the real deposit."""
-        import builder.agents.pipeline.pipeline as pipeline_mod
+        """#422/#438 acceptance on the genuine fixture: S-VHPS26 ships no plate map.
+
+        Its only workbook is a Parameter|Value assay-metadata template — no
+        per-well rows — so nothing in the deposit reads as a design table and the
+        spine must PROPOSE one from the entities the same run materialized,
+        landing real rows rather than a header-only export.
+
+        This used to inject a plan entry labelling that workbook
+        ``condition_table``, reproducing the leaf's real mislabel, because the
+        label was what selected the file. Since #594 nothing reads it — the rows
+        decide — so the injection is gone rather than kept as inert scaffolding
+        that would make this pass for a reason that no longer exists.
+        """
         from builder.agents.pipeline.pipeline import run_pipeline
 
         _install_offline_seams(monkeypatch)
-        base = pipeline_mod.extract_plan
-
-        def plan_with_the_real_mislabel(
-            context: str, *, overrides: Any = None, usage_sink: Any = None
-        ) -> dict[str, Any]:
-            plan = base(context, overrides=overrides, usage_sink=usage_sink)
-            plan.setdefault("files", []).append(
-                {"path": _METADATA_XLSX_NAME, "role": "condition_table"}
-            )
-            return plan
-
-        monkeypatch.setattr(pipeline_mod, "extract_plan", plan_with_the_real_mislabel)
         engine = _scanning_engine(FIXTURE_DIR)
         result = run_pipeline(engine)
 

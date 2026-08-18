@@ -346,8 +346,20 @@ workbook could only be one and lost the other. Its consumers are
 `composites._deposited_outputs` and `_deposit_evidences` (§5, *Derivation Chain
 Tools*), `provenance.attach_files` (which stamps it as the File's `role` unless
 the caller names one), the pipeline spine's `_attach_scanned_files`, the ReAct
-gap engine, and the maturity report's "data files included" row. The one holdout
-is the extraction leaf's `condition_table` plan role (#594).
+gap engine, and the maturity report's "data files included" row.
+
+The last holdout, the extraction leaf's `condition_table` plan role, is gone too
+(#594) — but NOT by folding it into the classification. Which file is the design
+table is not what a file IS: measured over the three real deposits the only table
+that qualifies is svhps22's tidy per-condition export, classified
+`processed_data_file` because it carries the measured value alongside the design,
+while the same content is `metadata` as `plate_map.csv` and `raw_data_file` as
+`conditions.csv`. The spine asks the rows instead, through
+`data_content.condition_table_fit` — a well key AND columns that map onto the
+canonical schema. That is the same predicate `populate_condition_table` must
+satisfy to write anything, so what is detected and what is writable cannot
+disagree. The plan's whole `files` array is retired with it: nothing read it once
+the role went.
 
 `File.role` is the *stamp*, not the classification. It is free text — `draft_file`
 records whatever the agent passes, and the spine stamped `raw_data`/`processed_data`
