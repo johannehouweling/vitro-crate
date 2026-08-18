@@ -419,6 +419,14 @@ def _plan_schema() -> dict[str, Any]:
             "files": _array_of(
                 {
                     "path": {**str_field, "description": "File path or name."},
+                    # The last vocabulary #591 did not absorb. Three of these
+                    # four values are answered better by the file classification
+                    # (`metadata`/`protocol`/`raw_data_file`/`processed_data_file`,
+                    # read from the file's own content); the fourth has no home
+                    # in it, because a plate map classifies as `metadata`. Only
+                    # `condition_table` is read — by
+                    # `_populate_condition_table_from_plan` — and replacing it
+                    # needs a content-first detector rather than a lookup (#594).
                     "role": {
                         "type": "string",
                         "enum": ["raw", "processed", "condition_table", "other"],

@@ -304,7 +304,10 @@ TOOL_SPECS = [
                 },
                 "role": {
                     "type": "string",
-                    "description": "Role label, e.g. 'raw_data' or 'figure' (optional)",
+                    "description": (
+                        "What the file is: 'metadata', 'protocol', 'raw_data_file' or "
+                        "'processed_data_file' (optional)"
+                    ),
                 },
                 "encoding_format": {
                     "type": "string",
@@ -348,7 +351,7 @@ TOOL_SPECS = [
     },
     {
         "name": "attach_files",
-        "description": "Bulk-place a GROUP of scanned files under a Study or Assay in one call — the scalable way to associate data with structure (e.g. all of an assay's raw CSVs). For each match it creates (or reuses) a File entity and adds it to the target's hasPart, so the build nests it under that dataset. Select with name_contains / mime_contains substrings or an explicit paths list; stamp an optional role (e.g. 'raw_data'). Files you don't place are still auto-included at the crate root on export, so this is for the files whose assay/study you DO know. Use link (not this) for a process's input/output. Returns {attached, file_ids, to}.",
+        "description": "Bulk-place a GROUP of scanned files under a Study or Assay in one call — the scalable way to associate data with structure (e.g. all of an assay's raw CSVs). For each match it creates (or reuses) a File entity and adds it to the target's hasPart, so the build nests it under that dataset. Select with name_contains / mime_contains substrings or an explicit paths list; each File is stamped with what it is, read from the file itself, so pass a role only to override that. Files you don't place are still auto-included at the crate root on export, so this is for the files whose assay/study you DO know. Use link (not this) for a process's input/output. Returns {attached, file_ids, to}.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -368,7 +371,11 @@ TOOL_SPECS = [
                 },
                 "role": {
                     "type": "string",
-                    "description": "Optional role to stamp on each File, e.g. 'raw_data' or 'processed'.",
+                    "description": (
+                        "Optional. Each File is stamped with what it is — 'metadata', "
+                        "'protocol', 'raw_data_file' or 'processed_data_file' — read "
+                        "from the file itself. Pass one only to override that."
+                    ),
                 },
             },
             "required": ["to"],
