@@ -212,3 +212,45 @@ class TestExportStamp:
         # Control: real metadata still moves it, so the exclusion is not blanket.
         state.metadata.title = "Renamed"
         assert state.validation_fingerprint() != before
+
+
+class TestDiscoveredDocumentsSurviveTheRename:
+    """A session saved before #591 keys its documents ``role``, not ``classification``.
+
+    ``--resume`` bypasses ``initialize()``, so discovery never re-runs and those
+    dicts are what the readers get for the rest of the session. Every reader now
+    asks for ``classification``, and one of them is not cosmetic: the ReAct gap
+    engine counts assay folders by looking for documents classified ``metadata``
+    or ``protocol``, so on an old session it found none and the "the input has N
+    assay folders but the crate has M Assays" item silently stopped appearing.
+
+    Renamed once on load rather than by teaching every reader two spellings.
+    """
+
+    def test_the_old_key_is_read_as_the_new_one(self):
+        restored = StateSerializer.from_dict(
+            {"documents": [{"filename": "SOP.docx", "relative_path": "a/SOP.docx", "role": "protocol"}]}
+        )
+        assert restored.documents[0]["classification"] == "protocol"
+        assert "role" not in restored.documents[0], "one spelling reaches the readers, not two"
+
+    def test_a_current_session_is_untouched(self):
+        restored = StateSerializer.from_dict(
+            {"documents": [{"filename": "SOP.docx", "classification": "protocol"}]}
+        )
+        assert restored.documents[0]["classification"] == "protocol"
+
+    def test_the_new_key_wins_when_a_session_carries_both(self):
+        restored = StateSerializer.from_dict(
+            {"documents": [{"filename": "x.csv", "role": "stale", "classification": "raw_data_file"}]}
+        )
+        assert restored.documents[0]["classification"] == "raw_data_file"
+
+    def test_a_document_naming_neither_is_left_alone(self):
+        restored = StateSerializer.from_dict({"documents": [{"filename": "x.csv"}]})
+        assert restored.documents == [{"filename": "x.csv"}]
+
+    def test_a_hand_edited_session_cannot_break_the_load(self):
+        """``documents`` is free-form JSON on disk; a non-dict entry must not raise."""
+        restored = StateSerializer.from_dict({"documents": ["not a dict", None]})
+        assert restored.documents == ["not a dict", None]

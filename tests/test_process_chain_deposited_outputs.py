@@ -194,72 +194,43 @@ _COMBINED = [
 ]
 
 
-class TestTheTierRuleItself:
-    """Directory names, against the conventions the three real deposits use.
+class TestTheCombinedFolderResolves:
+    """The svhps21 / svhps26 shape, which the folder rule could not answer at all.
 
-    Anchored at a token boundary rather than matched as a substring: bare `raw`
-    also matches "drawings", and bare `process` matches "unprocessed" — which
-    means the *opposite* tier and would have been filed as processed.
+    Reading only the directory, "Raw data + individual processed data" names both
+    tiers and so declares neither — and both steps in both deposits were left
+    unwired. The file itself settles it: the instrument's export is raw, the
+    GraphPad project fitted from it is processed (#591).
     """
 
-    @pytest.mark.parametrize(
-        ("path", "tier"),
-        [
-            ("a/raw data/x.csv", "raw"),
-            ("a/assay1_rawdata/x.csv", "raw"),
-            ("a/Raw/x.csv", "raw"),
-            ("a/RAW DATA/x.csv", "raw"),
-            ("a/processed data/x.csv", "processed"),
-            ("a/assay1_processeddata/x.csv", "processed"),
-            ("a/assay4_EDCs_processed data/x.csv", "processed"),
-            ("a/data processing/x.csv", "processed"),
-            # svhps21 / svhps26: one directory, both tiers named
-            ("a/Raw data + individual processed data/x.csv", None),
-            ("a/raw data+individual processed data/x.csv", None),
-            # neither tier named
-            ("a/EDCs/x.csv", None),
-            ("a/characterisation/x.csv", None),
-            ("x.csv", None),
-            # substring traps
-            ("a/drawings/x.csv", None),
-            ("a/unprocessed/x.csv", None),
-            ("a/preprocessed/x.csv", None),
-        ],
-    )
-    def test_the_directory_decides_the_tier(self, path, tier):
-        from builder.tools.composites import _path_tier
-
-        assert _path_tier(path) == tier
-
-
-class TestAmbiguousTierIsNotGuessed:
-    def test_the_steps_are_real_but_nothing_is_wired_to_them(self):
-        """The svhps21 / svhps26 story: reading only 'raw' would hand their
-        processed files to the readout, so neither tier resolves.
-
-        The deposit HAS data, so the steps are real and are drafted — with no
-        result, because nothing can yet say which file each produced. The tox
-        Violation reports that, rather than an empty CSV satisfying the shape
-        (#592); #591 is what will place these files.
-        """
-        state, (assay_id,) = _scaffold(_COMBINED)
-
-        result = draft_process_chain(state, assay_id, chain=_CHAIN)
-
-        assert {p.fields.get("process_type") for p in state.list_entities("LabProcess")} == {
-            "EndpointReadout",
-            "DataAnalysis",
-        }
-        assert "skipped" not in result
-        for process_type in ("EndpointReadout", "DataAnalysis"):
-            assert _result_entities(state, process_type) == [], process_type
-
-    def test_nothing_is_manufactured_for_the_unclassifiable_files(self):
+    def test_the_instrument_export_is_the_readouts_result(self):
         state, (assay_id,) = _scaffold(_COMBINED)
 
         draft_process_chain(state, assay_id, chain=_CHAIN)
 
-        assert state.list_entities("File") == []
+        assert _sources(_result_entities(state, "EndpointReadout")) == {
+            "Assay_MCT8/Raw data + individual processed data/220517_P1.xls"
+        }
+
+    def test_the_analysis_project_beside_it_is_the_analysiss_result(self):
+        state, (assay_id,) = _scaffold(_COMBINED)
+
+        draft_process_chain(state, assay_id, chain=_CHAIN)
+
+        assert _sources(_result_entities(state, "DataAnalysis")) == {
+            "Assay_MCT8/Raw data + individual processed data/220517_P1.prism"
+        }
+
+    def test_still_nothing_is_manufactured(self):
+        """Every File in the crate is one the deposit ships (#592)."""
+        state, (assay_id,) = _scaffold(_COMBINED)
+
+        result = draft_process_chain(state, assay_id, chain=_CHAIN)
+
+        assert result["synthesized"] == []
+        assert {str(f.fields.get("dest_path")) for f in state.list_entities("File")} == set(
+            _COMBINED
+        )
 
 
 class TestWhenTheDepositHasNothing:
@@ -366,13 +337,21 @@ class TestTheRealDeposit:
         assert all("raw" in w.lower() for w in wired), wired
 
     def test_the_analysis_reaches_the_deposits_processed_data(self):
+        """Including the files no folder name could reach.
+
+        `EDCs/` declares no tier, so the folder rule skipped everything under it
+        — among them the deposit's single most valuable table, 1048 tidy rows of
+        per-condition measurements. Its own columns say it is derived (#591).
+        """
         state, assay_id = self._real_state()
 
         draft_process_chain(state, assay_id, chain=_CHAIN)
 
         wired = _sources(_result_entities(state, "DataAnalysis"))
-        assert wired, "the analysis still ends at a stub"
-        assert all("processed" in w.lower() for w in wired), wired
+        assert (
+            "assay_01_TH_uptake/EDCs/Combined uptake data EDCs_tidy.csv" in wired
+        ), wired
+        assert not any("/raw data/" in w.lower() for w in wired), wired
 
     def test_nothing_is_manufactured_for_this_deposit(self):
         state, assay_id = self._real_state()

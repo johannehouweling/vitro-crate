@@ -3524,10 +3524,14 @@ class TestConditionTableFromPlan:
 
     ``extract_plan`` classifies every plan file into
     ``["raw", "processed", "condition_table", "other"]`` and the pipeline threw the
-    answer away: ``_attach_scanned_files`` re-derives a role from the filename via
-    ``_file_role``, which only ever returns ``processed_data``/``raw_data``. So
+    answer away: ``_attach_scanned_files`` re-derived a role from the filename,
+    with a rule that could only ever return raw or processed. So
     ``condition_table`` was unreachable by construction and every exported table
     shipped header-only while the per-well payload sat one directory away.
+
+    This plan role is the one vocabulary #591 did not absorb — a plate map
+    classifies as ``metadata``, so singling it out has to become the same
+    content-first question (#594).
     """
 
     _PLATE = "plate_map.csv"

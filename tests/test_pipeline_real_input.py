@@ -313,8 +313,12 @@ class TestRealInputFixture:
     def test_scan_recurses_and_classifies_raw_vs_processed(self) -> None:
         """The scanner recurses the real nested layout (paths with spaces / ``+``),
         inventories the metadata + SOP + raw + processed files, splits raw vs
-        processed roles, and never escapes the root (no repo pollution)."""
-        from builder.agents.pipeline.pipeline import _file_role
+        processed, and never escapes the root (no repo pollution)."""
+        from builder.tools.document_discovery import (
+            CLASS_PROCESSED_DATA,
+            CLASS_RAW_DATA,
+            classification_of,
+        )
 
         engine = _scanning_engine(FIXTURE_DIR)
         scanned = {Path(f.path).name: f for f in engine.state.scanned_files}
@@ -324,8 +328,10 @@ class TestRealInputFixture:
         assert _RAW_DATA.name in scanned  # recursion into the spaced/"+" subdir worked
         assert _PROCESSED_DATA.name in scanned
 
-        roles = {_file_role(f.filename, f.mime_type or "") for f in scanned.values()}
-        assert {"raw_data", "processed_data"} <= roles
+        classes = {
+            classification_of(f, input_root=str(FIXTURE_DIR)) for f in scanned.values()
+        }
+        assert {CLASS_RAW_DATA, CLASS_PROCESSED_DATA} <= classes
         assert not any(n.endswith((".py", ".pyc")) for n in scanned)
 
 
@@ -609,9 +615,15 @@ class TestRealInputPipeline:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The real raw (.xlsx) and processed (.pzfx) measurement files are attached to
-        the crate as File entities, each stamped with its raw/processed role — the
-        data-file fidelity a metadata-only fixture cannot exercise."""
+        the crate as File entities, each stamped with its classification — the
+        data-file fidelity a metadata-only fixture cannot exercise.
+
+        Both sit in one ``raw data+individual processed data/``, so the folder
+        names both tiers and can say nothing about either; they split on their own
+        content, the instrument's column headers against a Prism project's XML
+        root (#591)."""
         from builder.agents.pipeline.pipeline import run_pipeline
+        from builder.tools.document_discovery import CLASS_PROCESSED_DATA, CLASS_RAW_DATA
 
         _install_offline_seams(monkeypatch)
         engine = _scanning_engine(FIXTURE_DIR)
@@ -621,8 +633,8 @@ class TestRealInputPipeline:
         by_name = {f.fields.get("name"): f for f in files}
         assert _RAW_DATA.name in by_name, "the raw data file must be attached"
         assert _PROCESSED_DATA.name in by_name, "the processed data file must be attached"
-        assert by_name[_RAW_DATA.name].fields.get("role") == "raw_data"
-        assert by_name[_PROCESSED_DATA.name].fields.get("role") == "processed_data"
+        assert by_name[_RAW_DATA.name].fields.get("role") == CLASS_RAW_DATA
+        assert by_name[_PROCESSED_DATA.name].fields.get("role") == CLASS_PROCESSED_DATA
 
     def test_no_compound_without_the_real_document(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
