@@ -47,7 +47,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from builder.state import CrateState, FAIRReport, MITReport, ValidationReport
+from builder.state import CrateState, Entity, FAIRReport, MITReport, ValidationReport
+from builder.tools.document_discovery import (
+    CLASS_PROCESSED_DATA,
+    CLASS_RAW_DATA,
+    FILE_CLASSES,
+    classify_file,
+)
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import (
     MIT_STANDARD_LABELS,
@@ -85,6 +91,27 @@ def _validation_has_signal(validation: ValidationReport) -> bool:
     )
 
 
+def _file_class(entity: Entity) -> str:
+    """What a crate File is: its stamped classification, or read from its name.
+
+    ``attach_files`` stamps every File it places, and ``_deposited_outputs``
+    stamps the ones it wires (#591). A File the agent drafted directly may carry
+    no role at all, and a crate whose data arrived that way must not read as
+    having none — so its name and destination path answer instead, through the
+    same classifier rather than a second rule.
+
+    Only a role the classifier itself emits is taken as a class. ``role`` is free
+    text — ``draft_file`` stamps whatever the agent passes, and the spine stamped
+    ``raw_data``/``processed_data`` before the classification existed, which a
+    resumed session carries forever. Read as classes those match neither tier, so
+    a crate whose data was all present reported having none.
+    """
+    if (role := str(entity.fields.get("role") or "")) in FILE_CLASSES:
+        return role
+    name = str(entity.fields.get("name") or "")
+    return classify_file(name, "", str(entity.fields.get("dest_path") or name))[0]
+
+
 def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
     """Derive a reproducibility-readiness checklist ``(label, ok, hint)``."""
     processes = state.list_entities("LabProcess")
@@ -99,16 +126,15 @@ def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
         processes,
         ("detection_instrument", "instrument_manufacturer", "software", "data_processing"),
     )
-    # Every File in the crate is now one the deposit actually contains: a step
-    # with no deposited output is left unwired rather than given an empty
-    # stand-in (#592), so this no longer has to exclude the stand-ins to avoid
-    # turning green on a crate whose data is entirely absent.
-    #
-    # It still counts any File, protocols included, which is more generous than
-    # "data files included" claims. Narrowing it needs the raw/processed
-    # classification (#591) — until that lands, a crate holding only protocols
-    # reads as having data.
-    data_ok = bool(state.list_entities("File"))
+    # Every File in the crate is one the deposit actually contains: a step with
+    # no deposited output is left unwired rather than given an empty stand-in
+    # (#592). What the row CLAIMS is narrower than that, though — a crate
+    # shipping three protocols and no measurements is not a crate with its data
+    # included — so it counts the files classified as data (#591).
+    data_ok = any(
+        _file_class(f) in (CLASS_RAW_DATA, CLASS_PROCESSED_DATA)
+        for f in state.list_entities("File")
+    )
     investigations = state.list_entities("Investigation")
     attribution_ok = (
         bool(state.metadata.title)
