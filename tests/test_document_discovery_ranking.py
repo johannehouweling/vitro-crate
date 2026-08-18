@@ -226,12 +226,12 @@ def _block_for(context: str, candidate, ranked) -> str:
     README's own text contains blank lines, so splitting on them truncates the
     block to its first paragraph and makes a full preview look empty.
     """
-    marker = f"[{candidate.kind}/{candidate.role}] {candidate.relative_path}"
+    marker = f"[{candidate.kind}/{candidate.classification}] {candidate.relative_path}"
     assert marker in context, f"{candidate.relative_path} is not in the context"
     start = context.index(marker)
     later = [
         context.index(m)
-        for m in (f"[{o.kind}/{o.role}] {o.relative_path}" for o in ranked)
+        for m in (f"[{o.kind}/{o.classification}] {o.relative_path}" for o in ranked)
         if m in context and context.index(m) > start
     ]
     return context[start : min(later) if later else len(context)]
@@ -249,7 +249,7 @@ class TestDataTablesContributeShapeNotRows:
     def test_a_data_table_contributes_its_shape_only(self, ranked) -> None:
         context = format_document_context(ranked, total_scanned=99)
         table = _by_path(ranked, MEASUREMENTS)
-        marker = f"[{table.kind}/{table.role}] {table.relative_path}"
+        marker = f"[{table.kind}/{table.classification}] {table.relative_path}"
         assert marker in context, "the table is not named in the context at all"
 
         block = _block_for(context, table, ranked)
@@ -270,10 +270,88 @@ class TestDataTablesContributeShapeNotRows:
         context = format_document_context(ranked, total_scanned=99)
         present = [
             c for c in ranked
-            if f"[{c.kind}/{c.role}] {c.relative_path}" in context
+            if f"[{c.kind}/{c.classification}] {c.relative_path}" in context
         ]
         narrative = [c for c in present if c.kind == "narrative"]
         assert len(narrative) >= 5, (
             f"only {len(narrative)} descriptive files reached the context: "
             f"{[c.relative_path for c in present]}"
         )
+
+
+class TestNoOneFileCrowdsOutTheRest:
+    """Spending the budget in rank order let a long document delete cheap ones.
+
+    Every ``.docx`` protocol in this deposit previews as a paragraph count — a
+    couple of hundred characters — and they rank below the READMEs, which run to
+    ~2 500 each. Three READMEs exhausted the context and all five protocols
+    vanished from the listing: not shortened, never named, and the agent cannot
+    read a file it was not told exists. The share is max-min fair instead.
+    """
+
+    def test_every_ranked_candidate_is_named(self, ranked) -> None:
+        context = format_document_context(ranked, total_scanned=99)
+
+        missing = [
+            c.relative_path
+            for c in ranked
+            if f"[{c.kind}/{c.classification}] {c.relative_path}" not in context
+        ]
+
+        assert missing == [], f"{len(missing)} ranked file(s) never named: {missing}"
+
+    def test_the_cheap_entries_are_not_the_ones_cut(self, ranked) -> None:
+        """A protocol costs ~200 chars; it must never be dropped for a README."""
+        context = format_document_context(ranked, total_scanned=99)
+
+        protocols = [c for c in ranked if c.relative_path.lower().endswith(".docx")]
+
+        assert protocols, "the fixture must carry .docx protocols for this to mean anything"
+        for candidate in protocols:
+            block = _block_for(context, candidate, ranked)
+            assert block.strip(), f"{candidate.relative_path} was cut entirely"
+
+    def test_the_ceiling_still_holds(self, ranked) -> None:
+        """Fitting everything must not be achieved by spending more."""
+        context = format_document_context(ranked, total_scanned=99)
+
+        blocks = context.split("\n\n(")[0]
+
+        assert len(blocks) <= 12_000, len(blocks)
+
+    def test_a_block_too_small_to_name_its_file_is_not_written(self, ranked) -> None:
+        """Fairness cuts the other way at the bottom of the budget.
+
+        Split far enough, every share lands INSIDE the ``[kind/class] path``
+        header and the listing becomes a column of ``[nar […]`` — twenty entries
+        naming nothing, which is strictly worse than the rank-order spend this
+        replaced, since that at least bought one readable entry. The agent cannot
+        read a file it was not told exists, and half a header does not tell it.
+        No production caller passes a budget this small today; the guard is here
+        so none can.
+        """
+        for budget in (200, 600, 1_200, 2_000, 12_000):
+            context = format_document_context(ranked, max_chars=budget, total_scanned=99)
+            for candidate in ranked:
+                header = f"[{candidate.kind}/{candidate.classification}] {candidate.relative_path}"
+                truncated = [
+                    header[:n].rstrip() + " […]"
+                    for n in range(1, len(header))
+                    if header[:n].rstrip() + " […]" in context
+                ]
+
+                assert not truncated, (
+                    f"budget {budget}: emitted {truncated[0]!r}, which names no file"
+                )
+
+    def test_what_does_fit_is_still_emitted(self, ranked) -> None:
+        """Refusing the unnameable must not empty a budget that can afford some."""
+        context = format_document_context(ranked, max_chars=2_000, total_scanned=99)
+
+        named = sum(
+            1
+            for c in ranked
+            if f"[{c.kind}/{c.classification}] {c.relative_path}" in context
+        )
+
+        assert named, "a 2 000-char budget must still name somebody"

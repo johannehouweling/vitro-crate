@@ -2242,3 +2242,58 @@ class TestTheActionsCloseTheReport:
         """An empty exhortation is worse than silence — and so is a link to it."""
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
         assert 'href="#next"' not in page
+
+
+class TestTheDataFilesRowCountsData:
+    """"Data files included" reads the file classification, not any File at all.
+
+    The row used to be ``bool(state.list_entities("File"))``, which a crate
+    holding three protocols and no measurements satisfied. It now counts the
+    files classified as data (#591) — and has to reach that class through the
+    same classifier the rest of the build uses, because ``File.role`` is free
+    text that predates the classification and outlives it.
+    """
+
+    @staticmethod
+    def _row(*files: dict[str, str]) -> bool:
+        from builder.state import Entity
+        from builder.writers.maturity_report import _reproducibility_checks
+
+        state = CrateState()
+        for index, fields in enumerate(files):
+            state.add_entity(Entity(entity_id=f"file_{index}", type="File", fields=dict(fields)))
+        rows = _reproducibility_checks(state)
+        return next(ok for label, ok, _ in rows if label == "Data files included")
+
+    def test_a_crate_of_protocols_is_not_a_crate_with_data(self) -> None:
+        assert not self._row(
+            {"name": "SOP.docx", "dest_path": "data/SOP.docx"},
+            {"name": "README.txt", "dest_path": "data/README.txt"},
+        )
+
+    def test_the_measurements_count(self) -> None:
+        assert self._row(
+            {"name": "SOP.docx", "dest_path": "data/SOP.docx"},
+            {"name": "004043.csv", "dest_path": "data/004043.csv", "role": "raw_data_file"},
+        )
+
+    def test_a_session_saved_before_the_classification_still_counts(self) -> None:
+        """The spine used to stamp ``raw_data``/``processed_data`` on every File.
+
+        Those sessions resume without re-running discovery, so their crates carry
+        the retired spelling forever. Read as a class it matches neither tier and
+        the row went dark on a crate whose data was all present.
+        """
+        assert self._row(
+            {"name": "004043.csv", "dest_path": "data/004043.csv", "role": "raw_data"},
+            {"name": "Combined.xlsx", "dest_path": "data/Combined.xlsx", "role": "processed_data"},
+        )
+
+    def test_a_role_the_classification_does_not_use_is_not_a_class(self) -> None:
+        """``role`` is free text — ``draft_file`` takes whatever the agent passes.
+
+        A label the classifier never emits says nothing about which tier the file
+        is, so the file is classified rather than taken at its word.
+        """
+        assert self._row({"name": "004043.csv", "dest_path": "data/004043.csv", "role": "figure"})
+        assert not self._row({"name": "SOP.docx", "dest_path": "data/SOP.docx", "role": "figure"})

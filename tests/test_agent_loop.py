@@ -1264,7 +1264,7 @@ class TestCompletenessNudge:
         assert _format_document_context(None) == ""
 
     def test_format_document_context_renders_candidates(self):
-        """Ranked documents render as a numbered MARKDOWN list, roles + scores.
+        """Ranked documents render as a numbered MARKDOWN list, class + score.
 
         Markdown list items, not plain lines: replies are rendered as markdown,
         where a single newline is not a line break, so unformatted lines
@@ -1273,16 +1273,16 @@ class TestCompletenessNudge:
         from builder.agents.react.agent_loop import _format_document_context
 
         docs = [
-            {"role": "sop", "filename": "SOP-001.pdf",
+            {"classification": "protocol", "filename": "SOP-001.pdf",
              "relative_path": "docs/SOP-001.pdf",
              "score": 0.85, "reasons": ["content signals: 3 sop term(s)",
                                         "prose-like preview"]},
-            {"role": "metadata", "filename": "sample-sheet.csv",
+            {"classification": "metadata", "filename": "sample-sheet.csv",
              "relative_path": "sample-sheet.csv",
              "score": 0.72, "reasons": ["content signals: 2 metadata term(s)"]},
         ]
         result = _format_document_context(docs)
-        assert "1. **[SOP]** `docs/SOP-001.pdf` — score 0.85" in result
+        assert "1. **[Protocol]** `docs/SOP-001.pdf` — score 0.85" in result
         assert "2. **[Metadata]** `sample-sheet.csv` — score 0.72" in result
         # Both entries, one per line.
         assert result.count("\n") == 1

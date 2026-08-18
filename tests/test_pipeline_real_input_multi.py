@@ -44,18 +44,33 @@ import pytest
 
 from builder.agents.pipeline.pipeline import (
     _MAX_CONTEXT_CHARS,
-    _file_role,
     _gather_context,
     _metadata_read_priority,
 )
 from builder.engine import AgentEngine
 from builder.state import CrateState
+from builder.tools.document_discovery import (
+    CLASS_PROCESSED_DATA,
+    CLASS_RAW_DATA,
+    _safe_preview,
+    classify_file,
+    classification_of,
+    preview_mode_for,
+)
 from builder.tools.file_readers import read_docx, read_file
 from builder.tools.hitl import SimulatedHumanInterface
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SVHPS21 = FIXTURES / "svhps21_real_input"
 SVHPS22 = FIXTURES / "svhps22_real_input"
+
+
+def _classify_at(path: Path, root: Path) -> str:
+    """Classify a fixture file exactly as a run would — real preview, real path."""
+    preview = _safe_preview(
+        str(path), {str(root.resolve())}, 3_000, mode=preview_mode_for(path.name)
+    )
+    return classify_file(path.name, preview, str(path.relative_to(root)))[0]
 
 # ---------------------------------------------------------------------------
 # Honesty tokens — lowercase strings carried in real document CONTENT and in NO
@@ -261,10 +276,10 @@ class TestScanning:
         # Recursion through "Raw data + individual processed data/<run>/".
         assert any(n.endswith(".prism") for n in names)
 
-        roles = {
-            _file_role(f.filename, f.mime_type or "") for f in engine.state.scanned_files
+        classes = {
+            classification_of(f, input_root=str(SVHPS21)) for f in engine.state.scanned_files
         }
-        assert {"raw_data", "processed_data"} <= roles
+        assert {CLASS_RAW_DATA, CLASS_PROCESSED_DATA} <= classes
         assert not any(n.endswith((".py", ".pyc")) for n in names)
         assert ".DS_Store" not in names
 
@@ -453,8 +468,8 @@ class TestLegacyXlsMeasurements:
         )
         assert (run / f"{_S21_RUN}.xls").is_file(), "the raw .xls must be committed"
         assert (run / f"{_S21_RUN}.prism").is_file(), "its processed sibling too"
-        assert _file_role(f"{_S21_RUN}.xls", "") == "raw_data"
-        assert _file_role(f"{_S21_RUN}.prism", "") == "processed_data"
+        assert _classify_at(run / f"{_S21_RUN}.xls", SVHPS21) == CLASS_RAW_DATA
+        assert _classify_at(run / f"{_S21_RUN}.prism", SVHPS21) == CLASS_PROCESSED_DATA
 
     def test_the_legacy_workbook_is_not_silently_empty(self) -> None:
         """xlrd — already an installed dependency — recovers the whole sheet.
@@ -525,18 +540,20 @@ class TestGraphPadRoleClassification:
 
     @pytest.mark.parametrize("suffix", [".prism", ".pzfx", ".pzf"])
     def test_every_graphpad_project_is_processed_data(self, suffix: str) -> None:
-        assert _file_role(f"All compounds including best-fit{suffix}", "") == (
-            "processed_data"
+        assert (
+            classify_file(f"All compounds including best-fit{suffix}", "")[0]
+            == CLASS_PROCESSED_DATA
         )
 
 
-class TestRoleFromTheContainingFolder:
-    """These deposits declare raw-vs-processed in the FOLDER, not the filename.
+class TestTheDepositsOwnFilingConventions:
+    """Each deposit states raw-vs-processed differently, and all of them work.
 
     S-VHPS22 files its qPCR exports into ``assay4_EDCs_raw data/`` beside
-    ``assay4_EDCs_processed data/``; neither member's own name says which it is.
-    Classifying on the filename alone put every one of them in ``raw_data``,
-    and exported the processed half into the crate's ``raw_data/`` tree.
+    ``assay4_EDCs_processed data/``, where neither member's own name says which
+    it is; S-VHPS21 puts both into one ``Raw data + individual processed data/``,
+    where the folder cannot say. Classification reads the file first and the
+    folder last, so both conventions resolve (#591).
     """
 
     @pytest.mark.parametrize(
@@ -544,39 +561,42 @@ class TestRoleFromTheContainingFolder:
         [
             (
                 "assay_01_TH_uptake/characterisation uptake/assay1_rawdata/004043.csv",
-                "raw_data",
+                CLASS_RAW_DATA,
             ),
             (
                 "assay_01_TH_uptake/characterisation uptake/assay1_processeddata/"
                 "Combined uptake data 0-60 min.xlsx",
-                "processed_data",
+                CLASS_PROCESSED_DATA,
             ),
             (
                 "assay_04_TRactivation/EDCs/assay4_EDCs_raw data/"
                 "2024-10-30 SK sily n3 Raw data.eds",
-                "raw_data",
+                CLASS_RAW_DATA,
             ),
             (
                 "assay_04_TRactivation/EDCs/assay4_EDCs_processed data/"
                 "Silychristin SK redo combined.xlsx",
-                "processed_data",
+                CLASS_PROCESSED_DATA,
+            ),
+            # The folder names neither tier — the file's own columns decide, and
+            # this one is the deposit's 1048-row tidy analysis output.
+            (
+                "assay_01_TH_uptake/EDCs/Combined uptake data EDCs_tidy.csv",
+                CLASS_PROCESSED_DATA,
             ),
         ],
     )
-    def test_the_folder_decides_when_the_filename_is_silent(
-        self, relpath: str, expected: str
-    ) -> None:
+    def test_a_file_in_this_deposit_resolves(self, relpath: str, expected: str) -> None:
         path = SVHPS22 / relpath
         assert path.is_file(), f"fixture is missing {relpath}"
-        assert _file_role(path.name, "", str(path)) == expected
+        assert _classify_at(path, SVHPS22) == expected
 
-    def test_a_folder_naming_both_roles_decides_nothing(self) -> None:
+    def test_a_folder_naming_both_tiers_does_not_decide_for_either(self) -> None:
         """The trap: S-VHPS21 deposits every run into one shared folder.
 
         ``Raw data + individual processed data/`` holds each run's raw ``.xls``
         beside its processed ``.prism``, so reading the folder for either word
-        would mislabel one of them. The pair must still split on their own
-        evidence — the ``.prism`` extension — not on the folder.
+        would mislabel one of them. The pair splits on its own evidence.
         """
         run = (
             SVHPS21
@@ -584,13 +604,8 @@ class TestRoleFromTheContainingFolder:
             / "Raw data + individual processed data"
             / _S21_RUN
         )
-        raw, processed = run / f"{_S21_RUN}.xls", run / f"{_S21_RUN}.prism"
-        assert _file_role(raw.name, "", str(raw)) == "raw_data"
-        assert _file_role(processed.name, "", str(processed)) == "processed_data"
-
-    def test_a_bare_filename_keeps_the_old_behaviour(self) -> None:
-        """Callers holding no path must be unaffected."""
-        assert _file_role("Combined uptake data 0-60 min.xlsx", "") == "raw_data"
+        assert _classify_at(run / f"{_S21_RUN}.xls", SVHPS21) == CLASS_RAW_DATA
+        assert _classify_at(run / f"{_S21_RUN}.prism", SVHPS21) == CLASS_PROCESSED_DATA
 
 
 class TestStudyWideProtocols:
@@ -643,11 +658,11 @@ class TestEveryAssayHasBothDataRoles:
 
     @pytest.mark.parametrize("assay", _S22_ASSAYS)
     def test_assay_carries_both_roles(self, assay: str) -> None:
-        roles = {
-            _file_role(p.name, "", str(p))
+        classes = {
+            _classify_at(p, SVHPS22)
             for p in (SVHPS22 / assay).rglob("*")
             if p.is_file() and p.suffix.lower() in _DATA_SUFFIXES
         }
-        assert {"raw_data", "processed_data"} <= roles, (
-            f"{assay} carries only {roles or 'no data files'}"
+        assert {CLASS_RAW_DATA, CLASS_PROCESSED_DATA} <= classes, (
+            f"{assay} carries only {classes or 'no data files'}"
         )
