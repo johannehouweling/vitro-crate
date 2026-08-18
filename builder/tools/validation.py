@@ -236,6 +236,125 @@ def verify_payload(crate: Any) -> list[dict[str, Any]]:
     return issues
 
 
+# The ISA classes this crate MINTS a structural entity for. Each carries a
+# rule-set in the upstream profile that only applies once something references
+# the entity, so each is a class whose whole rule-set can go silent (#537).
+_ISA_STRUCTURAL_TYPES = frozenset({"LabProcess", "Sample", "LabProtocol"})
+
+# Keys that describe the node rather than point away from it. `@type`'s values
+# are class names, and a class name is not a reference to another entity.
+_NON_REFERENCE_KEYS = frozenset({"@id", "@type", "@context"})
+
+
+def verify_isa_reachability(
+    metadata: dict[str, Any] | list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Report every ISA structural entity the crate mints and then references from nowhere.
+
+    The ISA shapes infer their target class from the very edge whose absence is
+    the defect. ``FindISAProcesses`` mints ``isa-ro-crate:Process`` only for a
+    ``bioschemas:LabProcess`` some Dataset already points at, and
+    ``ProcessMustBeReferencedFromDataset`` targets that inferred class — so a
+    process nothing references never earns the label, and the rule written to
+    catch exactly this defect has no target. Every rule keyed to the class goes
+    silent with it. 11 of the profile's 12 shape files are built this way, so a
+    missing structural edge switches off the whole rule-set for that layer and
+    the crate reports conformant precisely when its structure is most broken.
+
+    The upstream shapes are not ours to restructure, so the invariant is
+    asserted here instead, and asserted the only way that cannot be gamed by an
+    absent edge: an entity nothing points at is detached, whatever the profile
+    was able to evaluate.
+
+    Reachability is DIRECTED. ``provenance_dag.build_crate_graph`` already flags
+    orphans, but over an undirected walk, where a process that points at the
+    files it produced counts as connected even though nothing points at it —
+    which is why it reports 19 orphans for the crate in #537 and none of them
+    are its three detached processes.
+
+    Entities identified by an absolute URI are described here and live
+    elsewhere — a Cellosaurus cell line is a record of an external thing, not a
+    hole in this crate's backbone — so they are not reported, the same line
+    :func:`verify_payload` draws for the payload.
+
+    Args:
+        metadata: The ``crate.metadata.generate()`` document, the parsed
+            ``ro-crate-metadata.json``, or the ``@graph`` list itself.
+
+    Returns:
+        Routable issue dicts in the shape :func:`build_and_validate` returns, so
+        the existing write-back and the maturity report render them unchanged.
+    """
+    from builder.writers.provenance_dag import _refs, _types
+
+    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
+    nodes = [node for node in graph if isinstance(node, dict) and node.get("@id")]
+
+    referenced: set[str] = set()
+    for node in nodes:
+        keys = tuple(key for key in node if key not in _NON_REFERENCE_KEYS)
+        referenced.update(ref for ref in _refs(node, keys) if ref != node.get("@id"))
+
+    issues: list[dict[str, Any]] = []
+    for node in nodes:
+        entity_id = str(node["@id"])
+        if entity_id.startswith(("http://", "https://")):
+            continue
+        if not (_types(node) & _ISA_STRUCTURAL_TYPES):
+            continue
+        if entity_id in referenced:
+            continue
+        kind = ", ".join(sorted(_types(node) & _ISA_STRUCTURAL_TYPES))
+        issues.append(
+            {
+                "entity_id": entity_id,
+                "property": "about",
+                "message": (
+                    f"Nothing in the crate references the {kind} {entity_id!r}, so it is "
+                    "detached from the ISA backbone and every profile rule for its class "
+                    "is skipped rather than passed"
+                ),
+                "fix": (
+                    f"Reference `{entity_id}` from the entity it belongs to — a process "
+                    "from its Assay's `about`, a protocol or sample from the process that "
+                    "uses it — or drop it so the crate stops describing a step it does "
+                    "not connect."
+                ),
+                "severity": "required",
+                "profile": "isa",
+            }
+        )
+    return issues
+
+
+def record_isa_reachability_check(state: CrateState, crate: Any) -> list[dict[str, Any]]:
+    """Fold :func:`verify_isa_reachability` into ``state.validation`` (#537).
+
+    A detached structural entity is a REQUIRED failure of the ISA profile — the
+    profile simply cannot say so itself — so it is filed through the same shape
+    every other finding uses, and the header verdict flips off "Conformant"
+    without the report needing to know this check exists.
+
+    Marks the verdict ``isa_reachability_checked`` either way: a connected
+    backbone is a result, and the distinction that matters downstream is
+    "looked and found nothing" versus "never looked".
+
+    Returns the issues found, for the caller to log or report.
+    """
+    issues = verify_isa_reachability(crate.metadata.generate())
+    report = state.validation
+    existing = set(report.required_issues)
+    for issue, text in zip(issues, order_issues(issues, "required"), strict=True):
+        if text not in existing:
+            report.required_issues.append(text)
+            report.issue_records.extend(_issue_records([issue], "required"))
+    if issues:
+        report.isa_passed = False
+    report.assessed_tiers.add("required")
+    report.isa_reachability_checked = True
+    return issues
+
+
 def record_payload_check(state: CrateState, crate: Any) -> list[dict[str, Any]]:
     """Fold :func:`verify_payload` into ``state.validation`` (#530).
 
