@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import PurePath
+from collections import Counter
 from typing import TYPE_CHECKING, Any, Callable
 
 # The token-accounting seam was born here (#221) but now lives in the shared LLM
@@ -557,14 +557,14 @@ def _gather_context(engine: AgentEngine) -> str:
         if file_lines:
             parts.append("Scanned files:\n" + "\n".join(file_lines))
 
-    # Document discovery context (#179): ranked, role-labelled documentation
+    # Document discovery context (#179): ranked, classified documentation
     # discovered by the engine after scanning. This is stored as a list of
     # compact dicts on state and rendered as a concise summary line per doc.
     documents = getattr(state, "documents", [])
     if documents:
         doc_lines: list[str] = []
         for doc in documents[:20]:
-            role = doc.get("role", "document")
+            role = doc.get("classification", "document")
             name = doc.get("filename", doc.get("relative_path", "?"))
             score = doc.get("score", 0.0)
             reasons = doc.get("reasons", [])
@@ -1030,93 +1030,22 @@ def _draft_standard_chain(
     return len(process_ids), list(chain_result.get("steps") or [])
 
 
-# Filename / MIME signals that a scanned file is *processed/analysed* output
-# (figures, prism/pzfx analysis files, results) rather than *raw* measurements.
-# Used only to stamp a descriptive `role` on the attached File — the structural
-# link is the same for both (under the Assay's hasPart), so a misclassification
-# never drops a file; it only mislabels its role.
-_PROCESSED_NAME_HINTS: tuple[str, ...] = (
-    "result",
-    "analysis",
-    "analy",
-    "processed",
-    "figure",
-    "plot",
-    "ic50",
-    "summary",
-)
-# GraphPad Prism writes the same project — fitted curves and analyses — under
-# three interchangeable extensions. `.pzf` is the legacy binary spelling of
-# `.pzfx`; deposits built with older tooling (S-VHPS21) use it throughout their
-# study-wide analysis folder, and omitting it exported that analysis into the
-# crate's raw_data tree.
-_PROCESSED_EXT_HINTS: tuple[str, ...] = (".prism", ".pzfx", ".pzf")
-
-
-# Directory names that declare a role for everything inside them. Real deposits
-# carry this distinction in the FOLDER at least as often as in the filename —
-# S-VHPS22 files its qPCR exports under `assay4_EDCs_raw data/` beside
-# `assay4_EDCs_processed data/`, and neither the raw nor the processed member is
-# distinguishable by its own name.
-_PROCESSED_DIR_HINTS: tuple[str, ...] = ("processed", "analysis", "results")
-_RAW_DIR_HINTS: tuple[str, ...] = ("raw",)
-
-
-def _directory_role(path: str) -> str | None:
-    """Role declared by the closest containing directory, or ``None``.
-
-    Walks outward from the file so the most specific directory wins. A folder
-    naming BOTH roles declares nothing and stops the walk: S-VHPS21 deposits
-    every run into ``Raw data + individual processed data/``, which holds that
-    run's raw ``.xls`` beside its processed ``.prism``, so it says nothing about
-    either and no outer folder is more qualified to.
-    """
-    for part in reversed(PurePath(path).parent.parts):
-        lowered = part.lower()
-        processed = any(hint in lowered for hint in _PROCESSED_DIR_HINTS)
-        raw = any(hint in lowered for hint in _RAW_DIR_HINTS)
-        if processed and raw:
-            return None
-        if processed:
-            return "processed_data"
-        if raw:
-            return "raw_data"
-    return None
-
-
-def _file_role(filename: str, mime: str, path: str = "") -> str:
-    """Deterministic raw-vs-processed role for a scanned file (descriptive only).
-
-    The file's own name decides when it can: a GraphPad project is processed
-    whatever folder it sits in. Otherwise the containing directory decides, and
-    only when neither speaks does this fall back to ``raw_data``. *path* is
-    optional so callers holding just a basename keep the filename-only
-    behaviour.
-    """
-    lowered = (filename or "").lower()
-    if lowered.endswith(_PROCESSED_EXT_HINTS):
-        return "processed_data"
-    if any(hint in lowered for hint in _PROCESSED_NAME_HINTS):
-        return "processed_data"
-    if path:
-        by_directory = _directory_role(path)
-        if by_directory is not None:
-            return by_directory
-    return "raw_data"
-
-
 def _attach_scanned_files(engine: AgentEngine) -> int:
     """Add every scanned file to the crate as a File and link it under the Assay.
 
     Deterministic and provider-independent (#262): the engine already carries the
     scanned-file inventory (``state.scanned_files``), so the spine adds each one as
     a ``File`` entity and places it under the scaffolded Assay's ``hasPart`` via the
-    existing idempotent ``attach_files`` composite (NO hand-rolled JSON-LD). Files
-    are grouped by a deterministic raw/processed ``role`` so each batch is stamped
-    appropriately; nothing is skipped silently — what is attached is logged. Falls
-    back to the Study when no Assay exists. ``attach_files`` dedups by on-disk
-    source, so re-running mints no duplicates. Returns the number of File entities
-    attached.
+    existing idempotent ``attach_files`` composite (NO hand-rolled JSON-LD), which
+    stamps each File with its classification (#591); nothing is skipped silently
+    — what is attached is logged, broken down by class. Falls back to the Study
+    when no Assay exists. ``attach_files`` dedups by on-disk source, so re-running
+    mints no duplicates. Returns the number of File entities attached.
+
+    No role is passed. The spine used to re-derive raw-vs-processed here from the
+    filename and folder, a rule that could only ever produce those two values —
+    so the tabular metadata workbooks were stamped as raw measurements, and a
+    plan that had already identified a plate map lost the answer.
     """
     if not engine.state.scanned_files:
         return 0
@@ -1126,32 +1055,26 @@ def _attach_scanned_files(engine: AgentEngine) -> int:
         logger.warning("No Assay/Study scaffolded; cannot attach scanned files (#262).")
         return 0
 
-    # Group the scanned paths by deterministic role so each batch is stamped with
-    # the right descriptive role. The structural placement (under the Assay) is the
-    # same for every role, so a role misclassification never drops a file.
-    by_role: dict[str, list[str]] = {}
-    for fc in engine.state.scanned_files:
-        role = _file_role(fc.filename or "", fc.mime_type or "", fc.path or "")
-        by_role.setdefault(role, []).append(fc.path)
+    paths = [fc.path for fc in engine.state.scanned_files]
+    try:
+        result = engine.run_tool("attach_files", to=target_id, paths=paths)
+    except Exception as exc:  # noqa: BLE001 - a bad batch must not break the spine
+        logger.warning("attach_files failed for %d file(s): %s", len(paths), exc)
+        return 0
 
-    attached_ids: set[str] = set()
-    for role in sorted(by_role):  # sorted ⇒ deterministic call order
-        paths = by_role[role]
-        try:
-            result = engine.run_tool("attach_files", to=target_id, paths=paths, role=role)
-        except Exception as exc:  # noqa: BLE001 - one bad batch must not break the spine
-            logger.warning("attach_files (%s) failed for %d file(s): %s", role, len(paths), exc)
-            continue
-        ids = list(result.get("file_ids") or [])
-        attached_ids.update(ids)
-        logger.info(
-            "Attached %d %s file(s) under %s (#262): %s",
-            len(ids),
-            role,
-            target_id,
-            ", ".join(ids) or "(none)",
-        )
-    return len(attached_ids)
+    ids = list(result.get("file_ids") or [])
+    classes = Counter(
+        str(entity.fields.get("role") or "unclassified")
+        for entity in engine.state.list_entities("File")
+        if entity.entity_id in set(ids)
+    )
+    logger.info(
+        "Attached %d file(s) under %s (#262): %s",
+        len(ids),
+        target_id,
+        ", ".join(f"{count} {name}" for name, count in sorted(classes.items())) or "(none)",
+    )
+    return len(ids)
 
 
 # --- Publication recovery from PDF text (#245) ------------------------------
@@ -1352,11 +1275,16 @@ def _populate_condition_table_from_plan(
     """Write the plan's ``condition_table`` file into the Exposure's CSV (#408).
 
     The extraction leaf classifies every plan file into
-    ``raw``/``processed``/``condition_table``/``other``, but the spine re-derived a
-    role from the filename (:func:`_file_role`, which only returns
-    ``raw_data``/``processed_data``) and dropped the answer — so ``condition_table``
-    was unreachable and every exported table shipped header-only while the per-well
-    payload sat beside it as an untyped ``File``.
+    ``raw``/``processed``/``condition_table``/``other``, and the spine reads that
+    answer here rather than re-deriving one — an earlier version derived a role
+    from the filename and could only ever return raw or processed, so
+    ``condition_table`` was unreachable and every exported table shipped
+    header-only while the per-well payload sat beside it as an untyped ``File``.
+
+    This plan role is the last consumer of a vocabulary other than the one file
+    classification (#591): a plate map classifies as ``metadata``, so finding
+    which metadata file IS the plate map has to become the same content-first
+    question — a metadata table carrying one row per well. Tracked in #594.
 
     Deterministic and conservative:
 

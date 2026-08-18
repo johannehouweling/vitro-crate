@@ -29,6 +29,7 @@ from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import PROVENANCE_RELATIONS, _file_source
+from builder.tools.document_discovery import classification_of
 from builder.tools.drafters import _make_entity_id
 from builder.tools.management import entity_not_found_message
 from builder.tools.scanner import encoding_format_for_name
@@ -100,7 +101,10 @@ def draft_file(
         name: Human-readable file name (also used to mint the entity_id).
         path: Crate-relative destination path for the file (``dest_path``). When
             omitted the mapping derives ``data/<name>``.
-        role: Optional role label for the file (e.g. "raw_data", "figure").
+        role: Optional class for the file — one of
+            :data:`~builder.tools.document_discovery.FILE_CLASSES` (#591). Left
+            unset when omitted; ``attach_files`` is the caller that defaults it
+            to the file's own classification.
         encoding_format: Optional IANA media type (schema:encodingFormat). When
             omitted it is auto-derived from the file extension (``name`` first,
             then ``path``) via the scientific-format-aware registry (Issue #148),
@@ -393,7 +397,9 @@ def attach_files(
         mime_contains: Match files whose mime_type contains this substring.
         paths: Explicit scanned paths/filenames to attach (with/instead of the
             substring filters).
-        role: Optional role to stamp on each File (e.g. "raw_data", "processed").
+        role: Optional role to stamp on each File. Defaults to the file's own
+            classification — ``metadata`` / ``protocol`` / ``raw_data_file`` /
+            ``processed_data_file`` (#591).
 
     Returns:
         ``{"attached": int, "file_ids": [...], "to": to}``.
@@ -427,11 +433,18 @@ def attach_files(
 
     existing = file_index_by_source(state)
 
+    # No role given means "whatever this file is", which the deposit was already
+    # read for (#591) — so the File says so, instead of being attached with the
+    # question unanswered. An explicit role still wins: the caller who names one
+    # knows something the classifier does not.
+    input_root = state.metadata.input_path or ""
     file_ids: list[str] = []
     for fc in state.scanned_files:
         if not _matches(fc):
             continue
-        fe = find_or_create_file(state, fc, role=role, index=existing)
+        fe = find_or_create_file(
+            state, fc, role=role or classification_of(fc, input_root=input_root), index=existing
+        )
         _append_haspart(target, fe.entity_id)
         if fe.entity_id not in file_ids:
             file_ids.append(fe.entity_id)
