@@ -1016,6 +1016,17 @@ class TestChemicalsSection:
     def _page(self, **kw: bool) -> str:
         return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
 
+    @staticmethod
+    def _compound_row(page: str) -> str:
+        """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
+        class is shared with the ISA table, so look inside the chemicals panel)."""
+        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
+        assert table, "no identification matrix"
+        rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
+        assert len(rows) == 1, "expected exactly one matrix row for the compound"
+        return rows[0]
+
     def test_section_renders_diagram_and_matrix(self) -> None:
         page = self._page()
         assert '<div class="panel" id="p-chem">' in page
@@ -1064,8 +1075,82 @@ class TestChemicalsSection:
         page = self._page(wire=False)
         assert "cannot be reached from any process" in page
         # CAS + InChIKey + SMILES + Formula + Mass of 7 fields — the compound is
-        # well described and still unreachable; both must be reported.
-        assert "<b>71%</b> identified" in page
+        # well described and still unreachable; both must be reported. The
+        # identification figure lives on the KPI tile (the panel's own caption
+        # was dropped on the owner's call, #606).
+        assert "71% of identification fields filled" in page
+        assert "The substances under test" not in page
+
+    def test_identifier_cells_link_to_their_external_source(self) -> None:
+        """Every registry identifier a compound carries is a link to where a
+        reader can look it up (CAS Common Chemistry, PubChem, the CompTox
+        dashboard; an InChIKey searches PubChem). A structure field with no
+        public resolver stays a plain mark, and a missing field stays ✗."""
+        graph = self._graph()
+        compound = next(n for n in graph["@graph"] if n["@id"] == "#compound")
+        compound["identifier"] = [{"@id": "#cas"}, {"@id": "#cid"}, {"@id": "#dtx"}]
+        graph["@graph"] += [
+            {"@id": "#cid", "@type": "PropertyValue", "name": "PubChem CID", "value": "186907"},
+            {"@id": "#dtx", "@type": "PropertyValue", "name": "DTXSID", "value": "DTXSID9020035"},
+        ]
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        row = self._compound_row(page)
+        cells = re.findall(r"<td>(.*?)</td>", row, re.S)
+        assert len(cells) == 7  # CAS, CID, DTXSID, InChIKey, SMILES, Formula, Mass
+        hrefs = [re.search(r'href="([^"]+)"', c) for c in cells]
+        assert [h.group(1) if h else None for h in hrefs] == [
+            "https://commonchemistry.cas.org/detail?cas_rn=1162-65-8",
+            "https://pubchem.ncbi.nlm.nih.gov/compound/186907",
+            "https://comptox.epa.gov/dashboard/chemical/details/DTXSID9020035",
+            "https://pubchem.ncbi.nlm.nih.gov/#query=OQIQSTLJSLGHID-WNWIJWBNSA-N",
+            None,  # SMILES
+            None,  # Formula
+            None,  # Mass
+        ]
+        for cell in cells[:4]:
+            assert 'class="ext"' in cell and 'class="mk ok"' in cell, cell
+        assert all('class="mk ok"' in c for c in cells[4:])
+        # A missing identifier is a plain ✗, never a link.
+        plain_cells = re.findall(r"<td>(.*?)</td>", self._compound_row(self._page()), re.S)
+        assert 'class="mk no"' in plain_cells[1] and "href" not in plain_cells[1]  # no CID
+
+    def test_resolvable_compound_name_links_to_its_identity(self) -> None:
+        """A compound whose ``@id`` is an http(s) URL links its name there —
+        the glyph that used to mark "resolvable" is now the link itself. Any
+        other scheme is not a link: an ``@id`` is crate-controlled text and
+        ``javascript:`` would otherwise reach the page as an href."""
+        graph = self._graph()
+        for node in graph["@graph"]:
+            if node["@id"] == "#compound":
+                node["@id"] = "https://pubchem.ncbi.nlm.nih.gov/compound/186907"
+            if node["@id"] == "#table":
+                node["about"] = [{"@id": "https://pubchem.ncbi.nlm.nih.gov/compound/186907"}]
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert (
+            '<a class="ext" href="https://pubchem.ncbi.nlm.nih.gov/compound/186907">'
+            "Aflatoxin B1</a>"
+        ) in page
+        assert "🔗" not in page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+
+        for node in graph["@graph"]:
+            if node["@id"] == "https://pubchem.ncbi.nlm.nih.gov/compound/186907":
+                node["@id"] = "javascript://alert(1)"
+            if node["@id"] == "#table":
+                node["about"] = [{"@id": "javascript://alert(1)"}]
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert 'href="javascript:' not in page
+
+    def test_identifier_values_are_url_encoded_in_the_link(self) -> None:
+        """An identifier value is crate text; it is percent-encoded into the URL
+        and escaped into the attribute, so it can neither break out of the href
+        nor smuggle markup."""
+        graph = self._graph()
+        for node in graph["@graph"]:
+            if node["@id"] == "#cas":
+                node["value"] = '1162-65-8"><script>x</script>'
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>x</script>" not in page
+        assert "cas_rn=1162-65-8%22%3E%3Cscript%3Ex%3C%2Fscript%3E" in page
 
     def test_kpi_tile_reports_wired_over_total(self) -> None:
         import re
@@ -1374,6 +1459,17 @@ class TestCellLinesPanel:
     def _page(self, **kw: bool) -> str:
         return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
 
+    @staticmethod
+    def _compound_row(page: str) -> str:
+        """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
+        class is shared with the ISA table, so look inside the chemicals panel)."""
+        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
+        assert table, "no identification matrix"
+        rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
+        assert len(rows) == 1, "expected exactly one matrix row for the compound"
+        return rows[0]
+
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
         assert '<div class="panel" id="p-cell">' in page
@@ -1466,6 +1562,17 @@ class TestPeoplePanel:
 
     def _page(self, **kw: bool) -> str:
         return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
+
+    @staticmethod
+    def _compound_row(page: str) -> str:
+        """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
+        class is shared with the ISA table, so look inside the chemicals panel)."""
+        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
+        assert table, "no identification matrix"
+        rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
+        assert len(rows) == 1, "expected exactly one matrix row for the compound"
+        return rows[0]
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
@@ -1593,6 +1700,17 @@ class TestCitationsPanel:
 
     def _page(self, **kw: bool) -> str:
         return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
+
+    @staticmethod
+    def _compound_row(page: str) -> str:
+        """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
+        class is shared with the ISA table, so look inside the chemicals panel)."""
+        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
+        assert table, "no identification matrix"
+        rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
+        assert len(rows) == 1, "expected exactly one matrix row for the compound"
+        return rows[0]
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()

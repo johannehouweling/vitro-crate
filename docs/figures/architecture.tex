@@ -1,0 +1,98 @@
+% ISA-Tox RO-Crate Builder -- agent architecture (bare tikzpicture).
+%
+% Preamble the host document needs:
+%   \usepackage{tikz}
+%   \usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+% Then, inside a float:
+%   \begin{figure}[t]\centering
+%     \resizebox{\linewidth}{!}{\input{architecture}}
+%     \caption{...}\label{fig:architecture}
+%   \end{figure}
+%
+% To view it on its own:  pdflatex architecture-preview.tex
+%
+% Content follows AGENTS.md: sec. 1 (two build arms), 5 (toolbox),
+% 6 (validation layers), 10 (lookups), 14.2/14.5/14.6 (pipeline + gap engine).
+
+\begin{tikzpicture}[
+  font=\sffamily\small,
+  >={Stealth[round]},
+  node distance=5mm,
+  stage/.style ={draw=black!55, rounded corners=2pt, fill=blue!7,
+                 align=center, text width=62mm, inner sep=2mm},
+  leaf/.style  ={stage, fill=orange!16, dashed, draw=orange!65!black},
+  io/.style    ={draw=black!60, rounded corners=8pt, fill=black!7,
+                 align=center, text width=62mm, inner sep=2mm},
+  store/.style ={draw=black!55, rounded corners=2pt, fill=green!12,
+                 align=center, text width=36mm, inner sep=2mm},
+  side/.style  ={draw=black!45, rounded corners=2pt, fill=violet!8,
+                 align=center, text width=50mm, inner sep=2mm},
+  alt/.style   ={draw=black!50, dashed, rounded corners=2pt, fill=black!5,
+                 align=center, text width=50mm, inner sep=2mm},
+  flow/.style  ={->, thick, black!75},
+  feed/.style  ={->, thick, dashed, black!55},
+  wire/.style  ={<->, dotted, thick, black!50},
+  lbl/.style   ={font=\sffamily\scriptsize\itshape, black!60, align=left},
+  link/.style  ={dotted, thick, black!40},
+]
+\hyphenpenalty=10000\exhyphenpenalty=10000\relax
+
+% ---------------------------------------------------------------- the spine
+\node[io]                    (in)    {\textbf{Input}\\[1pt]\footnotesize data directory, zip, or plain conversation};
+\node[stage, below=11mm of in] (scan)  {\textbf{1\ \ Scan}\\[1pt]\footnotesize file inventory; fail-closed to approved roots};
+\node[leaf,  below=of scan]  (extr)  {\textbf{2\ \ Extract}\ \ \textnormal{\footnotesize bounded LLM leaf}\\[1pt]\footnotesize one call $\rightarrow$ candidate plan: names, never identifiers};
+\node[stage, below=of extr]  (mat)   {\textbf{3\ \ Materialize}\\[1pt]\footnotesize idempotent composites $\rightarrow$ linked ISA-Tox entities};
+\node[stage, below=of mat]   (build) {\textbf{4\ \ Build \& validate}\\[1pt]\footnotesize \texttt{ro-crate-py} graph, assembled in memory};
+\node[stage, below=of build] (ass)   {\textbf{5\ \ Assess}\\[1pt]\footnotesize gap engine: SHACL $+$ MIT $+$ FAIR $\rightarrow$ one ranked report};
+\node[stage, below=of ass]   (fix)   {\textbf{6\ \ Auto-resolve}\\[1pt]\footnotesize deterministic repair of every auto-fixable gap};
+\node[leaf,  below=of fix]   (guid)  {\textbf{7\ \ Guidance}\ \ \textnormal{\footnotesize HITL, interactive runs only}\\[1pt]\footnotesize phrase $\rightarrow$ ask $\rightarrow$ interpret $\rightarrow$ commit, one gap at a time};
+\node[io,    below=of guid]  (out)   {\textbf{Output}\\[1pt]\footnotesize ARC RO-Crate: metadata, payload, maturity report};
+
+\draw[flow] (in)    -- (scan);
+\draw[flow] (scan)  -- (extr);
+\draw[flow] (extr)  -- (mat);
+\draw[flow] (mat)   -- (build);
+\draw[flow] (build) -- (ass);
+\draw[flow] (ass)   -- (fix);
+\draw[flow] (fix)   -- (guid);
+\draw[flow] (guid)  -- (out);
+
+% ------------------------------------------------------- left: state + loops
+\node[store, anchor=east] (state) at ($(mat.west)+(-16mm,1mm)$)
+  {\textbf{CrateState}\\[2pt]\footnotesize entities, provenance, validation results, scores\\[3pt]\footnotesize written at every phase, so a session resumes};
+\draw[wire] (state.east) -- ($(mat.west)+(-0.5mm,1mm)$);
+
+\draw[feed] (fix.west)  -- ++(-8mm,0)  |- (build.west);
+\node[lbl, anchor=north east] at ($(build.west)+(-9mm,-2mm)$) {re-validate,\\$\le 3$ rounds};
+
+\draw[feed] (guid.west) -- ++(-21mm,0) |- (ass.west);
+\node[lbl, anchor=north east] at ($(ass.west)+(-22mm,-2mm)$) {re-assess after\\every commit};
+
+% ------------------------------------------------- right: the shared substrate
+\node[side, anchor=west] (tools) at ($(mat.east)+(34mm,4mm)$)
+  {\textbf{Shared toolbox}\\[2pt]\footnotesize \texttt{draft\_*}, \texttt{set\_fields}, \texttt{link}, \texttt{lookup\_*}, \texttt{verify\_identifier}, \texttt{build\_and\_validate}, \texttt{assess\_*}};
+\node[side, below=8mm of tools] (serv)
+  {\textbf{External resolvers}\\[2pt]\footnotesize PubChem, CompTox, Cellosaurus, AOP-Wiki, OLS4, ORCID, ROR, Crossref\\[2pt]\footnotesize \textit{identifiers are looked up, never invented}};
+\node[side, below=8mm of serv] (val)
+  {\textbf{Validation layers}\\[2pt]\footnotesize SHACL: base RO-Crate / ISA / ISA-Tox\\ Frictionless: CSV payload\\ verification: identifiers resolve at source};
+
+\draw[wire] (mat.east) -- (tools.west);
+\draw[link] (tools) -- (serv);
+\draw[link] (serv)  -- (val);
+
+\node[alt, below=10mm of val] (react)
+  {\textbf{The other build arm}\\[2pt]\footnotesize ReAct agent loop (\texttt{-{}-legacy-react}): the LLM reads \textit{CrateState} and picks the next tool itself, instead of code owning the order --- same toolbox, same state, same validators};
+\draw[wire] (react.east) -- ++(7mm,0) |- (tools.east);
+
+% -------------------------------------------------------- grouping and legend
+\begin{scope}[on background layer]
+  \node[draw=black!35, dashed, rounded corners=3pt, fill=blue!3,
+        fit=(scan)(fix), inner sep=3.4mm] (pipe) {};
+\end{scope}
+\node[anchor=south west, font=\sffamily\scriptsize\bfseries, text=black!55]
+  at ($(pipe.north west)+(0,0.8mm)$) {DETERMINISTIC PIPELINE (\texttt{run\_pipeline})\ \ ---\ \ code owns the ordering};
+
+\node[lbl, anchor=north west] at ($(out.west |- react.south)+(-31mm,-7mm)$)
+  {Orange, dashed $=$ the only bounded LLM calls. Every other step is plain, testable code.};
+
+\end{tikzpicture}

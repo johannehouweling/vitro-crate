@@ -1,0 +1,11 @@
+% Wrapper so the figure can be compiled and viewed on its own:
+%   pdflatex architecture-preview.tex
+% The figure itself lives in architecture.tex (a bare tikzpicture).
+\documentclass[11pt]{article}
+\usepackage[paperwidth=24cm,paperheight=23cm,margin=1cm]{geometry}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+\pagestyle{empty}
+\begin{document}
+\noindent\input{architecture}
+\end{document}

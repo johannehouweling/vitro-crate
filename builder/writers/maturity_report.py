@@ -1785,16 +1785,17 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
     Returns:
         ``(panel html, tab badge)``.
     """
-    from builder.writers.provenance_dag import CHEM_COVERAGE_FIELDS, render_chemicals_svg
+    from builder.writers.provenance_dag import (
+        CHEM_COVERAGE_FIELDS,
+        chem_source_url,
+        render_chemicals_svg,
+    )
 
     chems = inv["chemicals"]
     if not chems:
         return "", ""
     counts = inv["counts"]
     total, wired = counts["total"], counts["wired"]
-    id_pct = (
-        round(counts["fields_met"] / counts["fields_total"] * 100) if counts["fields_total"] else 0
-    )
 
     svg = render_chemicals_svg(inv)
     unreached = total - wired
@@ -1825,20 +1826,39 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
     # view, and a truncated tail hides the rows worth acting on.
     rows = []
     for c in ordered:
-        link = " 🔗" if c["resolvable"] else ""
+        # A compound whose @id is a web page links its name there. Only http(s):
+        # the @id is crate text, and any other scheme (javascript:, data:) must
+        # not reach the page as an href.
+        name = (
+            f'<a class="ext" href="{html.escape(c["id"])}">{c["label"]}</a>'
+            if str(c["id"]).startswith(("http://", "https://"))
+            else c["label"]
+        )
         flag = (
             ""
             if c["state"] == "wired"
             else f'<span class="chem-flag" title="{html.escape(_CHEM_STATE_NOTE[c["state"]])}">'
             f"{'not linked' if c['state'] == 'unlinked' else 'no process'}</span>"
         )
-        cells = "".join(
-            f"<td>{_mk('ok' if c['fields'].get(full) else 'no')}</td>"
-            for full, _short in CHEM_COVERAGE_FIELDS
-        )
+        # Every ✓ that has a public source behind it is a link to that source.
+        values = {**c["identifiers"], **c.get("structure", {})}
+        cells = ""
+        for full, _short in CHEM_COVERAGE_FIELDS:
+            if not c["fields"].get(full):
+                cells += f"<td>{_mk('no')}</td>"
+                continue
+            url = chem_source_url(full, values.get(full))
+            if url:
+                cells += (
+                    f'<td><a class="ext" href="{html.escape(url)}" '
+                    f'title="{html.escape(f"{full} {values[full]} — open the source")}">'
+                    f"{_mk('ok')}</a></td>"
+                )
+            else:
+                cells += f"<td>{_mk('ok')}</td>"
         rows.append(
             f'<tr><th scope="row">{_mk(_CHEM_STATE_MARK[c["state"]])}'
-            f'<span class="cn">{c["label"]}{link}</span>{flag}</th>{cells}</tr>'
+            f'<span class="cn">{name}</span>{flag}</th>{cells}</tr>'
         )
     matrix = (
         '<div class="chem-tbl-scroll"><table class="chem-tbl">'
@@ -1855,15 +1875,9 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
         else ""
     )
 
-    panel = (
-        '<p class="prov-cap">The substances under test — whether each one is actually '
-        "connected to the experiment that used it, and whether a reader could obtain the "
-        f"same material. <b>{total}</b> compound{'' if total == 1 else 's'} · "
-        f"<b>{wired}</b> wired · <b>{id_pct}%</b> identified.</p>\n"
-        f"  {diagram}\n"
-        f"  {route_note}\n"
-        f"  {matrix}"
-    )
+    # No caption: the KPI tile already carries the wired / identified figures,
+    # and the diagram + matrix say the rest (the owner's call, #606).
+    panel = f"{diagram}\n  {route_note}\n  {matrix}"
     return panel, str(total)
 
 
