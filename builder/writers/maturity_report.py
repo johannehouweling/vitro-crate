@@ -91,6 +91,9 @@ _DIM_NAMES = {"F": "Findable", "A": "Accessible", "I": "Interoperable", "R": "Re
 # 12 from the report's status colours (good / warn / low / coverage teal) so
 # no module can impersonate a verdict. Lightness alternates between two steps
 # because that, not hue, is what keeps six hues apart for a dichromat reader.
+# The floors are for the solid colours only: a pale (still-missing) part is
+# never read on its own — it sits inside its module's pill, next to that
+# module's solid part — so pale-vs-pale separation is not claimed.
 # This palette is deliberately independent of the entity-category ring: a
 # palette clear of the status colours AND all ten category colours does not
 # exist in this lightness band, and the two never share a figure — each is
