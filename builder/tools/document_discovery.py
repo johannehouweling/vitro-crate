@@ -22,7 +22,7 @@ _DOCUMENT_SUFFIXES = {
 }
 _TEXT_MIMES = ("text/", "application/json", "application/xml", "application/pdf")
 _MAX_PREVIEW_CHARS = 3_000
-_MAX_CONTEXT_CHARS = 12_000
+_MAX_CONTEXT_CHARS = 18_000
 _JOINER = "\n\n"
 _TRUNCATED = " […]"
 
@@ -538,7 +538,7 @@ def classify_scanned_files(
 ) -> dict[str, str]:
     """Stamp every scanned file with its class, and return the previews read.
 
-    EVERY file, not the ranked subset: :func:`discover_documents` caps at 20
+    EVERY file, not the ranked subset: :func:`discover_documents` caps its
     candidates because its job is filling a bounded prompt, and what gets wired
     into the crate must not depend on what fits in a context window.
 
@@ -609,11 +609,12 @@ def classify_scanned_files(
 # two vocabularies; what #591 collapsed was four lists all answering the SAME
 # question differently.
 #
-# The ranking does NOT yet use the classification to allocate its 20 slots, and
-# should: a `.docx` previews as a paragraph count, so a protocol's score comes
-# almost entirely from which of these words are in its FILENAME, and 7 of
-# svhps22's 13 protocol documents miss the cut while 9 of its 14 metadata files
-# are named. Tracked in #595.
+# These words still decide a NARRATIVE file's score, and for a `.docx` — which
+# previews as a paragraph count — that means its FILENAME decides it. That is
+# survivable now only because the slot allocation no longer lets one class take
+# the listing (#595): the score orders files WITHIN a class, where every
+# candidate is the same kind of thing, rather than deciding which tier is seen
+# at all.
 _STUDY_PROSE_TERMS = (
     "assay", "endpoint", "readout", "cell", "compound", "substance",
     "concentration", "dose", "exposure", "incubat", "replicate", "protocol",
@@ -694,7 +695,7 @@ def discover_documents(
     *,
     input_root: str,
     approved_roots: set[str],
-    max_candidates: int = 20,
+    max_candidates: int = 40,
     max_context_chars: int = _MAX_CONTEXT_CHARS,
     previews: dict[str, str] | None = None,
 ) -> list[DocumentationCandidate]:
@@ -747,43 +748,79 @@ def discover_documents(
             )
         )
     ranked.sort(key=lambda item: (-item.score, item.relative_path.casefold()))
-    return _interleave_kinds(ranked, max_candidates)
+    return _allocate_slots(ranked, max_candidates)
 
 
-# Narrative explains what the study IS; tabular carries the values the crate is
-# built from. A ranking dominated by either is the same defect — the original
-# surfaced seven READMEs and one data file, and scoring tables on their real
-# contents simply inverts it, because a deposit holds far more instrument output
-# than prose. So the two are interleaved by their own rank rather than competing
-# on one scale, and balance follows from the construction rather than from a
-# threshold someone has to keep tuning.
-_INTERLEAVED_KINDS = (KIND_NARRATIVE, KIND_TABULAR)
+# Slots a class present in the deposit is guaranteed before any redistribution.
+# A tier the deposit holds must be NAMED — the agent cannot read a file it was
+# not told exists — and svhps26 spent 14 of its 20 slots on interchangeable
+# plate readouts while naming NONE of its 8 GraphPad analysis files, each
+# carrying a kilobyte of readable content (#595).
+_MIN_SLOTS_PER_CLASS = 2
+
+# The class that takes its floor and no share of the surplus. #598 established
+# instrument output is the one tier whose members are interchangeable: a sixth
+# gamma-counter printout says nothing the first five did not, while a sixth
+# protocol is a different experiment. It still absorbs whatever the other
+# classes leave unspent — an empty slot helps nobody.
+_INTERCHANGEABLE_CLASSES = frozenset({CLASS_RAW_DATA})
 
 
-def _interleave_kinds(
+def _allocate_slots(
     ranked: list[DocumentationCandidate], limit: int
 ) -> list[DocumentationCandidate]:
-    """Fill *limit* slots alternating between narrative and tabular, best first.
+    """Fill *limit* slots so no class the deposit holds can be crowded out (#595).
 
-    The descriptor leads if there is one — a submission record outranks anything
-    else in the deposit, being the only file that states the study's own identity.
-    Whatever remains (opaque formats, and the tail of either kind) fills the slots
-    the alternation does not use, so nothing is excluded merely by its kind.
+    The cap is the agent's whole view of the submission, and it was spent on a
+    single axis — "how document-like is this?" — over a population #591 can
+    classify into four. Whole tiers vanished: svhps26 named 14 interchangeable
+    readouts and none of its processed data at all.
+
+    Slots are allocated the way :func:`format_document_context` already
+    allocates its CHARACTERS, through the same :func:`_fair_shares`, with one
+    difference measurement forced. Every class present takes a floor, so a tier
+    is never wholly absent; :data:`_INTERCHANGEABLE_CLASSES` takes that floor
+    and stands out of the redistribution, because one exemplar of a tier whose
+    files repeat each other says what six would.
+
+    Within a class, RANK decides and nothing overrides it. Interleaving by kind
+    inside a class was measured and re-created the defect #587 fixed: metadata's
+    quota alternated narrative with tabular, so READMEs scoring 0.578 and 0.521
+    displaced assay-metadata workbooks scoring 0.670 and 0.657.
+
+    This replaces the kind interleave rather than nesting inside it. #587's
+    concern stands — narrative explains what the study IS, tabular carries the
+    values the crate is built from, and a listing dominated by either is the
+    same defect — but *class* turns out to be the axis that delivers it, because
+    the tiers a deposit floods are also the ones of a single form. Balance now
+    follows from the construction on the axis that decides what a file is worth
+    naming: measured on the real fixture, 50% tabular against 42% narrative, and
+    the descriptor still leads on score alone.
     """
-    by_kind: dict[str, list[DocumentationCandidate]] = {}
+    by_class: dict[str, list[DocumentationCandidate]] = {}
     for candidate in ranked:
-        by_kind.setdefault(candidate.kind, []).append(candidate)
+        by_class.setdefault(candidate.classification, []).append(candidate)
+    if not by_class:
+        return []
 
-    chosen = list(by_kind.get(KIND_DESCRIPTOR, []))[:limit]
-    queues = [list(by_kind.get(kind, [])) for kind in _INTERLEAVED_KINDS]
-    while len(chosen) < limit and any(queues):
-        for queue in queues:
-            if not queue or len(chosen) >= limit:
-                continue
-            chosen.append(queue.pop(0))
-    if len(chosen) < limit:
-        taken = {id(c) for c in chosen}
-        chosen.extend(c for c in ranked if id(c) not in taken)
+    classes = sorted(by_class)
+    # The floor cannot outrun the budget: a small cap over many classes would
+    # otherwise reserve more slots than there are.
+    ceiling = limit // len(classes)
+    quota = {cls: min(_MIN_SLOTS_PER_CLASS, ceiling, len(by_class[cls])) for cls in classes}
+    demand = [
+        0 if cls in _INTERCHANGEABLE_CLASSES else len(by_class[cls]) - quota[cls]
+        for cls in classes
+    ]
+    for cls, extra in zip(classes, _fair_shares(demand, max(0, limit - sum(quota.values())))):
+        quota[cls] += extra
+
+    chosen = [c for cls in classes for c in by_class[cls][: quota[cls]]]
+    # Whatever the allocation did not spend — every distinct class met in full,
+    # or only interchangeable candidates left — goes by rank, so the listing is
+    # never short while candidates remain.
+    taken = {id(c) for c in chosen}
+    chosen.extend(c for c in ranked if id(c) not in taken)
     chosen = chosen[:limit]
     chosen.sort(key=lambda item: (-item.score, item.relative_path.casefold()))
     return chosen

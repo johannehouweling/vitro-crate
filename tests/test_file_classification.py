@@ -381,7 +381,7 @@ class TestTheDefaults:
 class TestClassifyingTheWholeDeposit:
     """What gets wired into the crate must not depend on what fits in a prompt.
 
-    ``discover_documents`` caps at 20 candidates because its job is filling a
+    ``discover_documents`` caps its candidates because its job is filling a
     12 000-character context. Classification runs over everything.
     """
 

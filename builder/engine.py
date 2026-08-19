@@ -313,7 +313,7 @@ def _run_document_discovery(engine: AgentEngine) -> None:
         return
 
     # Classify EVERY scanned file before ranking any of them (#591). The ranking
-    # exists to fill a bounded prompt and shows 20 of them; what the crate is
+    # exists to fill a bounded prompt and shows a capped subset; what the crate is
     # built from must not depend on what fits in a context window. Every file is
     # stamped, but not every file is opened — a folder of interchangeable
     # instrument output is sampled (#598). The previews are handed on so the

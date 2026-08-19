@@ -397,17 +397,41 @@ readable documentation into a bounded context, reusing the previews
 classification already read. It reports `kind` (descriptor / tabular / narrative
 / opaque) alongside the classification, because form decides how a file is
 *rendered* — a data table contributes its shape, prose contributes its text — and
-the two questions have different answers for the same file. Narrative and tabular
-are interleaved by their own rank rather than competing on one scale, and the cap
-is stated in the context rather than applied silently (#587).
+the two questions have different answers for the same file. The cap is stated in
+the context rather than applied silently (#587).
 
 The character budget is split **max-min fair** across the candidates, not spent in
 rank order: rank order let three long READMEs consume the whole ceiling and delete
 every cheaper entry behind them, and a file that is never named is a file the agent
 cannot read. A share too small to carry even the entry's `[kind/class] path` header
 buys nothing, so that entry is dropped and its share returned rather than emitted as
-a fragment. The SLOT allocation is not fair in the same sense yet — the ranking does
-not use the classification to decide which 20 files compete — which is #595.
+a fragment.
+
+**The slots are allocated the same way, over the classification (#595).** The cap is
+the agent's whole view of the submission, and it used to be spent on one axis — "how
+document-like is this?" — over a population #591 can classify into four, so whole
+tiers vanished: svhps26 named 14 interchangeable plate readouts and *none* of its 8
+GraphPad analysis files, each carrying a kilobyte of readable content. Every class
+present now takes a floor, so a tier is never wholly absent, and the surplus goes
+through the same `_fair_shares`. `raw_data_file` takes its floor and stands out of
+the redistribution — #598 established it is the one tier whose members are
+interchangeable, so a sixth gamma-counter printout says nothing the first five did,
+while a sixth protocol is a different experiment — but it still absorbs whatever the
+other classes leave unspent, because an empty slot helps nobody.
+
+Within a class, rank decides and nothing overrides it. This *replaces* the kind
+interleave rather than nesting inside it: interleaving by kind within a class was
+measured and re-created the very defect #587 fixed, with metadata's quota alternating
+so that READMEs scoring 0.578 and 0.521 displaced assay-metadata workbooks scoring
+0.670 and 0.657. #587's concern stands, but **class** is the axis that delivers it,
+because the tiers a deposit floods are also the ones of a single form — measured on
+the real fixture, 50% tabular against 42% narrative, with no kind rule at all.
+
+The cap and the budget moved with it, from 20 slots / 12 000 characters to **40 /
+18 000**. They are one trade, not two: at 40 slots the old budget squeezed the median
+entry from 433 characters to 302, which is exactly the "more files named, each saying
+less" the fix has to avoid. At 18 000 every entry keeps its full size, and the class
+floor is what stops the extra slots going to more of the same instrument output.
 
 #### Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.

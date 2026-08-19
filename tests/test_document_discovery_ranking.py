@@ -1,7 +1,7 @@
 """Discovery ranks what carries the facts, not what reads like prose (#587).
 
-The ranking decides what the agent sees at all — 20 candidates out of 54 files,
-against a 12 000-character context cap — and it used to award +0.12 for
+The ranking decides what the agent sees at all — a capped subset of the deposit,
+against a bounded context — and it used to award +0.12 for
 "prose-like" text and up to +0.24 for sitting near the root. A spreadsheet can
 never earn the first, so the deposit's 1048-row measurement table scored 0.44
 against a top-level README's 0.65, despite carrying twice the content evidence.
@@ -130,7 +130,7 @@ class TestScoresDiscriminate:
 
 class TestNothingIsDroppedSilently:
     def test_the_context_says_how_much_it_left_out(self, ranked) -> None:
-        # "20 candidates" hid 34 files. Same rule the maturity report follows:
+        # A silent cap hid 34 of the fixture's files. Same rule the report follows:
         # a cap that bites says how many it hid.
         context = format_document_context(ranked, total_scanned=len(_scan()))
         assert "not surfaced" in context or "not listed" in context, context[-400:]
@@ -312,12 +312,21 @@ class TestNoOneFileCrowdsOutTheRest:
             assert block.strip(), f"{candidate.relative_path} was cut entirely"
 
     def test_the_ceiling_still_holds(self, ranked) -> None:
-        """Fitting everything must not be achieved by spending more."""
+        """Fitting everything must not be achieved by spending without limit.
+
+        The ceiling moved from 12 000 to 18 000 with the slot cap (#595): at 40
+        slots the old budget squeezed the median entry from 433 characters to
+        302, and an entry that says less is the cost the issue warned about.
+        18 000 buys twice the files at their full size. What must not change is
+        that there IS a ceiling and the listing respects it.
+        """
+        from builder.tools.document_discovery import _MAX_CONTEXT_CHARS
+
         context = format_document_context(ranked, total_scanned=99)
 
         blocks = context.split("\n\n(")[0]
 
-        assert len(blocks) <= 12_000, len(blocks)
+        assert len(blocks) <= _MAX_CONTEXT_CHARS, len(blocks)
 
     def test_a_block_too_small_to_name_its_file_is_not_written(self, ranked) -> None:
         """Fairness cuts the other way at the bottom of the budget.
@@ -355,3 +364,140 @@ class TestNoOneFileCrowdsOutTheRest:
         )
 
         assert named, "a 2 000-char budget must still name somebody"
+
+
+class TestTheSlotsAreAllocatedByWhatTheFilesAre:
+    """20 slots, four classes, and the ranking used to spend them on one axis (#595).
+
+    The cap is the agent's whole view of the submission — a file that misses it
+    is never named, and the agent cannot read a file it was not told exists. The
+    ranking decided those slots by "how document-like is this?" over a
+    population #591 can classify into four, so on the real deposits whole tiers
+    vanished: svhps26 named 14 interchangeable plate readouts and **zero** of
+    its 8 GraphPad analysis files, each carrying a kilobyte of readable content.
+
+    Slots are now allocated the way `format_document_context` already allocates
+    its CHARACTERS — max-min fair, so no class can crowd out another — with two
+    differences that measurement forced:
+
+    - every class present takes a floor first, so a tier is never wholly absent;
+    - `raw_data_file` takes its floor and stands out of the redistribution.
+      #598 established it is the one tier whose members are interchangeable: a
+      sixth gamma-counter printout says nothing the first five did not, while a
+      sixth protocol is a different experiment.
+
+    Within a class the kind interleave still decides, because form is what makes
+    an entry worth reading and class is what makes it worth naming.
+    """
+
+    from builder.tools.document_discovery import (
+        CLASS_METADATA,
+        CLASS_PROCESSED_DATA,
+        CLASS_PROTOCOL,
+        CLASS_RAW_DATA,
+    )
+
+    def _candidates(self, spec: list[tuple[str, str, float]]):
+        """`(classification, kind, score)` triples as ranked candidates."""
+        from builder.tools.document_discovery import DocumentationCandidate
+
+        return [
+            DocumentationCandidate(
+                path=f"/d/{i}", filename=f"{i}.txt", relative_path=f"{i}.txt",
+                kind=kind, classification=cls, score=score, preview="x",
+            )
+            for i, (cls, kind, score) in enumerate(spec)
+        ]
+
+    def _allocate(self, candidates, limit: int):
+        from builder.tools.document_discovery import _allocate_slots
+
+        return _allocate_slots(candidates, limit)
+
+    def _counts(self, chosen) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for candidate in chosen:
+            counts[candidate.classification] = counts.get(candidate.classification, 0) + 1
+        return counts
+
+    def test_a_tier_is_never_crowded_out_entirely(self) -> None:
+        """svhps26's shape: one tier numerous, another tiny and invisible."""
+        spec = [(self.CLASS_RAW_DATA, "tabular", 0.9 - i * 0.001) for i in range(40)]
+        spec += [(self.CLASS_PROCESSED_DATA, "opaque", 0.3 - i * 0.001) for i in range(8)]
+
+        counts = self._counts(self._allocate(self._candidates(spec), 20))
+
+        assert counts.get(self.CLASS_PROCESSED_DATA, 0) > 0, counts
+
+    def test_the_interchangeable_tier_never_costs_a_distinct_one_a_slot(self) -> None:
+        """Every raw file outranks every protocol, and every protocol is still named.
+
+        Raw takes what is left over rather than what it outranks — leaving a
+        slot empty would help nobody, but taking one from a tier whose files
+        differ from each other loses something no other file says.
+        """
+        spec = [(self.CLASS_RAW_DATA, "tabular", 0.9 - i * 0.001) for i in range(40)]
+        spec += [(self.CLASS_PROTOCOL, "narrative", 0.3 - i * 0.001) for i in range(12)]
+
+        counts = self._counts(self._allocate(self._candidates(spec), 20))
+
+        assert counts[self.CLASS_PROTOCOL] == 12, counts
+        assert counts[self.CLASS_RAW_DATA] == 8, counts
+
+    def test_a_class_with_less_than_its_share_gives_the_rest_back(self) -> None:
+        spec = [(self.CLASS_METADATA, "narrative", 0.9)]
+        spec += [(self.CLASS_PROTOCOL, "narrative", 0.5 - i * 0.001) for i in range(30)]
+
+        counts = self._counts(self._allocate(self._candidates(spec), 20))
+
+        assert counts[self.CLASS_METADATA] == 1
+        assert counts[self.CLASS_PROTOCOL] == 19, counts
+
+    def test_every_slot_is_still_filled(self) -> None:
+        spec = [(self.CLASS_RAW_DATA, "tabular", 0.9 - i * 0.001) for i in range(50)]
+
+        assert len(self._allocate(self._candidates(spec), 20)) == 20
+
+    def test_fewer_candidates_than_slots_names_them_all(self) -> None:
+        spec = [(self.CLASS_METADATA, "narrative", 0.9), (self.CLASS_PROTOCOL, "narrative", 0.5)]
+
+        assert len(self._allocate(self._candidates(spec), 20)) == 2
+
+    def test_within_a_class_rank_decides_and_nothing_overrides_it(self) -> None:
+        """Class balance replaces the kind interleave rather than nesting inside it.
+
+        Interleaving by kind INSIDE a class re-created the defect #587 fixed:
+        metadata's quota alternated, so READMEs scoring 0.578 and 0.521 displaced
+        assay-metadata workbooks scoring 0.670 and 0.657 — a lower-scoring file
+        beating a higher-scoring one in the same class. Kind balance is a
+        property of the whole list, and the measured list holds it: 50% tabular
+        against 42% narrative on the real fixture.
+        """
+        spec = [(self.CLASS_METADATA, "tabular", 0.9 - i * 0.001) for i in range(10)]
+        spec += [(self.CLASS_METADATA, "narrative", 0.4 - i * 0.001) for i in range(10)]
+
+        chosen = self._allocate(self._candidates(spec), 8)
+
+        assert [c.score for c in chosen] == sorted((c.score for c in chosen), reverse=True)
+        assert all(c.kind == "tabular" for c in chosen), [c.kind for c in chosen]
+
+    def test_the_descriptor_still_leads(self, ranked) -> None:
+        assert ranked[0].relative_path.replace("\\", "/") == DESCRIPTOR
+
+
+class TestTheRealDepositIsRepresented:
+    """Measured on the fixture the way #595 requires it reported: per class."""
+
+    def test_no_class_takes_more_than_a_third_of_the_list(self, ranked) -> None:
+        """It was metadata 9 of 20 against protocol 6, raw 1, processed 4."""
+        counts: dict[str, int] = {}
+        for candidate in ranked:
+            counts[candidate.classification] = counts.get(candidate.classification, 0) + 1
+
+        for cls, count in counts.items():
+            assert count <= len(ranked) / 3 + 1, f"{cls} takes {count} of {len(ranked)}: {counts}"
+
+    def test_every_class_the_deposit_holds_is_named(self, ranked) -> None:
+        named = {c.classification for c in ranked}
+
+        assert named == {"metadata", "protocol", "raw_data_file", "processed_data_file"}, named
