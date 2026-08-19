@@ -30,17 +30,6 @@
 .mat .chip { font-size:.72rem; padding:.12rem .5rem; border-radius:999px; background:var(--surface-2);
   border:1px solid var(--border); color:var(--ink-2); }
 .mat .sub { color:var(--ink-2); margin:.4rem 0 0; font-size:.92rem; }
-.mat .verdict { display:flex; flex-direction:column; gap:.3rem; align-items:flex-end; text-align:right; }
-.mat .vpill { display:inline-flex; align-items:center; gap:.45rem; font-weight:660; font-size:.95rem;
-  padding:.4rem .8rem; border-radius:999px; border:1px solid; }
-.mat .vpill.good { color:var(--good-ink); background:color-mix(in srgb,var(--good) 12%,transparent);
-  border-color:color-mix(in srgb,var(--good) 40%,transparent); }
-.mat .vpill.warning { color:var(--warn-ink); background:color-mix(in srgb,var(--warn) 15%,transparent);
-  border-color:color-mix(in srgb,var(--warn) 45%,transparent); }
-.mat .vpill.critical { color:var(--low-ink); background:color-mix(in srgb,var(--low) 12%,transparent);
-  border-color:color-mix(in srgb,var(--low) 40%,transparent); }
-.mat .vpill .glyph { width:.6rem; height:.6rem; border-radius:50%; background:currentColor; }
-.mat .vsub { font-size:.82rem; color:var(--muted); max-width:22rem; }
 
 /* KPI tiles */
 .mat .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(11.5rem,1fr)); gap:.8rem;
@@ -409,7 +398,7 @@ __CATEGORY_STYLES__
   border-top:1px solid var(--hairline); display:flex; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
 
 @media (max-width:640px){
-  .mat header{flex-direction:column;} .mat .verdict{align-items:flex-start;text-align:left;}
+  .mat header{flex-direction:column;}
 }
 /* A six-module stack needs the whole row sooner than a single fill did: below
    ~780px the name column would leave it ~270px, a one-field span 1–2px. */

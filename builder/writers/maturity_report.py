@@ -374,39 +374,15 @@ def _load_shell() -> str:
     return _SHELL_PATH.read_text(encoding="utf-8")
 
 
-def _render_header(
-    title: str,
-    accession: str,
-    tiers: list[dict[str, str]] | None,
-    *,
-    stale: bool = False,
-) -> str:
+def _render_header(title: str, accession: str) -> str:
+    """The page header: kicker, accession chip and title.
+
+    The verdict used to sit here as a pill; it now lives in the Profile
+    adherence KPI tile alone (the Required row's mark and summary — "3 / 3
+    profiles", "out of date", "Awaiting validation"), on the owner's call.
+    """
     esc = html.escape
     chip = f'<span class="chip mono">{esc(accession)}</span>' if accession else ""
-    if tiers is None:
-        verdict = (
-            '<span class="vpill warning"><span class="glyph"></span>Not yet validated</span>'
-            '<span class="vsub">Run validation to populate profile adherence.</span>'
-        )
-    elif stale:
-        # A verdict recorded against a DIFFERENT state. Reporting the old pass
-        # would ship a green "Conformant" for a crate nobody checked — strictly
-        # worse than admitting the gap, because it looks verified.
-        verdict = (
-            '<span class="vpill warning"><span class="glyph"></span>Validation out of date</span>'
-            '<span class="vsub">The crate changed after this verdict was recorded — '
-            "re-validate before trusting it.</span>"
-        )
-    elif tiers[0]["state"] == "ok":
-        verdict = (
-            '<span class="vpill good"><span class="glyph"></span>Conformant</span>'
-            '<span class="vsub">All required profile layers pass.</span>'
-        )
-    else:
-        verdict = (
-            '<span class="vpill critical"><span class="glyph"></span>Not conformant</span>'
-            '<span class="vsub">One or more required profile layers fail.</span>'
-        )
     return (
         "<header>\n"
         '  <div class="h-left">\n'
@@ -414,7 +390,6 @@ def _render_header(
         f'<span class="eyebrow">RO-Crate maturity report</span>{chip}</div>\n'
         f"    <h1>{esc(title)}</h1>\n"
         "  </div>\n"
-        f'  <div class="verdict">{verdict}</div>\n'
         "</header>\n"
     )
 
@@ -2327,7 +2302,7 @@ def build_maturity_html(
     checks = _reproducibility_checks(state)
     repro_ready = sum(1 for _, ok, _ in checks if ok)
 
-    header = _render_header(title, accession, tiers, stale=stale)
+    header = _render_header(title, accession)
     # The chemicals inventory is shared: it feeds the KPI tile and the Chemicals
     # graph view, and is a single cheap pass over the graph — build it once.
     chem_inv: dict[str, Any] | None = None

@@ -239,15 +239,15 @@ class TestExportRefusesToCallADetachedBackboneClean:
 
         export_crate(state, str(tmp_path / "crate"))
 
+        from tests.fixtures.report import profile_verdict
+
         page = (tmp_path / "crate" / "ro-crate-metadata-maturity.html").read_text(encoding="utf-8")
-        body = page.split("</style>", 1)[-1]
-        assert "Not conformant" in body
-        assert '<span class="vpill good">' not in body
+        assert profile_verdict(page) == "no"
 
     def test_a_crate_whose_backbone_is_whole_still_passes(self, tmp_path: Path) -> None:
         """Paired with the test above.
 
-        Without it, "Not conformant appears" would pass just as well on a
+        Without it, "the verdict reads as a fail" would pass just as well on a
         fixture that was never conformant, and the assertion would pin nothing.
         """
         state = vhps_fixture_state("S-VHPS21")
@@ -255,12 +255,9 @@ class TestExportRefusesToCallADetachedBackboneClean:
 
         export_crate(state, str(tmp_path / "crate"))
 
+        from tests.fixtures.report import profile_verdict
+
         assert state.validation.isa_reachability_checked is True
         assert state.validation.required_issues == []
-        body = (
-            (tmp_path / "crate" / "ro-crate-metadata-maturity.html")
-            .read_text(encoding="utf-8")
-            .split("</style>", 1)[-1]
-        )
-        assert '<span class="vpill good">' in body
-        assert "Not conformant" not in body
+        page = (tmp_path / "crate" / "ro-crate-metadata-maturity.html").read_text(encoding="utf-8")
+        assert profile_verdict(page) == "ok"

@@ -215,36 +215,39 @@ class TestStaleValidation:
         )
         return state
 
-    def _verdict(self, page: str) -> str:
-        import re
-
-        m = re.search(r'<span class="vpill (\w+)"><span class="glyph"></span>([^<]*)', page)
-        assert m, "no verdict pill rendered"
-        return m.group(2)
-
     def test_fresh_verdict_still_reports_conformant(self) -> None:
-        assert self._verdict(build_maturity_html(self._validated())) == "Conformant"
+        from tests.fixtures.report import profile_verdict
+
+        assert profile_verdict(build_maturity_html(self._validated())) == "ok"
 
     def test_edited_after_validating_is_reported_out_of_date(self) -> None:
-        state = self._validated()
-        state.metadata.title = "Edited after validating"
-        assert self._verdict(build_maturity_html(state)) == "Validation out of date"
+        from tests.fixtures.report import profile_verdict
 
-    def test_stale_report_makes_no_pass_claim_anywhere(self) -> None:
         state = self._validated()
         state.metadata.title = "Edited after validating"
         page = build_maturity_html(state)
-        assert "Conformant" not in page
+        assert profile_verdict(page) == "na"
+        assert "out of date" in page
+
+    def test_stale_report_makes_no_pass_claim_anywhere(self) -> None:
+        from tests.fixtures.report import profile_verdict
+
+        state = self._validated()
+        state.metadata.title = "Edited after validating"
+        page = build_maturity_html(state)
+        assert profile_verdict(page) != "ok"
         # The tier summary asserts a pass as loudly as a green tick.
         assert "3 / 3 profiles" not in page
         assert "out of date" in page
         assert "Re-run validation" in page
 
     def test_unstamped_verdict_is_trusted_not_flagged(self) -> None:
+        from tests.fixtures.report import profile_verdict
+
         # A checkpoint written before the stamp existed must not be downgraded.
         state = vhps_fixture_state("S-VHPS21")
         state.validation = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
-        assert self._verdict(build_maturity_html(state)) == "Conformant"
+        assert profile_verdict(build_maturity_html(state)) == "ok"
 
 
 class TestExportCoupledToValidation:
@@ -309,7 +312,7 @@ class TestExportCoupledToValidation:
         export_crate(vhps_fixture_state("S-VHPS21"), str(out))
         page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
         assert "not yet validated" not in page.lower()
-        assert "Validation out of date" not in page
+        assert "out of date" not in page
 
     def test_failing_validation_still_writes_the_crate(self, monkeypatch, tmp_path: Path) -> None:
         # A hard gate would throw away the agent loop's end-of-session salvage;
@@ -336,8 +339,10 @@ class TestExportCoupledToValidation:
         res = export_crate(vhps_fixture_state("S-VHPS21"), str(out))
         assert res["success"] is True
         assert (out / "ro-crate-metadata.json").is_file()
+        from tests.fixtures.report import profile_verdict
+
         page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
-        assert "Not conformant" in page
+        assert profile_verdict(page) == "no"
         assert "root MUST have a name" in page
 
     def test_validator_failure_does_not_fail_the_export(self, monkeypatch, tmp_path: Path) -> None:
