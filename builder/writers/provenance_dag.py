@@ -29,6 +29,7 @@ import json
 import logging
 import math
 import re
+import urllib.parse
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -1689,6 +1690,28 @@ _CHEM_ID_SCHEMES: tuple[
     ),
 )
 
+# Where an identifier can be looked up — the external source behind a ✓ in the
+# identification matrix, keyed by the scheme label of ``_CHEM_ID_SCHEMES`` /
+# ``_CHEM_STRUCTURE_FIELDS``. A field with no public resolver (SMILES, formula,
+# mass) has no entry and stays a plain mark. The value is percent-encoded into
+# the template by :func:`chem_source_url`; it is crate text.
+CHEM_SOURCE_URLS: dict[str, str] = {
+    "CAS": "https://commonchemistry.cas.org/detail?cas_rn={}",
+    "PubChem CID": "https://pubchem.ncbi.nlm.nih.gov/compound/{}",
+    "DTXSID": "https://comptox.epa.gov/dashboard/chemical/details/{}",
+    "InChIKey": "https://pubchem.ncbi.nlm.nih.gov/#query={}",
+}
+
+
+def chem_source_url(scheme: str, value: str | None) -> str | None:
+    """The page where *scheme*'s identifier *value* can be looked up, or
+    ``None`` when the scheme has no public resolver or the value is empty."""
+    template = CHEM_SOURCE_URLS.get(scheme)
+    if not template or not value or not str(value).strip():
+        return None
+    return template.format(urllib.parse.quote(str(value).strip(), safe=""))
+
+
 # Structure/characterisation fields carried directly on the compound. The
 # compact aliases are the ``profiles.context`` terms; the schema.org IRIs cover
 # an expanded document.
@@ -2092,15 +2115,19 @@ def build_chemical_inventory(
         fields: dict[str, bool] = {
             scheme: scheme in ids for scheme, *_rest in _CHEM_ID_SCHEMES
         }
-        fields.update(
-            {label: _literal(node, keys) is not None for label, keys in _CHEM_STRUCTURE_FIELDS}
-        )
+        structure = {
+            label: value
+            for label, keys in _CHEM_STRUCTURE_FIELDS
+            if (value := _literal(node, keys)) is not None
+        }
+        fields.update({label: label in structure for label, _keys in _CHEM_STRUCTURE_FIELDS})
         route = resolve(cid)
         chemicals.append(
             {
                 **_chem_node_brief(cid, node),
                 "resolvable": _is_uri(cid),
                 "identifiers": ids,
+                "structure": structure,
                 "fields": fields,
                 "met": sum(1 for ok in fields.values() if ok),
                 "total": len(fields),

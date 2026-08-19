@@ -358,6 +358,11 @@ __CATEGORY_STYLES__
   display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; padding-right:.7rem; }
 .mat .chem-tbl thead th:first-child { text-align:left; }
 .mat .chem-tbl .cn { font-weight:580; color:var(--ink); }
+/* A ✓ with a source behind it is a link to that source; a name whose @id is a
+   web page links there. Accent-coloured so a link reads as one. */
+.mat .chem-tbl a.ext { color:var(--accent); text-decoration:none; }
+.mat .chem-tbl a.ext:hover { text-decoration:underline; }
+.mat .chem-tbl a.ext .mk { cursor:pointer; }
 .mat .chem-tbl tbody tr:last-child th, .mat .chem-tbl tbody tr:last-child td { border-bottom:none; }
 .mat .chem-tbl tr.more th { color:var(--muted); font-style:italic; font-weight:500; }
 .mat .chem-flag.muted { color:var(--muted); background:var(--surface-2);
