@@ -157,6 +157,49 @@ class TestBuildMaturityHtml:
         # contract; the prose note that once said so was dropped on the owner's
         # call (#606: the bars explain themselves).
 
+    def test_guidance_documents_are_their_own_card(self, tmp_path: Path) -> None:
+        """The per-guidance-document bars are a sibling card of the module
+        card, not a block under an inline sub-heading inside it: two
+        ``<section>``s, the second headed like every other card
+        (``sec-h``/``h2``), the module card ending before the first document
+        row, and the old ``mit-sub`` sub-heading gone from page and
+        stylesheet alike."""
+        import re
+
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from builder.writers.maturity_report import _CSS_PATH
+        from profiles.context import ISA_TOX_CONTEXT
+
+        state = vhps_fixture_state("S-VHPS21")
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, tmp_path, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+        page = build_maturity_html(state, graph=graph)
+
+        mit_card = re.search(
+            r'<section>\s*<div class="sec-h"><h2>OECD MIT coverage</h2>.*?</section>',
+            page,
+            re.S,
+        )
+        assert mit_card, "no OECD MIT coverage card"
+        assert "Per guidance document" not in mit_card.group(0)
+        docs_card = re.search(
+            r'<section>\s*<div class="sec-h"><h2>Per guidance document</h2></div>.*?</section>',
+            page,
+            re.S,
+        )
+        assert docs_card, "no Per guidance document card"
+        assert 'class="meter stack"' in docs_card.group(0), "document bars left the card"
+        assert docs_card.start() >= mit_card.end(), "cards overlap"
+        # The module card is the colour key for the document bars, so nothing
+        # may come between them.
+        assert not page[mit_card.end() : docs_card.start()].strip()
+        assert "mit-sub" not in page
+        assert "mit-sub" not in _CSS_PATH.read_text(encoding="utf-8")
+
 
 class TestEmbeddedInCrate:
     """export_crate embeds ro-crate-metadata-maturity.html as a CreativeWork about ./."""
@@ -487,6 +530,12 @@ class TestMitModuleColours:
         return m.group(0)
 
     @staticmethod
+    def _docs_section(page: str) -> str:
+        m = re.search(r"<h2>Per guidance document</h2>.*?</section>", page, re.S)
+        assert m, "no per-guidance-document section"
+        return m.group(0)
+
+    @staticmethod
     def _row(section: str, label: str) -> str:
         """The ``mrow`` whose name cell is *label* (exactly)."""
         m = re.search(
@@ -673,7 +722,7 @@ class TestMitModuleColours:
         from builder.writers.maturity_report import MIT_MODULE_STYLES
 
         mit, page = self._scored(tmp_path)
-        section = self._mit_section(page)
+        section = self._docs_section(page)
         assert mit.standard_module_scores
         span_re = re.compile(
             r'<span class="mod" style="--mod:(?P<colour>#[0-9a-f]{6});flex-grow:(?P<w>\d+)">'

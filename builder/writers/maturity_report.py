@@ -874,8 +874,10 @@ def _mit_module_colour(name: str) -> str:
 
 
 def _render_mit_section(mit: MITReport) -> str:
-    """The OECD MIT coverage section: six module rows, each in its own colour,
-    then one bar per guidance document split into those modules.
+    """The OECD MIT coverage card — six module rows, each in its own colour —
+    followed by a sibling "Per guidance document" card: one bar per guidance
+    document split into those modules. Two adjacent ``<section>``s in one
+    string; the second exists only when the report carries document buckets.
 
     Module rows and document bars speak one vocabulary — solid = filled, pale
     = still missing, the hue = the module — so the rows double as the key. A
@@ -981,7 +983,16 @@ def _render_mit_section(mit: MITReport) -> str:
     # Reached only when there ARE module scores — `mit_was_assessed` is exactly
     # "has module scores", so the old empty-scores fallback row is unreachable.
     rows = "".join(module_row(name, sc) for name, sc in mit.module_scores.items())
-    body = f'<div class="mit">{rows}</div>'
+    section = (
+        "<section>\n"
+        '  <div class="sec-h"><h2>OECD MIT coverage</h2>'
+        f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields · {pct}%</span></div>\n'
+        '  <p class="lead">Coverage of the in-vitro toxicology MIT checklist — each item is a '
+        f'FAIR maturity indicator as defined in <a href="{MIT_INDICATORS_URL}">'
+        "tox-maturity-indicators</a>.</p>\n"
+        f'  <div class="mit">{rows}</div>\n'
+        "</section>\n"
+    )
     if mit.standard_scores:
         # Canonical order first (the YAML's own column order), then any key the
         # label map doesn't know — rendered raw rather than dropped.
@@ -995,23 +1006,17 @@ def _render_mit_section(mit: MITReport) -> str:
             )
             for k in ordered
         )
-        # No lead under the sub-heading: the bars explain themselves (the
-        # module rows above are the key), and rows overlap by design — a
-        # document's numbers are its own, not a share of the checklist total.
-        body += (
-            '\n  <h3 class="mit-sub">Per guidance document</h3>\n'
-            f'  <div class="mit">{srows}</div>'
+        # No lead and no header aggregate: the bars explain themselves (the
+        # module card directly above is the key), and rows overlap by design —
+        # a document's numbers are its own, never a share of the checklist
+        # total, so any sum in the header would double-count.
+        section += (
+            "<section>\n"
+            '  <div class="sec-h"><h2>Per guidance document</h2></div>\n'
+            f'  <div class="mit">{srows}</div>\n'
+            "</section>\n"
         )
-    return (
-        "<section>\n"
-        '  <div class="sec-h"><h2>OECD MIT coverage</h2>'
-        f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields · {pct}%</span></div>\n'
-        '  <p class="lead">Coverage of the in-vitro toxicology MIT checklist — each item is a '
-        f'FAIR maturity indicator as defined in <a href="{MIT_INDICATORS_URL}">'
-        "tox-maturity-indicators</a>.</p>\n"
-        f"  {body}\n"
-        "</section>\n"
-    )
+    return section
 
 
 def _render_next_steps_section(
