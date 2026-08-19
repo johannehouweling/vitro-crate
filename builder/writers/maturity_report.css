@@ -83,7 +83,7 @@
 .mat .sec-h { display:flex; align-items:baseline; justify-content:space-between; gap:.7rem;
   margin-bottom:.7rem; padding-bottom:.5rem; border-bottom:1px solid var(--hairline); }
 .mat .sec-meta { font-size:.82rem; color:var(--muted); } .mat .sec-meta b { color:var(--ink-2); }
-.mat .lead,.mat p.lead { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; max-width:56ch; }
+.mat .lead,.mat p.lead { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; }
 
 /* The jump to "What to do next". The actions close the report — assessment
    first, then what to do about it — which puts them below several screens of
@@ -136,6 +136,33 @@
   text-align:right; }
 .mat .mit-sub { font-size:.78rem; font-weight:600; color:var(--ink-2); text-transform:uppercase;
   letter-spacing:.04em; margin:1rem 0 .15rem; }
+.mat p.lead a { color:var(--accent); text-underline-offset:2px; }
+/* Module colours arrive as `--mod`, set inline from the renderer's
+   MIT_MODULE_STYLES registry (#606) — the one place they are written; nothing
+   here names one. One vocabulary for every MIT bar: solid = filled, pale =
+   still missing, the hue = the module. A document bar is a row of pills, one
+   per module, each sized by that module's share of the document (flex-grow =
+   its field count, so the gaps come out of the row, not the shares) and each
+   that module's own progress bar. The pale token is declared on the elements
+   that carry `--mod` — a custom property resolves its var() where it is
+   declared, so hoisting it above them leaves it invalid everywhere. */
+.mat .mrow, .mat .meter.stack > .mod { --mod-pale:color-mix(in srgb,var(--mod) 45%,var(--surface)); }
+.mat .meter.mod { background:var(--mod-pale); }
+.mat .fill-mod { background:var(--mod); }
+.mat .meter.stack { display:flex; gap:4px; background:none; overflow:visible; }
+.mat .meter.stack > .mod { display:flex; flex:1 1 0; min-width:4px; height:100%; border-radius:999px;
+  overflow:hidden; }
+.mat .meter.stack .seg { display:block; flex:none; height:100%; background:var(--mod); }
+.mat .meter.stack .seg.pale { background:var(--mod-pale); }
+/* Without color-mix the pale state falls back to the neutral track: still
+   "not filled", just no longer in the module's hue. */
+@supports not (background:color-mix(in srgb,red 50%,white)) {
+  .mat .meter.mod, .mat .meter.stack .seg.pale { background:var(--track); }
+}
+/* The bars carry their meaning in their fill; do not let print or
+   forced-colours strip it. */
+.mat .meter, .mat .meter * { print-color-adjust:exact; -webkit-print-color-adjust:exact;
+  forced-color-adjust:none; }
 
 /* profile detail */
 .mat .prof-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.6rem; }
@@ -378,6 +405,10 @@ __CATEGORY_STYLES__
 
 @media (max-width:640px){
   .mat header{flex-direction:column;} .mat .verdict{align-items:flex-start;text-align:left;}
+}
+/* A six-module stack needs the whole row sooner than a single fill did: below
+   ~780px the name column would leave it ~270px, a one-field span 1–2px. */
+@media (max-width:780px){
   .mat .mrow{grid-template-columns:1fr auto;} .mat .mrow .mbar{grid-column:1/-1;order:3;}
 }
 @media print{

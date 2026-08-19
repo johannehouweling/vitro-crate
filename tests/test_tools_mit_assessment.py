@@ -390,6 +390,141 @@ class TestGuidanceDocumentCoverage:
         assert report.standard_scores == {}
 
 
+class TestGuidanceDocumentCoverageByModule:
+    """#606: each guidance-document bucket is also split by checklist module.
+
+    The maturity report draws a document's bar as a stack — the filled and the
+    missing parameters each split by the module they belong to — so the scorer
+    carries ``standard_module_scores[document][module] = {completed, total}``,
+    counted in the same scorable-parameter walk as ``standard_scores``. The
+    per-module buckets of a document partition that document's bucket; a
+    module that contributes nothing to a document has no key under it.
+    """
+
+    def test_module_buckets_partition_each_document_bucket(self, tmp_path: Path):
+        """Scored on the graph path for a real fixture, so the ``completed``
+        half of the partition is checked over credits spread across modules —
+        an empty state credits one General Information slot and nothing else,
+        which a scorer crediting the wrong module would still partition."""
+        state = vhps_fixture_state("S-VHPS21")
+        result = assess_mit_coverage(state, graph=_assembled_graph(state, tmp_path))
+        credited_modules = {
+            m
+            for by_module in result.standard_module_scores.values()
+            for m, b in by_module.items()
+            if b["completed"]
+        }
+        assert len(credited_modules) >= 3, credited_modules
+        assert set(result.standard_module_scores) == set(result.standard_scores)
+        for key, doc in result.standard_scores.items():
+            by_module = result.standard_module_scores[key]
+            assert by_module, key
+            assert set(by_module) <= set(result.module_scores), key
+            assert sum(b["total"] for b in by_module.values()) == doc["total"], key
+            assert sum(b["completed"] for b in by_module.values()) == doc["completed"], key
+            for module, bucket in by_module.items():
+                assert 0 <= bucket["completed"] <= bucket["total"], (key, module)
+                assert bucket["total"] > 0, (key, module)
+                assert bucket["total"] <= result.module_scores[module]["total"], (key, module)
+
+    def test_totals_rederived_from_the_raw_checklist(self):
+        """Drift guard: a document's per-module denominators are exactly the
+        scorable parameters of that module which the document marks true —
+        re-derived from the raw YAML, the ``TestMitSingleOwner`` pattern."""
+        from builder.tools.mit_assessment import iter_scorable_params, load_mit_yaml
+
+        mit_data = load_mit_yaml()
+        assert mit_data is not None, "shipped MIT YAML must load"
+        expected: dict[str, dict[str, int]] = {}
+        for module, param, _slots in iter_scorable_params(mit_data):
+            name = module["name"]
+            for key, flagged in (param.get("standards") or {}).items():
+                if flagged is True:
+                    per_doc = expected.setdefault(key, {})
+                    per_doc[name] = per_doc.get(name, 0) + 1
+
+        result = assess_mit_coverage(CrateState())
+        assert {
+            key: {m: b["total"] for m, b in by_module.items()}
+            for key, by_module in result.standard_module_scores.items()
+        } == expected
+
+    def test_filled_slot_credits_exactly_its_module_under_its_documents(self):
+        """``experiment_name`` (Investigation ``name``) lives in the General
+        Information module and is required by OECD GD 211, ToxTemp and OECD
+        GD 34: filling it credits General Information under each of those
+        documents and no other module under any document (the build's own
+        boilerplate credits nothing outside General Information either)."""
+        state = CrateState()
+        inv = Entity(
+            entity_id="inv_001",
+            type="Investigation",
+            fields={"name": "FRTL-5 perchlorate thyroid study"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        inv.set_field_status("name", "filled", "llm")
+        state.add_entity(inv)
+
+        before = assess_mit_coverage(CrateState()).standard_module_scores
+        after = assess_mit_coverage(state).standard_module_scores
+        for key in ("oecd_gd211", "toxtemp", "oecd_gd34"):
+            gained = (
+                after[key]["General Information"]["completed"]
+                - before[key]["General Information"]["completed"]
+            )
+            assert gained == 1, key
+        for key, by_module in after.items():
+            for module, bucket in by_module.items():
+                if module != "General Information":
+                    assert bucket["completed"] == before[key][module]["completed"], (key, module)
+
+    def test_filled_slot_credits_its_own_module_not_the_first(self):
+        """The module the credit lands in is the parameter's, not a fixed one:
+        ``compound_name`` (MolecularEntity ``name``) is Chemical Information,
+        required by OECD GD 34, OECD GD 417 and IUCLID OHT 201 only — so the
+        +1 lands in exactly those three documents' Chemical Information
+        buckets and nowhere else (an empty state credits only General
+        Information, so a scorer crediting the first module would pass the
+        test above and fail this one)."""
+        state = CrateState()
+        chem = Entity(
+            entity_id="chem_001",
+            type="MolecularEntity",
+            fields={"name": "Sodium perchlorate"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        chem.set_field_status("name", "filled", "llm")
+        state.add_entity(chem)
+
+        before = assess_mit_coverage(CrateState()).standard_module_scores
+        after = assess_mit_coverage(state).standard_module_scores
+        gained = {
+            (key, module): bucket["completed"] - before[key][module]["completed"]
+            for key, by_module in after.items()
+            for module, bucket in by_module.items()
+        }
+        assert {k: g for k, g in gained.items() if g} == {
+            ("oecd_gd34", "Chemical Information"): 1,
+            ("oecd_gd417", "Chemical Information"): 1,
+            ("oecd_oht201", "Chemical Information"): 1,
+        }
+
+    def test_standard_module_scores_survive_serialization(self):
+        report = MITReport(
+            module_scores={"m": {"completed": 1, "total": 2}},
+            overall_score=0.5,
+            standard_scores={"oecd_gd211": {"completed": 1, "total": 2}},
+            standard_module_scores={"oecd_gd211": {"m": {"completed": 1, "total": 2}}},
+        )
+        assert MITReport.from_dict(report.to_dict()) == report
+
+    def test_old_serialized_reports_deserialize_without_the_field(self):
+        report = MITReport.from_dict(
+            {"module_scores": {}, "overall_score": 0.0, "standard_scores": {}}
+        )
+        assert report.standard_module_scores == {}
+
+
 class TestPlaceholderValuesAreNotCredited:
     """#377: a build-time placeholder must not count as a filled MIT slot.
 

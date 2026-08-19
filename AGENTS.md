@@ -1830,7 +1830,20 @@ up into F/A/I/R pillars + DSM level (`assess_fair_maturity`), OECD MIT coverage
 aggregate score as the headline and additionally breaks coverage out per guidance document (#491):
 each checklist parameter's `standards` map buckets it under the documents that require it
 (`MITReport.standard_scores`, labels from `MIT_STANDARD_LABELS`); documents overlap, so the
-per-document rows deliberately do not sum to the checklist total.
+per-document rows deliberately do not sum to the checklist total. The section says what it scores:
+every checklist item is a FAIR maturity indicator as defined in tox-maturity-indicators
+(`MIT_INDICATORS_URL`), which the lead links.
+
+**One MIT module, one colour (#606).** `maturity_report.MIT_MODULE_STYLES` is the one registry of
+module colours (keyed by the scorer's module name); the stylesheet declares none — a test asserts it
+— and derives every state from the one `--mod` token the renderer sets. Every MIT bar speaks one
+vocabulary — hue = the module, solid = filled, pale = still missing — so the module rows double as
+the key, and a guidance-document bar is split into one span per contributing module, each span that
+module's own progress bar, drawn from `MITReport.standard_module_scores` (the document bucket
+partitioned by module; see `_score_modules` / `_render_mit_section`). The palette floors (all-pairs
+separation under simulated protanopia/deuteranopia and normal vision, ≥3:1 on the page, clear of
+every status colour) are pinned by tests, not asserted in prose; the palette is independent of the
+entity-category ring below, which it never shares a figure with.
 
 Profile adherence is reported across the three SHACL severity tiers **Required / Recommended /
 Optional** (#306). The report must not lie about unassessed tiers: the fast in-loop path

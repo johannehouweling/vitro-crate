@@ -13,7 +13,7 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 - **RO-Crate** — a packaging format for research data with structured metadata (JSON-LD based).
 - **ISA-Tox** — an extension of the ISA (Investigation-Study-Assay) framework for toxicology data.
 - **CrateState** — the central data model that tracks entities, completion status, and validation results.
-- **MIT (Minimum Information for Toxicology)** — a checklist of required/recommended fields for reporting toxicology data. See `mit/invitro_tox.yaml`.
+- **MIT (Minimum Information for Toxicology)** — a checklist of required/recommended fields for reporting toxicology data; each item is a FAIR maturity indicator of the [tox-maturity-indicators](https://github.com/invitro-crate/tox-maturity-indicators) package (vendored copy in `mit/invitro_tox.yaml`; #313 tracks importing it).
 - **FAIR indicators** — metrics for Findability, Accessibility, Interoperability, and Reusability. See `fair/indicators.yaml`.
 
 ## Stakeholders

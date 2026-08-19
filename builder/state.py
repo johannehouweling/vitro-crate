@@ -751,17 +751,27 @@ class MITReport:
             ``standards`` keys (e.g. ``oecd_gd211``), same bucket shape.
             Documents overlap — one parameter can be required by several — so
             buckets do not sum to the checklist total.
+        standard_module_scores: Each document's bucket split by module —
+            ``{document_key: {module_name: {"completed", "total"}}}``. A
+            document's module buckets partition its ``standard_scores`` bucket
+            (they sum to it); a module that contributes no parameter to a
+            document has no key under it. This is what lets the maturity report
+            draw a document's bar as a stack of modules.
     """
 
     module_scores: dict[str, dict[str, int]] = field(default_factory=dict)
     overall_score: float = 0.0
     standard_scores: dict[str, dict[str, int]] = field(default_factory=dict)
+    standard_module_scores: dict[str, dict[str, dict[str, int]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "module_scores": dict(self.module_scores),
             "overall_score": self.overall_score,
             "standard_scores": dict(self.standard_scores),
+            "standard_module_scores": {
+                key: dict(by_module) for key, by_module in self.standard_module_scores.items()
+            },
         }
 
     @classmethod
@@ -770,6 +780,7 @@ class MITReport:
             module_scores=data.get("module_scores", {}),
             overall_score=data.get("overall_score", 0.0),
             standard_scores=data.get("standard_scores", {}),
+            standard_module_scores=data.get("standard_module_scores", {}),
         )
 
 
