@@ -123,8 +123,6 @@
 .mat .mname { font-size:.82rem; color:var(--ink-2); }
 .mat .mfrac { font-size:.8rem; color:var(--muted); font-variant-numeric:tabular-nums; min-width:3.2rem;
   text-align:right; }
-.mat .mit-sub { font-size:.78rem; font-weight:600; color:var(--ink-2); text-transform:uppercase;
-  letter-spacing:.04em; margin:1rem 0 .15rem; }
 .mat p.lead a { color:var(--accent); text-underline-offset:2px; }
 /* Module colours arrive as `--mod`, set inline from the renderer's
    MIT_MODULE_STYLES registry (#606) — the one place they are written; nothing
