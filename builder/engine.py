@@ -353,6 +353,24 @@ def _run_document_discovery(engine: AgentEngine) -> None:
         )
 
 
+# Formats that carry a NAMED licence field, and the filenames whose whole
+# content is one. Prose is deliberately absent: every real deposit's README
+# ships the unfilled placeholder "[Default CC-BY 4.0 for data, CC0 for metadata
+# unless specified otherwise]", which names two licences and declares neither
+# (#535). Any other text is still read for an `SPDX-License-Identifier:`, which
+# is a formal declaration rather than prose.
+_LICENCE_DOCUMENT_SUFFIXES = (".json", ".jsonld", ".yaml", ".yml", ".cff", ".xml")
+_LICENCE_FILE_STEMS = frozenset({"license", "licence", "copying", "copyright"})
+
+
+def _may_declare_a_licence(path: str) -> bool:
+    """Whether *path* is a document a licence can be READ from, by name alone."""
+    name = Path(path)
+    return name.suffix.lower() in _LICENCE_DOCUMENT_SUFFIXES or (
+        name.stem.casefold() in _LICENCE_FILE_STEMS
+    )
+
+
 def _read_declared_licence(engine: AgentEngine) -> None:
     """Read the licence the deposit declares, before anyone drafts one (#535).
 
@@ -368,26 +386,47 @@ def _read_declared_licence(engine: AgentEngine) -> None:
     a licence nobody has set yet is filled — a resumed session that already
     carries one is left alone — and the value is marked as read from the deposit
     so a later draft cannot overwrite it.
+
+    More than one file can name a licence, so which one is the DEPOSIT's is
+    decided rather than left to directory order: the shallowest declaration
+    wins, because a file at the deposit root describes the deposit while a
+    bundled manifest four directories down describes itself. Depth outranks
+    everything — a nested SPDX URI must not beat the root descriptor's own
+    label — then a machine-actionable IRI, then the path, so the answer is the
+    same on every run.
     """
     from builder.tools.file_readers import extract_deposit_licence, read_file
 
     metadata = engine.state.metadata
     if metadata.license:
         return
+
+    root = metadata.input_path or ""
+    found: list[tuple[int, int, str, str]] = []
     for candidate in engine.state.scanned_files:
         path = str(getattr(candidate, "path", "") or "")
-        if not path.lower().endswith(".json"):
+        if not _may_declare_a_licence(path):
             continue
         try:
             text = read_file(path)
         except Exception:  # noqa: BLE001 — an unreadable file is simply not the one
             continue
-        licence = extract_deposit_licence(text or "")
-        if licence:
-            metadata.license = licence
-            metadata.license_from_deposit = True
-            logger.info("Read the licence the deposit declares: %s", licence)
-            return
+        licence = extract_deposit_licence(text or "", filename=Path(path).name)
+        if not licence:
+            continue
+        try:
+            depth = len(Path(path).resolve().relative_to(Path(root).resolve()).parts)
+        except (ValueError, OSError):
+            depth = len(Path(path).parts)
+        actionable = 0 if licence.startswith(("http://", "https://")) else 1
+        found.append((depth, actionable, path, licence))
+
+    if not found:
+        return
+    depth, _, path, licence = min(found)
+    metadata.license = licence
+    metadata.license_from_deposit = True
+    logger.info("Read the licence the deposit declares from %s: %s", path, licence)
 
 
 class AgentEngine:

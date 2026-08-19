@@ -1693,6 +1693,45 @@ warning, so the heaviest payloads are still removed.
 The Investigation **is** the Root Data Entity (`./`); the ISA RO-Crate profile mandates this and
 the SHACL shapes forbid alternatives (a Study carrying `additionalType "Study"` MUST be `hasPart`
 of the root via `StudyMustBeReferencedFromInvestigation`, so the root cannot itself be a Study).
+**A declared licence is read, in whatever convention the deposit states it (#535).** Nothing used
+to read it: `set_crate_metadata` — an LLM-callable tool — was its only writer, so the licence was
+whatever the model supplied, and on S-VHPS26 the guess inverted the depositor's (CC-BY-4.0 declared,
+all-rights-reserved asserted) in the one direction that suppresses reuse. `extract_deposit_licence`
+reads a NAMED field, which is not guessing, across the two conventions deposits actually use: the
+BioStudies *attribute* (a node naming the field, usually qualified with a canonical URL) and the
+*field* every other record uses — RO-Crate `license`, CodeMeta, Frictionless `licenses[].path`,
+DataCite `rightsList[].rightsUri`. Gating on the BioStudies shape, as it first did, answered for one
+repository's export and left every other deposit on the fabricated fallback. An IRI wins wherever it
+sits; without one the declared value is returned **verbatim**, because mapping "CC-BY" onto a 4.0
+URI states a version the depositor did not (D5).
+
+Two conventions live outside a metadata record and are read as well. `SPDX-License-Identifier:` is a
+formal declaration that can sit in any text, so it is honoured wherever it appears; and a file *named*
+`LICENSE` / `LICENCE` / `COPYING` declares by its name that its whole content is the licence, which is
+what permits reading a URI out of it — in any other file that would be a URL appearing in prose. The
+document formats widen with them: `.json`, `.jsonld`, `.yaml`, `.yml`, `.cff` (CITATION.cff is YAML,
+and `license` is one of its standard keys) and `.xml`.
+
+XML carries the same field convention in element form — DataCite keeps the machine-actionable value
+in an attribute (`<rights rightsURI="…">CC BY 4.0</rights>`) and the label in the text, Dublin Core
+puts the whole thing in `<dc:rights>` — so tags and attributes are matched on their **local** name,
+namespace stripped. It is parsed through `defusedxml`, not stdlib `ElementTree`: a deposit is
+untrusted input, and one crafted file would otherwise expand a billion-laughs entity during a scan.
+A refused or malformed document is simply not a declaration.
+
+Prose is never a source, and the guard is load-bearing rather than defensive: YAML parses a README's
+bullets into a list of mappings, so `- License: see the LICENSE file` would otherwise be filed as
+legal terms, and every real deposit's README ships the unfilled placeholder `[Default CC-BY 4.0 for
+data, CC0 for metadata unless specified otherwise]` — two licences named, neither declared. Only a
+document whose top level is a **mapping** is a metadata record, and a `LICENSE` holding only legal
+text names no identifier: reading "Creative Commons Attribution 4.0 International Public License" off
+its first line would invent a machine-actionable claim out of a heading. Which file is the DEPOSIT's is
+decided rather than left to directory order: shallowest first (a root descriptor describes the
+deposit, a bundled `package.json` four levels down describes itself), then a machine-actionable IRI,
+then the path. Depth outranks the IRI preference deliberately — a nested SPDX URI must not beat the
+root descriptor's own label. `license_from_deposit` marks the value as read, and `set_crate_metadata`
+cannot overwrite one that was.
+
 **An unstated licence says so, and claims nothing (#540).** `license` is a base MUST, so the field
 cannot be left empty — but answering it with `ALL RIGHTS RESERVED BY THE AUTHORS`, as it once did,
 converts an unanswered question into the most restrictive claim available, asserted by machine over

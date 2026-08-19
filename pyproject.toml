@@ -35,6 +35,7 @@ dependencies = [
     # ceiling only once roc-validator supports 0.40 (upstream declares no bound,
     # so nothing else will stop this recurring).
     "pyshacl>=0.26,<0.40",
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
