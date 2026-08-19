@@ -36,6 +36,14 @@ logger = logging.getLogger(__name__)
 # checklists.
 MIT_YAML_PATH = Path(__file__).resolve().parent.parent.parent / "mit" / "invitro_tox.yaml"
 
+# Where the checklist is defined. Every parameter in the YAML is one of the
+# tox-maturity-indicators package's FAIR maturity indicators (its README: one
+# FAIRMetrics Gen2 indicator per parameter, all under principle R1.3); the
+# bundled YAML is a vendored copy of that package's ``invitro_tox.yaml`` (#313
+# tracks importing it instead). The report names and links this so a reader
+# knows what the "checklist" is, rather than taking the tool's word for it.
+MIT_INDICATORS_URL = "https://github.com/invitro-crate/tox-maturity-indicators"
+
 # Display names for the checklist's per-parameter `standards` keys, in the
 # YAML's own column order. THE one mapping (the MIT_YAML_PATH precedent):
 # renderers import it rather than re-deriving labels from the snake_case keys.
@@ -342,11 +350,13 @@ def _score_modules(
     mit_data: dict[str, Any],
     slot_filled: Callable[[str, str], bool],
 ) -> MITReport:
-    """Roll the MIT YAML into per-module and per-guidance-document scores using
-    *slot_filled* to decide, for each ``(EntityType, field)`` crate_slot,
-    whether it is covered."""
+    """Roll the MIT YAML into per-module and per-guidance-document scores —
+    each document's bucket also split by module — using *slot_filled* to
+    decide, for each ``(EntityType, field)`` crate_slot, whether it is
+    covered."""
     module_scores: dict[str, dict[str, int]] = {}
     standard_scores: dict[str, dict[str, int]] = {}
+    standard_module_scores: dict[str, dict[str, dict[str, int]]] = {}
     total_completed = 0
     total_required = 0
 
@@ -354,7 +364,9 @@ def _score_modules(
     # created on first yield, so an all-unscorable module is simply never keyed.
     # Guidance-document buckets follow the same rule, keyed by the parameter's
     # `standards` map; a parameter no document flags belongs to no bucket but
-    # still counts toward the aggregate.
+    # still counts toward the aggregate. Each document bucket is also split by
+    # module in the same walk (#606), so the per-module buckets under a
+    # document always partition that document's bucket — one count, two keys.
     for module, param, slots in iter_scorable_params(mit_data):
         module_name = module.get("name", module.get("id", "unknown"))
         bucket = module_scores.setdefault(module_name, {"completed": 0, "total": 0})
@@ -368,15 +380,21 @@ def _score_modules(
             if flagged is not True:
                 continue
             sbucket = standard_scores.setdefault(key, {"completed": 0, "total": 0})
+            mbucket = standard_module_scores.setdefault(key, {}).setdefault(
+                module_name, {"completed": 0, "total": 0}
+            )
             sbucket["total"] += 1
+            mbucket["total"] += 1
             if covered:
                 sbucket["completed"] += 1
+                mbucket["completed"] += 1
 
     overall_score = total_completed / total_required if total_required > 0 else 0.0
     return MITReport(
         module_scores=module_scores,
         overall_score=overall_score,
         standard_scores=standard_scores,
+        standard_module_scores=standard_module_scores,
     )
 
 

@@ -56,6 +56,7 @@ from builder.tools.document_discovery import (
 )
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import (
+    MIT_INDICATORS_URL,
     MIT_STANDARD_LABELS,
     assess_mit_coverage,
     mit_was_assessed,
@@ -72,6 +73,42 @@ REPORT_FILENAME = "ro-crate-metadata-maturity.html"
 
 # FAIR dimension letters (as emitted by fair/indicators.yaml) → display names.
 _DIM_NAMES = {"F": "Findable", "A": "Accessible", "I": "Interoperable", "R": "Reusable"}
+
+# One MIT module, one colour (#606) — THE registry, keyed by the module name the
+# scorer keys ``MITReport.module_scores`` by. The module rows and every span of a
+# guidance-document bar are painted from it (as a ``--mod`` custom property the
+# renderer sets inline; the stylesheet derives fill, track and pale state from
+# that one token and declares no module colour of its own — a test asserts it),
+# the ``CATEGORY_STYLES`` rule (#487) applied to the checklist. Row and span
+# order is not this dict's: it is the scorer's, which is the checklist's.
+#
+# The six colours are a categorical palette chosen by search, not by eye, and
+# every floor below is pinned by ``TestMitModuleColours``: all pairs (not just
+# neighbours — a module that contributes nothing to a document drops out of
+# its bar, so any two can sit side by side) clear OKLab dE 8 under simulated
+# protanopia and deuteranopia (Machado 2009, severity 1) and CIE76 dE 20 under
+# normal vision; every colour clears 3:1 on the page; and each keeps CIE76 dE
+# 12 from the report's status colours (good / warn / low / coverage teal) so
+# no module can impersonate a verdict. Lightness alternates between two steps
+# because that, not hue, is what keeps six hues apart for a dichromat reader.
+# This palette is deliberately independent of the entity-category ring: a
+# palette clear of the status colours AND all ten category colours does not
+# exist in this lightness band, and the two never share a figure — each is
+# keyed where it is used (the module rows name their colours directly).
+MIT_MODULE_STYLES: dict[str, str] = {
+    "General Information": "#3c52b6",
+    "Chemical Information": "#8f4700",
+    "Biological Model Information": "#8e8f2b",
+    "Exposure Information": "#903081",
+    "Endpoint Read Out Information": "#1392d4",
+    "Analysis and Statistics": "#b96f8c",
+}
+
+# A module the registry does not know — a renamed or added checklist module —
+# is drawn, not dropped, and drawn grey: a colour asserts the module is one the
+# rows above name, and an unknown one has not earned that. The stylesheet's own
+# neutral, referenced rather than copied, so it cannot go stale.
+MIT_MODULE_FALLBACK_COLOUR = "var(--na-ink)"
 
 
 def _validation_has_signal(validation: ValidationReport) -> bool:
@@ -854,7 +891,29 @@ def _render_fair_section(fair: FAIRReport) -> str:
     )
 
 
+def _mit_module_colour(name: str) -> str:
+    return MIT_MODULE_STYLES.get(name, MIT_MODULE_FALLBACK_COLOUR)
+
+
 def _render_mit_section(mit: MITReport) -> str:
+    """The OECD MIT coverage section: six module rows, each in its own colour,
+    then one bar per guidance document split into those modules.
+
+    Module rows and document bars speak one vocabulary — solid = filled, pale
+    = still missing, the hue = the module — so the rows double as the key. A
+    document's bar is a row of pills, one per module that contributes to it,
+    in the scorer's (the checklist's) order, each sized by the module's share
+    of the document (its field count as ``flex-grow``, so the gaps between
+    pills come out of the row rather than out of any share); inside the pill
+    the filled part is solid and the missing part pale, so every pill is that
+    module's own progress bar and a wide pale pill is where the document's
+    remaining gaps live. Every pill is one ``MITReport.standard_module_scores``
+    bucket. The same numbers ride on the bar's accessible name
+    (``aria-label``) and on each segment's tooltip.
+    A document with no module split — a report serialised before the split
+    existed — falls back to the plain single-colour bar rather than inventing
+    one.
+    """
     esc = html.escape
     # Nothing measured -> say so, and print no fraction and no percentage. The
     # old empty-scores branch still rendered "0/0 fields · 0%" in the section
@@ -874,42 +933,104 @@ def _render_mit_section(mit: MITReport) -> str:
     total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
     pct = round(mit.overall_score * 100)
 
-    def row(name: str, sc: dict[str, int]) -> str:
+    def mrow(name: str, bar: str, sc: dict[str, int], style: str = "") -> str:
         return (
-            f'<div class="mrow"><div class="mname">{esc(name)}</div>'
-            f'<div class="mbar"><div class="meter" role="img" '
-            f'aria-label="{sc.get("completed", 0)} of {sc.get("total", 0)}">'
-            f'<i class="fill-cov" style="width:'
-            f'{round(sc.get("completed", 0) / sc["total"] * 100) if sc.get("total") else 0}%">'
-            "</i></div></div>"
+            f'<div class="mrow"{style}><div class="mname">{esc(name)}</div>'
+            f'<div class="mbar">{bar}</div>'
             f'<div class="mfrac">{sc.get("completed", 0)}'
-            f'<span class="den">/{sc.get("total", 0)}</span></div>'
-            "</div>"
+            f'<span class="den">/{sc.get("total", 0)}</span></div></div>'
         )
+
+    def plain_bar(sc: dict[str, int], meter_class: str, fill_class: str) -> str:
+        width = round(sc.get("completed", 0) / sc["total"] * 100) if sc.get("total") else 0
+        return (
+            f'<div class="{meter_class}" role="img" '
+            f'aria-label="{sc.get("completed", 0)} of {sc.get("total", 0)}">'
+            f'<i class="{fill_class}" style="width:{width}%"></i></div>'
+        )
+
+    def module_row(name: str, sc: dict[str, int]) -> str:
+        return mrow(
+            name,
+            plain_bar(sc, "meter mod", "fill-mod"),
+            sc,
+            style=f' style="--mod:{_mit_module_colour(name)}"',
+        )
+
+    def module_span(name: str, b: dict[str, int], doc_total: int) -> str:
+        completed, total = b.get("completed", 0), b.get("total", 0)
+        missing = total - completed
+        segments = ""
+        if completed:
+            segments += (
+                f'<i class="seg" style="width:{completed / total * 100:.2f}%" '
+                f'title="{esc(f"{name}: {completed} of {total} filled")}"></i>'
+            )
+        if missing:
+            segments += (
+                f'<i class="seg pale" style="width:{missing / total * 100:.2f}%" '
+                f'title="{esc(f"{name}: {missing} of {total} still missing")}"></i>'
+            )
+        # Share of the row by field count (flex-grow), not a percentage: the
+        # pills are gapped, and a gap must come out of the row, not a share.
+        return (
+            f'<span class="mod" style="--mod:{_mit_module_colour(name)};'
+            f'flex-grow:{total}">{segments}</span>'
+        )
+
+    def document_row(label: str, sc: dict[str, int], by_module: dict[str, dict[str, int]]) -> str:
+        doc_total = sc.get("total", 0)
+        if not by_module or not doc_total:
+            return mrow(label, plain_bar(sc, "meter", "fill-cov"), sc)
+        # The scorer's module order (the checklist's), then anything the split
+        # names that the module rows do not — kept, not dropped. A bucket with
+        # nothing in it draws nothing and is not described either.
+        order = [m for m in mit.module_scores if m in by_module]
+        order += sorted(m for m in by_module if m not in mit.module_scores)
+        order = [m for m in order if by_module[m].get("total", 0) > 0]
+        spans = "".join(module_span(m, by_module[m], doc_total) for m in order)
+        described = ", ".join(
+            f"{m} {by_module[m].get('completed', 0)} of {by_module[m].get('total', 0)}"
+            for m in order
+        )
+        bar = (
+            f'<div class="meter stack" role="img" '
+            f'aria-label="{sc.get("completed", 0)} of {doc_total}: {esc(described)}">'
+            f"{spans}</div>"
+        )
+        return mrow(label, bar, sc)
 
     # Reached only when there ARE module scores — `mit_was_assessed` is exactly
     # "has module scores", so the old empty-scores fallback row is unreachable.
-    rows = "".join(row(name, sc) for name, sc in sorted(mit.module_scores.items()))
+    rows = "".join(module_row(name, sc) for name, sc in mit.module_scores.items())
     body = f'<div class="mit">{rows}</div>'
     if mit.standard_scores:
         # Canonical order first (the YAML's own column order), then any key the
         # label map doesn't know — rendered raw rather than dropped.
         ordered = [k for k in MIT_STANDARD_LABELS if k in mit.standard_scores]
         ordered += sorted(k for k in mit.standard_scores if k not in MIT_STANDARD_LABELS)
-        srows = "".join(row(MIT_STANDARD_LABELS.get(k, k), mit.standard_scores[k]) for k in ordered)
+        srows = "".join(
+            document_row(
+                MIT_STANDARD_LABELS.get(k, k),
+                mit.standard_scores[k],
+                mit.standard_module_scores.get(k) or {},
+            )
+            for k in ordered
+        )
+        # No lead under the sub-heading: the bars explain themselves (the
+        # module rows above are the key), and rows overlap by design — a
+        # document's numbers are its own, not a share of the checklist total.
         body += (
             '\n  <h3 class="mit-sub">Per guidance document</h3>\n'
-            '  <p class="lead">One parameter can be required by several documents — '
-            "rows overlap and do not sum to the checklist total.</p>\n"
             f'  <div class="mit">{srows}</div>'
         )
     return (
         "<section>\n"
         '  <div class="sec-h"><h2>OECD MIT coverage</h2>'
         f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields · {pct}%</span></div>\n'
-        '  <p class="lead">Coverage of the OECD in-vitro toxicology reporting checklist. Low '
-        "coverage is expected for an auto-built crate — it measures how many domain fields are "
-        "filled, not whether the crate is valid.</p>\n"
+        '  <p class="lead">Coverage of the in-vitro toxicology MIT checklist — each item is a '
+        f'FAIR maturity indicator as defined in <a href="{MIT_INDICATORS_URL}">'
+        "tox-maturity-indicators</a>.</p>\n"
         f"  {body}\n"
         "</section>\n"
     )

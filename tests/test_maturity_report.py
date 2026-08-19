@@ -152,9 +152,10 @@ class TestBuildMaturityHtml:
         assert head, "aggregate headline fraction not found"
         assert int(head.group(1)) == sum(sc["completed"] for sc in mit.module_scores.values())
         assert int(head.group(2)) == sum(sc["total"] for sc in mit.module_scores.values())
-        # Documents overlap — one parameter can serve several — so the note
-        # that rows don't sum is part of the contract, not decoration.
-        assert "do not sum" in page
+        # Documents overlap — one parameter can serve several — so the headline
+        # above being the MODULE-bucket sum (never the per-document sum) is the
+        # contract; the prose note that once said so was dropped on the owner's
+        # call (#606: the bars explain themselves).
 
 
 class TestEmbeddedInCrate:
@@ -443,6 +444,374 @@ class TestProvenanceSection:
         build_crate(state)
         page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
         assert "Graph topology" in page
+
+
+class TestMitModuleColours:
+    """#606: one MIT module, one colour — and each guidance-document bar is
+    split into those modules, each module's share a small progress bar of its
+    own (solid = filled, pale = still missing), so a reader sees how far a
+    document is covered and which module the remaining gaps live in.
+
+    The registry ``MIT_MODULE_STYLES`` (``maturity_report.py``) is THE one place
+    a module colour is written — the ``CATEGORY_STYLES`` rule (#487) applied to
+    the checklist. The renderer draws what the scorer counted: every span of a
+    document's bar is one ``standard_module_scores`` bucket, so the assertions
+    below compare the rendered widths/titles against the scorer's own numbers,
+    never against values read off the page.
+    """
+
+    @staticmethod
+    def _scored(tmp_path: Path):
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from builder.tools.mit_assessment import assess_mit_coverage
+        from profiles.context import ISA_TOX_CONTEXT
+
+        state = vhps_fixture_state("S-VHPS21")
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, tmp_path, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+        return assess_mit_coverage(state, graph=graph), build_maturity_html(state, graph=graph)
+
+    @staticmethod
+    def _mit_section(page: str) -> str:
+        m = re.search(r"<h2>OECD MIT coverage</h2>.*?</section>", page, re.S)
+        assert m, "no MIT section"
+        return m.group(0)
+
+    @staticmethod
+    def _row(section: str, label: str) -> str:
+        """The ``mrow`` whose name cell is *label* (exactly)."""
+        m = re.search(
+            r'<div class="mrow"[^>]*>\s*<div class="mname">' + re.escape(label) + r"</div>.*?"
+            r'<div class="mfrac">.*?</div>\s*</div>',
+            section,
+            re.S,
+        )
+        assert m, f"no row for {label}"
+        return m.group(0)
+
+    def test_every_shipped_module_has_a_colour(self) -> None:
+        """Drift guard: the registry names exactly the shipped checklist's six
+        modules — a renamed or added module would otherwise silently fall back
+        to grey."""
+        from builder.tools.mit_assessment import load_mit_yaml
+        from builder.writers.maturity_report import MIT_MODULE_STYLES
+
+        mit_data = load_mit_yaml()
+        assert mit_data is not None
+        assert set(MIT_MODULE_STYLES) == {m["name"] for m in mit_data["modules"]}
+        assert len(MIT_MODULE_STYLES) == 6
+        colours = list(MIT_MODULE_STYLES.values())
+        assert len(set(colours)) == len(colours), "two modules share a colour"
+        for colour in colours:
+            assert re.fullmatch(r"#[0-9a-f]{6}", colour), colour
+
+    def test_colours_are_far_enough_apart_and_read_on_the_page(self) -> None:
+        """The bars are 8px tall, so colour is most of the signal: every pair
+        clears CIE76 dE 20 (the category-palette floor), every colour clears
+        3:1 on white, and none sits within dE 12 of a status colour — read from
+        the stylesheet's own tokens — so a module cannot impersonate a verdict."""
+        import itertools
+
+        from builder.writers.maturity_report import _CSS_PATH, MIT_MODULE_STYLES
+        from tests.fixtures.colour import ciede as _ciede
+        from tests.fixtures.colour import contrast_on_white as _contrast_on_white
+
+        for (name_a, a), (name_b, b) in itertools.combinations(MIT_MODULE_STYLES.items(), 2):
+            assert _ciede(a, b) >= 20, f"{name_a} vs {name_b}: dE {_ciede(a, b):.1f}"
+        status = dict(
+            re.findall(r"--(good|warn|low|cov):(#[0-9a-f]{6})", _CSS_PATH.read_text("utf-8"))
+        )
+        assert set(status) == {"good", "warn", "low", "cov"}, "status tokens moved"
+        for name, colour in MIT_MODULE_STYLES.items():
+            assert _contrast_on_white(colour) >= 3.0, name
+            for verdict, s in status.items():
+                assert _ciede(colour, s) >= 12, f"{name} reads as {verdict}"
+
+    def test_colours_stay_apart_for_dichromat_readers(self) -> None:
+        """Every pair — any two can touch, since a module with nothing in a
+        document drops out of its bar — clears OKLab dE 8 (×100, the
+        categorical-palette target) under simulated protanopia and
+        deuteranopia (Machado, Oliveira & Fernandes 2009, severity 1.0) and dE
+        15 under normal vision. Hue alone cannot do this for six colours; the
+        registry alternates lightness to, and this pins that it does."""
+        import itertools
+        import math
+
+        from builder.writers.maturity_report import MIT_MODULE_STYLES
+
+        def linear(colour: str) -> tuple[float, float, float]:
+            def chan(c: float) -> float:
+                return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+            r, g, b = (int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+            return chan(r), chan(g), chan(b)
+
+        def oklab(rgb: tuple[float, float, float]) -> tuple[float, float, float]:
+            r, g, b = rgb
+            l_ = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
+            m_ = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
+            s_ = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
+            return (
+                0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+                1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+                0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+            )
+
+        # Machado et al. 2009, severity 1.0, applied in linear RGB.
+        simulations = {
+            "normal": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+            "protan": (
+                (0.152286, 1.052583, -0.204868),
+                (0.114503, 0.786281, 0.099216),
+                (-0.003882, -0.048116, 1.051998),
+            ),
+            "deutan": (
+                (0.367322, 0.860646, -0.227968),
+                (0.280085, 0.672501, 0.047413),
+                (-0.011820, 0.042940, 0.968881),
+            ),
+        }
+
+        def seen_as(colour: str, kind: str) -> tuple[float, float, float]:
+            rgb = linear(colour)
+            r, g, b = (
+                min(1.0, max(0.0, sum(m * c for m, c in zip(row, rgb, strict=True))))
+                for row in simulations[kind]
+            )
+            return oklab((r, g, b))
+
+        floors = {"normal": 15.0, "protan": 8.0, "deutan": 8.0}
+        for kind, floor in floors.items():
+            for (name_a, a), (name_b, b) in itertools.combinations(MIT_MODULE_STYLES.items(), 2):
+                d = 100 * math.dist(seen_as(a, kind), seen_as(b, kind))
+                assert d >= floor, f"{name_a} vs {name_b} under {kind}: dE {d:.1f} < {floor}"
+
+    def test_stylesheet_declares_no_module_colour(self) -> None:
+        """The registry is the only place a module colour is written."""
+        from builder.writers.maturity_report import _CSS_PATH, MIT_MODULE_STYLES
+
+        css = _CSS_PATH.read_text(encoding="utf-8").lower()
+        for name, colour in MIT_MODULE_STYLES.items():
+            assert colour not in css, name
+
+    def test_stylesheet_draws_every_module_state_from_the_one_token(self) -> None:
+        """The rules that turn ``--mod`` into a bar exist and take their colour
+        from that token alone — without them the spans are unstyled inline
+        elements and the split is invisible while every markup test stays
+        green (the #487 "a category with no rules renders as an unstyled box"
+        lesson)."""
+        from builder.writers.maturity_report import _CSS_PATH
+
+        css = _CSS_PATH.read_text(encoding="utf-8")
+
+        def rule(selector: str) -> str:
+            m = re.search(r"(?m)^" + re.escape(selector) + r"\s*\{([^}]*)\}", css)
+            assert m, f"no rule for {selector}"
+            return m.group(1)
+
+        # Declared on the elements that carry --mod: a custom property resolves
+        # its var() where it is declared, so a hoisted token is invalid everywhere.
+        assert "--mod-pale:color-mix(in srgb,var(--mod)" in rule(".mat .mrow, .mat .meter.stack > .mod")
+        assert "background:var(--mod-pale)" in rule(".mat .meter.mod")
+        assert "background:var(--mod)" in rule(".mat .fill-mod")
+        assert "display:flex" in rule(".mat .meter.stack") and "gap:" in rule(".mat .meter.stack")
+        pill = rule(".mat .meter.stack > .mod")
+        assert "display:flex" in pill and "flex:1 1 0" in pill and "border-radius:999px" in pill
+        assert "background:var(--mod)" in rule(".mat .meter.stack .seg")
+        assert "background:var(--mod-pale)" in rule(".mat .meter.stack .seg.pale")
+        assert "print-color-adjust:exact" in rule(".mat .meter, .mat .meter *")
+        mit_block = css[css.index("/* MIT */") : css.index("/* profile detail */")]
+        rules_only = re.sub(r"/\*.*?\*/", "", mit_block, flags=re.S)  # "#606" is an issue, not a hex
+        assert not re.search(r"#[0-9a-f]{3,6}\b", rules_only), "MIT rules hardcode a colour"
+
+    def test_module_rows_wear_their_own_colour_in_the_checklists_order(
+        self, tmp_path: Path
+    ) -> None:
+        """Each module row carries its colour as ``--mod`` (fill solid, track
+        pale — the same two states the document bars use), and the rows follow
+        the scorer's own module order, which is the checklist's."""
+        from builder.writers.maturity_report import MIT_MODULE_STYLES
+
+        mit, page = self._scored(tmp_path)
+        section = self._mit_section(page)
+        seen_at: list[int] = []
+        for name, sc in mit.module_scores.items():
+            row = self._row(section, name)
+            assert f'<div class="mrow" style="--mod:{MIT_MODULE_STYLES[name]}">' in row, name
+            fill = re.search(
+                r'<div class="meter mod" role="img" aria-label="(\d+) of (\d+)">'
+                r'<i class="fill-mod" style="width:([\d.]+)%"></i></div>',
+                row,
+            )
+            assert fill, name
+            assert (int(fill.group(1)), int(fill.group(2))) == (sc["completed"], sc["total"])
+            assert abs(float(fill.group(3)) - sc["completed"] / sc["total"] * 100) < 0.6, name
+            seen_at.append(section.index(row))
+        assert seen_at == sorted(seen_at), "module rows are not in the scorer's order"
+
+    def test_document_bars_are_split_by_module_each_filled_then_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """A document's bar is one pill per contributing module, in checklist
+        order, sized by that module's share of the document (its field count
+        as flex-grow); inside each pill the filled part is solid and the
+        missing part pale, so the pill is the module's own progress bar.
+        Shares and titles are the scorer's numbers; the pills sum to the
+        document's total; the bar's accessible name carries the same numbers."""
+        import html as _html
+
+        from builder.tools.mit_assessment import MIT_STANDARD_LABELS
+        from builder.writers.maturity_report import MIT_MODULE_STYLES
+
+        mit, page = self._scored(tmp_path)
+        section = self._mit_section(page)
+        assert mit.standard_module_scores
+        span_re = re.compile(
+            r'<span class="mod" style="--mod:(?P<colour>#[0-9a-f]{6});flex-grow:(?P<w>\d+)">'
+            r"(?P<inner>.*?)</span>",
+            re.S,
+        )
+        seg_re = re.compile(
+            r'<i class="seg(?P<pale> pale)?" style="width:(?P<w>[\d.]+)%" '
+            r'title="(?P<title>[^"]+)"></i>'
+        )
+        docs_with_two_modules = 0
+        docs_with_both_states = 0
+        for key, by_module in mit.standard_module_scores.items():
+            label = MIT_STANDARD_LABELS[key]
+            row = self._row(section, label)
+            doc = mit.standard_scores[key]
+            order = [m for m in mit.module_scores if m in by_module]
+            described = ", ".join(
+                f"{m} {by_module[m]['completed']} of {by_module[m]['total']}" for m in order
+            )
+            assert (
+                f'<div class="meter stack" role="img" '
+                f'aria-label="{doc["completed"]} of {doc["total"]}: {_html.escape(described)}">'
+            ) in row, label
+            spans = span_re.findall(row)
+            assert [c for c, _w, _i in spans] == [MIT_MODULE_STYLES[m] for m in order], label
+            # The shares are the field counts themselves, so the pills sum to
+            # the document's total by construction (no percentage rounding).
+            assert sum(int(w) for _c, w, _i in spans) == doc["total"], label
+            for (_colour, width, inner), m in zip(spans, order, strict=True):
+                b = by_module[m]
+                assert int(width) == b["total"], (label, m)
+                segments = seg_re.findall(inner)
+                expected = []
+                if b["completed"]:
+                    expected.append(
+                        ("", b["completed"] / b["total"] * 100, f"{m}: {b['completed']} of {b['total']} filled")
+                    )
+                missing = b["total"] - b["completed"]
+                if missing:
+                    expected.append(
+                        (" pale", missing / b["total"] * 100, f"{m}: {missing} of {b['total']} still missing")
+                    )
+                assert len(segments) == len(expected), (label, m)
+                for (pale, w, title), (e_pale, e_w, e_title) in zip(segments, expected, strict=True):
+                    assert pale == e_pale, (label, m)
+                    assert abs(float(w) - e_w) < 0.01, (label, m)
+                    assert _html.unescape(title) == e_title, (label, m)
+            if len(spans) >= 2:
+                docs_with_two_modules += 1
+            if any(" pale" in i and 'class="seg"' in i for _c, _w, i in spans):
+                docs_with_both_states += 1
+        # Non-vacuity: the fixture really exercises the split and both states.
+        assert docs_with_two_modules >= 1
+        assert docs_with_both_states >= 1
+
+    def test_the_section_carries_one_sentence_of_prose(self, tmp_path: Path) -> None:
+        """The user's call: the bars explain themselves. One lead sentence
+        naming the indicators, no legend, no lead under the sub-heading."""
+        from builder.tools.mit_assessment import MIT_INDICATORS_URL
+
+        _mit, page = self._scored(tmp_path)
+        section = self._mit_section(page)
+        leads = re.findall(r'<p class="lead">(.*?)</p>', section, re.S)
+        assert leads == [
+            "Coverage of the in-vitro toxicology MIT checklist — each item is a FAIR maturity "
+            f'indicator as defined in <a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>.'
+        ]
+        assert 'class="mit-key"' not in section and "<legend" not in section
+
+    def test_section_names_the_indicators_it_scores(self, tmp_path: Path) -> None:
+        """The checklist items are FAIR maturity indicators as defined in
+        tox-maturity-indicators — the section says so and links the definition."""
+        from builder.tools.mit_assessment import MIT_INDICATORS_URL
+
+        _mit, page = self._scored(tmp_path)
+        section = self._mit_section(page)
+        assert MIT_INDICATORS_URL == "https://github.com/invitro-crate/tox-maturity-indicators"
+        assert f'href="{MIT_INDICATORS_URL}"' in section
+        assert "maturity indicator" in section.lower()
+
+    def test_an_unknown_module_is_drawn_grey_not_dropped(self) -> None:
+        """A module the registry does not know (a renamed checklist) still gets
+        its row and its span, in the neutral fallback colour; a module a
+        document's split names that has no row of its own is still drawn
+        (after the ones that do); a zero-total bucket draws nothing and divides
+        by nothing; and every name reaches the page escaped — a report rebuilt
+        from session JSON can carry any string."""
+        import html as _html
+
+        from builder.state import MITReport
+        from builder.writers.maturity_report import (
+            MIT_MODULE_FALLBACK_COLOUR,
+            MIT_MODULE_STYLES,
+            _render_mit_section,
+        )
+
+        known = next(iter(MIT_MODULE_STYLES))
+        odd = 'Zeta "module" <b>'
+        report = MITReport(
+            module_scores={
+                known: {"completed": 1, "total": 4},
+                odd: {"completed": 1, "total": 2},
+            },
+            overall_score=2 / 6,
+            standard_scores={"oecd_gd211": {"completed": 2, "total": 6}},
+            standard_module_scores={
+                "oecd_gd211": {
+                    "Only in the split": {"completed": 0, "total": 0},
+                    odd: {"completed": 1, "total": 2},
+                    known: {"completed": 1, "total": 4},
+                }
+            },
+        )
+        section = _render_mit_section(report)
+        assert MIT_MODULE_FALLBACK_COLOUR not in MIT_MODULE_STYLES.values()
+        assert odd not in section, "a module name reached the page unescaped"
+        esc = _html.escape(odd)
+        zeta = self._row(section, esc)
+        assert f'<div class="mrow" style="--mod:{MIT_MODULE_FALLBACK_COLOUR}">' in zeta
+        doc = self._row(section, "OECD GD 211")
+        assert f'aria-label="2 of 6: {_html.escape(f"{known} 1 of 4, {odd} 1 of 2")}"' in doc
+        spans = re.findall(r'<span class="mod" style="--mod:([^;]+);flex-grow:(\d+)">', doc)
+        assert spans == [(MIT_MODULE_STYLES[known], "4"), (MIT_MODULE_FALLBACK_COLOUR, "2")]
+        assert f'title="{esc}: 1 of 2 filled"' in doc
+        assert "Only in the split" not in doc
+
+    def test_a_document_without_a_module_split_keeps_the_plain_bar(self) -> None:
+        """A report that carries document buckets but no module split (one
+        serialised before the split existed) is drawn as it always was — one
+        coverage fill — rather than an invented partition."""
+        from builder.state import MITReport
+        from builder.writers.maturity_report import MIT_MODULE_STYLES, _render_mit_section
+
+        known = next(iter(MIT_MODULE_STYLES))
+        report = MITReport(
+            module_scores={known: {"completed": 1, "total": 4}},
+            overall_score=0.25,
+            standard_scores={"oecd_gd211": {"completed": 1, "total": 4}},
+        )
+        doc = self._row(_render_mit_section(report), "OECD GD 211")
+        assert '<i class="fill-cov" style="width:25%"></i>' in doc
+        assert 'class="mod"' not in doc
 
 
 class TestUnassessedMITIsNotRenderedAsZero:
