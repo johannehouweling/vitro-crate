@@ -1863,7 +1863,7 @@ suppresses nothing): every local data entity is backed by a source `crate.write(
 materialise, since ro-crate-py writes the metadata for a source-less entity and no bytes. Export
 runs it against the assembled crate **before** the report is embedded — a verdict reached after the
 write could never reach the report shipping inside the crate — and files what it finds as REQUIRED
-issues, so the existing rendering flips the header verdict without knowing this check exists.
+issues, so the existing rendering flips the Profile-adherence verdict (the KPI tile's Required row — the report's one headline verdict; the header carries no pill) without knowing this check exists.
 `payload_checked` records that something looked; a verdict where nothing did says so rather than
 implying a clean sheet it did not earn.
 

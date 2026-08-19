@@ -119,15 +119,15 @@ class TestExportRefusesToClaimAPayloadItLacks:
 
         export_crate(state, str(tmp_path / "crate"))
 
+        from tests.fixtures.report import profile_verdict
+
         page = (tmp_path / "crate" / "ro-crate-metadata-maturity.html").read_text(encoding="utf-8")
-        body = page.split("</style>", 1)[-1]
-        assert "Not conformant" in body
-        assert '<span class="vpill good">' not in body
+        assert profile_verdict(page) == "no"
 
     def test_a_crate_whose_payload_is_whole_still_passes(self, tmp_path: Path) -> None:
         """The same fixture, whole, keeps its green verdict.
 
-        Paired with the test above: without this, "Not conformant appears" would
+        Paired with the test above: without this, "the verdict reads as a fail" would
         pass just as well on a fixture that was never conformant to begin with,
         and the assertion would be pinning nothing.
         """
@@ -136,16 +136,13 @@ class TestExportRefusesToClaimAPayloadItLacks:
 
         export_crate(state, str(tmp_path / "crate"))
 
+        from tests.fixtures.report import profile_verdict
+
         assert verify_payload_of(tmp_path / "crate") == []
         assert state.validation.payload_checked is True
         assert state.validation.required_issues == []
-        body = (
-            (tmp_path / "crate" / "ro-crate-metadata-maturity.html")
-            .read_text(encoding="utf-8")
-            .split("</style>", 1)[-1]
-        )
-        assert '<span class="vpill good">' in body
-        assert "Not conformant" not in body
+        page = (tmp_path / "crate" / "ro-crate-metadata-maturity.html").read_text(encoding="utf-8")
+        assert profile_verdict(page) == "ok"
 
 
 def verify_payload_of(crate_dir: Path) -> list[str]:
@@ -212,8 +209,10 @@ class TestVerdictRecordsWhetherThePayloadWasSeen:
             should_issues=["[base] ./: add a license"],
             assessed_tiers={"required", "recommended", "optional"},
         )
+        from tests.fixtures.report import profile_verdict
+
         page = build_maturity_html(state, validation=val)
-        assert '<span class="vpill good">' in page, "precondition: the pill still reads Conformant"
+        assert profile_verdict(page) == "ok", "precondition: the verdict still reads as a pass"
         assert "covers the metadata document only" in page
 
     def test_the_on_disk_validator_records_that_it_saw_the_payload(self, tmp_path: Path) -> None:
