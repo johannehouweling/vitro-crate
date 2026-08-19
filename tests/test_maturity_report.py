@@ -777,7 +777,8 @@ class TestMitModuleColours:
             standard_scores={"oecd_gd211": {"completed": 2, "total": 6}},
             standard_module_scores={
                 "oecd_gd211": {
-                    "Only in the split": {"completed": 0, "total": 0},
+                    "Empty bucket": {"completed": 0, "total": 0},
+                    "Only in the split": {"completed": 0, "total": 1},
                     odd: {"completed": 1, "total": 2},
                     known: {"completed": 1, "total": 4},
                 }
@@ -790,11 +791,17 @@ class TestMitModuleColours:
         zeta = self._row(section, esc)
         assert f'<div class="mrow" style="--mod:{MIT_MODULE_FALLBACK_COLOUR}">' in zeta
         doc = self._row(section, "OECD GD 211")
-        assert f'aria-label="2 of 6: {_html.escape(f"{known} 1 of 4, {odd} 1 of 2")}"' in doc
+        described = f"{known} 1 of 4, {odd} 1 of 2, Only in the split 0 of 1"
+        assert f'aria-label="2 of 6: {_html.escape(described)}"' in doc
         spans = re.findall(r'<span class="mod" style="--mod:([^;]+);flex-grow:(\d+)">', doc)
-        assert spans == [(MIT_MODULE_STYLES[known], "4"), (MIT_MODULE_FALLBACK_COLOUR, "2")]
+        assert spans == [
+            (MIT_MODULE_STYLES[known], "4"),
+            (MIT_MODULE_FALLBACK_COLOUR, "2"),
+            (MIT_MODULE_FALLBACK_COLOUR, "1"),
+        ]
         assert f'title="{esc}: 1 of 2 filled"' in doc
-        assert "Only in the split" not in doc
+        assert 'title="Only in the split: 1 of 1 still missing"' in doc
+        assert "Empty bucket" not in doc
 
     def test_a_document_without_a_module_split_keeps_the_plain_bar(self) -> None:
         """A report that carries document buckets but no module split (one
