@@ -63,9 +63,9 @@ class TestExtractDepositLicence:
     def test_a_descriptor_without_a_licence_yields_nothing(self) -> None:
         assert extract_deposit_licence(_descriptor(None)) is None
 
-    def test_non_biostudies_input_yields_nothing(self) -> None:
+    def test_a_document_that_declares_none_yields_nothing(self) -> None:
         # Applied blindly to any scanned file, so it must be quiet on the rest.
-        assert extract_deposit_licence("not json at all") is None
+        assert extract_deposit_licence("not structured at all") is None
         assert extract_deposit_licence(json.dumps({"unrelated": True})) is None
         assert extract_deposit_licence("") is None
 
@@ -271,3 +271,366 @@ class TestAnUnstatedLicenceSaysSo:
 
         assert not _nonempty({"@id": LICENCE_NOT_STATED_ID})
         assert LICENCE_NOT_STATED_ID.lower() in {v.lower() for v in _placeholder_values()}
+
+
+class TestAnyStructuredMetadataFileCanDeclareIt:
+    """BioStudies is one convention among several, and deposits use the others.
+
+    Gating on a BioStudies attribute tree made the reader answer for exactly one
+    repository's export. A deposit that ships an RO-Crate, a CodeMeta record, a
+    Frictionless datapackage or a DataCite payload states its licence just as
+    plainly, in a field rather than an attribute — and got the fabricated
+    fallback instead. Reading a NAMED field is still not guessing; what stays
+    forbidden is inferring one from prose.
+    """
+
+    def test_an_ro_crate_declares_it_by_reference(self) -> None:
+        doc = json.dumps(
+            {
+                "@context": "https://w3id.org/ro/crate/1.2/context",
+                "@graph": [
+                    {
+                        "@id": "./",
+                        "@type": "Dataset",
+                        "license": {"@id": "https://creativecommons.org/licenses/by/4.0/"},
+                    }
+                ],
+            }
+        )
+
+        assert extract_deposit_licence(doc) == "https://creativecommons.org/licenses/by/4.0/"
+
+    def test_a_codemeta_record_declares_it_as_a_string(self) -> None:
+        doc = json.dumps({"@type": "SoftwareSourceCode", "license": "https://spdx.org/licenses/MIT"})
+
+        assert extract_deposit_licence(doc) == "https://spdx.org/licenses/MIT"
+
+    def test_a_frictionless_datapackage_declares_it_in_a_list(self) -> None:
+        doc = json.dumps(
+            {
+                "name": "deposit",
+                "licenses": [
+                    {"name": "CC-BY-4.0", "path": "https://creativecommons.org/licenses/by/4.0/"}
+                ],
+            }
+        )
+
+        assert extract_deposit_licence(doc) == "https://creativecommons.org/licenses/by/4.0/"
+
+    def test_a_datacite_payload_declares_it_as_a_rights_uri(self) -> None:
+        doc = json.dumps(
+            {
+                "rightsList": [
+                    {
+                        "rights": "Creative Commons Attribution 4.0",
+                        "rightsUri": "https://creativecommons.org/licenses/by/4.0/legalcode",
+                    }
+                ]
+            }
+        )
+
+        assert extract_deposit_licence(doc) == (
+            "https://creativecommons.org/licenses/by/4.0/legalcode"
+        )
+
+    def test_a_yaml_metadata_file_declares_it(self) -> None:
+        assert extract_deposit_licence(
+            "title: A study\nlicense: https://creativecommons.org/licenses/by/4.0/\n"
+        ) == "https://creativecommons.org/licenses/by/4.0/"
+
+    def test_a_uri_is_preferred_over_a_bare_label(self) -> None:
+        """Machine-actionable beats a label, wherever in the document it sits."""
+        doc = json.dumps(
+            {
+                "license": "CC-BY-4.0",
+                "distribution": {"license": {"@id": "https://creativecommons.org/licenses/by/4.0/"}},
+            }
+        )
+
+        assert extract_deposit_licence(doc) == "https://creativecommons.org/licenses/by/4.0/"
+
+    def test_a_bare_label_is_still_returned_verbatim(self) -> None:
+        """Mapping "CC-BY" onto a 4.0 URI would state a version nobody did (D5)."""
+        assert extract_deposit_licence(json.dumps({"license": "CC-BY"})) == "CC-BY"
+
+    def test_prose_is_never_a_source(self) -> None:
+        """Every real deposit's README carries an unfilled template placeholder.
+
+        `## License` / `[Default CC-BY 4.0 for data, CC0 for metadata unless
+        specified otherwise]` — a bracketed instruction naming two licences and
+        declaring neither. Reading a named field is not guessing; reading this
+        would be.
+        """
+        readme = (
+            "# Study README Template\n\n## License\n"
+            "[Default CC-BY 4.0 for data, CC0 for metadata unless specified otherwise]\n"
+        )
+
+        assert extract_deposit_licence(readme) is None
+
+    def test_a_markdown_bullet_list_is_not_a_declaration(self) -> None:
+        """Prose parses as YAML, which is the trap.
+
+        `- License: see the LICENSE file` is a valid YAML sequence of mappings,
+        so a reader that accepted any YAML value would file "see the LICENSE
+        file" as this deposit's legal terms. Only a document whose top level is
+        a MAPPING is a metadata record; a list of bullets is a README.
+        """
+        readme = "- License: see the LICENSE file\n- Contact: someone@example.org\n"
+
+        assert extract_deposit_licence(readme) is None
+
+    def test_an_empty_declaration_is_not_a_declaration(self) -> None:
+        assert extract_deposit_licence(json.dumps({"license": ""})) is None
+        assert extract_deposit_licence(json.dumps({"license": {"@id": ""}})) is None
+
+
+class TestWhichFileTheLicenceIsReadFrom:
+    """Several files in a deposit can name a licence. Which one is the deposit's.
+
+    Reading the first `.json` the scan happened to reach made the answer depend
+    on directory order, and admitted any bundled manifest as the deposit's own
+    terms.
+    """
+
+    CC_BY = "https://creativecommons.org/licenses/by/4.0/legalcode"
+
+    def _engine_over(self, tmp_path: Path):
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.initialize(input_path=str(tmp_path))
+        return engine
+
+    def test_a_yaml_metadata_file_is_read(self, tmp_path: Path) -> None:
+        (tmp_path / "dataset_description.yaml").write_text(
+            f"title: A study\nlicense: {self.CC_BY}\n", encoding="utf-8"
+        )
+
+        engine = self._engine_over(tmp_path)
+
+        assert engine.state.metadata.license == self.CC_BY
+        assert engine.state.metadata.license_from_deposit is True
+
+    def test_a_bundled_manifest_does_not_become_the_deposits_terms(
+        self, tmp_path: Path
+    ) -> None:
+        """A vendored `package.json` states its own licence, not the data's."""
+        (tmp_path / "S-TEST1.json").write_text(
+            _descriptor(
+                {
+                    "name": "License",
+                    "value": "CC-BY",
+                    "valqual": [{"name": "URL", "value": self.CC_BY}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        nested = tmp_path / "code" / "vendor" / "lib"
+        nested.mkdir(parents=True)
+        (nested / "package.json").write_text(
+            json.dumps({"name": "lib", "license": "MIT"}), encoding="utf-8"
+        )
+
+        assert self._engine_over(tmp_path).state.metadata.license == self.CC_BY
+
+    def test_the_answer_does_not_depend_on_directory_order(self, tmp_path: Path) -> None:
+        """Two declarations at the same depth resolve the same way every run."""
+        for name in ("zzz_meta.json", "aaa_meta.json"):
+            (tmp_path / name).write_text(
+                json.dumps({"license": self.CC_BY}), encoding="utf-8"
+            )
+
+        assert self._engine_over(tmp_path).state.metadata.license == self.CC_BY
+
+    def test_a_machine_actionable_uri_beats_a_label_in_another_file(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "a_label.json").write_text(
+            json.dumps({"license": "CC-BY"}), encoding="utf-8"
+        )
+        (tmp_path / "b_uri.json").write_text(
+            json.dumps({"license": self.CC_BY}), encoding="utf-8"
+        )
+
+        assert self._engine_over(tmp_path).state.metadata.license == self.CC_BY
+
+
+class TestTheConventionsOutsideAMetadataRecord:
+    """Not every deposit ships a metadata record, and most ship a LICENSE file.
+
+    A named field in a JSON document is one way to declare terms. The two that
+    cover everything else are the SPDX identifier — a formal, machine-readable
+    declaration that can sit in any text — and a file whose NAME says its whole
+    content is the licence.
+    """
+
+    CC_BY = "https://creativecommons.org/licenses/by/4.0/"
+
+    def test_an_spdx_identifier_is_a_declaration_wherever_it_sits(self) -> None:
+        """`SPDX-License-Identifier:` is a standard, not a guess."""
+        assert extract_deposit_licence("# SPDX-License-Identifier: CC-BY-4.0\n") == "CC-BY-4.0"
+        assert extract_deposit_licence("<!-- SPDX-License-Identifier: MIT -->") == "MIT"
+
+    def test_a_citation_file_declares_it(self) -> None:
+        """CITATION.cff is YAML, and `license` is one of its standard keys."""
+        cff = "cff-version: 1.2.0\ntitle: A study\nlicense: CC-BY-4.0\n"
+
+        assert extract_deposit_licence(cff) == "CC-BY-4.0"
+
+    def test_a_license_file_naming_a_url_is_read(self) -> None:
+        """The filename declares that the content IS the licence, so a URI in it
+        is the depositor's statement rather than a URL found in prose."""
+        text = f"Creative Commons Attribution 4.0 International\n\n{self.CC_BY}\n"
+
+        assert extract_deposit_licence(text, filename="LICENSE") == self.CC_BY
+
+    def test_a_license_file_carrying_an_spdx_id_is_read(self) -> None:
+        assert extract_deposit_licence("CC0-1.0\n", filename="COPYING") is None
+        assert (
+            extract_deposit_licence("SPDX-License-Identifier: CC0-1.0\n", filename="COPYING")
+            == "CC0-1.0"
+        )
+
+    def test_legal_prose_alone_is_still_not_mined(self) -> None:
+        """A LICENSE file holding only the legal text names no identifier.
+
+        Reading "Creative Commons Attribution 4.0 International Public License"
+        off the first line would be inventing a machine-actionable claim from a
+        heading. Absent is honest (D5).
+        """
+        text = (
+            "Creative Commons Attribution 4.0 International Public License\n\n"
+            "By exercising the Licensed Rights, You accept and agree to be bound by\n"
+            "the terms and conditions of this Public License.\n"
+        )
+
+        assert extract_deposit_licence(text, filename="LICENSE") is None
+
+    def test_the_permissive_read_needs_the_filename(self) -> None:
+        """The same URI in an unnamed text file is just a URL in prose."""
+        text = f"See {self.CC_BY} for details.\n"
+
+        assert extract_deposit_licence(text) is None
+        assert extract_deposit_licence(text, filename="LICENCE.txt") == self.CC_BY
+
+
+class TestXmlMetadataDeclaresItToo:
+    """DataCite, OAI-DC and METS are XML, and repositories export them.
+
+    Parsed through `defusedxml`: a deposit is untrusted input, and stdlib
+    ElementTree will happily expand a billion-laughs entity out of one.
+    """
+
+    CC_BY = "https://creativecommons.org/licenses/by/4.0/legalcode"
+
+    def test_a_datacite_record_declares_it_as_a_rights_uri_attribute(self) -> None:
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <resource xmlns="http://datacite.org/schema/kernel-4">
+          <identifier identifierType="DOI">10.1234/abcd</identifier>
+          <rightsList>
+            <rights rightsURI="{self.CC_BY}">Creative Commons Attribution 4.0</rights>
+          </rightsList>
+        </resource>"""
+
+        assert extract_deposit_licence(xml) == self.CC_BY
+
+    def test_a_namespaced_dublin_core_rights_element_is_read(self) -> None:
+        xml = f"""<?xml version="1.0"?>
+        <oai_dc:dc xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
+                   xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>A study</dc:title>
+          <dc:rights>{self.CC_BY}</dc:rights>
+        </oai_dc:dc>"""
+
+        assert extract_deposit_licence(xml) == self.CC_BY
+
+    def test_a_license_element_is_read(self) -> None:
+        xml = f'<metadata><license>{self.CC_BY}</license></metadata>'
+
+        assert extract_deposit_licence(xml) == self.CC_BY
+
+    def test_a_uri_attribute_beats_the_elements_label(self) -> None:
+        xml = f'<rightsList><rights rightsURI="{self.CC_BY}">CC BY 4.0</rights></rightsList>'
+
+        assert extract_deposit_licence(xml) == self.CC_BY
+
+    def test_a_label_with_no_uri_is_returned_verbatim(self) -> None:
+        assert extract_deposit_licence("<resource><rights>CC-BY-4.0</rights></resource>") == (
+            "CC-BY-4.0"
+        )
+
+    def test_xml_that_declares_nothing_yields_nothing(self) -> None:
+        assert extract_deposit_licence("<resource><title>A study</title></resource>") is None
+
+    def test_malformed_xml_is_not_a_declaration(self) -> None:
+        assert extract_deposit_licence("<resource><rights>oops") is None
+
+    def test_an_entity_bomb_is_refused_rather_than_expanded(self) -> None:
+        """The reason this goes through defusedxml at all.
+
+        Stdlib ElementTree expands these; a deposit is untrusted input, and one
+        crafted file must not be able to exhaust memory during a scan.
+        """
+        bomb = """<?xml version="1.0"?>
+        <!DOCTYPE lolz [
+          <!ENTITY lol "lol">
+          <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+          <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+        ]>
+        <resource><rights>&lol3;</rights></resource>"""
+
+        assert extract_deposit_licence(bomb) is None
+
+
+class TestTheEngineReadsThoseToo:
+    CC_BY = "https://creativecommons.org/licenses/by/4.0/"
+
+    def _licence_over(self, tmp_path: Path) -> str | None:
+        from builder.engine import AgentEngine
+
+        engine = AgentEngine()
+        engine.initialize(input_path=str(tmp_path))
+        return engine.state.metadata.license
+
+    def test_a_standalone_license_file_is_read(self, tmp_path: Path) -> None:
+        (tmp_path / "LICENSE").write_text(
+            f"Creative Commons Attribution 4.0\n{self.CC_BY}\n", encoding="utf-8"
+        )
+
+        assert self._licence_over(tmp_path) == self.CC_BY
+
+    def test_a_citation_file_is_read(self, tmp_path: Path) -> None:
+        (tmp_path / "CITATION.cff").write_text(
+            "cff-version: 1.2.0\nlicense: CC-BY-4.0\n", encoding="utf-8"
+        )
+
+        assert self._licence_over(tmp_path) == "CC-BY-4.0"
+
+    def test_a_datacite_xml_export_is_read(self, tmp_path: Path) -> None:
+        (tmp_path / "datacite.xml").write_text(
+            '<resource><rightsList><rights rightsURI="'
+            + self.CC_BY
+            + '">CC BY 4.0</rights></rightsList></resource>',
+            encoding="utf-8",
+        )
+
+        assert self._licence_over(tmp_path) == self.CC_BY
+
+    def test_a_metadata_record_still_outranks_a_deeper_license_file(
+        self, tmp_path: Path
+    ) -> None:
+        """Depth decides, so a root descriptor beats a nested LICENSE."""
+        (tmp_path / "S-TEST1.json").write_text(
+            _descriptor({"name": "License", "value": "CC-BY", "valqual": [
+                {"name": "URL", "value": "https://creativecommons.org/licenses/by/4.0/legalcode"}
+            ]}),
+            encoding="utf-8",
+        )
+        nested = tmp_path / "code"
+        nested.mkdir()
+        (nested / "LICENSE").write_text("SPDX-License-Identifier: MIT\n", encoding="utf-8")
+
+        assert self._licence_over(tmp_path) == (
+            "https://creativecommons.org/licenses/by/4.0/legalcode"
+        )

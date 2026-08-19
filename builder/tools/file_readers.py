@@ -15,6 +15,8 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 logger = logging.getLogger(__name__)
 
 
@@ -986,14 +988,152 @@ def compact_attribute_json(text: str) -> str:
     return "\n".join(out).strip()
 
 
+# The two conventions a deposit states its licence in. BioStudies writes it as an
+# ATTRIBUTE — a node that names the field and carries the value beside it — while
+# RO-Crate, CodeMeta, Frictionless and DataCite write it as a FIELD, the key
+# itself. Both are the depositor naming a licence. Neither is prose.
 _LICENCE_NAMES = {"license", "licence"}
+_LICENCE_KEYS = {"license", "licence", "licenses", "licences", "rightsuri"}
+# Where an object-valued licence keeps the thing itself, best first: an IRI is
+# machine-actionable, a label is only a name.
+_LICENCE_VALUE_KEYS = ("@id", "url", "path", "identifier", "name", "value")
 
 
-def extract_deposit_licence(text: str) -> str | None:
-    """The licence a BioStudies descriptor declares, as the deposit states it (#535).
+def _is_iri(value: str) -> bool:
+    return value.startswith(("http://", "https://"))
 
-    Reading this is not guessing: the descriptor carries it as an attribute, and
-    usually qualifies it with a canonical URL —
+
+def _licence_candidates(value: Any) -> list[str]:
+    """Every licence a value states, in document order.
+
+    A licence is a string, an object keeping it under one of
+    :data:`_LICENCE_VALUE_KEYS`, or a list of either — the shapes RO-Crate
+    (``{"@id": …}``), CodeMeta, Frictionless (``{"path": …}``) and DataCite use
+    between them.
+    """
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        return [found for item in value for found in _licence_candidates(item)]
+    if isinstance(value, dict):
+        for key in _LICENCE_VALUE_KEYS:
+            if (found := str(value.get(key) or "").strip()):
+                return [found]
+    return []
+
+
+# The formal, machine-readable way to declare a licence in any text at all. It
+# names the field, so reading it is no more a guess than reading a JSON key.
+_SPDX_DECLARATION = re.compile(r"SPDX-License-Identifier:\s*([^\s*/#<>\"\']+)", re.IGNORECASE)
+# Filenames whose whole content IS the licence. The name is itself the
+# declaration, which is what lets a URI be read out of the text — in any other
+# file that would be a URL that happens to appear in prose.
+_LICENCE_FILENAMES = {"license", "licence", "copying", "copyright"}
+_URI_IN_TEXT = re.compile(r"https?://[^\s\"\'<>)\]]+")
+# The XML analogue of the field convention. DataCite keeps the machine-actionable
+# form in an ATTRIBUTE (`<rights rightsURI="…">CC BY 4.0</rights>`) and the label
+# in the element text, while Dublin Core puts the whole thing in the text.
+_LICENCE_XML_TAGS = {"license", "licence", "rights", "rightsuri"}
+_LICENCE_XML_ATTRS = {"rightsuri", "href", "resource", "about", "url"}
+
+
+def _local_tag(name: Any) -> str:
+    """An XML tag or attribute without its namespace: ``{ns}rights`` -> ``rights``."""
+    return str(name).rsplit("}", 1)[-1].strip().casefold()
+
+
+def _prefer_iri(found: list[str]) -> str | None:
+    """The first machine-actionable value, else the first stated one."""
+    return next((value for value in found if _is_iri(value)), found[0] if found else None)
+
+
+def _parse_structured(text: str) -> dict[str, Any] | None:
+    """*text* as a mapping, read as JSON then as YAML, or ``None``.
+
+    A mapping is required rather than any YAML value, because YAML parses prose
+    into something: every real deposit's README carries the unfilled placeholder
+    ``[Default CC-BY 4.0 for data, CC0 for metadata unless specified
+    otherwise]``, which is a valid flow sequence naming two licences and
+    declaring neither.
+    """
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        try:
+            parsed = yaml.safe_load(text)
+        except Exception:  # noqa: BLE001 — anything unparseable is simply not a declaration
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _licence_from_structured(text: str) -> str | None:
+    """The licence a JSON/YAML mapping declares, in either convention."""
+    parsed = _parse_structured(text)
+    if parsed is None:
+        return None
+
+    found: list[str] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            # The attribute convention: this node NAMES the licence field, and
+            # a qualifier beside it may carry the canonical URL.
+            if str(node.get("name") or "").strip().casefold() in _LICENCE_NAMES:
+                for qualifier in node.get("valqual") or []:
+                    url = str((qualifier or {}).get("value") or "").strip()
+                    if _is_iri(url):
+                        found.append(url)
+                        return
+                if value := str(node.get("value") or "").strip():
+                    found.append(value)
+                return
+            for key, child in node.items():
+                if str(key).strip().casefold() in _LICENCE_KEYS:
+                    found.extend(_licence_candidates(child))
+                else:
+                    _walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                _walk(child)
+
+    _walk(parsed)
+    return _prefer_iri(found)
+
+
+def _licence_from_xml(text: str) -> str | None:
+    """The licence an XML record declares — DataCite, Dublin Core, METS.
+
+    Parsed through ``defusedxml``: a deposit is untrusted input, and stdlib
+    ElementTree expands a billion-laughs entity out of one crafted file. A
+    refused or malformed document is simply not a declaration.
+    """
+    if "<" not in text:
+        return None
+    from defusedxml.ElementTree import fromstring
+
+    try:
+        root = fromstring(text)
+    except Exception:  # noqa: BLE001 — unparseable or refused is not a declaration
+        return None
+
+    found: list[str] = []
+    for element in root.iter():
+        if _local_tag(element.tag) not in _LICENCE_XML_TAGS:
+            continue
+        for name, value in (element.attrib or {}).items():
+            if _local_tag(name) in _LICENCE_XML_ATTRS and str(value).strip():
+                found.append(str(value).strip())
+        if label := (element.text or "").strip():
+            found.append(label)
+    return _prefer_iri(found)
+
+
+def extract_deposit_licence(text: str, *, filename: str = "") -> str | None:
+    """The licence a structured metadata document declares (#535).
+
+    Reading this is not guessing: the depositor named the field. A BioStudies
+    descriptor states it as an attribute, usually qualified with a canonical
+    URL —
 
     .. code-block:: json
 
@@ -1001,43 +1141,40 @@ def extract_deposit_licence(text: str) -> str | None:
          "valqual": [{"name": "URL",
                       "value": "https://creativecommons.org/licenses/by/4.0/legalcode"}]}
 
-    A URL is preferred because it is machine-actionable and the depositor chose
-    it. Without one the declared value is returned **verbatim**: "CC-BY" does
-    not say which version, and mapping it onto a 4.0 URI would state something
-    the depositor did not (D5).
+    — while an RO-Crate, CodeMeta record, Frictionless datapackage or DataCite
+    payload states it as a field. Gating on the BioStudies shape answered for
+    exactly one repository's export and left every other deposit with the
+    fabricated all-rights-reserved fallback, so both conventions are read.
 
-    Applied blindly to any scanned file, so anything that is not a BioStudies
-    attribute tree — or carries no licence — yields ``None`` rather than raising.
+    An IRI wins wherever it sits, being machine-actionable and the depositor's
+    own choice. Without one the declared value is returned **verbatim**:
+    "CC-BY" does not say which version, and mapping it onto a 4.0 URI would
+    state something the depositor did not (D5).
+
+    Two conventions live outside a metadata record and are read as well.
+    ``SPDX-License-Identifier:`` is a formal declaration that can sit in any
+    text, and a file *named* ``LICENSE`` / ``COPYING`` declares by its name that
+    its whole content is the licence — which is what lets a URI be read out of
+    it, where in any other file that would be a URL appearing in prose. Pass
+    *filename* to enable that reading; without it the strict rules apply.
+
+    Legal prose is still never mined. A ``LICENSE`` holding only the text of a
+    licence names no identifier, and reading "Creative Commons Attribution 4.0
+    International Public License" off its first line would invent a
+    machine-actionable claim out of a heading.
+
+    Applied blindly to any scanned file, so anything carrying no licence — or
+    naming one only in prose — yields ``None`` rather than raising.
     """
-    try:
-        parsed = json.loads(text)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(parsed, dict) or not ("attributes" in parsed or "section" in parsed):
-        return None
-
-    found: list[str] = []
-
-    def _walk(node: Any) -> None:
-        if isinstance(node, dict):
-            if str(node.get("name") or "").strip().casefold() in _LICENCE_NAMES:
-                for qualifier in node.get("valqual") or []:
-                    url = str((qualifier or {}).get("value") or "").strip()
-                    if url.startswith(("http://", "https://")):
-                        found.append(url)
-                        return
-                value = str(node.get("value") or "").strip()
-                if value:
-                    found.append(value)
-                return
-            for child in node.values():
-                _walk(child)
-        elif isinstance(node, list):
-            for child in node:
-                _walk(child)
-
-    _walk(parsed)
-    return found[0] if found else None
+    for read in (_licence_from_structured, _licence_from_xml):
+        if found := read(text):
+            return found
+    if spdx := _SPDX_DECLARATION.search(text):
+        return spdx.group(1).strip()
+    if Path(filename).stem.casefold() in _LICENCE_FILENAMES:
+        if uri := _URI_IN_TEXT.search(text):
+            return uri.group(0)
+    return None
 
 
 def read_file(
