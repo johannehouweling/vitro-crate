@@ -27,8 +27,6 @@ class TestReActAgentWiring:
         """Both arms get the SAME headless human, so the A/B compares
         architectures and not environments (#609); see
         ``eval/tests/test_arm_symmetry.py`` for what that symmetry buys."""
-        from builder.tools.hitl import SimulatedHumanInterface
-
         engine = make_react_agent_factory()()._make_engine()
         assert type(engine.human_interface) is SimulatedHumanInterface
 

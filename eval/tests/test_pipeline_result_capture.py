@@ -17,7 +17,7 @@ import pytest
 
 from builder.state import CrateState
 from eval.agent_api import BuildOutcome
-from eval.corpus import DEFAULT_CORPUS, first_folder_case
+from eval.tests._cases import first_folder_case
 from eval.pipeline_factory import PipelineBuildAgent, PipelineRunner
 
 pytestmark = pytest.mark.timeout(120)

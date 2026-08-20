@@ -16,7 +16,8 @@ import pytest
 
 from builder.state import CrateState
 from eval.agent_api import BuildOutcome
-from eval.corpus import DEFAULT_CORPUS, EvalCase, first_folder_case
+from eval.corpus import DEFAULT_CORPUS, EvalCase
+from eval.tests._cases import first_folder_case
 from eval.pipeline_factory import PipelineBuildAgent
 from eval.react_factory import ReActBuildAgent
 from eval.runner import run_eval
@@ -31,18 +32,12 @@ class TestReActStopReason:
         assert outcome.stop_reason == "completed"
         assert outcome.error is None
 
-    def test_cap_hit_is_reported_by_the_loop_not_raised(self) -> None:
-        """The shipped loop catches a `GraphRecursionError` per turn and keeps
-        the partial crate, so the cap can only reach the harness as a REPORTED
-        stop reason — the eval used to catch an exception that (since the invoke
-        moved behind the wall-clock guard) never arrives (#609)."""
-        agent = ReActBuildAgent(graph_driver=lambda e, p: "cap_hit")
-        outcome = agent.build(DEFAULT_CORPUS[0])
-        assert outcome.stop_reason == "cap_hit"
-        # cap_hit is not a hard build error: the partial crate is preserved so the
-        # conformance predicate can still measure what the run produced at the cap.
-        assert outcome.error is None
-        assert isinstance(outcome.state, CrateState)
+    # A cap hit reaching the harness as a REPORTED stop reason (rather than the
+    # exception the eval used to catch, which since #609 never arrives) is driven
+    # end-to-end against the real loop in
+    # ``eval/tests/test_react_budget.py::TestCapHitStillSurfaces``. Asserting it
+    # here too would only re-check that the factory hands back the string it was
+    # given, which the "completed" case above already pins.
 
     def test_error_on_other_exception(self) -> None:
         def boom(engine, prompt):  # type: ignore[no-untyped-def]
