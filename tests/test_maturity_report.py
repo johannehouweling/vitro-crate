@@ -1916,6 +1916,14 @@ class TestGraphViewTabs:
         assert '<div class="sec-h"><h2>Graph views</h2></div>' in page
         assert "of the same crate" not in page
 
+    def test_the_review_tab_order_holds(self) -> None:
+        """Review comments ("flip dataset and assays", "flip labprotocols and
+        labprocess"): Datasets before Assays, LabProtocols before
+        LabProcesses."""
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        assert body.index('for="mv-data"') < body.index('for="mv-isa"')
+        assert body.index('for="mv-lprot"') < body.index('for="mv-prov"')
+
     def test_the_isa_and_people_views_wear_their_review_names(self) -> None:
         """Owner's calls, left as review comments on the report artifact: the
         ISA backbone tab reads "Assays" and the credit tab "Persons &

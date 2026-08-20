@@ -2075,12 +2075,13 @@ def _render_provenance_panel(graph: dict[str, Any] | list[dict[str, Any]]) -> st
 # the report artifact).
 _VIEWS: tuple[tuple[str, str, str], ...] = (
     ("mv-all", "p-all", "All entities"),
-    ("mv-isa", "p-isa", "Assays"),
+    # Datasets before Assays: the review's "flip dataset and assays".
     ("mv-data", "p-data", "Datasets"),
-    ("mv-prov", "p-prov", "LabProcesses"),
-    # Directly after LabProcesses: a protocol is the instructions a process
-    # executes, so the two views answer adjacent questions.
+    ("mv-isa", "p-isa", "Assays"),
+    # Adjacent because a protocol is the instructions a process executes;
+    # protocols first per the review's "flip labprotocols and labprocess".
     ("mv-lprot", "p-lprot", "LabProtocols"),
+    ("mv-prov", "p-prov", "LabProcesses"),
     ("mv-chem", "p-chem", "Chemicals"),
     ("mv-cell", "p-cell", "Biological models"),
     ("mv-people", "p-people", "Persons &amp; Organisations"),
