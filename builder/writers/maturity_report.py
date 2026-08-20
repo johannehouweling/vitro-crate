@@ -721,7 +721,11 @@ def _profile_matrix_tile(
                 state, title = "na", "not assessed at this level"
             elif tier == "required" and not passed[key]:
                 state = "no"
-                title = f"{n} findings at this level" if n else "profile gate failed"
+                title = (
+                    f"{n} finding{'s' if n != 1 else ''} at this level"
+                    if n
+                    else "profile gate failed"
+                )
             elif n:
                 state, title = "no", f"{n} finding{'s' if n != 1 else ''} at this level"
             else:
