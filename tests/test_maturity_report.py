@@ -1839,6 +1839,13 @@ class TestGraphViewTabs:
                     "name": "Exposure step",
                     "object": {"@id": "#cells"},
                     "result": {"@id": "#table"},
+                    "executesLabProtocol": {"@id": "#protocol"},
+                },
+                {
+                    "@id": "#protocol",
+                    "@type": "LabProtocol",
+                    "name": "Exposure protocol",
+                    "url": "https://www.protocols.io/view/exposure-abc",
                 },
                 {
                     "@id": "#table",
@@ -1886,17 +1893,40 @@ class TestGraphViewTabs:
         assert "<h2>Graph views</h2>" in page
         for label in (
             "All entities",
-            "ISA structure",
+            "Assays",
             "Datasets",
             "LabProcesses",
+            "LabProtocols",
             "Chemicals",
             "Biological models",
-            "People &amp; orgs",
+            "Persons &amp; Organisations",
             "Citations",
         ):
             assert f'<span class="tb-n">{label}</span>' in page, f"missing tab: {label}"
-        for pid in ("p-all", "p-isa", "p-prov", "p-chem", "p-cell", "p-people", "p-cite"):
+        for pid in (
+            "p-all", "p-isa", "p-prov", "p-lprot", "p-chem", "p-cell", "p-people", "p-cite",
+        ):
             assert f'<div class="panel" id="{pid}">' in page, f"missing panel: {pid}"
+
+    def test_the_section_header_carries_no_view_count(self) -> None:
+        """Review comment on the report artifact: the "N views of the same
+        crate" meta said nothing a reader can act on — the tabs themselves
+        are the count. Removed, not reworded."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert '<div class="sec-h"><h2>Graph views</h2></div>' in page
+        assert "of the same crate" not in page
+
+    def test_the_isa_and_people_views_wear_their_review_names(self) -> None:
+        """Owner's calls, left as review comments on the report artifact: the
+        ISA backbone tab reads "Assays" and the credit tab "Persons &
+        Organisations". The ISA diagram's accessible name follows its tab
+        (the LabProcesses precedent); the old names appear nowhere."""
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
+        assert '<span class="tb-n">Assays</span>' in body
+        assert '<span class="tb-n">Persons &amp; Organisations</span>' in body
+        assert "Assays: " in body, "the ISA diagram's accessible name kept the old view name"
+        assert "ISA structure" not in body
+        assert "People &amp; orgs" not in body
 
     def test_inputs_precede_the_tabbar_and_panels(self) -> None:
         # The CSS-only mechanism is `input:checked ~ .panel`; a panel emitted
@@ -1908,7 +1938,7 @@ class TestGraphViewTabs:
 
     def test_exactly_one_tab_starts_selected(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert body.count('name="mat-view"') == 8  # the eight live views
+        assert body.count('name="mat-view"') == 9  # the nine live views
         assert body.count(" checked>") == 1
         # ISA is first: the structural backbone every other view hangs off.
         assert 'id="mv-all" checked>' in body
@@ -1940,7 +1970,7 @@ class TestGraphViewTabs:
         }
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
         for absent in (
-            "mv-chem", "p-chem", "mv-cell", "p-cell",
+            "mv-chem", "p-chem", "mv-cell", "p-cell", "mv-lprot", "p-lprot",
             "mv-people", "p-people", "mv-cite", "p-cite",
         ):
             assert f'"{absent}"' not in body, f"{absent} should have been dropped"
@@ -2119,6 +2149,100 @@ class TestCellLinesPanel:
         assert 'for="mv-cell"' not in body
 
     def test_escapes_cell_line_names(self) -> None:
+        graph = self._graph()
+        graph["@graph"][5]["name"] = "<script>alert(1)</script>"
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "<script>alert(1)</script>" not in page
+        assert "&lt;script&gt;" in page
+
+
+class TestProtocolsPanel:
+    """The LabProtocols view (review comment on the report artifact): the
+    instructions behind the processes, and whether a reader could follow them.
+
+    A protocol fails two ways: *unexecuted* when no ``LabProcess`` names it via
+    ``executesLabProtocol`` (described in the crate, used by nothing), and
+    *unretrievable* when it carries a name but no URL — a name alone cannot be
+    followed.
+    """
+
+    def _graph(self, *, wire: bool = True, url: bool = True) -> dict:
+        protocol: dict = {
+            "@id": "#prot",
+            "@type": "LabProtocol",
+            "name": "Exposure protocol",
+            "description": "48 h static exposure.",
+        }
+        if url:
+            protocol["url"] = "https://www.protocols.io/view/exposure-abc"
+        process: dict = {
+            "@id": "#run",
+            "@type": "LabProcess",
+            "additionalType": "Exposure",
+            "name": "Exposure",
+            "object": {"@id": "#s"},
+            "result": {"@id": "#f"},
+        }
+        if wire:
+            process["executesLabProtocol"] = {"@id": "#prot"}
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#f"}]},
+                {"@id": "#s", "@type": "Sample", "name": "Input sample"},
+                process,
+                {"@id": "#f", "@type": "File", "name": "result.csv"},
+                protocol,
+            ]
+        }
+
+    def _page(self, **kw: bool) -> str:
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
+
+    def test_renders_diagram_and_matrix(self) -> None:
+        page = self._page()
+        assert '<div class="panel" id="p-lprot">' in page
+        assert '<span class="tb-n">LabProtocols</span>' in page
+        assert "Exposure protocol" in page
+        assert "Routes: 1 of 1 protocols reachable from a process" in page
+        assert '<th scope="col">Protocol</th>' in page
+        for column in ("URL", "Description"):
+            assert f">{column}</th>" in page, f"missing protocol column: {column}"
+
+    def test_a_protocol_with_a_url_links_it_from_its_name(self) -> None:
+        page = self._page()
+        panel = page.split('id="p-lprot"', 1)[1].split("</section>", 1)[0]
+        assert (
+            '<a class="lk" href="https://www.protocols.io/view/exposure-abc">' in panel
+        )
+
+    def test_unexecuted_protocol_is_called_out_with_the_fix(self) -> None:
+        page = self._page(wire=False)
+        assert "1 of 1 protocols are executed by no process." in page
+        assert "<code>executesLabProtocol</code>" in page
+
+    def test_executed_protocol_reports_a_clean_route(self) -> None:
+        page = self._page(wire=True, url=True)
+        assert "executed by no process" not in page
+
+    def test_missing_url_is_called_out_separately_from_wiring(self) -> None:
+        page = self._page(wire=True, url=False)
+        assert "executed by no process" not in page
+        assert "1 of 1 protocols carry no retrievable URL." in page
+
+    def test_crate_without_protocols_omits_the_view(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#f"}]},
+                {"@id": "#f", "@type": "File", "name": "result.csv"},
+            ]
+        }
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
+        assert 'id="p-lprot"' not in body
+        assert 'for="mv-lprot"' not in body
+
+    def test_escapes_protocol_names(self) -> None:
         graph = self._graph()
         graph["@graph"][5]["name"] = "<script>alert(1)</script>"
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
@@ -2848,6 +2972,37 @@ class TestOverviewPanel:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         assert "<title>Unwired compound — MolecularEntity" in page
         assert "linked to nothing at all</title>" in page
+
+    def test_bands_and_clusters_name_the_layers_and_the_types(self) -> None:
+        """Review comments on the report artifact: the band headings are the
+        plain layer names — RO-Crate, ISA RO-Crate, ISA-Tox RO-Crate — and
+        each cluster caption names the entity types it actually holds, not a
+        category word. The caption is what the tiles are: "Term / parameter"
+        over three CreativeWorks made the reader guess, and guess wrong."""
+        import re
+
+        graph = self._graph()
+        # Two packaging-layer annotation entities of different types, so one
+        # cluster caption must name both types.
+        graph["@graph"] += [
+            {"@id": "#tool", "@type": "SoftwareApplication", "name": "vitro-crate"},
+            {"@id": "#doc", "@type": "CreativeWork", "name": "Readme"},
+        ]
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
+        svg = re.search(r'<svg [^>]*class="prov view overview".*?</svg>', body, re.S)
+        assert svg, "overview SVG missing"
+        svg_text = svg.group(0)
+        assert ">RO-Crate — " in svg_text
+        assert ">ISA-Tox RO-Crate — " in svg_text
+        for old in ("Packaging", "Structural", "Domain"):
+            assert old not in svg_text, f"the old layer taxonomy survived: {old}"
+        assert ">Dataset · 1</text>" in svg_text
+        assert ">MolecularEntity · 1</text>" in svg_text
+        assert ">File · 1</text>" in svg_text
+        assert ">CreativeWork / SoftwareApplication · 2</text>" in svg_text
+        for word in ("Term / parameter", "Sample / material", "File / table",
+                     "Investigation / Study / Assay"):
+            assert word not in svg_text, f"a category word survived as a caption: {word}"
 
     def test_overview_is_the_first_tab_and_selected(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))

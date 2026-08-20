@@ -85,7 +85,7 @@ def test_graph_crate_view_has_layer_subgraphs(tmp_path, capsys) -> None:
     assert rc == 0
     out = capsys.readouterr().out
     # The full crate view groups by paper layer and ships a legend.
-    assert "Domain" in out and "Legend" in out
+    assert "ISA-Tox RO-Crate" in out and "Legend" in out
 
 
 def test_graph_layer_filter_drops_domain(tmp_path, capsys) -> None:

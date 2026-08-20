@@ -490,7 +490,9 @@ def test_counts_present() -> None:
 def test_render_has_flowchart_and_layer_subgraphs() -> None:
     out = render_crate_graph(_crate(), direction="TD")
     assert out.startswith("flowchart TD")
-    assert "Packaging" in out and "Structural" in out and "Domain" in out
+    # One layer, one name, on every surface (the overview map's review names).
+    assert "RO-Crate" in out and "ISA RO-Crate" in out and "ISA-Tox RO-Crate" in out
+    assert "Packaging" not in out and "Structural" not in out and "Domain" not in out
 
 
 def test_render_has_legend_and_outside_group() -> None:
