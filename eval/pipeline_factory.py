@@ -2,7 +2,7 @@
 
 This wraps the deterministic pipeline arm (:func:`builder.agents.build.run_interactive_build`
 over :func:`builder.agents.pipeline.pipeline.run_pipeline`,
-AGENTS.md §14.2) behind the agent-agnostic :class:`~eval.agent_api.BuildAgent`
+AGENTS.md §14.5) behind the agent-agnostic :class:`~eval.agent_api.BuildAgent`
 contract — the *same* contract the live ReAct factory (:mod:`eval.react_factory`)
 implements. The harness then A/B's the two architectures by swapping which factory
 it runs (``--arch react|pipeline`` in :mod:`eval.__main__`); the corpus, metrics,
@@ -10,6 +10,8 @@ and report are unchanged.
 
 A build:
 
+0. reports ``not_applicable`` and builds nothing when the case has no input
+   directory — this arm is folder-driven by design (#609);
 1. creates a headless :class:`~builder.engine.AgentEngine` behind the production
    :class:`~builder.tools.hitl.SimulatedHumanInterface` — the SAME human the ReAct
    arm gets, so the A/B compares architectures and not environments (#609);
