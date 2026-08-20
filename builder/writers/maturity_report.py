@@ -42,6 +42,7 @@ row — the "not assessed" state remains for reports rendered from a partial ver
 from __future__ import annotations
 
 import html
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -68,6 +69,8 @@ from builder.writers.provenance_dag import (
     category_label,
     legend_swatch,
 )
+
+logger = logging.getLogger(__name__)
 
 REPORT_FILENAME = "ro-crate-metadata-maturity.html"
 
@@ -441,9 +444,9 @@ def _study_facts(
     inv = build_people_inventory(graph)
     agents = {a["id"]: a for a in inv["agents"]}
     for prop in ("contactPoint", "creator", "publisher", "author"):
+        refs = _ref_ids(root, prop)
         person = next(
-            (agents[r] for r in _ref_ids(root, prop) if agents.get(r, {}).get("kind") == "person"),
-            None,
+            (agents[r] for r in refs if agents.get(r, {}).get("kind") == "person"), None
         )
         if person:
             facts["contact"] = (person["name"], pid_url(person))
@@ -451,6 +454,12 @@ def _study_facts(
             if org:
                 org_url = pid_url(org) or (org["id"] if "://" in str(org["id"]) else None)
                 facts["affiliation"] = (org["name"], org_url)
+            break
+        # A bare literal ("creator": "Jane Doe") is legal JSON-LD and common in
+        # hand-authored crates: the crate DOES state a contact, so say it.
+        literal = next((r for r in refs if r not in nodes and "://" not in r), None)
+        if literal:
+            facts["contact"] = (literal, None)
             break
 
     funder = next((nodes[r] for r in _ref_ids(root, "funder") if r in nodes), None)
@@ -465,6 +474,18 @@ def _study_facts(
         if "not stated" in name.lower():
             break  # the depositor stated no terms — that IS the fact (#540)
         url = ref if ref.startswith(("http://", "https://")) else str(node.get("url") or "")
+        if not name:
+            # A bare licence URL is the common convention; the registry knows
+            # the reader-facing name ("CC BY 4.0"), and only when it does not
+            # is the URL's last path segment better than nothing.
+            try:
+                from profiles.licenses import describe_license
+
+                described = describe_license(ref) or describe_license(url)
+                if described:
+                    name = str(described.get("name") or "")
+            except Exception:  # noqa: BLE001 — a name lookup must not fail a report
+                logger.debug("licence lookup failed for %r", ref, exc_info=True)
         facts["licence"] = (name or ref.rstrip("/").rsplit("/", 1)[-1], url or None)
         break
 
@@ -482,7 +503,11 @@ def _study_facts(
     with_doi = [a for a in cited if a.get("doi")]
     if with_doi:
         a = with_doi[0]
-        facts["publication"] = (str(a["doi"]), _doi_text(str(a["doi"])), str(a["name"]))
+        # The inventory keeps the DOI in whatever spelling the crate used
+        # (usually the bare 10.x form); normalise so the cell links it.
+        url = _doi_url(str(a["doi"])) or ""
+        facts["publication"] = (url or None, _doi_text(url) if url else str(a["doi"]),
+                                str(a["name"]))
     elif cited:
         facts["publication"] = (None, "", str(cited[0]["name"]))
     return facts
@@ -552,9 +577,13 @@ def _render_study_card(facts: dict[str, Any]) -> str:
 
 
 def _report_id(state: CrateState, graph: dict[str, Any] | list[dict[str, Any]] | None) -> str:
-    """``MR-<date>-<hash6>`` — the date the run ended plus six hex of the
-    crate's own serialized graph (or, without one, of the state fingerprint):
-    reproducible from the crate, different for different content."""
+    """``MR-<date>-<hash6>`` — the date the run ended plus six hex of the graph
+    the report was rendered from (or, without one, of the state fingerprint).
+
+    The digest covers the document *as of report generation*: the shipped
+    ``ro-crate-metadata.json`` additionally lists the report file itself, so
+    the id identifies the content the figures were computed over rather than
+    promising byte-recomputability from the shipped file."""
     import hashlib
     import json as _json
 
@@ -614,6 +643,9 @@ def _render_crate_card(
         ts = gen.ended_at[:16].replace("T", " ")
         if gen.ended_at.endswith("Z") or "+00:00" in gen.ended_at:
             ts += " UTC"
+        elif zone := re.search(r"[+-]\d{2}:\d{2}$", gen.ended_at):
+            # An unlabelled wall time invites reading +02:00 as UTC.
+            ts += f" {zone.group(0)}"
         cells.append(cell("Created", f"<b>{esc(ts)}</b>"))
     if gen.input_tokens or gen.output_tokens:
         cells.append(
@@ -749,6 +781,26 @@ def _profile_matrix_tile(
                 f'<span class="mk {state}" aria-hidden="true">{_GLYPH[state]}</span></span>'
             )
         rows += f'<span class="pmx-p">{_lk(_PROFILE_SPEC_URLS[key], label)}</span>{cells}'
+    # Findings the validator did not attribute to a layer are reported, never
+    # dropped: a cell claiming "no findings" while the tier holds unattributed
+    # ones would be the false green this matrix exists to refuse.
+    if any(counts.get("", {}).get(t) for t in _TIER_KEYS):
+        cells = ""
+        for tier in _TIER_KEYS:
+            n = counts.get("", {}).get(tier, 0)
+            state = "no" if n else ("ok" if tier in assessed else "na")
+            title = (
+                f"{n} finding{'s' if n != 1 else ''} not attributed to a profile"
+                if n
+                else ("no findings at this level" if tier in assessed else "not assessed")
+            )
+            words = {"ok": "met", "no": "not met", "na": "not assessed"}[state]
+            cells += (
+                f'<span class="pmx-c" data-cell="unattributed-{tier}" title="{title}" '
+                f'role="img" aria-label="unattributed, {tier}: {words} — {title}">'
+                f'<span class="mk {state}" aria-hidden="true">{_GLYPH[state]}</span></span>'
+            )
+        rows += f'<span class="pmx-p">unattributed</span>{cells}'
     return (
         '<article class="kpi">'
         '<div class="kpi-h"><span class="eyebrow">Profile conformance</span></div>'
@@ -781,9 +833,10 @@ def _fair_tile(fair: FAIRReport, blockers: list[str]) -> str:
     blocked = ""
     if blockers:
         n = len(blockers)
+        names = html.escape(", ".join(blockers))
         blocked = (
-            f'<div class="blockers"><b>{n} indicator{"s" if n != 1 else ""}</b> '
-            f"to level {fair.dsm_level + 1}</div>"
+            f'<div class="blockers" title="{names}"><b>{n} '
+            f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</div>'
         )
     return (
         '<article class="kpi fair-tile">'
@@ -1386,6 +1439,8 @@ def _render_mit_section(mit: MITReport) -> str:
 def _render_recommendations(
     val: ValidationReport | None,
     graph: dict[str, Any] | list[dict[str, Any]] | None,
+    *,
+    stale: bool = False,
 ) -> str:
     """Recommendations: the findings collapsed into the actions that clear them.
 
@@ -1413,6 +1468,17 @@ def _render_recommendations(
 
     if val is None or not _validation_has_signal(val):
         return ""
+    if stale:
+        # The findings were recorded against a different crate; prescribing
+        # them here would assert a diagnosis the page's own matrix refuses.
+        return (
+            '<section id="next">\n'
+            '  <div class="sec-h"><h2>Recommendations</h2></div>\n'
+            '  <p class="lead">The last recorded verdict was computed against an earlier '
+            "version of this crate &mdash; re-run validation to get current "
+            "recommendations.</p>\n"
+            "</section>\n"
+        )
     issues = [dict(r) for r in (getattr(val, "issue_records", None) or [])]
     raw_nodes = graph.get("@graph", []) if isinstance(graph, dict) else (graph or [])
     labels = {
@@ -1469,10 +1535,12 @@ def _render_recommendations(
         rest = sum(a.cleared for a in live[_RECOMMENDATION_CAP:])
         # The cap bounds the page, not what the reader may see: the row names
         # how many findings it holds back and where they remain readable.
+        more = len(live) - _RECOMMENDATION_CAP
         rows += (
             f'<li><span class="rec-n">{rest}</span><span class="rec-b">'
-            f'<span class="rec-body">&hellip;and {len(live) - _RECOMMENDATION_CAP} smaller '
-            f"{'item' if len(live) - _RECOMMENDATION_CAP == 1 else 'items'}, in "
+            f'<span class="rec-body">&hellip;and {more} further '
+            f"{'action' if more == 1 else 'actions'} ({rest} "
+            f"{'finding' if rest == 1 else 'findings'}), in "
             '<a href="#adherence">Profile adherence</a>.</span></span></li>'
         )
     return (
@@ -1969,6 +2037,7 @@ def _render_provenance_panel(graph: dict[str, Any] | list[dict[str, Any]]) -> st
 _VIEWS: tuple[tuple[str, str, str], ...] = (
     ("mv-all", "p-all", "All entities"),
     ("mv-isa", "p-isa", "ISA structure"),
+    ("mv-data", "p-data", "Datasets"),
     ("mv-prov", "p-prov", "LabProcesses"),
     ("mv-chem", "p-chem", "Chemicals"),
     ("mv-cell", "p-cell", "Cell lines"),
@@ -2012,6 +2081,7 @@ def _render_graph_views_section(
     panels = {
         "p-all": _render_overview_panel(model),
         "p-isa": _render_isa_panel(build_isa_inventory(graph)),
+        "p-data": _render_datasets_panel(graph, model),
         "p-prov": (_render_provenance_panel(graph), ""),
         "p-chem": _render_chemicals_panel(chem_inv),
         "p-cell": _render_celllines_panel(build_cellline_inventory(graph)),
@@ -2048,6 +2118,100 @@ def _render_graph_views_section(
         f"  {_render_topology_detail(model.get('nodes', []))}\n"
         "</section>\n"
     )
+
+
+# Reader-facing words for `classify_file`'s classes, in reading order.
+_DATA_CLASS_WORDS: dict[str, str] = {
+    "raw_data_file": "raw data",
+    "processed_data_file": "processed data",
+    "protocol_file": "protocol",
+    "supplementary_file": "supplementary",
+    "documentation_file": "documentation",
+}
+
+
+def _render_datasets_panel(
+    graph: dict[str, Any] | list[dict[str, Any]], model: dict[str, Any]
+) -> tuple[str, str]:
+    """The Datasets view: every data entity the crate carries, one row each —
+    what kind of file it is, its format and size, whether it is described, and
+    whether a reader walking from the root actually reaches it.
+
+    Rows are the crate graph's own ``data``-category nodes (the same
+    classification every other view uses, #487), so this table and the
+    All-entities map cannot disagree about what counts as data. Unreachable
+    rows sort first — they are the rows worth acting on.
+
+    Returns ``("", "")`` when the crate declares no data entities.
+    """
+    esc = html.escape
+    nodes = _raw_nodes(graph)
+    rows_src = [n for n in model.get("nodes", []) if n.get("category") == "data"]
+    if not rows_src:
+        return "", ""
+
+    def fact(nid: str, *keys: str) -> str:
+        node = nodes.get(str(nid)) or {}
+        for key in keys:
+            value = node.get(key)
+            if isinstance(value, list):
+                value = value[0] if value else None
+            if isinstance(value, dict):
+                value = value.get("@value")
+            if value not in (None, "", []):
+                return str(value)
+        return ""
+
+    def size_words(raw: str) -> str:
+        try:
+            n = int(float(raw))
+        except (TypeError, ValueError):
+            return esc(raw)
+        for unit in ("B", "KB", "MB", "GB"):
+            if n < 1024 or unit == "GB":
+                return f"{n:,} {unit}" if unit == "B" else f"{n:,.0f} {unit}"
+            n //= 1024
+        return esc(raw)
+
+    ordered = sorted(
+        rows_src, key=lambda n: (not n.get("orphan"), str(n.get("label") or "").casefold())
+    )
+    body_rows = []
+    for n in ordered:
+        nid = str(n.get("id"))
+        name = str(n.get("label") or nid)  # label is pre-escaped by the model
+        kind, _reason = classify_file(name, "", nid)
+        fmt = fact(nid, "encodingFormat", "format")
+        size = fact(nid, "contentSize")
+        described = bool(fact(nid, "description"))
+        reachable = not n.get("orphan")
+        body_rows.append(
+            f'<tr><th scope="row">{_mk("ok" if reachable else "no")}'
+            f'<span class="cn">{name}</span>'
+            f'<span class="ty">{_DATA_CLASS_WORDS.get(kind, "file")}</span></th>'
+            f"<td>{esc(fmt) if fmt else _mk('no')}</td>"
+            f"<td>{size_words(size) if size else _mk('no')}</td>"
+            f"<td>{_mk('ok' if described else 'no')}</td>"
+            f"<td>{_mk('ok' if reachable else 'no')}</td></tr>"
+        )
+    unreached = sum(1 for n in rows_src if n.get("orphan"))
+    note = (
+        f'<p class="chem-warn">{_mk("no")}<span><b>{unreached} of {len(rows_src)} data '
+        "entities cannot be reached from the crate root.</b> A reader walking the crate "
+        "never arrives at them — link each from the Dataset or process that owns it."
+        "</span></p>"
+        if unreached
+        else '<p class="good-note">Every data entity is reachable from the crate root.</p>'
+    )
+    table = (
+        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+        '<caption class="sr-only">The crate&#x27;s data entities</caption>'
+        '<thead><tr><th scope="col">Data entity</th><th scope="col">Format</th>'
+        '<th scope="col">Size</th><th scope="col" title="Has a description">Described</th>'
+        '<th scope="col" title="Reachable from the crate root">Reachable</th></tr></thead>'
+        f"<tbody>{''.join(body_rows)}</tbody></table></div>"
+    )
+    return f"{note}\n  {table}", str(len(rows_src))
 
 
 _CHEM_STATE_MARK = {"wired": "ok", "mentioned": "na", "unlinked": "no"}
@@ -2676,7 +2840,7 @@ def build_maturity_html(
         + prof_section
         + mit_section
         + repro_section
-        + _render_recommendations(val, graph)
+        + _render_recommendations(val, graph, stale=stale)
         + _render_references()
         + footer
     )
