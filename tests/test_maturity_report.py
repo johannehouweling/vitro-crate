@@ -691,6 +691,27 @@ class TestFairTileAndRose:
         assert ".mat .rose-wrap .rw:hover .rw-l { opacity:1; }" in css
         assert "svg:hover .rw:not(:hover) path" in css
 
+    def test_the_rose_tile_carries_no_iuclid_chip(self) -> None:
+        """The tile's header is the principle eyebrow alone: the "IUCLID DB"
+        link chip that once sat beside it is gone, assessed or not (owner's
+        review, #606 lane). The orphaned `.chip-link` rule leaves with it."""
+        from builder.state import MITReport
+        from builder.writers.maturity_report import _CSS_PATH, _mit_rose_tile
+
+        assessed = _mit_rose_tile(
+            MITReport(
+                module_scores={"Test System": {"completed": 1, "total": 2}},
+                overall_score=0.5,
+            )
+        )
+        unassessed = _mit_rose_tile(MITReport())
+        for tile in (assessed, unassessed):
+            assert "IUCLID" not in tile
+            assert "iuclid6.echa.europa.eu" not in tile
+            assert "chip-link" not in tile
+            assert '<span class="eyebrow">FAIR principle 1.3' in tile
+        assert ".chip-link" not in _CSS_PATH.read_text(encoding="utf-8")
+
     def test_the_footnote_superscripts_resolve(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
         for fn in ("fn-dsm", "fn-mit"):

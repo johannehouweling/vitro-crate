@@ -949,16 +949,11 @@ def _mit_rose_svg(mit: MITReport) -> str:
 
 def _mit_rose_tile(mit: MITReport) -> str:
     """FAIR principle 1.3 — the domain (MIT) coverage tile: the aggregate score
-    over the module rose, with the IUCLID link chip the checklist targets. An
-    unmeasured MITReport renders "not assessed", never 0% (#311)."""
-    chip = (
-        '<a class="chip-link" href="https://iuclid6.echa.europa.eu/" '
-        'title="IUCLID — the OECD/ECHA database this reporting checklist targets">'
-        "IUCLID DB &#8599;</a>"
-    )
+    over the module rose. An unmeasured MITReport renders "not assessed",
+    never 0% (#311)."""
     head = (
         '<div class="kpi-h"><span class="eyebrow">FAIR principle 1.3'
-        f'<a class="fn" href="#fn-mit">2</a></span>{chip}</div>'
+        '<a class="fn" href="#fn-mit">2</a></span></div>'
     )
     if not mit_was_assessed(mit):
         return (
