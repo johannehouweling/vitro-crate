@@ -1329,8 +1329,9 @@ class TestChemicalsSection:
         # identification lives in the matrix row (the KPI tile and the caption
         # are gone, #606): five ✓ against two ✗.
         cells = [
-            re.search(r'class="mk (ok|no)"', c).group(1)  # type: ignore[union-attr]
+            m.group(1)
             for c in re.findall(r"<td>(.*?)</td>", self._compound_row(page), re.S)
+            if (m := re.search(r'class="mk (ok|no)"', c))
         ]
         assert cells.count("ok") == 5 and cells.count("no") == 2
         assert "The substances under test" not in page
