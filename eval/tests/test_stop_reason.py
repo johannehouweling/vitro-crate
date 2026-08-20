@@ -16,7 +16,7 @@ import pytest
 
 from builder.state import CrateState
 from eval.agent_api import BuildOutcome
-from eval.corpus import DEFAULT_CORPUS, EvalCase
+from eval.corpus import DEFAULT_CORPUS, EvalCase, first_folder_case
 from eval.pipeline_factory import PipelineBuildAgent
 from eval.react_factory import ReActBuildAgent
 from eval.runner import run_eval
@@ -58,7 +58,7 @@ class TestReActStopReason:
 class TestPipelineStopReason:
     def test_completed_on_success(self) -> None:
         agent = PipelineBuildAgent(pipeline_runner=lambda e: {"ok": True})
-        outcome = agent.build(DEFAULT_CORPUS[0])
+        outcome = agent.build(first_folder_case())
         assert outcome.stop_reason == "completed"
 
     def test_error_on_exception(self) -> None:
@@ -66,7 +66,7 @@ class TestPipelineStopReason:
             raise RuntimeError("pipeline exploded")
 
         agent = PipelineBuildAgent(pipeline_runner=boom)
-        outcome = agent.build(DEFAULT_CORPUS[0])
+        outcome = agent.build(first_folder_case())
         assert outcome.stop_reason == "error"
 
 

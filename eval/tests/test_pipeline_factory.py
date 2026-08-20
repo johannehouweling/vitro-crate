@@ -17,7 +17,7 @@ from builder.engine import AgentEngine
 from builder.state import CrateState
 from builder.tools.hitl import SimulatedHumanInterface
 from eval.agent_api import BuildAgent, BuildOutcome
-from eval.corpus import DEFAULT_CORPUS
+from eval.corpus import DEFAULT_CORPUS, EvalCase, first_folder_case
 from eval.pipeline_factory import PipelineBuildAgent, make_pipeline_agent_factory
 
 # The pipeline drives the SHACL validator; give the module headroom over the CLI
@@ -38,7 +38,7 @@ class TestPipelineAgentWiring:
         engine = make_pipeline_agent_factory()()._make_engine()
         assert type(engine.human_interface) is SimulatedHumanInterface
 
-    def test_build_returns_conformant_outcome(self) -> None:
+    def test_build_returns_conformant_outcome(self, tmp_path) -> None:
         """A real build of the minimal case reaches BASE + ISA conformance.
 
         TOX does not pass here, and that is correct rather than a regression: the
@@ -50,8 +50,19 @@ class TestPipelineAgentWiring:
         """
         from eval.corpus import reaches_isa_tox_conformance
 
+        # A folder-backed case, because the arm only attempts those (#609) — the
+        # folder is empty, so the spine still scaffolds from nothing, which is
+        # what this test is about.
+        deposit = tmp_path / "deposit"
+        deposit.mkdir()
+
         agent = PipelineBuildAgent()
-        minimal = next(c for c in DEFAULT_CORPUS if c.kind == "minimal")
+        minimal = EvalCase(
+            case_id="empty-deposit",
+            description="an input directory with nothing in it",
+            kind="minimal",
+            input_path=str(deposit),
+        )
         outcome = agent.build(minimal)
 
         assert isinstance(outcome, BuildOutcome)
@@ -77,7 +88,7 @@ class TestPipelineAgentWiring:
             return {"ok": True, "conformance": {}}
 
         agent = PipelineBuildAgent(pipeline_runner=fake_pipeline)
-        outcome = agent.build(DEFAULT_CORPUS[0])
+        outcome = agent.build(first_folder_case())
         assert seen.get("called") is True
         assert outcome.state is seen["state"]
 
@@ -98,7 +109,7 @@ class TestPipelineAgentWiring:
             raise RuntimeError("pipeline exploded")
 
         agent = PipelineBuildAgent(pipeline_runner=boom)
-        outcome = agent.build(DEFAULT_CORPUS[0])
+        outcome = agent.build(first_folder_case())
         assert outcome.error is not None
         assert "pipeline exploded" in outcome.error
         assert isinstance(outcome.state, CrateState)
@@ -206,7 +217,7 @@ class TestPipelineAgentModelOverrides:
 
         pinned = ModelOverrides(provider="openai", model="gpt-5.6-luna")
         agent = PipelineBuildAgent(pipeline_runner=_runner, overrides=pinned)
-        agent.build(DEFAULT_CORPUS[0])
+        agent.build(first_folder_case())
 
         assert seen.get("overrides") == pinned
 
@@ -243,7 +254,7 @@ class TestPipelineAgentModelOverrides:
         agent = PipelineBuildAgent(
             pipeline_runner=_narrow_runner, overrides=ModelOverrides(model="x")
         )
-        outcome = agent.build(DEFAULT_CORPUS[0])
+        outcome = agent.build(first_folder_case())
 
         assert len(calls) == 1
         assert outcome.error is None

@@ -81,3 +81,96 @@ class TestNeitherArmEscalatesValidation:
             monkeypatch.setattr(engine, "run_tool", _record)
             agent_loop._run_validation_escalation(engine, {"ok": True})
             assert calls == [], f"{arm} escalated: {calls}"
+
+
+class TestBothArmsAreScoredAtTheSameStage:
+    """Export is not a formality — it MUTATES the crate.
+
+    ``export_crate`` runs an optional-tier ``ensure_validated`` and
+    ``wire_unreferenced_domain_entities`` (its only caller), which ``set_fields``
+    on loose MolecularEntity / CellLineSample entities. The ReAct arm exports
+    from inside its loop (``_auto_export_after_build``), so it was scored on a
+    wired, optional-swept crate while the pipeline arm was scored on the state
+    the spine left behind — a difference in the measurement, not in the
+    architectures (#609).
+    """
+
+    def test_the_pipeline_arm_exports_like_the_react_arm(self, tmp_path: Path) -> None:
+        from eval.corpus import EvalCase
+
+        deposit = tmp_path / "deposit"
+        deposit.mkdir()
+        (deposit / "readme.txt").write_text("an in vitro assay\n", encoding="utf-8")
+
+        def _spine(engine, **kwargs):
+            engine.state.metadata.title = "Exported study"
+            return {"conformance": {}}
+
+        agent = make_pipeline_agent_factory()()
+        agent._pipeline_runner = _spine
+        case = EvalCase(
+            case_id="export-probe",
+            description="",
+            kind="structured",
+            prompt="build it",
+            input_path=str(deposit),
+        )
+
+        outcome = agent.build(case)
+
+        assert outcome.state.metadata.exported_at, (
+            "the pipeline arm was scored on a crate that was never exported, "
+            "while the ReAct arm's crate was"
+        )
+
+
+class TestAProblemNeitherArmCanShareIsNotAWin:
+    """Two corpus cases carry a prompt and no input directory. The pipeline is
+    folder-driven **by design** — ``main.py`` refuses ``--interactive`` with no
+    input and points the user at ``--react`` — so it never read ``case.prompt``,
+    scaffolded an empty crate, passed conformance and was scored a win at $0
+    while the ReAct arm drafted the whole study from the brief. That is the
+    cheapest possible way to look cheap (#609).
+    """
+
+    def test_a_prompt_only_case_is_not_applicable_to_the_pipeline(self) -> None:
+        from eval.corpus import EvalCase
+
+        case = EvalCase(
+            case_id="prompt-only", description="", kind="unstructured", prompt="build it"
+        )
+        outcome = make_pipeline_agent_factory()().build(case)
+
+        assert outcome.stop_reason == "not_applicable"
+
+    def test_a_not_applicable_case_is_left_out_of_the_arm_average(self) -> None:
+        """Averaging in a case one arm cannot attempt reports a capability gap as
+        a cost win. It is counted and named instead."""
+        from eval.runner import CaseResult, EvalReport
+
+        run = EvalReport(
+            label="pipeline",
+            repeats=1,
+            results=[
+                CaseResult(
+                    case_id="real", kind="structured", success=True, conformance={},
+                    issues=[], input_tokens=1000, output_tokens=500, tool_calls=4,
+                    iterations=2, latency_seconds=10.0, crate_hashes=["a"],
+                    deterministic=None, repeats=1, stop_reason="completed",
+                    total_tokens_per_repeat=[1500],
+                ),
+                CaseResult(
+                    case_id="prompt-only", kind="unstructured", success=False,
+                    conformance={}, issues=[], input_tokens=0, output_tokens=0,
+                    tool_calls=0, iterations=0, latency_seconds=0.0, crate_hashes=[],
+                    deterministic=None, repeats=1, stop_reason="not_applicable",
+                    total_tokens_per_repeat=[0],
+                ),
+            ],
+        )
+        summary = run.summary()
+
+        assert summary["num_not_applicable"] == 1
+        assert summary["num_cases_compared"] == 1
+        assert summary["success_rate"] == 1.0, "the skipped case dragged the average"
+        assert summary["mean_total_tokens"] == 1500.0

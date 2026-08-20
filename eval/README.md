@@ -49,6 +49,14 @@ than the arm users run: no wall-clock timeout guard, no self-continue, and no au
 continuation, so a turn that narrated instead of asking ended the measured build then
 and there (#609). The model-driving step is injected so the wiring is unit-tested offline.
 
+`PipelineBuildAgent` reports a case with **no input directory** as
+`not_applicable` and does not build it. That arm is folder-driven by design —
+`main.py --interactive` refuses to run with nothing scanned and points the user at
+`--react` — so it never read `case.prompt`; left to run, it scaffolded an empty crate,
+passed conformance and scored a win at $0 against an arm that drafted the whole study
+from the brief. Not-applicable cases are counted (`num_not_applicable`) and left out of
+every average; `num_cases_compared` is the denominator for the rest (#609).
+
 `PipelineBuildAgent` wraps the deterministic spine (`builder/agents/pipeline.py::run_pipeline`,
 AGENTS.md §14.5): same headless-engine + `initialize()` setup, but instead of driving
 the model it runs the code-driven spine (scaffold → draft → build_and_validate → bounded
