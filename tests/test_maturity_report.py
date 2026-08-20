@@ -3004,6 +3004,17 @@ class TestOverviewPanel:
                      "Investigation / Study / Assay"):
             assert word not in svg_text, f"a category word survived as a caption: {word}"
 
+    def test_the_legend_carries_no_category_words(self) -> None:
+        """Review comment: every word on this view should be a schema.org /
+        bioschemas type. The cluster captions now name the types, so the
+        category-word swatch list would either duplicate them or lie (one
+        colour spans several types) — it is dropped. The reachability keys
+        stay: solid/outlined is a state no caption names."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
+        assert 'ov-key cat-' not in panel, "the category swatch list survived"
+        assert 'ov-key orphan isolated' in panel, "the reachability key was lost"
+
     def test_overview_is_the_first_tab_and_selected(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
         assert body.index('for="mv-all"') < body.index('for="mv-isa"')
