@@ -1832,7 +1832,9 @@ def _materialize_plan(
     try:
         from builder.tools.file_descriptions import describe_payload_files
 
-        result["described_files"] = len(describe_payload_files(engine.state))
+        result["described_files"] = len(
+            describe_payload_files(engine.state, usage_sink=usage_sink, overrides=overrides)
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("File description pass failed (non-fatal): %s", exc)
         result["described_files"] = 0

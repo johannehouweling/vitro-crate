@@ -251,3 +251,31 @@ class TestABinaryFileIsStillDescribableFromItsContent:
         )
 
         assert seen == []
+
+
+class TestTheLeafSeesThePinnedModel:
+    def test_overrides_and_sink_reach_the_default_leaf(self, crate_with_files, monkeypatch) -> None:
+        """#608: with no injected ``describe_fn`` the pinned model and the usage sink
+        are bound onto ``leaves.describe_files`` — otherwise ``--model X`` runs this
+        pass on the environment default and its tokens never reach the ledger."""
+        from builder.agents.llm import ModelOverrides
+        from builder.agents.pipeline import leaves
+
+        seen: dict = {}
+
+        def _leaf(files, *, overrides=None, usage_sink=None):
+            seen["overrides"] = overrides
+            seen["usage_sink"] = usage_sink
+            return ["Per-well absorbance readings." for _ in files]
+
+        monkeypatch.setattr(leaves, "describe_files", _leaf)
+        pinned = ModelOverrides(model="pinned")
+
+        def sink(i, o, m) -> None:
+            return None
+
+        written = describe_payload_files(crate_with_files, usage_sink=sink, overrides=pinned)
+
+        assert len(written) == 1
+        assert seen["overrides"] is pinned
+        assert seen["usage_sink"] is sink

@@ -24,10 +24,14 @@ content could not be read is never sent to the model at all.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from builder.state import CrateState, Entity
+
+if TYPE_CHECKING:
+    from builder.agents.llm import ModelOverrides, UsageSink
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +94,8 @@ def describe_payload_files(
     *,
     describe_fn: Any = None,
     limit: int | None = None,
+    usage_sink: UsageSink | None = None,
+    overrides: ModelOverrides | None = None,
 ) -> list[tuple[str, str]]:
     """Fill ``description`` on File entities that have none, from their content.
 
@@ -110,14 +116,20 @@ def describe_payload_files(
     Args:
         state: The crate state; File entities are read and updated in place.
         describe_fn: The leaf to call. Injected so tests drive this without a
-            provider, and so a caller can supply model overrides.
+            provider; an injected leaf owns its own model and sink.
         limit: Stop after this many files. ``None`` means all of them.
+        usage_sink: Token accounting for the default leaf — the same sink the
+            spine's other leaves report to, so this pass is on the ledger.
+        overrides: The run's model pin (``--model``), bound onto the default
+            leaf so this pass runs on the same model as the rest of the build.
 
     Returns:
         The ``(entity_id, description)`` pairs written, in the order written.
     """
     if describe_fn is None:
-        from builder.agents.pipeline.leaves import describe_files as describe_fn
+        from builder.agents.pipeline.leaves import describe_files
+
+        describe_fn = partial(describe_files, overrides=overrides, usage_sink=usage_sink)
 
     candidates: list[tuple[Entity, str]] = []
     for entity in state.list_entities("File"):

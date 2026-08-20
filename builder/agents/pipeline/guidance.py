@@ -1925,7 +1925,9 @@ def run_guidance(
         if len(group) > 1:
             grouped = [report.gaps[i] for i in group]
             group_identities = {_gap_identity(g) for g in grouped}
-            applied = _resolve_person_group(engine, human, grouped, asked=asked, usage_sink=sink)
+            applied = _resolve_person_group(
+                engine, human, grouped, asked=asked, usage_sink=sink, overrides=overrides
+            )
             cleared: set[GapIdentity] = set()
             if applied:
                 # State changed: re-assess, then run the #375 "did it actually
@@ -1956,7 +1958,13 @@ def run_guidance(
         identity = _gap_identity(gap)
         resolved_before = len(resolved)
         progressed = _resolve_gap(
-            engine, human, gap, resolved=resolved, asked=asked, usage_sink=sink
+            engine,
+            human,
+            gap,
+            resolved=resolved,
+            asked=asked,
+            usage_sink=sink,
+            overrides=overrides,
         )
 
         if progressed:
