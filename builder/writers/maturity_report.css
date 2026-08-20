@@ -22,9 +22,12 @@
 .mat .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; }
 .mat .den { color:var(--muted); font-weight:500; }
 
-/* header */
+/* header — the masthead's hairline closes BELOW the About cards, so the rule
+   separates the whole header region from the KPI grid, not the h1 from its
+   own cards. */
+.mat .masthead { padding-bottom:1.1rem; border-bottom:1px solid var(--hairline); }
 .mat header { display:flex; flex-wrap:wrap; gap:1rem 1.4rem; align-items:flex-start;
-  justify-content:space-between; padding-bottom:1.1rem; border-bottom:1px solid var(--hairline); }
+  justify-content:space-between; }
 .mat .h-left { min-width:min(100%,26rem); }
 .mat .kicker { display:flex; align-items:center; gap:.5rem; margin-bottom:.35rem; }
 .mat .chip { font-size:.72rem; padding:.12rem .5rem; border-radius:999px; background:var(--surface-2);
@@ -48,7 +51,7 @@
   border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent); }
 .mat a.lk:hover { border-bottom-color:var(--accent); }
 .mat .hnote { margin-top:.7rem; padding-top:.6rem; border-top:1px solid var(--hairline);
-  font-size:.78rem; line-height:1.55; color:var(--muted); text-wrap:pretty; }
+  font-size:.78rem; line-height:1.55; color:var(--ink-2); text-wrap:pretty; }
 .mat .hcode { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.75rem;
   background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
   padding:.06rem .32rem; color:var(--ink); }
@@ -57,11 +60,18 @@
 .mat .kgrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
   grid-auto-rows:minmax(8.25rem,auto); gap:.8rem; margin:1.3rem 0 .85rem; }
 .mat .kpi.rose-tile { grid-row:span 2; }
+/* Without a graph there is no Graph tile; the reproducibility tile widens so
+   the second row carries no empty cell. */
+.mat .kpi.wide { grid-column:span 2; }
 .mat .kpi { background:var(--surface); border:1px solid var(--border); border-radius:12px;
   padding:.85rem .95rem; display:flex; flex-direction:column; gap:.5rem; }
 .mat .kpi-h { display:flex; align-items:center; justify-content:space-between; gap:.5rem; min-height:1.1rem; }
 .mat .kpi-v { display:flex; align-items:baseline; gap:.35rem; }
-.mat .kpi-v b { font-size:2rem; line-height:1; font-weight:680; letter-spacing:-.02em; }
+.mat .kpi-v b { font-size:1.75rem; line-height:1; font-weight:680; letter-spacing:-.02em; }
+/* The domain score is the grid's largest figure; the gated DSM level its
+   smallest — the target's 26/28/32 grading. */
+.mat .kpi.rose-tile .kpi-v b { font-size:2rem; }
+.mat .kpi.fair-tile .kpi-v b { font-size:1.625rem; }
 .mat .tag-inline { font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
 .mat .kpi-sub { font-size:.78rem; color:var(--muted); margin-top:-.15rem; }
 
@@ -109,7 +119,7 @@
 .mat .rose-wrap { flex:1; display:flex; align-items:center; justify-content:center;
   min-height:7.4rem; max-height:8.15rem; }
 .mat .rose-wrap svg { display:block; height:100%; width:auto; max-width:100%; }
-.mat .tile-note { font-size:.72rem; line-height:1.4; color:var(--muted); }
+.mat .tile-note { font-size:.72rem; line-height:1.4; color:var(--ink-2); }
 
 /* status marks */
 .mat .mk { display:inline-flex; align-items:center; justify-content:center; width:1.15rem; height:1.15rem;
@@ -173,8 +183,8 @@
 }
 /* The bars carry their meaning in their fill; do not let print or
    forced-colours strip it. */
-.mat .meter, .mat .meter * { print-color-adjust:exact; -webkit-print-color-adjust:exact;
-  forced-color-adjust:none; }
+.mat .meter, .mat .meter *, .mat .rung2, .mat .rung2 > i, .mat .dot {
+  print-color-adjust:exact; -webkit-print-color-adjust:exact; forced-color-adjust:none; }
 
 /* profile detail */
 .mat .prof-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.6rem; }
@@ -285,6 +295,7 @@ __CATEGORY_STYLES__
   font-size:.85rem; font-weight:580; color:var(--ink-2); padding:.34rem .75rem;
   border-radius:999px; border:1px solid transparent; white-space:nowrap; }
 .mat .tabbar .tab:hover { background:var(--surface-2); color:var(--ink); }
+.mat .tabbar .tb-n { font-weight:560; }
 .mat .tabbar .tb-c { font-size:.7rem; color:var(--muted); font-variant-numeric:tabular-nums;
   background:var(--surface-2); border-radius:999px; padding:.02rem .38rem; }
 .mat .panel { display:none; }
@@ -429,7 +440,8 @@ __CATEGORY_STYLES__
 .mat .rec-top { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
 .mat .rec-chip { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.73rem;
   line-height:1.45; color:var(--ink-2); background:var(--surface-2);
-  border:1px solid var(--border); border-radius:3px; padding:.06rem .4rem; }
+  border:1px solid var(--border); border-radius:3px; padding:.06rem .4rem;
+  overflow-wrap:anywhere; min-width:0; }
 .mat .rec-badge { font-size:.62rem; font-weight:600; text-transform:uppercase;
   letter-spacing:.06em; padding:.06rem .4rem; border-radius:5px; }
 .mat .rec-badge.req { color:var(--low-ink); background:color-mix(in srgb,var(--low) 12%,transparent);
@@ -440,7 +452,7 @@ __CATEGORY_STYLES__
   border:1px solid var(--border); }
 .mat .rec-body { display:block; margin-top:.3rem; }
 .mat .rec-do { color:var(--ink); font-weight:600; }
-.mat .rec-why { color:var(--muted); }
+.mat .rec-why { color:var(--ink-2); }
 
 /* References — the numbered notes the page's superscripts point at */
 .mat .refs { margin:.85rem .1rem 0; padding-top:.7rem; border-top:1px solid var(--hairline);
@@ -460,15 +472,17 @@ __CATEGORY_STYLES__
    ~780px the name column would leave it ~270px, a one-field span 1–2px. */
 @media (max-width:780px){
   .mat .mrow{grid-template-columns:1fr auto;} .mat .mrow .mbar{grid-column:1/-1;order:3;}
-  .mat .kgrid{grid-template-columns:1fr 1fr;} .mat .kpi.rose-tile{grid-row:auto;}
+  .mat .kgrid{grid-template-columns:1fr 1fr;}
   .mat .hgrid{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
 @media (max-width:520px){
   .mat .kgrid{grid-template-columns:1fr;} .mat .hgrid{grid-template-columns:1fr;}
+  .mat .kpi.rose-tile{grid-row:auto;} .mat .kpi.wide{grid-column:auto;}
 }
 @media print{
   .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
   .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}
+  .mat .hcard,.mat ol.recs > li,.mat .refs{break-inside:avoid;}
   .mat details{display:block;} .mat .disc[open] summary{display:none;}
   /* A severity row is the index of what it holds, so print keeps the row AND
      unfolds it — a printed report never loses findings to a closed fold. */

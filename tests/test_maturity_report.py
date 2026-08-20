@@ -348,7 +348,7 @@ class TestProfileConformanceMatrix:
         return {
             m.group(1): (m.group(3), m.group(2))
             for m in re.finditer(
-                r'data-cell="([\w-]+)" title="([^"]*)"><span class="mk (ok|no|na)"', page
+                r'data-cell="([\w-]+)" title="([^"]*)"[^>]*><span class="mk (ok|no|na)"', page
             )
         }
 
@@ -630,7 +630,7 @@ class TestProvenanceSection:
     def test_graph_renders_provenance_and_topology(self) -> None:
         state = vhps_fixture_state("S-VHPS21")
         page = build_maturity_html(state, graph=self._chain_graph())
-        assert "Provenance" in page
+        assert "LabProcesses" in page  # the view's tab label (renamed, owner's call)
         assert 'class="prov"' in page  # the inline derivation-chain SVG
         assert "result.csv" in page
         assert "Graph topology" in page  # the relocated topology strip
@@ -873,7 +873,9 @@ class TestMitModuleColours:
         assert "display:flex" in pill and "flex:1 1 0" in pill and "border-radius:999px" in pill
         assert "background:var(--mod)" in rule(".mat .meter.stack .seg")
         assert "background:var(--mod-pale)" in rule(".mat .meter.stack .seg.pale")
-        assert "print-color-adjust:exact" in rule(".mat .meter, .mat .meter *")
+        assert "print-color-adjust:exact" in rule(
+            ".mat .meter, .mat .meter *, .mat .rung2, .mat .rung2 > i, .mat .dot"
+        )
         mit_block = css[css.index("/* MIT */") : css.index("/* profile detail */")]
         rules_only = re.sub(r"/\*.*?\*/", "", mit_block, flags=re.S)  # "#606" is an issue, not a hex
         assert not re.search(r"#[0-9a-f]{3,6}\b", rules_only), "MIT rules hardcode a colour"
@@ -1549,7 +1551,7 @@ class TestGraphViewTabs:
         for label in (
             "All entities",
             "ISA structure",
-            "Provenance",
+            "LabProcesses",
             "Chemicals",
             "Cell lines",
             "People &amp; orgs",
