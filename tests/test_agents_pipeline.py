@@ -941,6 +941,37 @@ class TestMaterializePlan:
     def _by_type(self, engine: AgentEngine, type_name: str) -> list[Entity]:
         return [e for e in engine.state.list_entities() if e.type == type_name]
 
+    def test_the_file_description_pass_sees_the_pinned_model_and_sink(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#608: the payload-description pass is an LLM leaf like ``extract_plan``
+        and must see the same ``overrides`` + ``usage_sink`` the spine was given."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.agents.llm import ModelOverrides
+        from builder.tools import file_descriptions
+
+        seen: dict[str, Any] = {}
+
+        def _capture(state, **kw):
+            seen.update(kw)
+            return []
+
+        monkeypatch.setattr(file_descriptions, "describe_payload_files", _capture)
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+        engine = _engine(self._titled_state(), deposit=True)
+        pipeline_mod._scaffold_backbone(engine)
+        pinned = ModelOverrides(model="pinned")
+
+        def sink(i, o, m) -> None:
+            return None
+
+        pipeline_mod._materialize_plan(engine, usage_sink=sink, overrides=pinned)
+
+        assert seen.get("overrides") is pinned
+        assert seen.get("usage_sink") is sink
+
     def test_materializes_plan_entities(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import builder.agents.pipeline.pipeline as pipeline_mod
 

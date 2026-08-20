@@ -2238,6 +2238,13 @@ Contract:
   anything, §14.5 step 2) and must not import `langchain`. Deriving the bound
   schema and the spine's skip rule from the same function is what keeps them
   from drifting apart.
+- **One model, one ledger.** Every leaf — `draft_entity_fields`, `extract_plan`,
+  `describe_files` (driven by `builder/tools/file_descriptions.describe_payload_files`),
+  and the guidance tail's question/answer leaves — takes the run's `ModelOverrides` and `UsageSink`
+  from its caller; no leaf resolves the model from the environment on its own.
+  `run_pipeline` and `run_guidance` forward both to each call, so `--model X`
+  pins the whole interactive build and every leaf's tokens reach the same
+  profile ledger the ReAct model node writes (#399, #608).
 
 **Fidelity beyond validity — deterministic build-path wiring, not new LLM tools.**
 Reproducing the richer structure of a real gold crate is done through `_crate_mapping`

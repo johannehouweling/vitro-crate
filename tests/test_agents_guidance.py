@@ -2973,3 +2973,33 @@ class TestPersonGapGrouping:
             self._gap("http://schema.org/creator"),
         ]
         assert self._group(gaps) == [0]
+
+
+class TestTheGuidanceTailHonoursTheModelPin:
+    def test_overrides_reach_every_gap_resolution(self, monkeypatch):
+        """#608: ``run_guidance(..., overrides=)`` forwards the pin to both leaf
+        callers — ``_resolve_gap`` and the grouped ``_resolve_person_group`` — so
+        ``--interactive --model X`` does not run the tail on the environment default."""
+        from builder.agents.llm import ModelOverrides
+        from builder.agents.pipeline import guidance
+
+        seen: list = []
+
+        def _resolve_gap(engine, human, gap, **kw):
+            seen.append(kw.get("overrides"))
+            return False
+
+        def _resolve_person_group(engine, human, gaps, **kw):
+            seen.append(kw.get("overrides"))
+            return []
+
+        monkeypatch.setattr(guidance, "_resolve_gap", _resolve_gap)
+        monkeypatch.setattr(guidance, "_resolve_person_group", _resolve_person_group)
+        pinned = ModelOverrides(model="pinned")
+
+        guidance.run_guidance(
+            AgentEngine(state=_backbone()), ScriptedHuman(), max_rounds=3, overrides=pinned
+        )
+
+        assert seen, "no gap was resolved — the fixture must produce an actionable gap"
+        assert all(o is pinned for o in seen)
