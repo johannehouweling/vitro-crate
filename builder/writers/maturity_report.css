@@ -31,9 +31,32 @@
   border:1px solid var(--border); color:var(--ink-2); }
 .mat .sub { color:var(--ink-2); margin:.4rem 0 0; font-size:.92rem; }
 
-/* KPI tiles */
-.mat .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(11.5rem,1fr)); gap:.8rem;
-  margin:1.3rem 0; }
+/* Header cards — About this study / About this RO-Crate (#606 handoff) */
+.mat .subhead { margin:.35rem 0 0; font-size:1rem; font-weight:600; line-height:1.35;
+  color:var(--ink); max-width:74ch; text-wrap:pretty; }
+.mat .hcard { background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:.8rem .95rem; margin:.85rem 0 0; }
+.mat .hcard-h { font-size:.68rem; font-weight:650; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); margin-bottom:.55rem; }
+.mat .hgrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.55rem 1.25rem;
+  font-size:.82rem; line-height:1.45; color:var(--ink-2); }
+.mat .hlabel { display:block; font-size:.72rem; color:var(--muted); }
+.mat .hstack { display:block; margin-top:.45rem; }
+.mat .hcell b { color:var(--ink); font-weight:600; }
+.mat .not-stated { color:var(--muted); font-style:italic; }
+.mat a.lk { color:var(--accent); text-decoration:none;
+  border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent); }
+.mat a.lk:hover { border-bottom-color:var(--accent); }
+.mat .hnote { margin-top:.7rem; padding-top:.6rem; border-top:1px solid var(--hairline);
+  font-size:.78rem; line-height:1.55; color:var(--muted); text-wrap:pretty; }
+.mat .hcode { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.75rem;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
+  padding:.06rem .32rem; color:var(--ink); }
+
+/* KPI tiles: a 3-column grid on two rows, the rose tile spanning both */
+.mat .kgrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-auto-rows:minmax(8.25rem,auto); gap:.8rem; margin:1.3rem 0 .85rem; }
+.mat .kpi.rose-tile { grid-row:span 2; }
 .mat .kpi { background:var(--surface); border:1px solid var(--border); border-radius:12px;
   padding:.85rem .95rem; display:flex; flex-direction:column; gap:.5rem; }
 .mat .kpi-h { display:flex; align-items:center; justify-content:space-between; gap:.5rem; min-height:1.1rem; }
@@ -55,9 +78,38 @@
 .mat .dots { display:flex; gap:.28rem; }
 .mat .dot { width:.85rem; height:.85rem; border-radius:50%; }
 .mat .dot.on { background:var(--good); } .mat .dot.off { background:var(--track); }
-.mat .ladder { display:flex; gap:.22rem; }
-.mat .rung { flex:1; height:.5rem; border-radius:2px; }
-.mat .rung.on { background:var(--accent); } .mat .rung.off { background:var(--track); }
+/* The DSM ladder: achieved rungs solid, the NEXT rung dashed red and filled to
+   the ratio of indicators already met — a gated 0 must not read as "nothing
+   done" — later rungs the track. */
+.mat .ladder2 { display:flex; gap:.22rem; }
+.mat .rung2 { flex:1; height:.56rem; border-radius:2px; background:var(--track); }
+.mat .rung2.done { background:var(--good); }
+.mat .rung2.next { background:color-mix(in srgb,var(--low) 9%,transparent);
+  border:1px dashed var(--low); overflow:hidden; }
+.mat .rung2.next > i { display:block; height:100%;
+  background:color-mix(in srgb,var(--low) 42%,transparent); }
+.mat .blockers { margin-top:auto; font-size:.78rem; color:var(--low-ink); }
+.mat .blockers b { font-weight:700; }
+.mat .fn { color:var(--accent); text-decoration:none; font-size:.58rem;
+  vertical-align:super; margin-left:1px; }
+
+/* Profile × requirement-level conformance matrix */
+.mat .pmx { display:grid; grid-template-columns:1fr auto auto auto; gap:.5rem .6rem;
+  align-items:center; margin-top:.15rem; }
+.mat .pmx-h { font-size:.6rem; font-weight:650; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--muted); text-align:center; }
+.mat .pmx-p { font-size:.8rem; color:var(--ink-2); font-weight:560; }
+.mat .pmx-c { display:flex; justify-content:center; }
+
+/* The FAIR-principle-1.3 rose tile */
+.mat .chip-link { margin-left:auto; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.64rem; font-weight:600; letter-spacing:.04em; color:var(--accent);
+  background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
+  border-radius:999px; padding:.12rem .5rem; white-space:nowrap; text-decoration:none; }
+.mat .rose-wrap { flex:1; display:flex; align-items:center; justify-content:center;
+  min-height:7.4rem; max-height:8.15rem; }
+.mat .rose-wrap svg { display:block; height:100%; width:auto; max-width:100%; }
+.mat .tile-note { font-size:.72rem; line-height:1.4; color:var(--muted); }
 
 /* status marks */
 .mat .mk { display:inline-flex; align-items:center; justify-content:center; width:1.15rem; height:1.15rem;
@@ -74,34 +126,7 @@
 .mat .sec-meta { font-size:.82rem; color:var(--muted); } .mat .sec-meta b { color:var(--ink-2); }
 .mat .lead,.mat p.lead { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; }
 
-/* The jump to "What to do next". The actions close the report — assessment
-   first, then what to do about it — which puts them below several screens of
-   evidence, so the top of the page carries a link that names the section AND
-   its size. Styled as a band rather than a bare link: it is the one thing on
-   the page a reader can ACT on, and an underlined phrase between two tile grids
-   reads as a footnote. */
-.mat a.jump { display:flex; align-items:baseline; gap:.6rem; flex-wrap:wrap;
-  margin:.85rem 0; padding:.7rem .95rem; border-radius:12px; text-decoration:none;
-  background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 30%,transparent); }
-.mat a.jump:hover { border-color:var(--accent); }
-.mat .jump-t { font-weight:660; color:var(--accent); }
-.mat .jump-m { font-size:.82rem; color:var(--ink-2); }
-.mat .jump-m b { color:var(--ink); }
-/* Pushed to the far end and quiet: the arrow says "further down the page", and
-   is the least of the three things this band says. */
-.mat .jump-a { margin-left:auto; color:var(--accent); }
 
-/* FAIR pillars */
-.mat .pillars { display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:.7rem; }
-.mat .pillar { border:1px solid var(--border); border-radius:10px; padding:.7rem .8rem;
-  display:flex; flex-direction:column; gap:.45rem; background:var(--surface-2); }
-.mat .pl-h { display:flex; align-items:center; gap:.45rem; }
-.mat .pl-letter { width:1.4rem; height:1.4rem; border-radius:7px; background:var(--accent);
-  color:var(--accent-ink); font-weight:700; font-size:.8rem; display:flex; align-items:center;
-  justify-content:center; flex:none; }
-.mat .pl-name { font-weight:600; font-size:.9rem; } .mat .pl-h .pv { margin-left:auto; font-weight:660;
-  font-variant-numeric:tabular-nums; } .mat .pv.na { color:var(--na-ink); font-style:italic; font-weight:600; }
-.mat .pl-note { font-size:.72rem; color:var(--muted); }
 .mat .disc { margin-top:.85rem; }
 .mat .disc summary { cursor:pointer; font-size:.82rem; color:var(--ink-2); font-weight:560; }
 .mat .disc ul.ind { list-style:none; margin:.6rem 0 0; padding:0; display:grid; gap:.28rem; }
@@ -392,6 +417,39 @@ __CATEGORY_STYLES__
 .mat .topo-label { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em;
   color:var(--muted); font-weight:650; margin-right:.15rem; }
 
+/* Recommendations: number column, then the validator's own message in a mono
+   chip with its severity badge, then the bold instruction and its muted why. */
+.mat ol.recs { list-style:none; margin:.35rem 0 0; padding:0; }
+.mat ol.recs > li { display:flex; gap:.7rem; align-items:baseline;
+  padding:.55rem 0; border-top:1px solid var(--hairline); }
+.mat ol.recs > li:first-child { border-top:0; }
+.mat .rec-n { flex:0 0 2.1rem; text-align:right; font-weight:500; font-size:.82rem;
+  color:var(--muted); font-variant-numeric:tabular-nums; }
+.mat .rec-b { flex:1; min-width:0; }
+.mat .rec-top { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+.mat .rec-chip { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.73rem;
+  line-height:1.45; color:var(--ink-2); background:var(--surface-2);
+  border:1px solid var(--border); border-radius:3px; padding:.06rem .4rem; }
+.mat .rec-badge { font-size:.62rem; font-weight:600; text-transform:uppercase;
+  letter-spacing:.06em; padding:.06rem .4rem; border-radius:5px; }
+.mat .rec-badge.req { color:var(--low-ink); background:color-mix(in srgb,var(--low) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--low) 40%,transparent); }
+.mat .rec-badge.rec { color:var(--warn-ink); background:color-mix(in srgb,var(--warn) 15%,transparent);
+  border:1px solid color-mix(in srgb,var(--warn) 45%,transparent); }
+.mat .rec-badge.opt { color:var(--muted); background:var(--surface-2);
+  border:1px solid var(--border); }
+.mat .rec-body { display:block; margin-top:.3rem; }
+.mat .rec-do { color:var(--ink); font-weight:600; }
+.mat .rec-why { color:var(--muted); }
+
+/* References — the numbered notes the page's superscripts point at */
+.mat .refs { margin:.85rem .1rem 0; padding-top:.7rem; border-top:1px solid var(--hairline);
+  font-size:.76rem; line-height:1.5; color:var(--muted); }
+.mat .refs-h { display:block; font-size:.6rem; font-weight:600; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); margin-bottom:.35rem; }
+.mat .refs p { margin:.25rem 0; }
+.mat .ref-n { color:var(--accent); margin-right:.35rem; }
+
 .mat footer { color:var(--muted); font-size:.75rem; margin-top:1.4rem; padding-top:.9rem;
   border-top:1px solid var(--hairline); display:flex; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
 
@@ -402,11 +460,14 @@ __CATEGORY_STYLES__
    ~780px the name column would leave it ~270px, a one-field span 1–2px. */
 @media (max-width:780px){
   .mat .mrow{grid-template-columns:1fr auto;} .mat .mrow .mbar{grid-column:1/-1;order:3;}
+  .mat .kgrid{grid-template-columns:1fr 1fr;} .mat .kpi.rose-tile{grid-row:auto;}
+  .mat .hgrid{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width:520px){
+  .mat .kgrid{grid-template-columns:1fr;} .mat .hgrid{grid-template-columns:1fr;}
 }
 @media print{
   .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
-  /* Nothing to jump to on paper — the section it points at is a few pages on. */
-  .mat a.jump{display:none;}
   .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}
   .mat details{display:block;} .mat .disc[open] summary{display:none;}
   /* A severity row is the index of what it holds, so print keeps the row AND
@@ -431,57 +492,3 @@ __CATEGORY_STYLES__
 .mat li.more > details.more-fold > ul.sugg,
 .mat li.more > details.more-fold > ul.ind { margin:.35rem 0 0; font-style:normal; }
 
-/* --- What to do next (#561) -------------------------------------------------
-   These four classes shipped in the HTML with no rule anywhere, so the whole
-   section rendered at browser defaults: a bare <ol> with its count and its
-   sentence as two adjacent inline spans, which run together as "36Connect the
-   AOP-Wiki subgraph". The count is a figure, not a word in the sentence, so it
-   needs a column of its own — the same treatment the tier lists already give
-   their leading marks. */
-.mat ol.next-actions { list-style:none; margin:.35rem 0 0; padding:0; }
-.mat ol.next-actions > li { display:flex; gap:.6rem; align-items:baseline;
-  padding:.32rem 0; border-top:1px solid var(--hairline); }
-.mat ol.next-actions > li:first-child { border-top:0; }
-/* The count is a MULTIPLIER — how many findings this one instruction clears —
-   not the point of the row. It shipped at weight 650 on the darkest ink, which
-   made it heavier than the instruction beside it (.na-do, weight 600) and put
-   the page's emphasis on an arithmetic detail. Muted and lighter now, so the
-   eye lands on the verb and reads the number only once it wants the size of the
-   job. Tabular figures and a fixed column keep it scannable as a column rather
-   than ragging with the width of each count. */
-.mat .na-n { flex:0 0 2.4rem; text-align:right; font-weight:500; font-size:.82rem;
-  color:var(--muted); font-variant-numeric:tabular-nums; }
-.mat .na-t { color:var(--ink-2); }
-/* Named only on the tier that BLOCKS conformance — a badge on every row would
-   mark nothing. Warn, not bad: this is work outstanding, not a failure. */
-.mat .na-req { margin-left:.45rem; font-size:.7rem; text-transform:uppercase;
-  letter-spacing:.05em; padding:.05rem .3rem; border-radius:.3rem;
-  color:var(--warn-ink); background:color-mix(in srgb,var(--warn) 15%,transparent);
-  border:1px solid color-mix(in srgb,var(--warn) 45%,transparent); }
-.mat details.na-aside { margin:.5rem 0 0; }
-.mat details.na-aside > summary { cursor:pointer; color:var(--muted);
-  font-size:.86rem; }
-.mat details.na-aside > summary:hover { color:var(--ink); }
-.mat details.na-aside ul { margin:.35rem 0 0; color:var(--muted);
-  font-size:.86rem; }
-
-/* The instruction and the entities it applies to (#561 follow-up). The entity
-   list is by far the longer half — "Add an identifier for proc … .csv, proc …
-   .csv and 15 others" — so with both at one weight the reader scans a wall of
-   ids looking for the verb. The verb carries the page's ink; the entities read
-   as the quieter supporting clause they are. */
-.mat .na-do { color:var(--ink); font-weight:600; }
-.mat .na-of { color:var(--muted); }
-
-/* Entity chips in the actions list, the same convention the profile-adherence
-   suggestions already use — a reader should be able to tell at a glance which
-   words are things in their crate and which are the instruction. */
-.mat ol.next-actions code,
-.mat details.na-aside code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-  font-size:.76rem; background:var(--surface-2); border:1px solid var(--border);
-  border-radius:3px; padding:.02rem .32rem; color:var(--ink); }
-/* The aside's reasons are a counted list like the actions above it, so they
-   share the number column rather than inventing a second alignment. */
-.mat details.na-aside ul { list-style:none; padding:0; }
-.mat details.na-aside > ul > li { display:flex; gap:.6rem; align-items:baseline;
-  padding:.22rem 0; }

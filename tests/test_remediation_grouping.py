@@ -120,7 +120,9 @@ class TestIdenticalNeedsMerge:
         actions = [a for a in group_findings(findings) if a.actionable]
         assert len(actions) == 2
 
-    def test_the_subject_names_them_and_stays_short(self):
+    def test_the_subject_names_a_short_list_in_full(self):
+        """#606 handoff: "and 1 other" on a five-name list was the complaint
+        that raised the limit — a list of up to six is named in full."""
         findings = [
             f
             for name in ("#a", "#b", "#c", "#d", "#e")
@@ -128,8 +130,19 @@ class TestIdenticalNeedsMerge:
         ]
         labels = {f"#{c}": f"Person {c.upper()}" for c in "abcde"}
         subject = group_findings(findings, labels=labels)[0].subject
+        assert "other" not in subject
+        for c in "abcde":
+            assert f"Person {c.upper()}" in subject
+
+    def test_the_subject_still_caps_a_long_list(self):
+        findings = [
+            f
+            for name in "abcdefgh"
+            for f in (_f(f"#{name}", "needs an affiliation"), _f(f"#{name}", "needs an ORCID"))
+        ]
+        labels = {f"#{c}": f"Person {c.upper()}" for c in "abcdefgh"}
+        subject = group_findings(findings, labels=labels)[0].subject
         assert "and 2 others" in subject
-        assert subject.count(",") == 2
 
 
 class TestDeliberateFindingsAreNotRecommended:
