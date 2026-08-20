@@ -176,6 +176,14 @@ it works autonomously from there, checking back only when it genuinely needs you
 The session stays interactive afterwards. The default pipeline build needs none of
 this: it runs unprompted.
 
+**Looking at a crate you already have.** `--graph` writes the entity explorer for
+any crate and opens it — no LLM configuration needed:
+
+```bash
+uv run python -m main --graph -i /path/to/crate/          # or a ro-crate-metadata.json
+uv run python -m main --graph --view labprocesses -i /path/to/crate/
+```
+
 **What ships inside the crate.** Alongside the metadata and your payload, every
 build embeds a **maturity report** (`ro-crate-metadata-maturity.html`): profile
 conformance, FAIR maturity, OECD MIT coverage, reproducibility readiness — and an

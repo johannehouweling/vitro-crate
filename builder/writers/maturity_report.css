@@ -13,6 +13,12 @@
   line-height:1.5; margin:0; padding:clamp(1rem,3vw,2.2rem); min-height:100vh;
   -webkit-font-smoothing:antialiased;
 }
+
+/* The per-category custom properties, generated from the one registry in
+   `provenance_dag.CATEGORY_STYLES` and substituted here — so the stylesheet
+   never carries a palette of its own for a view to drift from. */
+__CATEGORY_STYLES__
+
 .mat .wrap { max-width:70rem; margin:0 auto; }
 .mat .eyebrow { font-size:.68rem; letter-spacing:.09em; text-transform:uppercase;
   color:var(--muted); font-weight:650; }
@@ -264,128 +270,22 @@
 .mat ul.repro .rl { font-weight:550; font-size:.9rem; }
 .mat ul.repro .hint { display:block; font-size:.78rem; color:var(--muted); margin-top:.1rem; }
 
-/* provenance chain (#85) */
-.mat .prov-cap { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; max-width:60ch; }
-.mat .prov-scroll { overflow-x:auto; padding-bottom:.3rem; }
-.mat svg.prov { display:block; width:100%; min-width:44rem; height:auto; }
-.mat .prov .n { stroke-width:1.7; }
-/* Per-category fills, outlines and tile colours are generated from the one
-   registry in `provenance_dag.CATEGORY_STYLES` and substituted here, so no view
-   can be given a colour the others do not know about. */
-__CATEGORY_STYLES__
-.mat .prov .fold { fill:color-mix(in srgb,var(--cat-data) 22%,transparent); stroke:none; }
-/* Secondary marks — the small glyphs that tell two same-coloured outlines
-   apart. They inherit their category's colour from the outline beside them. */
-.mat .prov .figure { fill:none; stroke:var(--cat-agent); stroke-width:1.3; }
-.mat .prov .rule { stroke:var(--cat-publication); stroke-width:1.2; opacity:.7; }
-.mat .prov .name { fill:var(--ink); font-size:11.5px; text-anchor:middle; font-weight:520; }
-.mat .prov .tag { font-size:8px; text-anchor:middle; font-weight:700; letter-spacing:.04em; }
-.mat .prov .e { fill:none; stroke-width:1.6; }
-.mat .prov .e-object { stroke:var(--edge-object); stroke-dasharray:4 3; }
-.mat .prov .e-result { stroke:var(--edge-result); }
-.mat .prov .mk-object { fill:var(--edge-object); }
-.mat .prov .mk-result { fill:var(--edge-result); }
-.mat .prov-legend { display:flex; flex-wrap:wrap; gap:.5rem 1.1rem; margin-top:.7rem;
-  font-size:.8rem; color:var(--ink-2); }
-.mat .prov-legend .lg { display:inline-flex; align-items:center; gap:.4rem; }
-.mat .prov-legend .gl { width:1.5rem; height:0; border-top:2px solid var(--edge-result); }
-.mat .prov-legend .gl.obj { border-top:2px dashed var(--edge-object); }
-/* The badge stands in for a swatch, so it is sized to sit on the same optical
-   line as the drawn ones rather than inheriting the legend's smaller text. */
-.mat .prov-legend .lg-badge { font-size:.95rem; line-height:1; }
-/* Legend swatches are the diagram's own geometry shrunk by a viewBox, so the
-   stroke shrinks with it — these widths are in the node's coordinate space
-   (138x48) and land at roughly 1.5px once scaled. Without them the outline that
-   carries the category colour would render at a third of a pixel. */
-.mat svg.prov.lg-sw { display:inline-block; width:30px; height:12px; min-width:0;
-  vertical-align:-1px; flex:none; }
-.mat .prov.lg-sw .n { stroke-width:7; }
-.mat .prov.lg-sw .bars, .mat .prov.lg-sw .figure, .mat .prov.lg-sw .rule { stroke-width:5; }
+.mat .cov-cap { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; max-width:60ch; }
+/* entity coverage — one block per kind of entity, stacked (#618).
 
-/* graph views — CSS-only tabs. The report is a self-contained offline artifact
-   with no script, so the tabs are radio inputs plus `:checked ~` sibling rules;
-   that keeps them keyboard-operable for free. Print expands every panel. */
-.mat .tab-in { position:absolute; width:1px; height:1px; opacity:0; margin:0; }
-.mat .tabbar { display:flex; flex-wrap:wrap; gap:.25rem; margin:0 0 1rem;
-  padding-bottom:.55rem; border-bottom:1px solid var(--hairline); }
-.mat .tabbar .tab { display:inline-flex; align-items:center; gap:.4rem; cursor:pointer;
-  font-size:.85rem; font-weight:580; color:var(--ink-2); padding:.34rem .75rem;
-  border-radius:999px; border:1px solid transparent; white-space:nowrap; }
-.mat .tabbar .tab:hover { background:var(--surface-2); color:var(--ink); }
-.mat .tabbar .tb-n { font-weight:560; }
-.mat .tabbar .tb-c { font-size:.7rem; color:var(--muted); font-variant-numeric:tabular-nums;
-  background:var(--surface-2); border-radius:999px; padding:.02rem .38rem; }
-.mat .panel { display:none; }
-.mat .panel > .panel-h { display:none; }
-.mat #mv-all:checked ~ .tabbar .tab[for="mv-all"],
-.mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"],
-.mat #mv-data:checked ~ .tabbar .tab[for="mv-data"],
-.mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"],
-.mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"],
-.mat #mv-cell:checked ~ .tabbar .tab[for="mv-cell"],
-.mat #mv-people:checked ~ .tabbar .tab[for="mv-people"],
-.mat #mv-cite:checked ~ .tabbar .tab[for="mv-cite"] {
-  background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 34%,transparent);
-  color:var(--accent); }
-.mat #mv-all:checked ~ .tabbar .tab[for="mv-all"] .tb-c,
-.mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"] .tb-c,
-.mat #mv-data:checked ~ .tabbar .tab[for="mv-data"] .tb-c,
-.mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"] .tb-c,
-.mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"] .tb-c,
-.mat #mv-cell:checked ~ .tabbar .tab[for="mv-cell"] .tb-c,
-.mat #mv-people:checked ~ .tabbar .tab[for="mv-people"] .tb-c,
-.mat #mv-cite:checked ~ .tabbar .tab[for="mv-cite"] .tb-c {
-  background:var(--surface); color:var(--accent); }
-.mat #mv-all:focus-visible ~ .tabbar .tab[for="mv-all"],
-.mat #mv-isa:focus-visible ~ .tabbar .tab[for="mv-isa"],
-.mat #mv-data:focus-visible ~ .tabbar .tab[for="mv-data"],
-.mat #mv-prov:focus-visible ~ .tabbar .tab[for="mv-prov"],
-.mat #mv-chem:focus-visible ~ .tabbar .tab[for="mv-chem"],
-.mat #mv-cell:focus-visible ~ .tabbar .tab[for="mv-cell"],
-.mat #mv-people:focus-visible ~ .tabbar .tab[for="mv-people"],
-.mat #mv-cite:focus-visible ~ .tabbar .tab[for="mv-cite"] {
-  outline:2px solid var(--accent); outline-offset:2px; }
-.mat #mv-all:checked ~ #p-all,
-.mat #mv-isa:checked ~ #p-isa,
-.mat #mv-data:checked ~ #p-data,
-.mat #mv-prov:checked ~ #p-prov,
-.mat #mv-chem:checked ~ #p-chem,
-.mat #mv-cell:checked ~ #p-cell,
-.mat #mv-people:checked ~ #p-people,
-.mat #mv-cite:checked ~ #p-cite { display:block; }
-
-/* chemicals — route diagram + identification matrix (#85) */
-/* The derivation chain is wide and fixed, so it stretches and scrolls. The
-   routed views (chemicals / cell lines / people) size themselves to their
-   content — from ~210 to ~540 units — so they render at natural size and
-   only shrink when the page is narrower. Stretching them to the chain's
-   44rem floor would upscale a small diagram several times over. */
-.mat svg.prov.view { width:auto; min-width:0; max-width:100%; height:auto; }
-.mat .prov .e-link { stroke:var(--edge-result); }
-.mat .prov .mk-link { fill:var(--edge-result); }
-.mat .prov .e-break { stroke:var(--low); stroke-dasharray:4 3; }
-.mat .prov .brk { fill:var(--low-ink); font-size:11px; font-weight:700; text-anchor:end; }
-.mat .prov .brk.start { text-anchor:start; }
-.mat .prov .bars { stroke:var(--cat-container); stroke-width:1.2; fill:none; opacity:.75; }
-/* Every node shape needs its own unwired state, or an unreachable entity renders
-   identically to a correctly linked one. Written against the shared `.n` / `.tag`
-   classes rather than per category: the list this replaced named four of the ten
-   categories, so a compound was the only unreachable thing that looked it. The
-   extra class beats the generated per-category rule on specificity. */
-.mat .prov .n.unwired {
-  fill:color-mix(in srgb,var(--low) 7%,var(--surface-2)); stroke:var(--low);
-  stroke-dasharray:5 3; }
-.mat .prov .tag.unwired { fill:var(--low-ink); }
-/* The secondary marks belong to the outline they sit on, so they go with it.
-   The fold is filled rather than stroked, hence the second rule. */
-.mat .prov .n.unwired ~ .bars, .mat .prov .n.unwired ~ .figure,
-.mat .prov .n.unwired ~ .rule { stroke:var(--low); }
-.mat .prov .n.unwired ~ .fold { fill:color-mix(in srgb,var(--low) 22%,transparent); }
+   These were tabs while every block opened with a diagram, which is what made
+   six of them too much to show at once. The diagrams are the entity explorer's
+   now, so what is left per block is a note and a matrix, and the report stacks
+   its sections. */
+.mat .cov + .cov { margin-top:1.4rem; padding-top:1.1rem;
+  border-top:1px solid var(--hairline); }
+.mat .cov-h { display:flex; align-items:baseline; gap:.45rem; margin:0 0 .6rem;
+  font-size:.95rem; font-weight:660; }
+.mat .cov-n { font-size:.7rem; font-weight:500; color:var(--muted);
+  font-variant-numeric:tabular-nums; background:var(--surface-2);
+  border-radius:999px; padding:.05rem .4rem; }
 .mat .chem-tbl th[scope="row"] .ty { font-size:.68rem; color:var(--muted);
   text-transform:uppercase; letter-spacing:.05em; }
-.mat .prov .elabel { fill:var(--muted); font-size:8.5px; text-anchor:middle;
-  font-weight:600; letter-spacing:.03em; }
-.mat .prov-legend .gl.brk { border-top:2px dashed var(--low); }
 .mat .chem-warn { display:flex; gap:.55rem; align-items:flex-start; margin:.9rem 0 0;
   font-size:.84rem; color:var(--ink-2); max-width:72ch; }
 .mat .chem-warn b { color:var(--low-ink); font-weight:640; }
@@ -447,8 +347,6 @@ __CATEGORY_STYLES__
 .mat .ov-key.isolated { background:var(--surface) !important; }
 .mat .ov-key { display:inline-block; width:.8rem; height:.8rem; border-radius:2px;
   border:1px solid; }
-.mat .prov-legend .lg .ov-key.orphan { background:color-mix(in srgb,var(--low) 14%,transparent);
-  border-color:var(--low); border-style:dashed; }
 
 /* Recommendations: number column, then the validator's own message in a mono
    chip with its severity badge, then the bold instruction and its muted why. */
@@ -497,29 +395,6 @@ __CATEGORY_STYLES__
 @media (max-width:520px){
   .mat .kgrid{grid-template-columns:1fr;} .mat .hgrid{grid-template-columns:1fr;}
   .mat .kpi.rose-tile{grid-row:auto;} .mat .kpi.wide{grid-column:auto;}
-}
-@media print{
-  .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
-  .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}
-  .mat .hcard,.mat ol.recs > li,.mat .refs{break-inside:avoid;}
-  .mat details{display:block;} .mat .disc[open] summary{display:none;}
-  /* A severity row is the index of what it holds, so print keeps the row AND
-     unfolds it — a printed report never loses findings to a closed fold. */
-  .mat details.sev-fold > .sev-body{display:block !important;}
-  .mat details.blockers > .blk{display:grid !important;}
-  .mat details.sev-fold > summary::after{display:none;}
-  /* Tabs are an on-screen affordance: print every view, each under its own
-     heading, so a printed report never silently loses two of the three. */
-  .mat .tabbar{display:none;}
-  .mat .panel{display:block !important; break-inside:avoid;}
-  .mat .panel + .panel{margin-top:1.2rem; padding-top:1rem; border-top:1px solid #ccc;}
-  .mat .panel > .panel-h{display:block; font-size:.95rem; font-weight:660; margin:0 0 .6rem;}
-  /* The explorer is a canvas the reader pans, filters and interrogates. Paper
-     can hold none of that, and a screenshot of whichever corner the viewport
-     happened to show would be a worse lie than saying so: print gets the note,
-     and the static views above it carry the crate's picture. */
-  .mat .ex-app{display:none;}
-  .mat .ex-print-note{display:block;}
 }
 
 /* The overflow fold inside a capped list: same muted voice as the '+N further'
@@ -661,3 +536,31 @@ __CATEGORY_STYLES__
 .mat .ex-json-entity-head{display:flex; align-items:center; gap:.3rem; margin-bottom:.1rem;
   font-family:inherit; font-size:.74rem;}
 .mat .ex-side-document .ex-json{padding:.5rem .7rem;}
+
+/* Print rules come LAST on purpose. They are plain declarations inside a media
+   query, so a screen rule of equal specificity written later in the file beats
+   them — which is how the explorer's print note came to be hidden on paper by
+   the `display:none` that hides it on screen. Anything added below this block
+   inherits that trap. */
+@media print{
+  .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
+  .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}
+  .mat .hcard,.mat ol.recs > li,.mat .refs{break-inside:avoid;}
+  .mat details{display:block;} .mat .disc[open] summary{display:none;}
+  /* A severity row is the index of what it holds, so print keeps the row AND
+     unfolds it — a printed report never loses findings to a closed fold. */
+  .mat details.sev-fold > .sev-body{display:block !important;}
+  .mat details.blockers > .blk{display:grid !important;}
+  .mat details.sev-fold > summary::after{display:none;}
+  /* The coverage section is longer than a page — every block is shown at
+     once (#618) — so it breaks, while a single block stays whole. */
+  .mat section.coverage,.mat section.explorer{break-inside:auto;}
+  .mat .cov{break-inside:avoid;}
+  /* The explorer is a canvas the reader pans, filters and interrogates. Paper
+     can hold none of that, and printing whichever corner the viewport happened
+     to show would claim to be the graph while being a crop of it — so print
+     says where the interactive version is instead. The coverage matrices below
+     print in full, and they are the part of this report paper can carry. */
+  .mat .ex-app{display:none;}
+  .mat .ex-print-note{display:block;}
+}

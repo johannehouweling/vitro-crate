@@ -1592,6 +1592,9 @@ def _add_leaves(
 
 # RO-Crate-reserved filenames that must never be auto-added as payload leaves.
 _RESERVED_CRATE_FILES = frozenset(
+    # `ro-crate-graph.mmd` is no longer written (#618), and stays listed: crates
+    # built before that still contain one, and re-scanning such a crate must not
+    # package a generated artifact as though it were the researcher's data.
     {"ro-crate-metadata.json", "ro-crate-preview.html", "ro-crate-graph.mmd"}
 )
 

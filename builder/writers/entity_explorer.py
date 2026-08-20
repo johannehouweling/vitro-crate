@@ -262,6 +262,8 @@ def _categories() -> dict[str, dict[str, str]]:
 
 def build_explorer_payload(
     metadata: dict[str, Any] | list[dict[str, Any]],
+    *,
+    default_views: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
     """The explorer's data island: one crate, in the shape the browser draws.
 
@@ -273,6 +275,11 @@ def build_explorer_payload(
     Args:
         metadata: A parsed ``ro-crate-metadata.json``, the ``@graph`` list, or a
             ``crate.metadata.generate()`` document.
+        default_views: Which view keys open, overriding
+            :data:`EXPLORER_VIEWS`' own defaults — how ``--graph --view`` picks
+            what the page opens on. A key no view answers to is ignored, and an
+            override that selects nothing leaves the registry's default alone:
+            a page that opens on an empty canvas would look broken.
 
     Returns:
         A JSON-safe dict: ``nodes``/``edges`` (the graph model, labels
@@ -297,6 +304,10 @@ def build_explorer_payload(
             # The model escapes for its SVG; the DOM escapes again downstream, so
             # what travels is the crate's own text.
             "label": html.unescape(n["label"]),
+            # The crate's own wording, where the label carries a badge instead.
+            # The badge abbreviates the label, never the fact: a tooltip has no
+            # width limit, so it says what the crate says.
+            "name": html.unescape(n.get("name") or n["label"]),
             "type": html.unescape(n["type"]),
             "category": n["category"] or _CTX_CATEGORY,
             "layer": n["layer"],
@@ -322,6 +333,10 @@ def build_explorer_payload(
                 "members": sorted(members),
             }
         )
+    wanted = {key for key in (default_views or ()) if any(v["key"] == key for v in views)}
+    if wanted:
+        for view in views:
+            view["default"] = view["key"] in wanted
 
     return {
         "version": PAYLOAD_VERSION,
@@ -448,6 +463,8 @@ def _data_island(payload: dict[str, Any]) -> str:
 
 def render_explorer_section(
     metadata: dict[str, Any] | list[dict[str, Any]],
+    *,
+    default_views: tuple[str, ...] | list[str] | None = None,
 ) -> str:
     """The interactive entity explorer, as a self-contained report section.
 
@@ -459,6 +476,7 @@ def render_explorer_section(
 
     Args:
         metadata: The crate document, as :func:`build_explorer_payload` takes it.
+        default_views: Which view keys open; see :func:`build_explorer_payload`.
 
     Returns:
         The ``<section>…</section>`` markup.
@@ -471,7 +489,8 @@ def render_explorer_section(
         scripts.append(f"<script>{_banner(filename)}\n{_vendor_text(filename)}</script>")
     scripts.append(
         f'<script id="{_DATA_ID}" type="application/json">'
-        f"{_data_island(build_explorer_payload(metadata))}</script>"
+        f"{_data_island(build_explorer_payload(metadata, default_views=default_views))}"
+        "</script>"
     )
     scripts.append(f"<script>{_app_js()}</script>")
 
@@ -488,3 +507,44 @@ def render_explorer_section(
         f"  {''.join(scripts)}\n"
         "</section>\n"
     )
+
+
+# The canvas is one section among many inside the report and takes a slice of the
+# page; on a page of its own it *is* the page, so it takes the window.
+_STANDALONE_CSS = ".mat .ex-app{height:calc(100vh - 5.5rem); max-height:none;}"
+
+
+def render_explorer_page(
+    metadata: dict[str, Any] | list[dict[str, Any]],
+    *,
+    title: str = "RO-Crate entity explorer",
+    default_views: tuple[str, ...] | list[str] | None = None,
+) -> str:
+    """The explorer as a standalone, self-contained HTML document.
+
+    The same section the report embeds, in the report's own shell and stylesheet
+    — one explorer, rendered in two places, rather than a second one to keep in
+    step. This is what the ``--graph`` CLI writes.
+
+    Args:
+        metadata: The crate document, as :func:`build_explorer_payload` takes it.
+        title: The document title. Escaped: a crate's own name reaches this.
+        default_views: Which view keys open; see :func:`build_explorer_payload`.
+
+    Returns:
+        A complete ``<!DOCTYPE html>`` document.
+    """
+    # Imported here, as the report imports this module: both directions are lazy,
+    # so neither is a cycle at import time.
+    from builder.writers.maturity_report import (
+        _SHELL_PLACEHOLDER_RE,
+        _load_css,
+        _load_shell,
+    )
+
+    filling = {
+        "__STYLE__": _load_css() + explorer_css() + _STANDALONE_CSS,
+        "__BODY__": render_explorer_section(metadata, default_views=default_views),
+        "__TITLE__": html.escape(title),
+    }
+    return _SHELL_PLACEHOLDER_RE.sub(lambda m: filling[m.group(0)], _load_shell())

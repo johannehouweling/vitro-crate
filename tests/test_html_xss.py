@@ -14,7 +14,8 @@ construct, and that ``securityLevel`` is the strict default.
 Covers the three generators that embed crate data:
 
 * ``builder/writers/provenance_dag.py`` — the Mermaid DAG, the full crate graph,
-  and the self-contained ``render_mermaid_html`` page;
+  and the entity explorer's data island (#618: the Mermaid page it
+  used to cover is gone, along with its CDN);
 * ``builder/writers/maturity_report.py`` — ``ro-crate-metadata-maturity.html``;
 * the bundled ``ro-crate-preview.html`` written by ``export_crate``.
 """
@@ -29,11 +30,6 @@ import pytest
 from builder.state import CrateState, Entity, EntityProvenance, ValidationReport
 from builder.tools.builder import build_crate
 from builder.writers.maturity_report import build_maturity_html
-from builder.writers.provenance_dag import (
-    render_crate_graph,
-    render_mermaid_html,
-    render_provenance_mermaid,
-)
 
 pytestmark = pytest.mark.timeout(120)
 
@@ -98,45 +94,6 @@ def _assert_no_live_script(out: str) -> None:
 
 
 # --- provenance DAG (Mermaid) ----------------------------------------------
-
-
-def test_provenance_mermaid_escapes_entity_names() -> None:
-    out = render_provenance_mermaid(_malicious_graph())
-    _assert_no_live_script(out)
-
-
-def test_crate_graph_escapes_entity_names() -> None:
-    out = render_crate_graph(_malicious_graph())
-    _assert_no_live_script(out)
-
-
-# --- the self-contained mermaid HTML page ----------------------------------
-
-
-def test_render_mermaid_html_is_not_loose() -> None:
-    html = render_mermaid_html(render_provenance_mermaid(_malicious_graph()))
-    assert "securityLevel: 'loose'" not in html
-    assert "'loose'" not in html and '"loose"' not in html
-
-
-def test_render_mermaid_html_neutralises_payload() -> None:
-    """Even embedded as a JS string, the payload must not be a live tag.
-
-    The source is JSON-encoded into the page, so a leaked literal ``<script>``
-    would be a document-level injection (a ``</script>`` would close the module
-    and inject markup). The Mermaid labels are HTML-escaped upstream, so the
-    literal tag never appears — only its inert ``&lt;script&gt;`` form does.
-    """
-    page = render_mermaid_html(render_provenance_mermaid(_malicious_graph()))
-    assert SCRIPT_PAYLOAD not in page
-    # No live opening tags injected into the document via the embedded source.
-    # (The page legitimately contains <script type="module"> for the loader; the
-    # source string must not introduce another, nor an <img> breakout.)
-    assert "</script>" not in page or page.count("</script>") == 1
-    assert "<img " not in page
-
-
-# --- maturity report --------------------------------------------------------
 
 
 def _malicious_state() -> CrateState:

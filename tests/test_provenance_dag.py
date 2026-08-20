@@ -21,37 +21,27 @@ from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import populate_crate
 from builder.writers.maturity_report import _CSS_PATH as _CSS_SOURCE
 from builder.writers.maturity_report import _load_css
+from builder.writers.entity_explorer import (
+    build_explorer_payload,
+    render_explorer_section,
+)
 from builder.writers.provenance_dag import (
     CATEGORY_STYLES,
+    _CTX_COLOUR,
     _CTX_GLYPH,
-    _crate_legend_lines,
     _derivation_edges,
     _entity_category,
     _graph_nodes,
     _is_process,
-    _mermaid_style,
     _node_class,
     _node_class_for_brief,
     _route_hop_ids,
-    _svg_node_shape,
     build_cellline_inventory,
     build_chemical_inventory,
     build_citation_inventory,
     build_crate_graph,
     build_isa_inventory,
     build_people_inventory,
-    category_label,
-    legend_swatch,
-    render_celllines_svg,
-    render_chemicals_svg,
-    render_citations_svg,
-    render_crate_graph,
-    render_isa_svg,
-    render_mermaid_html,
-    render_overview_svg,
-    render_people_svg,
-    render_provenance_mermaid,
-    render_provenance_svg,
 )
 from profiles.context import ISA_TOX_CONTEXT
 from tests.fixtures.colour import ciede, contrast_on_white, srgb_to_lab
@@ -158,85 +148,6 @@ def _full_chain_graph() -> dict:
     }
 
 
-def test_returns_mermaid_flowchart() -> None:
-    out = render_provenance_mermaid(_full_chain_graph())
-    assert out.startswith("flowchart LR")
-
-
-def test_all_four_process_discriminators_present() -> None:
-    out = render_provenance_mermaid(_full_chain_graph())
-    for disc in ("CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"):
-        assert disc in out, f"{disc} process node missing from DAG"
-
-
-def test_input_and_output_edges_rendered() -> None:
-    out = render_provenance_mermaid(_full_chain_graph())
-    # input (object) edge points INTO the process; output (result) points OUT.
-    assert "object" in out and "result" in out
-    # The chain's material/data labels appear.
-    for label in ("HepG2", "Cultured cells", "Condition table", "Raw measurements", "Figures"):
-        assert label in out, f"{label} node missing from DAG"
-
-
-def test_direction_is_configurable() -> None:
-    out = render_provenance_mermaid(_full_chain_graph(), direction="TD")
-    assert out.startswith("flowchart TD")
-
-
-def test_compound_connected_through_table_via_about() -> None:
-    out = render_provenance_mermaid(_full_chain_graph(), include_annotations=True)
-    assert "Aflatoxin B1" in out
-    assert "about" in out
-
-
-def test_annotations_can_be_omitted() -> None:
-    out = render_provenance_mermaid(_full_chain_graph(), include_annotations=False)
-    # Without annotations the compound (reachable only via the table's `about`)
-    # drops out of the derivation DAG.
-    assert "Aflatoxin B1" not in out
-
-
-def test_non_provenance_entities_excluded() -> None:
-    """People/orgs not on the derivation chain must not clutter the DAG."""
-    out = render_provenance_mermaid(_full_chain_graph())
-    assert "Jane Doe" not in out
-
-
-def test_accepts_bare_graph_list() -> None:
-    graph = _full_chain_graph()["@graph"]
-    out = render_provenance_mermaid(graph)
-    assert "Exposure" in out
-
-
-def test_fenced_wraps_in_code_block() -> None:
-    out = render_provenance_mermaid(_full_chain_graph(), fenced=True)
-    assert out.startswith("```mermaid\n")
-    assert out.rstrip().endswith("```")
-
-
-def test_empty_graph_is_handled() -> None:
-    out = render_provenance_mermaid({"@graph": []})
-    assert out.startswith("flowchart LR")
-
-
-def test_render_mermaid_html_embeds_source_and_loads_mermaid() -> None:
-    mermaid = render_provenance_mermaid(_full_chain_graph())
-    html = render_mermaid_html(mermaid, title="My DAG")
-    assert html.startswith("<!DOCTYPE html>")
-    assert "mermaid.esm.min.mjs" in html  # the renderer is loaded
-    assert "My DAG" in html
-    # The source is embedded as a JS string; the flowchart keyword survives.
-    assert "flowchart LR" in html
-    assert "mermaid.render(" in html
-
-
-def test_render_mermaid_html_escapes_label_markup_safely() -> None:
-    """The <br/> in node labels is embedded as JS string data, not live HTML."""
-    html = render_mermaid_html(render_provenance_mermaid(_full_chain_graph()))
-    # json.dumps escapes the source into a quoted literal containing <br/>.
-    assert "<br/>" in html
-
-
 class TestSharedSelectors:
     """The selections the static views draw are the ones other renderers reuse.
 
@@ -280,23 +191,24 @@ class TestSharedSelectors:
         assert edges == [("#p", "#kept", "result")]
 
     def test_the_chain_svg_draws_exactly_the_derivation_endpoints(self) -> None:
-        """The equivalence the explorer's LabProcesses view rests on: the view's
-        membership is the endpoint set of these edges, so if the SVG drew some
-        other set the two renderings would disagree about the same crate."""
+        """The equivalence the explorer's LabProcesses view rests on: the view is
+        the endpoint set of these edges, so a change to either that does not move
+        the other is a change that makes the toggle lie about the chain."""
         graph = _full_chain_graph()
         nodes = _graph_nodes(graph)
         endpoints = {e[0] for e in _derivation_edges(nodes)} | {
             e[1] for e in _derivation_edges(nodes)
         }
 
-        svg = render_provenance_svg(graph)
+        members = next(
+            v["members"]
+            for v in build_explorer_payload(graph)["views"]
+            if v["key"] == "processes"
+        )
 
-        drawn = set(re.findall(r'<title>([^<]*)</title>', svg))
-        for nid in endpoints:
-            name = nodes[nid].get("name", nid)
-            assert any(name in title for title in drawn), (nid, name, sorted(drawn))
+        assert set(members) == endpoints
         # …and nothing else: a node the chain does not touch stays out.
-        assert "cell line" not in svg  # the DefinedTerm, referenced but not derived
+        assert "http://purl.obolibrary.org/obo/NCIT_C16403" not in members
 
     def test_route_hop_ids_walks_process_then_via(self) -> None:
         """A compound reached through a table: two hops, rightmost last."""
@@ -310,81 +222,6 @@ class TestSharedSelectors:
     def test_route_hop_ids_of_an_unlinked_member_is_empty(self) -> None:
         assert _route_hop_ids(None, None) == []
         assert _route_hop_ids("#proc", None) == []
-
-
-class TestRenderProvenanceSvg:
-    """``render_provenance_svg`` draws the derivation chain as a self-contained,
-    offline inline ``<svg>`` (no external assets, no script) for embedding in the
-    maturity report."""
-
-    def test_returns_inline_svg_element(self) -> None:
-        svg = render_provenance_svg(_full_chain_graph())
-        assert svg.startswith("<svg")
-        assert svg.rstrip().endswith("</svg>")
-        assert "viewBox" in svg
-
-    def test_chain_nodes_and_edges_present(self) -> None:
-        svg = render_provenance_svg(_full_chain_graph())
-        # Every material/data label on the derivation chain is drawn.
-        for label in ("HepG2", "Cultured cells", "Condition table", "Figures"):
-            assert label in svg, f"{label} missing from provenance SVG"
-        # Process discriminators appear as node tags (uppercased).
-        assert "EXPOSURE" in svg.upper()
-        # Both edge kinds are drawn (object = input, result = output).
-        assert "e-object" in svg and "e-result" in svg
-
-    def test_no_process_chain_returns_empty(self) -> None:
-        # A graph with data but no LabProcess has no derivation chain to draw.
-        svg = render_provenance_svg(
-            {"@graph": [{"@id": "#f", "@type": "File", "name": "orphan.csv"}]}
-        )
-        assert svg == ""
-
-    def test_escapes_crate_controlled_names(self) -> None:
-        graph = {
-            "@graph": [
-                {"@id": "#s", "@type": "Sample", "name": "<script>alert(1)</script>"},
-                {
-                    "@id": "#p",
-                    "@type": "LabProcess",
-                    "additionalType": "Exposure",
-                    "object": {"@id": "#s"},
-                    "result": {"@id": "#d"},
-                },
-                {"@id": "#d", "@type": "File", "name": "out.csv"},
-            ]
-        }
-        svg = render_provenance_svg(graph)
-        assert "<script>alert(1)</script>" not in svg
-        assert "&lt;script&gt;" in svg
-
-    def test_self_contained_no_external_assets(self) -> None:
-        svg = render_provenance_svg(_full_chain_graph())
-        assert "http://" not in svg and "https://" not in svg
-        assert "<script" not in svg.lower()
-
-    def test_branching_second_output_is_drawn(self) -> None:
-        # One process with two results (a branch) — both outputs must be drawn.
-        graph = {
-            "@graph": [
-                {"@id": "#s", "@type": "Sample", "name": "Input sample"},
-                {
-                    "@id": "#p",
-                    "@type": "LabProcess",
-                    "additionalType": "EndpointReadout",
-                    "object": {"@id": "#s"},
-                    "result": [{"@id": "#d1"}, {"@id": "#d2"}],
-                },
-                {"@id": "#d1", "@type": "File", "name": "result.csv"},
-                {"@id": "#d2", "@type": ["File", "csvw:Table"], "name": "raw.csv"},
-            ]
-        }
-        svg = render_provenance_svg(graph)
-        assert "result.csv" in svg and "raw.csv" in svg
-
-    def test_accepts_bare_graph_list(self) -> None:
-        svg = render_provenance_svg(_full_chain_graph()["@graph"])
-        assert svg.startswith("<svg")
 
 
 def _chemicals_graph() -> dict:
@@ -592,177 +429,6 @@ class TestBuildChemicalInventory:
         assert inv["counts"]["total"] == 4
 
 
-class TestRenderChemicalsSvg:
-    """``render_chemicals_svg`` draws the compound inventory as a flat grid —
-    compounds only (#506). The route a compound takes (process → condition
-    table) is deliberately not drawn: those two nodes repeated the same hops in
-    every band and crowded out the substances the view exists to show. An
-    unreachable compound is marked on its own node; the full route story lives
-    in the caption counts, the route note, and the matrix."""
-
-    def test_returns_inline_svg_naming_compounds_and_nothing_else(self) -> None:
-        svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
-        assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
-        for label in ("Aflatoxin B1", "Orphan compound"):
-            assert label in svg, f"{label} missing from chemicals SVG"
-        # The route nodes are gone: no process, no table, no edges at all.
-        assert "Exposure step" not in svg
-        assert "Condition table" not in svg
-        assert 'class="e e-link"' not in svg
-        # Exactly one drawn node per compound — nothing else gets a node.
-        total = build_chemical_inventory(_chemicals_graph())["counts"]["total"]
-        assert svg.count("<g><title>") == total
-
-    def test_unreachable_compounds_are_marked_on_their_own_node(self) -> None:
-        svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
-        # "Described but unreachable" must still differ from "wired" at a
-        # glance — the mark rides the compound node itself now, not a dashed
-        # route stub (there is no route drawing left to break).
-        assert "unwired" in svg
-        assert "e-break" not in svg
-
-    def test_fully_wired_crate_has_no_unwired_marks(self) -> None:
-        graph = _chemicals_graph()
-        graph["@graph"] = [
-            n for n in graph["@graph"] if n["@id"] not in ("#c_mentioned", "#c_orphan")
-        ]
-        svg = render_chemicals_svg(build_chemical_inventory(graph))
-        assert "e-break" not in svg
-        assert "unwired" not in svg
-
-    def test_no_route_machinery_survives(self) -> None:
-        # The pre-#506 view drew one process node per band and named the link
-        # mechanisms on the edges; none of that machinery may reappear.
-        svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
-        assert 'class="n n-process"' not in svg
-        assert "about · valueUrl" not in svg
-
-    def test_large_band_tiles_into_a_grid_not_a_column(self) -> None:
-        # Every member drawn, but stacked one-per-row a 22-compound band rendered
-        # as a 210x1476 ribbon — narrower than a phone, taller than the page.
-        import xml.etree.ElementTree as ET
-
-        graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
-        for i in range(22):
-            graph["@graph"].append(
-                {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i:02d}"}
-            )
-        svg = render_chemicals_svg(build_chemical_inventory(graph))
-        root = ET.fromstring(svg)
-        _, _, width, height = (float(v) for v in _attr(root, "viewBox").split())
-        assert width > height, f"band is still a vertical ribbon ({width}x{height})"
-        # Distinct x positions prove a grid rather than a single column.
-        xs = {
-            _attr(e, "points").split()[0].split(",")[0]
-            for e in root.iter()
-            if e.tag == "polygon" and (e.get("class") or "").startswith("n ")
-        }
-        assert len(xs) > 1, "all members share one x — still one column"
-
-    def test_wired_crate_draws_compounds_without_edges(self) -> None:
-        # A fully wired 9-compound crate is a 9-node grid: no edges restating
-        # the route, every compound named, none marked unreachable.
-        graph = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#t"}]},
-                {"@id": "#s", "@type": "Sample", "name": "cells"},
-                {
-                    "@id": "#p",
-                    "@type": "LabProcess",
-                    "additionalType": "Exposure",
-                    "name": "Exposure",
-                    "object": {"@id": "#s"},
-                    "result": {"@id": "#t"},
-                },
-                {
-                    "@id": "#t",
-                    "@type": ["File", "csvw:Table"],
-                    "name": "Condition table",
-                    "about": [{"@id": f"#c{i}"} for i in range(9)],
-                },
-                *[
-                    {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i}"}
-                    for i in range(9)
-                ],
-            ]
-        }
-        svg = render_chemicals_svg(build_chemical_inventory(graph))
-        assert 'class="e e-link"' not in svg
-        assert "unwired" not in svg
-        assert svg.count("<g><title>") == 9
-        for i in range(9):
-            assert f"Compound {i}" in svg
-
-    def test_every_unlinked_compound_is_marked(self) -> None:
-        # 12 compounds no process reaches: each node carries the unwired mark —
-        # the reader sees WHICH compounds are stranded, not one stub for all.
-        graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
-        for i in range(12):
-            graph["@graph"].append(
-                {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i}"}
-            )
-        svg = render_chemicals_svg(build_chemical_inventory(graph))
-        assert svg.count("unwired") >= 12
-        assert 'class="e e-break"' not in svg
-
-    def test_every_member_of_a_large_band_is_named(self) -> None:
-        # No "+N more" aggregate: the picture exists so a reader can see WHICH
-        # compounds are unwired, and an elided tail hides exactly that.
-        graph = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
-        for i in range(9):
-            graph["@graph"].append(
-                {"@id": f"#c{i}", "@type": "MolecularEntity", "name": f"Compound {i}"}
-            )
-        svg = render_chemicals_svg(build_chemical_inventory(graph))
-        for i in range(9):
-            assert f"Compound {i}" in svg, f"compound {i} elided from the diagram"
-        assert "more" not in svg
-
-    def test_escapes_crate_controlled_names(self) -> None:
-        graph = {
-            "@graph": [
-                {
-                    "@id": "#c",
-                    "@type": "MolecularEntity",
-                    "name": "<script>alert(1)</script>",
-                }
-            ]
-        }
-        svg = render_chemicals_svg(build_chemical_inventory(graph))
-        assert "<script>alert(1)</script>" not in svg
-        assert "&lt;script&gt;" in svg
-
-    def test_self_contained_no_external_assets(self) -> None:
-        svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
-        assert "http://" not in svg and "https://" not in svg
-        assert "<script" not in svg.lower()
-
-    def test_geometry_stays_inside_the_viewbox(self) -> None:
-        # The page scrolls the SVG horizontally; anything drawn outside the
-        # viewBox would simply be invisible.
-        svg = render_chemicals_svg(build_chemical_inventory(_chemicals_graph()))
-        root = ET.fromstring(svg)  # also asserts well-formedness
-        _, _, width, height = (float(v) for v in _attr(root, "viewBox").split())
-        xs: list[float] = []
-        ys: list[float] = []
-        for el in root.iter():
-            if el.tag == "polygon" and el.get("class", "").startswith("n "):
-                for point in _attr(el, "points").split():
-                    px, py = point.split(",")
-                    xs.append(float(px))
-                    ys.append(float(py))
-            elif el.tag == "text":
-                xs.append(float(_attr(el, "x")))
-                ys.append(float(_attr(el, "y")))
-        assert xs and ys
-        assert 0 <= min(xs) and max(xs) <= width
-        assert 0 <= min(ys) and max(ys) <= height
-
-    def test_empty_inventory_returns_empty(self) -> None:
-        assert render_chemicals_svg(build_chemical_inventory(_no_compound_graph())) == ""
-
-
 def _cellline_graph(*, wire: bool = True) -> dict:
     """A crate with a CellLineSample and a CellCulture that may or may not use it.
 
@@ -880,46 +546,6 @@ class TestBuildCellLineInventory:
         inv = build_cellline_inventory(_no_compound_graph())
         assert inv["celllines"] == []
         assert inv["counts"]["total"] == 0
-
-
-class TestRenderCellLinesSvg:
-    """The cell-line diagram reuses the compound view's bands — a break reads the
-    same in both — and the material stadium, because a cell line IS a Sample."""
-
-    def test_direct_process_route_draws_the_process_once(self) -> None:
-        # `input` makes the process itself the referrer; drawing it in two
-        # columns joined by a `result` edge would depict a step that does not
-        # exist in the crate.
-        svg = render_celllines_svg(build_cellline_inventory(_cellline_graph(wire=True)))
-        assert svg.count('class="n n-process"') == 1
-        assert '"result"' not in svg and ">result<" not in svg
-        assert "CHO-K1" in svg
-
-    def test_cell_line_uses_the_material_shape(self) -> None:
-        svg = render_celllines_svg(build_cellline_inventory(_cellline_graph()))
-        assert "n-material" in svg
-
-    def test_unlinked_line_gets_a_break_marker(self) -> None:
-        svg = render_celllines_svg(build_cellline_inventory(_cellline_graph(wire=False)))
-        assert "e-break" in svg and "✗" in svg and "unwired" in svg
-
-    def test_empty_inventory_returns_empty(self) -> None:
-        assert render_celllines_svg(build_cellline_inventory(_no_compound_graph())) == ""
-
-    def test_escapes_crate_controlled_names(self) -> None:
-        graph = {
-            "@graph": [
-                {
-                    "@id": "#l",
-                    "@type": "Sample",
-                    "additionalType": "CellLine",
-                    "name": "<script>alert(1)</script>",
-                }
-            ]
-        }
-        svg = render_celllines_svg(build_cellline_inventory(graph))
-        assert "<script>alert(1)</script>" not in svg
-        assert "&lt;script&gt;" in svg
 
 
 class TestAffiliationReachability:
@@ -1084,70 +710,19 @@ class TestCoAffiliation:
         assert agents["Jointly Affiliated"]["affiliations"] == ["#org_a", "#org_b"]
 
     def test_both_affiliations_are_drawn(self) -> None:
-        svg = render_people_svg(build_people_inventory(self._graph()))
-        assert "Institute A" in svg and "Institute B" in svg
-        # Two affiliation edges out of the one person, and no "link missing" stub.
-        assert svg.count('class="e e-link"') == 3  # author + two affiliations
-        assert "e-break" not in svg
+        payload = build_explorer_payload(self._graph())
+        members = next(v["members"] for v in payload["views"] if v["key"] == "people")
+        links = {(e["src"], e["dst"]) for e in payload["edges"]}
+
+        assert "#org_a" in members and "#org_b" in members
+        # The person is credited, and BOTH affiliations are edges out of them —
+        # a second affiliation used to be dropped rather than drawn.
+        assert ("./", "#p") in links
+        assert ("#p", "#org_a") in links and ("#p", "#org_b") in links
 
     def test_topology_agrees_that_both_are_reachable(self) -> None:
         model = build_crate_graph(self._graph(), all_edges=True)
         assert model["counts"]["orphan"] == 0
-
-
-class TestRenderPeopleSvgCompleteness:
-    """The people diagram draws EVERY agent — no "+N more" aggregate.
-
-    This view exists so a person can check the attribution entity by entity, and
-    an elided tail is exactly where a duplicated institution or a missing-ORCID
-    author would hide.
-    """
-
-    def _many(self, n: int) -> dict:
-        graph: dict = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset", "name": "Crate", "author": []},
-            ]
-        }
-        for i in range(n):
-            graph["@graph"][1]["author"].append({"@id": f"#p{i}"})
-            graph["@graph"].append(
-                {
-                    "@id": f"#p{i}",
-                    "@type": "Person",
-                    "name": f"Author {i:02d}",
-                    "affiliation": {"@id": f"#org{i}"},
-                }
-            )
-            graph["@graph"].append(
-                {"@id": f"#org{i}", "@type": "Organization", "name": f"Institute {i:02d}"}
-            )
-        return graph
-
-    def test_every_person_and_organisation_is_drawn(self) -> None:
-        svg = render_people_svg(build_people_inventory(self._many(9)))
-        assert "more" not in svg
-        for i in range(9):
-            assert f"Author {i:02d}" in svg, f"person {i} elided"
-            assert f"Institute {i:02d}" in svg, f"organisation {i} elided"
-
-    def test_band_height_covers_every_drawn_row(self) -> None:
-        # With one organisation per person the rows cannot collide, but the band
-        # must still be tall enough that nothing escapes the viewBox.
-        import xml.etree.ElementTree as ET
-
-        root = ET.fromstring(render_people_svg(build_people_inventory(self._many(9))))
-        _, _, width, height = (float(v) for v in _attr(root, "viewBox").split())
-        ys: list[float] = []
-        xs: list[float] = []
-        for el in root.iter():
-            if el.tag == "rect" and (el.get("class") or "").startswith("n "):
-                x, y = float(_attr(el, "x")), float(_attr(el, "y"))
-                xs += [x, x + float(_attr(el, "width"))]
-                ys += [y, y + float(_attr(el, "height"))]
-        assert ys and 0 <= min(ys) and max(ys) <= height
-        assert 0 <= min(xs) and max(xs) <= width
 
 
 def _exposure_state() -> CrateState:
@@ -1170,8 +745,8 @@ def test_renders_from_real_assembled_crate(tmp_path) -> None:
     crate.metadata.extra_contexts = ISA_TOX_CONTEXT
     populate_crate(_exposure_state(), crate, tmp_path, materialize_payload=False)
     graph = crate.metadata.generate()
-    out = render_provenance_mermaid(graph)
-    assert out.startswith("flowchart LR")
+    out = render_explorer_section(graph)
+    assert 'id="entity-explorer"' in out
     # The Exposure process and its synthesized condition-table result appear,
     # with a result edge between them.
     assert "Exposure" in out
@@ -1282,36 +857,6 @@ class TestBuildIsaInventory:
 
     def test_crate_without_isa_containers_is_empty(self) -> None:
         assert build_isa_inventory({"@graph": [{"@id": "#f", "@type": "File"}]})["nodes"] == []
-
-
-class TestRenderIsaSvg:
-    """The ISA diagram: one column per level, one row per container, nothing elided."""
-
-    def test_draws_every_container_with_haspart_edges(self) -> None:
-        svg = render_isa_svg(build_isa_inventory(_isa_graph()))
-        for label in ("OATP1C1 investigation", "Time-course study", "Transport assay"):
-            assert label in svg, f"{label} missing from the ISA diagram"
-        assert "hasPart" in svg
-        assert svg.count('class="n n-container"') == 3
-
-    def test_assay_tag_carries_its_process_count(self) -> None:
-        svg = render_isa_svg(build_isa_inventory(_isa_graph()))
-        assert "1 PROC" in svg.upper()
-
-    def test_detached_container_is_marked_and_still_drawn(self) -> None:
-        svg = render_isa_svg(build_isa_inventory(_isa_graph(detach_study=True)))
-        assert "Time-course study" in svg  # never dropped for lack of a parent
-        assert "e-break" in svg and "unwired" in svg
-
-    def test_empty_inventory_returns_empty(self) -> None:
-        assert render_isa_svg(build_isa_inventory({"@graph": []})) == ""
-
-    def test_escapes_crate_controlled_names(self) -> None:
-        graph = _isa_graph()
-        graph["@graph"][2]["name"] = "<script>alert(1)</script>"
-        svg = render_isa_svg(build_isa_inventory(graph))
-        assert "<script>alert(1)</script>" not in svg
-        assert "&lt;script&gt;" in svg
 
 
 def _citation_graph(
@@ -1457,84 +1002,6 @@ class TestBuildCitationInventory:
         assert inv["counts"]["total"] == 0
 
 
-class TestRenderCitationsSvg:
-    """The citation diagram: ``citer → article → author``, nothing elided."""
-
-    def test_draws_the_chain_with_its_edge_labels(self) -> None:
-        svg = render_citations_svg(build_citation_inventory(_citation_graph()))
-        assert "Josiah Carberry" in svg
-        assert ">citation<" in svg
-        assert ">author<" in svg
-
-    def test_article_uses_the_registry_publication_shape(self) -> None:
-        # One colour and one shape per entity type, in every view (ac3fc9b): the
-        # article must draw as the registry's publication, never as a new shape.
-        svg = render_citations_svg(build_citation_inventory(_citation_graph()))
-        assert 'class="n n-publication"' in svg
-        assert 'class="n n-agent"' in svg  # …and an author is the people view's agent
-
-    def test_uncited_article_is_marked_and_still_drawn(self) -> None:
-        svg = render_citations_svg(build_citation_inventory(_citation_graph(cite=False)))
-        assert "Two novel in vitro assays for OATP1C1" in svg  # never dropped
-        assert "e-break" in svg and "unwired" in svg
-
-    def test_unresolved_author_is_drawn_with_the_edge_that_reaches_it(self) -> None:
-        # The crate really does state the reference, so the edge is drawn and it
-        # is the TRAIL that ends — a node simply left out would have shown
-        # nothing at all.
-        svg = render_citations_svg(
-            build_citation_inventory(_citation_graph(dangling_author=True))
-        )
-        assert "#CitationAuthor_Zhongli_Chen" in svg
-        assert 'class="n n-agent unwired"' in svg
-        assert "e-break" in svg
-
-    def test_every_drawn_node_stays_inside_the_canvas(self) -> None:
-        # The stub after a dangling author hangs past the last column; without
-        # room for it the ✗ is clipped off the page.
-        svg = render_citations_svg(
-            build_citation_inventory(_citation_graph(dangling_author=True))
-        )
-        box = re.search(r'viewBox="0 0 (\d+) (\d+)"', svg)
-        assert box is not None
-        width = int(box.group(1))
-        starts = [int(x) for x in re.findall(r'<text class="brk start" x="(\d+)"', svg)]
-        assert starts, "no trailing stub was drawn"
-        assert max(starts) < width
-
-    def test_shared_author_is_drawn_once(self) -> None:
-        # Two papers by one person is one person; drawing them twice would invent
-        # a collaborator the crate does not contain.
-        graph = _citation_graph()
-        graph["@graph"].append(
-            {
-                "@id": "#Publication_second",
-                "@type": "ScholarlyArticle",
-                "name": "Second paper",
-                "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
-            }
-        )
-        graph["@graph"][1]["citation"].append({"@id": "#Publication_second"})
-        svg = render_citations_svg(build_citation_inventory(graph))
-        assert svg.count('class="n n-agent"') == 1
-
-    def test_empty_inventory_returns_empty(self) -> None:
-        assert render_citations_svg(build_citation_inventory({"@graph": []})) == ""
-
-    def test_escapes_crate_controlled_names(self) -> None:
-        graph = _citation_graph()
-        graph["@graph"][2]["name"] = "<script>alert(1)</script>"
-        svg = render_citations_svg(build_citation_inventory(graph))
-        assert "<script>alert(1)</script>" not in svg
-        assert "&lt;script&gt;" in svg
-
-    def test_is_well_formed_xml(self) -> None:
-        svg = render_citations_svg(
-            build_citation_inventory(_citation_graph(dangling_author=True))
-        )
-        ET.fromstring(svg)
-
-
 class TestIdentifierFallbackIsNotFabricated:
     """The registry-URL fallback must identify, not merely match a hostname."""
 
@@ -1611,7 +1078,7 @@ class TestMalformedGraphDegradesGracefully:
             ]
         }
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert "Graph views" in page
+        assert "Entity coverage" in page
 
 
 class TestDeterministicOrdering:
@@ -1847,8 +1314,14 @@ class TestAutogeneratedBadge:
         ]
 
     @staticmethod
-    def _labels(svg: str) -> list[str]:
-        return re.findall(r'<text class="name"[^>]*>([^<]*)</text>', svg)
+    def _labels(graph: list[dict]) -> list[str]:
+        """Every node label the crate's own graph model yields.
+
+        Read from the model rather than from a rendered figure: the badge is
+        `_display_name`'s doing, and asserting it through whichever renderer
+        happens to exist is how these tests came to depend on one that has since
+        been deleted (#618)."""
+        return [n["label"] for n in build_explorer_payload({"@graph": graph})["nodes"]]
 
     def test_marker_matches_the_builders(self) -> None:
         """The writer holds the marker as a literal to stay stdlib-only.
@@ -1863,17 +1336,18 @@ class TestAutogeneratedBadge:
         assert _AUTOGENERATED_MARKER == AUTOGENERATED_MARKER
 
     def test_generated_file_is_badged_and_keeps_its_name(self) -> None:
-        svg = render_provenance_svg(self._graph("AUTOGENERATED — Condition table"))
+        labels = self._labels(self._graph("AUTOGENERATED — Condition table"))
 
-        assert f"{self._BADGE} Condition table" in self._labels(svg)
-        assert "AUTOGENERATED" not in " ".join(self._labels(svg))
+        assert f"{self._BADGE} Condition table" in labels
+        assert "AUTOGENERATED" not in " ".join(labels)
 
     def test_the_name_survives_the_truncation_that_used_to_eat_it(self) -> None:
         """The regression itself: the old label was all prefix and no filename."""
-        labels = self._labels(render_provenance_svg(self._graph("AUTOGENERATED — Condition table")))
+        labels = self._labels(self._graph("AUTOGENERATED — Condition table"))
 
         assert not any(label.startswith("AUTOGENERATED") for label in labels)
-        assert not any(label.endswith("…") for label in labels), labels
+        # The filename survives, which is what the prefix used to crowd out.
+        assert f"{self._BADGE} Condition table" in labels, labels
 
     def test_two_generated_files_stay_distinguishable(self) -> None:
         """What the truncation cost: both used to render `AUTOGENERATED — C…`."""
@@ -1886,7 +1360,7 @@ class TestAutogeneratedBadge:
                 "name": "AUTOGENERATED — Raw measurements",
             }
         )
-        labels = self._labels(render_provenance_svg(graph))
+        labels = self._labels(graph)
 
         assert f"{self._BADGE} Condition table" in labels
         assert f"{self._BADGE} Raw measurements" in labels
@@ -1897,20 +1371,21 @@ class TestAutogeneratedBadge:
         The tooltip has no width limit, so it carries the marker spelled out —
         anyone checking the metadata reads what the crate actually says.
         """
-        svg = render_provenance_svg(self._graph("AUTOGENERATED — Condition table"))
+        payload = build_explorer_payload({"@graph": self._graph("AUTOGENERATED — Condition table")})
 
-        assert "AUTOGENERATED — Condition table" in svg
+        names = [n["name"] for n in payload["nodes"]]
+        assert "AUTOGENERATED — Condition table" in names
 
     def test_a_depositor_file_is_left_alone(self) -> None:
         """Honesty control: the badge must mark generated files, not all files."""
-        labels = self._labels(render_provenance_svg(self._graph("plate_map.csv")))
+        labels = self._labels(self._graph("plate_map.csv"))
 
         assert "plate_map.csv" in labels
         assert self._BADGE not in " ".join(labels)
 
     def test_a_name_merely_mentioning_the_word_is_not_badged(self) -> None:
         """Anchored at the start — a depositor may legitimately use the word."""
-        labels = self._labels(render_provenance_svg(self._graph("Notes on AUTOGENERATED data")))
+        labels = self._labels(self._graph("Notes on AUTOGENERATED data"))
 
         assert self._BADGE not in " ".join(labels)
 
@@ -1927,25 +1402,16 @@ class TestAutogeneratedBadge:
     )
     def test_separator_variants_leave_no_stray_punctuation(self, name: str) -> None:
         """A half-stripped prefix (`⚠️ — Condition table`) is worse than none."""
-        labels = self._labels(render_provenance_svg(self._graph(name)))
+        labels = self._labels(self._graph(name))
 
         assert f"{self._BADGE} Condition table" in labels, labels
 
     def test_a_bare_marker_falls_back_to_the_node_id(self) -> None:
         """`_autogenerated_name("")` yields the bare marker; a lone badge says nothing."""
-        labels = self._labels(render_provenance_svg(self._graph("AUTOGENERATED")))
+        labels = self._labels(self._graph("AUTOGENERATED"))
 
         assert self._BADGE in " ".join(labels)
         assert not any(label.strip() == self._BADGE for label in labels), labels
-
-    def test_the_mermaid_renderer_badges_it_too(self) -> None:
-        """Same diagram, other output — they must not disagree."""
-        from builder.writers.provenance_dag import render_provenance_mermaid
-
-        out = render_provenance_mermaid(self._graph("AUTOGENERATED — Condition table"))
-
-        assert f"{self._BADGE} Condition table" in out
-
 
 class TestUnreachableIsSplitByShape:
     """"Unreachable" is two different problems with two different repair costs.
@@ -2066,193 +1532,7 @@ class TestUnreachableIsSplitByShape:
         assert counts["isolated"] == counts["stranded"] == 0
         assert counts["unreachable_clusters"] == 0
 
-    def test_the_map_marks_the_two_kinds_differently(self) -> None:
-        svg = render_overview_svg(self._model())
 
-        assert "orphan isolated" in svg
-        assert "orphan stranded" in svg
-
-    def test_a_tooltip_names_the_group_so_members_can_be_found(self) -> None:
-        """A 13px tile can only say something is wrong; the tooltip says what."""
-        svg = render_overview_svg(self._model())
-
-        assert "linked to nothing at all" in svg
-        assert "one link reconnects them all" in svg
-
-
-class TestLabelsStayDistinct:
-    """Two entities must never draw as the same text.
-
-    A diagram that renders distinct entities identically is worse than one with
-    a clumsier label: the reader cannot tell them apart, and may reasonably read
-    it as the crate containing a duplicate. On the exported deposits this was not
-    an edge case — 26 crates had at least one such pair, 117 tiles in total,
-    because process and file names in this domain share long prefixes AND long
-    suffixes by convention.
-    """
-
-    @staticmethod
-    def _labels(svg: str) -> list[str]:
-        return re.findall(r'<text class="name"[^>]*>([^<]*)</text>', svg)
-
-    @staticmethod
-    def _chain(*names: str) -> list[dict]:
-        """A provenance chain whose files carry *names*."""
-        graph: list[dict] = [{"@id": "./", "@type": "Dataset"}]
-        graph.append(
-            {
-                "@id": "#p1",
-                "@type": "LabProcess",
-                "additionalType": "Exposure",
-                "name": "Exposure",
-                "object": {"@id": "#s1"},
-                "result": [{"@id": f"data/f{i}.csv"} for i in range(len(names))],
-            }
-        )
-        graph.append({"@id": "#s1", "@type": "Sample", "name": "Culture"})
-        for i, name in enumerate(names):
-            graph.append({"@id": f"data/f{i}.csv", "@type": "File", "name": name})
-        return graph
-
-    def test_names_sharing_a_long_prefix_stay_distinct(self) -> None:
-        """The common shape: a run number at the very end of a long filename."""
-        svg = render_provenance_svg(
-            self._chain("220825_RA_CHO-K1_plate_run1.csv", "220825_RA_CHO-K1_plate_run2.csv")
-        )
-        labels = self._labels(svg)
-
-        assert len(set(labels)) == len(labels), labels
-        assert any("run1" in label for label in labels), labels
-        assert any("run2" in label for label in labels), labels
-
-    def test_names_sharing_a_prefix_AND_a_suffix_stay_distinct(self) -> None:
-        """The hard shape: what distinguishes them is in the middle.
-
-        Cutting either end throws away the only identifying part, which is why
-        a plain head- or middle-truncation cannot solve this.
-        """
-        labels = self._labels(
-            render_provenance_svg(
-                self._chain(
-                    "Culture neural cell lines for deiodinase assay output",
-                    "Culture neural cell lines for thyroid transport assay output",
-                )
-            )
-        )
-
-        assert len(set(labels)) == len(labels), labels
-        assert any("deiodinase" in label for label in labels), labels
-
-    def test_a_strict_prefix_keeps_its_plain_label(self) -> None:
-        """`X` beside `X study`: one has nothing extra to show."""
-        labels = self._labels(
-            render_provenance_svg(
-                self._chain("Whole-cell metabolism assay", "Whole-cell metabolism assay study")
-            )
-        )
-
-        assert len(set(labels)) == len(labels), labels
-
-    def test_three_way_collisions_resolve(self) -> None:
-        labels = self._labels(
-            render_provenance_svg(
-                self._chain(
-                    "proc_culture_sk_n_as_cells output sample",
-                    "proc_culture_sk_n_as_and_mo313_cells output sample",
-                    "proc_culture_sk_n_as_h4_and_mo313_cells output sample",
-                )
-            )
-        )
-
-        assert len(set(labels)) == len(labels), labels
-
-    def test_two_groups_resolving_to_the_same_core_are_split(self) -> None:
-        """Fixing one group can land it on another group's label.
-
-        Both families reduce to the same distinguishing core here, so without a
-        second pass — and without keeping a little of the original opening — the
-        two fixes cancel each other out.
-        """
-        labels = self._labels(
-            render_provenance_svg(
-                self._chain(
-                    "Culture neural cell lines for deiodinase assay",
-                    "Culture neural cell lines for transport assay",
-                    "Input (Culture neural cell lines for deiodinase assay)",
-                    "Input (Culture neural cell lines for transport assay)",
-                )
-            )
-        )
-
-        assert len(set(labels)) == len(labels), labels
-
-    def test_identical_names_are_left_alone(self) -> None:
-        """Honesty control: a real duplicate is the crate's fact to report.
-
-        Two entities that genuinely carry one name must keep one label — inventing
-        a difference would hide a duplicate the reader should see.
-        """
-        labels = self._labels(render_provenance_svg(self._chain("plate.csv", "plate.csv")))
-
-        assert labels.count("plate.csv") == 2, labels
-
-    def test_short_names_are_never_mangled(self) -> None:
-        """Nothing that already fits should acquire an ellipsis."""
-        labels = self._labels(render_provenance_svg(self._chain("run1.csv", "run2.csv")))
-
-        assert "run1.csv" in labels and "run2.csv" in labels
-        assert not any("…" in label for label in labels), labels
-
-    def test_labels_stay_within_the_node(self) -> None:
-        """The node is 138px wide; a label that overflows it is not a fix."""
-        labels = self._labels(
-            render_provenance_svg(
-                self._chain(
-                    "Culture neural cell lines for deiodinase assay output sample",
-                    "Culture neural cell lines for thyroid transport assay output sample",
-                )
-            )
-        )
-
-        assert all(len(label) <= 20 for label in labels), labels
-
-    def test_the_title_still_carries_the_full_name(self) -> None:
-        """Whatever the label does, the tooltip stays the unabridged truth."""
-        svg = render_provenance_svg(
-            self._chain("220825_RA_CHO-K1_plate_run1.csv", "220825_RA_CHO-K1_plate_run2.csv")
-        )
-
-        assert "220825_RA_CHO-K1_plate_run1.csv" in svg
-        assert "220825_RA_CHO-K1_plate_run2.csv" in svg
-
-    def test_it_is_deterministic(self) -> None:
-        graph = self._chain("a_long_shared_prefix_x.csv", "a_long_shared_prefix_y.csv")
-
-        assert self._labels(render_provenance_svg(graph)) == self._labels(
-            render_provenance_svg(graph)
-        )
-
-    def test_the_isa_view_resolves_too(self) -> None:
-        """The ISA renderer rebuilds its brief dict, so it can drop the label."""
-        graph = [
-            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-            {
-                "@id": "./",
-                "@type": "Dataset",
-                "additionalType": "Investigation",
-                "name": "CHO-K1 hOATP1C1 transporter assay",
-                "hasPart": [{"@id": "#st1"}],
-            },
-            {
-                "@id": "#st1",
-                "@type": "Dataset",
-                "additionalType": "Study",
-                "name": "CHO-K1 hOATP1C1 time-course assay",
-            },
-        ]
-        labels = self._labels(render_isa_svg(build_isa_inventory(graph)))
-
-        assert len(set(labels)) == len(labels), labels
 
 
 class TestCategoryRegistry:
@@ -2265,12 +1545,6 @@ class TestCategoryRegistry:
     between tabs does not merely look untidy — it teaches the reader that colour
     carries no meaning, which costs them the one channel the overview map has.
     """
-
-    def test_every_category_has_a_unique_mermaid_shape(self) -> None:
-        """Shape is the channel that survives greyscale, print and colour blindness."""
-        shapes = [style.mermaid for style in CATEGORY_STYLES.values()]
-
-        assert len(set(shapes)) == len(shapes), shapes
 
     def test_every_category_has_a_unique_glyph(self) -> None:
         """The interactive explorer draws a glyph where the SVG views draw an
@@ -2294,19 +1568,6 @@ class TestCategoryRegistry:
             for literal in re.findall(r"-?\d+(?:\.\d+)?", glyph):
                 assert -14.0 <= float(literal) <= 14.0, (category, glyph, literal)
 
-    def test_every_category_has_a_unique_svg_outline(self) -> None:
-        """The geometry, not the CSS class — two classes can draw one shape.
-
-        A Person and a Sample were both a stadium in different colours, so the
-        two were indistinguishable to anyone reading without colour.
-        """
-        outlines = {
-            category: re.sub(r'class="[^"]*"', "", _svg_node_shape(category, 0, 0))
-            for category in CATEGORY_STYLES
-        }
-
-        assert len(set(outlines.values())) == len(outlines), sorted(outlines)
-
     def test_no_view_hardcodes_a_category_colour(self) -> None:
         """The registry has to be the only place a category colour is written.
 
@@ -2321,18 +1582,14 @@ class TestCategoryRegistry:
 
         assert not re.search(r"--cat-[a-z]+\s*:", source), "the stylesheet hardcodes a palette"
 
-        by_colour = {style.colour: name for name, style in CATEGORY_STYLES.items()}
-        graph = _full_chain_graph()
-        for rendered in (
-            render_crate_graph(graph, layer="all"),
-            render_provenance_mermaid(graph),
-        ):
-            for category, stroke in re.findall(
-                r"classDef (?:cat_)?([a-z]+) fill:#[0-9a-f]{6},stroke:(#[0-9a-f]{6})", rendered
-            ):
-                if category in CATEGORY_STYLES:
-                    assert stroke == CATEGORY_STYLES[category].colour, category
-                    assert by_colour[stroke] == category, category
+        # And the page carries no category colour the registry did not put there:
+        # the explorer's palette is generated into the payload, so a hand-written
+        # one would show up as a colour the registry does not know.
+        payload = build_explorer_payload(_full_chain_graph())
+        assert {c["colour"] for c in payload["categories"].values()} == {
+            *(s.colour for s in CATEGORY_STYLES.values()),
+            _CTX_COLOUR,
+        }
 
     def test_the_substituted_stylesheet_carries_the_registry_colours(self) -> None:
         """The wiring check for the placeholder: the values actually arrive."""
@@ -2340,21 +1597,20 @@ class TestCategoryRegistry:
 
         for category, style in CATEGORY_STYLES.items():
             assert declared.get(category) == style.colour, category
-            assert _mermaid_style(category)[1] == style.colour, category
 
-    def test_every_category_is_drawable_in_the_report(self) -> None:
-        """A category with no rules renders as an unstyled black-on-white box.
+    def test_every_category_is_declared_in_the_report(self) -> None:
+        """A category the stylesheet never declares has no colour to be drawn in.
 
         This is what the generated CSS buys: the hand-written stylesheet had a
-        colour for protocols in the overview and none anywhere else.
+        colour for protocols in one view and none anywhere else. The per-category
+        node and tile *rules* went with the figures that used them (#618); the
+        properties stay, and the substitution has to actually happen.
         """
         css = _load_css()
 
         assert "__CATEGORY_STYLES__" not in css
-        for category in CATEGORY_STYLES:
-            for prefix in ("cat", "n", "tag"):
-                rule = rf"\.{prefix}-{category} \{{"
-                assert re.search(rule, css), f"{category}: {rule}"
+        for category in (*CATEGORY_STYLES, "ctx"):
+            assert re.search(rf"--cat-{category}\s*:", css), category
 
     def test_colours_are_far_enough_apart_to_tell_apart(self) -> None:
         """The overview is 13px tiles, where colour is most of the signal.
@@ -2370,11 +1626,6 @@ class TestCategoryRegistry:
         worst = min(pairs)
 
         assert worst[0] >= 20, f"{worst[1]} vs {worst[2]}: dE {worst[0]:.1f}"
-
-    def test_every_colour_reads_as_an_outline_on_the_page(self) -> None:
-        """A stroke below 3:1 disappears against the report background."""
-        for category, style in CATEGORY_STYLES.items():
-            assert _contrast_on_white(style.colour) >= 3.0, category
 
     def test_a_dataset_is_a_container_in_every_view_that_draws_one(self) -> None:
         """The concrete regression: `_node_class_for_brief` had no Dataset arm.
@@ -2395,69 +1646,6 @@ class TestCategoryRegistry:
         assert _entity_category({"@type": "Organization"}) == "org"
         assert _entity_category({"@type": "Person"}) == "agent"
         assert _node_class_for_brief({"tag": "Organization"}) == "org"
-
-    def test_legend_swatches_are_the_diagram_s_own_geometry(self) -> None:
-        """A hand-drawn swatch drifts: the "File / table" key was a plain
-        rounded rectangle for as long as the diagram had drawn a folded-corner
-        document. Drawing the swatch through `_svg_node_shape` makes that
-        impossible rather than merely unlikely."""
-        for category in CATEGORY_STYLES:
-            swatch = legend_swatch(category)
-            body = swatch.split(">", 1)[1].rsplit("</svg>", 1)[0]
-
-            assert body == _svg_node_shape(category, 7, 7), category
-            # It must inherit the diagram's rules, or it shows the wrong colour.
-            assert 'class="prov lg-sw"' in swatch
-
-    def test_the_crate_graph_legend_names_every_category(self) -> None:
-        """The hand-written legend had fallen behind the categories it explains:
-        one "Person / Org" key for two differently-drawn categories, and nothing
-        at all for publications or organisations."""
-        legend = "\n".join(_crate_legend_lines())
-
-        for category, style in CATEGORY_STYLES.items():
-            assert f":::cat_{category}" in legend, category
-            assert style.label in legend, category
-
-    def test_the_overview_names_the_types_and_the_legend_the_categories(self) -> None:
-        """The cluster caption says what the tiles ARE — their type — while the
-        colour key keeps the category vocabulary (review comments on the
-        report artifact overturned the caption-equals-category contract: a
-        category word over the tiles made the reader guess the types, and
-        guess wrong)."""
-        graph = [
-            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-            {"@id": "./", "@type": "Dataset", "name": "Root", "hasPart": [{"@id": "#o"}]},
-            {"@id": "#o", "@type": "Organization", "name": "Utrecht University"},
-        ]
-        svg = render_overview_svg(build_crate_graph(graph, layer="all", all_edges=True))
-
-        assert "Organization · 1" in svg
-        assert category_label("org") not in svg
-        # The category vocabulary survives for the colour key.
-        assert category_label("org") == "Organisation"
-
-    def test_isa_backbone_clusters_name_the_isa_type_not_dataset(self) -> None:
-        """Review comment: a Study/Assay cluster captioned "Dataset" says
-        nothing — every ISA backbone node is a Dataset; the qualifier is the
-        identity. Outside the packaging layer a ``Dataset · X`` tag captions
-        as ``X``; the root keeps "Dataset" (its packaging role is the point,
-        and its own review thread asked for exactly that)."""
-        graph = [
-            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-            {"@id": "./", "@type": "Dataset", "name": "Root",
-             "hasPart": [{"@id": "#s"}, {"@id": "#a"}]},
-            {"@id": "#s", "@type": "Dataset", "additionalType": "Study", "name": "S1"},
-            {"@id": "#a", "@type": "Dataset", "additionalType": "Assay", "name": "A1"},
-        ]
-        svg = render_overview_svg(build_crate_graph(graph, layer="all", all_edges=True))
-        assert "Assay / Study · 2" in svg
-        assert ">Dataset · 1</text>" in svg, "the root keeps its packaging name"
-        assert "Dataset · 2" not in svg
-
-
-class TestCitationCreditListIsDrawnHonestly:
-    """Two ways the Citations view could flatter a crate it should be reporting on."""
 
     @staticmethod
     def _graph(author: list[dict] | None) -> dict:
@@ -2485,16 +1673,11 @@ class TestCitationCreditListIsDrawnHonestly:
         Organization — so painting the whole list with the agent block gives one
         entity two shapes across the report, which is the rule's whole point.
         """
-        from builder.writers.provenance_dag import build_citation_inventory, render_citations_svg
+        graph = self._graph([{"@id": "https://ror.org/02catss52"}, {"@id": "#p1"}])
+        by_id = {n["id"]: n for n in build_explorer_payload(graph)["nodes"]}
 
-        svg = render_citations_svg(
-            build_citation_inventory(
-                self._graph([{"@id": "https://ror.org/02catss52"}, {"@id": "#p1"}])
-            )
-        )
-
-        assert svg.count("n-org") == 1, "the Organization author was repainted as a Person"
-        assert svg.count("n-agent") == 1
+        assert by_id["https://ror.org/02catss52"]["category"] == "org"
+        assert by_id["#p1"]["category"] == "agent"
 
     def test_an_article_crediting_nobody_is_not_reported_as_fully_resolved(self) -> None:
         """The vacuous-truth guard.

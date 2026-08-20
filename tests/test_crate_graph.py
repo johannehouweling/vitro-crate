@@ -17,7 +17,6 @@ import pytest
 from builder.writers.provenance_dag import (
     build_crate_graph,
     normalize_layer,
-    render_crate_graph,
 )
 
 
@@ -272,23 +271,6 @@ def test_entity_category_is_functional_not_layer() -> None:
     assert nodes["https://orcid.org/0000-0002-1825-0097"]["category"] == "agent"
 
 
-def test_render_colours_by_category_and_tints_layer_boxes() -> None:
-    out = render_crate_graph(_crate())
-    # node fill = functional category
-    assert "classDef cat_process" in out
-    assert "classDef cat_material" in out
-    assert "classDef cat_chemical" in out
-    # the three layer boxes carry a subtle per-layer wash (style on the subgraph)
-    assert "style layer1_g fill:" in out
-    assert "style layer2_g fill:" in out
-    assert "style layer3_g fill:" in out
-    # layer is no longer encoded as a node fill class
-    assert "classDef layer1 " not in out
-
-
-# --- node status: in-crate / external / dangling ----------------------------
-
-
 def test_in_crate_person_with_orcid_id_is_not_external() -> None:
     nodes = _by_id(build_crate_graph(_crate()))
     person = nodes["https://orcid.org/0000-0002-1825-0097"]
@@ -487,37 +469,3 @@ def test_counts_present() -> None:
 # --- renderer (Mermaid formatting) ------------------------------------------
 
 
-def test_render_has_flowchart_and_layer_subgraphs() -> None:
-    out = render_crate_graph(_crate(), direction="TD")
-    assert out.startswith("flowchart TD")
-    # One layer, one name, on every surface (the overview map's review names).
-    assert "RO-Crate" in out and "ISA RO-Crate" in out and "ISA-Tox RO-Crate" in out
-    assert "Packaging" not in out and "Structural" not in out and "Domain" not in out
-
-
-def test_render_has_legend_and_outside_group() -> None:
-    out = render_crate_graph(_crate(), include_legend=True)
-    assert "Legend" in out
-    # the "outside the crate" grouping makes the in-crate/external split explicit
-    assert "Outside" in out or "outside" in out
-
-
-def test_render_includes_entity_names() -> None:
-    out = render_crate_graph(_crate())
-    for name in ("HepG2", "Exposure", "Aflatoxin B1", "Condition table", "Jane Doe"):
-        assert name in out
-
-
-def test_render_layer_filter_excludes_domain_names() -> None:
-    out = render_crate_graph(_crate(), layer="isa")
-    assert "Hepatotox study" in out  # L2 kept
-    assert "Aflatoxin B1" not in out  # L3 dropped
-
-
-def test_render_legend_can_be_omitted() -> None:
-    assert "Legend" not in render_crate_graph(_crate(), include_legend=False)
-
-
-def test_render_empty_graph() -> None:
-    out = render_crate_graph({"@graph": []})
-    assert out.startswith("flowchart TD")

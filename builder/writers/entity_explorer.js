@@ -176,7 +176,7 @@
     if (props.data.dim) cls.push('ex-dim');
     if (props.selected) cls.push('ex-selected');
     return html`<div class=${cls.join(' ')} style=${{ '--ex-c': c.colour }}
-        title=${n.label + ' — ' + n.id}>
+        title=${(n.name || n.label) + ' — ' + n.id}>
       <${Handle} type="target" position=${Position.Left} />
       <${Glyph} k=${n.category} size=${16} />
       <div class="ex-node-text">
