@@ -399,6 +399,14 @@ def _ref_ids(node: dict[str, Any], key: str) -> list[str]:
     return out
 
 
+def _type_set(node: dict[str, Any]) -> set[str]:
+    """The node's ``@type`` local names — ``"Dataset"`` or ``["File", "csvw:Table"]``
+    alike — so a type test reads the same whatever form the serializer chose."""
+    value = node.get("@type")
+    values = value if isinstance(value, list) else [value] if value is not None else []
+    return {str(v).rsplit(":", 1)[-1].rsplit("/", 1)[-1] for v in values if isinstance(v, str)}
+
+
 def _study_facts(
     state: CrateState, graph: dict[str, Any] | list[dict[str, Any]] | None
 ) -> dict[str, Any]:
@@ -1996,14 +2004,24 @@ _DATA_CLASS_WORDS: dict[str, str] = {
 def _render_datasets_panel(
     graph: dict[str, Any] | list[dict[str, Any]], model: dict[str, Any]
 ) -> tuple[str, str]:
-    """The Datasets view: every data entity the crate carries, one row each —
-    what kind of file it is, its format and size, whether it is described, and
-    whether a reader walking from the root actually reaches it.
+    """The Datasets view: every ``Dataset`` the crate declares, each unfolded
+    to the files it lists under ``hasPart`` — what kind of file, its format and
+    size, whether it is described, and whether a reader walking from the root
+    actually reaches it.
+
+    One fold per Dataset, in ISA backbone order (Investigation, Study, Assay,
+    then plain folder Datasets), named by its level and ``name``. A file sits
+    under *every* Dataset whose ``hasPart`` names it — the root lists the whole
+    tree and an Assay lists its own, and both are the crate's claims — so the
+    view reports the structure as written rather than inventing one owner. A
+    Dataset that lists only containers is still shown, with "0 files", so an
+    empty Assay is visible rather than silently absent. Files no Dataset lists
+    lead, in their own group: they are the rows worth acting on.
 
     Rows are the crate graph's own ``data``-category nodes (the same
-    classification every other view uses, #487), so this table and the
-    All-entities map cannot disagree about what counts as data. Unreachable
-    rows sort first — they are the rows worth acting on.
+    classification every other view uses, #487), so the folds and the
+    All-entities map cannot disagree about what counts as data. Within a
+    fold, unreachable rows sort first.
 
     Returns ``("", "")`` when the crate declares no data entities.
     """
@@ -2036,11 +2054,7 @@ def _render_datasets_panel(
             n //= 1024
         return esc(raw)
 
-    ordered = sorted(
-        rows_src, key=lambda n: (not n.get("orphan"), str(n.get("label") or "").casefold())
-    )
-    body_rows = []
-    for n in ordered:
+    def row(n: dict[str, Any]) -> str:
         nid = str(n.get("id"))
         name = str(n.get("label") or nid)  # label is pre-escaped by the model
         kind, _reason = classify_file(name, "", nid)
@@ -2048,7 +2062,7 @@ def _render_datasets_panel(
         size = fact(nid, "contentSize")
         described = bool(fact(nid, "description"))
         reachable = not n.get("orphan")
-        body_rows.append(
+        return (
             f'<tr><th scope="row">{_mk("ok" if reachable else "no")}'
             f'<span class="cn">{name}</span>'
             f'<span class="ty">{_DATA_CLASS_WORDS.get(kind, "file")}</span></th>'
@@ -2057,6 +2071,63 @@ def _render_datasets_panel(
             f"<td>{_mk('ok' if described else 'no')}</td>"
             f"<td>{_mk('ok' if reachable else 'no')}</td></tr>"
         )
+
+    def table(members: list[dict[str, Any]], caption: str) -> str:
+        if not members:
+            return ""
+        ordered = sorted(
+            members, key=lambda n: (not n.get("orphan"), str(n.get("label") or "").casefold())
+        )
+        return (
+            '<div class="chem-tbl-scroll"><table class="chem-tbl">'
+            f'<caption class="sr-only">{caption}</caption>'
+            '<thead><tr><th scope="col">Data entity</th><th scope="col">Format</th>'
+            '<th scope="col">Size</th><th scope="col" title="Has a description">Described</th>'
+            '<th scope="col" title="Reachable from the crate root">Reachable</th></tr></thead>'
+            f"<tbody>{''.join(row(n) for n in ordered)}</tbody></table></div>"
+        )
+
+    def fold(level: str, name: str, members: list[dict[str, Any]], *, title: str = "") -> str:
+        n = len(members)
+        count = f"{n} file{'s' if n != 1 else ''}"
+        chip = f'<span class="ds-lvl">{level}</span> ' if level else ""
+        return (
+            f'<details class="ds-fold" open><summary{title}>'
+            f'{chip}<b>{name}</b> <span class="ds-n">{count}</span></summary>'
+            f"{table(members, f'Files listed by {name}')}</details>"
+        )
+
+    # The Datasets, in backbone order: the ISA inventory names the level of
+    # each container (the root is the Investigation whether it says so or not);
+    # any other Dataset is a plain folder and sorts after them.
+    from builder.writers.provenance_dag import build_isa_inventory
+
+    levels = {str(c["id"]): str(c["level"]) for c in build_isa_inventory(graph)["nodes"]}
+    rank = {"Investigation": 0, "Study": 1, "Assay": 2}
+    data_by_id = {str(n.get("id")): n for n in rows_src}
+    datasets = sorted(
+        ((nid, node) for nid, node in nodes.items() if "Dataset" in _type_set(node)),
+        key=lambda kv: (
+            rank.get(levels.get(kv[0], ""), 3),
+            str(kv[1].get("name") or kv[0]).casefold(),
+        ),
+    )
+    listed: set[str] = set()
+    folds: list[str] = []
+    for nid, node in datasets:
+        members = [data_by_id[m] for m in _ref_ids(node, "hasPart") if m in data_by_id]
+        listed.update(str(m.get("id")) for m in members)
+        folds.append(
+            fold(
+                levels.get(nid, "Dataset"),
+                esc(str(node.get("name") or nid)),
+                members,
+                title=f' title="{esc(nid)}"',
+            )
+        )
+    unlisted = [n for n in rows_src if str(n.get("id")) not in listed]
+    if unlisted:
+        folds.insert(0, fold("", "Not listed by any Dataset", unlisted))
     unreached = sum(1 for n in rows_src if n.get("orphan"))
     note = (
         f'<p class="chem-warn">{_mk("no")}<span><b>{unreached} of {len(rows_src)} data '
@@ -2066,15 +2137,7 @@ def _render_datasets_panel(
         if unreached
         else '<p class="good-note">Every data entity is reachable from the crate root.</p>'
     )
-    table = (
-        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
-        '<caption class="sr-only">The crate&#x27;s data entities</caption>'
-        '<thead><tr><th scope="col">Data entity</th><th scope="col">Format</th>'
-        '<th scope="col">Size</th><th scope="col" title="Has a description">Described</th>'
-        '<th scope="col" title="Reachable from the crate root">Reachable</th></tr></thead>'
-        f"<tbody>{''.join(body_rows)}</tbody></table></div>"
-    )
-    return f"{note}\n  {table}", str(len(rows_src))
+    return f"{note}\n  {''.join(folds)}", str(len(rows_src))
 
 
 _CHEM_STATE_MARK = {"wired": "ok", "mentioned": "na", "unlinked": "no"}

@@ -1456,6 +1456,89 @@ class TestDatasetsPanel:
         page = build_maturity_html(CrateState(), graph=graph)
         assert 'id="p-data"' not in page.split("</style>", 1)[-1]
 
+    # --- grouped by the Dataset that lists the file (owner's review) ---------
+
+    @staticmethod
+    def _panel(page: str) -> str:
+        return page.split('id="p-data"', 1)[1].split("</div>\n", 1)[0]
+
+    @staticmethod
+    def _folds(panel: str) -> list[tuple[str, str]]:
+        """``(summary, body)`` per Dataset fold, in page order."""
+        return re.findall(
+            r'<details class="ds-fold"[^>]*><summary[^>]*>(.*?)</summary>(.*?)</details>',
+            panel,
+            re.S,
+        )
+
+    def _nested_graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "name": "Inv",
+                 "hasPart": [{"@id": "#study"}, {"@id": "a.csv"}, {"@id": "b.csv"}]},
+                {"@id": "#study", "@type": "Dataset", "additionalType": "Study",
+                 "name": "The study", "hasPart": [{"@id": "#assay"}]},
+                {"@id": "#assay", "@type": "Dataset", "additionalType": "Assay",
+                 "name": "The assay", "hasPart": [{"@id": "b.csv"}]},
+                {"@id": "raw/", "@type": "Dataset", "name": "raw folder",
+                 "hasPart": [{"@id": "a.csv"}]},
+                {"@id": "a.csv", "@type": "File", "name": "a.csv"},
+                {"@id": "b.csv", "@type": "File", "name": "b.csv", "encodingFormat": "text/csv"},
+                {"@id": "loose.csv", "@type": "File", "name": "loose.csv"},
+            ]
+        }
+
+    def test_every_dataset_gets_a_fold_listing_the_files_it_has_part(self) -> None:
+        """One fold per ``Dataset`` — ISA level first, then the name and how many
+        files it lists — and a file under every Dataset whose ``hasPart`` names
+        it: the root lists the whole tree, an Assay lists its own, and the
+        reader sees both claims rather than an invented single owner."""
+        page = build_maturity_html(CrateState(), graph=self._nested_graph())
+        folds = self._folds(self._panel(page))
+        by_name = {re.sub(r"<[^>]+>", "", summ): (summ, body) for summ, body in folds}
+        names = [re.sub(r"<[^>]+>", "", summ) for summ, _ in folds]
+        # ISA levels in backbone order, then plain folder Datasets.
+        assert names == [
+            "Not listed by any Dataset 1 file",
+            "Investigation Inv 2 files",
+            "Study The study 0 files",
+            "Assay The assay 1 file",
+            "Dataset raw folder 1 file",
+        ], names
+        inv_summ, inv_body = by_name["Investigation Inv 2 files"]
+        assert '<span class="ds-lvl">Investigation</span>' in inv_summ
+        assert "a.csv" in inv_body and "b.csv" in inv_body and "loose.csv" not in inv_body
+        _, assay_body = by_name["Assay The assay 1 file"]
+        assert "b.csv" in assay_body and "a.csv" not in assay_body
+        assert "text/csv" in assay_body  # the row keeps its facts in every fold
+        _, study_body = by_name["Study The study 0 files"]
+        assert "<tr" not in study_body  # a Dataset that lists only containers
+        _, loose_body = by_name["Not listed by any Dataset 1 file"]
+        assert "loose.csv" in loose_body and 'class="mk no"' in loose_body
+
+    def test_the_unlisted_group_is_absent_when_every_file_has_a_dataset(self) -> None:
+        page = build_maturity_html(CrateState(), graph=self._graph())
+        panel = self._panel(page)
+        assert "Not listed by any Dataset" in panel  # loose.csv in the base graph
+        graph = self._graph()
+        graph["@graph"] = [n for n in graph["@graph"] if n["@id"] != "loose.csv"]
+        page = build_maturity_html(CrateState(), graph=graph)
+        panel = self._panel(page)
+        assert "Not listed by any Dataset" not in panel
+        assert [re.sub(r"<[^>]+>", "", s) for s, _ in self._folds(panel)] == [
+            "Investigation T 1 file"
+        ]
+
+    def test_the_folds_open_by_default_and_the_css_styles_them(self) -> None:
+        from builder.writers.maturity_report import _CSS_PATH
+
+        page = build_maturity_html(CrateState(), graph=self._graph())
+        panel = self._panel(page)
+        assert panel.count('<details class="ds-fold" open>') == len(self._folds(panel)) == 2
+        css = _CSS_PATH.read_text(encoding="utf-8")
+        assert "details.ds-fold > summary" in css and ".ds-lvl" in css
+
 
 class TestChemicalsSection:
     """The Chemicals section (#85): how each compound reaches the experiment and
