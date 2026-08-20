@@ -113,3 +113,31 @@ class TestCapHitStillSurfaces:
         monkeypatch.setattr(agent_loop, "_build_agent_graph", lambda *a, **k: _Capped())
 
         assert make_react_agent_factory()().build(_CASE).stop_reason == "cap_hit"
+
+
+class TestAFailedTurnStillSaysWhy:
+    """The harness re-runs a build that failed for a NETWORK reason (trap 1) and
+    scores everything else. It classifies by matching the reason phrase in
+    ``BuildOutcome.error`` — so a loop that absorbs its model failures (as the
+    shipped one does, to keep the session alive) has to report the reason out, or
+    every transient failure on this arm is silently scored as a real one (#609).
+    """
+
+    def test_a_model_failure_reaches_the_outcome_as_a_reason(self, faked_loop, monkeypatch):
+        from builder.agents.react import agent_loop
+        from eval.runner import _is_transient_error
+
+        class _Flaky:
+            def invoke(self, payload: dict, config: dict) -> dict:
+                raise ConnectionError("Connection reset by peer")
+
+        monkeypatch.setattr(agent_loop, "_build_agent_graph", lambda *a, **k: _Flaky())
+
+        outcome = make_react_agent_factory()().build(_CASE)
+
+        assert outcome.stop_reason == "error"
+        assert outcome.error and "connection reset" in outcome.error.lower()
+        assert _is_transient_error(outcome.error), (
+            "the harness cannot tell this dropped connection from a real defect, "
+            "so it will score it instead of re-running it"
+        )

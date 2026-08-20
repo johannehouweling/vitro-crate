@@ -311,9 +311,9 @@ class EvalReport:
         # Stop-reason breakdown (trap 2): a self-terminated run is a clean win; a
         # cap_hit is only valid-at-the-cutoff. Counting them keeps a ReAct "win" at
         # the recursion cap from reading as an unqualified success.
-        num_cap_hit = sum(1 for r in self.results if r.stop_reason == "cap_hit")
-        num_completed = sum(1 for r in self.results if r.stop_reason == "completed")
-        num_error = sum(1 for r in self.results if r.stop_reason == "error")
+        num_cap_hit = sum(1 for r in scoped if r.stop_reason == "cap_hit")
+        num_completed = sum(1 for r in scoped if r.stop_reason == "completed")
+        num_error = sum(1 for r in scoped if r.stop_reason == "error")
         # Total $ over cases with a KNOWN price; ``None`` when no case was priced,
         # so an unpriced run reads as "cost unknown", not a misleading $0 (trap 5).
         # Each case contributes ALL its repeats (#401) — this is the run's actual

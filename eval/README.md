@@ -57,12 +57,16 @@ passed conformance and scored a win at $0 against an arm that drafted the whole 
 from the brief. Not-applicable cases are counted (`num_not_applicable`) and left out of
 every average; `num_cases_compared` is the denominator for the rest (#609).
 
-`PipelineBuildAgent` wraps the deterministic spine (`builder/agents/pipeline.py::run_pipeline`,
-AGENTS.md §14.5): same headless-engine + `initialize()` setup, but instead of driving
-the model it runs the code-driven spine (scaffold → draft → build_and_validate → bounded
-fix loop) once over the engine. It calls **no model** (zero tokens), so it runs in CI for
-real; the spine call is injected so the wiring is unit-tested in isolation. **ReAct stays
-the default** — the pipeline is an opt-in parallel path until this A/B gate proves it.
+`PipelineBuildAgent` wraps the shipped pipeline arm (`run_interactive_build` over
+`builder/agents/pipeline/pipeline.py::run_pipeline`,
+AGENTS.md §14.5): same headless-engine + `initialize()` setup, but instead of letting a
+model choose the order it runs the code-driven spine (scaffold → draft →
+build_and_validate → bounded fix loop), then exports and persists. The spine calls a
+model only through its bounded leaves, and only when a provider is configured — with
+none set it is a strict no-op, which is what lets this arm run in CI for real. The
+spine call is injected so the wiring is unit-tested in isolation. This arm is the
+shipped `--interactive` **default** (AGENTS.md D15); ReAct is the opt-in alternative
+behind `--react`.
 
 ## The corpus
 
@@ -117,7 +121,10 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
 - **iteration count** and **tool-call count** — also mined from `profile.ndjson`;
 - **stop-reason** (#331) — `completed` (the agent self-terminated), `cap_hit` (the
   ReAct loop hit its recursion cap — a valid-at-the-cutoff run, **not** a clean win),
-  or `error`. The pipeline always `completed`;
+  `error`, or `not_applicable` (the case asks for something this arm does not do —
+  a conversational, no-input-directory build on the folder-driven pipeline; it is
+  counted and named, never averaged in). The pipeline is `completed` or
+  `not_applicable`;
 - **model + cost** (#331) — `model_name` mined from `profile.ndjson`, and `cost_usd`
   from `eval.metrics.MODEL_PRICES` (or the `--price-input`/`--price-output` override
   for an unlisted model). An unpriced model records `cost_usd = None` — never a
@@ -139,7 +146,9 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
 
 The aggregate `EvalReport.summary()` reports **success rate**, **mean/median tokens**,
 **mean/median latency**, the **determinism rate**, the **stop-reason breakdown**
-(`num_completed` / `num_cap_hit` / `num_error`), **`mean_total_tokens_cv`** (the
+(`num_completed` / `num_cap_hit` / `num_error`), **`num_not_applicable`** and
+**`num_cases_compared`** (the denominator every rate above uses — cases the arm
+attempted), **`mean_total_tokens_cv`** (the
 arm-level "how stochastic" number), and two cost figures: **`total_cost_usd`** — the
 run's actual spend, every repeat of every priced case, `None` when no case was priced
 — and **`mean_cost_usd_per_repeat`**, the same money divided by `repeats` so runs made

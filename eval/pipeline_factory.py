@@ -1,6 +1,7 @@
 """The deterministic-pipeline agent factory — the §14 architecture under test.
 
-This wraps the deterministic pipeline spine (:func:`builder.agents.pipeline.pipeline.run_pipeline`,
+This wraps the deterministic pipeline arm (:func:`builder.agents.build.run_interactive_build`
+over :func:`builder.agents.pipeline.pipeline.run_pipeline`,
 AGENTS.md §14.2) behind the agent-agnostic :class:`~eval.agent_api.BuildAgent`
 contract — the *same* contract the live ReAct factory (:mod:`eval.react_factory`)
 implements. The harness then A/B's the two architectures by swapping which factory
@@ -15,7 +16,12 @@ A build:
 2. ``initialize(input_path)`` — scans the case's input dir if any (which approves
    that dir under the #198 fail-closed guard), and assigns a ``session_id`` +
    opens the run's ``profile.ndjson``;
-3. runs the deterministic spine once over the engine — **no LLM, no network**;
+3. runs the shipped ``run_interactive_build`` over the engine: the deterministic
+   spine, then the export and the persist. Export is not a formality — it wires
+   unreferenced domain entities and runs an optional-tier ``ensure_validated`` —
+   and the ReAct arm exports from inside its own loop, so stopping at the spine
+   scored the two arms at different stages of the build (#609). Guidance is not
+   invoked: the human is headless, so this stays automated-vs-automated;
 4. returns the engine's final :class:`~builder.state.CrateState` and ``session_id``,
    exactly like :class:`~eval.react_factory.ReActBuildAgent`.
 
@@ -23,7 +29,10 @@ This arm DOES call a model — the spine's bounded leaves run on the drafter tie
 but only when a provider is configured, so with none set it runs in CI for real as
 a strict no-op. The caller's provider/model/base URL is threaded to those leaves
 (#399); it used to be dropped here while ReAct received it, so a "same-model" A/B
-compared two different models. The spine call is injected (``pipeline_runner``) so
+compared two different models. A case with no input directory is reported
+``not_applicable`` rather than built: this arm is folder-driven by design, and
+scoring an empty scaffold as a conformant $0 win is not a result (#609). The spine
+call is injected (``pipeline_runner``) so
 the wiring is unit-testable in isolation.
 """
 
@@ -45,8 +54,9 @@ logger = logging.getLogger(__name__)
 # A pipeline_runner runs the deterministic spine once over an engine, mutating
 # engine.state and returning the spine's result dict.
 # The open ``(...)`` form mirrors ``builder.agents.build.PipelineRunner``: the real
-# ``run_pipeline`` takes keyword-only extras (``overrides``, #399) that a narrow
-# injected stub may not, so the call site introspects rather than assuming.
+# ``run_pipeline`` takes keyword-only extras (``progress``, ``overrides``) that a
+# narrow injected stub may not, so ``run_interactive_build`` introspects the runner
+# and passes each only when it is accepted.
 PipelineRunner = Callable[..., dict]
 
 

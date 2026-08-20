@@ -27,7 +27,7 @@ pytestmark = pytest.mark.timeout(120)
 
 class TestReActStopReason:
     def test_completed_when_the_loop_reports_a_clean_stop(self) -> None:
-        agent = ReActBuildAgent(graph_driver=lambda e, p: "completed")
+        agent = ReActBuildAgent(graph_driver=lambda e, p: ("completed", None))
         outcome = agent.build(DEFAULT_CORPUS[0])
         assert outcome.stop_reason == "completed"
         assert outcome.error is None

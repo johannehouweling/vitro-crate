@@ -218,3 +218,9 @@ class TestTheHeadToHeadComparesLikeWithLike:
         assert cmp["head_to_head"]["summaries"]["pipeline"]["mean_total_tokens"] == 100.0
         assert cmp["head_to_head"]["summaries"]["pipeline"]["success_rate"] == 1.0
         assert cmp["head_to_head"]["summaries"]["react"]["success_rate"] == 1.0
+        # The stop-reason counters are part of the same table and must be scoped
+        # to the same cases — a count over all five beside an average over three
+        # is the very mismatch this block exists to remove.
+        assert cmp["head_to_head"]["summaries"]["react"]["num_completed"] == 1
+        assert cmp["head_to_head"]["summaries"]["pipeline"]["num_completed"] == 1
+        assert cmp["head_to_head"]["summaries"]["pipeline"]["num_not_applicable"] == 0

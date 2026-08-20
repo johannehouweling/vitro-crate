@@ -35,9 +35,9 @@ class TestReActAgentWiring:
         # prompt and leaves the engine's state in place.
         seen: dict[str, str] = {}
 
-        def fake_driver(engine: AgentEngine, prompt: str) -> str:
+        def fake_driver(engine: AgentEngine, prompt: str) -> tuple[str, str | None]:
             seen["prompt"] = prompt
-            return "completed"
+            return "completed", None
 
         agent = ReActBuildAgent(graph_driver=fake_driver)
         case = DEFAULT_CORPUS[0]
@@ -51,9 +51,9 @@ class TestReActAgentWiring:
     def test_structured_case_initializes_from_its_input_path(self) -> None:
         captured: dict[str, object] = {}
 
-        def fake_driver(engine: AgentEngine, prompt: str) -> str:
+        def fake_driver(engine: AgentEngine, prompt: str) -> tuple[str, str | None]:
             captured["input_path"] = engine.state.metadata.input_path
-            return "completed"
+            return "completed", None
 
         agent = ReActBuildAgent(graph_driver=fake_driver)
         structured = next(c for c in DEFAULT_CORPUS if c.kind == "structured")
@@ -61,7 +61,7 @@ class TestReActAgentWiring:
         assert captured["input_path"] == structured.input_path
 
     def test_build_captures_a_driver_error_as_outcome_error(self) -> None:
-        def boom(engine: AgentEngine, prompt: str) -> str:
+        def boom(engine: AgentEngine, prompt: str) -> tuple[str, str | None]:
             raise RuntimeError("model unreachable")
 
         agent = ReActBuildAgent(graph_driver=boom)
@@ -74,9 +74,9 @@ class TestReActAgentWiring:
     def test_minimal_case_has_no_input_path(self) -> None:
         captured: dict[str, object] = {}
 
-        def fake_driver(engine: AgentEngine, prompt: str) -> str:
+        def fake_driver(engine: AgentEngine, prompt: str) -> tuple[str, str | None]:
             captured["input_path"] = engine.state.metadata.input_path
-            return "completed"
+            return "completed", None
 
         agent = ReActBuildAgent(graph_driver=fake_driver)
         minimal = next(c for c in DEFAULT_CORPUS if c.kind == "minimal")
