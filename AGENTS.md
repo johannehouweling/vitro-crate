@@ -1843,7 +1843,14 @@ the crate's own `vitro-crate build` CreateAction, plus a provenance note carryin
 render cannot claim its figures come from the crate's metadata). Then a **KPI grid**: a profile ×
 requirement-level conformance **matrix** (rows the three layers linked to their specs — IRIs pinned
 to `_crate_mapping`'s `conformsTo` constants by test — cells ✓/✗/– with counts on `title`; the
-Required column is the report's one headline verdict), the FAIR ladder (the *next* rung dashed red
+Required column is the report's one headline verdict). A `–` carries two different sentences:
+*not assessed* where the sweep did not reach that tier, and *no checks defined at this level*
+where the profile has no rule there at all — the ISA and ISA-Tox profiles declare no `sh:Info`
+shape, so their Optional column can only ever come back empty, and an empty result is the
+profile's silence rather than the crate's cleanliness. Which tiers a layer can report at is
+read from the validator's own requirement registry (`profiles.validator.tiers_defined`), never
+from a list kept by hand, so only a tier that could have failed is allowed to pass. A finding
+outranks that state: one filed at a tier the profile defines no check at still reads ✗, the FAIR ladder (the *next* rung dashed red
 and filled to the ratio of indicators met, so a gated 0 never reads as "nothing done"), the **FAIR
 principle 1.3** rose (one wedge per MIT module: angle = share of the checklist, radius = fill;
 faint full wedges carry the share), a graph tile (linked / total entities) and reproducibility.

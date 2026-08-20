@@ -60,3 +60,50 @@ def test_validator_base_pass_is_1_2_by_design():
     from profiles.validator import _PROFILE_PASSES
 
     assert _PROFILE_PASSES["base"][0] == "ro-crate-1.2"
+
+
+# SHACL's own severity vocabulary — the oracle this file checks the validator's
+# profile registry against.
+_SH_SEVERITY_TIER = {"Violation": "required", "Warning": "recommended", "Info": "optional"}
+
+
+def _tiers_declared(shape_dir: pathlib.Path) -> set[str]:
+    """The tiers a profile's shape files themselves declare a severity at."""
+    found: set[str] = set()
+    for ttl in shape_dir.rglob("*.ttl"):
+        for name in re.findall(r"sh:severity\s+sh:(\w+)", ttl.read_text(encoding="utf-8")):
+            found.add(_SH_SEVERITY_TIER[name])  # an unknown severity fails loudly
+    return found
+
+
+def test_tier_capability_matches_the_severities_the_shapes_declare():
+    """Issue #620: ``tiers_defined`` reads the validator's profile registry;
+    this reads the shape files. They must agree — the day upstream gives
+    ``isa-ro-crate`` an ``sh:Info`` shape, the ISA row's OPTIONAL cell has to go
+    back to reporting findings instead of "no checks defined".
+
+    Every profile here declares at least one severity explicitly on every tier it
+    uses, so the declared set is the whole set. A profile leaning on SHACL's
+    ``sh:Violation`` default alone would trip this test — which is the point at
+    which somebody re-reads it rather than trusts it.
+    """
+    import rocrate_validator
+
+    from profiles.validator import SHAPES_DIR, tiers_defined
+
+    bundled = pathlib.Path(rocrate_validator.__file__).parent / "profiles"
+    for layer, shape_dir in (
+        ("base", bundled / "ro-crate" / "1.2"),
+        ("isa", bundled / "isa-ro-crate"),
+        ("tox", SHAPES_DIR / "tox"),
+    ):
+        assert tiers_defined(layer) == _tiers_declared(shape_dir), (
+            f"the {layer} profile's registry and its shape files disagree about "
+            "which requirement levels it defines checks at"
+        )
+
+    # The asymmetry the capability map exists for: only the base profile has
+    # MAY-level checks, so only its OPTIONAL cell can be earned.
+    assert tiers_defined("base") == {"required", "recommended", "optional"}
+    assert tiers_defined("isa") == {"required", "recommended"}
+    assert tiers_defined("tox") == {"required", "recommended"}

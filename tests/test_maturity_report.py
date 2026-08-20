@@ -551,6 +551,37 @@ class TestProfileConformanceMatrix:
         for profile in ("base", "isa", "tox"):
             assert cells[f"{profile}-optional"][0] == "na"
 
+    def test_a_tier_the_profile_defines_no_checks_at_is_neutral_not_green(self) -> None:
+        """ISA and ISA-Tox declare no MAY (``sh:Info``) shape at all, so their
+        OPTIONAL column can only ever come back empty. Reading that emptiness as
+        "no findings at this level" reports the profile's own silence as the
+        crate's clean bill of health (#620): the cell says "no checks defined"
+        instead, and only the base profile — which does define MAY checks — can
+        earn a green there."""
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+        assert cells["base-optional"] == ("ok", "no findings at this level")
+        assert cells["isa-optional"] == ("na", "no checks defined at this level")
+        assert cells["tox-optional"] == ("na", "no checks defined at this level")
+        # A tier all three DO define checks at is untouched: a clean sweep there
+        # is a real result, and still reads as one.
+        assert cells["isa-recommended"] == ("ok", "no findings at this level")
+        assert cells["tox-required"] == ("ok", "no findings at this level")
+
+    def test_a_finding_outranks_the_no_checks_state(self) -> None:
+        """A finding filed at a tier the profile defines no checks at — a
+        checkpoint written against a profile version that had MAY rules, a local
+        checker filing there — still reads as a failure. "No checks defined" may
+        never swallow a finding somebody has to act on."""
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        val.issue_records = [
+            {"profile": "isa", "severity": "optional", "entity_id": "#a", "message": "m"},
+        ]
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+        assert cells["isa-optional"] == ("no", "1 finding at this level")
+
     def test_a_stale_verdict_turns_every_cell_neutral(self) -> None:
         state = vhps_fixture_state("S-VHPS21")
         val = self._verdict()

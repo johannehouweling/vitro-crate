@@ -710,6 +710,31 @@ _PROFILE_SPEC_URLS: dict[str, str] = {
 
 _TIER_KEYS: tuple[str, ...] = ("required", "recommended", "optional")
 
+# Cell state -> the mark it paints, and the words that carry it to a screen
+# reader. "none" paints the same neutral mark as "na" but says something else:
+# not "nobody looked here" but "there is nothing here to look at".
+_CELL_MARK: dict[str, str] = {"ok": "ok", "no": "no", "na": "na", "none": "na"}
+_CELL_WORDS: dict[str, str] = {**_MK_LABEL, "none": "no checks defined"}
+
+
+@lru_cache(maxsize=1)
+def _tier_capability() -> dict[str, frozenset[str]]:
+    """Which tiers each profile layer defines checks at — see
+    :func:`profiles.validator.tiers_defined`.
+
+    Imported lazily and cached for the process: importing the validator runs its
+    upstream-bootstrap patching, and a report rendered from a verdict-less
+    checkpoint never needs the answer. A validator that will not import leaves
+    every layer unknown, and an unknown tier reads as unverified rather than as
+    a pass.
+    """
+    try:
+        from profiles.validator import tiers_defined
+    except ImportError:  # no validator installed: nothing could have been checked
+        logger.warning("The validator is not importable; profile tier capability is unknown")
+        return {}
+    return {key: tiers_defined(key) for key, _ in _PROFILE_LAYERS}
+
 
 def _profile_tier_counts(val: ValidationReport | None) -> dict[str, dict[str, int]]:
     """``{profile: {tier: findings}}`` from the verdict's records — or, for a
@@ -746,7 +771,11 @@ def _profile_matrix_tile(
     """Profile conformance as a profile × requirement-level matrix: rows the
     three layers (each linked to its spec), columns the severity tiers, cells a
     mark with the finding count on its ``title``. An unassessed tier — and every
-    cell of a stale or never-run verdict — is the neutral mark, never a green."""
+    cell of a stale or never-run verdict — is the neutral mark, never a green.
+
+    So is a tier the profile defines no check at (:func:`_tier_capability`): a
+    green there would report the profile's silence as the crate's cleanliness.
+    Only a tier that could have failed is allowed to pass."""
     heads = "".join(f'<span class="pmx-h">{t.capitalize()}</span>' for t in _TIER_KEYS)
     rows = ""
     counts = _profile_tier_counts(val if tiers is not None else None)
@@ -775,17 +804,24 @@ def _profile_matrix_tile(
                 )
             elif n:
                 state, title = "no", f"{n} finding{'s' if n != 1 else ''} at this level"
+            elif tier not in _tier_capability().get(key, frozenset()):
+                # The profile has no rule at this level, so an empty result here
+                # is the profile's silence, not the crate's cleanliness (#620).
+                # Ranked below the count: a finding filed at such a tier — by a
+                # local checker, or by a checkpoint from a profile version that
+                # did have rules here — is still a finding, and still shows.
+                state, title = "none", "no checks defined at this level"
             else:
                 state, title = "ok", "no findings at this level"
             # The cell carries the whole sentence for AT — the grid has no
             # table semantics, so an unassociated "met / not met" stream would
             # say nothing about which profile or tier it belongs to.
-            words = {"ok": "met", "no": "not met", "na": "not assessed"}[state]
+            mark, words = _CELL_MARK[state], _CELL_WORDS[state]
             plain = title.replace("&rsquo;", "'")
             cells += (
                 f'<span class="pmx-c" data-cell="{key}-{tier}" title="{title}" role="img" '
                 f'aria-label="{label}, {tier}: {words} — {plain}">'
-                f'<span class="mk {state}" aria-hidden="true">{_GLYPH[state]}</span></span>'
+                f'<span class="mk {mark}" aria-hidden="true">{_GLYPH[mark]}</span></span>'
             )
         rows += f'<span class="pmx-p">{_lk(_PROFILE_SPEC_URLS[key], label)}</span>{cells}'
     # Findings the validator did not attribute to a layer are reported, never
@@ -801,7 +837,7 @@ def _profile_matrix_tile(
                 if n
                 else ("no findings at this level" if tier in assessed else "not assessed")
             )
-            words = {"ok": "met", "no": "not met", "na": "not assessed"}[state]
+            words = _CELL_WORDS[state]
             cells += (
                 f'<span class="pmx-c" data-cell="unattributed-{tier}" title="{title}" '
                 f'role="img" aria-label="unattributed, {tier}: {words} — {title}">'
