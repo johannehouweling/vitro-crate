@@ -362,7 +362,7 @@ def _render_header(title: str, accession: str, subhead: str) -> str:
     return (
         "<header>\n"
         '  <div class="h-left">\n'
-        '    <div class="kicker"><span class="eyebrow">vitro-crate maturity report</span></div>\n'
+        '    <div class="kicker"><span class="eyebrow">vitro-crate report</span></div>\n'
         f"    <h1>{esc(h1)}</h1>\n"
         f"{sub}"
         "  </div>\n"

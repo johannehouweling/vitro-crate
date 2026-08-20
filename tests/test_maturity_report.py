@@ -256,7 +256,10 @@ class TestHeaderAndCards:
         page = build_maturity_html(self._state())
         assert "<h1>S-VHPS21</h1>" in page
         assert '<p class="subhead">' in page
-        assert "vitro-crate maturity report</span>" in page
+        # The eyebrow reads "vitro-crate report" (review comment: "VITRO-CRATE
+        # REPORT" — the CSS uppercases it); the fuller browser-tab title keeps
+        # "maturity report", which the comment did not target.
+        assert '<span class="eyebrow">vitro-crate report</span>' in page
         assert "<title>S-VHPS21 — vitro-crate maturity report</title>" in page
 
     def test_a_crate_without_accession_headlines_the_title_without_subhead(self) -> None:
