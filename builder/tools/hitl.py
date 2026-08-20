@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- console animation suspension -------------------------------------------
-# A long-running CLI animation (e.g. the legacy agent loop's "thinking" spinner,
+# A long-running CLI animation (e.g. the ReAct agent loop's "thinking" spinner,
 # a Rich ``Live`` region driven by a daemon thread) repaints the terminal
 # continuously, which clobbers a blocking ``input()`` prompt — the user cannot
 # read or answer a HITL question (scan-root approval, ask-user) while it ticks.
@@ -502,7 +502,7 @@ class ConsoleHumanInterface:
         default_index = _default_choice_index(choices, deny_by_default=deny_by_default)
 
         # Suspend any active terminal spinner so the prompt is readable and stdin
-        # is not fighting a Rich Live repaint (legacy loop scan-root approval).
+        # is not fighting a Rich Live repaint (ReAct loop scan-root approval).
         with suspend_console_animation():
             self._show(context)
             chosen = self._select(choices, default_index)
@@ -575,7 +575,7 @@ class ConsoleHumanInterface:
 SMOKE_TEST_ANSWER = "yes, continue"
 
 # The ``field_type`` a frontend is asked with when the question is not a metadata
-# field at all but the CONVERSATION itself — the legacy ReAct loop's "what next?"
+# field at all but the CONVERSATION itself — the ReAct loop's "what next?"
 # prompt. A console frontend cannot tell the difference and should not try: it
 # reads a line either way. It exists so an interface that answers ITSELF can,
 # because that channel is the one place where "answer everything affirmatively"
@@ -653,7 +653,7 @@ class SmokeTestHumanInterface:
     ) -> None:
         """Args:
         conversation_turns: How many turns to drive a conversational loop
-            (the legacy ReAct arm) before ending the session. Ignored by the
+            (the ReAct arm) before ending the session. Ignored by the
             default arm, which has no conversational channel, and superseded
             entirely when *minutes* is given. ``<= 0`` ends it at the first
             prompt.

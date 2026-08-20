@@ -204,11 +204,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "guidance tail; requires LangChain extra + API key)",
     )
     parser.add_argument(
-        "--legacy-react",
+        "--react",
         action="store_true",
-        help="With --interactive, use the legacy ReAct agent loop instead of the "
-        "default deterministic pipeline + guidance build (a supported alternative; "
-        "see AGENTS.md §14)",
+        help="With --interactive, use the ReAct agent loop (the LLM orchestrates "
+        "the tool calls) instead of the default deterministic pipeline + guidance "
+        "build (a supported alternative; see AGENTS.md §14)",
     )
     parser.add_argument(
         "--smoke-test",
@@ -229,7 +229,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--prompt",
         "-P",
-        help="With --interactive --legacy-react, an opening instruction (e.g. "
+        help="With --interactive --react, an opening instruction (e.g. "
         "'build the crate') that starts the agent working immediately instead of "
         "waiting for you to type one. The session stays interactive afterwards. "
         "Ignored by the default pipeline build, which runs unprompted.",
@@ -500,9 +500,9 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = parse_args(argv)
     # The default interactive build (pipeline + guidance) logs progress at INFO;
-    # bump the default level there so the run does not look dead. The legacy
-    # ReAct loop keeps its own output, so the bump applies to the whole
-    # interactive path.
+    # bump the default level there so the run does not look dead. The ReAct
+    # loop keeps its own output, so the bump applies to the whole interactive
+    # path.
     setup_logging(args.verbose, interactive=args.interactive)
 
     logger.info("ISA-Tox RO-Crate Builder v0.1.0")
@@ -510,7 +510,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.smoke_test:
         from builder.tools.hitl import SYNTHETIC_ANSWER_NOTICE
 
-        # NOTE: this used to refuse --legacy-react outright, because the ReAct
+        # NOTE: this used to refuse the ReAct arm outright, because the ReAct
         # loop read its conversation straight off stdin
         # (builder.agents.ui.boxed_input) with no HumanInterface in the path, so a
         # synthetic interface had nothing to answer and the run sat on an empty
@@ -561,10 +561,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Any interactive run gets a REAL interactive HumanInterface. The DEFAULT
     # build needs it so run_interactive_build won't (correctly) skip guidance
-    # (AGENTS.md §14.6.1); the legacy ReAct loop needs it too so the scanner
+    # (AGENTS.md §14.6.1); the ReAct loop needs it too so the scanner
     # approval guard (engine._authorize_scan_root) can prompt-once for a
     # user-named folder instead of fail-closing — without it a conversational
-    # legacy scan of an un-approved folder returns no files. Non-interactive
+    # ReAct scan of an un-approved folder returns no files. Non-interactive
     # (batch) runs keep the headless simulated default.
     if args.smoke_test:
         # --smoke-test: an interface that answers ITSELF (confirm the pre-selected
@@ -656,14 +656,14 @@ def main(argv: list[str] | None = None) -> int:
         entity_count,
     )
 
-    # Interactive build mode. Post-cutover (AGENTS.md §14, gated on the in-repo
-    # A/B: pipeline reached 3/3 ISA-Tox conformance vs ReAct 1/3) the DEFAULT is
-    # the deterministic pipeline + HITL guidance tail. The legacy ReAct loop is
-    # retained behind --legacy-react (pending the task-7 prompt strip), not deleted.
+    # Interactive build mode. Two first-class arms over one toolbox (AGENTS.md
+    # §1, §14): the DEFAULT is the deterministic pipeline + HITL guidance tail
+    # (the A/B winner on cost and termination); the ReAct agent loop is the
+    # opt-in alternative behind --react.
     if args.interactive:
         from builder.agents.build import BuildMode, run_build
 
-        mode = BuildMode.from_cli(legacy_react=args.legacy_react)
+        mode = BuildMode.from_cli(react=args.react)
 
         # The default (pipeline) interactive build is folder-driven: with no
         # scanned files there is genuinely nothing to build, so tell the user how
@@ -674,13 +674,13 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "No input documents found. The interactive build is "
                 "folder-driven: pass --input <folder> to build an ISA-Tox crate "
-                "from your research documents, or use --legacy-react for the "
+                "from your research documents, or use --react for the "
                 "conversational agent."
             )
             return 0
 
         # One switch routes A/B (#309): PIPELINE -> deterministic spine + HITL
-        # guidance tail (surfaced via the output channel); REACT -> the legacy
+        # guidance tail (surfaced via the output channel); REACT -> the ReAct
         # loop (provider/model/base_url apply). run_build ignores the kwargs that
         # don't apply to the chosen mode.
         run_build(

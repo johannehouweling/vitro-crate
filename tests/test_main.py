@@ -117,9 +117,9 @@ class TestMain:
 class TestInteractiveDispatch:
     """The interactive build path: pipeline+guidance is the DEFAULT; ReAct is opt-in.
 
-    The A/B gate (AGENTS.md §14) decided the cutover — the deterministic
-    pipeline + HITL guidance is now the default interactive architecture and the
-    legacy ReAct loop is retained behind ``--legacy-react``. These tests mock the
+    The A/B gate (AGENTS.md D15) decided the default — the deterministic
+    pipeline + HITL guidance is the default interactive architecture and the
+    ReAct loop is opt-in behind ``--react``. These tests mock the
     run functions (no live LLM, no network) and assert only the dispatch routing.
     """
 
@@ -131,9 +131,9 @@ class TestInteractiveDispatch:
         monkeypatch.setattr(cfg, "load_config", lambda: {})
         monkeypatch.setattr(cfg, "merge_with_env", lambda c: None)
 
-    def test_legacy_react_flag_is_parsed(self):
-        args = parse_args(["--interactive", "--legacy-react"])
-        assert args.legacy_react is True
+    def test_react_flag_is_parsed(self):
+        args = parse_args(["--interactive", "--react"])
+        assert args.react is True
 
     def test_prompt_flag_is_parsed(self):
         """`--prompt/-P` carries the ReAct kickoff message (#412)."""
@@ -154,7 +154,7 @@ class TestInteractiveDispatch:
             lambda engine, **kw: captured.update(kw),
         )
 
-        assert main(["--interactive", "--legacy-react", "--prompt", "build the crate"]) == 0
+        assert main(["--interactive", "--react", "--prompt", "build the crate"]) == 0
         assert captured["initial_prompt"] == "build the crate"
 
     def test_verbose_reaches_the_react_loop(self, monkeypatch):
@@ -168,7 +168,7 @@ class TestInteractiveDispatch:
             agent_loop, "run_interactive_agent", lambda engine, **kw: captured.update(kw)
         )
 
-        assert main(["--interactive", "--legacy-react", "--verbose"]) == 0
+        assert main(["--interactive", "--react", "--verbose"]) == 0
         assert captured["verbose"] is True
 
     def test_default_interactive_routes_to_pipeline_build(self, monkeypatch, tmp_path):
@@ -203,8 +203,8 @@ class TestInteractiveDispatch:
         assert result == 0
         assert calls == ["build"]
 
-    def test_legacy_react_flag_routes_to_react(self, monkeypatch):
-        """--interactive --legacy-react runs the legacy ReAct loop, not the pipeline."""
+    def test_react_flag_routes_to_react(self, monkeypatch):
+        """--interactive --react runs the ReAct loop, not the pipeline."""
         self._stub_config(monkeypatch)
         calls: list[str] = []
 
@@ -224,7 +224,7 @@ class TestInteractiveDispatch:
             lambda *a, **kw: calls.append("react"),
         )
 
-        result = main(["--interactive", "--legacy-react"])
+        result = main(["--interactive", "--react"])
         assert result == 0
         assert calls == ["react"]
 
@@ -256,13 +256,13 @@ class TestInteractiveDispatch:
         # interface, else run_interactive_build would skip guidance.
         assert seen == [True]
 
-    def test_legacy_react_engine_is_interactive(self, monkeypatch):
-        """--legacy-react also runs behind a REAL interactive interface.
+    def test_react_engine_is_interactive(self, monkeypatch):
+        """--react also runs behind a REAL interactive interface.
 
         Otherwise the scanner-approval guard (``_authorize_scan_root``) fail-closes
-        on a non-interactive (simulated) human, so a conversational legacy-react
+        on a non-interactive (simulated) human, so a conversational ReAct
         scan of a user-named folder returns no files. Giving the interactive
-        legacy run a ``ConsoleHumanInterface`` lets it prompt-once and approve.
+        ReAct run a ``ConsoleHumanInterface`` lets it prompt-once and approve.
         """
         from builder.tools.hitl import is_interactive
 
@@ -276,7 +276,7 @@ class TestInteractiveDispatch:
 
         monkeypatch.setattr(agent_loop, "run_interactive_agent", _capture)
 
-        result = main(["--interactive", "--legacy-react"])
+        result = main(["--interactive", "--react"])
         assert result == 0
         assert seen == [True]
 

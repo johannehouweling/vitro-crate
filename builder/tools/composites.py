@@ -2061,7 +2061,7 @@ def resolve_compound(
     # Best-effort EPA DTXSID enrichment (#179). DTXSID is a first-class ISA-Tox
     # chemical identifier that the deterministic pipeline otherwise never
     # produces — ``lookup_dtxsid`` had NO pipeline caller (it was reachable only
-    # from the legacy ReAct loop). Query CompTox by the strongest EXACT key
+    # from the ReAct loop). Query CompTox by the strongest EXACT key
     # available (CAS -> InChIKey -> name) so the match is unambiguous, and store
     # the DTXSID only when the lookup returns one. D5-safe: the value comes
     # straight from CompTox (the authority), never fabricated. A miss or outage

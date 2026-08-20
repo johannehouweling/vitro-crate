@@ -240,7 +240,7 @@ class TestEngineHumanInterfaceInjection:
 
 class TestConsoleAnimationSuspension:
     """A console HITL prompt must pause any registered terminal animation (e.g. the
-    legacy agent loop's "thinking" spinner) for the duration of ``input()`` — else
+    ReAct agent loop's "thinking" spinner) for the duration of ``input()`` — else
     the spinner repaints over the prompt and the user cannot read or answer it.
     """
 

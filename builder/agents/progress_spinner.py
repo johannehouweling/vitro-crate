@@ -7,7 +7,7 @@ toxicology-themed phrase, the currently-running tool/phase, and elapsed seconds,
 all updating in place.
 
 **Both build arms share this one spinner (#344).** The deterministic pipeline drives
-it from ``engine.on_tool_event`` plus its per-phase strings; the legacy ReAct loop
+it from ``engine.on_tool_event`` plus its per-phase strings; the ReAct loop
 drives it from LangChain tool-event callbacks (``_ToolSpinnerCallback`` in
 ``builder/agents/react/agent_loop.py``). This module is the single source of both the
 spinner class and :data:`TOX_SPINNER_PHRASES` — neither arm keeps a private copy.

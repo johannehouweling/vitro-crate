@@ -3,7 +3,7 @@
 Single source of truth for the interactive chrome — the shared Rich
 ``Console``, the one-line status bar, agent-reply rendering, the resume
 summary and goodbye panels, and the boxed ``❯`` prompt — so the
-deterministic pipeline and the legacy ReAct arm render *identically*.
+deterministic pipeline and the ReAct arm render *identically*.
 Both arms import from here; neither keeps a private copy (harmonization,
 GitHub #344).
 

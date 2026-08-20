@@ -1,7 +1,7 @@
 """The ``BuildMode`` switch — the single A/B mode selector (Issue #309, Step 3).
 
 Both the CLI (``main.py``) and the eval harness flip between the deterministic
-pipeline and the legacy ReAct loop through *one* enum + dispatch in
+pipeline and the ReAct loop through *one* enum + dispatch in
 ``builder.agents.build``, instead of each hard-wiring its own boolean/string. The
 two modes drive the same engine + toolbox; only orchestration differs (AGENTS.md
 §1, D15 — both stay first-class).
@@ -20,11 +20,11 @@ if TYPE_CHECKING:
 
 
 class TestBuildModeFromCli:
-    def test_legacy_react_maps_to_react(self) -> None:
-        assert BuildMode.from_cli(legacy_react=True) is BuildMode.REACT
+    def test_react_maps_to_react(self) -> None:
+        assert BuildMode.from_cli(react=True) is BuildMode.REACT
 
     def test_default_maps_to_pipeline(self) -> None:
-        assert BuildMode.from_cli(legacy_react=False) is BuildMode.PIPELINE
+        assert BuildMode.from_cli(react=False) is BuildMode.PIPELINE
 
     def test_values_match_eval_arch_strings(self) -> None:
         """The eval's ``--arch`` choices and the BuildMode enum values MUST stay in

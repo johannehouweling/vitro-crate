@@ -1,14 +1,16 @@
 """``python -m eval`` — run the A/B harness and write a labeled report.
 
-Live by default: it runs the current ReAct engine over the corpus (real LLM calls,
-your configured DeepSeek-flash / OpenAI / Anthropic credentials) and writes a
-labeled ndjson report under ``eval_reports/``. Capture the baseline with::
+Live by default: it runs the chosen build arm (``--arch react|pipeline``, mapped
+onto :class:`builder.agents.build.BuildMode`) over the corpus — real LLM calls
+with your configured DeepSeek-flash / OpenAI / Anthropic credentials — and writes a
+labeled ndjson report under ``eval_reports/``. Run each arm under its own label::
 
-    python -m eval --label react-baseline
+    python -m eval --arch react --label react
+    python -m eval --arch pipeline --label pipeline
 
-then freeze the baseline at git tag ``react-baseline`` (see ``eval/README.md``).
-When the deterministic pipeline lands, run the same command with its factory under
-a ``--label pipeline`` and diff the two reports with :func:`eval.report.compare_reports`.
+and diff the two reports with :func:`eval.report.compare_reports` (see
+``eval/README.md``; the ReAct run used for the original A/B is frozen at git tag
+``react-baseline``).
 
 The ``agent_factory`` / ``profile_reader`` parameters of :func:`run_main` exist so
 the offline tests drive the whole flow with a mock — they are never used live.

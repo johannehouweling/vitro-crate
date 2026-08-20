@@ -471,7 +471,7 @@ def _prompt_text(fake: FakeChatModel) -> str:
 class TestExtractPlanMinesCompoundsFromFilenames:
     """#258: the bounded plan extractor must propose candidate compound NAMES
     inferred from the DATA FILENAMES (and JSON/README bodies), not only from
-    prose — the legacy ReAct path got 22 compounds off filenames like
+    prose — the ReAct path got 22 compounds off filenames like
     ``…_P5_Silychristin+Verapamil.xlsx`` while the bounded leaf got 0 because its
     prompt never told the model to read names out of the filenames inventory.
 

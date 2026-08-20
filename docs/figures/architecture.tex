@@ -81,7 +81,7 @@
 \draw[link] (serv)  -- (val);
 
 \node[alt, below=10mm of val] (react)
-  {\textbf{The other build arm}\\[2pt]\footnotesize ReAct agent loop (\texttt{-{}-legacy-react}): the LLM reads \textit{CrateState} and picks the next tool itself, instead of code owning the order --- same toolbox, same state, same validators};
+  {\textbf{The other build arm}\\[2pt]\footnotesize ReAct agent loop (\texttt{-{}-react}): the LLM reads \textit{CrateState} and picks the next tool itself, instead of code owning the order --- same toolbox, same state, same validators};
 \draw[wire] (react.east) -- ++(7mm,0) |- (tools.east);
 
 % -------------------------------------------------------- grouping and legend
