@@ -1992,6 +1992,16 @@ force-stopped at the recursion cap. ReAct stays a supported variant
 profile conformance (base + isa + tox) plus an entity-count quota — **not** scientific
 accuracy.
 
+> **These figures predate the harness fixes in #609 and must be re-measured before
+> they are quoted again.** They were produced by a harness that gave the two arms
+> different environments: the ReAct arm ran extra RECOMMENDED/OPTIONAL SHACL sweeps
+> (an eval-only human reported itself interactive, which un-gates them), was driven by
+> a single bare graph invocation rather than the loop's own autonomous-continuation
+> budget, and was the only arm that exported; meanwhile the pipeline arm was credited
+> with two conversational cases it never attempted, at $0. Every one of those pushes
+> the ratio the same way. The direction of the result — the pipeline is cheaper and
+> self-terminates — is not in doubt; the multipliers are.
+
 ### D16: ISA-Tox Specialization via `additionalType`, Not `@type` Arrays
 
 Every ISA-Tox specialization is expressed as `@type: <bare base token>` +
