@@ -2906,8 +2906,13 @@ class TestOverviewPanel:
         svg = re.search(r'<svg [^>]*class="prov view overview".*?</svg>', body, re.S)
         assert svg, "overview SVG missing"
         svg_text = svg.group(0)
-        assert ">RO-Crate — " in svg_text
-        assert ">ISA-Tox RO-Crate — " in svg_text
+        # The band headings are the bare layer names — no entity counts
+        # (review: "remove" on every "— N entities" suffix). The counts still
+        # ride on the diagram's accessible name and the note below the map.
+        assert ">RO-Crate</text>" in svg_text
+        assert ">ISA-Tox RO-Crate</text>" in svg_text
+        bands = re.findall(r'class="ov-band"[^>]*>([^<]*)</text>', svg_text)
+        assert bands and all("entit" not in band for band in bands), bands
         for old in ("Packaging", "Structural", "Domain"):
             assert old not in svg_text, f"the old layer taxonomy survived: {old}"
         assert ">Dataset · 1</text>" in svg_text
@@ -2939,6 +2944,13 @@ class TestOverviewPanel:
         panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
         assert 'ov-key cat-' not in panel, "the category swatch list survived"
         assert 'ov-key orphan isolated' in panel, "the reachability key was lost"
+
+    def test_the_isolated_key_reads_unlinked_entity(self) -> None:
+        """Review comment: the isolated-orphan key says "unlinked entity"."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
+        assert '<span class="ov-key orphan isolated"></span> unlinked entity</span>' in panel
+        assert "unreachable · linked to nothing" not in panel
 
     def test_overview_is_the_first_tab_and_selected(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
@@ -3128,9 +3140,9 @@ class TestUnreachableRepairEstimate:
         both = self._page()
         island_only = self._page(lone=0)
 
-        assert "unreachable · linked to nothing" in both
+        assert "unlinked entity</span>" in both
         assert "linked to each other, not to the root" in both
-        assert "unreachable · linked to nothing" not in island_only
+        assert "unlinked entity</span>" not in island_only
 
     def test_a_clean_crate_claims_no_work(self) -> None:
         page = build_maturity_html(

@@ -3966,13 +3966,12 @@ def render_overview_svg(model: dict[str, Any]) -> str:
 
     for layer in sorted(by_layer):
         clusters = by_layer[layer]
-        total = sum(len(v) for v in clusters.values())
-        loose = sum(1 for group in clusters.values() for n in group if n.get("orphan"))
-        head = f"{_LAYER_NAMES[layer]} — {total} entit{'y' if total == 1 else 'ies'}"
-        if loose:
-            head += f" · {loose} unreachable"
+        # Bare layer names, no entity counts (review: "remove" on every
+        # "— N entities" suffix). The counts still ride on the diagram's
+        # accessible name and in the note below the map.
         labels.append(
-            f'<text class="ov-band" x="{_OV_X0}" y="{y + 11}">{_escape(head)}</text>'
+            f'<text class="ov-band" x="{_OV_X0}" y="{y + 11}">'
+            f"{_escape(_LAYER_NAMES[layer])}</text>"
         )
         y += _OV_BAND_H
 

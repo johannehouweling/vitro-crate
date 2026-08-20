@@ -1871,7 +1871,7 @@ def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
     if isolated:
         reach_keys.append(
             '<span class="lg"><span class="ov-key orphan isolated"></span> '
-            "unreachable · linked to nothing</span>"
+            "unlinked entity</span>"
         )
     if stranded:
         reach_keys.append(
