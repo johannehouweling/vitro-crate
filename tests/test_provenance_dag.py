@@ -721,6 +721,86 @@ def _cellline_graph(*, wire: bool = True) -> dict:
     }
 
 
+def _protocol_graph(*, wire: bool = True, url: bool = True) -> dict:
+    protocol: dict = {
+        "@id": "#prot",
+        "@type": "LabProtocol",
+        "name": "Exposure protocol",
+        "description": "48 h static exposure.",
+    }
+    if url:
+        protocol["url"] = "https://www.protocols.io/view/exposure-abc"
+    process: dict = {
+        "@id": "#run",
+        "@type": "LabProcess",
+        "name": "Exposure",
+        "result": {"@id": "#f"},
+    }
+    if wire:
+        process["executesLabProtocol"] = {"@id": "#prot"}
+    return {
+        "@graph": [
+            process,
+            {"@id": "#f", "@type": "File", "name": "result.csv"},
+            protocol,
+        ]
+    }
+
+
+class TestBuildProtocolInventory:
+    """``build_protocol_inventory`` resolves each LabProtocol's route into the
+    experiment (the process that executes it) and whether a reader could
+    retrieve and follow it (URL, description)."""
+
+    def test_executed_protocol_is_wired_with_its_identity(self) -> None:
+        from builder.writers.provenance_dag import build_protocol_inventory
+
+        inv = build_protocol_inventory(_protocol_graph())
+        assert [p["name"] for p in inv["protocols"]] == ["Exposure protocol"]
+        prot = inv["protocols"][0]
+        assert prot["state"] == "wired"
+        # The process references the protocol directly — process and via alike.
+        assert prot["route"]["process"] == "#run"
+        assert prot["route"]["edge"] == "executesLabProtocol"
+        assert prot["fields"] == {"Retrievable URL": True, "Description": True}
+        assert prot["url"] == "https://www.protocols.io/view/exposure-abc"
+        assert inv["counts"]["total"] == 1 and inv["counts"]["wired"] == 1
+        (band,) = inv["groups"]
+        assert band["process"]["name"] == "Exposure"
+
+    def test_unreferenced_protocol_is_unlinked(self) -> None:
+        from builder.writers.provenance_dag import build_protocol_inventory
+
+        inv = build_protocol_inventory(_protocol_graph(wire=False))
+        assert inv["protocols"][0]["state"] == "unlinked"
+        assert inv["counts"]["wired"] == 0
+
+    def test_a_uri_id_counts_as_the_retrievable_url(self) -> None:
+        # A protocol whose @id IS the published address needs no url field.
+        from builder.writers.provenance_dag import build_protocol_inventory
+
+        graph = {
+            "@graph": [
+                {
+                    "@id": "https://www.protocols.io/view/exposure-abc",
+                    "@type": "LabProtocol",
+                    "name": "Exposure protocol",
+                }
+            ]
+        }
+        prot = build_protocol_inventory(graph)["protocols"][0]
+        assert prot["fields"]["Retrievable URL"] is True
+        assert prot["fields"]["Description"] is False
+        assert prot["url"] == "https://www.protocols.io/view/exposure-abc"
+
+    def test_no_protocols_yields_the_empty_inventory(self) -> None:
+        from builder.writers.provenance_dag import build_protocol_inventory
+
+        inv = build_protocol_inventory({"@graph": []})
+        assert inv == {"protocols": [], "groups": [], "counts": inv["counts"]}
+        assert inv["counts"]["total"] == 0
+
+
 class TestBuildCellLineInventory:
     """``build_cellline_inventory`` resolves each cell line's route into the
     experiment and how completely the culture is characterised."""
@@ -2317,9 +2397,12 @@ class TestCategoryRegistry:
             assert f":::cat_{category}" in legend, category
             assert style.label in legend, category
 
-    def test_the_overview_and_its_legend_use_the_same_words(self) -> None:
-        """A key that names a cluster differently from the map is a key the
-        reader has to translate."""
+    def test_the_overview_names_the_types_and_the_legend_the_categories(self) -> None:
+        """The cluster caption says what the tiles ARE — their type — while the
+        colour key keeps the category vocabulary (review comments on the
+        report artifact overturned the caption-equals-category contract: a
+        category word over the tiles made the reader guess the types, and
+        guess wrong)."""
         graph = [
             {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
             {"@id": "./", "@type": "Dataset", "name": "Root", "hasPart": [{"@id": "#o"}]},
@@ -2327,7 +2410,9 @@ class TestCategoryRegistry:
         ]
         svg = render_overview_svg(build_crate_graph(graph, layer="all", all_edges=True))
 
-        assert f"{category_label('org')} · 1" in svg
+        assert "Organization · 1" in svg
+        assert category_label("org") not in svg
+        # The category vocabulary survives for the colour key.
         assert category_label("org") == "Organisation"
 
 
