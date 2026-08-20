@@ -278,7 +278,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--graph",
         "-g",
         action="store_true",
-        help="Render the LabProcess provenance DAG. Source is --input (a crate dir "
+        help="Render the LabProcesses DAG. Source is --input (a crate dir "
         "or ro-crate-metadata.json) or a session (--resume <id>, else the latest). "
         "Needs no LLM config.",
     )
@@ -291,10 +291,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--view",
-        choices=["crate", "provenance"],
+        # "provenance" is the name this view shipped under and stays accepted:
+        # renaming a CLI value silently breaks every script that passes it.
+        choices=["crate", "labprocesses", "provenance"],
         default="crate",
         help="--graph view: 'crate' (full entity graph, 3 layers; default) or "
-        "'provenance' (just the LabProcess derivation chain)",
+        "'labprocesses' (just the LabProcess derivation chain; 'provenance' is "
+        "the same view under its old name)",
     )
     parser.add_argument(
         "--layer",
@@ -456,7 +459,7 @@ def _run_graph(args: argparse.Namespace) -> int:
         )
         return 1
 
-    if args.view == "provenance":
+    if args.view in ("labprocesses", "provenance"):
         mermaid = render_provenance_mermaid(source)
     else:
         mermaid = render_crate_graph(source, layer=args.layer, all_edges=args.all_edges)
@@ -474,7 +477,7 @@ def _run_graph(args: argparse.Namespace) -> int:
             out_path = Path(tmp.name)
     title = (
         "RO-Crate provenance chain"
-        if args.view == "provenance"
+        if args.view in ("labprocesses", "provenance")
         else f"RO-Crate entity graph (layer ≤ {args.layer})"
     )
     out_path.write_text(render_mermaid_html(mermaid, title=title), encoding="utf-8")
@@ -486,7 +489,7 @@ def _run_graph(args: argparse.Namespace) -> int:
         except (webbrowser.Error, OSError) as exc:
             logger.warning("Could not open a browser for %s: %s", out_path, exc)
     suffix = " (opened in browser)" if opened else ""
-    print(f"Provenance DAG written to {out_path}{suffix}", file=sys.stderr)
+    print(f"LabProcesses DAG written to {out_path}{suffix}", file=sys.stderr)
     return 0
 
 

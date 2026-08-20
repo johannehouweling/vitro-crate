@@ -1924,7 +1924,7 @@ while the row went on counting them. The count a row advertises is the count of 
 Advisory caps apply per profile group, and a cap that bites names how many findings it hid.
 
 When `export_crate` embeds the report it passes the crate's serialized `@graph`
-(`build_maturity_html(state, graph=crate.metadata.generate())`), which folds in a **Provenance &
+(`build_maturity_html(state, graph=crate.metadata.generate())`), which folds in a **LabProcesses &
 graph** section: the LabProcess derivation chain drawn as a self-contained inline SVG
 (`render_provenance_svg` in `builder/writers/provenance_dag.py` — a finished `<svg>`, no mermaid.js,
 no external assets, so it prints offline), plus the relocated graph-topology strip (entity
