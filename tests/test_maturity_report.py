@@ -2118,12 +2118,20 @@ class TestCellLinesPanel:
         page = self._page()
         assert '<span class="tb-n">Biological models</span>' in page
         assert '<th scope="col">Biological model</th>' in page
-        assert "<b>1</b> biological model ·" in page
         assert "Biological model / sample</span>" in page
         assert "Routes: 1 of 1 biological models reachable from a process" in page
         panel = page.split('id="p-cell"', 1)[1].split("</section>", 1)[0]
         rest = panel.replace('title="Typed as a cell line"', "")
         assert "cell line" not in rest.lower(), "a reader-facing 'cell line' survived"
+
+    def test_the_panel_carries_no_summary_line(self) -> None:
+        """Review comment: the "The biological test system — …" caption is
+        gone; the panel opens with the diagram. The total still shows in the
+        tab badge, and the warnings still call out wiring and RRID gaps."""
+        page = self._page()
+        panel = page.split('id="p-cell"', 1)[1].split('<div class="panel"', 1)[0]
+        assert '<p class="prov-cap">' not in panel
+        assert "biological test system" not in page.lower()
 
     def test_unconsumed_model_is_called_out_with_the_fix(self) -> None:
         page = self._page(wire=False)
