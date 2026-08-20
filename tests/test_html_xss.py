@@ -248,3 +248,44 @@ def test_exported_metadata_json_still_holds_raw_values(tmp_path: Path) -> None:
     )
     blob = json.dumps(meta)
     assert SCRIPT_PAYLOAD in blob, "raw value must be preserved in the JSON-LD"
+
+
+class TestHeaderCardsNeutraliseCrateStrings:
+    """#606: the About-this-study card interpolates graph-controlled names and
+    URLs into links. A crafted name is escaped; a non-web @id or url scheme
+    (``javascript:``) never becomes an href anywhere on the page."""
+
+    def _graph(self, contact_id: str) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "T",
+                    "contactPoint": {"@id": contact_id},
+                    "license": {"@id": "javascript:alert(2)//"},
+                    "funder": {"@id": "#funder"},
+                },
+                {
+                    "@id": contact_id,
+                    "@type": "Person",
+                    "name": '<img src=x onerror=alert(1)>',
+                },
+                {
+                    "@id": "#funder",
+                    "@type": "Organization",
+                    "name": "F",
+                    "url": "javascript:alert(3)",
+                },
+                {"@id": "javascript:alert(2)//", "@type": "CreativeWork", "name": "L"},
+            ]
+        }
+
+    def test_a_crafted_contact_name_is_escaped(self) -> None:
+        page = build_maturity_html(CrateState(), graph=self._graph("#p1"))
+        assert "<img src=x onerror=alert(1)>" not in page
+
+    def test_no_javascript_href_survives_from_any_card_value(self) -> None:
+        page = build_maturity_html(CrateState(), graph=self._graph("javascript:alert(4)//p"))
+        assert 'href="javascript:' not in page
