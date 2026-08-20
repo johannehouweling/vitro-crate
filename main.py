@@ -455,7 +455,9 @@ def _run_graph(args: argparse.Namespace) -> int:
         out_path = Path(args.graph_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        with tempfile.NamedTemporaryFile(prefix="entity_graph_", suffix=".html", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(
+            prefix="entity_graph_", suffix=".html", delete=False
+        ) as tmp:
             out_path = Path(tmp.name)
     out_path.write_text(
         render_explorer_page(
