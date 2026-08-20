@@ -454,6 +454,21 @@ class TestLinkGuard:
         assert 'href="javascript:' not in page
         assert "Evil" in page, "the name is still reported, just not as a link"
 
+    def test_every_card_url_reaches_the_guard(self) -> None:
+        """The three unfiltered paths into ``_lk``: an affiliation @id, a
+        licence node's own ``url`` property, and the generator's homepage."""
+        state = CrateState()
+        state.generator.url = "javascript:alert(9)"
+        graph = {"@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "T", "license": {"@id": "#lic"}},
+            {"@id": "#lic", "@type": "CreativeWork", "name": "Bad licence",
+             "url": "javascript:alert(5)"},
+        ]}
+        page = build_maturity_html(state, graph=graph)
+        assert "javascript:" not in page.split("</style>", 1)[-1]
+        assert "Bad licence" in page and state.generator.name in page
+
 
 class TestProfileConformanceMatrix:
     """The KPI matrix: rows the three layers linked to their specs, cells the
