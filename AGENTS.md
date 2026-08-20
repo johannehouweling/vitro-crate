@@ -1822,11 +1822,32 @@ turned off with `export_crate(..., embed_graph=False)`. Inline-rendering the Mer
 **Maturity report (`ro-crate-metadata-maturity.html`, #85).** `export_crate` also embeds a human-readable
 maturity report as a `File` + `CreativeWork` `about` `./` (same mechanism as the graph). It is
 rendered by `builder/writers/maturity_report.py` (`build_maturity_html`) as a light-mode evaluation
-dashboard — a KPI row over four detail sections — and covers four axes: profile adherence (rendered
-from the crate's existing `state.validation` — it does **not** re-run the SHACL validator, so the
-embed adds no validation cost to export — validation stays a separate step), FAIR indicators rolled
-up into F/A/I/R pillars + DSM level (`assess_fair_maturity`), OECD MIT coverage
-(`assess_mit_coverage`), and a derived reproducibility-readiness checklist. The MIT axis keeps the
+dashboard and covers four axes: profile adherence (rendered from the crate's existing
+`state.validation` — it does **not** re-run the SHACL validator, so the embed adds no validation
+cost to export — validation stays a separate step), FAIR indicators + DSM level
+(`assess_fair_maturity`, with `dsm_blockers` naming what stands before the next level), OECD MIT
+coverage (`assess_mit_coverage`), and a derived reproducibility-readiness checklist.
+
+The page follows the #606 design handoff: a header whose headline is the **accession** (subhead: the
+publication's name when the crate has one, else the study title), an **About this study** card
+(contact/affiliation/funder/licence/publication+dataset DOI — every value a fact the crate holds or
+an honest *not stated*, never a guess) and an **About this RO-Crate** card (the build facts behind
+the crate's own `vitro-crate build` CreateAction, plus a provenance note carrying the report id
+`MR-<date>-<hash6>`, rendered only when the report is built with the crate's graph — a state-only
+render cannot claim its figures come from the crate's metadata). Then a **KPI grid**: a profile ×
+requirement-level conformance **matrix** (rows the three layers linked to their specs — IRIs pinned
+to `_crate_mapping`'s `conformsTo` constants by test — cells ✓/✗/– with counts on `title`; the
+Required column is the report's one headline verdict), the FAIR ladder (the *next* rung dashed red
+and filled to the ratio of indicators met, so a gated 0 never reads as "nothing done"), the **FAIR
+principle 1.3** rose (one wedge per MIT module: angle = share of the checklist, radius = fill;
+faint full wedges carry the share), a graph tile (linked / total entities) and reproducibility.
+Findings collapse into **Recommendations** rows — the validator's own message verbatim in a mono
+chip prefixed by its source layer, the severity badge, then `remediation.describe`'s bold
+instruction with `remediation.why`'s one muted consequence clause — and numbered **References**
+close the page (1: FAIRplus DSM / RDA FDMM; 2: tox-maturity-indicators). There is no FAIR pillar
+detail section and no header verdict pill; graph views, the profile-adherence breakdown, MIT
+coverage and reproducibility readiness keep their sections between the KPI grid and
+Recommendations. The MIT axis keeps the
 aggregate score as the headline and additionally breaks coverage out per guidance document (#491):
 each checklist parameter's `standards` map buckets it under the documents that require it
 (`MITReport.standard_scores`, labels from `MIT_STANDARD_LABELS`); documents overlap, so the
@@ -1863,7 +1884,7 @@ suppresses nothing): every local data entity is backed by a source `crate.write(
 materialise, since ro-crate-py writes the metadata for a source-less entity and no bytes. Export
 runs it against the assembled crate **before** the report is embedded — a verdict reached after the
 write could never reach the report shipping inside the crate — and files what it finds as REQUIRED
-issues, so the existing rendering flips the Profile-adherence verdict (the KPI tile's Required row — the report's one headline verdict; the header carries no pill) without knowing this check exists.
+issues, so the existing rendering flips the Profile-conformance verdict (the matrix's Required column — the report's one headline verdict) without knowing this check exists.
 `payload_checked` records that something looked; a verdict where nothing did says so rather than
 implying a clean sheet it did not earn.
 

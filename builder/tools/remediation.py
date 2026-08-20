@@ -175,6 +175,13 @@ class Action:
     impact: int = _DEFAULT_IMPACT
     actionable: bool = True
     note: str | None = None
+    # Where the representative finding came from (the record's ``profile`` key —
+    # "base" / "isa" / "tox" / whatever the sweep stamps; "graph" for orphan
+    # actions) and that finding's RAW validator message. The report's
+    # recommendation rows show the validator's own words next to the
+    # instruction, so both must survive the grouping (#606 handoff).
+    source: str = ""
+    message: str = ""
 
     @property
     def cleared(self) -> int:
@@ -430,8 +437,19 @@ def group_findings(
                 subject_types=[type_word],
                 entity_ids=sorted({str(f.get("entity_id")) for f in live if f.get("entity_id")}),
                 findings=[str(f.get("message") or "") for f in live],
-                tier=_strongest([str(f.get("severity") or _DEFAULT_TIER).upper() for f in live]),
+                tier=(tier := _strongest(
+                    [str(f.get("severity") or _DEFAULT_TIER).upper() for f in live]
+                )),
                 impact=_impact([str(f.get("message") or "") for f in live]),
+                # The representative finding: the first of the action's own
+                # (strongest) tier, so the quoted message never understates the
+                # severity the badge next to it claims.
+                source=str((rep := next(
+                    (f for f in live
+                     if str(f.get("severity") or _DEFAULT_TIER).upper() == tier),
+                    live[0],
+                )).get("profile") or ""),
+                message=str(rep.get("message") or ""),
             )
         )
         for f in live:
@@ -553,8 +571,57 @@ _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
     (("termCode",), "Add the ontology code"),
     (("parameter value", "additional property"), "Record the parameters used"),
     (("protocol",), "Link the protocol it follows"),
+    (("licence", "license"), "Add a reuse licence"),
     (("identifier",), "Add an identifier"),
 )
+
+
+# Why the instruction is worth following — one muted clause per `_WANTED` shape,
+# matched the same most-specific-first way. The instruction says what to do; this
+# says what the reader loses while it is not done. A shape with nothing honest to
+# say has no entry and renders no clause — a generic platitude on every row would
+# teach the reader to skip the column.
+_WHY: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("ORCID",), "Resolves the person unambiguously for credit and search."),
+    (("affiliation",), "Ties the person to an institution a registry can resolve."),
+    (("contactPoint", "contact point"), "Gives a reuser someone to ask."),
+    (
+        ("organization SHOULD have a URL", "URL"),
+        "Lets a reader confirm which organisation is meant.",
+    ),
+    (("email",), "Gives a reuser someone to ask."),
+    (
+        ("measurement technique", "measurement method"),
+        "The values cannot be interpreted without it.",
+    ),
+    (("Key Event", "AOP"), "Places the endpoint in its adverse-outcome pathway."),
+    (("creator",), "Says who is responsible for the data."),
+    (("dateCreated", "datePublished", "dateModified"), "Anchors the record in time."),
+    (("description",), "Nobody can tell what it is for without one."),
+    (("termCode",), "Makes the term machine-resolvable."),
+    (
+        ("parameter value", "additional property"),
+        "The exact settings are what a re-run needs.",
+    ),
+    (("protocol",), "Says which procedure the step actually followed."),
+    (("licence", "license"), "Nobody may legally reuse the data without one."),
+    (("identifier",), "Lets other records cite it precisely."),
+    (
+        ("not reachable", "unreachable"),
+        "Unreachable from the root, so no reader will ever see them.",
+    ),
+)
+
+
+def why(action: Action) -> str:
+    """The one-clause consequence for *action*, or ``""`` when nothing honest
+    fits. Matched over the action's findings the way ``_wanted`` matches, so the
+    clause and the instruction always describe the same shape."""
+    blob = " ".join(action.findings)
+    for needles, clause in _WHY:
+        if any(needle in blob for needle in needles):
+            return clause
+    return ""
 
 
 def _wanted(messages: list[str]) -> str:
@@ -575,7 +642,7 @@ def _wanted(messages: list[str]) -> str:
 
 def _join(
     names: list[str],
-    limit: int = 3,
+    limit: int = 6,
     wrap: Callable[[str], str] | None = None,
 ) -> str:
     """ "Ada, Grace and 2 others" — a subject line that stays a line.
@@ -673,6 +740,8 @@ def group_orphans(
             entity_ids=sorted(ids),
             findings=[f"{i} is not reachable from the crate root" for i in sorted(ids)],
             tier=_DEFAULT_TIER,
+            source="graph",
+            message=f"{name} not reachable from the crate root",
         )
         for name, ids in clusters.items()
     ]

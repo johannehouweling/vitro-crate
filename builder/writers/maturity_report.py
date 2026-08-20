@@ -71,9 +71,6 @@ from builder.writers.provenance_dag import (
 
 REPORT_FILENAME = "ro-crate-metadata-maturity.html"
 
-# FAIR dimension letters (as emitted by fair/indicators.yaml) → display names.
-_DIM_NAMES = {"F": "Findable", "A": "Accessible", "I": "Interoperable", "R": "Reusable"}
-
 # One MIT module, one colour (#606) — THE registry, keyed by the module name the
 # scorer keys ``MITReport.module_scores`` by. The module rows and every span of a
 # guidance-document bar are painted from it (as a ``--mod`` custom property the
@@ -276,35 +273,6 @@ def _severity_tiers(val: ValidationReport) -> list[dict[str, str]]:
     return tiers
 
 
-def _fair_pillars(fair: FAIRReport) -> list[dict[str, Any]]:
-    """Roll the flat FAIR indicator list up into F/A/I/R pillars.
-
-    Each pillar: ``{letter, name, met, total, na, state}`` where ``total`` counts
-    only *assessable* indicators (``passed is not None``); indicators marked
-    out-of-scope (``passed is None``, e.g. the hosting-level Accessible checks)
-    count toward ``na`` and, when a pillar is entirely out of scope, render as
-    "n/a" rather than a misleading 0.
-    """
-    pillars: list[dict[str, Any]] = []
-    for letter, name in _DIM_NAMES.items():
-        inds = [i for i in fair.indicator_results if str(i.get("dimension") or "") == letter]
-        met = sum(1 for i in inds if i.get("passed") is True)
-        na = sum(1 for i in inds if i.get("passed") is None)
-        total = sum(1 for i in inds if i.get("passed") is not None)
-        if total == 0:
-            state = "na"
-        elif met == total:
-            state = "ok"
-        elif met == 0:
-            state = "low"
-        else:
-            state = "warn"
-        pillars.append(
-            {"letter": letter, "name": name, "met": met, "total": total, "na": na, "state": state}
-        )
-    return pillars
-
-
 # --- rendering helpers -----------------------------------------------------
 _GLYPH = {"ok": "✓", "no": "✗", "na": "–"}
 _MK_LABEL = {"ok": "met", "no": "not met", "na": "not assessed"}
@@ -319,16 +287,6 @@ def _kind(ok: bool | None) -> str:
     if ok is None:
         return "na"
     return "ok" if ok else "no"
-
-
-def _fill_class(met: int, total: int) -> str:
-    if total <= 0:
-        return "fill-warn"
-    if met >= total:
-        return "fill-good"
-    if met == 0:
-        return "fill-low"
-    return "fill-warn"
 
 
 _ASSET_DIR = Path(__file__).resolve().parent
@@ -374,141 +332,576 @@ def _load_shell() -> str:
     return _SHELL_PATH.read_text(encoding="utf-8")
 
 
-def _render_header(title: str, accession: str) -> str:
-    """The page header: kicker, accession chip and title.
+def _lk(url: str, text: str) -> str:
+    """An accent link with the report's card-link styling; crate text escaped."""
+    return f'<a class="lk" href="{html.escape(url)}">{html.escape(text)}</a>'
 
-    The verdict used to sit here as a pill; it now lives in the Profile
-    adherence KPI tile alone (the Required row's mark and summary — "3 / 3
-    profiles", "out of date", "Awaiting validation"), on the owner's call.
-    """
+
+_NOT_STATED = '<span class="not-stated">not stated</span>'
+
+
+def _render_header(title: str, accession: str, subhead: str) -> str:
+    """The page header: eyebrow, the accession as the headline, and a subhead —
+    the publication's name when the crate has one, else the study title.
+
+    No verdict pill, no chips, no scope caveats: conformance lives in the
+    Profile conformance tile and the caveats with the findings they qualify
+    (the #606 handoff)."""
     esc = html.escape
-    chip = f'<span class="chip mono">{esc(accession)}</span>' if accession else ""
+    h1 = accession or title
+    sub = f'<p class="subhead">{esc(subhead)}</p>\n' if subhead and subhead != h1 else ""
     return (
         "<header>\n"
         '  <div class="h-left">\n'
-        '    <div class="kicker">'
-        f'<span class="eyebrow">RO-Crate maturity report</span>{chip}</div>\n'
-        f"    <h1>{esc(title)}</h1>\n"
+        '    <div class="kicker"><span class="eyebrow">vitro-crate maturity report</span></div>\n'
+        f"    <h1>{esc(h1)}</h1>\n"
+        f"{sub}"
         "  </div>\n"
         "</header>\n"
     )
 
 
-def _render_kpis(
-    tiers: list[dict[str, str]] | None,
-    fair: FAIRReport,
-    mit: MITReport,
-    repro_ready: int,
-    repro_total: int,
-    chem: dict[str, Any] | None = None,
+def _raw_nodes(graph: dict[str, Any] | list[dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
+    """``@id -> node`` for a raw metadata document (or ``{}`` without one)."""
+    items = graph.get("@graph", []) if isinstance(graph, dict) else (graph or [])
+    return {
+        str(n["@id"]): n for n in items if isinstance(n, dict) and isinstance(n.get("@id"), str)
+    }
+
+
+def _root_of(nodes: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """The Root Data Entity: what the metadata descriptor is ``about``."""
+    desc = nodes.get("ro-crate-metadata.json") or {}
+    about = desc.get("about")
+    rid = about.get("@id") if isinstance(about, dict) else about
+    return nodes.get(str(rid) or "./") or nodes.get("./") or {}
+
+
+def _ref_ids(node: dict[str, Any], key: str) -> list[str]:
+    """The @ids (or bare strings) a property points at, listified."""
+    value = node.get(key)
+    values = value if isinstance(value, list) else [value] if value is not None else []
+    out = []
+    for v in values:
+        if isinstance(v, dict) and v.get("@id"):
+            out.append(str(v["@id"]))
+        elif isinstance(v, str) and v:
+            out.append(v)
+    return out
+
+
+def _study_facts(
+    state: CrateState, graph: dict[str, Any] | list[dict[str, Any]] | None
+) -> dict[str, Any]:
+    """What the "About this study" card states, read from the crate itself.
+
+    Every value is either a fact the graph (or, without one, ``state.metadata``)
+    holds, or absent — the card renders an honest "not stated", never a guess.
+    """
+    facts: dict[str, Any] = {
+        "contact": None,  # (name, url|None)
+        "affiliation": None,
+        "funder": None,
+        "licence": None,
+        "publication": None,  # (doi url|None, display text, article name)
+        "dataset_doi": None,
+        "description": state.metadata.description or "",
+    }
+    if graph is None:
+        m = state.metadata
+        if m.contact:
+            facts["contact"] = (m.contact, m.contact if "://" in m.contact else None)
+        if m.license:
+            facts["licence"] = (m.license, m.license if "://" in m.license else None)
+        return facts
+
+    from builder.writers.provenance_dag import build_citation_inventory, build_people_inventory
+
+    nodes = _raw_nodes(graph)
+    root = _root_of(nodes)
+    if isinstance(root.get("description"), str) and root["description"].strip():
+        facts["description"] = root["description"]
+
+    def pid_url(agent: dict[str, Any]) -> str | None:
+        pid, scheme = agent.get("pid"), agent.get("pid_scheme")
+        if not pid:
+            return None
+        if "://" in str(pid):
+            return str(pid)
+        host = {"ORCID": "https://orcid.org/", "ROR": "https://ror.org/"}.get(str(scheme))
+        return f"{host}{pid}" if host else None
+
+    inv = build_people_inventory(graph)
+    agents = {a["id"]: a for a in inv["agents"]}
+    for prop in ("contactPoint", "creator", "publisher", "author"):
+        person = next(
+            (agents[r] for r in _ref_ids(root, prop) if agents.get(r, {}).get("kind") == "person"),
+            None,
+        )
+        if person:
+            facts["contact"] = (person["name"], pid_url(person))
+            org = next((agents[o] for o in person.get("affiliations", []) if o in agents), None)
+            if org:
+                org_url = pid_url(org) or (org["id"] if "://" in str(org["id"]) else None)
+                facts["affiliation"] = (org["name"], org_url)
+            break
+
+    funder = next((nodes[r] for r in _ref_ids(root, "funder") if r in nodes), None)
+    if funder is not None:
+        name = funder.get("name") or funder.get("@id")
+        url = str(funder.get("url") or funder.get("@id") or "")
+        facts["funder"] = (str(name), url if url.startswith(("http://", "https://")) else None)
+
+    for ref in _ref_ids(root, "license"):
+        node = nodes.get(ref) or {}
+        name = str(node.get("name") or "")
+        if "not stated" in name.lower():
+            break  # the depositor stated no terms — that IS the fact (#540)
+        url = ref if ref.startswith(("http://", "https://")) else str(node.get("url") or "")
+        facts["licence"] = (name or ref.rstrip("/").rsplit("/", 1)[-1], url or None)
+        break
+
+    for value in _ref_ids(root, "identifier"):
+        raw = value
+        if raw in nodes:  # a PropertyValue entity
+            raw = str(nodes[raw].get("value") or "")
+        doi = _doi_url(raw)
+        if doi:
+            facts["dataset_doi"] = doi
+            break
+
+    articles = build_citation_inventory(graph)["articles"]
+    cited = [a for a in articles if a["state"] == "cited"] or articles
+    with_doi = [a for a in cited if a.get("doi")]
+    if with_doi:
+        a = with_doi[0]
+        facts["publication"] = (str(a["doi"]), _doi_text(str(a["doi"])), str(a["name"]))
+    elif cited:
+        facts["publication"] = (None, "", str(cited[0]["name"]))
+    return facts
+
+
+def _doi_url(value: str) -> str | None:
+    """A DOI in any of its spellings, normalised to ``https://doi.org/…``."""
+    v = (value or "").strip()
+    if v.lower().startswith("doi:"):
+        v = v[4:]
+    if v.startswith("10.") and "/" in v:
+        return f"https://doi.org/{v}"
+    if "doi.org/" in v:
+        return v if v.startswith(("http://", "https://")) else f"https://{v}"
+    return None
+
+
+def _doi_text(url: str) -> str:
+    """``doi.org/10.x/…`` — the display form of a DOI link."""
+    return url.split("://", 1)[-1]
+
+
+def _render_study_card(facts: dict[str, Any]) -> str:
+    """The "About this study" card: who to ask, under what terms, and where the
+    work is published — with the study description under a rule."""
+    esc = html.escape
+
+    def cell(label: str, value: str) -> str:
+        return f'<div class="hcell"><span class="hlabel">{label}</span>{value}</div>'
+
+    def linked(pair: tuple[str, str | None] | None) -> str:
+        if not pair or not pair[0]:
+            return _NOT_STATED
+        name, url = pair
+        return _lk(url, name) if url else esc(name)
+
+    pub_cell = ""
+    pub = facts.get("publication")
+    dataset = facts.get("dataset_doi")
+    if pub or dataset:
+        parts = ""
+        if pub:
+            url, text, name = pub
+            parts += _lk(url, text) if url else esc(name)
+        if dataset:
+            # Stacked under the publication in the SAME cell — pinning the two
+            # to grid columns broke their pairing every time a field was added.
+            label = '<span class="hlabel">Dataset</span>' if pub else ""
+            parts += f'<span class="hstack">{label}{_lk(dataset, _doi_text(dataset))}</span>'
+        pub_cell = cell("Publication" if pub else "Dataset", parts)
+    description = (
+        f'<div class="hnote">{esc(facts["description"])}</div>' if facts["description"] else ""
+    )
+    return (
+        '<div class="hcard">\n'
+        '  <div class="hcard-h">About this study</div>\n'
+        '  <div class="hgrid">'
+        + cell("Contact person", linked(facts.get("contact")))
+        + cell("Affiliation", linked(facts.get("affiliation")))
+        + cell("Funder", linked(facts.get("funder")))
+        + cell("Licence", linked(facts.get("licence")))
+        + pub_cell
+        + "</div>\n"
+        f"{description}"
+        "</div>\n"
+    )
+
+
+def _report_id(state: CrateState, graph: dict[str, Any] | list[dict[str, Any]] | None) -> str:
+    """``MR-<date>-<hash6>`` — the date the run ended plus six hex of the
+    crate's own serialized graph (or, without one, of the state fingerprint):
+    reproducible from the crate, different for different content."""
+    import hashlib
+    import json as _json
+
+    ended = (state.generator.ended_at or "")[:10]
+    try:
+        payload = (
+            _json.dumps(graph, sort_keys=True, default=str)
+            if graph is not None
+            else state.validation_fingerprint()
+        )
+    except Exception:  # noqa: BLE001 — an id must never fail a report
+        payload = state.metadata.title or ""
+    digest = hashlib.sha256(str(payload).encode("utf-8")).hexdigest()[:6]
+    return f"MR-{ended}-{digest}" if ended else f"MR-{digest}"
+
+
+def _render_crate_card(
+    state: CrateState,
+    val: ValidationReport | None,
+    graph: dict[str, Any] | list[dict[str, Any]] | None,
 ) -> str:
-    # Profile-adherence tile: severity mini-rows, or an "awaiting validation" row.
-    if tiers is None:
-        prof_mk = _mk("na")
-        sev_rows = (
-            '<div class="sev-row">'
-            + _mk("na")
-            + '<span class="sev-t">Awaiting validation</span></div>'
+    """The "About this RO-Crate" card: the build facts the crate itself records
+    (the data behind its ``vitro-crate build`` CreateAction), and how this
+    report came to be.
+
+    Cells render only what the run actually recorded — a bare state renders the
+    tool and nothing invented. The closing provenance note renders only when the
+    report is built WITH the crate's graph: it claims the figures come from the
+    crate's own metadata, and a state-only render cannot claim that.
+    """
+    esc = html.escape
+    gen = state.generator
+    if not gen.name:
+        return ""
+
+    def cell(label: str, value: str) -> str:
+        return f'<div class="hcell"><span class="hlabel">{label}</span>{value}</div>'
+
+    cells = []
+    built = f"{gen.name} {gen.version}".strip()
+    cells.append(cell("Built by", _lk(gen.url, built) if gen.url else esc(built)))
+    if gen.model:
+        from builder.tools._crate_mapping import _model_docs_url
+
+        model = _lk(url, gen.model) if (url := _model_docs_url(gen.model)) else esc(gen.model)
+        run = ""
+        seconds = gen.model_seconds or gen.duration_seconds or 0
+        if gen.llm_calls:
+            run = f" · {gen.llm_calls} calls"
+            if seconds:
+                minutes = max(1, round(seconds / 60))
+                run += f", {minutes} minute{'s' if minutes != 1 else ''}"
+        cells.append(cell("Model", f"{model}{esc(run)}"))
+    if gen.ended_at:
+        ts = gen.ended_at[:16].replace("T", " ")
+        if gen.ended_at.endswith("Z") or "+00:00" in gen.ended_at:
+            ts += " UTC"
+        cells.append(cell("Created", f"<b>{esc(ts)}</b>"))
+    if gen.input_tokens or gen.output_tokens:
+        cells.append(
+            cell(
+                "Tokens",
+                f'<span title="input tokens">&darr; {gen.input_tokens:,}</span>, '
+                f'<span title="output tokens">&uarr; {gen.output_tokens:,}</span>',
+            )
         )
-    else:
-        prof_mk = _mk(tiers[0]["state"])
-        sev_rows = "".join(
-            f'<div class="sev-row">{_mk(t["state"])}'
-            f'<span class="sev-t">{t["tier"]}</span>'
-            f'<span class="sev-s">{t["summary"]}</span></div>'
-            for t in tiers
+    assessed = getattr(val, "assessed_tiers", None) or set()
+    gate = next((t for t in ("optional", "recommended", "required") if t in assessed), None)
+    if gate:
+        cells.append(cell("Validation gate", f"<b>{gate}</b>"))
+
+    note = ""
+    if graph is not None:
+        code = '<code class="hcode">{}</code>'
+        note = (
+            '<div class="hnote">This report is '
+            + code.format(esc(_report_id(state, graph)))
+            + ", generated by vitro-crate at export and travelling inside the crate as "
+            + code.format(REPORT_FILENAME)
+            + ". Every figure on this page is computed from the crate&rsquo;s own "
+            + code.format("ro-crate-metadata.json")
+            + ": the build facts above come from its "
+            + code.format("vitro-crate build")
+            + " CreateAction, conformance from a SHACL validation against the three profiles, "
+            "and the FAIR and domain scores from deterministic assessors run over the same "
+            "graph. Nothing is fetched at view time and no figure is estimated.</div>"
         )
-    prof_tile = (
+    return (
+        '<div class="hcard">\n'
+        '  <div class="hcard-h">About this RO-Crate</div>\n'
+        f'  <div class="hgrid">{"".join(cells)}</div>\n'
+        f"{note}"
+        "</div>\n"
+    )
+
+
+# The spec each conformance row links to. The IRIs mirror the crate's own
+# ``conformsTo`` declarations (``_crate_mapping.ROCRATE_SPEC`` / ``PROFILE_ISA``
+# / ``PROFILE_ISATOX``); a test pins the two lists together so they cannot
+# drift apart.
+_PROFILE_SPEC_URLS: dict[str, str] = {
+    "base": "https://w3id.org/ro/crate/1.2",
+    "isa": "https://github.com/nfdi4plants/isa-ro-crate-profile",
+    "tox": "https://w3id.org/ro/crate/isa-tox/1.0",
+}
+
+_TIER_KEYS: tuple[str, ...] = ("required", "recommended", "optional")
+
+
+def _profile_tier_counts(val: ValidationReport | None) -> dict[str, dict[str, int]]:
+    """``{profile: {tier: findings}}`` from the verdict's records — or, for a
+    tier that predates records, parsed from the flat display strings' own
+    ``[profile]`` prefix. Unattributable findings land under ``""``."""
+    counts: dict[str, dict[str, int]] = {}
+    if val is None:
+        return counts
+
+    def add(profile: str, tier: str) -> None:
+        bucket = counts.setdefault(profile, {})
+        bucket[tier] = bucket.get(tier, 0) + 1
+
+    records = getattr(val, "issue_records", None) or []
+    seen_tiers = {str(r.get("severity") or "").lower() for r in records}
+    for r in records:
+        add(str(r.get("profile") or ""), str(r.get("severity") or "").lower())
+    for tier, flat in (
+        ("required", val.required_issues),
+        ("recommended", val.should_issues),
+        ("optional", val.may_issues),
+    ):
+        if tier in seen_tiers:
+            continue
+        for message in flat or []:
+            m = re.match(r"\[(\w+)\]", str(message))
+            add(m.group(1) if m else "", tier)
+    return counts
+
+
+def _profile_matrix_tile(
+    val: ValidationReport | None, tiers: list[dict[str, str]] | None, stale: bool
+) -> str:
+    """Profile conformance as a profile × requirement-level matrix: rows the
+    three layers (each linked to its spec), columns the severity tiers, cells a
+    mark with the finding count on its ``title``. An unassessed tier — and every
+    cell of a stale or never-run verdict — is the neutral mark, never a green."""
+    heads = "".join(f'<span class="pmx-h">{t.capitalize()}</span>' for t in _TIER_KEYS)
+    rows = ""
+    counts = _profile_tier_counts(val if tiers is not None else None)
+    assessed = (getattr(val, "assessed_tiers", None) or {"required"}) if tiers else set()
+    passed = {
+        "base": val.base_passed if val else False,
+        "isa": val.isa_passed if val else False,
+        "tox": val.tox_passed if val else False,
+    }
+    for key, label in _PROFILE_LAYERS:
+        cells = ""
+        for tier in _TIER_KEYS:
+            n = counts.get(key, {}).get(tier, 0)
+            if tiers is None:
+                state, title = "na", "not yet validated"
+            elif stale:
+                state, title = "na", "recorded before the crate&rsquo;s latest changes"
+            elif tier not in assessed:
+                state, title = "na", "not assessed at this level"
+            elif tier == "required" and not passed[key]:
+                state = "no"
+                title = f"{n} findings at this level" if n else "profile gate failed"
+            elif n:
+                state, title = "no", f"{n} finding{'s' if n != 1 else ''} at this level"
+            else:
+                state, title = "ok", "no findings at this level"
+            cells += (
+                f'<span class="pmx-c" data-cell="{key}-{tier}" title="{title}">'
+                f"{_mk(state)}</span>"
+            )
+        rows += f'<span class="pmx-p">{_lk(_PROFILE_SPEC_URLS[key], label)}</span>{cells}'
+    return (
         '<article class="kpi">'
-        f'<div class="kpi-h"><span class="eyebrow">Profile adherence</span>{prof_mk}</div>'
-        f'<div class="sev">{sev_rows}</div>'
+        '<div class="kpi-h"><span class="eyebrow">Profile conformance</span></div>'
+        f'<div class="pmx"><span></span>{heads}{rows}</div>'
         "</article>"
     )
 
-    # FAIR / DSM tile.
-    met_all = sum(1 for i in fair.indicator_results if i.get("passed") is True)
-    na_all = sum(1 for i in fair.indicator_results if i.get("passed") is None)
+
+def _fair_tile(fair: FAIRReport, blockers: list[str]) -> str:
+    """FAIR maturity: the gated DSM level, a ladder whose *next* rung shows the
+    ratio of indicators already met (a gated 0 must not read as "nothing
+    done"), and — in red — how many indicators stand before the next level."""
+    met = sum(1 for i in fair.indicator_results if i.get("passed") is True)
     assessed = sum(1 for i in fair.indicator_results if i.get("passed") is not None)
-    fair_sub = f"{met_all} of {assessed} indicators met"
-    if na_all:
-        fair_sub += f" · {na_all} n/a"
-    rungs = "".join(
-        f'<span class="rung {"on" if lvl <= fair.dsm_level else "off"}"></span>'
-        for lvl in range(1, 6)
-    )
-    fair_tile = (
+    pct = round(met / assessed * 100) if assessed else 0
+    rungs = ""
+    for level in range(1, 6):
+        if level <= fair.dsm_level:
+            rungs += '<span class="rung2 done"></span>'
+        elif level == fair.dsm_level + 1:
+            rungs += (
+                f'<span class="rung2 next" title="Level {level} &mdash; {met} of {assessed} '
+                f'indicators met"><i style="width:{pct}%"></i></span>'
+            )
+        else:
+            rungs += '<span class="rung2 off"></span>'
+    blocked = ""
+    if blockers:
+        n = len(blockers)
+        blocked = (
+            f'<div class="blockers"><b>{n} indicator{"s" if n != 1 else ""}</b> '
+            f"to level {fair.dsm_level + 1}</div>"
+        )
+    return (
         '<article class="kpi">'
         '<div class="kpi-h"><span class="eyebrow">FAIR maturity</span></div>'
         f'<div class="kpi-v"><b>{fair.dsm_level}</b><span class="den">/ 5</span> '
-        '<span class="tag-inline">DSM level</span></div>'
-        f'<div class="kpi-sub">{fair_sub}</div>'
-        f'<div class="ladder" role="img" aria-label="DSM level {fair.dsm_level} of 5">{rungs}</div>'
+        '<span class="tag-inline">DSM level<a class="fn" href="#fn-dsm">1</a></span></div>'
+        f'<div class="ladder2" role="img" aria-label="DSM level {fair.dsm_level} of 5; '
+        f'{met} of {assessed} indicators met">{rungs}</div>'
+        f"{blocked}"
         "</article>"
     )
 
-    # OECD MIT coverage tile. An MITReport with no module scores is a coverage
-    # measurement that never happened (checklist unreadable, or the crate would
-    # not assemble) — not a crate that covers nothing. Its 0.0 must not become
-    # "0%": that reads identically to a genuinely empty crate, and the aria-label
-    # would say "MIT coverage 0%" out loud (#311). Same "not assessed" state the
-    # profile tile shows for an unevaluated severity tier (#446).
+
+def _mit_rose_svg(mit: MITReport) -> str:
+    """The MIT coverage rose: one wedge per module, angle = the module's share
+    of the checklist, radius = how much of that module is filled. Faint
+    full-radius wedges behind carry the share, so an empty module still shows
+    the ground it owes. Pure trigonometry over the scorer's own buckets."""
+    import math
+
+    total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
+    if not total_all:
+        return ""
+    cx = cy = 87.0
+    radius = 82.0
+
+    def point(angle: float, r: float) -> tuple[float, float]:
+        rad = math.radians(angle - 90)  # 12 o'clock start, clockwise
+        return cx + r * math.cos(rad), cy + r * math.sin(rad)
+
+    def wedge(a0: float, a1: float, r: float, fill: str, title: str = "") -> str:
+        t = f"<title>{html.escape(title)}</title>" if title else ""
+        if a1 - a0 >= 360:  # a single module owns the whole ring
+            return f'<circle cx="{cx}" cy="{cy}" r="{r:.2f}" fill="{fill}">{t}</circle>'
+        x0, y0 = point(a0, r)
+        x1, y1 = point(a1, r)
+        large = 1 if (a1 - a0) > 180 else 0
+        return (
+            f'<path d="M {cx},{cy} L {x0:.2f},{y0:.2f} '
+            f'A {r:.2f},{r:.2f} 0 {large} 1 {x1:.2f},{y1:.2f} Z" fill="{fill}">{t}</path>'
+        )
+
+    background = ""
+    foreground = ""
+    angle = 0.0
+    for name, sc in mit.module_scores.items():
+        total, completed = sc.get("total", 0), sc.get("completed", 0)
+        if not total:
+            continue
+        sweep = total / total_all * 360
+        background += wedge(angle, angle + sweep, radius, "#f2f5f5")
+        if completed:
+            foreground += wedge(
+                angle,
+                angle + sweep,
+                radius * completed / total,
+                _mit_module_colour(name),
+                f"{name} — {completed} of {total} filled",
+            )
+        angle += sweep
+    return (
+        '<svg viewBox="0 0 174 174" preserveAspectRatio="xMidYMid meet" role="img" '
+        'aria-label="MIT coverage by module: wedge angle is the module&#x27;s share of the '
+        'checklist, radius is how much of it is filled">'
+        f"{background}{foreground}</svg>"
+    )
+
+
+def _mit_rose_tile(mit: MITReport) -> str:
+    """FAIR principle 1.3 — the domain (MIT) coverage tile: the aggregate score
+    over the module rose, with the IUCLID link chip the checklist targets. An
+    unmeasured MITReport renders "not assessed", never 0% (#311)."""
+    chip = (
+        '<a class="chip-link" href="https://iuclid6.echa.europa.eu/" '
+        'title="IUCLID — the OECD/ECHA database this reporting checklist targets">'
+        "IUCLID DB &#8599;</a>"
+    )
+    head = (
+        '<div class="kpi-h"><span class="eyebrow">FAIR principle 1.3'
+        f'<a class="fn" href="#fn-mit">2</a></span>{chip}</div>'
+    )
     if not mit_was_assessed(mit):
-        mit_tile = (
-            '<article class="kpi">'
-            f'<div class="kpi-h"><span class="eyebrow">OECD MIT coverage</span>{_mk("na")}</div>'
-            '<div class="kpi-v"><b>–</b></div>'
+        return (
+            '<article class="kpi rose-tile">'
+            + head
+            + f'<div class="kpi-v"><b>&ndash;</b> {_mk("na")}</div>'
             '<div class="kpi-sub">not assessed</div>'
             "</article>"
         )
-    else:
-        completed_all = sum(sc.get("completed", 0) for sc in mit.module_scores.values())
-        total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
-        pct = round(mit.overall_score * 100)
-        mit_tile = (
+    pct = round(mit.overall_score * 100)
+    note = (
+        '<div class="tile-note">for in vitro toxicology research datasets, assays, as well '
+        "as cell-based toxicity test methods.<br>NB: this score does not ensure data quality "
+        "or assess whether the science is right. It does measure how completely the domain "
+        "reporting fields are filled.</div>"
+    )
+    return (
+        '<article class="kpi rose-tile">'
+        + head
+        + f'<div class="kpi-v"><b>{pct}</b><span class="den">%</span></div>'
+        f'<div class="rose-wrap">{_mit_rose_svg(mit)}</div>'
+        f"{note}"
+        "</article>"
+    )
+
+
+def _render_kpis(
+    tiers: list[dict[str, str]] | None,
+    val: ValidationReport | None,
+    fair: FAIRReport,
+    blockers: list[str],
+    mit: MITReport,
+    repro_ready: int,
+    repro_total: int,
+    graph_counts: tuple[int, int] | None,
+    *,
+    stale: bool = False,
+) -> str:
+    """The KPI grid: the profile × tier conformance matrix, FAIR maturity, the
+    domain-coverage rose (spanning both rows), the graph tile (linked / total
+    entities, only when a graph was supplied) and reproducibility readiness."""
+    tiles = _profile_matrix_tile(val, tiers, stale)
+    tiles += _fair_tile(fair, blockers)
+    tiles += _mit_rose_tile(mit)
+    if graph_counts is not None:
+        linked, total = graph_counts
+        tiles += (
             '<article class="kpi">'
-            '<div class="kpi-h"><span class="eyebrow">OECD MIT coverage</span></div>'
-            f'<div class="kpi-v"><b>{pct}</b><span class="den">%</span></div>'
-            f'<div class="kpi-sub">{completed_all} of {total_all} checklist fields</div>'
-            f'<div class="meter" role="img" aria-label="MIT coverage {pct}%">'
-            f'<i class="fill-cov" style="width:{pct}%"></i></div>'
+            '<div class="kpi-h"><span class="eyebrow">Graph</span></div>'
+            f'<div class="kpi-v"><b>{linked}</b><span class="den">/ {total}</span></div>'
+            '<div class="kpi-sub">number linked and retrieved entities</div>'
             "</article>"
         )
-
-    # Reproducibility tile.
     dots = "".join(
         f'<span class="dot {"on" if i < repro_ready else "off"}"></span>'
         for i in range(repro_total)
     )
-    repro_tile = (
+    tiles += (
         '<article class="kpi">'
         '<div class="kpi-h"><span class="eyebrow">Reproducibility</span></div>'
-        f'<div class="kpi-v"><b>{repro_ready}</b><span class="den">/ {repro_total}</span></div>'
-        '<div class="kpi-sub">readiness checks met</div>'
+        f'<div class="kpi-v"><b>{repro_ready}</b><span class="den">/ {repro_total}</span> '
+        '<span class="tag-inline">readiness level</span></div>'
         f'<div class="dots" role="img" aria-label="{repro_ready} of {repro_total}">{dots}</div>'
         "</article>"
     )
-
-    # Chemicals tile — only when the crate actually declares compounds, so a
-    # non-chemical crate isn't given a tile reading "0".
-    chem_tile = ""
-    if chem:
-        c = chem["counts"]
-        wired, total = c["wired"], c["total"]
-        id_pct = round(c["fields_met"] / c["fields_total"] * 100) if c["fields_total"] else 0
-        chem_tile = (
-            '<article class="kpi">'
-            '<div class="kpi-h"><span class="eyebrow">Chemicals</span>'
-            f"{_mk('ok' if wired == total else 'no')}</div>"
-            f'<div class="kpi-v"><b>{wired}</b><span class="den">/ {total}</span> '
-            '<span class="tag-inline">wired</span></div>'
-            f'<div class="kpi-sub">{id_pct}% of identification fields filled</div>'
-            f'<div class="meter" role="img" aria-label="identification {id_pct}%">'
-            f'<i class="{_fill_class(c["fields_met"], c["fields_total"])}" '
-            f'style="width:{id_pct}%"></i></div>'
-            "</article>"
-        )
-
-    return f'<div class="kpis">{prof_tile}{fair_tile}{mit_tile}{chem_tile}{repro_tile}</div>\n'
+    return f'<div class="kgrid">{tiles}</div>\n'
 
 
 # The three profile layers in fix order: base must pass before ISA is
@@ -812,63 +1205,6 @@ def _render_profile_section(
     )
 
 
-def _render_fair_section(fair: FAIRReport) -> str:
-    esc = html.escape
-    pillars = _fair_pillars(fair)
-    pillar_html = []
-    for p in pillars:
-        if p["state"] == "na":
-            pv = '<span class="pv na">n/a</span>'
-            meter = '<div class="meter na" role="img" aria-label="not assessed">out of scope</div>'
-            note = "assessed by the hosting repository, not the crate"
-        else:
-            pct = round(p["met"] / p["total"] * 100) if p["total"] else 0
-            fill = _fill_class(p["met"], p["total"])
-            pv = f'<span class="pv">{p["met"]}<span class="den">/ {p["total"]}</span></span>'
-            meter = (
-                f'<div class="meter" role="img" aria-label="{p["met"]} of {p["total"]}">'
-                f'<i class="{fill}" style="width:{pct}%"></i></div>'
-            )
-            note = f"{p['met']} of {p['total']} indicators met"
-        pillar_html.append(
-            '<div class="pillar">'
-            f'<div class="pl-h"><span class="pl-letter">{p["letter"]}</span>'
-            f'<span class="pl-name">{esc(p["name"])}</span>{pv}</div>'
-            f"{meter}"
-            f'<div class="pl-note">{note}</div>'
-            "</div>"
-        )
-
-    # Disclosure lists for dimensions that have at least one failing indicator.
-    discs = []
-    for p in pillars:
-        inds = [
-            i
-            for i in fair.indicator_results
-            if str(i.get("dimension") or "") == p["letter"] and i.get("passed") is not None
-        ]
-        if not any(i.get("passed") is False for i in inds):
-            continue
-        items = "".join(
-            f"<li>{_mk(_kind(bool(i.get('passed'))))} "
-            f"<span>{esc(str(i.get('text') or i.get('id') or ''))}</span></li>"
-            for i in inds
-        )
-        discs.append(
-            f'<details class="disc"><summary>{esc(p["name"])} — {p["met"]} of {p["total"]} '
-            f'indicators · what’s missing</summary><ul class="ind">{items}</ul></details>'
-        )
-
-    return (
-        "<section>\n"
-        '  <div class="sec-h"><h2>FAIR</h2>'
-        f'<span class="sec-meta">Data Stewardship Maturity <b>{fair.dsm_level}/5</b></span></div>\n'
-        f'  <div class="pillars">{"".join(pillar_html)}</div>\n'
-        f"  {''.join(discs)}\n"
-        "</section>\n"
-    )
-
-
 def _mit_module_colour(name: str) -> str:
     return MIT_MODULE_STYLES.get(name, MIT_MODULE_FALLBACK_COLOUR)
 
@@ -1019,50 +1355,36 @@ def _render_mit_section(mit: MITReport) -> str:
     return section
 
 
-def _render_next_steps_section(
+def _render_recommendations(
     val: ValidationReport | None,
     graph: dict[str, Any] | list[dict[str, Any]] | None,
-) -> tuple[str, str]:
-    """"What to do next": the findings collapsed into the actions that clear them.
+) -> str:
+    """Recommendations: the findings collapsed into the actions that clear them.
 
-    Returns ``(section, jump)`` — the section itself, which closes the report,
-    and the link that takes a reader straight to it from the top of the page.
-    The two are built together because the link states the size of the job
-    ("5 actions clear 41 findings"), and that count comes out of the same
-    grouping the section renders; deriving it twice is how the summary and the
-    list drift apart.
+    Each row is three parts, in reading order: the validator's own shape
+    message, verbatim, in a mono chip prefixed by its source layer; the
+    severity badge; then the plain-language instruction in bold with one muted
+    clause on why it matters (``remediation.why``). The rest of the report
+    answers "what is wrong" one finding at a time — this section answers "what
+    do I do", and says how many findings each action closes.
 
-    The rest of the report answers "what is wrong", one finding per unsatisfied
-    shape. That is the validator's unit, not a reader's: an author with no ORCID
-    appears four times in the tier lists without the page once saying "add an
-    ORCID for Zhongli Chen". This section says it — and says how many findings
-    each action closes, so the reader can spend their time where it counts.
-
-    Deterministic and cheap, like everything else here: the grouping is pure and
+    Deterministic and cheap like everything else here: the grouping is pure and
     the phrasing falls back to a template, so embedding the report in an export
-    still costs no model call and no network. A caller that HAS a provider can
-    word the same actions better (``leaves.summarise_actions``) and store the
-    result; this renders whatever it is given.
-
-    Renders nothing when there is nothing to act on — an empty exhortation is
-    worse than silence.
+    still costs no model call and no network. Renders nothing when there is
+    nothing to act on — an empty exhortation is worse than silence.
     """
     from builder.tools.remediation import (
         _TIER_RANK,
         TIER_LABEL,
-        _join,
-        describe_parts,
+        describe,
         group_findings,
         group_orphans,
+        why,
     )
     from builder.writers.provenance_dag import build_crate_graph
 
     if val is None or not _validation_has_signal(val):
-        return "", ""
-    # `issue_records`, not the flat display lists: the grouping needs the
-    # entity each finding is about, and that is exactly what the records keep
-    # and the display projection throws away. Empty on a verdict recorded before
-    # the field existed, which correctly yields no section rather than a guess.
+        return ""
     issues = [dict(r) for r in (getattr(val, "issue_records", None) or [])]
     raw_nodes = graph.get("@graph", []) if isinstance(graph, dict) else (graph or [])
     labels = {
@@ -1082,129 +1404,91 @@ def _render_next_steps_section(
         actions += group_orphans(orphans, labels=labels, types=types)
     live = [a for a in actions if a.actionable and a.cleared]
     if not live:
-        return "", ""
+        return ""
 
-    # Tier FIRST, then size — the same key `group_findings` sorted by, rather than
-    # re-sorting on `-cleared` alone. Sorting purely by size ranks a required
-    # conformance failure clearing one finding below any bulk advisory action, and
-    # `_NEXT_STEPS_CAP` then drops it off the list entirely: the report quietly
-    # hiding the work that blocks the build, which is the one thing this section
-    # exists to surface.
     # Tier, then IMPACT, then size. Size last on purpose: "add a job title for 8
     # people" clears more findings than "say which measurement technique was
     # used", and ranking by count put the first above the second — which is
     # backwards for anyone who has to reuse the data.
     live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
     esc = html.escape
-    def _subject_html(action: Any) -> str:
-        """The subject clause with every entity in a ``<code>`` chip.
 
-        Rebuilt through `_join` with a wrapper rather than marked up after the
-        fact: the plain sentence and this one must agree on the wording, the
-        truncation and the "and N others" count, and a regex over the finished
-        string would be a second implementation of all three.
-
-        Falls back to the plain clause for an action with no entity list to
-        mark up (a property action's subject is a property NAME, and a
-        deliberate non-action's is a note).
-        """
-        names = list(getattr(action, "subject_names", []) or [])
-        kinds = list(getattr(action, "subject_types", []) or [])
-        if not names or action.kind not in ("entity", "entities", "orphan"):
-            return esc(describe_parts(action)[1])
-        marked = _join([
-            (f"{esc(kind)} " if kind else "") + f"<code>{esc(name)}</code>"
-            for name, kind in zip(names, kinds + [""] * (len(names) - len(kinds)))
-        ])
-        # Re-run the SENTENCE with the marked-up subject substituted in, rather
-        # than marking up the finished string: one place composes the sentence,
-        # so the plain and rendered wordings cannot drift.
-        return describe_parts(action, subject=marked)[1]
+    # The source layer the chip names, in the crate's own vocabulary.
+    source_labels = {**dict(_PROFILE_LAYERS), "fair": "FAIR", "mit": "MIT", "graph": "Graph"}
 
     def _row(action: Any) -> str:
-        instruction, _subject = describe_parts(action)
-        subject = _subject_html(action)
-        # The tier is named only when it BLOCKS. A badge on every row marks
-        # nothing; the reader's question here is "what must I fix before this
-        # crate is conformant?".
-        mark = (
-            f'<span class="na-req">{esc(TIER_LABEL[action.tier])}</span>'
-            if _TIER_RANK.get(action.tier, 3) == 0
-            else ""
+        chip = ""
+        if action.message:
+            source = source_labels.get(action.source, action.source)
+            prefix = f"{esc(source)} &middot; " if source else ""
+            chip = f'<code class="rec-chip">{prefix}{esc(action.message)}</code>'
+        badge_class = {"REQUIRED": "req", "RECOMMENDED": "rec"}.get(action.tier, "opt")
+        badge = (
+            f'<span class="rec-badge {badge_class}">'
+            f"{esc(TIER_LABEL.get(action.tier, action.tier.title()))}</span>"
         )
+        reason = why(action)
+        clause = f' <span class="rec-why">{esc(reason)}</span>' if reason else ""
         return (
-            f'<li><span class="na-n">{action.cleared}</span>'
-            f'<span class="na-t"><span class="na-do">{esc(instruction)}</span> '
-            f'<span class="na-of">{subject}</span>{mark}</span></li>'
+            f'<li><span class="rec-n">{action.cleared}</span>'
+            f'<span class="rec-b"><span class="rec-top">{chip}{badge}</span>'
+            f'<span class="rec-body"><span class="rec-do">{esc(describe(action))}</span>'
+            f"{clause}</span></span></li>"
         )
 
-    rows = "".join(_row(a) for a in live[:_NEXT_STEPS_CAP])
-    if len(live) > _NEXT_STEPS_CAP:
-        rest = sum(a.cleared for a in live[_NEXT_STEPS_CAP:])
+    rows = "".join(_row(a) for a in live[:_RECOMMENDATION_CAP])
+    if len(live) > _RECOMMENDATION_CAP:
+        rest = sum(a.cleared for a in live[_RECOMMENDATION_CAP:])
+        # The cap bounds the page, not what the reader may see: the row names
+        # how many findings it holds back and where they remain readable.
         rows += (
-            f'<li><span class="na-n">{rest}</span><span class="na-t">'
-            f"…and {len(live) - _NEXT_STEPS_CAP} smaller "
-            f"{'item' if len(live) - _NEXT_STEPS_CAP == 1 else 'items'}, in "
-            # "listed in full below" named a place without pointing at it — on a
-            # page this long "below" is several screens and three sections away.
-            # The findings these actions were built FROM live under Profile
-            # adherence, so say that and link to it.
-            '<a href="#adherence">Profile adherence</a>.'
-            "</span></li>"
+            f'<li><span class="rec-n">{rest}</span><span class="rec-b">'
+            f'<span class="rec-body">&hellip;and {len(live) - _RECOMMENDATION_CAP} smaller '
+            f"{'item' if len(live) - _RECOMMENDATION_CAP == 1 else 'items'}, in "
+            '<a href="#adherence">Profile adherence</a>.</span></span></li>'
         )
-    settled = [a for a in actions if not a.actionable]
-    aside = ""
-    if settled:
-        # Grouped by REASON with a count each. "119 findings left open on
-        # purpose" is a bigger number than most of the actions above it, and
-        # without the breakdown a reader cannot tell whether that is 119
-        # distinct decisions or — as it always is — two recommendations
-        # repeated once per payload file.
-        by_reason: dict[str, int] = {}
-        for a in settled:
-            reason = a.note or ""
-            by_reason[reason] = by_reason.get(reason, 0) + a.cleared
-        notes = "".join(
-            f'<li><span class="na-n">{count}</span>'
-            f'<span class="na-of">{esc(reason)}</span></li>'
-            for reason, count in sorted(by_reason.items(), key=lambda kv: -kv[1])
-        )
-        total = sum(a.cleared for a in settled)
-        aside = (
-            f'  <details class="na-aside"><summary>{total} '
-            f"{'finding' if total == 1 else 'findings'} left open on "
-            f"purpose</summary><ul>{notes}</ul></details>\n"
-        )
-    covered = sum(a.cleared for a in live)
-    size = (
-        f"<b>{len(live)}</b> {'action clears' if len(live) == 1 else 'actions clear'} "
-        f"<b>{covered}</b> {'finding' if covered == 1 else 'findings'}"
-    )
-    section = (
+    return (
         '<section id="next">\n'
-        '  <div class="sec-h"><h2>What to do next</h2>'
-        f'<span class="sec-meta">{size}</span></div>\n'
-        f'  <ol class="next-actions">{rows}</ol>\n'
-        f"{aside}"
+        '  <div class="sec-h"><h2>Recommendations</h2></div>\n'
+        '  <p class="lead">Each row is the validator&rsquo;s own shape message, its severity, '
+        "then a plain-language instruction.</p>\n"
+        f'  <ol class="recs">{rows}</ol>\n'
         "</section>\n"
     )
-    # The actions CLOSE the report: they are what the reader is left holding
-    # after the assessment that justifies them, which is the order a report is
-    # written in. That puts them several screens down, so the top of the page
-    # carries a link that says what is down there and how big it is — otherwise
-    # moving the section down just hides it.
-    jump = (
-        '<a class="jump" href="#next">'
-        '<span class="jump-t">What to do next</span>'
-        f'<span class="jump-m">{size}</span>'
-        '<span class="jump-a" aria-hidden="true">&darr;</span></a>\n'
+
+
+# The page stays a page. Everything past the cap is still reachable in the tier
+# lists under Profile adherence, so nothing is hidden — only deferred.
+_RECOMMENDATION_CAP = 8
+
+
+def _render_references() -> str:
+    """The numbered notes the page's superscripts point at.
+
+    Note 1 names what the DSM ladder is scored against — the FAIRplus Dataset
+    Maturity model's crate-assessable indicators (``fair/dsm_indicators.yaml``
+    implements them), itself derived from the RDA FAIR Data Maturity Model.
+    Note 2 names what the domain checklist is: the tox-maturity-indicators
+    FAIR maturity indicators under principle R1.3.
+    """
+    return (
+        '<div class="refs">\n'
+        '  <span class="refs-h">References</span>\n'
+        '  <p id="fn-dsm"><span class="ref-n">1</span> Data Stewardship Maturity level, '
+        "0&ndash;5. Levels are gated: every indicator of a level must pass before the next is "
+        "reached, so a crate can meet most indicators and still sit at level 0. Scored against "
+        "the crate-assessable indicators of the FAIRplus Dataset Maturity (DSM) model &mdash; "
+        + _lk("https://fairplus.github.io/Data-Maturity/", "fairplus.github.io/Data-Maturity")
+        + " &mdash; itself derived from the RDA FAIR Data Maturity Model, "
+        + _lk("https://doi.org/10.15497/rda00050", "doi.org/10.15497/rda00050")
+        + ".</p>\n"
+        '  <p id="fn-mit"><span class="ref-n">2</span> The Minimum Information for in-vitro '
+        "Toxicology (MIT) checklist: every item is a FAIR maturity indicator under principle "
+        "R1.3 (domain-relevant community standards), as defined in "
+        + _lk(MIT_INDICATORS_URL, "tox-maturity-indicators")
+        + ".</p>\n"
+        "</div>\n"
     )
-    return section, jump
-
-
-# The page stays a page. Everything past this is still reachable in the tier
-# lists below, so nothing is hidden — only deferred.
-_NEXT_STEPS_CAP = 8
 
 
 def _render_repro_section(checks: list[tuple[str, bool, str]]) -> str:
@@ -2280,6 +2564,7 @@ def build_maturity_html(
     esc = html.escape
     title = state.metadata.title or "RO-Crate"
     accession = state.metadata.accession or ""
+    page_title = f"{accession or title} — vitro-crate maturity report"
     # MIT is scored against the assembled @graph — the crate_slot vocabulary
     # describes the serialized crate, not CrateState (#311). The export path
     # passes the graph it already built; without one the assessor assembles its
@@ -2307,26 +2592,43 @@ def build_maturity_html(
     checks = _reproducibility_checks(state)
     repro_ready = sum(1 for _, ok, _ in checks if ok)
 
-    header = _render_header(title, accession)
-    # The chemicals inventory is shared: it feeds the KPI tile and the Chemicals
-    # graph view, and is a single cheap pass over the graph — build it once.
+    # The study facts prefer the graph (its publication names the subhead);
+    # without one the card renders what the state itself holds.
+    study = _study_facts(state, graph)
+    publication = study.get("publication")
+    subhead = (publication[2] if publication and publication[2] else "") or title
+    header = _render_header(title, accession, subhead)
+    study_card = _render_study_card(study)
+    crate_card = _render_crate_card(state, val if _validation_has_signal(val) else None, graph)
+
+    # The chemicals inventory is shared between the Chemicals graph view and the
+    # Graph tile's source model — one cheap pass over the graph each.
     chem_inv: dict[str, Any] | None = None
     views_section = ""
+    graph_counts: tuple[int, int] | None = None
     if graph is not None:
-        from builder.writers.provenance_dag import build_chemical_inventory
+        from builder.writers.provenance_dag import build_chemical_inventory, build_crate_graph
 
         chem_inv = build_chemical_inventory(graph)
         views_section = _render_graph_views_section(graph, chem_inv)
+        nodes = build_crate_graph(graph).get("nodes", [])
+        total = len(nodes)
+        linked = total - sum(1 for n in nodes if n.get("orphan"))
+        graph_counts = (linked, total)
+    from builder.tools.fair_assessment import dsm_blockers
+
     kpis = _render_kpis(
         tiers,
+        val if _validation_has_signal(val) else None,
         fair,
+        dsm_blockers(state),
         mit,
         repro_ready,
         len(checks),
-        chem_inv if chem_inv and chem_inv["chemicals"] else None,
+        graph_counts,
+        stale=stale,
     )
     prof_section = _render_profile_section(val, tiers, stale=stale)
-    fair_section = _render_fair_section(fair)
     mit_section = _render_mit_section(mit)
     repro_section = _render_repro_section(checks)
 
@@ -2334,17 +2636,17 @@ def build_maturity_html(
         "<footer><span>Generated by vitro-crate · ro-crate-metadata-maturity.html</span>"
         "<span>Self-contained · offline · print-friendly</span></footer>\n"
     )
-    next_section, next_jump = _render_next_steps_section(val, graph)
     body = (
         header
+        + study_card
+        + crate_card
         + kpis
-        + next_jump
         + views_section
         + prof_section
-        + fair_section
         + mit_section
         + repro_section
-        + next_section
+        + _render_recommendations(val, graph)
+        + _render_references()
         + footer
     )
 
@@ -2356,5 +2658,5 @@ def build_maturity_html(
     # not exist. Reversing the order only moves the hole to a crate titled
     # `__BODY__`, which would paste the whole body into `<title>`. Both strings
     # come from the crate, so neither can be the trusted one.
-    filling = {"__STYLE__": _load_css(), "__BODY__": body, "__TITLE__": esc(title)}
+    filling = {"__STYLE__": _load_css(), "__BODY__": body, "__TITLE__": esc(page_title)}
     return _SHELL_PLACEHOLDER_RE.sub(lambda m: filling[m.group(0)], _load_shell())

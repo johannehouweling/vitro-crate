@@ -7,12 +7,16 @@ import re
 
 
 def profile_verdict(page: str) -> str:
-    """The Required-tier state the Profile adherence KPI tile shows: ``"ok"``
-    (every required profile layer passes), ``"no"`` (one or more fail) or
-    ``"na"`` (not validated, or validated against an older crate). This is the
-    report's headline verdict now that the header carries no pill."""
-    m = re.search(
-        r'<span class="eyebrow">Profile adherence</span><span class="mk (ok|no|na)"', page
+    """The report's headline conformance state, read from the Profile
+    conformance matrix's Required column: ``"ok"`` when every profile's
+    required cell is a pass, ``"no"`` when any fails, ``"na"`` when none was
+    assessed (not validated, or validated against an older crate)."""
+    cells = re.findall(
+        r'data-cell="(?:base|isa|tox)-required"[^>]*><span class="mk (ok|no|na)"', page
     )
-    assert m, "no Profile adherence tile rendered"
-    return m.group(1)
+    assert len(cells) == 3, f"expected the three required cells, found {len(cells)}"
+    if "no" in cells:
+        return "no"
+    if all(c == "ok" for c in cells):
+        return "ok"
+    return "na"

@@ -36,11 +36,11 @@ def _body(page: str) -> str:
 
 
 def _mit_pct(page: str) -> int:
-    """The percentage printed on the OECD MIT coverage KPI tile."""
+    """The percentage printed on the FAIR principle 1.3 (MIT coverage) tile."""
     import re
 
-    m = re.search(r'OECD MIT coverage.*?<b>(\d+)</b><span class="den">%', page, re.S)
-    assert m, "MIT KPI tile shows no percentage"
+    m = re.search(r'FAIR principle 1\.3.*?<b>(\d+)</b><span class="den">%', page, re.S)
+    assert m, "MIT coverage tile shows no percentage"
     return int(m.group(1))
 
 
@@ -1130,9 +1130,13 @@ class TestChemicalsSection:
         assert "cannot be reached from any process" in page
         # CAS + InChIKey + SMILES + Formula + Mass of 7 fields — the compound is
         # well described and still unreachable; both must be reported. The
-        # identification figure lives on the KPI tile (the panel's own caption
-        # was dropped on the owner's call, #606).
-        assert "71% of identification fields filled" in page
+        # identification lives in the matrix row (the KPI tile and the caption
+        # are gone, #606): five ✓ against two ✗.
+        cells = [
+            re.search(r'class="mk (ok|no)"', c).group(1)  # type: ignore[union-attr]
+            for c in re.findall(r"<td>(.*?)</td>", self._compound_row(page), re.S)
+        ]
+        assert cells.count("ok") == 5 and cells.count("no") == 2
         assert "The substances under test" not in page
 
     def test_identifier_cells_link_to_their_external_source(self) -> None:
@@ -1206,15 +1210,13 @@ class TestChemicalsSection:
         assert "<script>x</script>" not in page
         assert "cas_rn=1162-65-8%22%3E%3Cscript%3Ex%3C%2Fscript%3E" in page
 
-    def test_kpi_tile_reports_wired_over_total(self) -> None:
-        import re
-
+    def test_the_kpi_grid_has_no_chemicals_tile(self) -> None:
+        """#606 handoff: the chemicals KPI tile is removed — the Chemicals
+        graph view carries the wiring and identification facts."""
         page = self._page(wire=False)
-        assert re.search(
-            r'<span class="eyebrow">Chemicals</span>.*?<b>0</b><span class="den">/ 1</span>',
-            page,
-            re.S,
-        ), "chemicals KPI tile missing or not reporting 0 / 1 wired"
+        grid = re.search(r'<div class="kgrid">.*?</div>\n', page, re.S)
+        assert grid, "no KPI grid"
+        assert "Chemicals" not in grid.group(0)
 
     def test_crate_without_compounds_omits_the_section(self) -> None:
         # "Not applicable" must not render as an empty panel scoring zero.
@@ -2600,7 +2602,10 @@ class TestEveryClassTheReportEmitsIsStyled:
         itself in the `<style>` block whether or not the markup used it.
         """
         from builder.tools.validation import ValidationReport
-        from builder.writers.maturity_report import _render_next_steps_section
+        from builder.writers.maturity_report import (
+            _render_recommendations,
+            _render_references,
+        )
 
         val = ValidationReport()
         val.base_passed = True
@@ -2613,13 +2618,12 @@ class TestEveryClassTheReportEmitsIsStyled:
                 for i in range(11)
             ],
         ]
-        # Section AND the jump link that points at it — the link is emitted from
-        # the same call and carries classes of its own, so covering only the
-        # section would leave exactly the gap this test exists to close.
-        section, jump = _render_next_steps_section(val, None)
-        html_out = section + jump
-        assert 'class="na-n"' in html_out, "the section did not render; this test is inert"
-        assert 'class="jump"' in html_out, "the jump link did not render; this test is inert"
+        # Recommendations AND the references block its footnote links point at —
+        # both carry classes of their own, so covering only the section would
+        # leave exactly the gap this test exists to close.
+        html_out = _render_recommendations(val, None) + _render_references()
+        assert 'class="rec-n"' in html_out, "the section did not render; this test is inert"
+        assert 'class="refs"' in html_out, "the references did not render; this test is inert"
         return html_out
 
     def test_no_class_in_the_page_is_missing_from_the_stylesheet(self) -> None:
@@ -2646,60 +2650,94 @@ class TestEveryClassTheReportEmitsIsStyled:
         )
 
 
-class TestActionEntitiesAreMarkedAsEntities:
-    """Entity names ride in `<code>` chips, the same convention the
-    profile-adherence suggestions already use, so a reader can see at a glance
-    which words name things in their crate and which are the instruction."""
+class TestRecommendationRows:
+    """#606 handoff: each row is the validator's own shape message in a mono
+    chip prefixed by its source layer, the severity badge, then the bold
+    plain-language instruction with one muted clause on why it matters."""
 
     def _section(self) -> str:
         from builder.tools.validation import ValidationReport
-        from builder.writers.maturity_report import _render_next_steps_section
+        from builder.writers.maturity_report import _render_recommendations
 
-        graph = {
-            "@graph": [
-                {"@id": "#CellLineSample_cell_h4", "@type": "CellLineSample", "name": "H4"},
-                {"@id": "#File_f1", "@type": "File", "name": "uptake.csv"},
-            ]
-        }
         val = ValidationReport()
         val.base_passed = True
         val.issue_records = [
             {"profile": "tox", "severity": "recommended",
              "entity_id": "./#CellLineSample_cell_h4",
              "message": "Entity SHOULD have a non-empty identifier"},
+            {"profile": "tox", "severity": "recommended",
+             "entity_id": "./#CellLineSample_cell_h4",
+             "message": "Entity SHOULD have a non-empty description"},
             *[
                 {"profile": "base", "severity": "recommended", "entity_id": f"./#File_f{i}",
-                 "message": "A File SHOULD have a mainEntityOfPage"}
+                 "property": "creator", "message": "A File SHOULD have a creator"}
                 for i in range(9)
             ],
         ]
-        return _render_next_steps_section(val, graph)[0]
+        return _render_recommendations(val, None)
 
-    def test_the_name_is_chipped_and_the_type_is_not(self) -> None:
-        """The chip marks the thing, not the classification — "CellLine" is the
-        report talking, "H4" is the crate's own word."""
+    def test_the_chip_quotes_the_validator_with_its_source(self) -> None:
+        """The raw message survives the grouping verbatim, prefixed by the
+        profile layer the record names — the reader sees the validator's own
+        words, not only our paraphrase."""
         section = self._section()
-        assert "CellLine <code>H4</code>" in section
-        assert "<code>CellLine H4</code>" not in section
+        assert (
+            '<code class="rec-chip">RO-Crate 1.2 &middot; '
+            "A File SHOULD have a creator</code>" in section
+        )
+        assert (
+            '<code class="rec-chip">ISA-Tox &middot; '
+            "Entity SHOULD have a non-empty identifier</code>" in section
+        )
 
-    def test_the_instruction_is_never_chipped(self) -> None:
-        section = self._section()
-        assert "<code>Add an identifier</code>" not in section
-
-    def test_the_set_aside_bucket_says_how_many_per_reason(self) -> None:
-        """"119 findings left open on purpose" is a bigger number than most of the
-        actions above it. Without a count per reason a reader cannot tell whether
-        that is 119 decisions or one recommendation repeated per file."""
+    def test_every_row_carries_its_severity_badge(self) -> None:
         import re
 
         section = self._section()
-        aside = re.search(r'<details class="na-aside">.*?</details>', section, re.S)
-        assert aside, "nothing was set aside, so this test proves nothing"
-        rows = re.findall(r"<li>(.*?)</li>", aside.group(0))
-        assert len(rows) == 1, "one reason fired, so one row — not one row per entity"
-        assert '<span class="na-n">9</span>' in rows[0], (
-            "the reason must carry the number of findings it accounts for"
+        rows = re.findall(r"<li>.*?</li>", section, re.S)
+        assert len(rows) == 2
+        for row in rows:
+            assert '<span class="rec-badge rec">Recommended</span>' in row
+
+    def test_the_instruction_is_bold_with_a_why_clause(self) -> None:
+        """`describe`'s sentence in the bold span; `why`'s clause muted after —
+        matched over the action's own findings the way the instruction is
+        (most-specific first: the H4 blob holds description AND identifier, and
+        description wins in both tables), never a generic platitude."""
+        section = self._section()
+        assert '<span class="rec-do">Add a description for' in section
+        assert (
+            '<span class="rec-why">Nobody can tell what it is for without one.</span>' in section
         )
+
+    def test_the_count_column_is_the_findings_cleared(self) -> None:
+        section = self._section()
+        assert '<span class="rec-n">9</span>' in section  # the nine File findings
+        assert '<span class="rec-n">2</span>' in section  # the two H4 findings
+
+    def test_a_required_row_wears_the_red_badge(self) -> None:
+        from builder.tools.validation import ValidationReport
+        from builder.writers.maturity_report import _render_recommendations
+
+        val = ValidationReport()
+        val.base_passed = False
+        val.required_issues = ["[base] ./: The root Dataset MUST have a licence"]
+        val.issue_records = [
+            {"profile": "base", "severity": "required", "entity_id": "./",
+             "message": "The root Dataset MUST have a licence"},
+        ]
+        section = _render_recommendations(val, None)
+        assert '<span class="rec-badge req">Required</span>' in section
+        assert "Add a reuse licence" in section
+        assert "Nobody may legally reuse the data without one." in section
+
+    def test_no_meta_line_and_no_set_aside_bucket(self) -> None:
+        """The "N actions clear M findings" meta line and the "left open on
+        purpose" aside are gone on the owner's call (#606 handoff)."""
+        section = self._section()
+        assert "actions clear" not in section
+        assert "left open on purpose" not in section
+        assert "na-aside" not in section
 
 
 class TestTheOverflowLinePointsSomewhere:
@@ -2710,7 +2748,7 @@ class TestTheOverflowLinePointsSomewhere:
         import re
 
         from builder.tools.validation import ValidationReport
-        from builder.writers.maturity_report import _render_next_steps_section
+        from builder.writers.maturity_report import _render_recommendations
 
         val = ValidationReport()
         val.base_passed = True
@@ -2719,8 +2757,8 @@ class TestTheOverflowLinePointsSomewhere:
              "message": f"SHOULD have a thing of kind {i}"}
             for i in range(12)
         ]
-        section, _jump = _render_next_steps_section(val, None)
-        overflow = re.findall(r"<li>.*?</li>", section)[-1]
+        section = _render_recommendations(val, None)
+        overflow = re.findall(r"<li>.*?</li>", section, re.S)[-1]
         assert "smaller item" in overflow, "no overflow row rendered; this test is inert"
         assert 'href="#adherence"' in overflow
 
@@ -2731,15 +2769,10 @@ class TestTheOverflowLinePointsSomewhere:
         assert 'id="adherence"' in page
 
 
-class TestTheActionsCloseTheReport:
-    """Assessment first, then what to do about it.
-
-    "What to do next" sat directly under the KPI tiles, ahead of every section
-    that justifies it — the reader met the prescription before the diagnosis.
-    It closes the page now, which puts it several screens down, so the top
-    carries a link that names the section and states its size. Moving the
-    section without the link would simply have hidden it.
-    """
+class TestTheRecommendationsCloseTheReport:
+    """Assessment first, then what to do about it: Recommendations follows the
+    evidence sections and only References stands after it. The jump link that
+    used to advertise it from the top is gone with the meta line (#606)."""
 
     def _page(self) -> str:
         state = vhps_fixture_state("S-VHPS21")
@@ -2765,31 +2798,20 @@ class TestTheActionsCloseTheReport:
         assert 'id="next"' in page, "no actions rendered; this test is inert"
         return page
 
-    def test_the_actions_come_after_the_evidence(self) -> None:
+    def test_the_recommendations_come_after_the_evidence(self) -> None:
         page = self._page()
-        assert page.index("Profile adherence</h2>") < page.index("What to do next</h2>")
-        assert page.index("Reproducibility readiness</h2>") < page.index("What to do next</h2>")
+        assert page.index("Profile adherence</h2>") < page.index("Recommendations</h2>")
+        assert page.index("Reproducibility readiness</h2>") < page.index("Recommendations</h2>")
+        assert page.index("Recommendations</h2>") < page.index('class="refs"')
 
-    def test_the_top_of_the_page_links_down_to_them(self) -> None:
+    def test_no_jump_link_remains(self) -> None:
         page = self._page()
-        jump = page.index('href="#next"')
-        assert jump < page.index('id="next"'), "the link must come before what it points at"
-        assert jump < page.index("Profile adherence</h2>"), "…and near the top, not buried"
+        assert 'class="jump"' not in page.split("</style>", 1)[-1]
 
-    def test_the_link_says_how_big_the_job_is(self) -> None:
-        """A bare "see below" gives a reader nothing to decide with."""
-        import re
-
-        page = self._page()
-        band = re.search(r'<a class="jump".*?</a>', page, re.S)
-        assert band
-        assert "actions clear" in band.group(0)
-        assert re.search(r"<b>\d+</b> findings", band.group(0))
-
-    def test_no_link_when_there_is_nothing_to_do(self) -> None:
-        """An empty exhortation is worse than silence — and so is a link to it."""
+    def test_no_section_when_there_is_nothing_to_do(self) -> None:
+        """An empty exhortation is worse than silence."""
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert 'href="#next"' not in page
+        assert 'id="next"' not in page.split("</style>", 1)[-1]
 
 
 class TestTheDataFilesRowCountsData:
