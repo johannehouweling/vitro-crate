@@ -25,19 +25,18 @@ pytestmark = pytest.mark.timeout(120)
 
 
 class TestReActStopReason:
-    def test_completed_when_driver_returns(self) -> None:
-        agent = ReActBuildAgent(graph_driver=lambda e, p: None)
+    def test_completed_when_the_loop_reports_a_clean_stop(self) -> None:
+        agent = ReActBuildAgent(graph_driver=lambda e, p: "completed")
         outcome = agent.build(DEFAULT_CORPUS[0])
         assert outcome.stop_reason == "completed"
         assert outcome.error is None
 
-    def test_cap_hit_on_graph_recursion_error(self) -> None:
-        from langgraph.errors import GraphRecursionError
-
-        def boom(engine, prompt):  # type: ignore[no-untyped-def]
-            raise GraphRecursionError("Recursion limit of 80 reached without hitting a stop")
-
-        agent = ReActBuildAgent(graph_driver=boom)
+    def test_cap_hit_is_reported_by_the_loop_not_raised(self) -> None:
+        """The shipped loop catches a `GraphRecursionError` per turn and keeps
+        the partial crate, so the cap can only reach the harness as a REPORTED
+        stop reason — the eval used to catch an exception that (since the invoke
+        moved behind the wall-clock guard) never arrives (#609)."""
+        agent = ReActBuildAgent(graph_driver=lambda e, p: "cap_hit")
         outcome = agent.build(DEFAULT_CORPUS[0])
         assert outcome.stop_reason == "cap_hit"
         # cap_hit is not a hard build error: the partial crate is preserved so the

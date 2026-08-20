@@ -34,22 +34,9 @@ from eval.corpus import EvalCase
 
 logger = logging.getLogger(__name__)
 
-# A graph_driver runs the ReAct loop once for a prompt, mutating engine.state.
-GraphDriver = Callable[[AgentEngine, str], None]
-
-
-def _is_recursion_cap_error(exc: BaseException) -> bool:
-    """True if *exc* is LangGraph's recursion-cap error (a ``cap_hit``, #331).
-
-    ``GraphRecursionError`` is imported lazily so this module stays cheap to import
-    for the offline tests — matching its existing deferral of every langchain /
-    langgraph / ``agent_loop`` import into the live driver.
-    """
-    try:
-        from langgraph.errors import GraphRecursionError
-    except ImportError:  # pragma: no cover - langgraph is a core dependency
-        return False
-    return isinstance(exc, GraphRecursionError)
+# A graph_driver runs the ReAct loop for a prompt, mutating engine.state, and
+# reports how the session ended.
+GraphDriver = Callable[[AgentEngine, str], str]
 
 
 def _live_graph_driver(
@@ -59,40 +46,35 @@ def _live_graph_driver(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
-) -> None:
-    """Drive the existing LangGraph ReAct loop once for *prompt* (LIVE LLM call).
+) -> str:
+    """Drive the SHIPPED ReAct loop once for *prompt* (LIVE LLM call).
 
-    Mirrors the non-interactive core of
-    :func:`builder.agents.react.agent_loop.run_interactive_agent`: build the tools, the
-    chat model, and the compiled graph (passing the engine so node timing lands in
-    ``profile.ndjson``), then ``invoke`` it once with the prompt. The recursion
-    limit is derived from the engine's configured iteration cap.
+    Calls :func:`builder.agents.react.agent_loop.run_interactive_agent`, which is
+    the arm users run. It used to build its own tools/model/graph here and
+    ``invoke`` once — a copy of the loop's setup that measured a strictly smaller
+    budget than the real thing: no wall-clock timeout guard, no self-continue,
+    and no autonomous continuation, so a turn that narrated instead of asking
+    ended the measured build then and there (#609).
+
+    ``interactive=False`` tells the loop nobody is at the keyboard, so it skips
+    its banner and greeting, runs *prompt* plus the autonomous continuation, and
+    ends where it would otherwise read stdin — backstop and all.
+
+    Returns:
+        The loop's ``stop_reason``.
     """
-    from typing import cast
+    from builder.agents.build import BuildMode, run_build
 
-    from langchain_core.messages import HumanMessage
-    from langchain_core.runnables import RunnableConfig
-
-    from builder.agents.llm import _build_chat_model, _recursion_limit
-    from builder.agents.react.agent_loop import (
-        _build_agent_graph,
-        _build_langchain_tools,
+    result = run_build(
+        BuildMode.REACT,
+        engine,
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        initial_prompt=prompt,
+        interactive=False,
     )
-    from builder.config import get_max_iterations
-
-    tools = _build_langchain_tools(engine)
-    llm = _build_chat_model(provider=provider, model=model, base_url=base_url)
-    app = _build_agent_graph(llm, tools, engine=engine)
-
-    max_iterations = get_max_iterations()
-    config = cast(
-        RunnableConfig,
-        {
-            "configurable": {"thread_id": engine.state.session_id},
-            "recursion_limit": _recursion_limit(max_iterations),
-        },
-    )
-    app.invoke({"messages": [HumanMessage(content=prompt)]}, config)
+    return str((result or {}).get("stop_reason") or "completed")
 
 
 class ReActBuildAgent:
@@ -136,8 +118,8 @@ class ReActBuildAgent:
         if self._graph_driver is not None:
             return self._graph_driver
 
-        def driver(engine: AgentEngine, prompt: str) -> None:
-            _live_graph_driver(
+        def driver(engine: AgentEngine, prompt: str) -> str:
+            return _live_graph_driver(
                 engine,
                 prompt,
                 provider=self._provider,
@@ -167,21 +149,16 @@ class ReActBuildAgent:
         error: str | None = None
         stop_reason = "completed"
         try:
-            self._driver()(engine, case.prompt)
+            # The loop reports how it ended. A recursion cap is NOT an exception
+            # here any more: the shipped loop catches it per-turn and keeps the
+            # partial crate, so it comes back as ``"cap_hit"`` — a
+            # valid-at-the-cutoff run, never a clean stop (trap 2, #331). Only a
+            # driver that raises outright is an ``error``.
+            stop_reason = self._driver()(engine, case.prompt)
         except Exception as exc:  # noqa: BLE001 — a failed build is a measured result
-            if _is_recursion_cap_error(exc):
-                # The loop exhausted its recursion budget without self-terminating:
-                # a valid-at-the-cutoff run, not a clean stop. Record it as cap_hit
-                # and keep the partial crate (error stays unset) so the conformance
-                # predicate still measures what it produced at the cap (trap 2, #331).
-                logger.warning(
-                    "ReAct build hit the recursion cap for case %s: %s", case.case_id, exc
-                )
-                stop_reason = "cap_hit"
-            else:
-                logger.warning("ReAct build failed for case %s: %s", case.case_id, exc)
-                error = str(exc)
-                stop_reason = "error"
+            logger.warning("ReAct build failed for case %s: %s", case.case_id, exc)
+            error = str(exc)
+            stop_reason = "error"
         finally:
             engine.close_profiler()
 

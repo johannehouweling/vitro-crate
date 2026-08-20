@@ -277,6 +277,7 @@ def run_build(
     resumed: bool = False,
     initial_prompt: str | None = None,
     verbose: bool = False,
+    interactive: bool = True,
 ) -> dict[str, Any] | None:
     """Dispatch a build to *mode*'s entrypoint — the single A/B switch (#309).
 
@@ -284,8 +285,7 @@ def run_build(
     (:func:`run_interactive_build`) and returns its result dict.
     :attr:`BuildMode.REACT` runs the LLM-orchestrated ReAct loop
     (:func:`builder.agents.react.agent_loop.run_interactive_agent`), which mutates
-    ``engine.state`` in place and has no structured return, so this returns
-    ``None``.
+    ``engine.state`` in place and returns ``{"stop_reason": ...}``.
 
     ``provider`` / ``model`` / ``base_url`` reach **both** modes — the ReAct loop
     as explicit arguments, the pipeline as a :class:`~builder.agents.llm.ModelOverrides`
@@ -316,8 +316,8 @@ def run_build(
             by the pipeline mode.
 
     Returns:
-        The pipeline result dict for :attr:`BuildMode.PIPELINE`; ``None`` for
-        :attr:`BuildMode.REACT`.
+        The pipeline result dict for :attr:`BuildMode.PIPELINE`; the loop's
+        ``{"stop_reason": ...}`` for :attr:`BuildMode.REACT`.
     """
     if mode is BuildMode.REACT:
         from builder.agents.react.agent_loop import run_interactive_agent
@@ -329,11 +329,17 @@ def run_build(
             "resumed": resumed,
             "initial_prompt": initial_prompt,
         }
+        # ReAct-only: the pipeline reads interactivity off the human interface,
+        # but the loop cannot — an engine defaults to a SimulatedHumanInterface,
+        # so batch and test sessions look identical to it. Only pass the caller's
+        # fact when it is not the default, so an injected narrow double still works.
+        if not interactive:
+            react_kwargs["interactive"] = False
         # Preserve the original call shape for callers that omit the verbose
         # flag; the ReAct runner's default remains False.
         if verbose:
             react_kwargs["verbose"] = True
-        run_interactive_agent(engine, **react_kwargs)
+        return run_interactive_agent(engine, **react_kwargs)
         return None
 
     from builder.agents.llm import ModelOverrides
