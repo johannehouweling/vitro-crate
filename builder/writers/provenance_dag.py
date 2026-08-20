@@ -1016,8 +1016,8 @@ def render_provenance_svg(
     )
     return (
         f'<svg viewBox="0 0 {vb_w} {vb_h}" width="{vb_w}" height="{vb_h}" '
-        'role="img" aria-label="Provenance derivation chain" class="prov">'
-        "<title>Provenance derivation chain</title>"
+        'role="img" aria-label="LabProcesses derivation chain" class="prov">'
+        "<title>LabProcesses derivation chain</title>"
         f"<defs>{marker.format(k='object')}{marker.format(k='result')}</defs>"
         f'<g class="edges">{"".join(edge_svg)}</g>'
         f'<g class="nodes">{"".join(node_svg)}</g></svg>'
@@ -4049,7 +4049,7 @@ _HTML_TEMPLATE = """\
 """
 
 
-def render_mermaid_html(mermaid: str, *, title: str = "Provenance DAG") -> str:
+def render_mermaid_html(mermaid: str, *, title: str = "LabProcesses DAG") -> str:
     """Wrap Mermaid source in a self-contained HTML page that renders it.
 
     The diagram is rendered client-side by mermaid.js (loaded from a CDN). The

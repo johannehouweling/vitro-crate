@@ -35,6 +35,7 @@ def test_parse_args_graph_view_and_layer_defaults() -> None:
     assert a.layer == "all"
     assert a.all_edges is False
     assert parse_args(["--graph", "--view", "provenance"]).view == "provenance"
+    assert parse_args(["--graph", "--view", "labprocesses"]).view == "labprocesses"
     assert parse_args(["--graph", "--layer", "isa"]).layer == "isa"
 
 
@@ -97,16 +98,21 @@ def test_graph_layer_filter_drops_domain(tmp_path, capsys) -> None:
     assert "Exposure" not in out
 
 
-def test_graph_provenance_view(tmp_path, capsys) -> None:
+def test_graph_labprocesses_view(tmp_path, capsys) -> None:
+    """The view is 'labprocesses' now; 'provenance' is the name it shipped
+    under and renders the same thing — renaming a CLI value without keeping
+    the old one breaks every script that passes it."""
     meta = tmp_path / "ro-crate-metadata.json"
     _write_metadata(meta)
-    rc = main(
-        ["--graph", "--view", "provenance", "--format", "mermaid", "--input", str(meta)]
-    )
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert out.startswith("flowchart LR")  # provenance chain is LR, no legend
-    assert "Legend" not in out
+    rendered = []
+    for view in ("labprocesses", "provenance"):
+        rc = main(["--graph", "--view", view, "--format", "mermaid", "--input", str(meta)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert out.startswith("flowchart LR")  # the chain is LR, no legend
+        assert "Legend" not in out
+        rendered.append(out)
+    assert rendered[0] == rendered[1]
 
 
 # --- rendered HTML (default) ------------------------------------------------

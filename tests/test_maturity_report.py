@@ -1853,6 +1853,19 @@ class TestGraphViewTabs:
             ]
         }
 
+    def test_the_view_is_named_labprocesses_everywhere_it_shows(self) -> None:
+        """#607 (owner's call): the derivation view is "LabProcesses" — in the
+        tab, in the print heading, and in the diagram's accessible name. A
+        label that reads one way on screen and another to a screen reader is
+        two names for one view."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        body = _body(page)
+        assert '<span class="tb-n">LabProcesses</span>' in body
+        assert '<h3 class="panel-h">LabProcesses</h3>' in body
+        assert 'aria-label="LabProcesses derivation chain"' in body
+        assert "<title>LabProcesses derivation chain</title>" in body
+        assert "Provenance" not in body
+
     def test_every_view_is_tabbed(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         assert "<h2>Graph views</h2>" in page

@@ -1744,7 +1744,7 @@ def _render_topology_detail(nodes: list[dict[str, Any]]) -> str:
 
 
 def _render_topology_strip(counts: dict[str, int]) -> str:
-    """The graph-topology metrics strip (relocated into the Provenance section).
+    """The graph-topology metrics strip (relocated into the LabProcesses section).
 
     Renders the crate's entity composition by paper layer (packaging / ISA
     structural / ISA-Tox domain) plus any orphan/dangling-reference flags, from
@@ -2777,7 +2777,7 @@ def build_maturity_html(
     SHOULD/MAY tier renders as "not assessed", never a false green zero.
 
     When a crate ``graph`` (the ``@graph`` from ``crate.metadata.generate()``) is
-    supplied, the report also folds in a Provenance & graph section: the LabProcess
+    supplied, the report also folds in a LabProcesses & graph section: the LabProcess
     derivation chain drawn as a self-contained inline SVG, plus a graph-topology
     strip (entity composition by paper layer, orphan/dangling flags). Omitting
     ``graph`` skips that section — the report is still complete without it.
@@ -2788,7 +2788,7 @@ def build_maturity_html(
             ``state.validation``.
         graph: The crate's serialized ``@graph`` (or the full metadata document)
             used to render the provenance chain and topology strip. When ``None``
-            the Provenance & graph section is omitted — but MIT coverage is
+            the LabProcesses & graph section is omitted — but MIT coverage is
             still scored against an assembled graph, which the assessor then
             builds itself (#311). Omitting ``graph`` costs one extra in-memory
             assembly and reports on that document: it is a real measurement of a
