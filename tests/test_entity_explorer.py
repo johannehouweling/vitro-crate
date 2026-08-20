@@ -9,8 +9,10 @@ renderings of one rule, not two rules that agree today.
 
 from __future__ import annotations
 
+import html
 import json
 import re
+import unicodedata
 import subprocess
 import sys
 from html.parser import HTMLParser
@@ -26,6 +28,7 @@ from builder.writers.entity_explorer import (
     _app_js,
     build_explorer_payload,
     explorer_css,
+    render_explorer_page,
     render_explorer_section,
 )
 from builder.writers.maturity_report import build_maturity_html
@@ -40,10 +43,6 @@ from builder.writers.provenance_dag import (
     build_crate_graph,
     build_isa_inventory,
     build_people_inventory,
-    render_celllines_svg,
-    render_chemicals_svg,
-    render_citations_svg,
-    render_people_svg,
 )
 from tests.fixtures.crate_graphs import plumbing_heavy_graph, tabbed_views_graph
 
@@ -328,16 +327,21 @@ class TestViewMembership:
         assert defaults == ["researcher"]
 
     def test_the_views_are_offered_in_the_report_s_own_order(self) -> None:
-        """The tabbed section and the explorer describe one crate; a reader who
-        learned the tab order should not have to relearn it two sections down."""
-        from builder.writers.maturity_report import _VIEWS
+        """The coverage section and the explorer describe one crate; a reader who
+        learned the order in one should not have to relearn it in the other."""
+        from builder.writers.maturity_report import _COVERAGE_BLOCKS
 
         payload = build_explorer_payload(tabbed_views_graph())
         offered = [v["label"] for v in payload["views"]]
 
         assert offered[0] == "Researcher"
-        tabs = [label.replace("&amp;", "&") for _rid, _pid, label in _VIEWS]
-        assert offered[1:] == [label for label in tabs if label in offered]
+        assert offered[1] == "All entities"  # the whole crate, before its parts
+        # The explorer has a view for the derivation chain, which the coverage
+        # section has no matrix for; where the two do overlap, the order agrees.
+        blocks = [label.replace("&amp;", "&") for _bid, label in _COVERAGE_BLOCKS]
+        shared = [label for label in offered if label in blocks]
+        assert shared == [label for label in blocks if label in offered]
+        assert len(shared) >= 4
 
     def test_view_labels_are_raw_text(self) -> None:
         """React escapes what it renders; a pre-escaped label would reach the
@@ -353,71 +357,52 @@ class TestViewMembership:
         assert {v["key"] for v in payload["views"]} <= {v.key for v in EXPLORER_VIEWS}
 
 
-class TestViewsAgreeWithTheirPanels:
-    """Each toggle shows what the panel it descends from drew.
+class TestViewsAgreeWithTheirCoverageBlocks:
+    """Each toggle holds what the matching coverage block reports on.
 
-    The static panels are the reviewed answer to "what belongs in this view".
-    Comparing against what they *draw* — not against the inventory both happen
-    to call — is what keeps a future edit to one from silently diverging.
+    The two halves of a block used to be a diagram and a matrix over one
+    inventory; the diagram is the explorer's now (#618). That makes the pairing
+    worth asserting rather than assuming: an entity a block scores for
+    identification must be an entity the corresponding view can actually show,
+    or the report scores something the reader cannot go and look at.
     """
 
-    def _drawn(self, svg: str, payload: dict[str, Any]) -> set[str]:
-        """Labels of the entities the panel draws.
+    def _listed(self, page: str, block_id: str) -> set[str]:
+        """The entity names a coverage block's matrix lists."""
+        after = page.split(f'id="{block_id}"', 1)[1]
+        block = re.split(r'<div class="cov" id=|</section>', after, maxsplit=1)[0]
+        names = set()
+        for cell in re.findall(r'<span class="cn">(.*?)</span>', block):
+            text = html.unescape(re.sub(r"<[^>]+>", "", cell))
+            # A row decorates a resolvable name with a link glyph; the crate's
+            # own name is the part that is not a symbol.
+            names.add("".join(c for c in text if unicodedata.category(c) != "So").strip())
+        return names
 
-        A node's tooltip reads ``Label — Tag``; the diagram also carries a
-        summary title that names no entity, so only titles whose head is some
-        node's label count as something drawn.
-        """
-        import html
-        import re
-
-        labels = {n["label"] for n in payload["nodes"]}
-        heads = (
-            html.unescape(title).split(" — ")[0].strip()
-            for title in re.findall(r"<title>([^<]*)</title>", svg)
-        )
-        return {head for head in heads if head in labels}
-
-    def _labels(self, payload: dict[str, Any], key: str) -> set[str]:
+    def _view_labels(self, payload: dict[str, Any], key: str) -> set[str]:
         members = next(v["members"] for v in payload["views"] if v["key"] == key)
         by_id = {n["id"]: n["label"] for n in payload["nodes"]}
         return {by_id[m] for m in members}
 
-    def _assert_panel_within_view(
-        self, svg: str, payload: dict[str, Any], key: str
-    ) -> None:
-        drawn = self._drawn(svg, payload)
-
-        assert drawn, "the panel drew no entity, so this proves nothing"
-        assert drawn <= self._labels(payload, key)
-
-    def test_the_chemicals_panel_draws_only_members_of_the_chemicals_view(self) -> None:
+    def _check(self, block_id: str, key: str) -> None:
         graph = tabbed_views_graph()
-        payload = build_explorer_payload(graph)
-        svg = render_chemicals_svg(build_chemical_inventory(graph))
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        listed = self._listed(page, block_id)
 
-        self._assert_panel_within_view(svg, payload, "chemicals")
+        assert listed, "the block scored nothing, so this proves nothing"
+        assert listed <= self._view_labels(build_explorer_payload(graph), key)
 
-    def test_the_celllines_panel_draws_only_members_of_the_samples_view(self) -> None:
-        graph = tabbed_views_graph()
-        payload = build_explorer_payload(graph)
-        svg = render_celllines_svg(build_cellline_inventory(graph))
+    def test_the_molecularentities_block_scores_only_what_that_view_shows(self) -> None:
+        self._check("cov-chem", "chemicals")
 
-        self._assert_panel_within_view(svg, payload, "samples")
+    def test_the_biological_samples_block_scores_only_what_that_view_shows(self) -> None:
+        self._check("cov-cell", "samples")
 
-    def test_the_people_panel_draws_only_members_of_the_people_view(self) -> None:
-        graph = tabbed_views_graph()
-        payload = build_explorer_payload(graph)
-        svg = render_people_svg(build_people_inventory(graph))
+    def test_the_people_block_scores_only_what_that_view_shows(self) -> None:
+        self._check("cov-people", "people")
 
-        self._assert_panel_within_view(svg, payload, "people")
-
-    def test_the_citations_panel_draws_only_members_of_the_citations_view(self) -> None:
-        graph = tabbed_views_graph()
-        payload = build_explorer_payload(graph)
-        svg = render_citations_svg(build_citation_inventory(graph))
-
-        self._assert_panel_within_view(svg, payload, "citations")
+    def test_the_citations_block_scores_only_what_that_view_shows(self) -> None:
+        self._check("cov-cite", "citations")
 
 
 class TestVendoredAssets:
@@ -587,13 +572,35 @@ class TestEmbeddedInTheReport:
 
     def test_it_still_prints(self) -> None:
         """A pannable canvas is a screen affordance; paper gets the note instead
-        of a cropped screenshot of whatever the viewport happened to hold."""
+        of a crop of whatever the viewport happened to hold."""
         from builder.writers.maturity_report import _load_css
 
         css = _load_css().replace("\n", "")
 
         assert ".mat .ex-app{display:none" in css
         assert ".mat .ex-print-note{display:block" in css
+
+    def test_the_print_rules_are_the_last_word(self) -> None:
+        """Print rules are plain declarations inside a media query, so a screen
+        rule of equal specificity written later in the file beats them. That is
+        not hypothetical: the note that tells a reader where the interactive
+        version lives was hidden on paper by the `display:none` that hides it on
+        screen, and every assertion about the rule existing still passed.
+        """
+        from builder.writers.maturity_report import _load_css
+
+        css = _load_css()
+        print_block = css.index("@media print{")
+
+        assert ".ex-print-note" in css[print_block:]
+        # Every screen rule for the classes print overrides comes before it.
+        for selector in (".mat .ex-print-note{display:none", ".mat .ex-app{height:"):
+            assert css.rindex(selector) < print_block, selector
+        # And nothing follows it: after the block opens, every line is either
+        # inside it (indented) or the brace that closes it.
+        tail = css[print_block:].splitlines()[1:]
+        outside = [ln for ln in tail if ln.strip() and not ln.startswith((" ", "\t", "}"))]
+        assert outside == [], outside
 
 
 class TestTheExplorerBuildsNoLinks:
@@ -625,3 +632,50 @@ class TestTheExplorerBuildsNoLinks:
         for sink in ("href", "src=", "window.open", "location.assign", "innerHTML",
                      "outerHTML", "dangerouslySetInnerHTML", "<a "):
             assert sink not in source, sink
+
+
+class TestStandalonePage:
+    """The explorer on its own, for the CLI to write and a browser to open."""
+
+    def test_it_is_a_whole_document_carrying_the_section(self) -> None:
+        page = render_explorer_page(tabbed_views_graph())
+
+        assert page.startswith("<!DOCTYPE html>")
+        assert page.rstrip().endswith("</html>")
+        assert 'id="entity-explorer"' in page and f'id="{_DATA_ID}"' in page
+
+    def test_it_is_styled_by_the_report_s_own_stylesheet(self) -> None:
+        """The same page in both places: a standalone explorer that drifted from
+        the embedded one would be a second thing to keep right."""
+        from builder.writers.maturity_report import _load_css
+
+        page = render_explorer_page(tabbed_views_graph())
+        head = page.split("<style>", 1)[1].split("</style>", 1)[0]
+
+        assert ".mat .ex-node{" in head
+        assert _VENDOR_BANNER in head
+        assert _load_css().split("\n", 1)[0] in head
+
+    def test_it_reaches_the_network_for_nothing(self) -> None:
+        page = render_explorer_page(tabbed_views_graph())
+
+        markup = re.sub(r"<script.*?</script>", "", page, flags=re.S)
+        assert "src=" not in markup and "@import" not in markup
+
+    def test_it_fills_the_window_rather_than_a_report_sized_box(self) -> None:
+        """Embedded, the canvas is one section among many and takes a slice of
+        the page; alone, the page IS the canvas."""
+        page = render_explorer_page(tabbed_views_graph())
+
+        assert "100vh" in page.split("</style>", 1)[0]
+
+    def test_it_is_titled_for_the_crate_it_draws(self) -> None:
+        page = render_explorer_page(tabbed_views_graph(), title="S-VHPS22 entity graph")
+
+        assert "<title>S-VHPS22 entity graph</title>" in page
+
+    def test_a_crate_supplied_title_cannot_close_the_tag(self) -> None:
+        page = render_explorer_page(tabbed_views_graph(), title='</title><script>x()</script>')
+
+        assert "<script>x()</script>" not in page
+        assert "&lt;/title&gt;" in page

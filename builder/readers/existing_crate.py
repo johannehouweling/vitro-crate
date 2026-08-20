@@ -166,7 +166,9 @@ def read_existing_crate(crate_dir: str) -> CrateState:
                 continue
             # Skip regenerable plumbing — the metadata descriptor and the
             # auto-embedded preview/graph artifacts are not CrateState entities
-            # (export_crate re-creates the preview and ro-crate-graph.mmd).
+            # (export_crate re-creates the preview; `ro-crate-graph.mmd` is no
+            # longer written at all (#618), but crates built before that carry
+            # one and it is still not an entity of theirs.)
             if node_id in (
                 "ro-crate-metadata.json",
                 "ro-crate-preview.html",

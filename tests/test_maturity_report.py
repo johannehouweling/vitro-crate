@@ -47,6 +47,17 @@ def _markup(page: str) -> str:
     return re.sub(r"<script.*?</script>", "", _body(page), flags=re.S)
 
 
+def _block(page: str, block_id: str) -> str:
+    """One coverage block's markup, from its own div to the next block's.
+
+    The blocks are siblings under one section (#618), so "up to the next
+    ``</div>``" would stop inside the first table it meets; the boundary is the
+    next block, or the end of the section.
+    """
+    after = page.split(f'id="{block_id}"', 1)[1]
+    return re.split(r'<div class="cov" id=|</section>', after, maxsplit=1)[0]
+
+
 def _mit_pct(page: str) -> int:
     """The percentage printed on the FAIR principle 1.3 (MIT coverage) tile."""
     import re
@@ -933,75 +944,6 @@ class TestExportCoupledToValidation:
         assert calls == []
 
 
-class TestProvenanceSection:
-    """When a crate ``@graph`` is supplied, the report folds in the graph
-    views, LabProcesses' derivation-chain SVG among them (#85). The topology
-    strip that once travelled with it was removed on the owner's review."""
-
-    def _chain_graph(self) -> dict:
-        return {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#d"}]},
-                {"@id": "#s", "@type": "Sample", "name": "Input sample"},
-                {
-                    "@id": "#p",
-                    "@type": "LabProcess",
-                    "additionalType": "Exposure",
-                    "object": {"@id": "#s"},
-                    "result": {"@id": "#d"},
-                },
-                {"@id": "#d", "@type": "File", "name": "result.csv"},
-            ]
-        }
-
-    def test_graph_renders_provenance(self) -> None:
-        state = vhps_fixture_state("S-VHPS21")
-        page = build_maturity_html(state, graph=self._chain_graph())
-        assert "LabProcesses" in page  # the view's tab label (renamed, owner's call)
-        assert 'class="prov"' in page  # the inline derivation-chain SVG
-        assert "result.csv" in page
-
-    def test_no_graph_omits_provenance_section(self) -> None:
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert 'class="prov"' not in page
-
-    def test_graph_gives_nonzero_mit_coverage(self, tmp_path: Path) -> None:
-        # MIT coverage is scored against the assembled @graph (crate_slot vocab
-        # describes the serialized crate, not CrateState), so a real crate reports
-        # non-zero coverage in the report — not the old 0% (#311).
-        from rocrate.rocrate import ROCrate
-
-        from builder.tools._crate_mapping import populate_crate
-        from profiles.context import ISA_TOX_CONTEXT
-
-        state = vhps_fixture_state("S-VHPS21")
-        crate = ROCrate()
-        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
-        populate_crate(state, crate, tmp_path, materialize_payload=False)
-        graph = crate.metadata.generate()["@graph"]
-
-        with_graph = _mit_pct(build_maturity_html(state, graph=graph))
-        assert with_graph > 0
-        # HONESTY CONTROL (#311): omitting the graph must not change the number.
-        # It used to: the report fell back to a second scorer that credited
-        # nothing and printed "MIT coverage 0%" for this same crate — a false
-        # statement, not a cheap approximation. The assessor now assembles its
-        # own graph, so there is one score per crate however it is reached.
-        assert _mit_pct(build_maturity_html(state)) == with_graph
-
-    def test_export_embeds_provenance_from_crate_graph(self, tmp_path: Path) -> None:
-        # End-to-end: the embedded report is built with the crate's real @graph,
-        # so the graph views travel with the written crate.
-        state = vhps_fixture_state("S-VHPS21")
-        out = tmp_path / "crate"
-        state.metadata.output_path = str(out)
-        build_crate(state)
-        page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
-        assert "<h2>Graph views</h2>" in page
-        assert 'class="prov' in page
-
-
 class TestMitModuleColours:
     """#606: one MIT module, one colour — and each guidance-document bar is
     split into those modules, each module's share a small progress bar of its
@@ -1458,8 +1400,8 @@ class TestDatasetsPanel:
 
     def test_rows_report_the_facts_and_unreachable_sorts_first(self) -> None:
         page = build_maturity_html(CrateState(), graph=self._graph())
-        panel = page.split('id="p-data"', 1)[1].split("</div>\n", 1)[0]
-        assert '<span class="tb-n">Files</span>' in page
+        panel = _block(page, "cov-data")
+        assert '<h3 class="cov-h">Files' in page
         rows = re.findall(r"<tr><th scope=\"row\">.*?</tr>", panel, re.S)
         assert len(rows) == 2
         assert "loose.csv" in rows[0] and 'class="mk no"' in rows[0]
@@ -1479,13 +1421,13 @@ class TestDatasetsPanel:
             {"@id": "./", "@type": "Dataset", "name": "T"},
         ]}
         page = build_maturity_html(CrateState(), graph=graph)
-        assert 'id="p-data"' not in page.split("</style>", 1)[-1]
+        assert 'id="cov-data"' not in page.split("</style>", 1)[-1]
 
     # --- grouped by the Dataset that lists the file (owner's review) ---------
 
     @staticmethod
     def _panel(page: str) -> str:
-        return page.split('id="p-data"', 1)[1].split("</div>\n", 1)[0]
+        return _block(page, "cov-data")
 
     @staticmethod
     def _folds(panel: str) -> list[tuple[str, str]]:
@@ -1618,17 +1560,16 @@ class TestChemicalsSection:
     def _compound_row(page: str) -> str:
         """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
         class is shared with the ISA table, so look inside the chemicals panel)."""
-        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        panel = _block(page, "cov-chem")
         table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
         assert table, "no identification matrix"
         rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
         assert len(rows) == 1, "expected exactly one matrix row for the compound"
         return rows[0]
 
-    def test_section_renders_diagram_and_matrix(self) -> None:
+    def test_section_renders_the_note_and_the_matrix(self) -> None:
         page = self._page()
-        assert '<div class="panel" id="p-chem">' in page
-        assert 'class="prov view"' in page  # the inline route diagram
+        assert '<div class="cov" id="cov-chem">' in page
         assert 'class="chem-tbl"' in page  # the identification matrix
         assert "Aflatoxin B1" in page
         # Matrix columns name the identification fields.
@@ -1639,25 +1580,6 @@ class TestChemicalsSection:
         page = self._page(wire=True)
         assert "Every compound is reachable from the process that used it." in page
         assert "cannot be reached from any process" not in page
-
-    def test_legend_explains_only_the_shapes_the_diagram_draws(self) -> None:
-        """#506: the diagram draws compounds only, so the legend must too.
-
-        A legend explaining a Process shape, a File shape and a "links to" edge
-        that no longer appear teaches the reader to distrust the legend — the
-        same rule the AUTOGENERATED swatch already follows.
-        """
-        panel = self._page(wire=False).split('id="p-chem"', 1)[1].split("</section>", 1)[0]
-        legend = panel.split('<div class="prov-legend">', 1)[1].split("</div>", 1)[0]
-        assert "Compound" in legend
-        assert "not reachable" in legend
-        for absent in ("Process", "File / table", "links to", "link missing"):
-            assert absent not in legend, f"legend still explains {absent!r}"
-        # Both keys are the diagram's real outline (#488's registry), and the
-        # unreachable key carries the diagram's own `unwired` class — a
-        # hand-drawn dashed swatch is exactly how a key drifts from its node.
-        assert legend.count('class="n n-chemical"') == 1
-        assert legend.count('class="n n-chemical unwired"') == 1
 
     def test_unwired_compound_is_called_out_with_the_fix(self) -> None:
         page = self._page(wire=False)
@@ -1733,7 +1655,7 @@ class TestChemicalsSection:
             '<a class="ext" href="https://pubchem.ncbi.nlm.nih.gov/compound/186907">'
             "Aflatoxin B1</a>"
         ) in page
-        assert "🔗" not in page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        assert "🔗" not in _block(page, "cov-chem")
 
         for node in graph["@graph"]:
             if node["@id"] == "https://pubchem.ncbi.nlm.nih.gov/compound/186907":
@@ -1773,13 +1695,13 @@ class TestChemicalsSection:
             ]
         }
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
-        assert 'id="p-chem"' not in body
+        assert 'id="cov-chem"' not in body
         assert 'for="mv-chem"' not in body
         assert '<span class="eyebrow">Chemicals</span>' not in body
 
     def test_no_graph_omits_the_section(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21")))
-        assert 'id="p-chem"' not in body
+        assert 'id="cov-chem"' not in body
         assert "Graph views" not in body
 
     def test_matrix_lists_every_compound(self) -> None:
@@ -1813,229 +1735,10 @@ class TestChemicalsSection:
         # The report is offline/no-script; the chemicals diagram must not break
         # that (it is finished SVG, like the derivation chain).
         page = self._page()
-        panel = page.split('<div class="panel" id="p-chem">', 1)[1].split("</div>", 1)[0]
+        panel = page.split('<div class="cov" id="cov-chem">', 1)[1].split("</div>", 1)[0]
         assert "<script" not in panel.lower()
         assert "src=" not in panel and "@import" not in panel
 
-
-class TestGraphViewTabs:
-    """The three diagrams share one tabbed section (#85).
-
-    The report is a self-contained offline artifact embedded in the crate, so the
-    tabs must work with no script: radio inputs plus ``:checked ~`` sibling CSS.
-    That constrains the markup — the inputs must PRECEDE both the tab bar and the
-    panels as siblings, or the sibling combinator never matches and every panel
-    stays hidden.
-    """
-
-    def _graph(self) -> dict:
-        return tabbed_views_graph()
-
-    def test_the_view_is_named_labprocesses_everywhere_it_shows(self) -> None:
-        """#607 (owner's call): the derivation view is "LabProcesses" — in the
-        tab, in the print heading, and in the diagram's accessible name. A
-        label that reads one way on screen and another to a screen reader is
-        two names for one view."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        body = _body(page)
-        assert '<span class="tb-n">LabProcesses</span>' in body
-        assert '<h3 class="panel-h">LabProcesses</h3>' in body
-        assert 'aria-label="LabProcesses derivation chain"' in body
-        assert "<title>LabProcesses derivation chain</title>" in body
-        assert "Provenance" not in body
-
-    def test_every_view_is_tabbed(self) -> None:
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert "<h2>Graph views</h2>" in page
-        for label in (
-            "All entities",
-            "Assays",
-            "Files",
-            "LabProcesses",
-            "MolecularEntities",
-            "Biological Samples",
-            "Persons &amp; Organisations",
-            "Citations",
-        ):
-            assert f'<span class="tb-n">{label}</span>' in page, f"missing tab: {label}"
-        for pid in ("p-all", "p-isa", "p-prov", "p-chem", "p-cell", "p-people", "p-cite"):
-            assert f'<div class="panel" id="{pid}">' in page, f"missing panel: {pid}"
-        # The owner removed the LabProtocols tab: even a crate that carries a
-        # protocol (this fixture does) renders no such view. Protocols still
-        # appear as entities on the All-entities map.
-        assert "LabProtocols" not in page
-        assert 'id="p-lprot"' not in page and 'for="mv-lprot"' not in page
-
-    def test_the_section_header_carries_no_view_count(self) -> None:
-        """Review comment on the report artifact: the "N views of the same
-        crate" meta said nothing a reader can act on — the tabs themselves
-        are the count. Removed, not reworded."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert '<div class="sec-h"><h2>Graph views</h2></div>' in page
-        assert "of the same crate" not in page
-
-    def test_the_assays_badge_counts_only_assays(self) -> None:
-        """Review comment: the Assays tab's entity count is the number of
-        assays — not every ISA container (1 investigation + 1 study + 2
-        assays badged "4" called the view four times bigger than it is)."""
-        graph = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset", "additionalType": "Investigation",
-                 "name": "Inv", "hasPart": [{"@id": "#s"}]},
-                {"@id": "#s", "@type": "Dataset", "additionalType": "Study",
-                 "name": "S1", "hasPart": [{"@id": "#a1"}, {"@id": "#a2"}]},
-                {"@id": "#a1", "@type": "Dataset", "additionalType": "Assay", "name": "A1"},
-                {"@id": "#a2", "@type": "Dataset", "additionalType": "Assay", "name": "A2"},
-            ]
-        }
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
-        m = re.search(
-            r'for="mv-isa"><span class="tb-n">Assays</span><span class="tb-c">(\d+)</span>',
-            body,
-        )
-        assert m, "no badge on the Assays tab"
-        assert m.group(1) == "2"
-
-    def test_no_topology_strip_or_detail(self) -> None:
-        """Review comment: the graph-topology block (strip + expandable
-        detail) is gone from the Graph views section."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert "Graph topology" not in page
-        assert "topo-label" not in page
-
-    def test_the_review_tab_order_holds(self) -> None:
-        """Review comment ("flip dataset and assays"): Datasets sits before
-        Assays in the tab bar."""
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert body.index('for="mv-data"') < body.index('for="mv-isa"')
-
-    def test_the_isa_and_people_views_wear_their_review_names(self) -> None:
-        """Owner's calls, left as review comments on the report artifact: the
-        ISA backbone tab reads "Assays" and the credit tab "Persons &
-        Organisations". The ISA diagram's accessible name follows its tab
-        (the LabProcesses precedent); the old names appear nowhere."""
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert '<span class="tb-n">Assays</span>' in body
-        assert '<span class="tb-n">Persons &amp; Organisations</span>' in body
-        assert "Assays: " in body, "the ISA diagram's accessible name kept the old view name"
-        assert "ISA structure" not in body
-        assert "People &amp; orgs" not in body
-
-    def test_inputs_precede_the_tabbar_and_panels(self) -> None:
-        # The CSS-only mechanism is `input:checked ~ .panel`; a panel emitted
-        # before its radio can never be revealed.
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        last_input = page.rindex('<input class="tab-in"')
-        assert last_input < page.index('<div class="tabbar">')
-        assert last_input < page.index('<div class="panel"')
-
-    def test_exactly_one_tab_starts_selected(self) -> None:
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert body.count('name="mat-view"') == 8  # the eight live views
-        assert body.count(" checked>") == 1
-        # ISA is first: the structural backbone every other view hangs off.
-        assert 'id="mv-all" checked>' in body
-
-    def test_the_tabs_themselves_still_carry_no_script(self) -> None:
-        """The tabs are CSS, and stay CSS.
-
-        The page as a whole no longer forbids script — the entity explorer
-        (#615) is a React Flow canvas, inlined, and the report's contract is
-        that it loads nothing, not that it runs nothing. This section is not
-        that section: it is a stack of finished SVG behind radio inputs, and a
-        script appearing in it would mean the CSS-only mechanism had quietly
-        been replaced by one that fails with JavaScript turned off.
-        """
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        section = page.split("<h2>Graph views</h2>", 1)[1].split("</section>", 1)[0]
-
-        assert "<script" not in section.lower()
-        assert "onclick" not in _markup(page).lower()
-
-    def test_absent_views_drop_their_tab_and_first_survivor_is_selected(self) -> None:
-        # No compounds, no cell lines, nobody credited and nothing cited. The
-        # root Dataset is still an Investigation, so ISA survives alongside
-        # Provenance — and the first surviving tab must be the selected one,
-        # never a dead tab bar.
-        graph = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#d"}]},
-                {"@id": "#s", "@type": "Sample", "name": "Input"},
-                {
-                    "@id": "#p",
-                    "@type": "LabProcess",
-                    "additionalType": "Exposure",
-                    "object": {"@id": "#s"},
-                    "result": {"@id": "#d"},
-                },
-                {"@id": "#d", "@type": "File", "name": "result.csv"},
-            ]
-        }
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
-        for absent in (
-            "mv-chem", "p-chem", "mv-cell", "p-cell",
-            "mv-people", "p-people", "mv-cite", "p-cite",
-        ):
-            assert f'"{absent}"' not in body, f"{absent} should have been dropped"
-        assert 'id="mv-all" checked>' in body
-        assert body.count(" checked>") == 1
-
-    def test_every_element_id_in_the_page_is_unique(self) -> None:
-        # Several SVGs now share one document. `url(#…)` resolves to the FIRST
-        # matching id in the document, and the panels holding them are
-        # display:none until selected — so a duplicated marker id points one
-        # diagram's arrowheads at a marker inside a hidden subtree.
-        import re
-
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        ids = re.findall(r' id="([^"]+)"', body)
-        assert sorted(ids) == sorted(set(ids)), "duplicate element id in the report"
-
-    def test_each_diagram_references_only_its_own_marker(self) -> None:
-        import re
-
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        for svg in re.findall(r"<svg .*?</svg>", body, re.S):
-            defined = set(re.findall(r'<marker id="([^"]+)"', svg))
-            used = set(re.findall(r"url\(#([^)]+)\)", svg))
-            assert used <= defined, f"marker referenced across SVGs: {used - defined}"
-
-    def test_routed_views_are_not_stretched_to_the_chain_width(self) -> None:
-        # `.mat svg.prov` forces width:100%/min-width:44rem for the wide, fixed
-        # derivation chain. The routed views size themselves to their content
-        # (~210-540 units); inheriting that floor upscales a small diagram
-        # several times over, so they must carry their own sizing rule.
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        css = page.split("<style>", 1)[1].split("</style>", 1)[0]
-        assert ".mat svg.prov.view {" in css, "routed views have no sizing rule"
-        assert "min-width:0" in css.split(".mat svg.prov.view {", 1)[1].split("}", 1)[0]
-        # …and the rule must actually match the class the renderer emits.
-        assert 'class="prov view"' in _body(page)
-
-    def test_every_registered_view_is_styled(self) -> None:
-        # The tabs are pure CSS, and the stylesheet names each id by hand. A view
-        # added to `_VIEWS` without its four selectors renders a tab that cannot
-        # be selected and a panel that never shows — with no error anywhere.
-        from builder.writers.maturity_report import _VIEWS, _load_css
-
-        css = _load_css()
-        for rid, pid, _label in _VIEWS:
-            for selector in (
-                f'#{rid}:checked ~ .tabbar .tab[for="{rid}"]',
-                f'#{rid}:checked ~ .tabbar .tab[for="{rid}"] .tb-c',
-                f'#{rid}:focus-visible ~ .tabbar .tab[for="{rid}"]',
-                f"#{rid}:checked ~ #{pid}",
-            ):
-                assert selector in css, f"unstyled view selector: {selector}"
-
-    def test_print_styles_expand_every_panel(self) -> None:
-        # Tabs are a screen affordance; a printed report must not silently lose
-        # two of the three views.
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert ".mat .panel{display:block !important;" in page.replace("\n", "")
-        assert ".mat .panel > .panel-h{display:block;" in page.replace("\n", "")
 
 class TestCellLinesPanel:
     """The Biological Samples view (#85): the biological test system, and
@@ -2083,7 +1786,7 @@ class TestCellLinesPanel:
     def _compound_row(page: str) -> str:
         """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
         class is shared with the ISA table, so look inside the chemicals panel)."""
-        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        panel = _block(page, "cov-chem")
         table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
         assert table, "no identification matrix"
         rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
@@ -2092,8 +1795,8 @@ class TestCellLinesPanel:
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
-        assert '<div class="panel" id="p-cell">' in page
-        assert '<span class="tb-n">Biological Samples</span>' in page
+        assert '<div class="cov" id="cov-cell">' in page
+        assert '<h3 class="cov-h">Biological Samples' in page
         assert "CHO-K1" in page
         assert "CVCL_0214" in page
         for column in ("RRID", "Type", "Organ", "Tissue", "Passage"):
@@ -2101,18 +1804,16 @@ class TestCellLinesPanel:
 
     def test_the_view_is_named_biological_models_wherever_a_reader_sees_it(self) -> None:
         """The owner's term for the test system is the checklist's — "biological
-        model", as in the MIT module Biological Model Information — so the tab,
-        the table's corner header, the summary line, the legend and the
-        diagram's accessible name all say it. "Cell line" survives only where
+        model", as in the MIT module Biological Model Information — so the block
+        heading and the table's corner header both say it (the legend and the
+        diagram that also did are gone, #618). "Cell line" survives only where
         it names the actual declaration being checked: the Type column's
         tooltip (the entity is typed as a cell line) and ``CellLine`` itself.
         """
         page = self._page()
-        assert '<span class="tb-n">Biological Samples</span>' in page
+        assert '<h3 class="cov-h">Biological Samples' in page
         assert '<th scope="col">Biological sample</th>' in page
-        assert "Biological sample</span>" in page
-        assert "Routes: 1 of 1 biological samples reachable from a process" in page
-        panel = page.split('id="p-cell"', 1)[1].split("</section>", 1)[0]
+        panel = _block(page, "cov-cell")
         rest = panel.replace('title="Typed as a cell line"', "")
         assert "cell line" not in rest.lower(), "a reader-facing 'cell line' survived"
 
@@ -2121,7 +1822,7 @@ class TestCellLinesPanel:
         gone; the panel opens with the diagram. The total still shows in the
         tab badge, and the warnings still call out wiring and RRID gaps."""
         page = self._page()
-        panel = page.split('id="p-cell"', 1)[1].split('<div class="panel"', 1)[0]
+        panel = page.split('id="cov-cell"', 1)[1].split('<div class="panel"', 1)[0]
         assert '<p class="prov-cap">' not in panel
         assert "biological test system" not in page.lower()
 
@@ -2151,7 +1852,7 @@ class TestCellLinesPanel:
             ]
         }
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
-        assert 'id="p-cell"' not in body
+        assert 'id="cov-cell"' not in body
         assert 'for="mv-cell"' not in body
 
     def test_escapes_cell_line_names(self) -> None:
@@ -2213,7 +1914,7 @@ class TestPeoplePanel:
     def _compound_row(page: str) -> str:
         """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
         class is shared with the ISA table, so look inside the chemicals panel)."""
-        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        panel = _block(page, "cov-chem")
         table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
         assert table, "no identification matrix"
         rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
@@ -2222,7 +1923,7 @@ class TestPeoplePanel:
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
-        assert '<div class="panel" id="p-people">' in page
+        assert '<div class="cov" id="cov-people">' in page
         assert "Josiah Carberry" in page
         assert "Brown University" in page
         for column in ("PID", "Name", "Affiliation", "Linked"):
@@ -2291,7 +1992,7 @@ class TestPeoplePanel:
             ]
         }
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert 'id="p-people"' not in page
+        assert 'id="cov-people"' not in page
 
     def test_escapes_agent_names(self) -> None:
         graph = {
@@ -2351,7 +2052,7 @@ class TestCitationsPanel:
     def _compound_row(page: str) -> str:
         """The identification-matrix row for Aflatoxin B1 (the ``chem-tbl``
         class is shared with the ISA table, so look inside the chemicals panel)."""
-        panel = page.split('id="p-chem"', 1)[1].split("</section>", 1)[0]
+        panel = _block(page, "cov-chem")
         table = re.search(r'<table class="chem-tbl">.*?</table>', panel, re.S)
         assert table, "no identification matrix"
         rows = [r for r in re.findall(r"<tr>.*?</tr>", table.group(0), re.S) if "Aflatoxin B1" in r]
@@ -2360,8 +2061,8 @@ class TestCitationsPanel:
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
-        assert '<div class="panel" id="p-cite">' in page
-        assert '<span class="tb-n">Citations</span>' in page
+        assert '<div class="cov" id="cov-cite">' in page
+        assert '<h3 class="cov-h">Citations' in page
         assert "Two novel in vitro assays for OATP1C1" in page
         assert "10.1007/s00204-024-03787-2" in page
         for column in ("DOI", "Title", "Date", "Authors", "Resolve", "Cited"):
@@ -2390,12 +2091,6 @@ class TestCitationsPanel:
         assert "Every article is cited, DOI-backed, and every author resolves." in page
         assert "resolve to no entity" not in page
 
-    def test_legend_names_the_dashed_author_only_when_one_is_drawn(self) -> None:
-        # A key for a shape the reader cannot find teaches them to distrust the
-        # legend — and here it would also misdescribe the crate.
-        assert "Author reference that resolves to nothing" in self._page(dangling=True)
-        assert "Author reference that resolves to nothing" not in self._page()
-
     def test_crate_without_articles_omits_the_view(self) -> None:
         graph = {
             "@graph": [
@@ -2405,7 +2100,7 @@ class TestCitationsPanel:
             ]
         }
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
-        assert 'id="p-cite"' not in body
+        assert 'id="cov-cite"' not in body
         assert 'for="mv-cite"' not in body
 
     def test_escapes_article_names(self) -> None:
@@ -2819,308 +2514,6 @@ class TestGroupedSuggestions:
         assert "2 issues" in rec
         assert rec.count("Recommended: ") == 2
 
-
-class TestOverviewPanel:
-    """The All-entities view: the whole crate as one composition map (#85).
-
-    Every other view answers its question by drawing edges. At crate scale (188
-    nodes, 79 edges) that renders as a hairball which hides the very composition
-    this view exists to show — so it is one tile per entity, clustered by
-    category inside its paper layer, with unreachable entities outlined.
-    """
-
-    def _graph(self, *, orphan: bool = True) -> dict:
-        graph: dict = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {
-                    "@id": "./",
-                    "@type": "Dataset",
-                    "additionalType": "Investigation",
-                    "name": "Inv",
-                    "hasPart": [{"@id": "#f"}],
-                },
-                {"@id": "#f", "@type": "File", "name": "result.csv"},
-            ]
-        }
-        if orphan:
-            graph["@graph"].append(
-                {"@id": "#loose", "@type": "MolecularEntity", "name": "Unwired compound"}
-            )
-        return graph
-
-    def test_one_tile_per_entity(self) -> None:
-        import re
-
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        svg = re.search(r'<svg [^>]*class="prov view overview".*?</svg>', body, re.S)
-        assert svg, "overview SVG missing"
-        from builder.writers.provenance_dag import build_crate_graph
-
-        entities = [
-            n
-            for n in build_crate_graph(self._graph(), all_edges=True)["nodes"]
-            if n["layer"] is not None
-        ]
-        assert len(re.findall(r'<rect class="ov-t', svg.group(0))) == len(entities)
-
-    def test_unreachable_entities_are_outlined(self) -> None:
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        # `orphan` is the shared base class; the modifier says WHICH kind, and
-        # this compound is joined to nothing at all.
-        assert 'class="ov-t cat-chemical orphan isolated"' in page
-        assert "unlinked entity</span>" in page
-
-    def test_clean_crate_shows_no_unreachable_state(self) -> None:
-        # With the prose note gone (owner's review), a clean crate simply has
-        # no orphan-outlined tile and no reachability key to explain one.
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(orphan=False))
-        assert "orphan" not in page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
-        assert "unlinked entity" not in page
-
-    def test_every_tile_names_its_entity(self) -> None:
-        # The map summarises; it must not anonymise. Each tile carries the
-        # entity's name and type in a tooltip.
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert "<title>Unwired compound — MolecularEntity" in page
-        assert "linked to nothing at all</title>" in page
-
-    def test_bands_and_clusters_name_the_layers_and_the_types(self) -> None:
-        """Review comments on the report artifact: the band headings are the
-        plain layer names — RO-Crate, ISA RO-Crate, ISA-Tox RO-Crate — and
-        each cluster caption names the entity types it actually holds, not a
-        category word. The caption is what the tiles are: "Term / parameter"
-        over three CreativeWorks made the reader guess, and guess wrong."""
-        import re
-
-        graph = self._graph()
-        # Two packaging-layer annotation entities of different types, so one
-        # cluster caption must name both types.
-        graph["@graph"] += [
-            {"@id": "#tool", "@type": "SoftwareApplication", "name": "vitro-crate"},
-            {"@id": "#doc", "@type": "CreativeWork", "name": "Readme"},
-        ]
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
-        svg = re.search(r'<svg [^>]*class="prov view overview".*?</svg>', body, re.S)
-        assert svg, "overview SVG missing"
-        svg_text = svg.group(0)
-        # The band headings are the bare layer names — no entity counts
-        # (review: "remove" on every "— N entities" suffix). The counts still
-        # ride on the diagram's accessible name and the note below the map.
-        assert ">RO-Crate</text>" in svg_text
-        assert ">ISA-Tox RO-Crate</text>" in svg_text
-        bands = re.findall(r'class="ov-band"[^>]*>([^<]*)</text>', svg_text)
-        assert bands and all("entit" not in band for band in bands), bands
-        for old in ("Packaging", "Structural", "Domain"):
-            assert old not in svg_text, f"the old layer taxonomy survived: {old}"
-        assert ">Dataset · 1</text>" in svg_text
-        assert ">MolecularEntity · 1</text>" in svg_text
-        assert ">File · 1</text>" in svg_text
-        assert ">CreativeWork / SoftwareApplication · 2</text>" in svg_text
-        for word in ("Term / parameter", "Sample / material", "File / table",
-                     "Investigation / Study / Assay"):
-            assert word not in svg_text, f"a category word survived as a caption: {word}"
-
-    def test_the_overview_carries_no_intro_paragraph(self) -> None:
-        """Review comment: the "Every entity in the crate, one tile each…"
-        summary line is gone — the map opens the panel directly. The
-        unreachable story lives on the map itself: outlined tiles and the
-        "unlinked entity" key."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
-        assert '<p class="prov-cap">' not in panel
-        assert "one tile each" not in page
-
-    def test_the_legend_carries_no_category_words(self) -> None:
-        """Review comment: every word on this view should be a schema.org /
-        bioschemas type. The cluster captions now name the types, so the
-        category-word swatch list would either duplicate them or lie (one
-        colour spans several types) — it is dropped. The reachability keys
-        stay: solid/outlined is a state no caption names."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
-        assert 'ov-key cat-' not in panel, "the category swatch list survived"
-        assert 'ov-key orphan isolated' in panel, "the reachability key was lost"
-
-    def test_the_map_carries_no_warning_note(self) -> None:
-        """Review comment: the "N of M entities are unreachable…" paragraph
-        under the map is gone — the outlined tiles and the "unlinked entity"
-        key carry that state on the map itself."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
-        assert "are unreachable from the crate root" not in panel
-        assert "chem-warn" not in panel and "good-note" not in panel
-
-    def test_the_isolated_key_reads_unlinked_entity(self) -> None:
-        """Review comment: the isolated-orphan key says "unlinked entity"."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
-        assert '<span class="ov-key orphan isolated"></span> unlinked entity</span>' in panel
-        assert "unreachable · linked to nothing" not in panel
-
-    def test_overview_is_the_first_tab_and_selected(self) -> None:
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert body.index('for="mv-all"') < body.index('for="mv-isa"')
-        assert 'id="mv-all" checked>' in body
-
-    def test_geometry_stays_inside_the_viewbox(self) -> None:
-        import re
-        import xml.etree.ElementTree as ET
-
-        def attr(el: ET.Element, name: str) -> str:
-            """A geometry attribute the renderer must always emit.
-
-            ``Element.get`` is optional-typed, so a missing coordinate would
-            otherwise surface as a bare ``AttributeError: 'NoneType'`` instead of
-            naming the element that lost it.
-            """
-            value = el.get(name)
-            assert value is not None, f"<{el.tag}> is missing {name!r}"
-            return value
-
-        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        found = re.search(r'<svg [^>]*class="prov view overview".*?</svg>', body, re.S)
-        assert found is not None, "the overview SVG is not in the report"
-        root = ET.fromstring(found.group(0))
-        _, _, width, height = (float(v) for v in attr(root, "viewBox").split())
-        xs: list[float] = []
-        ys: list[float] = []
-        for el in root.iter():
-            if el.tag == "rect":
-                x, y = float(attr(el, "x")), float(attr(el, "y"))
-                xs += [x, x + float(attr(el, "width"))]
-                ys += [y, y + float(attr(el, "height"))]
-            elif el.tag == "text":
-                xs.append(float(attr(el, "x")))
-                ys.append(float(attr(el, "y")))
-        assert xs and 0 <= min(xs) and max(xs) <= width
-        assert 0 <= min(ys) and max(ys) <= height
-
-    def test_escapes_entity_names(self) -> None:
-        graph = self._graph()
-        graph["@graph"][-1]["name"] = "<script>alert(1)</script>"
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert "<script>alert(1)</script>" not in page
-        assert "&lt;script&gt;" in page
-
-
-class TestAutogeneratedLegend:
-    """The provenance legend defines the badge — but only when one is drawn.
-
-    `provenance_dag._display_name` replaces the crate's `AUTOGENERATED — ` name
-    prefix with a badge so the filename survives the diagram's 18-character label
-    budget. A symbol with no key is a puzzle, so the legend has to carry the
-    meaning the words used to.
-    """
-
-    @staticmethod
-    def _graph(name: str) -> list[dict]:
-        return [
-            {"@id": "./", "@type": "Dataset"},
-            {
-                "@id": "#p1",
-                "@type": "LabProcess",
-                "additionalType": "Exposure",
-                "name": "Exposure",
-                "object": {"@id": "#s1"},
-                "result": {"@id": "data/ct.csv"},
-            },
-            {"@id": "#s1", "@type": "Sample", "name": "CHO-K1 culture"},
-            {"@id": "data/ct.csv", "@type": ["File", "csvw:Table"], "name": name},
-        ]
-
-    @staticmethod
-    def _panel(name: str) -> str:
-        from builder.writers.maturity_report import _render_provenance_panel
-
-        return _render_provenance_panel(TestAutogeneratedLegend._graph(name))
-
-    def test_the_badge_is_explained_when_it_is_drawn(self) -> None:
-        panel = self._panel("AUTOGENERATED — Condition table")
-
-        assert "generated by this tool" in panel
-        assert "not supplied with the deposit" in panel
-
-    def test_the_explanation_sits_in_the_legend(self) -> None:
-        """Not merely present in the panel — a caption elsewhere is not a key."""
-        import re
-
-        panel = self._panel("AUTOGENERATED — Condition table")
-        legend = re.search(r'<div class="prov-legend">(.*?)</div>', panel, re.S)
-
-        assert legend is not None
-        assert "generated by this tool" in legend.group(1)
-
-    def test_the_legend_carries_the_same_badge_the_diagram_drew(self) -> None:
-        """The key must show the symbol being defined, not a lookalike."""
-        from builder.writers.provenance_dag import AUTOGENERATED_BADGE
-
-        panel = self._panel("AUTOGENERATED — Condition table")
-
-        assert panel.count(AUTOGENERATED_BADGE) >= 2, "badge missing from diagram or legend"
-
-    def test_no_explanation_when_no_badge_is_drawn(self) -> None:
-        """A legend explaining a symbol the reader cannot find teaches distrust."""
-        panel = self._panel("plate_map.csv")
-
-        assert "generated by this tool" not in panel
-
-    def test_the_other_legend_entries_survive(self) -> None:
-        """The conditional entry is an addition, not a replacement."""
-        panel = self._panel("AUTOGENERATED — Condition table")
-
-        for item in ("Process", "Sample / material", "File / table", "produces (result)"):
-            assert item in panel, item
-
-    def test_the_badge_is_hidden_from_screen_readers_in_the_legend(self) -> None:
-        """The sentence carries the meaning; announcing "warning" first says it twice."""
-        panel = self._panel("AUTOGENERATED — Condition table")
-
-        assert 'class="lg-badge" aria-hidden="true"' in panel
-
-
-class TestOverviewReachabilityKeys:
-    """The overview legend names only the unreachable kinds the map shows.
-
-    The prose repair estimate this class once covered was removed with the
-    warning note on the owner's review; the keys are what remains of the
-    unreachable story off the tiles themselves.
-    """
-
-    @staticmethod
-    def _graph(*, island: int = 3, lone: int = 2) -> dict:
-        graph: list[dict] = [
-            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-            {
-                "@id": "./",
-                "@type": "Dataset",
-                "additionalType": "Investigation",
-                "name": "Inv",
-                "hasPart": [{"@id": "#f"}],
-            },
-            {"@id": "#f", "@type": "File", "name": "result.csv"},
-        ]
-        for i in range(lone):
-            graph.append({"@id": f"#lone{i}", "@type": "Person", "name": f"Alone {i}"})
-        # A chain of `island` entities referencing each other, root-detached.
-        for i in range(island):
-            node: dict = {"@id": f"#i{i}", "@type": "File", "name": f"Island {i}"}
-            if i + 1 < island:
-                node["mentions"] = [{"@id": f"#i{i + 1}"}]
-            graph.append(node)
-        return {"@graph": graph}
-
-    def _page(self, **kw) -> str:
-        return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
-
-    def test_the_legend_names_only_the_kinds_present(self) -> None:
-        """A key for a tile the reader cannot find misdescribes the crate."""
-        both = self._page()
-        island_only = self._page(lone=0)
-
-        assert "unlinked entity</span>" in both
-        assert "linked to each other, not to the root" in both
-        assert "unlinked entity</span>" not in island_only
 
 class TestEveryClassTheReportEmitsIsStyled:
     """A class in the HTML with no rule in the CSS renders at browser defaults.

@@ -25,7 +25,8 @@ from builder.state import CrateState
 from builder.tools.builder import export_crate
 from builder.tools.drafters import draft_investigation
 
-ARTIFACTS = ("ro-crate-preview.html", "ro-crate-graph.mmd", "ro-crate-metadata-maturity.html")
+# `ro-crate-graph.mmd` was the third; it is no longer written (#618).
+ARTIFACTS = ("ro-crate-preview.html", "ro-crate-metadata-maturity.html")
 
 
 @pytest.fixture(scope="module")
@@ -52,10 +53,10 @@ class TestTheyAreInTheCrate:
 
 
 class TestSizes:
-    def test_the_graph_states_its_size(self, written):
-        """Rendered from the crate's entities, not from any finding — so knowable."""
-        size = written["ro-crate-graph.mmd"].get("contentSize")
-        assert size and int(size) > 0
+    def test_no_mermaid_graph_is_written(self, written):
+        """The one artifact whose size WAS knowable is gone (#618) — nothing read
+        the Mermaid it held, so the crate stopped carrying it."""
+        assert "ro-crate-graph.mmd" not in written
 
     def test_the_maturity_report_does_not(self, written):
         """Circular: its content is a function of the validation result.

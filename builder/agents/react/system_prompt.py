@@ -81,7 +81,7 @@ Lookups & verification:
 Build, validate & assess:
 - build_and_validate: Build + validate in memory in one step (fast loop); returns routable issues keyed to entity/property
 - fix_required_issues: Deterministically auto-repair the routed issues from build_and_validate where the value is already determined by state (e.g. link the single un-wired File as a process's missing result); leaves issues needing new content under 'remaining' for you
-- export_crate: Write the finished RO-Crate to disk (returns a crate_path); also auto-embeds the browsable preview and the entity-graph diagram (ro-crate-graph.mmd)
+- export_crate: Write the finished RO-Crate to disk (returns a crate_path); also auto-embeds the browsable preview and the maturity report (with its interactive entity explorer)
 - build_crate: Alias of export_crate (writes the crate to disk)
 - validate: Run three-pass validation on a crate already written to disk
 - validate_table: Validate a CSV's data content (rows) against its CSVW/Frictionless table schema — the payload layer, separate from SHACL metadata validation

@@ -278,50 +278,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--graph",
         "-g",
         action="store_true",
-        help="Render the LabProcesses DAG. Source is --input (a crate dir "
-        "or ro-crate-metadata.json) or a session (--resume <id>, else the latest). "
-        "Needs no LLM config.",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["html", "mermaid"],
-        default="html",
-        help="--graph output: 'html' (rendered, opens in browser; default) or "
-        "'mermaid' (raw source to stdout, for piping to mmdc/docs)",
+        help="Write the crate's interactive entity explorer and open it. Source "
+        "is --input (a crate dir or ro-crate-metadata.json) or a session "
+        "(--resume <id>, else the latest). Needs no LLM config.",
     )
     parser.add_argument(
         "--view",
-        # "provenance" is the name this view shipped under and stays accepted:
-        # renaming a CLI value silently breaks every script that passes it.
-        choices=["crate", "labprocesses", "provenance"],
-        default="crate",
-        help="--graph view: 'crate' (full entity graph, 3 layers; default) or "
-        "'labprocesses' (just the LabProcess derivation chain; 'provenance' is "
-        "the same view under its old name)",
-    )
-    parser.add_argument(
-        "--layer",
-        choices=["1", "2", "3", "all", "crate", "isa", "isa-tox", "tox"],
-        default="all",
-        help="--graph --view crate: cumulative layer filter — 1/crate=packaging, "
-        "2/isa=+structural, 3/isa-tox=all (default: all)",
-    )
-    parser.add_argument(
-        "--all-edges",
-        action="store_true",
-        help="--graph --view crate: also draw secondary edges (CSVW internals, "
-        "conformsTo, citation/funder)",
+        # The views are toggles inside the page now, so this picks the one it
+        # opens on. "crate" and "provenance" are names this flag shipped under
+        # and stay accepted: renaming a CLI value silently breaks every script
+        # that passes it.
+        choices=["researcher", "crate", "labprocesses", "provenance"],
+        default="researcher",
+        help="--graph: which view the explorer opens on — 'researcher' (the "
+        "experiment, without the packaging; default), 'crate' (every entity), "
+        "or 'labprocesses' (the derivation chain; 'provenance' is the same view "
+        "under its old name). Every view is a toggle in the page itself.",
     )
     parser.add_argument(
         "--graph-out",
         type=str,
         default=None,
-        help="Path for the rendered --graph HTML file (default: a temp file)",
+        help="Path for the --graph HTML file (default: a temp file)",
     )
     parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="With --graph --format html, write the file but do not open a browser",
+        help="With --graph, write the file but do not open a browser",
     )
     args = parser.parse_args(argv)
     # --smoke-test IMPLIES --interactive rather than requiring it. Its whole job is
@@ -392,6 +375,16 @@ def _ensure_configured() -> bool:
     return False
 
 
+# The `--view` vocabulary, mapped onto the explorer's own view keys. "crate" and
+# "provenance" are the names the flag shipped under; they still resolve.
+_EXPLORER_VIEW_BY_FLAG = {
+    "researcher": "researcher",
+    "crate": "all",
+    "labprocesses": "processes",
+    "provenance": "processes",
+}
+
+
 def _resolve_graph_source(args: argparse.Namespace) -> dict[str, Any] | None:
     """Resolve the metadata ``@graph`` to render for ``--graph``.
 
@@ -438,17 +431,15 @@ def _resolve_graph_source(args: argparse.Namespace) -> dict[str, Any] | None:
 
 
 def _run_graph(args: argparse.Namespace) -> int:
-    """Render the provenance DAG. Returns 0 on success, 1 otherwise.
+    """Write the crate's entity explorer and open it. 0 on success, 1 otherwise.
 
-    ``--format mermaid`` prints the raw Mermaid source to stdout; the default
-    ``html`` writes a self-contained, browser-renderable page (and opens it
-    unless ``--no-browser``).
+    The page is the section the maturity report embeds, in the report's own
+    shell — one explorer rendered in two places. It is self-contained, so the
+    file works from anywhere it is copied to; before #618 this mode emitted
+    Mermaid and its HTML fetched mermaid.js from a CDN, which made the artifact
+    meant for looking at the one that failed without a network.
     """
-    from builder.writers.provenance_dag import (
-        render_crate_graph,
-        render_mermaid_html,
-        render_provenance_mermaid,
-    )
+    from builder.writers.entity_explorer import render_explorer_page
 
     source = _resolve_graph_source(args)
     if source is None:
@@ -459,28 +450,19 @@ def _run_graph(args: argparse.Namespace) -> int:
         )
         return 1
 
-    if args.view in ("labprocesses", "provenance"):
-        mermaid = render_provenance_mermaid(source)
-    else:
-        mermaid = render_crate_graph(source, layer=args.layer, all_edges=args.all_edges)
-
-    if args.format == "mermaid":
-        print(mermaid)
-        return 0
-
-    # html: write a rendered page and (optionally) open it.
+    view = _EXPLORER_VIEW_BY_FLAG[args.view]
     if args.graph_out:
         out_path = Path(args.graph_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        with tempfile.NamedTemporaryFile(prefix="provenance_", suffix=".html", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(prefix="entity_graph_", suffix=".html", delete=False) as tmp:
             out_path = Path(tmp.name)
-    title = (
-        "RO-Crate provenance chain"
-        if args.view in ("labprocesses", "provenance")
-        else f"RO-Crate entity graph (layer ≤ {args.layer})"
+    out_path.write_text(
+        render_explorer_page(
+            source, title="RO-Crate entity explorer", default_views=(view,)
+        ),
+        encoding="utf-8",
     )
-    out_path.write_text(render_mermaid_html(mermaid, title=title), encoding="utf-8")
 
     opened = False
     if not args.no_browser:
@@ -489,7 +471,7 @@ def _run_graph(args: argparse.Namespace) -> int:
         except (webbrowser.Error, OSError) as exc:
             logger.warning("Could not open a browser for %s: %s", out_path, exc)
     suffix = " (opened in browser)" if opened else ""
-    print(f"LabProcesses DAG written to {out_path}{suffix}", file=sys.stderr)
+    print(f"Entity explorer written to {out_path}{suffix}", file=sys.stderr)
     return 0
 
 
