@@ -174,3 +174,47 @@ class TestAProblemNeitherArmCanShareIsNotAWin:
         assert summary["num_cases_compared"] == 1
         assert summary["success_rate"] == 1.0, "the skipped case dragged the average"
         assert summary["mean_total_tokens"] == 1500.0
+
+
+class TestTheHeadToHeadComparesLikeWithLike:
+    """Excluding a case from ONE arm's averages creates a second trap if the
+    other arm still counts it: two summaries side by side with different
+    denominators read as a comparison and are not one. The head-to-head is
+    computed over the cases BOTH arms attempted (#609).
+    """
+
+    def _report(self, label: str, rows: list[tuple[str, str, int, bool]]):
+        from eval.runner import CaseResult, EvalReport
+
+        return EvalReport(
+            label=label,
+            repeats=1,
+            results=[
+                CaseResult(
+                    case_id=cid, kind="structured", success=ok, conformance={}, issues=[],
+                    input_tokens=tok, output_tokens=0, tool_calls=0, iterations=0,
+                    latency_seconds=1.0, crate_hashes=[], deterministic=None, repeats=1,
+                    stop_reason=stop, total_tokens_per_repeat=[tok],
+                    success_per_repeat=[ok],
+                )
+                for cid, stop, tok, ok in rows
+            ],
+        )
+
+    def test_head_to_head_uses_only_the_cases_both_arms_attempted(self) -> None:
+        from eval.report import compare_reports
+
+        react = self._report("react", [("folder", "completed", 900, True),
+                                       ("chat", "completed", 5000, True)])
+        pipeline = self._report("pipeline", [("folder", "completed", 100, True),
+                                             ("chat", "not_applicable", 0, False)])
+
+        cmp = compare_reports(react, pipeline)
+
+        assert cmp["head_to_head"]["case_ids"] == ["folder"]
+        # The conversational case is ReAct's alone; folding it in would have made
+        # the pipeline look BETTER on success and the ReAct arm look dearer.
+        assert cmp["head_to_head"]["summaries"]["react"]["mean_total_tokens"] == 900.0
+        assert cmp["head_to_head"]["summaries"]["pipeline"]["mean_total_tokens"] == 100.0
+        assert cmp["head_to_head"]["summaries"]["pipeline"]["success_rate"] == 1.0
+        assert cmp["head_to_head"]["summaries"]["react"]["success_rate"] == 1.0
