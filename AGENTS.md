@@ -2375,7 +2375,10 @@ D9; the ReAct arm likewise runs its **shipped** loop via
 `run_build(BuildMode.REACT, ..., interactive=False)` rather than a bare single graph
 invocation, so both arms are measured with the budget they ship with, #609),
 `initialize(input_path=case.input_path)` (which approves the
-input dir under the fail-closed guard), runs `run_pipeline`, and returns the final
+input dir under the fail-closed guard), runs the shipped `run_interactive_build`
+(spine, then export + persist — the ReAct arm exports from inside its own loop, so
+scoring one arm before export and the other after compared two different stages,
+#609), and returns the final
 `CrateState`/`session_id` exactly like `ReActBuildAgent`.
 `eval/__main__.py` adds `--arch react|pipeline` (DEFAULT `react`) selecting the
 factory, so `python -m eval --arch pipeline --label pipeline` runs the same

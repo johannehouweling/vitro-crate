@@ -80,6 +80,10 @@ class TestTheShippedBudgetIsWhatGetsMeasured:
         it measures politeness, not build capability."""
         make_react_agent_factory()().build(_CASE)
 
+        # Guard the assertion below: `not any(...)` over an EMPTY sink is
+        # vacuously true, so a build that failed before its first turn would
+        # "prove" the greeting was skipped.
+        assert faked_loop, "the build never ran a turn; the check below proves nothing"
         assert not any(t.startswith(("Greet the user", "The user has resumed")) for t in faked_loop)
 
     def test_the_run_never_reads_stdin(self, faked_loop, monkeypatch) -> None:

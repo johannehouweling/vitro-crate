@@ -1799,7 +1799,14 @@ class _LoopHarness:
     """
 
     def __init__(
-        self, monkeypatch, *, replies, stdin_lines, complete_after=None, initial_prompt=None
+        self,
+        monkeypatch,
+        *,
+        replies,
+        stdin_lines,
+        complete_after=None,
+        initial_prompt=None,
+        interactive=True,
     ):
         from builder.agents.react import agent_loop
         from builder.engine import AgentEngine
@@ -1811,6 +1818,7 @@ class _LoopHarness:
         self.stdin_lines = list(stdin_lines)
         self.complete_after = complete_after
         self.initial_prompt = initial_prompt
+        self.interactive = interactive
 
         self.invoke_count = 0
         self.stdin_reads: list[str] = []
@@ -1905,7 +1913,11 @@ class _LoopHarness:
 
     def run(self):
         self.install()
-        self.agent_loop.run_interactive_agent(self.engine, initial_prompt=self.initial_prompt)
+        return self.agent_loop.run_interactive_agent(
+            self.engine,
+            initial_prompt=self.initial_prompt,
+            interactive=self.interactive,
+        )
 
 
 class TestAutonomousContinuation:
@@ -2866,3 +2878,67 @@ class TestDuplicatePeopleReachTheChecklist:
         items = open_items(self._state_with_split_person())
         assert isinstance(items, list)
         assert [i for i in items if "same person" in i] == []
+
+
+class TestHeadlessSessions:
+    """``interactive=False`` — the contract the A/B harness drives this arm with.
+
+    It is the CALLER's fact, never inferred: ``AgentEngine`` defaults to a
+    ``SimulatedHumanInterface``, so a batch engine and a test engine look
+    identical from inside the loop (#609).
+    """
+
+    def test_a_headless_session_never_reads_stdin(self, monkeypatch):
+        """The seeded turn and its autonomous continuation ARE the session. Reading
+        stdin would block a harness on a terminal it does not own."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Working."],
+            stdin_lines=["should never be read"],
+            complete_after=1,
+            initial_prompt="build the crate",
+            interactive=False,
+        )
+        h.run()
+
+        assert h.stdin_reads == []
+        assert h.turn_messages[0] == "build the crate"
+
+    def test_a_headless_session_still_runs_the_finish_backstop(self, monkeypatch):
+        """Ending where it would prompt must land the crate, exactly as Ctrl+D does —
+        otherwise a headless run exits with the build unwritten (#251)."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Working."],
+            stdin_lines=[],
+            complete_after=1,
+            initial_prompt="build the crate",
+            interactive=False,
+        )
+        h.run()
+
+        assert h.backstop_calls == 1
+
+    def test_an_interactive_session_still_waits_for_stdin(self, monkeypatch):
+        """The default is unchanged — this is opt-in."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Working."],
+            stdin_lines=["typed by a person"],
+            complete_after=1,
+        )
+        h.run()
+
+        assert h.stdin_reads == ["typed by a person"]
+
+    def test_the_session_reports_how_it_ended(self, monkeypatch):
+        """`run_build` hands this back to the A/B harness (#609)."""
+        h = _LoopHarness(
+            monkeypatch,
+            replies=["Working."],
+            stdin_lines=[],
+            complete_after=1,
+            initial_prompt="build the crate",
+            interactive=False,
+        )
+        assert h.run() == {"stop_reason": "completed"}

@@ -340,7 +340,6 @@ def run_build(
         if verbose:
             react_kwargs["verbose"] = True
         return run_interactive_agent(engine, **react_kwargs)
-        return None
 
     from builder.agents.llm import ModelOverrides
 

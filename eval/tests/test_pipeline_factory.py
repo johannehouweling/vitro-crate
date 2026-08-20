@@ -17,7 +17,8 @@ from builder.engine import AgentEngine
 from builder.state import CrateState
 from builder.tools.hitl import SimulatedHumanInterface
 from eval.agent_api import BuildAgent, BuildOutcome
-from eval.corpus import DEFAULT_CORPUS, EvalCase, first_folder_case
+from eval.corpus import DEFAULT_CORPUS, EvalCase
+from eval.tests._cases import first_folder_case
 from eval.pipeline_factory import PipelineBuildAgent, make_pipeline_agent_factory
 
 # The pipeline drives the SHACL validator; give the module headroom over the CLI
@@ -33,8 +34,6 @@ class TestPipelineAgentWiring:
 
     def test_engine_uses_the_production_headless_human(self) -> None:
         """The same headless human the ReAct arm gets (#609)."""
-        from builder.tools.hitl import SimulatedHumanInterface
-
         engine = make_pipeline_agent_factory()()._make_engine()
         assert type(engine.human_interface) is SimulatedHumanInterface
 
