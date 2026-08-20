@@ -301,21 +301,63 @@ class CategoryStyle(NamedTuple):
     label: str
     """Legend wording. One phrase, reused by every legend that shows it."""
 
+    glyph: str
+    """SVG path data for the category's 14x14 glyph, drawn by the interactive
+    explorer where the static views draw :func:`_svg_node_shape`'s outline.
+
+    Same silhouette as that outline, at badge size: the explorer's node is a
+    ~200px HTML box, so the shape cannot *be* the node the way it is in the SVG
+    diagrams, and it rides along as a glyph instead. Arc flags are written
+    spaced (``a4 4 0 0 1``), not run together (``a4 4 0 01``) — both are legal
+    SVG, but only the spaced form lets a reader (or a test) tell a coordinate
+    from a flag.
+    """
+
 
 # The key is also the shape: it selects the outline in `_svg_node_shape` and the
 # CSS class in `_SVG_CLASS`, so there is one vocabulary rather than a mapping
 # between three.
 CATEGORY_STYLES: dict[str, CategoryStyle] = {
-    "container": CategoryStyle("#667fd6", ("[[", "]]"), "Investigation / Study / Assay"),
-    "process": CategoryStyle("#0066a0", ("{{", "}}"), "Process"),
-    "protocol": CategoryStyle("#00809a", ("[/", "\\]"), "Protocol"),
-    "material": CategoryStyle("#387e42", ("([", "])"), "Sample / material"),
-    "chemical": CategoryStyle("#966527", ("(", ")"), "Compound"),
-    "data": CategoryStyle("#b14e71", ("[(", ")]"), "File / table"),
-    "agent": CategoryStyle("#95599b", ("((", "))"), "Person"),
-    "org": CategoryStyle("#00816e", ("[", "]"), "Organisation"),
-    "publication": CategoryStyle("#af5546", ("[\\", "/]"), "Publication"),
-    "annotation": CategoryStyle("#6e7424", (">", "]"), "Term / parameter"),
+    "container": CategoryStyle(
+        "#667fd6", ("[[", "]]"), "Investigation / Study / Assay",
+        "M2 3h10v8H2z M4 3v8 M10 3v8",
+    ),
+    "process": CategoryStyle(
+        "#0066a0", ("{{", "}}"), "Process",
+        "M4 2h6l3 5-3 5H4L1 7z",
+    ),
+    "protocol": CategoryStyle(
+        "#00809a", ("[/", "\\]"), "Protocol",
+        "M4 3h9l-3 8H1z",
+    ),
+    "material": CategoryStyle(
+        "#387e42", ("([", "])"), "Sample / material",
+        "M5 3h4a4 4 0 0 1 0 8H5a4 4 0 0 1 0-8z",
+    ),
+    "chemical": CategoryStyle(
+        "#966527", ("(", ")"), "Compound",
+        "M7 2.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z",
+    ),
+    "data": CategoryStyle(
+        "#b14e71", ("[(", ")]"), "File / table",
+        "M2 4c0-1.1 2.2-2 5-2s5 .9 5 2v6c0 1.1-2.2 2-5 2s-5-.9-5-2z M2 4c0 1.1 2.2 2 5 2s5-.9 5-2",
+    ),
+    "agent": CategoryStyle(
+        "#95599b", ("((", "))"), "Person",
+        "M7 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z M7 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6z",
+    ),
+    "org": CategoryStyle(
+        "#00816e", ("[", "]"), "Organisation",
+        "M2 3h10v8H2z",
+    ),
+    "publication": CategoryStyle(
+        "#af5546", ("[\\", "/]"), "Publication",
+        "M1 3h12l-2 8H3z",
+    ),
+    "annotation": CategoryStyle(
+        "#6e7424", (">", "]"), "Term / parameter",
+        "M1 3h9l3 4-3 4H1z",
+    ),
 }
 
 # The bucket for an entity no category claims. It is deliberately grey: a node
@@ -871,6 +913,58 @@ def legend_swatch(category: str, variant: str = "") -> str:
     )
 
 
+def _derivation_edges(nodes: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """The crate's derivation edges, all pointing downstream.
+
+    ``material --object--> process`` and ``process --result--> data``, so a
+    reader follows the chain left to right in the order the work happened. Only
+    edges whose endpoints are both in-crate are returned: an off-graph reference
+    has nothing to attach to, and half an edge is not a step.
+
+    This is the one definition of "what the derivation chain contains". The
+    inline-SVG chain lays these out, and the interactive explorer's LabProcesses
+    view is their endpoint set — two renderings of one selection rather than two
+    selections that happen to agree today.
+
+    Args:
+        nodes: ``@id`` → entity, as :func:`_graph_nodes` returns.
+
+    Returns:
+        ``(src, dst, kind)`` triples, ``kind`` being ``"object"`` (consumed) or
+        ``"result"`` (produced), in entity order so the output is deterministic.
+    """
+    edges: list[tuple[str, str, str]] = []
+    for nid, node in nodes.items():
+        if not _is_process(node):
+            continue
+        for src in _refs(node, _INPUT_KEYS):
+            if src in nodes:
+                edges.append((src, nid, "object"))
+        for dst in _refs(node, _OUTPUT_KEYS):
+            if dst in nodes:
+                edges.append((nid, dst, "result"))
+    return edges
+
+
+def _route_hop_ids(process: str | None, via: str | None) -> list[str]:
+    """The hops on a member's route back to a process, rightmost last.
+
+    Two hops for the indirect route a compound takes (``process --result-->
+    table --about--> compound``); one when a process references the member
+    itself (a ``CellCulture`` consuming its cell line) — drawing that process in
+    both columns with a ``result`` edge between them would depict a step the
+    crate does not contain; none when nothing links the member at all.
+
+    Shared so the routed bands and the explorer's compound/sample views agree on
+    which intermediate entities a route drags in with it.
+    """
+    if via is None:
+        return []
+    if process is not None and process != via:
+        return [process, via]
+    return [via]
+
+
 def render_provenance_svg(
     metadata: dict[str, Any] | list[dict[str, Any]],
 ) -> str:
@@ -897,20 +991,7 @@ def render_provenance_svg(
         derivation chain (no in-crate process input/output edges to draw).
     """
     nodes = _graph_nodes(metadata)
-
-    # Directed derivation edges, both pointing "downstream": material --object-->
-    # process, process --result--> data. Only edges whose endpoints are both
-    # in-crate nodes are drawn (off-graph refs have nothing to attach to).
-    edges: list[tuple[str, str, str]] = []  # (src, dst, kind)
-    for nid, node in nodes.items():
-        if not _is_process(node):
-            continue
-        for src in _refs(node, _INPUT_KEYS):
-            if src in nodes:
-                edges.append((src, nid, "object"))
-        for dst in _refs(node, _OUTPUT_KEYS):
-            if dst in nodes:
-                edges.append((nid, dst, "result"))
+    edges = _derivation_edges(nodes)
     if not edges:
         return ""
 
@@ -1209,6 +1290,12 @@ def _entity_layer(node: dict[str, Any]) -> int:
 _MERMAID_FILL_PCT = 0.14
 _MERMAID_INK = "#1f2937"
 _CTX_COLOUR = "#6d7b7e"
+
+# Corner brackets, not a box: the shape says "described somewhere else". Every
+# other category draws a closed silhouette because the crate said what the thing
+# is; an unclassified node has not earned one, and a fourth grey rectangle would
+# have made it look like an Organisation that lost its colour.
+_CTX_GLYPH = "M2 5V3h2M10 3h2v2M12 9v2h-2M4 11H2V9"
 
 
 def _tint(colour: str, pct: float, background: tuple[int, int, int] = (255, 255, 255)) -> str:
@@ -2587,18 +2674,18 @@ def _render_routed_svg(
     def _hops(group: dict[str, Any]) -> list[dict[str, str]]:
         """The band's left-hand nodes, rightmost last.
 
-        Two hops for the indirect route a compound takes
-        (``process --result--> table --about--> compound``); one when a process
-        references the member itself (a ``CellCulture`` consuming its cell line)
-        — drawing that process in both columns with a ``result`` edge between
-        them would depict a step the crate does not contain.
+        The rule is :func:`_route_hop_ids`; this resolves its ids back to the
+        inventory's node dicts, which carry the label and tag the band draws.
         """
         process, via = group["process"], group["via"]
-        if via is None:
-            return []
-        if process is not None and process["id"] != via["id"]:
-            return [process, via]
-        return [via]
+        by_id = {n["id"]: n for n in (process, via) if n is not None}
+        return [
+            by_id[hop]
+            for hop in _route_hop_ids(
+                process["id"] if process is not None else None,
+                via["id"] if via is not None else None,
+            )
+        ]
 
     # Drop the leading columns no band uses, so a crate whose members are all
     # unlinked doesn't render a diagram that is mostly empty gutter. The reserved

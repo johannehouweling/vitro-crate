@@ -2718,12 +2718,21 @@ def build_maturity_html(
     # Graph tile's source model — one cheap pass over the graph each.
     chem_inv: dict[str, Any] | None = None
     views_section = ""
+    explorer_section = ""
+    explorer_style = ""
     graph_counts: tuple[int, int] | None = None
     if graph is not None:
+        from builder.writers.entity_explorer import explorer_css, render_explorer_section
         from builder.writers.provenance_dag import build_chemical_inventory, build_crate_graph
 
         chem_inv = build_chemical_inventory(graph)
         views_section = _render_graph_views_section(graph, chem_inv)
+        # The interactive counterpart to those views (#615). It carries script,
+        # which the rest of the page does not — but nothing it loads comes from
+        # off the page, so the report is still the self-contained artifact it
+        # has to be to travel inside a crate.
+        explorer_section = render_explorer_section(graph)
+        explorer_style = explorer_css()
         nodes = build_crate_graph(graph).get("nodes", [])
         total = len(nodes)
         linked = total - sum(1 for n in nodes if n.get("orphan"))
@@ -2754,6 +2763,7 @@ def build_maturity_html(
         f'<div class="masthead">{header}{study_card}</div>\n'
         + kpis
         + views_section
+        + explorer_section
         + prof_section
         + mit_section
         + repro_section
@@ -2770,5 +2780,13 @@ def build_maturity_html(
     # not exist. Reversing the order only moves the hole to a crate titled
     # `__BODY__`, which would paste the whole body into `<title>`. Both strings
     # come from the crate, so neither can be the trusted one.
-    filling = {"__STYLE__": _load_css(), "__BODY__": body, "__TITLE__": esc(page_title)}
+    # React Flow's stylesheet joins the report's own rather than riding in a
+    # second <style> in the body: the page has always had exactly one, every
+    # section-scoped assertion in the suite reads the body as "after the first
+    # </style>", and only rules in the head are inside the print block.
+    filling = {
+        "__STYLE__": _load_css() + explorer_style,
+        "__BODY__": body,
+        "__TITLE__": esc(page_title),
+    }
     return _SHELL_PLACEHOLDER_RE.sub(lambda m: filling[m.group(0)], _load_shell())
