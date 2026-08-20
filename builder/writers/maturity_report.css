@@ -31,7 +31,7 @@
   border:1px solid var(--border); color:var(--ink-2); }
 .mat .sub { color:var(--ink-2); margin:.4rem 0 0; font-size:.92rem; }
 
-/* Header cards — About this study / About this RO-Crate (#606 handoff) */
+/* Header cards — About this study / About this RO-Crate (#607 design handoff) */
 .mat .subhead { margin:.35rem 0 0; font-size:1rem; font-weight:600; line-height:1.35;
   color:var(--ink); max-width:74ch; text-wrap:pretty; }
 .mat .hcard { background:var(--surface); border:1px solid var(--border); border-radius:12px;
