@@ -10,8 +10,8 @@ assets) covering the four axes from the issue:
   only that the crate clears the required bar. When the verdict carries structured
   ``issue_records`` each severity row unfolds its own findings, grouped by profile
   layer inside (#510); a pre-records verdict falls back to the flat list;
-* **FAIR** — the RDA-style indicators rolled up into F/A/I/R pillars plus the Data
-  Stewardship Maturity (DSM) level;
+* **FAIR** — the gated Data Stewardship Maturity level on a ladder whose next rung
+  shows the ratio of RDA-style indicators already met, plus what blocks the next level;
 * **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
 * **Reproducibility readiness** — a derived checklist.
 
@@ -353,7 +353,7 @@ def _render_header(title: str, accession: str, subhead: str) -> str:
 
     No verdict pill, no chips, no scope caveats: conformance lives in the
     Profile conformance tile and the caveats with the findings they qualify
-    (the #606 handoff)."""
+    (the #607 design handoff)."""
     esc = html.escape
     h1 = accession or title
     sub = f'<p class="subhead">{esc(subhead)}</p>\n' if subhead and subhead != h1 else ""
@@ -575,6 +575,8 @@ def _render_crate_card(
     state: CrateState,
     val: ValidationReport | None,
     graph: dict[str, Any] | list[dict[str, Any]] | None,
+    *,
+    validated: bool = False,
 ) -> str:
     """The "About this RO-Crate" card: the build facts the crate itself records
     (the data behind its ``vitro-crate build`` CreateAction), and how this
@@ -628,6 +630,12 @@ def _render_crate_card(
 
     note = ""
     if graph is not None:
+        # The conformance clause states that a SHACL verdict exists — it may
+        # only appear when one does (fresh, not stale): a note that claims a
+        # validation nobody ran is exactly the false green this report bans.
+        conformance = (
+            "conformance from a SHACL validation against the three profiles, " if validated else ""
+        )
         code = '<code class="hcode">{}</code>'
         note = (
             '<div class="hnote">This report is '
@@ -638,7 +646,7 @@ def _render_crate_card(
             + code.format("ro-crate-metadata.json")
             + ": the build facts above come from its "
             + code.format("vitro-crate build")
-            + " CreateAction, conformance from a SHACL validation against the three profiles, "
+            + f" CreateAction, {conformance}"
             "and the FAIR and domain scores from deterministic assessors run over the same "
             "graph. Nothing is fetched at view time and no figure is estimated.</div>"
         )
@@ -755,9 +763,12 @@ def _fair_tile(fair: FAIRReport, blockers: list[str]) -> str:
         if level <= fair.dsm_level:
             rungs += '<span class="rung2 done"></span>'
         elif level == fair.dsm_level + 1:
+            # The ratio is the RDA indicator set, NOT this level's own count —
+            # the red blockers line below carries the per-level number — so the
+            # tooltip names the set rather than implying level progress.
             rungs += (
-                f'<span class="rung2 next" title="Level {level} &mdash; {met} of {assessed} '
-                f'indicators met"><i style="width:{pct}%"></i></span>'
+                f'<span class="rung2 next" title="{met} of {assessed} FAIR indicators met">'
+                f'<i style="width:{pct}%"></i></span>'
             )
         else:
             rungs += '<span class="rung2 off"></span>'
@@ -774,7 +785,7 @@ def _fair_tile(fair: FAIRReport, blockers: list[str]) -> str:
         f'<div class="kpi-v"><b>{fair.dsm_level}</b><span class="den">/ 5</span> '
         '<span class="tag-inline">DSM level<a class="fn" href="#fn-dsm">1</a></span></div>'
         f'<div class="ladder2" role="img" aria-label="DSM level {fair.dsm_level} of 5; '
-        f'{met} of {assessed} indicators met">{rungs}</div>'
+        f'{met} of {assessed} FAIR indicators met">{rungs}</div>'
         f"{blocked}"
         "</article>"
     )
@@ -2610,7 +2621,12 @@ def build_maturity_html(
     subhead = (publication[2] if publication and publication[2] else "") or title
     header = _render_header(title, accession, subhead)
     study_card = _render_study_card(study)
-    crate_card = _render_crate_card(state, val if _validation_has_signal(val) else None, graph)
+    crate_card = _render_crate_card(
+        state,
+        val if _validation_has_signal(val) else None,
+        graph,
+        validated=tiers is not None and not stale,
+    )
 
     # The chemicals inventory is shared between the Chemicals graph view and the
     # Graph tile's source model — one cheap pass over the graph each.

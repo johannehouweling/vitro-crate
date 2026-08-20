@@ -179,7 +179,7 @@ class Action:
     # "base" / "isa" / "tox" / whatever the sweep stamps; "graph" for orphan
     # actions) and that finding's RAW validator message. The report's
     # recommendation rows show the validator's own words next to the
-    # instruction, so both must survive the grouping (#606 handoff).
+    # instruction, so both must survive the grouping (#607 design handoff).
     source: str = ""
     message: str = ""
 
@@ -576,52 +576,43 @@ _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
-# Why the instruction is worth following — one muted clause per `_WANTED` shape,
-# matched the same most-specific-first way. The instruction says what to do; this
-# says what the reader loses while it is not done. A shape with nothing honest to
-# say has no entry and renders no clause — a generic platitude on every row would
-# teach the reader to skip the column.
-_WHY: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("ORCID",), "Resolves the person unambiguously for credit and search."),
-    (("affiliation",), "Ties the person to an institution a registry can resolve."),
-    (("contactPoint", "contact point"), "Gives a reuser someone to ask."),
-    (
-        ("organization SHOULD have a URL", "URL"),
-        "Lets a reader confirm which organisation is meant.",
-    ),
-    (("email",), "Gives a reuser someone to ask."),
-    (
-        ("measurement technique", "measurement method"),
-        "The values cannot be interpreted without it.",
-    ),
-    (("Key Event", "AOP"), "Places the endpoint in its adverse-outcome pathway."),
-    (("creator",), "Says who is responsible for the data."),
-    (("dateCreated", "datePublished", "dateModified"), "Anchors the record in time."),
-    (("description",), "Nobody can tell what it is for without one."),
-    (("termCode",), "Makes the term machine-resolvable."),
-    (
-        ("parameter value", "additional property"),
-        "The exact settings are what a re-run needs.",
-    ),
-    (("protocol",), "Says which procedure the step actually followed."),
-    (("licence", "license"), "Nobody may legally reuse the data without one."),
-    (("identifier",), "Lets other records cite it precisely."),
-    (
-        ("not reachable", "unreachable"),
-        "Unreachable from the root, so no reader will ever see them.",
-    ),
-)
+# Why the instruction is worth following — one muted clause per `_WANTED`
+# instruction, keyed by the instruction itself so the clause can only ever
+# describe the shape whose instruction won (`_wanted` picks it; `why` looks the
+# clause up by that pick). An instruction with nothing honest to say has no
+# entry and renders no clause — a generic platitude on every row would teach
+# the reader to skip the column.
+_WHY: dict[str, str] = {
+    "Add an ORCID": "Resolves the person unambiguously for credit and search.",
+    "Add an institutional affiliation": "Ties the person to an institution a registry can resolve.",
+    "Add a contact email": "Gives a reuser someone to ask.",
+    "Add a website": "Lets a reader confirm which organisation is meant.",
+    "Add an email address": "Gives a reuser someone to ask.",
+    "Say which measurement technique was used": "The values cannot be interpreted without it.",
+    "Say which measurement method was used": "The values cannot be interpreted without it.",
+    "Link the measured endpoint to its AOP-Wiki Key Event":
+        "Places the endpoint in its adverse-outcome pathway.",
+    "Name who created it": "Says who is responsible for the data.",
+    "Add the date it was created": "Anchors the record in time.",
+    "Add the date it was published": "Anchors the record in time.",
+    "Add the date it was last modified": "Anchors the record in time.",
+    "Add a description": "Nobody can tell what it is for without one.",
+    "Add the ontology code": "Makes the term machine-resolvable.",
+    "Record the parameters used": "The exact settings are what a re-run needs.",
+    "Link the protocol it follows": "Says which procedure the step actually followed.",
+    "Add a reuse licence": "Nobody may legally reuse the data without one.",
+    "Add an identifier": "Lets other records cite it precisely.",
+}
 
 
 def why(action: Action) -> str:
     """The one-clause consequence for *action*, or ``""`` when nothing honest
-    fits. Matched over the action's findings the way ``_wanted`` matches, so the
-    clause and the instruction always describe the same shape."""
-    blob = " ".join(action.findings)
-    for needles, clause in _WHY:
-        if any(needle in blob for needle in needles):
-            return clause
-    return ""
+    fits. Looked up by the instruction `_wanted` picked for the same findings,
+    so the clause and the instruction always describe the same shape."""
+    if action.kind == "orphan":
+        them = "it" if action.cleared == 1 else "them"
+        return f"A consumer walking the crate from its root never reaches {them}."
+    return _WHY.get(_wanted(action.findings), "")
 
 
 def _wanted(messages: list[str]) -> str:
@@ -701,6 +692,11 @@ def _merge_identical(actions: list[Action]) -> list[Action]:
                 findings=[m for a in group for m in a.findings],
                 impact=min(a.impact for a in group),
                 tier=_strongest([a.tier for a in group]),
+                # The finding signatures are identical across the group, so any
+                # member's representative message speaks for the merge — losing
+                # it here silently un-quoted the validator on merged rows.
+                source=group[0].source,
+                message=group[0].message,
             )
         )
     merged.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))

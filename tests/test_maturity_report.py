@@ -240,7 +240,7 @@ class TestEmbeddedInCrate:
 
 
 class TestHeaderAndCards:
-    """#606 handoff: accession headline, subhead, and the two header cards."""
+    """#607 design handoff: accession headline, subhead, and the two header cards."""
 
     def _state(self) -> CrateState:
         state = vhps_fixture_state("S-VHPS21")
@@ -1408,7 +1408,7 @@ class TestChemicalsSection:
         assert "cas_rn=1162-65-8%22%3E%3Cscript%3Ex%3C%2Fscript%3E" in page
 
     def test_the_kpi_grid_has_no_chemicals_tile(self) -> None:
-        """#606 handoff: the chemicals KPI tile is removed — the Chemicals
+        """#607 design handoff: the chemicals KPI tile is removed — the Chemicals
         graph view carries the wiring and identification facts."""
         page = self._page(wire=False)
         grid = re.search(r'<div class="kgrid">.*?</div>\n', page, re.S)
@@ -2848,7 +2848,7 @@ class TestEveryClassTheReportEmitsIsStyled:
 
 
 class TestRecommendationRows:
-    """#606 handoff: each row is the validator's own shape message in a mono
+    """#607 design handoff: each row is the validator's own shape message in a mono
     chip prefixed by its source layer, the severity badge, then the bold
     plain-language instruction with one muted clause on why it matters."""
 
@@ -2928,9 +2928,51 @@ class TestRecommendationRows:
         assert "Add a reuse licence" in section
         assert "Nobody may legally reuse the data without one." in section
 
+    def test_a_merged_row_keeps_the_validator_chip(self) -> None:
+        """Entities folded into one "entities" action share a finding
+        signature, so the merged row still quotes the validator — losing the
+        chip on merge silently broke the section's own lead claim."""
+        from builder.tools.validation import ValidationReport
+        from builder.writers.maturity_report import _render_recommendations
+
+        val = ValidationReport()
+        val.base_passed = True
+        val.issue_records = [
+            {"profile": "isa", "severity": "recommended", "entity_id": eid, "message": m}
+            for eid in ("#p1", "#p2")
+            for m in (
+                "Person SHOULD have an ORCID",
+                "Person SHOULD have an affiliation",
+            )
+        ]
+        section = _render_recommendations(val, None)
+        assert (
+            '<code class="rec-chip">ISA &middot; Person SHOULD have an ORCID</code>' in section
+        )
+
+    def test_the_provenance_note_claims_shacl_only_when_a_verdict_exists(self) -> None:
+        """The crate-card note may say "conformance from a SHACL validation"
+        only when a fresh verdict exists — a note claiming a validation nobody
+        ran is the same false green the matrix refuses to show."""
+        graph = {"@graph": [{"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                            {"@id": "./", "@type": "Dataset", "name": "T"}]}
+        unvalidated = build_maturity_html(CrateState(), graph=graph)
+        assert "This report is" in unvalidated
+        assert "SHACL" not in unvalidated.split("</style>", 1)[-1]
+        state = vhps_fixture_state("S-VHPS21")
+        validated = build_maturity_html(
+            state,
+            validation=ValidationReport(
+                base_passed=True, isa_passed=True, tox_passed=True,
+                input_fingerprint=state.validation_fingerprint(),
+            ),
+            graph=graph,
+        )
+        assert "conformance from a SHACL validation against the three profiles" in validated
+
     def test_no_meta_line_and_no_set_aside_bucket(self) -> None:
         """The "N actions clear M findings" meta line and the "left open on
-        purpose" aside are gone on the owner's call (#606 handoff)."""
+        purpose" aside are gone on the owner's call (#607 design handoff)."""
         section = self._section()
         assert "actions clear" not in section
         assert "left open on purpose" not in section

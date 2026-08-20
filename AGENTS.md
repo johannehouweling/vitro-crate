@@ -1828,7 +1828,7 @@ cost to export — validation stays a separate step), FAIR indicators + DSM leve
 (`assess_fair_maturity`, with `dsm_blockers` naming what stands before the next level), OECD MIT
 coverage (`assess_mit_coverage`), and a derived reproducibility-readiness checklist.
 
-The page follows the #606 design handoff: a header whose headline is the **accession** (subhead: the
+The page follows the maturity-report design handoff (PR #607 records it): a header whose headline is the **accession** (subhead: the
 publication's name when the crate has one, else the study title), an **About this study** card
 (contact/affiliation/funder/licence/publication+dataset DOI — every value a fact the crate holds or
 an honest *not stated*, never a guess) and an **About this RO-Crate** card (the build facts behind
