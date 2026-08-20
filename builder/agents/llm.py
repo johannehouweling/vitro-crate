@@ -137,7 +137,7 @@ def _detect_provider() -> str | None:
 
 
 # Per-request wall-clock timeout default (seconds) for the chat model when no
-# VITRO_REQUEST_TIMEOUT is set. A real --legacy-react run hung with a 349s+ model
+# VITRO_REQUEST_TIMEOUT is set. A real --react run hung with a 349s+ model
 # invoke and no timeout, so the turn never ended and the #254 backstop never ran.
 _DEFAULT_REQUEST_TIMEOUT = 600.0
 
@@ -145,7 +145,7 @@ _DEFAULT_REQUEST_TIMEOUT = 600.0
 def _get_request_timeout() -> float:
     """Return the per-request wall-clock timeout (seconds) for the chat model.
 
-    Issue #263: a real ``--legacy-react`` run hung when the final model invoke
+    Issue #263: a real ``--react`` run hung when the final model invoke
     ran 349s+ with no response and no timeout, so the turn never ended and the
     #254 finish-backstop never exported. A finite request timeout is the first
     line of defence (the loop's wall-clock guard in :func:`_invoke_with_timeout`

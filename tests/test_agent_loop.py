@@ -1420,7 +1420,7 @@ class TestFinishBackstop:
 
 
 # ---------------------------------------------------------------------------
-# Issue #263: legacy-react stall recovery (Fix A) + autonomous continuation
+# Issue #263: ReAct stall recovery (Fix A) + autonomous continuation
 # (Fix B). The model / app.invoke are stubbed; no real LLM or network.
 # ---------------------------------------------------------------------------
 

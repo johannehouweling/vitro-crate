@@ -1050,12 +1050,12 @@ def _emit_auto_export(engine: AgentEngine, message: str) -> None:
 def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
     """Export the crate to disk after a successful in-loop ``build_and_validate``.
 
-    Issue #287 Fix A: the legacy ReAct loop only wrote a crate via the finish
+    Issue #287 Fix A: the ReAct loop only wrote a crate via the finish
     backstop, which runs on the EXIT path (quit/EOF). In a live run the user kept
     the session alive, the weak model never called ``export_crate``, and a fully
     built, base-VALID crate (70+ entities) was NEVER written. The deterministic
     pipeline already exports on every completed build (#233); this brings the
-    legacy loop in line.
+    ReAct loop in line.
 
     Fires when, and only when:
       * the crate has entities (an empty crate has nothing to write), AND
@@ -4162,7 +4162,7 @@ def run_interactive_agent(
             without a kickoff the loop greets and blocks having done no work
             (#412). Blank/whitespace is treated as absent. After this seeded turn
             the autonomous loop takes over exactly as it does for a typed line.
-        verbose: Show bounded, sanitized diagnostics when a legacy model turn
+        verbose: Show bounded, sanitized diagnostics when a ReAct model turn
             raises. The default preserves the generic error message.
     """
     from langchain_core.messages import AIMessage, HumanMessage
@@ -4445,7 +4445,7 @@ def run_interactive_agent(
                 "message": greeting_diagnostic["message"],
                 "exception_chain": greeting_diagnostic["exception_chain"],
                 "traceback_tail": greeting_diagnostic["traceback_tail"],
-                "stage": "legacy_greeting",
+                "stage": "react_greeting",
             }
             # Recorded whether or not -v was passed: the diagnostic is already
             # redacted and length-capped, and it goes to the profile, not the
@@ -4457,7 +4457,7 @@ def run_interactive_agent(
                 engine.profiler.log_event(**diagnostic_record)
         if verbose and outcome == "error" and greeting_diagnostic:
             console.print(
-                f"[yellow]Legacy greeting error[/yellow]: {greeting_diagnostic['exception_chain']}"
+                f"[yellow]ReAct greeting error[/yellow]: {greeting_diagnostic['exception_chain']}"
             )
             if greeting_diagnostic["traceback_tail"]:
                 console.print(
@@ -4653,7 +4653,7 @@ def run_interactive_agent(
                     "message": diagnostic["message"],
                     "exception_chain": diagnostic["exception_chain"],
                     "traceback_tail": diagnostic["traceback_tail"],
-                    "stage": "legacy_model_turn",
+                    "stage": "react_model_turn",
                 }
                 if engine.profiler is not None:
                     engine.profiler.log_event(**diagnostic_record)
@@ -4663,7 +4663,7 @@ def run_interactive_agent(
                 )
             if verbose and diagnostic:
                 console.print(
-                    "[yellow]Legacy model error[/yellow]: "
+                    "[yellow]ReAct model error[/yellow]: "
                     f"{diagnostic['exception_type']}: {diagnostic['message']}"
                 )
                 if diagnostic["traceback_tail"]:

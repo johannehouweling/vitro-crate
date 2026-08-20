@@ -38,7 +38,7 @@ The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists re
 > actively-explored architectures over the same toolbox** (see §14): a
 > **deterministic pipeline + HITL guidance tail** (the `--interactive` default —
 > code owns the step ordering, the LLM is confined to bounded leaves) and the
-> **ReAct agent loop** (`--legacy-react` — the LLM orchestrates tool calls). Both
+> **ReAct agent loop** (`--react` — the LLM orchestrates tool calls). Both
 > are maintained; this is an ongoing A/B exploration, **not** a migration that ends
 > in deleting ReAct. The rest of §1–§4 describes the ReAct loop; §14 describes the
 > deterministic pipeline and the relationship between the two.
@@ -298,7 +298,7 @@ list_scanned_files …". `read_file_sample`'s `lines` argument controls how much
 of each tool's call args (`run_tool: read_file(path='…')`) so the recorded action
 shows *which* path/hints a tool ran with, not just its result.
 
-**Repeated non-progress loop-breaker (Issue #287, legacy ReAct only):** even with
+**Repeated non-progress loop-breaker (Issue #287, ReAct only):** even with
 the directory/`None` messages above, a weak model (DeepSeek-flash) re-issued the
 *same* `read_file_sample`/`read_file` call on a directory / non-existent path ~36×
 in a row, burning millions of tokens. The `_run` wrapper in `_build_langchain_tools`
@@ -581,7 +581,7 @@ These packages are imported directly — we do not fork or vendor them. Version 
 
 ### Agent Graph (LangGraph / StateGraph)
 
-> This section describes the **ReAct variant** (`--interactive --legacy-react`),
+> This section describes the **ReAct variant** (`--interactive --react`),
 > one of the two first-class build paths (§14). It is a **supported, maintained**
 > architecture, not a deprecated one; the deterministic pipeline (the
 > `--interactive` default) is described in §14.
@@ -817,7 +817,7 @@ entity when found, so the build appends it as a third `DTXSID` identifier
 PropertyValue after `[CAS, PubChem CID]`. It is D5-safe (the value comes straight
 from CompTox, never fabricated) and **non-fatal** — a CompTox miss or outage never
 sinks an already-resolved compound. (Before #179 `lookup_dtxsid` had no
-deterministic-pipeline caller — it was reachable only from the legacy ReAct loop,
+deterministic-pipeline caller — it was reachable only from the ReAct loop,
 so the default path silently dropped DTXSID for every compound.)
 Looked-up identifier fields win over same-named caller `hints`. **Dedup is
 by resolved chemical IDENTITY, not by name** (Issue #179): after a successful
@@ -1466,16 +1466,22 @@ it. Three properties are load-bearing and tested in `tests/test_smoke_test_mode.
   reading an optional `synthesizes_answers` attribute, mirroring `is_interactive`).
   Nothing is written **into** the crate — a "this was a smoke test" marker in the
   metadata would be fabricating metadata, which D5 forbids.
-- **`select_many` skips and `is_done()` is always `False`.** A multi-select has no
-  pre-selection to confirm, so picking a subset would be inventing an answer; and a
-  mode that volunteered "done" would return before asking anything, exercising
-  nothing. Termination is left to `run_guidance`'s own guards (report exhausted /
-  no progress / `max_rounds`), which never depend on a cooperating frontend.
+- **`select_many` skips and `is_done()` is `False` unless a budget was given.** A
+  multi-select has no pre-selection to confirm, so picking a subset would be
+  inventing an answer; and a mode that volunteered "done" would return before
+  asking anything, exercising nothing. Without a budget, termination is left to
+  `run_guidance`'s own guards (report exhausted / no progress / `max_rounds`), which
+  never depend on a cooperating frontend. `--smoke-test MINUTES` gives the run a
+  wall-clock budget: once it is spent `is_done()` is `True`, and `run_guidance`
+  consults it at the top of each round so the run winds down between gaps (never
+  mid-question) and exports what it has.
 
 `--smoke-test` implies `--interactive` (normalised once, in `parse_args`) and
-**refuses `--legacy-react` with a non-zero exit**: the ReAct loop reads the
-conversation from stdin (`ui.boxed_input`), not through the `HumanInterface`, so a
-synthetic interface cannot answer it and the run would hang.
+**drives both arms**: the ReAct loop's conversational "what next?" read goes through
+the `HumanInterface` (`CONVERSATION_FIELD_TYPE`) when the answers are synthetic, so
+the harness answers it for a bounded number of turns (`conversation_turns`) or, with
+`--smoke-test MINUTES`, until the budget is spent, then ends the session the way
+Ctrl+D does.
 
 ## 9. Input & Output Formats
 
@@ -1982,7 +1988,7 @@ A/B (`eval/`, gpt-5.6-luna, 5-case corpus, repeats=3) both arms reach 5/5
 conformance, but the pipeline self-terminates every case at ~$0.05 while ReAct costs
 ~39× as much (~$2.07, ~69× the tokens, ~6.7× the wall-clock) with 3 of its 5 wins
 force-stopped at the recursion cap. ReAct stays a supported variant
-(`--legacy-react`) for flexible conversational exploration. The success metric is
+(`--react`) for flexible conversational exploration. The success metric is
 profile conformance (base + isa + tox) plus an entity-count quota — **not** scientific
 accuracy.
 
@@ -2061,7 +2067,7 @@ vitro-crate/
 │       │   ├── pipeline.py        Pipeline spine (run_pipeline)
 │       │   ├── guidance.py        HITL guidance tail (run_guidance)
 │       │   └── leaves.py          Bounded LLM extraction leaves (drafter tier)
-│       └── react/               ReAct StateGraph mode (legacy, --legacy-react)
+│       └── react/               ReAct StateGraph mode (--react)
 │           ├── agent_loop.py      ReAct StateGraph loop
 │           ├── system_prompt.py   ReAct system prompt
 │           └── tools_spec.py      TOOL_SPECS advertised to the ReAct LLM + the registry-parity contract (#327)
@@ -2086,7 +2092,7 @@ so parallel runs are straightforward); and a **profiling dashboard** tailing the
 The default `main.py --interactive` build is a **deterministic pipeline + HITL
 guidance tail** over the shared toolbox (§5): code owns the step ordering and the
 LLM is confined to bounded leaves. The ReAct agent loop (§4 "Agent Graph",
-`--legacy-react`) is the supported alternative — §1 states the two-variant
+`--react`) is the supported alternative — §1 states the two-variant
 relationship and **D15** records the A/B evidence for why the pipeline is the
 default. This section documents the pipeline and its guidance tail.
 
@@ -2196,7 +2202,7 @@ re-implementation. Its parts:
   HITL `run_guidance` loop (§14.6.1), invoked *around* the spine by
   `run_interactive_build` for real interactive users only.
 
-The ReAct loop remains a fully-supported alternative behind `--legacy-react`; its
+The ReAct loop remains a fully-supported alternative behind `--react`; its
 `should_continue` graph and its `system_prompt.py` orchestration prose are kept intact.
 
 #### The drafter-leaf (`leaves.py`)
@@ -2335,7 +2341,7 @@ persistence". The sequence:
 guidance tail is invoked *around* it by the interactive entrypoint
 (`run_interactive_build`, §14.6.1), never inside the spine, so the A/B eval can
 drive the spine non-interactively. Post-A/B-gate (§14 status block) this spine is the
-**default** `main.py --interactive` build; ReAct is opt-in via `--legacy-react`.
+**default** `main.py --interactive` build; ReAct is opt-in via `--react`.
 
 **Determinism contract:** with **no LLM provider configured** the drafter-leaf
 step (2) is a strict no-op, so every step is deterministic and the same input
@@ -2356,7 +2362,7 @@ factory, so `python -m eval --arch pipeline --label pipeline` runs the same
 corpus/metrics/report against the spine — diffable vs the frozen `react-baseline`.
 The spine calls **no model**, so it runs in CI for real (zero tokens).
 
-The pre-migration ReAct baseline is frozen at git tag **`react-baseline`** for the A/B.
+The ReAct run used for the original A/B is frozen at git tag **`react-baseline`**.
 
 ### 14.6 The hybrid build loop and the gap engine (`builder/tools/gap_analysis.py`)
 
@@ -2578,7 +2584,7 @@ HITL and lives **outside** the spine, in the interactive entrypoint
 `run_build(mode, engine, *, provider=None, model=None, base_url=None, output=None,
 resumed=False, initial_prompt=None)` dispatches to it — `PIPELINE` →
 `run_interactive_build` (below), `REACT` → `run_interactive_agent` (§4). `main.py` derives the mode from
-`--legacy-react` (`BuildMode.from_cli`) and the eval harness maps its `--arch`
+`--react` (`BuildMode.from_cli`) and the eval harness maps its `--arch`
 string onto the same enum (`BuildMode(arch)`), so A/B is chosen in **one** place
 (#309).
 
@@ -2627,7 +2633,7 @@ sequence a real user runs. It:
 **The on-disk export (#233).** Before #233 the pipeline path built + validated in
 memory and exited **without writing anything** — `export_crate`
 (`builder/tools/builder.py`, the only disk writer) was never called on this path
-(only the legacy ReAct loop exported, because the LLM chose to). The export is now
+(only the ReAct loop exported, because the LLM chose to). The export is now
 the deterministic **final step** of `run_interactive_build`, on **every** completed
 build (interactive *and* headless), so the user always gets a crate on disk and
 `--output` has an effect. The destination is resolved by `export_crate` from
@@ -2637,11 +2643,11 @@ logged, surfaced via `output`, and re-raised as `CrateExportError` so the CLI
 signals a non-zero exit. The exporter is injectable so the wiring is unit-tested
 with no ro-crate-py / disk (`tests/test_agents_build.py`).
 
-**Legacy ReAct now mirrors this (#287).** "only the legacy ReAct loop exported,
-because the LLM chose to" was itself a bug: in a live `--legacy-react` run the weak
+**The ReAct loop mirrors this (#287).** "only the ReAct loop exported,
+because the LLM chose to" was itself a bug: in a live `--react` run the weak
 model *never* chose `export_crate` while the user kept the session alive, so a
 base-valid 70+-entity crate was never written (`_finish_backstop`, #251, only runs
-on the quit/EOF exit path). The legacy loop now auto-exports on **every** completed
+on the quit/EOF exit path). The ReAct loop now auto-exports on **every** completed
 in-loop build too: `_auto_export_after_build` in `builder/agents/react/agent_loop.py` fires
 after a `build_and_validate` that passes **base** conformance over a non-empty crate,
 calling `export_crate` with no explicit path (same destination resolution as above),
@@ -2662,7 +2668,7 @@ the two exit paths (quit and EOF) cannot double-export.
 
 **Progress + persistence (#241 / #242).** Before these the default `--interactive`
 (pipeline) path *felt dead*: the deterministic spine ran for ~tens of seconds with
-**no output** (it looked frozen — the legacy ReAct loop had a live spinner, the
+**no output** (it looked frozen — the ReAct loop had a live spinner, the
 pipeline had nothing, #241) and **never persisted CrateState** (so a concurrent
 `--dashboard`, which loads + watches `sessions/<id>/crate_state.json`, showed "No
 CrateState data available" and never live-updated even though a full crate was built

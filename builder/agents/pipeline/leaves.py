@@ -234,7 +234,7 @@ _PLAN_SYSTEM_PROMPT = (
     "confirm in 'notes'. "
     # #258: the test/control compounds are very often named ONLY in the data
     # FILENAMES, not in prose — direct the model to mine them from the
-    # scanned-files inventory (the legacy ReAct path inferred them this way).
+    # scanned-files inventory (the ReAct path inferred them this way).
     "IMPORTANT — find the test/control compounds by reading the DATA FILENAMES "
     "in the scanned-files inventory as well as any prose, JSON, or README "
     "bodies. Data files are routinely named after the chemical(s) they hold, "
@@ -475,7 +475,7 @@ def extract_plan(
     The compounds in particular are mined from the **data FILENAMES** in the
     scanned-files inventory as well as from prose/JSON/README bodies (#258): data
     files are routinely named after the chemical(s) they hold (e.g.
-    ``…_Silychristin+Verapamil.xlsx``), and the legacy ReAct path recovered the
+    ``…_Silychristin+Verapamil.xlsx``), and the ReAct path recovered the
     test articles exactly that way, so the prompt directs the model to propose
     each chemical token in a filename stem as a candidate compound NAME (D5: name
     only — the CAS/CID come later from ``resolve_compound``).

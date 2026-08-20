@@ -911,7 +911,7 @@ def _select_process_for_protocol(steps: list[dict[str, Any]], process_hint: str)
 # so the no-provider crate was structurally hollow: `lab_processes: []`,
 # `files: []`. Both shapes are deterministic given the Assay + the scanned-file
 # inventory the engine already carries, so the spine now drafts them in *code*,
-# regardless of whether a provider is configured — the legacy ReAct path did
+# regardless of whether a provider is configured — the ReAct path did
 # both, and the deterministic spine must too.
 
 # The standard in-vitro derivation chain (AGENTS.md §14.3 / the gold S-VHPS21

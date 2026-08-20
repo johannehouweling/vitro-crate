@@ -5,7 +5,7 @@ This is the *whole-spine* counterpart to the unit-level
 :func:`builder.agents.pipeline.pipeline.run_pipeline` loop (scaffold → ``_materialize_plan``
 → enrich → build/validate → fix) with the **bounded LLM leaves stubbed** and the
 composites' network lookups replaced by deterministic canned data, then locks in
-the three claims the §14 ReAct→deterministic-pipeline migration rests on:
+the three claims that make the deterministic pipeline the §14 default arm:
 
 1. **Conformance.** With a realistic candidate plan for a complete in-vitro tox
    study, the deterministic spine builds a crate that passes ``{base, isa, tox}``

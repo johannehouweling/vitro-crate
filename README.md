@@ -1,6 +1,6 @@
 # ISA-Tox RO-Crate Builder (vitro-crate)
 
-LLM-assisted builder for profile-conformant RO-Crates of *in vitro* toxicology data.
+LLM-assisted builder for profile-conformant RO-Crates of in vitro toxicology data.
 
 [![CI](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml/badge.svg)](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml)
 
@@ -8,9 +8,9 @@ The builder is a toolbox-based agent system that helps researchers create ISA-To
 
 ---
 
-## Quick Start
+## Getting started
 
-### Prerequisites
+### Requirements
 
 - **Python ≥ 3.12**
 - **[uv](https://docs.astral.sh/uv/)** (recommended package manager)
@@ -31,12 +31,11 @@ uv sync
 uv sync --extra langchain
 ```
 
-Behind a corporate proxy or a private CA? Nothing extra to install — see
-[Corporate / Private CA Certificates](#corporate--private-ca-certificates).
+Behind a corporate proxy or a private CA? See [Corporate / Private CA Certificates](#corporate--private-ca-certificates).
 
 ### Set up your LLM provider
 
-The builder uses an LLM agent (powered by LangChain) to orchestrate crate creation. There are **two ways** to configure it:
+The builder uses an LLM agent to orchestrate crate creation. There are **two ways** to configure it:
 
 #### Option A: First-run wizard (easiest)
 
@@ -111,7 +110,7 @@ export VITRO_ANTHROPIC_DRAFTER_MODEL="claude-haiku-4"
 
 ## Usage
 
-### Interactive build mode (recommended)
+### Interactive build mode
 
 `--interactive` offers **two supported build architectures over the same toolbox**.
 Both are maintained — pick the one that fits how you want to work:
@@ -119,7 +118,7 @@ Both are maintained — pick the one that fits how you want to work:
 | Variant | Flag | What it does | When to pick it |
 | --- | --- | --- | --- |
 | **Deterministic pipeline + HITL guidance** (default) | `--interactive` | Code drives the known step ordering (scaffold the ISA backbone, draft and materialize entities, validate, auto-fix REQUIRED issues), then walks you through any remaining gaps it can't close on its own. | You want a **deterministic, cheaper, reproducible** build. It is the default: on the shared-corpus A/B both arms reach full ISA-Tox conformance, but the pipeline gets there ~39× cheaper and ~6.7× faster, self-terminating every case where the ReAct loop repeatedly runs to its recursion cap. |
-| **Conversational ReAct agent** | `--interactive --legacy-react` | An LLM agent decides the order of tool calls turn by turn. | You want **flexible, conversational exploration** and to let the model drive. |
+| **Conversational ReAct agent** | `--interactive --react` | An LLM agent decides the order of tool calls turn by turn. | You want **flexible, conversational exploration** and to let the model drive. |
 
 Both variants are first-class and actively maintained — this is an ongoing
 exploration, not a one-way migration. See the architecture docs (`AGENTS.md` §14)
@@ -137,10 +136,10 @@ uv run python -m main --interactive --provider openai --model gpt-4o-mini
 uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
 
 # Conversational ReAct agent (supported alternative):
-uv run python -m main --interactive --legacy-react
+uv run python -m main --interactive --react
 
 # …and start it working straight away instead of waiting for you to type:
-uv run python -m main --interactive --legacy-react -i /path/to/experiment/ \
+uv run python -m main --interactive --react -i /path/to/experiment/ \
     --prompt "build the crate"
 ```
 
@@ -149,16 +148,19 @@ producing a crate you would keep. It runs the same interactive build with nobody
 the keyboard: every choice prompt confirms its **pre-selected** option and every
 open field is answered with the literal string `"yes, continue"`. That is how the
 HITL path — including the guidance tail, which only runs behind a real interactive
-frontend — can be exercised end to end in CI or a scripted check.
+frontend — can be exercised end to end in CI or a scripted check. It takes an
+optional wall-clock budget in minutes (`--smoke-test 20`): the run winds down at its
+next question once the time is spent and exports what it has; without one it
+drives a few turns and stops.
 
 ```bash
 uv run python -m main --smoke-test -i /path/to/experiment/
 ```
 
-- It **implies `--interactive`** (on its own it would have nothing to answer), and
-  it **refuses `--legacy-react`** with a clear error: the ReAct loop reads your
-  replies straight from stdin rather than through the HITL interface, so nothing
-  can answer it unattended.
+- It **implies `--interactive`** (on its own it would have nothing to answer) and
+  **drives both arms**: with `--react` it also answers the agent's conversational
+  "what next?" prompts for a bounded number of turns (or, with `--smoke-test
+  MINUTES`, until the budget is spent), then ends the session the way Ctrl+D would.
 - The run prints a prominent notice that the answers are synthetic — once at the
   start, and again next to the exported crate path. Nothing is written *into* the
   crate: `"yes, continue"` lands in prose fields (a name, a description), so the
@@ -286,18 +288,24 @@ Options:
   -r, --resume SESSION   Resume a previous session by ID
   -I, --interactive      Run in interactive build mode: deterministic pipeline +
                          HITL guidance tail (requires LangChain + API key)
-      --legacy-react     With --interactive, use the legacy ReAct agent loop
-                         instead of the default pipeline+guidance build
-      --smoke-test       TESTING: drive the interactive build with nobody at the
+      --react            With --interactive, use the ReAct agent loop (the LLM
+                         orchestrates the tool calls) instead of the default
+                         pipeline+guidance build
+      --smoke-test [MINUTES]
+                         TESTING: drive the interactive build with nobody at the
                          keyboard — confirm every pre-selected choice, answer
                          every open field "yes, continue". Implies --interactive;
-                         refuses --legacy-react. The crate it writes holds
-                         synthesised answers, not curated metadata
+                         works on both arms. Takes an optional wall-clock budget
+                         in minutes (--smoke-test 20): the run winds down at its
+                         next question once the time is spent and exports what it
+                         has; without one it drives a few turns and stops. The
+                         crate it writes holds synthesised answers, not curated
+                         metadata
   -p, --provider STR     LLM provider: 'openai' or 'anthropic' (auto-detected from env)
   -m, --model STR        Model name override (e.g. gpt-4o-mini, llama3.2, claude-sonnet-4)
   -b, --api-base URL     Custom API base URL for OpenAI-compatible providers
                          (e.g. http://localhost:11434/v1 for Ollama)
-  -C, --configure        Run the interactive setup wizard to configure LLM provider
+      --configure        Run the interactive setup wizard to configure LLM provider
       --show-config      Show current LLM configuration and exit
   -v, --verbose          Increase verbosity (-v = INFO, -vv = DEBUG)
                             -v: INFO level — normal progress messages

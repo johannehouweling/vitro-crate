@@ -7,7 +7,7 @@ orchestration differs (Issue #309):
 - :mod:`builder.agents.pipeline` — the deterministic, code-orchestrated spine
   (``--interactive`` default): ``pipeline``, ``guidance``, ``leaves``.
 - :mod:`builder.agents.react` — the LLM-orchestrated ReAct StateGraph
-  (``--legacy-react``): ``agent_loop``, ``system_prompt``, ``tools_spec``.
+  (``--react``): ``agent_loop``, ``system_prompt``, ``tools_spec``.
 
 :mod:`builder.agents.build` dispatches to the selected mode.
 """

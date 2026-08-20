@@ -1753,7 +1753,7 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
 
 class TestMaterializeCompoundsFromFilenames:
     """#258 — the DEFAULT pipeline path must end-to-end turn compound-bearing
-    DATA FILENAMES into MolecularEntities (the legacy ReAct path got 22; the
+    DATA FILENAMES into MolecularEntities (the ReAct path got 22; the
     default path got 0). This drives the REAL ``extract_plan`` leaf (its chat
     model faked offline to return the filename-derived compound NAMES the enriched
     prompt steers a model toward) through ``_materialize_plan`` with the compound

@@ -216,7 +216,7 @@ class TestResolveCompoundDtxsid:
 
     DTXSID is a first-class ISA-Tox chemical identifier that the deterministic
     pipeline previously never produced — ``lookup_dtxsid`` had NO pipeline caller
-    (it was reachable only from the legacy ReAct loop). resolve_compound now does
+    (it was reachable only from the ReAct loop). resolve_compound now does
     a best-effort CompTox lookup after the primary resolution and stores the
     DTXSID on the entity, so the build's identifier-PV path emits it alongside
     CAS + PubChem CID. D5-safe: the value comes straight from CompTox (the

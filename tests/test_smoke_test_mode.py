@@ -364,7 +364,7 @@ class TestTheRunSaysTheAnswersAreSynthetic:
 
 
 class TestTheConversationTerminates:
-    """The bound that makes ``--smoke-test --legacy-react`` finite.
+    """The bound that makes ``--smoke-test --react`` finite.
 
     Every OTHER channel this mode drives stops on its own: guidance runs out of
     gaps, the report runs out of findings, ``max_rounds`` bounds the rest. A
@@ -620,7 +620,7 @@ class TestCli:
         assert args.smoke_test is True
         assert args.interactive is True
 
-    def test_legacy_react_is_driven_not_refused(self, monkeypatch, capsys, tmp_path):
+    def test_react_is_driven_not_refused(self, monkeypatch, capsys, tmp_path):
         """The combination this mode most needs, and the one it used to refuse.
 
         The refusal was real while it stood: the ReAct loop read its conversation
@@ -642,7 +642,7 @@ class TestCli:
             lambda engine, *a, **kw: seen.append(engine.human_interface),
         )
 
-        assert main(["--smoke-test", "--legacy-react", "--input", str(d)]) == 0
+        assert main(["--smoke-test", "--react", "--input", str(d)]) == 0
         assert len(seen) == 1, "the ReAct loop must actually be started"
         assert isinstance(seen[0], SmokeTestHumanInterface)
         # The notice is not skipped just because this is the other arm.

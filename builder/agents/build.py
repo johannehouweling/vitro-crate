@@ -88,15 +88,15 @@ class BuildMode(enum.Enum):
     """
 
     PIPELINE = "pipeline"  # deterministic, code-orchestrated (--interactive default)
-    REACT = "react"  # LLM-orchestrated ReAct loop (--legacy-react)
+    REACT = "react"  # LLM-orchestrated ReAct loop (--react)
 
     @classmethod
-    def from_cli(cls, *, legacy_react: bool) -> BuildMode:
+    def from_cli(cls, *, react: bool) -> BuildMode:
         """Map the CLI mode flags to a :class:`BuildMode`.
 
-        ``--legacy-react`` selects :attr:`REACT`; the default is :attr:`PIPELINE`.
+        ``--react`` selects :attr:`REACT`; the default is :attr:`PIPELINE`.
         """
-        return cls.REACT if legacy_react else cls.PIPELINE
+        return cls.REACT if react else cls.PIPELINE
 
 
 class CrateExportError(RuntimeError):
@@ -282,7 +282,7 @@ def run_build(
 
     :attr:`BuildMode.PIPELINE` runs the deterministic spine + HITL guidance tail
     (:func:`run_interactive_build`) and returns its result dict.
-    :attr:`BuildMode.REACT` runs the legacy LLM-orchestrated loop
+    :attr:`BuildMode.REACT` runs the LLM-orchestrated ReAct loop
     (:func:`builder.agents.react.agent_loop.run_interactive_agent`), which mutates
     ``engine.state`` in place and has no structured return, so this returns
     ``None``.
@@ -312,7 +312,7 @@ def run_build(
         initial_prompt: ReAct-only opening message, so the loop starts working
             instead of blocking on stdin (#412). Ignored for ``PIPELINE``, which
             has no stdin gate — the spine runs unprompted.
-        verbose: Show bounded diagnostics for legacy ReAct model errors. Ignored
+        verbose: Show bounded diagnostics for ReAct model errors. Ignored
             by the pipeline mode.
 
     Returns:
@@ -329,7 +329,7 @@ def run_build(
             "resumed": resumed,
             "initial_prompt": initial_prompt,
         }
-        # Preserve the exact legacy call shape for callers that omit the new
+        # Preserve the original call shape for callers that omit the verbose
         # flag; the ReAct runner's default remains False.
         if verbose:
             react_kwargs["verbose"] = True
