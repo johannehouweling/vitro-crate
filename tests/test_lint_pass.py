@@ -1,8 +1,9 @@
 """Tests that the source code passes ruff linting.
 
-This prevents regression on the CI lint step (uvx ruff check).
-Note: ruff's pyproject.toml excludes tests/ from checking, so this
-test only verifies the builder/ source code, not the tests themselves.
+This guards the CI lint step, so it runs **the command CI runs** — bare
+``ruff check``, whose scope pyproject already sets (tests/ excluded). It used to
+pass ``builder/``, which is narrower: a violation in ``main.py``, ``eval/`` or
+``scripts/`` passed here and failed CI, while the docstring claimed otherwise.
 """
 
 from __future__ import annotations
@@ -12,9 +13,9 @@ import sys
 
 
 def test_ruff_lint_passes() -> None:
-    """Ruff lint must pass with zero errors on builder/ source code."""
+    """Ruff lint must pass with zero errors everywhere CI checks."""
     result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "builder/"],
+        [sys.executable, "-m", "ruff", "check"],
         capture_output=True,
         text=True,
     )
