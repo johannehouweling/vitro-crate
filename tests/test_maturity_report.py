@@ -1445,7 +1445,12 @@ class TestDatasetsPanel:
         assert "loose.csv" in rows[0] and 'class="mk no"' in rows[0]
         assert "measurements_raw.csv" in rows[1]
         assert "text/csv" in rows[1] and "2 KB" in rows[1]
-        assert "raw data" in rows[1]
+        # The muted span states the file's PATH — its @id in the crate — not a
+        # kind word (review comment: "should state the file paths"). A file
+        # whose display name IS its path gets no duplicate span.
+        assert '<span class="ty">a.csv</span>' in rows[1]
+        assert "raw data" not in panel
+        assert '<span class="ty">' not in rows[0]
         assert "1 of 2 data entities cannot be reached" in panel
 
     def test_no_data_entities_drops_the_tab(self) -> None:

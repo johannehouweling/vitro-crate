@@ -1991,16 +1991,6 @@ def _render_graph_views_section(
     )
 
 
-# Reader-facing words for `classify_file`'s classes, in reading order.
-_DATA_CLASS_WORDS: dict[str, str] = {
-    "raw_data_file": "raw data",
-    "processed_data_file": "processed data",
-    "protocol_file": "protocol",
-    "supplementary_file": "supplementary",
-    "documentation_file": "documentation",
-}
-
-
 def _render_datasets_panel(
     graph: dict[str, Any] | list[dict[str, Any]], model: dict[str, Any]
 ) -> tuple[str, str]:
@@ -2057,15 +2047,17 @@ def _render_datasets_panel(
     def row(n: dict[str, Any]) -> str:
         nid = str(n.get("id"))
         name = str(n.get("label") or nid)  # label is pre-escaped by the model
-        kind, _reason = classify_file(name, "", nid)
         fmt = fact(nid, "encodingFormat", "format")
         size = fact(nid, "contentSize")
         described = bool(fact(nid, "description"))
         reachable = not n.get("orphan")
+        # The muted span states the file's PATH — its @id in the crate, which
+        # is where a reader finds it — not a kind word (review comment). A
+        # file whose display name already is its path gets no duplicate span.
+        path = f'<span class="ty">{esc(nid)}</span>' if name != esc(nid) else ""
         return (
             f'<tr><th scope="row">{_mk("ok" if reachable else "no")}'
-            f'<span class="cn">{name}</span>'
-            f'<span class="ty">{_DATA_CLASS_WORDS.get(kind, "file")}</span></th>'
+            f'<span class="cn">{name}</span>{path}</th>'
             f"<td>{esc(fmt) if fmt else _mk('no')}</td>"
             f"<td>{size_words(size) if size else _mk('no')}</td>"
             f"<td>{_mk('ok' if described else 'no')}</td>"
