@@ -1439,7 +1439,7 @@ class TestDatasetsPanel:
     def test_rows_report_the_facts_and_unreachable_sorts_first(self) -> None:
         page = build_maturity_html(CrateState(), graph=self._graph())
         panel = page.split('id="p-data"', 1)[1].split("</div>\n", 1)[0]
-        assert "Datasets" in page
+        assert '<span class="tb-n">Files</span>' in page
         rows = re.findall(r"<tr><th scope=\"row\">.*?</tr>", panel, re.S)
         assert len(rows) == 2
         assert "loose.csv" in rows[0] and 'class="mk no"' in rows[0]
@@ -1897,7 +1897,7 @@ class TestGraphViewTabs:
         for label in (
             "All entities",
             "Assays",
-            "Datasets",
+            "Files",
             "LabProcesses",
             "MolecularEntities",
             "Biological Samples",
@@ -1920,6 +1920,29 @@ class TestGraphViewTabs:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         assert '<div class="sec-h"><h2>Graph views</h2></div>' in page
         assert "of the same crate" not in page
+
+    def test_the_assays_badge_counts_only_assays(self) -> None:
+        """Review comment: the Assays tab's entity count is the number of
+        assays — not every ISA container (1 investigation + 1 study + 2
+        assays badged "4" called the view four times bigger than it is)."""
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "additionalType": "Investigation",
+                 "name": "Inv", "hasPart": [{"@id": "#s"}]},
+                {"@id": "#s", "@type": "Dataset", "additionalType": "Study",
+                 "name": "S1", "hasPart": [{"@id": "#a1"}, {"@id": "#a2"}]},
+                {"@id": "#a1", "@type": "Dataset", "additionalType": "Assay", "name": "A1"},
+                {"@id": "#a2", "@type": "Dataset", "additionalType": "Assay", "name": "A2"},
+            ]
+        }
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph))
+        m = re.search(
+            r'for="mv-isa"><span class="tb-n">Assays</span><span class="tb-c">(\d+)</span>',
+            body,
+        )
+        assert m, "no badge on the Assays tab"
+        assert m.group(1) == "2"
 
     def test_no_topology_strip_or_detail(self) -> None:
         """Review comment: the graph-topology block (strip + expandable
