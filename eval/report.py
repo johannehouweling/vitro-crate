@@ -62,7 +62,12 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
 
     Returns:
         ``{"labels": [...], "summaries": {label: summary}, "cases": {case_id:
-        {label: {success, total_tokens, latency_seconds, deterministic}}}}``.
+        {label: {success, total_tokens, latency_seconds, deterministic}}},
+        "head_to_head": {"case_ids": [...], "summaries": {label: summary}}}``.
+
+        ``summaries`` is each arm over what IT attempted; ``head_to_head`` is every
+        arm over the cases they all attempted, which is the only one of the two
+        whose numbers can be quoted against each other (#609).
     """
     labels = [r.label for r in reports]
     summaries = {r.label: r.summary() for r in reports}
@@ -113,4 +118,26 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
                 "total_cost_usd": result.total_cost_usd,
             }
 
-    return {"labels": labels, "summaries": summaries, "cases": cases}
+    # The head-to-head: every arm's aggregate over the cases they ALL attempted.
+    # An arm reports ``not_applicable`` for a case it does not do at all (the
+    # folder-driven pipeline on a conversational case, #609), and that case is
+    # already out of its own averages — but it is still in the other arm's, so
+    # the per-arm summaries below have different denominators and cannot be read
+    # against each other. This block can be (#609).
+    attempted_by_all = {
+        case_id
+        for case_id, per_label in cases.items()
+        if len(per_label) == len(reports)
+        and all(v.get("stop_reason") != "not_applicable" for v in per_label.values())
+    }
+    head_to_head = {
+        "case_ids": sorted(attempted_by_all),
+        "summaries": {r.label: r.summary(case_ids=attempted_by_all) for r in reports},
+    }
+
+    return {
+        "labels": labels,
+        "summaries": summaries,
+        "cases": cases,
+        "head_to_head": head_to_head,
+    }

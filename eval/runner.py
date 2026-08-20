@@ -255,7 +255,7 @@ class EvalReport:
     repeats: int
     results: list[CaseResult] = field(default_factory=list)
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self, case_ids: set[str] | None = None) -> dict[str, Any]:
         """Aggregate the per-case results into a comparison-ready dict.
 
         Keyed so a ReAct run and a pipeline run can be diffed field by field:
@@ -268,19 +268,29 @@ class EvalReport:
         capability gap as a cost win (#609). ``num_cases_compared`` is the
         denominator the rest of the numbers use.
 
+        *case_ids* restricts the aggregate to those cases — used by
+        :func:`eval.report.compare_reports` to compute a head-to-head over the
+        cases both arms attempted, so two summaries are never read side by side
+        with different denominators (#609).
+
         ``success_rate`` is the share of **attempted** (case x repeat) builds that
         reached conformance — not repeat #1's pass rate (#405). ``num_success_all_repeats``
         (every repeat conformed) and ``num_success_any_repeat`` (at least one did)
         give the strict and optimistic readings alongside it; a flaky case shows up
         as the gap between them.
         """
-        n = len(self.results)
+        scoped = (
+            self.results
+            if case_ids is None
+            else [r for r in self.results if r.case_id in case_ids]
+        )
+        n = len(scoped)
         # A case one arm does not attempt is NOT a data point about that arm's
         # quality or cost (#609). Averaging a conversational case into the
         # folder-driven pipeline's numbers turns a capability gap into a cost win
         # ($0, no tokens, an empty crate that still passes conformance). Count it,
         # name it, and compare the arms on the cases they both attempted.
-        compared = [r for r in self.results if r.stop_reason != "not_applicable"]
+        compared = [r for r in scoped if r.stop_reason != "not_applicable"]
         num_not_applicable = n - len(compared)
         # ``success_rate`` spans repeats (#405): the mean of each case's own
         # conformant fraction, i.e. the share of all (case x repeat) builds that
