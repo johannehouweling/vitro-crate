@@ -1899,8 +1899,8 @@ class TestGraphViewTabs:
             "Assays",
             "Datasets",
             "LabProcesses",
-            "Chemicals",
-            "Biological models",
+            "MolecularEntities",
+            "Biological Samples",
             "Persons &amp; Organisations",
             "Citations",
         ):
@@ -2051,7 +2051,7 @@ class TestGraphViewTabs:
         assert ".mat .panel > .panel-h{display:block;" in page.replace("\n", "")
 
 class TestCellLinesPanel:
-    """The Biological models view (#85): the biological test system, and
+    """The Biological Samples view (#85): the biological test system, and
     whether it is pinned down.
 
     A model fails the same two ways a compound does — unreachable when the
@@ -2106,7 +2106,7 @@ class TestCellLinesPanel:
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
         assert '<div class="panel" id="p-cell">' in page
-        assert '<span class="tb-n">Biological models</span>' in page
+        assert '<span class="tb-n">Biological Samples</span>' in page
         assert "CHO-K1" in page
         assert "CVCL_0214" in page
         for column in ("RRID", "Type", "Organ", "Tissue", "Passage"):
@@ -2121,10 +2121,10 @@ class TestCellLinesPanel:
         tooltip (the entity is typed as a cell line) and ``CellLine`` itself.
         """
         page = self._page()
-        assert '<span class="tb-n">Biological models</span>' in page
-        assert '<th scope="col">Biological model</th>' in page
-        assert "Biological model / sample</span>" in page
-        assert "Routes: 1 of 1 biological models reachable from a process" in page
+        assert '<span class="tb-n">Biological Samples</span>' in page
+        assert '<th scope="col">Biological sample</th>' in page
+        assert "Biological sample</span>" in page
+        assert "Routes: 1 of 1 biological samples reachable from a process" in page
         panel = page.split('id="p-cell"', 1)[1].split("</section>", 1)[0]
         rest = panel.replace('title="Typed as a cell line"', "")
         assert "cell line" not in rest.lower(), "a reader-facing 'cell line' survived"
@@ -2140,7 +2140,7 @@ class TestCellLinesPanel:
 
     def test_unconsumed_model_is_called_out_with_the_fix(self) -> None:
         page = self._page(wire=False)
-        assert "1 of 1 biological models are not consumed by any process." in page
+        assert "1 of 1 biological samples are not consumed by any process." in page
         assert "<code>CellCulture</code>" in page
         assert "<code>input</code>" in page
 
@@ -2153,7 +2153,7 @@ class TestCellLinesPanel:
         # and collapsing them would hide whichever the crate actually has.
         page = self._page(wire=True, rrid=False)
         assert "not consumed by any process" not in page
-        assert "1 of 1 biological models carry no Cellosaurus RRID." in page
+        assert "1 of 1 biological samples carry no Cellosaurus RRID." in page
 
     def test_crate_without_cell_lines_omits_the_view(self) -> None:
         graph = {
