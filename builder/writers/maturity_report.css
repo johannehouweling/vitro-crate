@@ -128,6 +128,20 @@
 .mat .rose-wrap { flex:1; display:flex; align-items:center; justify-content:center;
   min-height:7.4rem; max-height:8.15rem; }
 .mat .rose-wrap svg { display:block; height:100%; width:auto; max-width:100%; }
+/* Hovering a module's slice — filled part or pale share — names it and its
+   numbers in the middle of the rose and fades the other modules back. The
+   label carries a surface-coloured halo so it reads over any wedge, and takes
+   no pointer events so moving onto it cannot flicker the hover it belongs to.
+   CSS-only: the report ships with no script, and the module rows below carry
+   the same numbers as text for anyone not hovering. */
+.mat .rose-wrap .rw path, .mat .rose-wrap .rw circle { transition:opacity .12s ease; }
+.mat .rose-wrap svg:hover .rw:not(:hover) path,
+.mat .rose-wrap svg:hover .rw:not(:hover) circle { opacity:.28; }
+.mat .rose-wrap .rw-l { opacity:0; pointer-events:none; text-anchor:middle;
+  font:600 12px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--ink);
+  paint-order:stroke; stroke:var(--surface); stroke-width:3.5px; stroke-linejoin:round; }
+.mat .rose-wrap .rw-l .rw-n { font-weight:500; font-size:11px; fill:var(--ink-2); }
+.mat .rose-wrap .rw:hover .rw-l { opacity:1; }
 .mat .tile-note { font-size:.72rem; line-height:1.4; color:var(--ink-2); }
 
 /* status marks */

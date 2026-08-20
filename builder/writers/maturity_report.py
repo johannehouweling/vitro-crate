@@ -857,11 +857,40 @@ def _fair_tile(fair: FAIRReport, blockers: list[tuple[str, str]]) -> str:
     )
 
 
+def _wrap_label(text: str, width: int = 20) -> list[str]:
+    """*text* broken into at most two lines of about *width* characters.
+
+    SVG text does not wrap, and the longest module name ("Endpoint Read Out
+    Information") is wider than the rose at label size — an unwrapped line is
+    clipped by the viewBox rather than shrunk.
+    """
+    words = text.split()
+    lines: list[str] = [""]
+    for word in words:
+        candidate = f"{lines[-1]} {word}".strip()
+        if len(candidate) <= width or not lines[-1]:
+            lines[-1] = candidate
+        elif len(lines) < 2:
+            lines.append(word)
+        else:
+            lines[-1] = f"{lines[-1]} {word}"
+    return [line for line in lines if line]
+
+
 def _mit_rose_svg(mit: MITReport) -> str:
     """The MIT coverage rose: one wedge per module, angle = the module's share
-    of the checklist, radius = how much of that module is filled. Faint
-    full-radius wedges behind carry the share, so an empty module still shows
-    the ground it owes. Pure trigonometry over the scorer's own buckets."""
+    of the checklist, radius = how much of that module is filled. A faint
+    full-radius wedge behind each carries the share, so an empty module still
+    shows the ground it owes. Pure trigonometry over the scorer's own buckets.
+
+    Each module is one ``<g>`` holding its pale share wedge, its filled wedge,
+    a ``<title>`` (the native tooltip, and what a screen reader reads) and a
+    centred label that CSS reveals while the group is hovered — hovering
+    anywhere in a module's slice, filled or not, names it and its numbers.
+    The interaction is CSS-only because the report ships with no script, and
+    it is an enhancement, never the only path: the module rows in the OECD MIT
+    coverage section below carry the same numbers as text.
+    """
     import math
 
     total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
@@ -874,41 +903,48 @@ def _mit_rose_svg(mit: MITReport) -> str:
         rad = math.radians(angle - 90)  # 12 o'clock start, clockwise
         return cx + r * math.cos(rad), cy + r * math.sin(rad)
 
-    def wedge(a0: float, a1: float, r: float, fill: str, title: str = "") -> str:
-        t = f"<title>{html.escape(title)}</title>" if title else ""
+    def wedge(a0: float, a1: float, r: float, fill: str) -> str:
         if a1 - a0 >= 360:  # a single module owns the whole ring
-            return f'<circle cx="{cx}" cy="{cy}" r="{r:.2f}" fill="{fill}">{t}</circle>'
+            return f'<circle cx="{cx}" cy="{cy}" r="{r:.2f}" fill="{fill}"></circle>'
         x0, y0 = point(a0, r)
         x1, y1 = point(a1, r)
         large = 1 if (a1 - a0) > 180 else 0
         return (
             f'<path d="M {cx},{cy} L {x0:.2f},{y0:.2f} '
-            f'A {r:.2f},{r:.2f} 0 {large} 1 {x1:.2f},{y1:.2f} Z" fill="{fill}">{t}</path>'
+            f'A {r:.2f},{r:.2f} 0 {large} 1 {x1:.2f},{y1:.2f} Z" fill="{fill}"></path>'
         )
 
-    background = ""
-    foreground = ""
+    groups = ""
     angle = 0.0
     for name, sc in mit.module_scores.items():
         total, completed = sc.get("total", 0), sc.get("completed", 0)
         if not total:
             continue
         sweep = total / total_all * 360
-        background += wedge(angle, angle + sweep, radius, "#f2f5f5")
-        if completed:
-            foreground += wedge(
-                angle,
-                angle + sweep,
-                radius * completed / total,
-                _mit_module_colour(name),
-                f"{name} — {completed} of {total} filled",
+        caption = f"{name} — {completed} of {total} filled"
+        lines = _wrap_label(name)
+        label = "".join(
+            f'<tspan x="{cx}" dy="{0 if i == 0 else 12}">{html.escape(line)}</tspan>'
+            for i, line in enumerate(lines)
+        )
+        label += f'<tspan class="rw-n" x="{cx}" dy="13">{completed} of {total} filled</tspan>'
+        groups += (
+            f'<g class="rw"><title>{html.escape(caption)}</title>'
+            + wedge(angle, angle + sweep, radius, "#f2f5f5")
+            + (
+                wedge(angle, angle + sweep, radius * completed / total, _mit_module_colour(name))
+                if completed
+                else ""
             )
+            + f'<text class="rw-l" x="{cx}" y="{cy - 6 * len(lines):.0f}">{label}</text>'
+            + "</g>"
+        )
         angle += sweep
     return (
         '<svg viewBox="0 0 174 174" preserveAspectRatio="xMidYMid meet" role="img" '
         'aria-label="MIT coverage by module: wedge angle is the module&#x27;s share of the '
         'checklist, radius is how much of it is filled">'
-        f"{background}{foreground}</svg>"
+        f"{groups}</svg>"
     )
 
 

@@ -603,8 +603,10 @@ class TestFairTileAndRose:
         mit = assess_mit_coverage(state)
         svg = _mit_rose_svg(mit)
         drawn = {m for m in mit.module_scores if mit.module_scores[m]["completed"]}
+        # Every module with fields is one hoverable group carrying its caption,
+        # whether or not anything is filled in it.
         for name, sc in mit.module_scores.items():
-            if sc["completed"]:
+            if sc["total"]:
                 assert f"<title>{name} — {sc['completed']} of {sc['total']} filled</title>" in svg
         # Background wedges: one per module with fields; they tile the circle.
         assert svg.count('fill="#f2f5f5"') == sum(
@@ -614,12 +616,14 @@ class TestFairTileAndRose:
         name = next(iter(drawn))
         sc = mit.module_scores[name]
         expected_r = 82 * sc["completed"] / sc["total"]
-        m = re.search(
-            r'A ([\d.]+),[\d.]+ 0 [01] 1 [\d.,-]+ Z" '
-            rf'fill="[^"]+"><title>{re.escape(name)}',
-            svg,
+        group = re.search(
+            rf'<g class="rw"><title>{re.escape(name)} —.*?</g>', svg, re.S
         )
-        assert m and math.isclose(float(m.group(1)), expected_r, abs_tol=0.01)
+        assert group, name
+        radii = re.findall(r'A ([\d.]+),[\d.]+ 0 [01] 1 ', group.group(0))
+        assert len(radii) == 2, "a share wedge and a filled wedge"
+        assert math.isclose(float(radii[0]), 82.0, abs_tol=0.01), "the share wedge is full radius"
+        assert math.isclose(float(radii[1]), expected_r, abs_tol=0.01)
 
     def test_each_wedges_angle_is_its_modules_share(self) -> None:
         """The other half of the encoding: angle = the module's share of the
@@ -638,7 +642,7 @@ class TestFairTileAndRose:
             r'M 87\.0,87\.0 L ([\d.]+),([\d.]+) A 82\.00,82\.00 0 [01] 1 ([\d.]+),([\d.]+) Z"'
             r' fill="#f2f5f5"',
             svg,
-        )
+        )  # the pale share wedges, one per module, in module order
         drawn = [(n, sc) for n, sc in mit.module_scores.items() if sc["total"]]
         assert len(paths) == len(drawn)
 
@@ -648,6 +652,29 @@ class TestFairTileAndRose:
         for (x0, y0, x1, y1), (name, sc) in zip(paths, drawn, strict=True):
             sweep = (angle(x1, y1) - angle(x0, y0)) % 360
             assert math.isclose(sweep, sc["total"] / total_all * 360, abs_tol=0.05), name
+
+    def test_each_module_is_one_hoverable_group_with_its_label(self) -> None:
+        """Hover names the module: each slice is a ``<g>`` holding its share
+        wedge, its filled wedge, the caption and a label the stylesheet
+        reveals on hover — and the stylesheet must actually reveal it."""
+        from builder.tools.mit_assessment import assess_mit_coverage
+        from builder.writers.maturity_report import _CSS_PATH, _mit_rose_svg
+
+        mit = assess_mit_coverage(vhps_fixture_state("S-VHPS21"))
+        svg = _mit_rose_svg(mit)
+        groups = re.findall(r'<g class="rw">.*?</g>', svg, re.S)
+        assert len(groups) == sum(1 for sc in mit.module_scores.values() if sc["total"])
+        for group, (name, sc) in zip(
+            groups, [(n, s) for n, s in mit.module_scores.items() if s["total"]], strict=True
+        ):
+            assert f'<text class="rw-l"' in group, name
+            assert f'{sc["completed"]} of {sc["total"]} filled</tspan>' in group, name
+            # A long name is wrapped, not clipped by the viewBox.
+            for line in re.findall(r'<tspan x="87.0" dy="\d+">([^<]*)</tspan>', group):
+                assert len(line) <= 22, (name, line)
+        css = _CSS_PATH.read_text(encoding="utf-8")
+        assert ".mat .rose-wrap .rw:hover .rw-l { opacity:1; }" in css
+        assert "svg:hover .rw:not(:hover) path" in css
 
     def test_the_footnote_superscripts_resolve(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
