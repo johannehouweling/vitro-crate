@@ -484,9 +484,6 @@ __CATEGORY_STYLES__
 .mat .refs p { margin:.25rem 0; }
 .mat .ref-n { color:var(--accent); margin-right:.35rem; }
 
-.mat footer { color:var(--muted); font-size:.75rem; margin-top:1.4rem; padding-top:.9rem;
-  border-top:1px solid var(--hairline); display:flex; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
-
 @media (max-width:640px){
   .mat header{flex-direction:column;}
 }
