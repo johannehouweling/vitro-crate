@@ -2415,6 +2415,24 @@ class TestCategoryRegistry:
         # The category vocabulary survives for the colour key.
         assert category_label("org") == "Organisation"
 
+    def test_isa_backbone_clusters_name_the_isa_type_not_dataset(self) -> None:
+        """Review comment: a Study/Assay cluster captioned "Dataset" says
+        nothing — every ISA backbone node is a Dataset; the qualifier is the
+        identity. Outside the packaging layer a ``Dataset · X`` tag captions
+        as ``X``; the root keeps "Dataset" (its packaging role is the point,
+        and its own review thread asked for exactly that)."""
+        graph = [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "Root",
+             "hasPart": [{"@id": "#s"}, {"@id": "#a"}]},
+            {"@id": "#s", "@type": "Dataset", "additionalType": "Study", "name": "S1"},
+            {"@id": "#a", "@type": "Dataset", "additionalType": "Assay", "name": "A1"},
+        ]
+        svg = render_overview_svg(build_crate_graph(graph, layer="all", all_edges=True))
+        assert "Assay / Study · 2" in svg
+        assert ">Dataset · 1</text>" in svg, "the root keeps its packaging name"
+        assert "Dataset · 2" not in svg
+
 
 class TestCitationCreditListIsDrawnHonestly:
     """Two ways the Citations view could flatter a crate it should be reporting on."""

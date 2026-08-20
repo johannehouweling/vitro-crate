@@ -4027,24 +4027,33 @@ def _ov_reach_note(node: dict[str, Any]) -> str:
     return ""
 
 
-def _cluster_caption(group: list[dict[str, Any]]) -> str:
+def _cluster_caption(group: list[dict[str, Any]], layer: int) -> str:
     """What one overview cluster's tiles actually are, by type.
 
-    The caption names the distinct type heads of the members (the part of the
-    node's type tag before any ``·`` qualifier), most frequent first, ties
-    alphabetical — never a category word. A category caption made the reader
-    guess what the tiles were, and guess wrong: "Term / parameter" over the
-    packaging layer covered three CreativeWorks, a SoftwareApplication and a
-    CreateAction (the review comments on the report artifact asked for the
+    The caption names the distinct types of the members, most frequent first,
+    ties alphabetical — never a category word. A category caption made the
+    reader guess what the tiles were, and guess wrong: "Term / parameter" over
+    the packaging layer covered three CreativeWorks, a SoftwareApplication and
+    a CreateAction (the review comments on the report artifact asked for the
     types by name). At most three types are named; a longer tail is counted.
-    The tiles keep their category colour — the legend decodes that.
+    The tiles keep their category colour — captions carry the semantics.
+
+    A member is named by the head of its type tag (the part before any ``·``
+    qualifier), with one exception: outside the packaging layer a
+    ``Dataset · X`` node captions as ``X`` — every ISA backbone node is a
+    Dataset, so "Dataset" over a Study/Assay cluster says nothing and the
+    qualifier is the identity. The root keeps "Dataset": its packaging role is
+    the point, and its review thread asked for exactly that.
     """
-    heads: dict[str, int] = {}
+    names: dict[str, int] = {}
     for node in group:
-        head = str(node.get("type") or "").split(" · ", 1)[0] or "Entity"
-        heads[head] = heads.get(head, 0) + 1
-    ordered = sorted(heads.items(), key=lambda kv: (-kv[1], kv[0]))
-    caption = " / ".join(head for head, _n in ordered[:3])
+        head, _sep, qualifier = str(node.get("type") or "").partition(" · ")
+        name = head or "Entity"
+        if layer > 1 and head == "Dataset" and qualifier:
+            name = qualifier
+        names[name] = names.get(name, 0) + 1
+    ordered = sorted(names.items(), key=lambda kv: (-kv[1], kv[0]))
+    caption = " / ".join(name for name, _n in ordered[:3])
     if len(ordered) > 3:
         caption += f" +{len(ordered) - 3}"
     return caption
@@ -4091,7 +4100,7 @@ def render_overview_svg(model: dict[str, Any]) -> str:
                 continue
             labels.append(
                 f'<text class="ov-cat" x="{_OV_X0}" y="{y + 9}">'
-                f"{_escape(_cluster_caption(group))} · {len(group)}</text>"
+                f"{_escape(_cluster_caption(group, layer))} · {len(group)}</text>"
             )
             y += _OV_LABEL_H
             for index, node in enumerate(
