@@ -39,6 +39,7 @@ import os
 # [tool][poetry] lookup is never reached.
 import sys as _sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 _rv_ver = _metadata.version("roc-validator")
@@ -490,6 +491,56 @@ _SEVERITY_BY_NAME = {
     "optional": models.Severity.OPTIONAL,
 }
 _SEVERITY_NAME = {v: k for k, v in _SEVERITY_BY_NAME.items()}
+
+
+@lru_cache(maxsize=None)
+def tiers_defined(layer: str) -> frozenset[str]:
+    """The severity tiers *layer*'s validation pass can actually report at.
+
+    A profile with no checks at a tier can never produce a finding there, so an
+    empty result at that tier says nothing about the crate. The bundled
+    ``isa-ro-crate`` profile and our tox profile declare no ``sh:Info`` shape at
+    all, and their OPTIONAL column therefore came back clean for every crate ever
+    built (#620); callers use this to tell "clean" apart from "never checked".
+
+    Read from the validator's own profile registry — the same objects the pass
+    runs — rather than from a hand-kept list, so a profile that gains a MAY rule
+    is honoured the day it does. Inherited requirements count only where the pass
+    reports them: ``isa`` and ``tox`` run with
+    ``disable_inherited_profiles_issue_reporting``, so an inherited MAY rule could
+    not surface under those layers.
+
+    Args:
+        layer: A key of :data:`_PROFILE_PASSES` ("base" | "isa" | "tox").
+
+    Returns:
+        The tier names ("required" | "recommended" | "optional") the layer
+        defines at least one check at. An unknown layer, or a registry that will
+        not load, yields the empty set: every tier then reads as unverified,
+        which is the honest answer when we cannot say what was checked.
+    """
+    pass_config = _PROFILE_PASSES.get(layer)
+    if pass_config is None:
+        return frozenset()
+    identifier, extra = pass_config
+    kwargs = {
+        key: extra[key] for key in ("profiles_path", "extra_profiles_path") if key in extra
+    }
+    try:
+        profile = services.get_profile(profile_identifier=identifier, **kwargs)
+        reporting = [profile]
+        if not extra.get("disable_inherited_profiles_issue_reporting"):
+            reporting.extend(profile.inherited_profiles)
+        return frozenset(
+            _SEVERITY_NAME[check.severity]
+            for reported in reporting
+            for requirement in reported.get_requirements(severity=models.Severity.OPTIONAL)
+            for check in requirement.get_checks()
+            if check.severity in _SEVERITY_NAME
+        )
+    except Exception as e:  # noqa: BLE001 — a broken registry must not fail a report
+        logger.warning("Could not read the %s profile's requirement levels: %s", layer, e)
+        return frozenset()
 
 
 @dataclass
