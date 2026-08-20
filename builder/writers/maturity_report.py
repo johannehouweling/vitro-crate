@@ -1652,126 +1652,6 @@ def _render_repro_section(checks: list[tuple[str, bool, str]]) -> str:
 _TOPO_LIST_CAP = 10
 
 
-def _render_topology_detail(nodes: list[dict[str, Any]]) -> str:
-    """Make the topology strip's orphan/dangling counts actionable (#310).
-
-    A count alone ("2 orphans") isn't fixable — the reader can't see *which*
-    entities are disconnected. This renders a bounded ``<details>`` naming the
-    orphaned entities (id + label + type) and the dangling reference targets, read
-    straight from the deterministic :func:`build_crate_graph` node model (each node
-    carries an ``orphan`` flag and a ``dangling`` status). Pure/cheap — no
-    re-validation, no new graph analysis. Returns ``""`` for a clean crate so
-    nothing empty is rendered.
-    """
-    esc = html.escape
-    orphans = [n for n in nodes if n.get("orphan")]
-    dangling = [n for n in nodes if n.get("status") == "dangling"]
-    if not orphans and not dangling:
-        return ""
-
-    def _rows(items: list[dict[str, Any]], *, with_type: bool, one: str, many: str) -> str:
-        """The list, with anything past the cap behind a second fold-out.
-
-        The cap bounds the page; it is not a decision about what the reader may
-        see. It used to end at "+7 more", which named a number and then offered
-        no way to reach it — and this report is the ONLY place those ids are
-        written down, so a reader who wanted the eighth orphan had nowhere else
-        to look. Same fix as the profile-adherence tiers (:func:`_apply_cap`):
-        the remainder sits in a nested ``<details>``, closed by default, so the
-        page stays the length it was and is one click from complete.
-        """
-
-        def _row(n: dict[str, Any]) -> str:
-            # Node labels are pre-escaped by build_crate_graph; ids/types are raw.
-            ty = str(n.get("type") or "")
-            tail = f' <span class="ty">{esc(ty)}</span>' if with_type and ty else ""
-            return (
-                f"<li>{_mk('no')} <code>{esc(str(n['id']))}</code>"
-                f"<span>{n.get('label') or ''}{tail}</span></li>"
-            )
-
-        shown = [_row(n) for n in items[:_TOPO_LIST_CAP]]
-        rest = [_row(n) for n in items[_TOPO_LIST_CAP:]]
-        if not rest:
-            return "".join(shown)
-        # Spelled out rather than "+s": the nouns here are "orphaned entity" and
-        # "dangling reference", and a naive rule renders the first as "entitys".
-        plural = one if len(rest) == 1 else many
-        return "".join(
-            [
-                *shown,
-                '<li class="more">'
-                f'<details class="more-fold"><summary>+{len(rest)} further {plural}</summary>'
-                f'<ul class="ind">{"".join(rest)}</ul>'
-                "</details>"
-                "</li>",
-            ]
-        )
-
-    _orphan_rows = _rows(orphans, with_type=True, one="orphaned entity", many="orphaned entities")
-    _dangling_rows = _rows(
-        dangling, with_type=False, one="dangling reference", many="dangling references"
-    )
-
-    groups = []
-    if orphans:
-        groups.append(
-            '<p class="topo-detail-h">Orphaned entities — not reachable from the '
-            "crate root; link each via <code>hasPart</code>, <code>result</code>, "
-            "or <code>about</code></p>"
-            f'<ul class="ind">{_orphan_rows}</ul>'
-        )
-    if dangling:
-        groups.append(
-            '<p class="topo-detail-h">Dangling references — a referenced '
-            "<code>@id</code> with no matching entity; add the entity or drop the "
-            f'reference</p><ul class="ind">{_dangling_rows}</ul>'
-        )
-
-    def _n(count: int, one: str) -> str:
-        return f"{count} {one}" + ("" if count == 1 else "s")
-
-    bits = []
-    if orphans:
-        bits.append(_n(len(orphans), "orphan"))
-    if dangling:
-        bits.append(_n(len(dangling), "dangling ref"))
-    summary = " · ".join(bits) + " — which entities"
-    return (
-        f'<details class="disc topo-detail"><summary>{summary}</summary>{"".join(groups)}</details>'
-    )
-
-
-def _render_topology_strip(counts: dict[str, int]) -> str:
-    """The graph-topology metrics strip (relocated into the LabProcesses section).
-
-    Renders the crate's entity composition by paper layer (packaging / ISA
-    structural / ISA-Tox domain) plus any orphan/dangling-reference flags, from
-    the deterministic :func:`build_crate_graph` counts.
-    """
-    total = counts.get("layer1", 0) + counts.get("layer2", 0) + counts.get("layer3", 0)
-    parts = [
-        '<span class="topo-label">Graph topology</span>',
-        f'<span class="c"><b>{total}</b>&nbsp;entities</span>',
-        '<span class="c"><span class="sw" style="background:var(--muted)"></span>'
-        f"{counts.get('layer1', 0)} packaging</span>",
-        '<span class="c"><span class="sw" style="background:var(--cat-process)"></span>'
-        f"{counts.get('layer2', 0)} ISA structural</span>",
-        '<span class="c"><span class="sw" style="background:var(--cat-data)"></span>'
-        f"{counts.get('layer3', 0)} ISA-Tox domain</span>",
-    ]
-    flags: list[str] = []
-    n_orphan = counts.get("orphan", 0)
-    n_dangling = counts.get("dangling", 0)
-    if n_orphan:
-        flags.append(f"{n_orphan} orphan" + ("" if n_orphan == 1 else "s"))
-    if n_dangling:
-        flags.append(f"{n_dangling} dangling ref" + ("" if n_dangling == 1 else "s"))
-    if flags:
-        parts.append(f'<span class="c warnflag">{_mk("no")}&nbsp;{" · ".join(flags)}</span>')
-    return f'<div class="comp topo">{"".join(parts)}</div>'
-
-
 def _legend(*items: str) -> str:
     return f'<div class="prov-legend">{"".join(items)}</div>'
 
@@ -1856,7 +1736,6 @@ def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
     if not svg:
         return "", ""
     counts = model.get("counts", {})
-    orphans = counts.get("orphan", 0)
     isolated = counts.get("isolated", 0)
     stranded = counts.get("stranded", 0)
 
@@ -1880,51 +1759,12 @@ def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
         )
     legend = _legend(*reach_keys) if reach_keys else ""
 
-    note = (
-        f'<p class="chem-warn">{_mk("no")}<span><b>{orphans} of {len(nodes)} entities '
-        "are unreachable from the crate root</b> — described in the metadata, but a "
-        f"reader walking the crate never arrives at them. {_reach_repair(counts)} "
-        "The other views show which links are missing.</span></p>"
-        if orphans
-        else '<p class="good-note">Every entity is reachable from the crate root.</p>'
-    )
-
-    # No intro paragraph (review comment): the map opens the panel directly.
-    # The counts it carried live on — total in the tab badge, the unreachable
-    # story in the note below the map.
-    panel = f'<div class="prov-scroll">{svg}</div>\n  {legend}\n  {note}'
+    # No intro paragraph and no warning note (review comments): the map opens
+    # the panel directly and closes with the legend. The unreachable story is
+    # on the map itself — outlined tiles, the "unlinked entity" key, and the
+    # diagram's accessible name.
+    panel = f'<div class="prov-scroll">{svg}</div>\n  {legend}'
     return panel, str(len(nodes))
-
-
-def _reach_repair(counts: dict[str, Any]) -> str:
-    """One sentence on how much work the unreachable entities actually are.
-
-    The count of unreachable entities is not the size of the job, and reporting
-    it as though it were is discouraging in precisely the wrong direction: an
-    island of thirty entities that already reference each other is *one* missing
-    link, and the better-connected it is the more alarming the raw number looks.
-    This states the number of links instead, and splits the two kinds so a reader
-    knows which entities share a fix and which each need their own.
-    """
-    isolated = int(counts.get("isolated", 0))
-    stranded = int(counts.get("stranded", 0))
-    links = int(counts.get("unreachable_clusters", 0))
-    if not links:
-        return ""
-
-    parts = []
-    if stranded:
-        parts.append(f"<b>{stranded}</b> are linked to each other but not to the root")
-    if isolated:
-        parts.append(f"<b>{isolated}</b> stand entirely alone")
-    detail = f" ({'; '.join(parts)})" if parts else ""
-
-    if links == 1:
-        return f"They form a single group{detail}, so <b>one link</b> would reconnect them all."
-    return (
-        f"They form <b>{links}</b> groups{detail}, so <b>{links} links</b> — not "
-        f"{counts.get('orphan', 0)} — would reconnect every one of them."
-    )
 
 
 def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
@@ -2082,7 +1922,7 @@ _VIEWS: tuple[tuple[str, str, str], ...] = (
 def _render_graph_views_section(
     graph: dict[str, Any] | list[dict[str, Any]], chem_inv: dict[str, Any]
 ) -> str:
-    """The graph-views section: one diagram per tab, over a shared topology strip.
+    """The graph-views section: one diagram per tab.
 
     The views answer different questions about the same ``@graph`` — *how was the
     result produced* (provenance), *what was tested* (chemicals, biological models),
@@ -2144,8 +1984,6 @@ def _render_graph_views_section(
         f"  {inputs}\n"
         f'  <div class="tabbar">{tabs}</div>\n'
         f"  {bodies}\n"
-        f"  {_render_topology_strip(model.get('counts', {}))}\n"
-        f"  {_render_topology_detail(model.get('nodes', []))}\n"
         "</section>\n"
     )
 
@@ -2769,17 +2607,17 @@ def build_maturity_html(
     SHOULD/MAY tier renders as "not assessed", never a false green zero.
 
     When a crate ``graph`` (the ``@graph`` from ``crate.metadata.generate()``) is
-    supplied, the report also folds in a LabProcesses & graph section: the LabProcess
-    derivation chain drawn as a self-contained inline SVG, plus a graph-topology
-    strip (entity composition by paper layer, orphan/dangling flags). Omitting
-    ``graph`` skips that section — the report is still complete without it.
+    supplied, the report also folds in the tabbed graph-views section — the
+    All-entities composition map, the LabProcess derivation chain and the other
+    per-question diagrams, all self-contained inline SVG. Omitting ``graph``
+    skips that section — the report is still complete without it.
 
     Args:
         state: The crate state being reported on.
         validation: Validation results to render. Defaults to
             ``state.validation``.
         graph: The crate's serialized ``@graph`` (or the full metadata document)
-            used to render the provenance chain and topology strip. When ``None``
+            used to render the graph views. When ``None``
             the LabProcesses & graph section is omitted — but MIT coverage is
             still scored against an assembled graph, which the assessor then
             builds itself (#311). Omitting ``graph`` costs one extra in-memory

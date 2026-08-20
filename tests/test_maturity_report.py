@@ -893,8 +893,9 @@ class TestExportCoupledToValidation:
 
 
 class TestProvenanceSection:
-    """When a crate ``@graph`` is supplied, the report folds in a Provenance &
-    graph section: the derivation-chain SVG plus a graph-topology strip (#85)."""
+    """When a crate ``@graph`` is supplied, the report folds in the graph
+    views, LabProcesses' derivation-chain SVG among them (#85). The topology
+    strip that once travelled with it was removed on the owner's review."""
 
     def _chain_graph(self) -> dict:
         return {
@@ -913,33 +914,16 @@ class TestProvenanceSection:
             ]
         }
 
-    def test_graph_renders_provenance_and_topology(self) -> None:
+    def test_graph_renders_provenance(self) -> None:
         state = vhps_fixture_state("S-VHPS21")
         page = build_maturity_html(state, graph=self._chain_graph())
         assert "LabProcesses" in page  # the view's tab label (renamed, owner's call)
         assert 'class="prov"' in page  # the inline derivation-chain SVG
         assert "result.csv" in page
-        assert "Graph topology" in page  # the relocated topology strip
-        assert "entities" in page
 
     def test_no_graph_omits_provenance_section(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert "Graph topology" not in page
         assert 'class="prov"' not in page
-
-    def test_graph_without_chain_shows_topology_note(self) -> None:
-        # Entities but no LabProcess I/O → topology strip, but no chain SVG.
-        graph = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset"},
-                {"@id": "#f", "@type": "File", "name": "orphan.csv"},
-            ]
-        }
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert "Graph topology" in page
-        assert 'class="prov"' not in page
-        assert "no derivation chain" in page.lower()
 
     def test_graph_gives_nonzero_mit_coverage(self, tmp_path: Path) -> None:
         # MIT coverage is scored against the assembled @graph (crate_slot vocab
@@ -967,13 +951,14 @@ class TestProvenanceSection:
 
     def test_export_embeds_provenance_from_crate_graph(self, tmp_path: Path) -> None:
         # End-to-end: the embedded report is built with the crate's real @graph,
-        # so the topology strip travels with the written crate.
+        # so the graph views travel with the written crate.
         state = vhps_fixture_state("S-VHPS21")
         out = tmp_path / "crate"
         state.metadata.output_path = str(out)
         build_crate(state)
         page = (out / REPORT_FILENAME).read_text(encoding="utf-8")
-        assert "Graph topology" in page
+        assert "<h2>Graph views</h2>" in page
+        assert 'class="prov' in page
 
 
 class TestMitModuleColours:
@@ -1414,97 +1399,6 @@ class TestUnassessedMITIsNotRenderedAsZero:
         assert 'aria-label="MIT coverage' in page
 
 
-class TestActionableTopology:
-    """The topology strip's orphan/dangling counts are made *actionable* (#310):
-    a bounded ``<details>`` lists which entities are orphaned and which references
-    dangle, so a reader can fix them — not just a bare count. Read straight off the
-    existing ``build_crate_graph`` node model (pure/cheap, no re-validation)."""
-
-    def _messy_graph(self) -> dict:
-        # One orphan (#orphan, unreachable from root) and one dangling ref
-        # (#ghost, referenced by #p2 but has no entity). The chain #in→#p→#out is
-        # reachable and clean.
-        return {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {
-                    "@id": "./",
-                    "@type": "Dataset",
-                    "hasPart": [{"@id": "#p"}, {"@id": "#out"}, {"@id": "#p2"}],
-                },
-                {"@id": "#in", "@type": "Sample", "name": "Input sample"},
-                {
-                    "@id": "#p",
-                    "@type": "LabProcess",
-                    "additionalType": "Exposure",
-                    "object": {"@id": "#in"},
-                    "result": {"@id": "#out"},
-                },
-                {"@id": "#out", "@type": "File", "name": "result.csv"},
-                {
-                    "@id": "#p2",
-                    "@type": "LabProcess",
-                    "additionalType": "DataAnalysis",
-                    "object": {"@id": "#out"},
-                    "result": {"@id": "#ghost"},
-                },
-                {"@id": "#orphan", "@type": "File", "name": "loose.csv"},
-            ]
-        }
-
-    def test_lists_orphan_entities(self) -> None:
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._messy_graph())
-        # The count still renders in the strip…
-        assert "1 orphan" in page
-        # …and now the disclosure names the orphan (id + label + type).
-        assert 'class="disc topo-detail"' in page
-        assert "#orphan" in page
-        assert "loose.csv" in page
-
-    def test_lists_dangling_reference_targets(self) -> None:
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._messy_graph())
-        assert "1 dangling ref" in page
-        assert "#ghost" in page
-
-    def test_no_disclosure_when_topology_clean(self) -> None:
-        # A clean crate (no orphans, no dangling refs) renders the strip but no
-        # actionable disclosure — nothing empty to open.
-        graph = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#d"}]},
-                {"@id": "#d", "@type": "File", "name": "result.csv"},
-            ]
-        }
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert "Graph topology" in page
-        assert 'class="disc topo-detail"' not in page
-
-    def test_orphan_list_is_bounded_with_more_marker(self) -> None:
-        # 12 orphaned files → the first 10 listed inline, the rest behind a
-        # fold-out. The cap bounds the PAGE, not what the reader may see: this
-        # report is the only place those ids are written down.
-        graph = {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "#kept"}]},
-                {"@id": "#kept", "@type": "File", "name": "kept.csv"},
-            ]
-        }
-        for i in range(12):
-            graph["@graph"].append({"@id": f"#loose{i}", "@type": "File", "name": f"loose{i}.csv"})
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
-        assert "12 orphans" in page
-        assert "+2 further orphaned entities" in page
-        assert "#loose0" in page
-        assert "#loose9" in page
-        # The 11th and 12th are BEHIND the fold, not absent from it. This
-        # assertion was previously `not in page` — a capped list that named a
-        # number and gave the reader no way to reach it.
-        assert "#loose10" in page
-        assert "#loose11" in page
-
-
 class TestDatasetsPanel:
     """The Datasets view: one row per data-category entity — kind, format,
     size, described, reachable — unreachable rows first."""
@@ -1918,6 +1812,13 @@ class TestGraphViewTabs:
         assert '<div class="sec-h"><h2>Graph views</h2></div>' in page
         assert "of the same crate" not in page
 
+    def test_no_topology_strip_or_detail(self) -> None:
+        """Review comment: the graph-topology block (strip + expandable
+        detail) is gone from the Graph views section."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        assert "Graph topology" not in page
+        assert "topo-label" not in page
+
     def test_the_review_tab_order_holds(self) -> None:
         """Review comment ("flip dataset and assays"): Datasets sits before
         Assays in the tab bar."""
@@ -2039,13 +1940,6 @@ class TestGraphViewTabs:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         assert ".mat .panel{display:block !important;" in page.replace("\n", "")
         assert ".mat .panel > .panel-h{display:block;" in page.replace("\n", "")
-
-    def test_topology_strip_stays_below_the_tabs(self) -> None:
-        # The strip describes the whole graph, not one view — it must not be
-        # trapped inside a panel that a reader has to select to see.
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert page.index('<div class="panel" id="p-cite">') < page.index("Graph topology")
-
 
 class TestCellLinesPanel:
     """The Biological models view (#85): the biological test system, and
@@ -2871,14 +2765,14 @@ class TestOverviewPanel:
         # `orphan` is the shared base class; the modifier says WHICH kind, and
         # this compound is joined to nothing at all.
         assert 'class="ov-t cat-chemical orphan isolated"' in page
-        assert "are unreachable from the crate root" in page
+        assert "unlinked entity</span>" in page
 
-    def test_clean_crate_reports_no_unreachable(self) -> None:
+    def test_clean_crate_shows_no_unreachable_state(self) -> None:
+        # With the prose note gone (owner's review), a clean crate simply has
+        # no orphan-outlined tile and no reachability key to explain one.
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(orphan=False))
-        assert "Every entity is reachable from the crate root." in page
-        # Pinned to the exact phrase the orphan branch emits, so this stays a
-        # real guard rather than passing because the wording moved on.
-        assert "are unreachable from the crate root</b>" not in page
+        assert "orphan" not in page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
+        assert "unlinked entity" not in page
 
     def test_every_tile_names_its_entity(self) -> None:
         # The map summarises; it must not anonymise. Each tile carries the
@@ -2926,13 +2820,12 @@ class TestOverviewPanel:
     def test_the_overview_carries_no_intro_paragraph(self) -> None:
         """Review comment: the "Every entity in the crate, one tile each…"
         summary line is gone — the map opens the panel directly. The
-        unreachable story is not lost: the warning note below the map still
-        counts and explains the orphans."""
+        unreachable story lives on the map itself: outlined tiles and the
+        "unlinked entity" key."""
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
         panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
         assert '<p class="prov-cap">' not in panel
         assert "one tile each" not in page
-        assert "are unreachable from the crate root" in panel
 
     def test_the_legend_carries_no_category_words(self) -> None:
         """Review comment: every word on this view should be a schema.org /
@@ -2944,6 +2837,15 @@ class TestOverviewPanel:
         panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
         assert 'ov-key cat-' not in panel, "the category swatch list survived"
         assert 'ov-key orphan isolated' in panel, "the reachability key was lost"
+
+    def test_the_map_carries_no_warning_note(self) -> None:
+        """Review comment: the "N of M entities are unreachable…" paragraph
+        under the map is gone — the outlined tiles and the "unlinked entity"
+        key carry that state on the map itself."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
+        assert "are unreachable from the crate root" not in panel
+        assert "chem-warn" not in panel and "good-note" not in panel
 
     def test_the_isolated_key_reads_unlinked_entity(self) -> None:
         """Review comment: the isolated-orphan key says "unlinked entity"."""
@@ -3073,12 +2975,12 @@ class TestAutogeneratedLegend:
         assert 'class="lg-badge" aria-hidden="true"' in panel
 
 
-class TestUnreachableRepairEstimate:
-    """The panel reports links needed, not entities affected.
+class TestOverviewReachabilityKeys:
+    """The overview legend names only the unreachable kinds the map shows.
 
-    Counting unreachable entities overstates the job whenever they are wired to
-    each other, and overstates it worst when the crate is most structured — an
-    island of thirty mutually-linked entities is one missing link, not thirty.
+    The prose repair estimate this class once covered was removed with the
+    warning note on the owner's review; the keys are what remains of the
+    unreachable story off the tiles themselves.
     """
 
     @staticmethod
@@ -3107,34 +3009,6 @@ class TestUnreachableRepairEstimate:
     def _page(self, **kw) -> str:
         return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph(**kw))
 
-    def test_the_link_count_is_reported_and_beats_the_entity_count(self) -> None:
-        page = self._page()
-
-        # 5 unreachable (3 island + 2 lone) but only 3 groups → 3 links.
-        assert "<b>3</b> groups" in page
-        assert "<b>3 links</b>" in page
-        assert "not 5" in page
-
-    def test_both_kinds_are_named_in_the_prose(self) -> None:
-        page = self._page()
-
-        assert "are linked to each other but not to the root" in page
-        assert "stand entirely alone" in page
-
-    def test_a_bigger_island_does_not_inflate_the_estimate(self) -> None:
-        """The property worth reporting: more entities, same repair."""
-        page = self._page(island=8)
-
-        assert "<b>3 links</b>" in page, "growing the island must not grow the work"
-        assert "not 10" in page
-
-    def test_a_single_group_is_phrased_in_the_singular(self) -> None:
-        page = self._page(island=4, lone=0)
-
-        assert "a single group" in page
-        assert "<b>one link</b>" in page
-        assert "links</b>" not in page.split("a single group")[1][:200]
-
     def test_the_legend_names_only_the_kinds_present(self) -> None:
         """A key for a tile the reader cannot find misdescribes the crate."""
         both = self._page()
@@ -3143,85 +3017,6 @@ class TestUnreachableRepairEstimate:
         assert "unlinked entity</span>" in both
         assert "linked to each other, not to the root" in both
         assert "unlinked entity</span>" not in island_only
-
-    def test_a_clean_crate_claims_no_work(self) -> None:
-        page = build_maturity_html(
-            vhps_fixture_state("S-VHPS21"),
-            graph={
-                "@graph": [
-                    {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                    {
-                        "@id": "./",
-                        "@type": "Dataset",
-                        "additionalType": "Investigation",
-                        "name": "Inv",
-                        "hasPart": [{"@id": "#f"}],
-                    },
-                    {"@id": "#f", "@type": "File", "name": "result.csv"},
-                ]
-            },
-        )
-
-        assert "Every entity is reachable from the crate root." in page
-        assert "would reconnect" not in page
-
-
-class TestTheOrphanListIsReachable:
-    """The graph view's capped lists must not name a number and stop.
-
-    The profile-adherence tiers already put their overflow behind a fold
-    (`_apply_cap`) for a stated reason: this report is the ONLY place those
-    findings are written down, so "+9 further" with no way to reach them sent the
-    reader nowhere. The topology lists had the same dead end.
-    """
-
-    @staticmethod
-    def _nodes(orphans: int = 0, dangling: int = 0) -> list[dict]:
-        out = [
-            {"id": f"#orphan_{i}", "label": f"Thing {i}", "type": "Sample", "orphan": True}
-            for i in range(orphans)
-        ]
-        out += [{"id": f"#dangle_{i}", "label": "", "status": "dangling"} for i in range(dangling)]
-        return out
-
-    def test_every_orphan_is_reachable_however_many_there_are(self) -> None:
-        from builder.writers.maturity_report import _render_topology_detail
-
-        html = _render_topology_detail(self._nodes(orphans=14))
-
-        assert "+4 further orphaned entities" in html
-        assert 'details class="more-fold"' in html
-        # The point of the fold: the ids past the cap are still IN the document.
-        for i in range(14):
-            assert f"#orphan_{i}" in html, f"orphan {i} is named nowhere in the report"
-
-    def test_dangling_references_fold_the_same_way(self) -> None:
-        from builder.writers.maturity_report import _render_topology_detail
-
-        html = _render_topology_detail(self._nodes(dangling=13))
-
-        assert "+3 further dangling references" in html
-        for i in range(13):
-            assert f"#dangle_{i}" in html
-
-    def test_a_single_overflow_row_reads_singular(self) -> None:
-        """"+1 further orphaned entitys" is the naive-pluralisation tell."""
-        from builder.writers.maturity_report import _render_topology_detail
-
-        html = _render_topology_detail(self._nodes(orphans=11))
-
-        assert "+1 further orphaned entity<" in html
-        assert "entitys" not in html
-
-    def test_a_list_inside_the_cap_gets_no_fold(self) -> None:
-        """The control — a short list must not grow a pointless disclosure."""
-        from builder.writers.maturity_report import _render_topology_detail
-
-        html = _render_topology_detail(self._nodes(orphans=3, dangling=2))
-
-        assert "more-fold" not in html
-        assert "further" not in html
-
 
 class TestEveryClassTheReportEmitsIsStyled:
     """A class in the HTML with no rule in the CSS renders at browser defaults.
