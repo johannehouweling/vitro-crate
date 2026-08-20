@@ -464,15 +464,16 @@ def _compute_dsm_level(state: CrateState, dsm_data: dict[str, Any] | None) -> in
     return max_level
 
 
-def dsm_blockers(state: CrateState) -> list[str]:
-    """The assessable DSM indicators failing at the *next* level — what stands
-    between the crate and DSM ``level + 1``.
+def dsm_blockers(state: CrateState) -> list[tuple[str, str]]:
+    """``(id, text)`` of the assessable DSM indicators failing at the *next*
+    level — what stands between the crate and DSM ``level + 1``.
 
     Nothing new is measured: :func:`_compute_dsm_level` already evaluates these
     checks and discards which ones failed; this re-walks the same YAML with the
-    same ``DSM_CHECKS`` so the report can say "2 indicators to level 1" instead
-    of a bare gated zero. Empty at level 5 (nothing above to block) and when
-    the DSM YAML cannot be read (no level was computed, so nothing blocks).
+    same ``DSM_CHECKS`` so the report can name what "2 indicators to level 1"
+    actually are instead of a bare gated zero. Empty at level 5 (nothing above
+    to block) and when the DSM YAML cannot be read (no level was computed, so
+    nothing blocks).
     """
     dsm_data = _load_yaml(DSM_INDICATORS_PATH)
     if dsm_data is None:
@@ -480,13 +481,13 @@ def dsm_blockers(state: CrateState) -> list[str]:
     level = _compute_dsm_level(state, dsm_data)
     if level >= 5:
         return []
-    blockers: list[str] = []
+    blockers: list[tuple[str, str]] = []
     for ind in dsm_data.get("indicators", []):
         if ind.get("level", 1) != level + 1 or ind.get("scope") == "na":
             continue
         check_name = ind.get("check", "")
         if check_name in DSM_CHECKS and not DSM_CHECKS[check_name](state):
-            blockers.append(str(ind.get("id") or check_name))
+            blockers.append((str(ind.get("id") or check_name), str(ind.get("text") or "")))
     return blockers
 
 

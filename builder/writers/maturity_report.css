@@ -100,6 +100,15 @@
   background:color-mix(in srgb,var(--low) 42%,transparent); }
 .mat .blockers { margin-top:auto; font-size:.78rem; color:var(--low-ink); }
 .mat .blockers b { font-weight:700; }
+.mat details.blockers > summary { cursor:pointer; list-style:none; }
+.mat details.blockers > summary::-webkit-details-marker { display:none; }
+.mat details.blockers > summary::after { content:" +"; color:var(--muted); }
+.mat details.blockers[open] > summary::after { content:" \2212"; }
+.mat .blk { list-style:none; margin:.35rem 0 0; padding:0; display:grid; gap:.2rem;
+  font-size:.72rem; color:var(--ink-2); }
+.mat .blk code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.66rem;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
+  padding:.02rem .28rem; }
 .mat .fn { color:var(--accent); text-decoration:none; font-size:.58rem;
   vertical-align:super; margin-left:1px; }
 
@@ -491,6 +500,7 @@ __CATEGORY_STYLES__
   /* A severity row is the index of what it holds, so print keeps the row AND
      unfolds it — a printed report never loses findings to a closed fold. */
   .mat details.sev-fold > .sev-body{display:block !important;}
+  .mat details.blockers > .blk{display:grid !important;}
   .mat details.sev-fold > summary::after{display:none;}
   /* Tabs are an on-screen affordance: print every view, each under its own
      heading, so a printed report never silently loses two of the three. */
