@@ -4182,11 +4182,15 @@ def run_interactive_agent(
             the greeting model call and the stdin read (#609).
 
     Returns:
-        ``{"stop_reason": ...}`` — ``"completed"`` when the session ended on its
+        ``{"stop_reason": ..., "error": ...}``. ``stop_reason`` is
+        ``"completed"`` when the session ended on its
         own terms, ``"cap_hit"`` when a turn exhausted the graph's recursion
         budget (valid-at-the-cutoff, never a clean win — #331), or ``"error"``
-        when the last turn timed out or raised. The A/B harness reports this;
-        the CLI ignores it.
+        when the last turn timed out or raised. ``error`` carries that last
+        failure's reason chain (``None`` otherwise) — the loop absorbs model
+        failures so the session survives them, so without it an automated driver
+        sees a bare ``"error"`` and cannot tell a dropped connection from a bug.
+        The A/B harness reports both; the CLI ignores them.
 
     With ``interactive=False`` the banner, the greeting model call and the stdin
     read are all skipped: *initial_prompt* and its autonomous continuation are the
@@ -4561,6 +4565,11 @@ def run_interactive_agent(
     # to decide whether it is handing back or carrying on.
     self_continues = 0
 
+    # The most recent turn failure's reason chain. The loop absorbs model
+    # failures so the session survives them, so this is the only way a caller can
+    # tell a dropped connection from a bug (#609).
+    last_error: list[str] = []
+
     def _run_turn(message_content: str) -> tuple[str, str]:
         """Run ONE model invocation and return ``(reply, outcome)`` (#263).
 
@@ -4638,6 +4647,7 @@ def run_interactive_agent(
                 # turn's result and must survive the next step.
                 _print_reply(reply, transient=_reply_is_running_commentary(reply))
         elif outcome == "timeout":
+            last_error.append(f"Model turn timed out after {request_timeout:.0f}s")
             # Not a failure: a built-in limit was reached and the turn is being
             # handed back. Saying "error" here sent people hunting for a bug
             # that did not exist.
@@ -4682,6 +4692,12 @@ def run_interactive_agent(
             console.print()
         elif outcome == "error":
             if diagnostic:
+                # Keep the reason reachable by the CALLER. The loop absorbs every
+                # model failure so the session survives it, which means an
+                # automated driver (the A/B harness) otherwise sees a bare
+                # "error" with no message — and its transient-failure retry,
+                # which matches on the reason phrase, can never fire (#609).
+                last_error.append(diagnostic["exception_chain"])
                 # Always recorded — see the greeting path above. The profile is
                 # where a failed run explains itself after the fact.
                 diagnostic_record: dict[str, Any] = {
@@ -4942,7 +4958,12 @@ def run_interactive_agent(
         stop_reason = "error"
     else:
         stop_reason = "completed"
-    return {"stop_reason": stop_reason}
+    return {
+        "stop_reason": stop_reason,
+        # Only meaningful beside ``"error"``; a cap hit is not a failure and
+        # deliberately carries no message.
+        "error": last_error[-1] if last_error and stop_reason == "error" else None,
+    }
 
 
 def _format_entity_summary(entities: list[Any]) -> str:

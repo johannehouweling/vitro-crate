@@ -18,8 +18,9 @@ must be a clean automated-vs-automated comparison with the ReAct path. Guidance 
 HITL and would block on a real user, so it belongs only here, in the interactive
 tail, gated on :func:`builder.tools.hitl.is_interactive`. The headless
 :class:`~builder.tools.hitl.SimulatedHumanInterface` (the eval, batch runs, tests)
-reports ``is_interactive == False``, so this entrypoint then degrades to *exactly*
-``run_pipeline`` alone — guidance is never invoked behind a simulated human.
+reports ``is_interactive == False``, so behind one this entrypoint runs the spine,
+the export and the persist — everything except guidance, which is never invoked
+without a human to answer it. That is the shape the A/B eval drives (#609).
 
 Both the pipeline and guidance runners are **injected** (defaulting to the real
 functions) so the wiring is unit-testable with no SHACL / no LLM / no network.

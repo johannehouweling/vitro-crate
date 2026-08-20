@@ -2941,4 +2941,4 @@ class TestHeadlessSessions:
             initial_prompt="build the crate",
             interactive=False,
         )
-        assert h.run() == {"stop_reason": "completed"}
+        assert h.run() == {"stop_reason": "completed", "error": None}

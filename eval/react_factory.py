@@ -13,7 +13,9 @@ A build:
    (#609);
 2. ``initialize(input_path)`` — scans the case's input dir if any, and (always)
    assigns a ``session_id`` + opens the run's ``profile.ndjson``;
-3. drives the ReAct graph once with the case's prompt as a ``HumanMessage``;
+3. runs the SHIPPED loop (``run_build(BuildMode.REACT, ..., interactive=False)``)
+   with the case's prompt as its kickoff — the same budget users get, rather than
+   the single bare graph invocation this used to make (#609);
 4. returns the engine's final :class:`~builder.state.CrateState` and ``session_id``
    so the runner can mine that run's profile for tokens / latency / iterations.
 
@@ -35,8 +37,8 @@ from eval.corpus import EvalCase
 logger = logging.getLogger(__name__)
 
 # A graph_driver runs the ReAct loop for a prompt, mutating engine.state, and
-# reports how the session ended.
-GraphDriver = Callable[[AgentEngine, str], str]
+# reports ``(stop_reason, error)`` — how the session ended, and why if it failed.
+GraphDriver = Callable[[AgentEngine, str], tuple[str, str | None]]
 
 
 def _live_graph_driver(
@@ -46,7 +48,7 @@ def _live_graph_driver(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
-) -> str:
+) -> tuple[str, str | None]:
     """Drive the SHIPPED ReAct loop once for *prompt* (LIVE LLM call).
 
     Calls :func:`builder.agents.react.agent_loop.run_interactive_agent`, which is
@@ -61,7 +63,10 @@ def _live_graph_driver(
     ends where it would otherwise read stdin — backstop and all.
 
     Returns:
-        The loop's ``stop_reason``.
+        ``(stop_reason, error)`` — *error* is the last turn's failure reason, or
+        ``None``. The loop absorbs model failures so the session survives them,
+        so without that message the harness's transient-failure retry (which
+        matches on the reason phrase) could never fire for this arm (#609).
     """
     from builder.agents.build import BuildMode, run_build
 
@@ -74,7 +79,8 @@ def _live_graph_driver(
         initial_prompt=prompt,
         interactive=False,
     )
-    return str((result or {}).get("stop_reason") or "completed")
+    result = result or {}
+    return str(result.get("stop_reason") or "completed"), result.get("error")
 
 
 class ReActBuildAgent:
@@ -118,7 +124,7 @@ class ReActBuildAgent:
         if self._graph_driver is not None:
             return self._graph_driver
 
-        def driver(engine: AgentEngine, prompt: str) -> str:
+        def driver(engine: AgentEngine, prompt: str) -> tuple[str, str | None]:
             return _live_graph_driver(
                 engine,
                 prompt,
@@ -154,7 +160,7 @@ class ReActBuildAgent:
             # partial crate, so it comes back as ``"cap_hit"`` — a
             # valid-at-the-cutoff run, never a clean stop (trap 2, #331). Only a
             # driver that raises outright is an ``error``.
-            stop_reason = self._driver()(engine, case.prompt)
+            stop_reason, error = self._driver()(engine, case.prompt)
         except Exception as exc:  # noqa: BLE001 — a failed build is a measured result
             logger.warning("ReAct build failed for case %s: %s", case.case_id, exc)
             error = str(exc)

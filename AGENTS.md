@@ -1992,15 +1992,24 @@ force-stopped at the recursion cap. ReAct stays a supported variant
 profile conformance (base + isa + tox) plus an entity-count quota — **not** scientific
 accuracy.
 
-> **These figures predate the harness fixes in #609 and must be re-measured before
-> they are quoted again.** They were produced by a harness that gave the two arms
-> different environments: the ReAct arm ran extra RECOMMENDED/OPTIONAL SHACL sweeps
-> (an eval-only human reported itself interactive, which un-gates them), was driven by
-> a single bare graph invocation rather than the loop's own autonomous-continuation
-> budget, and was the only arm that exported; meanwhile the pipeline arm was credited
-> with two conversational cases it never attempted, at $0. Every one of those pushes
-> the ratio the same way. The direction of the result — the pipeline is cheaper and
-> self-terminates — is not in doubt; the multipliers are.
+> **Every number in this paragraph predates the harness fixes in #609 and must be
+> re-measured before it is quoted again — the conformance result as much as the
+> multipliers.** The harness gave the two arms different environments, and the
+> biases do not all point the same way:
+>
+> - *Against ReAct:* it alone ran the extra RECOMMENDED/OPTIONAL SHACL sweeps (an
+>   eval-only human reported itself interactive, which un-gates them) and it alone
+>   exported — both pure additions to its tokens and wall-clock.
+> - *Against the pipeline:* nothing; it was **credited** with two conversational
+>   cases it never attempted, at $0 and full conformance.
+> - *In ReAct's favour, and plausibly the largest term:* it was driven by a single
+>   bare graph invocation, so it never spent its autonomous-continuation budget —
+>   the measured arm did far less work than the one users run.
+>
+> So the published multipliers are not simply overstated: the net direction is
+> genuinely unknown until a re-run. What is not in doubt is the qualitative
+> finding the default rests on — the pipeline is cheaper per build and terminates
+> on its own, where ReAct runs to a recursion cap.
 
 ### D16: ISA-Tox Specialization via `additionalType`, Not `@type` Arrays
 
@@ -2383,7 +2392,8 @@ scoring one arm before export and the other after compared two different stages,
 `eval/__main__.py` adds `--arch react|pipeline` (DEFAULT `react`) selecting the
 factory, so `python -m eval --arch pipeline --label pipeline` runs the same
 corpus/metrics/report against the spine — diffable vs the frozen `react-baseline`.
-The spine calls **no model**, so it runs in CI for real (zero tokens).
+The spine calls a model only through its bounded leaves, and only when a provider is
+configured — with none set it is a strict no-op, so it runs in CI for real.
 
 The ReAct run used for the original A/B is frozen at git tag **`react-baseline`**.
 
