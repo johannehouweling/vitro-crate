@@ -580,3 +580,29 @@ class TestActionsAreOrderedByWhatTheFixIsWorth:
         assert _impact(
             ["A Person SHOULD have a job title", "SHOULD say which measurement technique"]
         ) == 0
+
+
+class TestTheQuotedMessageMatchesTheBadge:
+    """#607: the row shows the validator's message next to the severity badge,
+    so the quoted message must come from a finding of the action's OWN
+    (strongest) tier — quoting a recommendation beside a REQUIRED badge
+    understates what the reader is looking at."""
+
+    def test_the_representative_is_of_the_strongest_tier(self):
+        findings = [
+            {"entity_id": "#a", "severity": "recommended", "profile": "isa",
+             "message": "Entity SHOULD have a description"},
+            {"entity_id": "#a", "severity": "required", "profile": "base",
+             "message": "Entity MUST have an identifier"},
+        ]
+        action = next(a for a in group_findings(findings) if a.actionable)
+        assert action.tier == "REQUIRED"
+        assert action.message == "Entity MUST have an identifier"
+        assert action.source == "base"
+
+    def test_an_orphan_action_names_its_own_source(self):
+        from builder.tools.remediation import group_orphans
+
+        action = group_orphans(["#PropertyValue_x", "#PropertyValue_y"])[0]
+        assert action.source == "graph"
+        assert "not reachable from the crate root" in action.message
