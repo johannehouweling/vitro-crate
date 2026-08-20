@@ -173,3 +173,92 @@ class TestMitCoverageIndicatorCoupling:
         state.metadata.title = "T"
         result = assess_fair_maturity(state)
         assert self._mit_indicator(result)["passed"] is False
+
+
+class TestDsmBlockers:
+    """#607: the report says "N indicators to level L" and names them, so the
+    blockers must be exactly the *next* level's failing assessable indicators.
+
+    Scored against a synthetic indicator table so the expectation is the
+    table, not the function under test."""
+
+    _TABLE = {
+        "indicators": [
+            {"id": "L1-PASS", "level": 1, "scope": "full", "check": "unique_id",
+             "text": "level 1, passes"},
+            {"id": "L2-FAIL-A", "level": 2, "scope": "full", "check": "fails_a",
+             "text": "level 2, fails A"},
+            {"id": "L2-FAIL-B", "level": 2, "scope": "partial", "check": "fails_b",
+             "text": "level 2, fails B"},
+            {"id": "L2-NA", "level": 2, "scope": "na", "check": "fails_c",
+             "text": "level 2, not assessable"},
+            {"id": "L3-FAIL", "level": 3, "scope": "full", "check": "fails_d",
+             "text": "level 3, fails"},
+        ]
+    }
+
+    def _patched(self, monkeypatch):
+        import builder.tools.fair_assessment as fa
+
+        monkeypatch.setattr(fa, "_load_yaml", lambda path: dict(self._TABLE))
+        monkeypatch.setitem(fa.DSM_CHECKS, "unique_id", lambda state: True)
+        for name in ("fails_a", "fails_b", "fails_c", "fails_d"):
+            monkeypatch.setitem(fa.DSM_CHECKS, name, lambda state: False)
+        return fa
+
+    def test_only_the_next_levels_assessable_failures_block(self, monkeypatch):
+        fa = self._patched(monkeypatch)
+        state = CrateState()
+        assert fa._compute_dsm_level(state, dict(self._TABLE)) == 1
+        assert fa.dsm_blockers(state) == [
+            ("L2-FAIL-A", "level 2, fails A"),
+            ("L2-FAIL-B", "level 2, fails B"),
+        ], "na scope excluded, level 3 not yet in play, ids paired with their text"
+
+    def test_a_level_five_crate_has_nothing_above_to_block(self, monkeypatch):
+        import builder.tools.fair_assessment as fa
+
+        monkeypatch.setattr(
+            fa,
+            "_load_yaml",
+            lambda path: {
+                "indicators": [
+                    {"id": f"L{lvl}", "level": lvl, "scope": "full", "check": "ok", "text": "t"}
+                    for lvl in range(1, 6)
+                ]
+            },
+        )
+        monkeypatch.setitem(fa.DSM_CHECKS, "ok", lambda state: True)
+        state = CrateState()
+        assert fa.dsm_blockers(state) == []
+
+    def test_an_unreadable_table_blocks_nothing(self, monkeypatch):
+        import builder.tools.fair_assessment as fa
+
+        monkeypatch.setattr(fa, "_load_yaml", lambda path: None)
+        assert fa.dsm_blockers(CrateState()) == []
+
+    def test_the_shipped_table_blocks_what_the_level_computation_uses(self):
+        """Against the real YAML: every blocker is a level+1 indicator whose
+        own check fails, and clearing them is what the level gate asks for."""
+        from builder.tools.fair_assessment import (
+            DSM_CHECKS,
+            DSM_INDICATORS_PATH,
+            _compute_dsm_level,
+            _load_yaml,
+            dsm_blockers,
+        )
+
+        state = vhps_fixture_state("S-VHPS21")
+        data = _load_yaml(DSM_INDICATORS_PATH)
+        assert data is not None
+        level = _compute_dsm_level(state, data)
+        by_id = {i["id"]: i for i in data["indicators"]}
+        blockers = dsm_blockers(state)
+        assert blockers, "the fixture must have blockers for this to test anything"
+        for bid, text in blockers:
+            ind = by_id[bid]
+            assert ind["level"] == level + 1
+            assert ind["scope"] != "na"
+            assert text == ind["text"]
+            assert DSM_CHECKS[ind["check"]](state) is False

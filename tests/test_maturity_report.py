@@ -280,6 +280,18 @@ class TestHeaderAndCards:
         assert '<span title="input tokens">&darr; 1,242,880</span>' in page
         assert '<span title="output tokens">&uarr; 84,310</span>' in page
 
+    def test_the_crate_card_links_the_tool_and_names_the_gate(self) -> None:
+        state = self._state()
+        state.generator.url = "https://github.com/johannehouweling/vitro-crate"
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        page = build_maturity_html(state, validation=val)
+        assert (
+            '<a class="lk" href="https://github.com/johannehouweling/vitro-crate">'
+            f"vitro-crate {state.generator.version}</a>" in page
+        )
+        assert '<span class="hlabel">Validation gate</span><b>optional</b>' in page
+
     def test_the_provenance_note_renders_only_with_the_crates_graph(self) -> None:
         """The note claims the figures come from the crate's own metadata — a
         state-only render cannot claim that, so it must not."""
@@ -316,6 +328,131 @@ class TestHeaderAndCards:
         assert "number linked and retrieved entities" in tile.group(1)
         # No graph, no tile — a count nobody measured is not rendered as 0.
         assert '<span class="eyebrow">Graph</span>' not in build_maturity_html(CrateState())
+
+
+class TestStudyCardReadsTheGraph:
+    """The About-this-study card's whole graph path: contact + ORCID,
+    affiliation + ROR, funder, licence link, publication and dataset DOIs in
+    one cell, and the root description under the rule."""
+
+    def _graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "T",
+                    "description": "Four in vitro assays across ten compounds.",
+                    "contactPoint": {"@id": "#person"},
+                    "funder": {"@id": "#funder"},
+                    "license": {"@id": "https://creativecommons.org/licenses/by/4.0/"},
+                    "identifier": [{"@id": "#doi"}],
+                    "citation": [{"@id": "#article"}],
+                },
+                {
+                    "@id": "#person",
+                    "@type": "Person",
+                    "name": "Nathalie Dierichs",
+                    "identifier": [{"@id": "#orcid"}],
+                    "affiliation": {"@id": "#org"},
+                },
+                {"@id": "#orcid", "@type": "PropertyValue", "name": "ORCID",
+                 "value": "0009-0000-5074-6239"},
+                {"@id": "#org", "@type": "Organization", "name": "RIVM",
+                 "identifier": [{"@id": "#ror"}]},
+                {"@id": "#ror", "@type": "PropertyValue", "name": "ROR", "value": "01cesdt21"},
+                {"@id": "#funder", "@type": "Organization", "name": "ZonMw",
+                 "url": "https://www.zonmw.nl/"},
+                {"@id": "https://creativecommons.org/licenses/by/4.0/",
+                 "@type": "CreativeWork"},
+                {"@id": "#doi", "@type": "PropertyValue", "name": "DOI",
+                 "value": "10.21945/S-VHPS22"},
+                {"@id": "#article", "@type": "ScholarlyArticle",
+                 "name": "Thyroid disruption in vitro",
+                 "identifier": "https://doi.org/10.1016/j.envint.2025.108000"},
+            ]
+        }
+
+    @staticmethod
+    def _card(page: str) -> str:
+        """The About-this-study card (the first .hcard of the rendered body)."""
+        body = page.split("</style>", 1)[-1]
+        i = body.index('<div class="hcard-h">About this study</div>')
+        return body[i : body.index('<div class="hcard-h">About this RO-Crate</div>', i)]
+
+    def test_every_cell_states_the_graphs_own_fact(self) -> None:
+        page = build_maturity_html(CrateState(), graph=self._graph())
+        card = self._card(page)
+        assert '<a class="lk" href="https://orcid.org/0009-0000-5074-6239">' in card
+        assert "Nathalie Dierichs</a>" in card
+        assert '<a class="lk" href="https://ror.org/01cesdt21">RIVM</a>' in card
+        assert '<a class="lk" href="https://www.zonmw.nl/">ZonMw</a>' in card
+        # A bare licence URL resolves to the registry's own name, never the
+        # URL's last path segment.
+        assert "Creative Commons Attribution 4.0 International" in card
+        assert "legalcode" not in card and ">4.0<" not in card
+        assert "not stated" not in card, "every field is stated in this graph"
+        assert "Four in vitro assays across ten compounds." in card
+
+    def test_the_publication_and_dataset_dois_share_one_cell(self) -> None:
+        """The handoff pins this: pinning them to grid columns broke their
+        pairing every time a field was added."""
+        card = self._card(build_maturity_html(CrateState(), graph=self._graph()))
+        cell = re.search(
+            r'<div class="hcell"><span class="hlabel">Publication</span>(.*?)</div>', card, re.S
+        )
+        assert cell, "no publication cell"
+        assert '<a class="lk" href="https://doi.org/10.1016/j.envint.2025.108000">' in cell.group(1)
+        assert "doi.org/10.1016/j.envint.2025.108000</a>" in cell.group(1), "DOI must be a link"
+        assert '<span class="hlabel">Dataset</span>' in cell.group(1)
+        assert "doi.org/10.21945/S-VHPS22" in cell.group(1)
+
+    def test_the_subhead_prefers_the_publication_name(self) -> None:
+        state = CrateState()
+        state.metadata.title = "The study title"
+        page = build_maturity_html(state, graph=self._graph())
+        assert '<p class="subhead">Thyroid disruption in vitro</p>' in page
+        # The h1 is the title only because this state has no accession; the
+        # SUBHEAD is the publication, never a second copy of the title.
+        assert page.count("The study title") == 2  # <title> and <h1>
+
+    def test_a_bare_string_contact_is_not_reported_as_not_stated(self) -> None:
+        graph = {"@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "T", "creator": "Jane Doe"},
+        ]}
+        card = self._card(build_maturity_html(CrateState(), graph=graph))
+        assert "Jane Doe" in card
+
+
+class TestLinkGuard:
+    """#607: only http(s) targets ever become an href — a URL in a card is
+    crate-controlled text, so ``javascript:`` must render as inert words."""
+
+    def test_lk_refuses_non_web_schemes(self) -> None:
+        from builder.writers.maturity_report import _lk
+
+        for bad in ("javascript:alert(1)", "data:text/html,x", "ftp://h/f", "#frag"):
+            out = _lk(bad, "label")
+            assert "<a" not in out and "href" not in out, bad
+            assert out == "label"
+        good = _lk("https://example.org/x", "label")
+        assert good == '<a class="lk" href="https://example.org/x">label</a>'
+
+    def test_an_affiliation_url_from_the_graph_cannot_smuggle_a_scheme(self) -> None:
+        """The page-level path: an Organization whose @id is a javascript: URL
+        reaches _lk through the affiliation cell."""
+        graph = {"@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "T", "contactPoint": {"@id": "#p"}},
+            {"@id": "#p", "@type": "Person", "name": "P",
+             "affiliation": {"@id": "javascript:alert(1)//org"}},
+            {"@id": "javascript:alert(1)//org", "@type": "Organization", "name": "Evil"},
+        ]}
+        page = build_maturity_html(CrateState(), graph=graph)
+        assert 'href="javascript:' not in page
+        assert "Evil" in page, "the name is still reported, just not as a link"
 
 
 class TestProfileConformanceMatrix:
@@ -370,6 +507,43 @@ class TestProfileConformanceMatrix:
         val.input_fingerprint = "not-this-state"
         cells = self._cells(build_maturity_html(state, validation=val))
         assert {c[0] for c in cells.values()} == {"na"}
+
+    def test_a_failed_gate_with_no_findings_still_reads_as_a_fail(self) -> None:
+        """A verdict can fail a profile's required gate and carry no findings
+        (a crashed or truncated validator run). The cell must say so — a green
+        there would be the false green this matrix exists to refuse."""
+        val = ValidationReport(base_passed=False, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required"}
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+        assert cells["base-required"] == ("no", "profile gate failed")
+        assert cells["isa-required"][0] == "ok"
+
+    def test_a_pre_records_verdict_still_counts_by_profile(self) -> None:
+        """A checkpoint written before ``issue_records`` existed carries only
+        flat display strings — their own ``[profile]`` prefix is what the
+        matrix counts, so the titles stay true rather than claiming zero."""
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended"}
+        val.should_issues = ["[isa] #a: SHOULD have x", "[isa] #b: SHOULD have y",
+                             "[base] ./: SHOULD have z"]
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+        assert cells["isa-recommended"] == ("no", "2 findings at this level")
+        assert cells["base-recommended"] == ("no", "1 finding at this level")
+        assert cells["tox-recommended"] == ("ok", "no findings at this level")
+
+    def test_findings_with_no_profile_get_their_own_row(self) -> None:
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended"}
+        val.issue_records = [
+            {"profile": "", "severity": "recommended", "entity_id": "#x", "message": "m"},
+        ]
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val)
+        cells = self._cells(page)
+        assert "unattributed" in page
+        assert cells["unattributed-recommended"] == (
+            "no",
+            "1 finding not attributed to a profile",
+        )
 
     def test_an_unvalidated_state_renders_all_neutral(self) -> None:
         cells = self._cells(build_maturity_html(CrateState()))
@@ -432,10 +606,62 @@ class TestFairTileAndRose:
         )
         assert m and math.isclose(float(m.group(1)), expected_r, abs_tol=0.01)
 
+    def test_each_wedges_angle_is_its_modules_share(self) -> None:
+        """The other half of the encoding: angle = the module's share of the
+        checklist (radius = its fill). Equal slices would pass a radius-only
+        test, so the sweep is measured from the arc endpoints."""
+        import math
+
+        from builder.tools.mit_assessment import assess_mit_coverage
+        from builder.writers.maturity_report import _mit_rose_svg
+
+        mit = assess_mit_coverage(vhps_fixture_state("S-VHPS21"))
+        total_all = sum(sc["total"] for sc in mit.module_scores.values())
+        svg = _mit_rose_svg(mit)
+        # Background wedges are full-radius and in module order.
+        paths = re.findall(
+            r'M 87\.0,87\.0 L ([\d.]+),([\d.]+) A 82\.00,82\.00 0 [01] 1 ([\d.]+),([\d.]+) Z"'
+            r' fill="#f2f5f5"',
+            svg,
+        )
+        drawn = [(n, sc) for n, sc in mit.module_scores.items() if sc["total"]]
+        assert len(paths) == len(drawn)
+
+        def angle(x: str, y: str) -> float:
+            return math.degrees(math.atan2(float(y) - 87.0, float(x) - 87.0)) + 90
+
+        for (x0, y0, x1, y1), (name, sc) in zip(paths, drawn, strict=True):
+            sweep = (angle(x1, y1) - angle(x0, y0)) % 360
+            assert math.isclose(sweep, sc["total"] / total_all * 360, abs_tol=0.05), name
+
     def test_the_footnote_superscripts_resolve(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
         for fn in ("fn-dsm", "fn-mit"):
             assert f'href="#{fn}"' in page and f'id="{fn}"' in page
+
+    def test_the_references_cite_what_the_assessors_actually_implement(self) -> None:
+        """The handoff flagged this citation as the thing to confirm: the DSM
+        note must name the model ``fair/dsm_indicators.yaml`` implements (the
+        FAIRplus DSM, derived from the RDA FDMM), and the MIT note the
+        indicator package the checklist comes from."""
+        from builder.tools.fair_assessment import DSM_INDICATORS_PATH
+        from builder.tools.mit_assessment import MIT_INDICATORS_URL
+
+        yaml_text = DSM_INDICATORS_PATH.read_text(encoding="utf-8")
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        refs = page[page.index('<div class="refs">') :]
+        for url in ("https://fairplus.github.io/Data-Maturity/", "https://doi.org/10.15497/rda00050"):
+            assert f'href="{url}"' in refs, url
+            assert url.rstrip("/").split("//", 1)[1] in yaml_text.replace("doi:", "doi.org/"), (
+                f"{url} is not the source the YAML cites"
+            )
+        assert "Levels are gated" in refs
+        # The note must NAME both models, not merely link them: the link text
+        # is a DOI, and a reader cannot tell which maturity model was scored.
+        assert "FAIRplus Dataset Maturity (DSM) model" in refs
+        assert "RDA FAIR Data Maturity Model" in refs
+        assert f'href="{MIT_INDICATORS_URL}"' in refs
+        assert "principle R1.3" in refs
 
 
 class TestStaleValidation:
@@ -3012,6 +3238,37 @@ class TestRecommendationRows:
             graph=graph,
         )
         assert "conformance from a SHACL validation against the three profiles" in validated
+
+    def test_rows_are_ordered_tier_then_impact_then_size(self) -> None:
+        """The renderer's own order, asserted through the renderer: a required
+        action outranks any advisory one however small, and within a tier the
+        more valuable fix outranks the bulkier one."""
+        from builder.tools.validation import ValidationReport
+        from builder.writers.maturity_report import _render_recommendations
+
+        val = ValidationReport()
+        val.base_passed = False
+        val.required_issues = ["[base] ./: The root Dataset MUST have a licence"]
+        val.issue_records = [
+            {"profile": "base", "severity": "required", "entity_id": "./",
+             "message": "The root Dataset MUST have a licence"},
+            # Impact band 0 — the values cannot be interpreted without it.
+            {"profile": "isa", "severity": "recommended", "entity_id": "#a",
+             "message": "Assay SHOULD have a measurement technique"},
+            {"profile": "isa", "severity": "recommended", "entity_id": "#a",
+             "message": "Assay SHOULD name its measured entity"},
+            # Impact band 1, but nine times the size.
+            *[
+                {"profile": "base", "severity": "recommended", "entity_id": f"#f{i}",
+                 "property": "dateModified",
+                 "message": "A File SHOULD have a dateModified"}
+                for i in range(9)
+            ],
+        ]
+        rows = re.findall(r"<li>.*?</li>", _render_recommendations(val, None), re.S)
+        assert "licence" in rows[0], "the REQUIRED action must lead"
+        assert "measurement technique" in rows[1], "impact outranks size within a tier"
+        assert "dateModified" in rows[2]
 
     def test_no_meta_line_and_no_set_aside_bucket(self) -> None:
         """The "N actions clear M findings" meta line and the "left open on
