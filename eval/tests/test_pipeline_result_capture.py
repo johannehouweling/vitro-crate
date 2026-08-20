@@ -17,7 +17,7 @@ import pytest
 
 from builder.state import CrateState
 from eval.agent_api import BuildOutcome
-from eval.corpus import DEFAULT_CORPUS
+from eval.corpus import DEFAULT_CORPUS, first_folder_case
 from eval.pipeline_factory import PipelineBuildAgent, PipelineRunner
 
 pytestmark = pytest.mark.timeout(120)
@@ -30,7 +30,7 @@ class TestPipelineResultCapture:
             "materialized": {"condition_table": {"populated": False, "reason": "declined"}},
         }
         agent = PipelineBuildAgent(pipeline_runner=lambda engine: dict(report))
-        outcome = agent.build(DEFAULT_CORPUS[0])
+        outcome = agent.build(first_folder_case())
         assert outcome.pipeline_result == report
 
     def test_a_runner_without_a_report_yields_none(self) -> None:
@@ -38,7 +38,7 @@ class TestPipelineResultCapture:
         # defensive capture: a misbehaving runner yields None, never garbage.
         misbehaving = cast(PipelineRunner, lambda engine: None)
         agent = PipelineBuildAgent(pipeline_runner=misbehaving)
-        outcome = agent.build(DEFAULT_CORPUS[0])
+        outcome = agent.build(first_folder_case())
         assert outcome.pipeline_result is None
 
     def test_the_field_defaults_to_none_for_other_producers(self) -> None:

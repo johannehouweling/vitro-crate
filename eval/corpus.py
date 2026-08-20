@@ -107,6 +107,16 @@ def reaches_isa_tox_conformance(state: CrateState) -> dict[str, Any]:
     }
 
 
+def first_folder_case() -> EvalCase:
+    """The first corpus case backed by an input directory.
+
+    Both arms attempt a folder-backed case; only the ReAct arm attempts a
+    conversational one (#609), so a test about shared build wiring must pick one
+    of these rather than ``DEFAULT_CORPUS[0]``.
+    """
+    return next(c for c in DEFAULT_CORPUS if c.input_path)
+
+
 def meets_entity_quota(state: CrateState, min_entities: dict[str, int] | None) -> dict[str, Any]:
     """Content-quality check: did *state* draft at least ``min_entities`` per type?
 

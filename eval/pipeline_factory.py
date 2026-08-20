@@ -34,24 +34,13 @@ from typing import Any, Callable
 
 from builder.agents.llm import ModelOverrides
 from builder.engine import AgentEngine
+from builder.state import CrateState
 from builder.tools.hitl import SimulatedHumanInterface
 from eval.agent_api import BuildOutcome
 from eval.corpus import EvalCase
 
 logger = logging.getLogger(__name__)
 
-
-def _accepts_overrides(runner: PipelineRunner) -> bool:
-    """Whether *runner* takes an ``overrides`` kwarg (a narrow stub may not)."""
-    import inspect
-
-    try:
-        sig = inspect.signature(runner)
-    except (TypeError, ValueError):
-        return False
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-        return True
-    return "overrides" in sig.parameters
 
 # A pipeline_runner runs the deterministic spine once over an engine, mutating
 # engine.state and returning the spine's result dict.
@@ -89,15 +78,6 @@ class PipelineBuildAgent:
         """
         return AgentEngine(human_interface=SimulatedHumanInterface())
 
-    def _runner(self) -> PipelineRunner:
-        """Return the configured runner, defaulting to the real spine."""
-        if self._pipeline_runner is not None:
-            return self._pipeline_runner
-
-        from builder.agents.pipeline.pipeline import run_pipeline
-
-        return run_pipeline
-
     def build(self, case: EvalCase) -> BuildOutcome:
         """Build the crate for *case* by running the deterministic spine once.
 
@@ -111,6 +91,21 @@ class PipelineBuildAgent:
             on success and ``"error"`` when it raises — it never ``"cap_hit"``
             (there is no recursion loop to cap).
         """
+        if case.input_path is None:
+            # A conversational case: a prompt and no documents. This arm is
+            # folder-driven BY DESIGN — `main.py --interactive` refuses to run it
+            # with nothing scanned and points the user at `--react` — so it has
+            # no way to attempt this and never read `case.prompt`. Left to run it
+            # scaffolded an empty crate, passed conformance and scored a win at
+            # $0 against an arm that drafted the whole study from the brief.
+            # Say so instead (#609).
+            logger.info(
+                "Case %s is conversational (no input directory); the deterministic "
+                "pipeline does not attempt it",
+                case.case_id,
+            )
+            return BuildOutcome(state=CrateState(), stop_reason="not_applicable")
+
         engine = self._make_engine()
         # initialize() scans the input dir (if any) — which approves it under the
         # fail-closed guard — and always assigns a session_id + opens
@@ -121,16 +116,27 @@ class PipelineBuildAgent:
         stop_reason = "completed"
         report: dict[str, Any] | None = None
         try:
-            runner = self._runner()
-            if self._overrides is not None and _accepts_overrides(runner):
-                raw = runner(engine, overrides=self._overrides)
-            else:
-                raw = runner(engine)
+            # The SHIPPED pipeline entrypoint, not the bare spine: it runs the
+            # spine, then exports and persists. Export is not a formality — it
+            # runs an optional-tier `ensure_validated` and
+            # `wire_unreferenced_domain_entities`, both of which change the crate.
+            # The ReAct arm exports from inside its own loop, so scoring the
+            # pipeline on the state the spine left behind compared two different
+            # stages of two builds (#609). The human is headless, so the guidance
+            # tail is correctly skipped and this stays an automated-vs-automated
+            # comparison.
+            from builder.agents.build import run_interactive_build
+
+            raw = run_interactive_build(
+                engine,
+                pipeline_runner=self._pipeline_runner,
+                overrides=self._overrides,
+            )
             # run_pipeline's structured report (conformance, issues, the
             # materialization outcomes incl. condition_table, data_issues) used
             # to be discarded here, hiding every domain-level failure that does
             # not raise (#422). Keep it whenever the runner returns one.
-            report = raw if isinstance(raw, dict) else None
+            report = raw.get("pipeline") if isinstance(raw, dict) else None
         except Exception as exc:  # noqa: BLE001 — a failed build is a measured result
             logger.warning("Pipeline build failed for case %s: %s", case.case_id, exc)
             error = str(exc)

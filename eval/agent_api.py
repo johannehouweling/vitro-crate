@@ -34,8 +34,11 @@ class BuildOutcome:
         stop_reason: How the build terminated — ``"completed"`` (the agent
             self-terminated), ``"cap_hit"`` (the ReAct loop hit its recursion cap;
             a valid-at-the-cutoff run, **not** a clean stop — trap 2, #331), or
-            ``"error"`` (the build raised). ``None`` when the producer does not
-            classify termination (e.g. a mock). A ``"cap_hit"`` preserves the
+            ``"error"`` (the build raised), or ``"not_applicable"`` (the case
+            asks for something this arm does not do — a conversational,
+            no-input-directory build on the folder-driven pipeline; it is counted
+            and named, never averaged in as a cheap win, #609). ``None`` when the
+            producer does not classify termination (e.g. a mock). A ``"cap_hit"`` preserves the
             partial crate and leaves ``error`` unset, so the conformance predicate
             still measures what the run produced at the cap.
         pipeline_result: The deterministic spine's structured report — the dict

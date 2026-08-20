@@ -262,13 +262,26 @@ class EvalReport:
         success rate, mean/median tokens and latency, and the determinism rate
         (over cases where determinism is defined).
 
-        ``success_rate`` is the share of **all** (case x repeat) builds that reached
-        conformance — not repeat #1's pass rate (#405). ``num_success_all_repeats``
+        Cases an arm reports ``not_applicable`` for are counted
+        (``num_not_applicable``) and excluded from every average — the folder-driven
+        pipeline cannot attempt a conversational case, and averaging it in scores a
+        capability gap as a cost win (#609). ``num_cases_compared`` is the
+        denominator the rest of the numbers use.
+
+        ``success_rate`` is the share of **attempted** (case x repeat) builds that
+        reached conformance — not repeat #1's pass rate (#405). ``num_success_all_repeats``
         (every repeat conformed) and ``num_success_any_repeat`` (at least one did)
         give the strict and optimistic readings alongside it; a flaky case shows up
         as the gap between them.
         """
         n = len(self.results)
+        # A case one arm does not attempt is NOT a data point about that arm's
+        # quality or cost (#609). Averaging a conversational case into the
+        # folder-driven pipeline's numbers turns a capability gap into a cost win
+        # ($0, no tokens, an empty crate that still passes conformance). Count it,
+        # name it, and compare the arms on the cases they both attempted.
+        compared = [r for r in self.results if r.stop_reason != "not_applicable"]
+        num_not_applicable = n - len(compared)
         # ``success_rate`` spans repeats (#405): the mean of each case's own
         # conformant fraction, i.e. the share of all (case x repeat) builds that
         # worked. It used to be repeat #1's pass rate under a name every reader
@@ -278,12 +291,12 @@ class EvalReport:
         # collapse to the same 0) because it is the only one that preserves
         # magnitude AND stays comparable across different --repeats. Both stricter
         # readings are still reported below, named for what they count.
-        success_rate = statistics.mean([r.success_rate for r in self.results]) if n else 0.0
-        num_success_all_repeats = sum(1 for r in self.results if r.always_succeeds)
-        num_success_any_repeat = sum(1 for r in self.results if r.success_rate > 0)
-        totals = [r.total_tokens for r in self.results]
-        latencies = [r.latency_seconds for r in self.results]
-        decided = [r for r in self.results if r.deterministic is not None]
+        success_rate = statistics.mean([r.success_rate for r in compared]) if compared else 0.0
+        num_success_all_repeats = sum(1 for r in compared if r.always_succeeds)
+        num_success_any_repeat = sum(1 for r in compared if r.success_rate > 0)
+        totals = [r.total_tokens for r in compared]
+        latencies = [r.latency_seconds for r in compared]
+        decided = [r for r in compared if r.deterministic is not None]
         det_rate = sum(1 for r in decided if r.deterministic) / len(decided) if decided else None
         # Stop-reason breakdown (trap 2): a self-terminated run is a clean win; a
         # cap_hit is only valid-at-the-cutoff. Counting them keeps a ReAct "win" at
@@ -295,7 +308,7 @@ class EvalReport:
         # so an unpriced run reads as "cost unknown", not a misleading $0 (trap 5).
         # Each case contributes ALL its repeats (#401) — this is the run's actual
         # spend, matching what the API bills, not one repeat presented as the total.
-        known_costs = [r.total_cost_usd for r in self.results if r.total_cost_usd is not None]
+        known_costs = [r.total_cost_usd for r in compared if r.total_cost_usd is not None]
         total_cost_usd = sum(known_costs) if known_costs else None
         # The same money divided by the repeat count, so runs made with different
         # ``--repeats`` remain comparable to each other.
@@ -307,7 +320,7 @@ class EvalReport:
         # a deterministic arm, high for a stochastic one. A case with a zero mean (no
         # model call) contributes CV 0 rather than dividing by zero.
         cvs: list[float] = []
-        for r in self.results:
+        for r in compared:
             spread = _spread(r.total_tokens_per_repeat)
             mean_tok = spread["mean"]
             cvs.append(spread["stdev"] / mean_tok if mean_tok else 0.0)
@@ -316,6 +329,10 @@ class EvalReport:
             "label": self.label,
             "repeats": self.repeats,
             "num_cases": n,
+            # The denominator behind every average below: the cases this arm
+            # actually attempted (#609).
+            "num_cases_compared": len(compared),
+            "num_not_applicable": num_not_applicable,
             # Both readings, each named for exactly what it counts (#405). The bare
             # ``num_success`` they replace could not say which one it meant.
             "num_success_all_repeats": num_success_all_repeats,
