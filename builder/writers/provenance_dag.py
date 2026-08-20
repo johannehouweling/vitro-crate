@@ -2325,100 +2325,6 @@ def build_cellline_inventory(
     }
 
 
-# ---------------------------------------------------------------------------
-# LabProtocols — the instructions behind the processes, and whether a reader
-# could retrieve and follow them.
-#
-# A protocol fails two ways. It is *unexecuted* when no LabProcess names it via
-# executesLabProtocol — described in the crate and used by nothing, the same
-# dangling shape the cell-line view exposes. And it is *unretrievable* when it
-# carries a name but no URL: a name alone cannot be followed, a link to the
-# published method (protocols.io, a DOI) is what lets another lab run the same
-# steps.
-# ---------------------------------------------------------------------------
-
-PROTOCOL_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("Retrievable URL", "URL"),
-    ("Description", "Description"),
-)
-
-_DESCRIPTION_KEYS: tuple[str, ...] = (
-    "description",
-    "http://schema.org/description",
-    "https://schema.org/description",
-)
-
-# How something can point at a protocol. ``executesLabProtocol`` is canonical
-# and first: the LabProcess names the instructions it follows.
-_PROTOCOL_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
-    (_PROTOCOL_KEYS, "executesLabProtocol"),
-    (_ABOUT_KEYS, "about"),
-    (_MENTIONS_KEYS, "mentions"),
-) + _EXTRA_LINK_RELATIONS
-
-
-def _is_protocol(node: dict[str, Any]) -> bool:
-    return "LabProtocol" in _types(node) or _additional_type(node) == "LabProtocol"
-
-
-def build_protocol_inventory(
-    metadata: dict[str, Any] | list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Model the crate's LabProtocols: their route into the experiment + identity.
-
-    Resolves, for every ``LabProtocol``, how it is reachable from a
-    ``LabProcess`` — canonically the process that names it via
-    ``executesLabProtocol`` — and whether a reader could retrieve and follow it:
-    a URL (the ``url`` field, or the ``@id`` itself when it is the published
-    web address) and a description.
-
-    Pure and cheap: one pass over the serialized ``@graph``, no validation and
-    no network. Crate-controlled text is HTML-escaped in ``label`` (#169).
-
-    Returns:
-        ``{"protocols": [...], "groups": [...], "counts": {...}}``, shaped
-        exactly like :func:`build_cellline_inventory` so both feed the same
-        renderer — ``state`` is ``"wired"`` / ``"mentioned"`` / ``"unlinked"``.
-    """
-    nodes = _graph_nodes(metadata)
-    prot_ids = {nid for nid, n in nodes.items() if _is_protocol(n)}
-    if not prot_ids:
-        return {"protocols": [], "groups": [], "counts": dict(_EMPTY_ROUTE_COUNTS)}
-
-    resolve = _route_resolver(nodes, prot_ids, _PROTOCOL_LINK_RELATIONS)
-
-    protocols: list[dict[str, Any]] = []
-    for pid in sorted(prot_ids, key=lambda p: (_name(nodes[p]).casefold(), p)):
-        node = nodes[pid]
-        url = next(
-            (v for v in (_literal(node, _URL_KEYS), pid) if isinstance(v, str) and _is_uri(v)),
-            None,
-        )
-        fields: dict[str, bool] = {
-            "Retrievable URL": url is not None,
-            "Description": _literal(node, _DESCRIPTION_KEYS) is not None,
-        }
-        route = resolve(pid)
-        protocols.append(
-            {
-                **_chem_node_brief(pid, node),
-                "resolvable": _is_uri(pid),
-                "url": url,
-                "fields": fields,
-                "met": sum(1 for ok in fields.values() if ok),
-                "total": len(fields),
-                "state": _route_state(route),
-                "route": route,
-            }
-        )
-
-    return {
-        "protocols": protocols,
-        "groups": _route_bands(protocols, nodes),
-        "counts": _route_counts(protocols),
-    }
-
-
 # --- chemicals diagram -----------------------------------------------------
 # Reuses the derivation chain's node geometry and shapes (see _SVG_NODE_W/H and
 # _svg_node_shape) so the two diagrams in the maturity report read as one system;
@@ -2456,7 +2362,6 @@ def _grid_columns(count: int) -> int:
 # Arrowhead element ids — one per diagram (see _svg_link).
 _CHEM_MARKER = "chem-ar-link"
 _CELLLINE_MARKER = "cell-ar-link"
-_PROTOCOL_MARKER = "lprot-ar-link"
 _ISA_MARKER = "isa-ar-link"
 _PEOPLE_MARKER = "people-ar-link"
 
@@ -2658,29 +2563,6 @@ def render_celllines_svg(inventory: dict[str, Any]) -> str:
         # Information); the entities themselves stay cell lines.
         noun="biological models",
         marker=_CELLLINE_MARKER,
-    )
-
-
-def render_protocols_svg(inventory: dict[str, Any]) -> str:
-    """Draw the protocol routes as a self-contained inline ``<svg>``.
-
-    Same bands as the cell-line view, because the failure is the same shape:
-    the canonical route is ``LabProcess --executesLabProtocol--> protocol``,
-    and a protocol nothing executes is left with no inbound edge at all.
-
-    Args:
-        inventory: The result of :func:`build_protocol_inventory`.
-
-    Returns:
-        The ``<svg>…</svg>`` markup, or ``""`` when the crate declares none.
-    """
-    _label_briefs_uniquely(inventory)
-    return _render_routed_svg(
-        inventory,
-        node_cls="protocol",
-        more_tag="LabProtocol",
-        noun="protocols",
-        marker=_PROTOCOL_MARKER,
     )
 
 

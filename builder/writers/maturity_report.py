@@ -1806,7 +1806,6 @@ _LG_CONTAINER = _lg("container")
 # A biological model IS a Sample (a cell-line entity), so it keeps the material
 # outline and colour; only the wording narrows to what this view is about.
 _LG_CELLLINE = _lg("material", "Biological model / sample")
-_LG_PROTOCOL = _lg("protocol")
 _LG_PERSON = _lg("agent")
 _LG_ORG = _lg("org")
 _LG_ARTICLE = _lg("publication")
@@ -2078,9 +2077,6 @@ _VIEWS: tuple[tuple[str, str, str], ...] = (
     # Datasets before Assays: the review's "flip dataset and assays".
     ("mv-data", "p-data", "Datasets"),
     ("mv-isa", "p-isa", "Assays"),
-    # Adjacent because a protocol is the instructions a process executes;
-    # protocols first per the review's "flip labprotocols and labprocess".
-    ("mv-lprot", "p-lprot", "LabProtocols"),
     ("mv-prov", "p-prov", "LabProcesses"),
     ("mv-chem", "p-chem", "Chemicals"),
     ("mv-cell", "p-cell", "Biological models"),
@@ -2118,7 +2114,6 @@ def _render_graph_views_section(
         build_crate_graph,
         build_isa_inventory,
         build_people_inventory,
-        build_protocol_inventory,
     )
 
     model = build_crate_graph(graph, all_edges=True)
@@ -2127,7 +2122,6 @@ def _render_graph_views_section(
         "p-isa": _render_isa_panel(build_isa_inventory(graph)),
         "p-data": _render_datasets_panel(graph, model),
         "p-prov": (_render_provenance_panel(graph), ""),
-        "p-lprot": _render_protocols_panel(build_protocol_inventory(graph)),
         "p-chem": _render_chemicals_panel(chem_inv),
         "p-cell": _render_celllines_panel(build_cellline_inventory(graph)),
         "p-people": _render_people_panel(build_people_inventory(graph)),
@@ -2489,110 +2483,6 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
         "one the culture actually consumed, and whether another lab could obtain the same "
         f"stock. <b>{total}</b> biological model{'' if total == 1 else 's'} · <b>{wired}</b> "
         f"consumed by a process · <b>{pct}%</b> characterised.</p>\n"
-        f"  {diagram}\n"
-        f"  {''.join(notes)}\n"
-        f"  {matrix}"
-    )
-    return panel, str(total)
-
-
-_PROT_STATE_NOTE = {
-    "wired": "executed by a process",
-    "mentioned": "named in the crate, but executed by no process",
-    "unlinked": "nothing in the crate references this protocol",
-}
-
-
-def _render_protocols_panel(inv: dict[str, Any]) -> tuple[str, str]:
-    """The LabProtocols view: the instructions behind the processes, and
-    whether a reader could follow them.
-
-    A protocol fails two ways: *unexecuted* when no ``LabProcess`` names it via
-    ``executesLabProtocol`` — described in the crate and used by nothing — and
-    *unretrievable* when it carries a name but no URL, because a name alone
-    cannot be followed. A protocol with a URL links it from its name.
-
-    Returns:
-        ``(panel html, tab badge)`` — ``("", "")`` when the crate declares none.
-    """
-    from builder.writers.provenance_dag import PROTOCOL_COVERAGE_FIELDS, render_protocols_svg
-
-    protocols = inv["protocols"]
-    if not protocols:
-        return "", ""
-    counts = inv["counts"]
-    total, wired = counts["total"], counts["wired"]
-    with_url = sum(1 for p in protocols if p["url"])
-    pct = (
-        round(counts["fields_met"] / counts["fields_total"] * 100) if counts["fields_total"] else 0
-    )
-
-    svg = render_protocols_svg(inv)
-    diagram = (
-        f'<div class="prov-scroll">{svg}</div>\n  '
-        + _legend(_LG_PROCESS, _LG_PROTOCOL, _LG_LINK, _LG_BREAK)
-        if svg
-        else ""
-    )
-
-    notes = []
-    unexecuted = total - wired
-    if unexecuted:
-        notes.append(
-            f'<p class="chem-warn">{_mk("no")}<span><b>{unexecuted} of {total} protocols are '
-            "executed by no process.</b> A <code>LabProcess</code> names its instructions via "
-            "<code>executesLabProtocol</code> — a protocol nothing executes is described in "
-            "the crate and used by nothing.</span></p>"
-        )
-    if total - with_url:
-        notes.append(
-            f'<p class="chem-warn">{_mk("no")}<span><b>{total - with_url} of {total} protocols '
-            "carry no retrievable URL.</b> A name alone cannot be followed; a link to the "
-            "published method (e.g. protocols.io) is what lets another lab run the same "
-            "steps.</span></p>"
-        )
-    if not notes:
-        notes.append(
-            '<p class="good-note">Every protocol is executed by a process and carries a '
-            "retrievable link.</p>"
-        )
-
-    ordered = sorted(
-        protocols, key=lambda p: (p["state"] == "wired", p["met"], p["name"].casefold(), p["id"])
-    )
-    head = "".join(
-        f'<th scope="col" title="{html.escape(full)}">{html.escape(short)}</th>'
-        for full, short in PROTOCOL_COVERAGE_FIELDS
-    )
-    rows = []
-    for p in ordered:
-        name = _lk(p["url"], p["name"]) if p["url"] else p["label"]
-        flag = (
-            ""
-            if p["state"] == "wired"
-            else f'<span class="chem-flag" title="{html.escape(_PROT_STATE_NOTE[p["state"]])}">'
-            f"{'not linked' if p['state'] == 'unlinked' else 'no process'}</span>"
-        )
-        cells = "".join(
-            f"<td>{_mk('ok' if p['fields'].get(full) else 'no')}</td>"
-            for full, _short in PROTOCOL_COVERAGE_FIELDS
-        )
-        rows.append(
-            f'<tr><th scope="row">{_mk(_CHEM_STATE_MARK[p["state"]])}'
-            f'<span class="cn">{name}</span>{flag}</th>{cells}</tr>'
-        )
-    matrix = (
-        '<div class="chem-tbl-scroll"><table class="chem-tbl">'
-        '<caption class="sr-only">Identification fields carried by each protocol</caption>'
-        f'<thead><tr><th scope="col">Protocol</th>{head}</tr></thead>'
-        f"<tbody>{''.join(rows)}</tbody></table></div>"
-    )
-
-    panel = (
-        '<p class="prov-cap">The instructions behind the processes — whether each declared '
-        "protocol is executed by a process, and whether a reader could follow the same "
-        f"steps. <b>{total}</b> protocol{'' if total == 1 else 's'} · <b>{wired}</b> "
-        f"executed by a process · <b>{pct}%</b> described.</p>\n"
         f"  {diagram}\n"
         f"  {''.join(notes)}\n"
         f"  {matrix}"
