@@ -333,7 +333,14 @@ def _load_shell() -> str:
 
 
 def _lk(url: str, text: str) -> str:
-    """An accent link with the report's card-link styling; crate text escaped."""
+    """An accent link with the report's card-link styling; crate text escaped.
+
+    Only http(s) targets become links — a URL here is crate-controlled text,
+    and any other scheme (``javascript:``, ``data:``) must never reach the page
+    as an href. A non-web target renders as plain text instead.
+    """
+    if not str(url).startswith(("http://", "https://")):
+        return html.escape(text)
     return f'<a class="lk" href="{html.escape(url)}">{html.escape(text)}</a>'
 
 
