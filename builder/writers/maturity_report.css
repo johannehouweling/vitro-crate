@@ -393,6 +393,18 @@ __CATEGORY_STYLES__
   background:var(--surface-2); border:1px solid var(--border); border-radius:3px;
   padding:.02rem .3rem; color:var(--ink); }
 .mat .chem-tbl-scroll { overflow-x:auto; margin-top:.95rem; }
+/* Datasets: one fold per Dataset, its hasPart files inside */
+.mat details.ds-fold { margin-top:.95rem; border-top:1px solid var(--hairline); padding-top:.55rem; }
+.mat details.ds-fold > summary { cursor:pointer; list-style:none; font-size:.86rem;
+  color:var(--ink-2); display:flex; align-items:baseline; gap:.4rem; flex-wrap:wrap; }
+.mat details.ds-fold > summary::-webkit-details-marker { display:none; }
+.mat details.ds-fold > summary::after { content:"+"; color:var(--muted); margin-left:auto; }
+.mat details.ds-fold[open] > summary::after { content:"\2212"; }
+.mat details.ds-fold > summary b { font-weight:650; color:var(--ink); }
+.mat .ds-lvl { font-size:.64rem; font-weight:650; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--muted); }
+.mat .ds-n { font-size:.74rem; color:var(--muted); }
+.mat details.ds-fold .chem-tbl-scroll { margin-top:.45rem; }
 .mat table.chem-tbl { border-collapse:collapse; width:100%; min-width:32rem; font-size:.82rem; }
 .mat .chem-tbl th, .mat .chem-tbl td { text-align:center; padding:.34rem .3rem;
   border-bottom:1px solid var(--hairline); }
