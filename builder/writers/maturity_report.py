@@ -738,9 +738,15 @@ def _profile_matrix_tile(
                 state, title = "no", f"{n} finding{'s' if n != 1 else ''} at this level"
             else:
                 state, title = "ok", "no findings at this level"
+            # The cell carries the whole sentence for AT — the grid has no
+            # table semantics, so an unassociated "met / not met" stream would
+            # say nothing about which profile or tier it belongs to.
+            words = {"ok": "met", "no": "not met", "na": "not assessed"}[state]
+            plain = title.replace("&rsquo;", "'")
             cells += (
-                f'<span class="pmx-c" data-cell="{key}-{tier}" title="{title}">'
-                f"{_mk(state)}</span>"
+                f'<span class="pmx-c" data-cell="{key}-{tier}" title="{title}" role="img" '
+                f'aria-label="{label}, {tier}: {words} — {plain}">'
+                f'<span class="mk {state}" aria-hidden="true">{_GLYPH[state]}</span></span>'
             )
         rows += f'<span class="pmx-p">{_lk(_PROFILE_SPEC_URLS[key], label)}</span>{cells}'
     return (
@@ -780,7 +786,7 @@ def _fair_tile(fair: FAIRReport, blockers: list[str]) -> str:
             f"to level {fair.dsm_level + 1}</div>"
         )
     return (
-        '<article class="kpi">'
+        '<article class="kpi fair-tile">'
         '<div class="kpi-h"><span class="eyebrow">FAIR maturity</span></div>'
         f'<div class="kpi-v"><b>{fair.dsm_level}</b><span class="den">/ 5</span> '
         '<span class="tag-inline">DSM level<a class="fn" href="#fn-dsm">1</a></span></div>'
@@ -916,7 +922,7 @@ def _render_kpis(
         for i in range(repro_total)
     )
     tiles += (
-        '<article class="kpi">'
+        f'<article class="kpi{"" if graph_counts is not None else " wide"}">'
         '<div class="kpi-h"><span class="eyebrow">Reproducibility</span></div>'
         f'<div class="kpi-v"><b>{repro_ready}</b><span class="den">/ {repro_total}</span> '
         '<span class="tag-inline">readiness level</span></div>'
@@ -1917,7 +1923,7 @@ def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
     panel = (
         '<p class="prov-cap">The ISA backbone every other view hangs off — the '
         "Investigation that states the question, the Studies under it, and the Assays "
-        f"whose processes the Provenance view traces. <b>{counts['investigations']}</b> "
+        f"whose processes the LabProcesses view traces. <b>{counts['investigations']}</b> "
         f"investigation · <b>{counts['studies']}</b> stud"
         f"{'y' if counts['studies'] == 1 else 'ies'} · <b>{counts['assays']}</b> assay"
         f"{'' if counts['assays'] == 1 else 's'} · <b>{counts['processes']}</b> process"
@@ -1963,7 +1969,7 @@ def _render_provenance_panel(graph: dict[str, Any] | list[dict[str, Any]]) -> st
 _VIEWS: tuple[tuple[str, str, str], ...] = (
     ("mv-all", "p-all", "All entities"),
     ("mv-isa", "p-isa", "ISA structure"),
-    ("mv-prov", "p-prov", "Provenance"),
+    ("mv-prov", "p-prov", "LabProcesses"),
     ("mv-chem", "p-chem", "Chemicals"),
     ("mv-cell", "p-cell", "Cell lines"),
     ("mv-people", "p-people", "People &amp; orgs"),
@@ -2664,9 +2670,7 @@ def build_maturity_html(
         "<span>Self-contained · offline · print-friendly</span></footer>\n"
     )
     body = (
-        header
-        + study_card
-        + crate_card
+        f'<div class="masthead">{header}{study_card}{crate_card}</div>\n'
         + kpis
         + views_section
         + prof_section
