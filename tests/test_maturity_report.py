@@ -400,6 +400,9 @@ class TestFairTileAndRose:
             f"<b>{len(blockers)} indicator{'s' if len(blockers) != 1 else ''}</b> "
             f"to level {fair.dsm_level + 1}" in page
         )
+        # The count is drillable: the fold names every blocking indicator.
+        for bid, text in blockers:
+            assert f"<code>{bid}</code>" in page and text in page, bid
 
     def test_the_rose_draws_every_module_to_the_scorers_numbers(self) -> None:
         import math

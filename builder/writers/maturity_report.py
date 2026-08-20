@@ -809,7 +809,7 @@ def _profile_matrix_tile(
     )
 
 
-def _fair_tile(fair: FAIRReport, blockers: list[str]) -> str:
+def _fair_tile(fair: FAIRReport, blockers: list[tuple[str, str]]) -> str:
     """FAIR maturity: the gated DSM level, a ladder whose *next* rung shows the
     ratio of indicators already met (a gated 0 must not read as "nothing
     done"), and — in red — how many indicators stand before the next level."""
@@ -832,11 +832,18 @@ def _fair_tile(fair: FAIRReport, blockers: list[str]) -> str:
             rungs += '<span class="rung2 off"></span>'
     blocked = ""
     if blockers:
+        # The count is a claim a reader must be able to drill into — the FAIR
+        # detail section is gone, so the blocking indicators are named right
+        # here, one fold away, in the YAML's own words.
         n = len(blockers)
-        names = html.escape(", ".join(blockers))
+        items = "".join(
+            f"<li><code>{html.escape(bid)}</code> {html.escape(text)}</li>"
+            for bid, text in blockers
+        )
         blocked = (
-            f'<div class="blockers" title="{names}"><b>{n} '
-            f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</div>'
+            f'<details class="blockers"><summary><b>{n} '
+            f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</summary>'
+            f'<ul class="blk">{items}</ul></details>'
         )
     return (
         '<article class="kpi fair-tile">'
@@ -947,7 +954,7 @@ def _render_kpis(
     tiers: list[dict[str, str]] | None,
     val: ValidationReport | None,
     fair: FAIRReport,
-    blockers: list[str],
+    blockers: list[tuple[str, str]],
     mit: MITReport,
     repro_ready: int,
     repro_total: int,
