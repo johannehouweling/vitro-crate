@@ -2361,7 +2361,10 @@ call, trading strict graph-hash determinism for richer drafted content.
 (`make_pipeline_agent_factory` → `PipelineBuildAgent`) implements the same
 `BuildAgent` contract as the ReAct factory: it builds a headless engine (behind
 the production `SimulatedHumanInterface`, the same human the ReAct arm gets — see
-D9), `initialize(input_path=case.input_path)` (which approves the
+D9; the ReAct arm likewise runs its **shipped** loop via
+`run_build(BuildMode.REACT, ..., interactive=False)` rather than a bare single graph
+invocation, so both arms are measured with the budget they ship with, #609),
+`initialize(input_path=case.input_path)` (which approves the
 input dir under the fail-closed guard), runs `run_pipeline`, and returns the final
 `CrateState`/`session_id` exactly like `ReActBuildAgent`.
 `eval/__main__.py` adds `--arch react|pipeline` (DEFAULT `react`) selecting the

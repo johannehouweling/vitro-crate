@@ -41,8 +41,13 @@ only the factory:
 pipeline arm gets, so the A/B compares architectures and not environments (#609) —
 `initialize()`s the
 case's input directory (which also assigns the `session_id` and opens this run's
-`profile.ndjson`), drives the graph once with the case's prompt, and returns the final
-`CrateState`. The model-driving step is injected so the wiring is unit-tested offline.
+`profile.ndjson`), then runs the **shipped** loop
+(`agent_loop.run_interactive_agent(..., interactive=False)`) with the case's prompt as
+its kickoff and returns the final `CrateState`. It used to build its own tools/model/graph
+and `invoke` once — a copy of the loop's setup that measured a strictly smaller budget
+than the arm users run: no wall-clock timeout guard, no self-continue, and no autonomous
+continuation, so a turn that narrated instead of asking ended the measured build then
+and there (#609). The model-driving step is injected so the wiring is unit-tested offline.
 
 `PipelineBuildAgent` wraps the deterministic spine (`builder/agents/pipeline.py::run_pipeline`,
 AGENTS.md §14.5): same headless-engine + `initialize()` setup, but instead of driving

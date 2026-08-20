@@ -85,7 +85,9 @@ class TestRunBuildDispatch:
         )
 
         # ReAct-only kwargs are forwarded; the loop mutates state in place, so
-        # run_build returns None rather than a structured pipeline result.
+        # run_build hands back whatever the loop reports — its
+        # ``{"stop_reason": ...}``, which the A/B harness records and the CLI
+        # ignores (#609) — rather than a structured pipeline result.
         # `resumed` rides along on every dispatch and defaults to False — a build
         # that was not told it is a resume must not present itself as one (#410).
         # `initial_prompt` likewise defaults to None: no kickoff means the loop
@@ -97,7 +99,7 @@ class TestRunBuildDispatch:
             "resumed": False,
             "initial_prompt": None,
         }
-        assert result is None
+        assert result == "return-value-is-ignored"
 
     def test_resume_provenance_reaches_the_react_arm(
         self, monkeypatch: pytest.MonkeyPatch

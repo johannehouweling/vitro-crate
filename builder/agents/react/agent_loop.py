@@ -921,7 +921,9 @@ def _invoke_with_timeout(
 
     - completes in time → ``(result, "ok")``
     - raises inside invoke → ``(None, "error")`` (the exception is logged, never
-      propagated, so it can never escape the loop)
+      propagated, so it can never escape the loop), except a
+      ``GraphRecursionError`` → ``(None, "recursion")``: the graph ran out of
+      budget rather than breaking (#331)
     - exceeds ``timeout`` → ``(None, "timeout")`` — the worker is abandoned as a
       daemon thread (it cannot block process exit) and the turn ends gracefully
       so the existing #254 finish-backstop can still run.
@@ -965,6 +967,14 @@ def _invoke_with_timeout(
         if isinstance(outcome["error"], _InvocationCancelled) and not cancel_event.is_set():
             logger.info("Model invoke stopped by a loop guard: %s", outcome["error"])
             return (None, "stopped", None) if include_error else (None, "stopped")
+        if isinstance(outcome["error"], GraphRecursionError):
+            # The graph ran out of recursion budget. That is a distinct ending —
+            # valid-at-the-cutoff work, not a breakage (#331) — and a caller's
+            # ``except GraphRecursionError`` can never see it, because this worker
+            # catches BaseException first. Classify it here or a cap hit is
+            # reported to the user, and to the A/B, as a generic error.
+            logger.info("Model invoke hit the graph recursion cap: %s", outcome["error"])
+            return (None, "recursion", None) if include_error else (None, "recursion")
         if _is_timeout_error(outcome["error"]):
             # The provider's own request timeout is wired to the SAME duration as
             # the wall-clock guard above, so in practice it raises first and the
@@ -4133,8 +4143,9 @@ def run_interactive_agent(
     resumed: bool = False,
     initial_prompt: str | None = None,
     verbose: bool = False,
-) -> None:
-    """Run an interactive LangChain agent loop reading from stdin.
+    interactive: bool = True,
+) -> dict[str, Any]:
+    """Run the ReAct agent loop over *engine* until the session ends.
 
     The agent prints a prompt, reads a user request from stdin, decides
     which tools to call, calls them, and prints the result.  This continues
@@ -4164,6 +4175,24 @@ def run_interactive_agent(
             the autonomous loop takes over exactly as it does for a typed line.
         verbose: Show bounded, sanitized diagnostics when a ReAct model turn
             raises. The default preserves the generic error message.
+        interactive: Whether a person is at the keyboard. It is the CALLER's
+            fact, never inferred: ``AgentEngine`` defaults to a
+            ``SimulatedHumanInterface``, so a batch engine and a test engine are
+            indistinguishable from the loop's side. ``False`` skips the banner,
+            the greeting model call and the stdin read (#609).
+
+    Returns:
+        ``{"stop_reason": ...}`` — ``"completed"`` when the session ended on its
+        own terms, ``"cap_hit"`` when a turn exhausted the graph's recursion
+        budget (valid-at-the-cutoff, never a clean win — #331), or ``"error"``
+        when the last turn timed out or raised. The A/B harness reports this;
+        the CLI ignores it.
+
+    With ``interactive=False`` the banner, the greeting model call and the stdin
+    read are all skipped: *initial_prompt* and its autonomous continuation are the
+    whole session, which then ends as Ctrl+D does — backstop included. That is
+    what lets the A/B eval measure this arm with the budget it actually ships
+    with, instead of a single bare graph invocation (#609).
     """
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.runnables import RunnableConfig
@@ -4289,195 +4318,207 @@ def run_interactive_agent(
         replies.print(content, transient=transient)
 
     # ── Session banner + greeting ───────────────────────────────────────
+    # Only for a session someone is watching. The greeting costs a model call and
+    # produces one thing: a welcome message. Headless (the A/B eval, batch), that
+    # is a token bill for politeness nobody reads, charged to this arm alone —
+    # so a run with no human present goes straight to work (#609).
+    #
     # `resumed` is the caller's fact (--resume), never a guess from how populated
     # the state looks: initialize(--input) scans files before the loop starts, so
     # the old `entity_count > 0 or file_count > 0` inference called every fresh
     # run a resume and told the model to summarise work that did not exist — the
     # model duly recapped instead of building (#410).
-    entity_count = len(engine.state.list_entities())
-    file_count = len(engine.state.scanned_files)
-    val = engine.state.validation
-    # Per-type entity breakdown (feeds the greeting prompt + the fallback panels).
-    counts: dict[str, int] = {}
-    for e in engine.state.list_entities():
-        typ = getattr(e, "type", "Unknown")
-        counts[typ] = counts.get(typ, 0) + 1
+    if interactive:
+        entity_count = len(engine.state.list_entities())
+        file_count = len(engine.state.scanned_files)
+        val = engine.state.validation
+        # Per-type entity breakdown (feeds the greeting prompt + the fallback panels).
+        counts: dict[str, int] = {}
+        for e in engine.state.list_entities():
+            typ = getattr(e, "type", "Unknown")
+            counts[typ] = counts.get(typ, 0) + 1
 
-    # A no-op when there is nothing to show; the title reflects real provenance.
-    ui.print_resume_summary(engine, resumed=resumed)
+        # A no-op when there is nothing to show; the title reflects real provenance.
+        ui.print_resume_summary(engine, resumed=resumed)
 
-    if resumed:
-        # Tell the LLM about the current state so it can give a contextual greeting
-        greeting_prompt = (
-            f"The user has resumed a session with {entity_count} entities and "
-            f"{file_count} scanned files. "
-            f"Validation: base={'pass' if val.base_passed else 'fail'}, "
-            f"ISA={'pass' if val.isa_passed else 'fail'}, "
-            f"Tox={'pass' if val.tox_passed else 'fail'}. "
-            f"{_validation_tier_counts(engine)} "
-            f"Entity breakdown: {counts}. "
-            "Briefly welcome them back and summarise what has been done "
-            "and what the next logical step is."
-        )
-    elif file_count:
-        # New session whose input folder is already scanned. Include the ranked
-        # document evidence so the user can correct a bad interpretation before
-        # the agent drafts anything; filenames alone are insufficient intervention
-        # context when several documents have different roles.
-        documents = getattr(engine.state, "documents", [])
-        document_lines = []
-        for doc in documents[:20]:
-            label = doc.get("classification", "document")
-            name = doc.get("filename", doc.get("relative_path", "?"))
-            score = doc.get("score", 0.0)
-            document_lines.append(f"- [{label}] {name} (score: {score:.2f})")
-        discovered = "\n".join(document_lines) or "- No ranked document evidence available."
-        approved_roots = sorted(getattr(engine.state, "approved_scan_roots", set()))
-        input_root = approved_roots[0] if approved_roots else engine.state.metadata.input_path
-        greeting_prompt = (
-            f"The user has just started a new session; {file_count} input files have "
-            "already been scanned from the approved input path below and no entities "
-            "have been drafted yet. Do NOT call scan_files or ask for scan approval; "
-            "use the existing inventory and discovered documents. Briefly explain what "
-            "you will build, then list the ranked documents below so the user can "
-            "correct roles or ask you to inspect a different file before drafting. "
-            "Do not imply prior work exists.\n\n"
-            f"Approved input path: {input_root or '(already scanned)'}\n\n"
-            "Ranked input documents:\n" + discovered
-        )
-    else:
-        greeting_prompt = "Greet the user and tell them what you can help build."
-
-    def _print_resume_panel() -> None:
-        """Print the resume welcome: where the crate stands and what to do next.
-
-        Shown on EVERY resume, not only when the model fails to greet. The
-        suggestions are derived from the crate's actual state — blocking issues
-        first, then the next unmet step of the BASE -> ISA -> TOX climb, then
-        export — so they are correct regardless of what the model says, and they
-        are still there when it says nothing at all (a reasoning-heavy model
-        answering "welcome them back" with 18 tokens of thought and no text).
-        """
-        lines: list[str] = []
-        if val.required_issues:
-            blocking = f"[red]{len(val.required_issues)} REQUIRED issue(s)[/red]"
-            lines.append(f"  • [cyan]what is still missing?[/cyan] — {blocking} block conformance")
-            lines.append("  • [cyan]fix the required issues[/cyan] — I'll work through them")
-        elif not (val.base_passed and val.isa_passed and val.tox_passed):
-            nxt = "base" if not val.base_passed else "ISA" if not val.isa_passed else "ISA-Tox"
-            lines.append(f"  • [cyan]validate[/cyan] — {nxt} does not pass yet")
-        else:
-            lines.append("  • [cyan]export the crate[/cyan] — all three profiles pass")
-        if not any(e.type == "File" for e in engine.state.list_entities()) and file_count:
-            lines.append(
-                f"  • [cyan]attach the data files[/cyan] — {file_count} scanned, none placed yet"
-            )
-        lines.append("  • [cyan]list entities[/cyan] — see everything drafted so far")
-
-        console.print(
-            Panel(
-                f"[bold]Welcome back![/bold] "
-                f"[bold cyan]{entity_count}[/bold cyan] entities across "
-                f"{len(counts)} types, {file_count} scanned files.\n"
-                "[dim]Where to pick up:[/dim]\n" + "\n".join(lines),
-                border_style="green",
-            )
-        )
-
-    def _print_fresh_fallback() -> None:
-        """Print a fresh-start fallback with next-step suggestions."""
-        console.print(
-            Panel(
-                "[bold]Hello![/bold] I can help you build an ISA-Tox RO-Crate.\n"
-                "Try asking me to:\n"
-                "  • [cyan]draft an Investigation[/cyan] — start a new project\n"
-                "  • [cyan]scan[/cyan] a data directory — import files\n"
-                "  • [cyan]help[/cyan] — see all available tools",
-                border_style="green",
-            )
-        )
-
-    try:
-        root_logger = logging.getLogger()
-        old_root_level = root_logger.level
-        root_logger.setLevel(logging.ERROR)
-        spinner = ProgressSpinner(console, "intoxicating")
-        greeting_diagnostic: dict[str, str] | None = None
-        greeting_config = {
-            **_thread_config(),
-            "callbacks": [_ToolSpinnerCallback(spinner)],
-        }
-        with spinner:
-            # Wall-clock guard (#263 Fix A): a hung greeting must never block the
-            # session from starting. On timeout/error we fall through to the
-            # static fallback panel below.
-            result, outcome, greeting_diagnostic = _invoke_with_timeout(
-                app,
-                {"messages": [HumanMessage(content=greeting_prompt)]},
-                greeting_config,
-                timeout=request_timeout,
-                include_error=True,
-            )
-        root_logger.setLevel(old_root_level)
-        _rotate_checkpoint(outcome)
-        # .strip(): a greeting of pure whitespace (a model that spent its turn on
-        # reasoning blocks and emitted a bare newline) is NOT a greeting. Left
-        # untrimmed it was truthy, so the user got an empty green bullet and the
-        # fallback panel — the thing that actually says what to do next — was
-        # skipped precisely when it was needed most.
-        reply = (_extract_reply(result) or "").strip() if (outcome == "ok" and result) else ""
         if resumed:
-            # ALWAYS on a resume: where the crate stands and what to do next is
-            # derived from state, so it is correct whatever the model says (or
-            # fails to say). Any greeting it does produce prints underneath as
-            # commentary, not as the only orientation the user gets.
-            _print_resume_panel()
-            if reply:
-                _print_reply(reply)
-        elif reply:
-            _print_reply(reply)
-        else:
-            _print_fresh_fallback()
-        if outcome == "error" and greeting_diagnostic:
-            diagnostic_record: dict[str, Any] = {
-                "event": "model_error",
-                "exception_type": greeting_diagnostic["exception_type"],
-                "message": greeting_diagnostic["message"],
-                "exception_chain": greeting_diagnostic["exception_chain"],
-                "traceback_tail": greeting_diagnostic["traceback_tail"],
-                "stage": "react_greeting",
-            }
-            # Recorded whether or not -v was passed: the diagnostic is already
-            # redacted and length-capped, and it goes to the profile, not the
-            # screen. Gating the WRITE on the flag meant the one artifact that
-            # could explain a failure existed only for a run that had already
-            # been told to expect one — so diagnosing a crash required
-            # reproducing it. -v still controls what is printed.
-            if engine.profiler is not None:
-                engine.profiler.log_event(**diagnostic_record)
-        if verbose and outcome == "error" and greeting_diagnostic:
-            console.print(
-                f"[yellow]ReAct greeting error[/yellow]: {greeting_diagnostic['exception_chain']}"
+            # Tell the LLM about the current state so it can give a contextual greeting
+            greeting_prompt = (
+                f"The user has resumed a session with {entity_count} entities and "
+                f"{file_count} scanned files. "
+                f"Validation: base={'pass' if val.base_passed else 'fail'}, "
+                f"ISA={'pass' if val.isa_passed else 'fail'}, "
+                f"Tox={'pass' if val.tox_passed else 'fail'}. "
+                f"{_validation_tier_counts(engine)} "
+                f"Entity breakdown: {counts}. "
+                "Briefly welcome them back and summarise what has been done "
+                "and what the next logical step is."
             )
-            if greeting_diagnostic["traceback_tail"]:
-                console.print(
-                    f"[dim]Traceback tail:\n{greeting_diagnostic['traceback_tail']}[/dim]"
+        elif file_count:
+            # New session whose input folder is already scanned. Include the ranked
+            # document evidence so the user can correct a bad interpretation before
+            # the agent drafts anything; filenames alone are insufficient intervention
+            # context when several documents have different roles.
+            documents = getattr(engine.state, "documents", [])
+            document_lines = []
+            for doc in documents[:20]:
+                label = doc.get("classification", "document")
+                name = doc.get("filename", doc.get("relative_path", "?"))
+                score = doc.get("score", 0.0)
+                document_lines.append(f"- [{label}] {name} (score: {score:.2f})")
+            discovered = "\n".join(document_lines) or "- No ranked document evidence available."
+            approved_roots = sorted(getattr(engine.state, "approved_scan_roots", set()))
+            input_root = approved_roots[0] if approved_roots else engine.state.metadata.input_path
+            greeting_prompt = (
+                f"The user has just started a new session; {file_count} input files have "
+                "already been scanned from the approved input path below and no entities "
+                "have been drafted yet. Do NOT call scan_files or ask for scan approval; "
+                "use the existing inventory and discovered documents. Briefly explain what "
+                "you will build, then list the ranked documents below so the user can "
+                "correct roles or ask you to inspect a different file before drafting. "
+                "Do not imply prior work exists.\n\n"
+                f"Approved input path: {input_root or '(already scanned)'}\n\n"
+                "Ranked input documents:\n" + discovered
+            )
+        else:
+            greeting_prompt = "Greet the user and tell them what you can help build."
+
+        def _print_resume_panel() -> None:
+            """Print the resume welcome: where the crate stands and what to do next.
+
+            Shown on EVERY resume, not only when the model fails to greet. The
+            suggestions are derived from the crate's actual state — blocking issues
+            first, then the next unmet step of the BASE -> ISA -> TOX climb, then
+            export — so they are correct regardless of what the model says, and they
+            are still there when it says nothing at all (a reasoning-heavy model
+            answering "welcome them back" with 18 tokens of thought and no text).
+            """
+            lines: list[str] = []
+            if val.required_issues:
+                blocking = f"[red]{len(val.required_issues)} REQUIRED issue(s)[/red]"
+                lines.append(
+                    f"  • [cyan]what is still missing?[/cyan] — "
+                    f"{blocking} block conformance"
                 )
-    except Exception as exc:
-        logger.debug("Greeting skipped: %s", exc)
-        console.print(
-            Panel(
-                "[yellow]Could not reach the LLM.[/yellow]\n"
-                "Check your [bold]SSL_CERT_FILE[/bold] and [bold]VITRO_API_BASE[/bold] settings.\n"
-                "The session is saved — you can resume later with "
-                f"[cyan]--resume {engine.state.session_id}[/cyan]",
-                border_style="yellow",
+                lines.append("  • [cyan]fix the required issues[/cyan] — I'll work through them")
+            elif not (val.base_passed and val.isa_passed and val.tox_passed):
+                nxt = "base" if not val.base_passed else "ISA" if not val.isa_passed else "ISA-Tox"
+                lines.append(f"  • [cyan]validate[/cyan] — {nxt} does not pass yet")
+            else:
+                lines.append("  • [cyan]export the crate[/cyan] — all three profiles pass")
+            if not any(e.type == "File" for e in engine.state.list_entities()) and file_count:
+                lines.append(
+                    f"  • [cyan]attach the data files[/cyan] — "
+                    f"{file_count} scanned, none placed yet"
+                )
+            lines.append("  • [cyan]list entities[/cyan] — see everything drafted so far")
+
+            console.print(
+                Panel(
+                    f"[bold]Welcome back![/bold] "
+                    f"[bold cyan]{entity_count}[/bold cyan] entities across "
+                    f"{len(counts)} types, {file_count} scanned files.\n"
+                    "[dim]Where to pick up:[/dim]\n" + "\n".join(lines),
+                    border_style="green",
+                )
             )
-        )
-        if resumed:
-            _print_resume_panel()
-        else:
-            _print_fresh_fallback()
+
+        def _print_fresh_fallback() -> None:
+            """Print a fresh-start fallback with next-step suggestions."""
+            console.print(
+                Panel(
+                    "[bold]Hello![/bold] I can help you build an ISA-Tox RO-Crate.\n"
+                    "Try asking me to:\n"
+                    "  • [cyan]draft an Investigation[/cyan] — start a new project\n"
+                    "  • [cyan]scan[/cyan] a data directory — import files\n"
+                    "  • [cyan]help[/cyan] — see all available tools",
+                    border_style="green",
+                )
+            )
+
+        try:
+            root_logger = logging.getLogger()
+            old_root_level = root_logger.level
+            root_logger.setLevel(logging.ERROR)
+            spinner = ProgressSpinner(console, "intoxicating")
+            greeting_diagnostic: dict[str, str] | None = None
+            greeting_config = {
+                **_thread_config(),
+                "callbacks": [_ToolSpinnerCallback(spinner)],
+            }
+            with spinner:
+                # Wall-clock guard (#263 Fix A): a hung greeting must never block the
+                # session from starting. On timeout/error we fall through to the
+                # static fallback panel below.
+                result, outcome, greeting_diagnostic = _invoke_with_timeout(
+                    app,
+                    {"messages": [HumanMessage(content=greeting_prompt)]},
+                    greeting_config,
+                    timeout=request_timeout,
+                    include_error=True,
+                )
+            root_logger.setLevel(old_root_level)
+            _rotate_checkpoint(outcome)
+            # .strip(): a greeting of pure whitespace (a model that spent its turn on
+            # reasoning blocks and emitted a bare newline) is NOT a greeting. Left
+            # untrimmed it was truthy, so the user got an empty green bullet and the
+            # fallback panel — the thing that actually says what to do next — was
+            # skipped precisely when it was needed most.
+            reply = (_extract_reply(result) or "").strip() if (outcome == "ok" and result) else ""
+            if resumed:
+                # ALWAYS on a resume: where the crate stands and what to do next is
+                # derived from state, so it is correct whatever the model says (or
+                # fails to say). Any greeting it does produce prints underneath as
+                # commentary, not as the only orientation the user gets.
+                _print_resume_panel()
+                if reply:
+                    _print_reply(reply)
+            elif reply:
+                _print_reply(reply)
+            else:
+                _print_fresh_fallback()
+            if outcome == "error" and greeting_diagnostic:
+                diagnostic_record: dict[str, Any] = {
+                    "event": "model_error",
+                    "exception_type": greeting_diagnostic["exception_type"],
+                    "message": greeting_diagnostic["message"],
+                    "exception_chain": greeting_diagnostic["exception_chain"],
+                    "traceback_tail": greeting_diagnostic["traceback_tail"],
+                    "stage": "react_greeting",
+                }
+                # Recorded whether or not -v was passed: the diagnostic is already
+                # redacted and length-capped, and it goes to the profile, not the
+                # screen. Gating the WRITE on the flag meant the one artifact that
+                # could explain a failure existed only for a run that had already
+                # been told to expect one — so diagnosing a crash required
+                # reproducing it. -v still controls what is printed.
+                if engine.profiler is not None:
+                    engine.profiler.log_event(**diagnostic_record)
+            if verbose and outcome == "error" and greeting_diagnostic:
+                console.print(
+                    "[yellow]ReAct greeting error[/yellow]: "
+                    f"{greeting_diagnostic['exception_chain']}"
+                )
+                if greeting_diagnostic["traceback_tail"]:
+                    console.print(
+                        f"[dim]Traceback tail:\n{greeting_diagnostic['traceback_tail']}[/dim]"
+                    )
+        except Exception as exc:
+            logger.debug("Greeting skipped: %s", exc)
+            console.print(
+                Panel(
+                    "[yellow]Could not reach the LLM.[/yellow]\n"
+                    "Check your [bold]SSL_CERT_FILE[/bold] and "
+                    "[bold]VITRO_API_BASE[/bold] settings.\n"
+                    "The session is saved — you can resume later with "
+                    f"[cyan]--resume {engine.state.session_id}[/cyan]",
+                    border_style="yellow",
+                )
+            )
+            if resumed:
+                _print_resume_panel()
+            else:
+                _print_fresh_fallback()
 
     # ── Goodbye helper ──────────────────────────────────────────────────
 
@@ -4564,10 +4605,6 @@ def run_interactive_agent(
                     timeout=request_timeout,
                     include_error=True,
                 )
-        except GraphRecursionError:
-            # The turn hit the recursion_limit safety net — treat as a graceful
-            # end so the loop stops auto-continuing and the backstop can run.
-            outcome = "recursion"
         except BaseException:
             # Ctrl+C is the one that matters here. Interrupting mid-turn kills the
             # tool node between an AIMessage's tool_calls and their ToolMessages,
@@ -4701,6 +4738,10 @@ def run_interactive_agent(
         return reply, outcome
 
     # ── Main loop ───────────────────────────────────────────────────────
+    # Every turn's outcome, so the session can report HOW it ended rather than
+    # only that it did (#331 cap_hit vs a clean stop).
+    turn_outcomes: list[str] = []
+
     # A caller-supplied kickoff drives the first turn in place of the first stdin
     # read (#412); everything after it is an ordinary typed turn. Blank is absent.
     pending_input: str | None = (initial_prompt or "").strip() or None
@@ -4746,6 +4787,14 @@ def run_interactive_agent(
                         raise EOFError
                     user_input = str(reply["value"]).strip()
                     console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
+                elif not interactive:
+                    # The caller told us nobody is at the keyboard (the A/B eval,
+                    # batch). Reading stdin here would block a harness on a
+                    # terminal it does not own, so the seeded turn and its
+                    # autonomous continuation ARE the session: end it exactly as
+                    # Ctrl+D does, which still runs the finish backstop so the
+                    # crate lands (#609).
+                    raise EOFError
                 else:
                     # Rounded input box (Claude Code style); falls back to a plain
                     # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
@@ -4793,6 +4842,7 @@ def run_interactive_agent(
                 _reset_turn_guards(engine)
                 for _autonomous_turn in range(_MAX_AUTONOMOUS_TURNS + 1):
                     reply, outcome = _run_turn(message)
+                    turn_outcomes.append(outcome)
                     # Land the turn's work in the footer immediately rather than
                     # waiting up to a tick — the reply and the counts it produced
                     # should appear together.
@@ -4882,6 +4932,17 @@ def run_interactive_agent(
         # Always hand the bottom rows (and the scrolling region) back, on every
         # exit path — quit, EOF, or an exception escaping the loop.
         footer.stop()
+
+    # A recursion cap ANYWHERE in the session is the headline: it means a turn
+    # ran out of graph budget rather than finishing, so the run is only
+    # valid-at-the-cutoff (#331). Otherwise the last turn's outcome decides.
+    if "recursion" in turn_outcomes:
+        stop_reason = "cap_hit"
+    elif turn_outcomes and turn_outcomes[-1] in ("error", "timeout"):
+        stop_reason = "error"
+    else:
+        stop_reason = "completed"
+    return {"stop_reason": stop_reason}
 
 
 def _format_entity_summary(entities: list[Any]) -> str:
