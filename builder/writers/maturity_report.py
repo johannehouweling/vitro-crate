@@ -1870,7 +1870,9 @@ def _render_isa_panel(inv: dict[str, Any]) -> tuple[str, str]:
         f"  {''.join(notes)}\n"
         f"  {matrix}"
     )
-    return panel, str(counts["total"])
+    # The badge counts the assays alone (review comment) — the view is named
+    # Assays, and badging every ISA container overstated it.
+    return panel, str(counts["assays"])
 
 
 def _render_provenance_panel(graph: dict[str, Any] | list[dict[str, Any]]) -> str:
@@ -1909,7 +1911,7 @@ def _render_provenance_panel(graph: dict[str, Any] | list[dict[str, Any]]) -> st
 _VIEWS: tuple[tuple[str, str, str], ...] = (
     ("mv-all", "p-all", "All entities"),
     # Datasets before Assays: the review's "flip dataset and assays".
-    ("mv-data", "p-data", "Datasets"),
+    ("mv-data", "p-data", "Files"),
     ("mv-isa", "p-isa", "Assays"),
     ("mv-prov", "p-prov", "LabProcesses"),
     ("mv-chem", "p-chem", "MolecularEntities"),
