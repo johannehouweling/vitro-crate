@@ -2298,9 +2298,6 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
     counts = inv["counts"]
     total, wired = counts["total"], counts["wired"]
     rrid_backed = sum(1 for c in lines if c["rrid"])
-    pct = (
-        round(counts["fields_met"] / counts["fields_total"] * 100) if counts["fields_total"] else 0
-    )
 
     svg = render_celllines_svg(inv)
     diagram = (
@@ -2365,15 +2362,9 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
-    panel = (
-        '<p class="prov-cap">The biological test system — whether the declared model is the '
-        "one the culture actually consumed, and whether another lab could obtain the same "
-        f"stock. <b>{total}</b> biological model{'' if total == 1 else 's'} · <b>{wired}</b> "
-        f"consumed by a process · <b>{pct}%</b> characterised.</p>\n"
-        f"  {diagram}\n"
-        f"  {''.join(notes)}\n"
-        f"  {matrix}"
-    )
+    # No summary caption (review comment): the panel opens with the diagram.
+    # The total shows in the tab badge; the warnings call out the gaps.
+    panel = f"{diagram}\n  {''.join(notes)}\n  {matrix}"
     return panel, str(total)
 
 
