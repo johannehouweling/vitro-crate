@@ -22,9 +22,9 @@
 .mat .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; }
 .mat .den { color:var(--muted); font-weight:500; }
 
-/* header — the masthead's hairline closes BELOW the About cards, so the rule
+/* header — the masthead's hairline closes BELOW the study card, so the rule
    separates the whole header region from the KPI grid, not the h1 from its
-   own cards. */
+   own card. */
 .mat .masthead { padding-bottom:1.1rem; border-bottom:1px solid var(--hairline); }
 .mat header { display:flex; flex-wrap:wrap; gap:1rem 1.4rem; align-items:flex-start;
   justify-content:space-between; }
@@ -34,7 +34,9 @@
   border:1px solid var(--border); color:var(--ink-2); }
 .mat .sub { color:var(--ink-2); margin:.4rem 0 0; font-size:.92rem; }
 
-/* Header cards — About this study / About this RO-Crate (#607 design handoff) */
+/* About cards (#607 design handoff) — About this study in the masthead;
+   About this RO-Crate reuses the same styles as the colophon at the foot of
+   the report. */
 .mat .subhead { margin:.35rem 0 0; font-size:1rem; font-weight:600; line-height:1.35;
   color:var(--ink); max-width:74ch; text-wrap:pretty; }
 .mat .hcard { background:var(--surface); border:1px solid var(--border); border-radius:12px;

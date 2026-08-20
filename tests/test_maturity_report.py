@@ -292,6 +292,20 @@ class TestHeaderAndCards:
         )
         assert '<span class="hlabel">Validation gate</span><b>optional</b>' in page
 
+    def test_the_crate_card_is_the_reports_colophon(self) -> None:
+        """The About-this-RO-Crate card sits at the foot of the report — after
+        the references, right before the footer — not in the masthead, which
+        keeps only the study card. How the report was built is provenance a
+        reader wants last, not before the verdict."""
+        page = build_maturity_html(self._state())
+        i_study = page.index('<div class="hcard-h">About this study</div>')
+        i_kgrid = page.index('<div class="kgrid">')
+        i_refs = page.index('<div class="refs">')
+        i_crate = page.index('<div class="hcard-h">About this RO-Crate</div>')
+        i_footer = page.index("<footer>")
+        assert i_study < i_kgrid, "the study card left the masthead"
+        assert i_refs < i_crate < i_footer, "the crate card is not the colophon"
+
     def test_the_provenance_note_renders_only_with_the_crates_graph(self) -> None:
         """The note claims the figures come from the crate's own metadata — a
         state-only render cannot claim that, so it must not."""
@@ -376,10 +390,11 @@ class TestStudyCardReadsTheGraph:
 
     @staticmethod
     def _card(page: str) -> str:
-        """The About-this-study card (the first .hcard of the rendered body)."""
+        """The About-this-study card — the masthead's only card, so it runs
+        from its heading to the KPI grid that follows the masthead."""
         body = page.split("</style>", 1)[-1]
         i = body.index('<div class="hcard-h">About this study</div>')
-        return body[i : body.index('<div class="hcard-h">About this RO-Crate</div>', i)]
+        return body[i : body.index('<div class="kgrid">', i)]
 
     def test_every_cell_states_the_graphs_own_fact(self) -> None:
         page = build_maturity_html(CrateState(), graph=self._graph())
