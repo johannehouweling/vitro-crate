@@ -1924,13 +1924,16 @@ while the row went on counting them. The count a row advertises is the count of 
 Advisory caps apply per profile group, and a cap that bites names how many findings it hid.
 
 When `export_crate` embeds the report it passes the crate's serialized `@graph`
-(`build_maturity_html(state, graph=crate.metadata.generate())`), which folds in a **LabProcesses &
-graph** section: the LabProcess derivation chain drawn as a self-contained inline SVG
-(`render_provenance_svg` in `builder/writers/provenance_dag.py` — a finished `<svg>`, no mermaid.js,
-no external assets, so it prints offline), plus the relocated graph-topology strip (entity
-composition by paper layer + orphan/dangling flags, from `build_crate_graph` counts). The `graph`
-argument is optional — omitting it (e.g. a bare `build_maturity_html(state)`) simply skips that
-section, so the report stays useful without a serialized crate. The embedded file is named
+(`build_maturity_html(state, graph=crate.metadata.generate())`), which folds in the tabbed **Graph
+views** section — the All-entities composition map and the per-question diagrams, the LabProcess
+derivation chain among them, every one a self-contained inline SVG (`builder/writers/
+provenance_dag.py` — finished `<svg>`, no mermaid.js, no external assets, so they print offline).
+The view names and captions are the owner's, reviewed on the report artifact: tabs read Files /
+Assays / LabProcesses / MolecularEntities / Biological Samples / Persons & Organisations; the
+overview's bands are the plain layer names (RO-Crate / ISA RO-Crate / ISA-Tox RO-Crate) and its
+cluster captions name the entity types they hold, never a category word. The `graph` argument is
+optional — omitting it (e.g. a bare `build_maturity_html(state)`) simply skips that section, so the
+report stays useful without a serialized crate. The embedded file is named
 `ro-crate-metadata-maturity.html` (sharing the `ro-crate-metadata` stem of the crate's main file).
 
 The page is **self-contained** (inline CSS, no external assets) so it renders offline. The styling
