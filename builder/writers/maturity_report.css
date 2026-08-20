@@ -302,6 +302,7 @@ __CATEGORY_STYLES__
 .mat .panel > .panel-h { display:none; }
 .mat #mv-all:checked ~ .tabbar .tab[for="mv-all"],
 .mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"],
+.mat #mv-data:checked ~ .tabbar .tab[for="mv-data"],
 .mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"],
 .mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"],
 .mat #mv-cell:checked ~ .tabbar .tab[for="mv-cell"],
@@ -311,6 +312,7 @@ __CATEGORY_STYLES__
   color:var(--accent); }
 .mat #mv-all:checked ~ .tabbar .tab[for="mv-all"] .tb-c,
 .mat #mv-isa:checked ~ .tabbar .tab[for="mv-isa"] .tb-c,
+.mat #mv-data:checked ~ .tabbar .tab[for="mv-data"] .tb-c,
 .mat #mv-prov:checked ~ .tabbar .tab[for="mv-prov"] .tb-c,
 .mat #mv-chem:checked ~ .tabbar .tab[for="mv-chem"] .tb-c,
 .mat #mv-cell:checked ~ .tabbar .tab[for="mv-cell"] .tb-c,
@@ -319,6 +321,7 @@ __CATEGORY_STYLES__
   background:var(--surface); color:var(--accent); }
 .mat #mv-all:focus-visible ~ .tabbar .tab[for="mv-all"],
 .mat #mv-isa:focus-visible ~ .tabbar .tab[for="mv-isa"],
+.mat #mv-data:focus-visible ~ .tabbar .tab[for="mv-data"],
 .mat #mv-prov:focus-visible ~ .tabbar .tab[for="mv-prov"],
 .mat #mv-chem:focus-visible ~ .tabbar .tab[for="mv-chem"],
 .mat #mv-cell:focus-visible ~ .tabbar .tab[for="mv-cell"],
@@ -327,6 +330,7 @@ __CATEGORY_STYLES__
   outline:2px solid var(--accent); outline-offset:2px; }
 .mat #mv-all:checked ~ #p-all,
 .mat #mv-isa:checked ~ #p-isa,
+.mat #mv-data:checked ~ #p-data,
 .mat #mv-prov:checked ~ #p-prov,
 .mat #mv-chem:checked ~ #p-chem,
 .mat #mv-cell:checked ~ #p-cell,

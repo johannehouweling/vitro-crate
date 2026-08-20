@@ -1219,6 +1219,43 @@ class TestActionableTopology:
         assert "#loose11" in page
 
 
+class TestDatasetsPanel:
+    """The Datasets view: one row per data-category entity — kind, format,
+    size, described, reachable — unreachable rows first."""
+
+    def _graph(self) -> dict:
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "name": "T", "hasPart": [{"@id": "a.csv"}]},
+                {"@id": "a.csv", "@type": "File", "name": "measurements_raw.csv",
+                 "encodingFormat": "text/csv", "contentSize": "2048",
+                 "description": "Raw endpoint readout"},
+                {"@id": "loose.csv", "@type": "File", "name": "loose.csv"},
+            ]
+        }
+
+    def test_rows_report_the_facts_and_unreachable_sorts_first(self) -> None:
+        page = build_maturity_html(CrateState(), graph=self._graph())
+        panel = page.split('id="p-data"', 1)[1].split("</div>\n", 1)[0]
+        assert "Datasets" in page
+        rows = re.findall(r"<tr><th scope=\"row\">.*?</tr>", panel, re.S)
+        assert len(rows) == 2
+        assert "loose.csv" in rows[0] and 'class="mk no"' in rows[0]
+        assert "measurements_raw.csv" in rows[1]
+        assert "text/csv" in rows[1] and "2 KB" in rows[1]
+        assert "raw data" in rows[1]
+        assert "1 of 2 data entities cannot be reached" in panel
+
+    def test_no_data_entities_drops_the_tab(self) -> None:
+        graph = {"@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "T"},
+        ]}
+        page = build_maturity_html(CrateState(), graph=graph)
+        assert 'id="p-data"' not in page.split("</style>", 1)[-1]
+
+
 class TestChemicalsSection:
     """The Chemicals section (#85): how each compound reaches the experiment and
     how completely it is identified.
@@ -1551,6 +1588,7 @@ class TestGraphViewTabs:
         for label in (
             "All entities",
             "ISA structure",
+            "Datasets",
             "LabProcesses",
             "Chemicals",
             "Cell lines",
@@ -1571,7 +1609,7 @@ class TestGraphViewTabs:
 
     def test_exactly_one_tab_starts_selected(self) -> None:
         body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph()))
-        assert body.count('name="mat-view"') == 7
+        assert body.count('name="mat-view"') == 8  # the eight live views
         assert body.count(" checked>") == 1
         # ISA is first: the structural backbone every other view hangs off.
         assert 'id="mv-all" checked>' in body
@@ -3000,7 +3038,8 @@ class TestTheOverflowLinePointsSomewhere:
         ]
         section = _render_recommendations(val, None)
         overflow = re.findall(r"<li>.*?</li>", section, re.S)[-1]
-        assert "smaller item" in overflow, "no overflow row rendered; this test is inert"
+        assert "further action" in overflow, "no overflow row rendered; this test is inert"
+        assert re.search(r"and \d+ further actions \(\d+ findings\)", overflow)
         assert 'href="#adherence"' in overflow
 
     def test_the_anchor_it_points_at_exists_on_the_page(self) -> None:
