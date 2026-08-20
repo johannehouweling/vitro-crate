@@ -176,6 +176,17 @@ it works autonomously from there, checking back only when it genuinely needs you
 The session stays interactive afterwards. The default pipeline build needs none of
 this: it runs unprompted.
 
+**What ships inside the crate.** Alongside the metadata and your payload, every
+build embeds a **maturity report** (`ro-crate-metadata-maturity.html`): profile
+conformance, FAIR maturity, OECD MIT coverage, reproducibility readiness — and an
+**interactive entity explorer**. The explorer draws the crate's whole entity graph,
+with views you turn on and off and combine (Researcher, Files, Assays,
+LabProcesses, MolecularEntities, Biological Samples, Persons & Organisations,
+Citations), a search box, and a panel that shows any entity's properties, its
+links and its JSON-LD. Open the file in a browser — it is one self-contained
+page with no network access of any kind, so it works from a USB stick, an
+archive, or a laptop on a plane.
+
 **Where the crate is written.** The completed build is written to disk as a valid
 RO-Crate (`ro-crate-metadata.json` plus payload), and the **absolute** output path
 is printed at the end. The destination is chosen as follows:

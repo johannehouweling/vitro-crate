@@ -13,6 +13,7 @@ import pytest
 from builder.state import CrateState, ValidationReport
 from builder.tools.builder import build_crate, export_crate
 from builder.writers.maturity_report import REPORT_FILENAME, build_maturity_html
+from tests.fixtures.crate_graphs import tabbed_views_graph
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
 # Every test here exports a crate, and each export now runs the uncached,
@@ -33,6 +34,17 @@ def _body(page: str) -> str:
     page would match the stylesheet and pass for the wrong reason.
     """
     return page.split("</style>", 1)[-1]
+
+
+def _markup(page: str) -> str:
+    """The rendered markup without the stylesheet or any script body.
+
+    Since #615 the page inlines React, React Flow, dagre and the crate's own
+    payload. Those are megabytes of text that happen to contain ``id="…"``,
+    ``class="…"`` and the literal ``<script>`` — so a structural assertion about
+    the *document* has to read the document, not the programs it carries.
+    """
+    return re.sub(r"<script.*?</script>", "", _body(page), flags=re.S)
 
 
 def _mit_pct(page: str) -> int:
@@ -484,7 +496,12 @@ class TestLinkGuard:
              "url": "javascript:alert(5)"},
         ]}
         page = build_maturity_html(state, graph=graph)
-        assert "javascript:" not in page.split("</style>", 1)[-1]
+        # Over the markup: since #615 the page also carries the crate's own
+        # metadata as JSON for the entity explorer, and a `javascript:` URL the
+        # crate recorded is part of what the crate says. The guard is about what
+        # the report turns into a link — the explorer builds no anchors at all,
+        # which `test_a_crate_url_can_never_become_a_link` holds it to.
+        assert "javascript:" not in _markup(page)
         assert "Bad licence" in page and state.generator.name in page
 
 
@@ -1812,74 +1829,7 @@ class TestGraphViewTabs:
     """
 
     def _graph(self) -> dict:
-        return {
-            "@graph": [
-                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-                {
-                    "@id": "./",
-                    "@type": "Dataset",
-                    "name": "Crate",
-                    "hasPart": [{"@id": "#table"}],
-                    "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
-                },
-                {"@id": "#cells", "@type": "Sample", "name": "Cultured cells"},
-                {
-                    "@id": "#line",
-                    "@type": "Sample",
-                    "additionalType": "CellLine",
-                    "name": "CHO-K1",
-                    "identifier": "CVCL_0214",
-                },
-                {
-                    "@id": "#culture",
-                    "@type": "LabProcess",
-                    "additionalType": "CellCulture",
-                    "name": "Cell culture",
-                    "input": {"@id": "#line"},
-                    "output": {"@id": "#cells"},
-                },
-                {
-                    "@id": "#exposure",
-                    "@type": "LabProcess",
-                    "additionalType": "Exposure",
-                    "name": "Exposure step",
-                    "object": {"@id": "#cells"},
-                    "result": {"@id": "#table"},
-                    "executesLabProtocol": {"@id": "#protocol"},
-                },
-                {
-                    "@id": "#protocol",
-                    "@type": "LabProtocol",
-                    "name": "Exposure protocol",
-                    "url": "https://www.protocols.io/view/exposure-abc",
-                },
-                {
-                    "@id": "#table",
-                    "@type": ["File", "csvw:Table"],
-                    "name": "Condition table",
-                    "about": [{"@id": "#compound"}],
-                },
-                {"@id": "#compound", "@type": "MolecularEntity", "name": "Aflatoxin B1"},
-                {
-                    "@id": "https://orcid.org/0000-0002-1825-0097",
-                    "@type": "Person",
-                    "name": "Josiah Carberry",
-                    "affiliation": {"@id": "https://ror.org/05gq02987"},
-                },
-                {
-                    "@id": "https://ror.org/05gq02987",
-                    "@type": "Organization",
-                    "name": "Brown University",
-                },
-                {
-                    "@id": "https://doi.org/10.1007/s00204-024-03787-2",
-                    "@type": "ScholarlyArticle",
-                    "name": "Two novel in vitro assays for OATP1C1",
-                    "datePublished": "2024",
-                    "author": [{"@id": "https://orcid.org/0000-0002-1825-0097"}],
-                },
-            ]
-        }
+        return tabbed_views_graph()
 
     def test_the_view_is_named_labprocesses_everywhere_it_shows(self) -> None:
         """#607 (owner's call): the derivation view is "LabProcesses" — in the
@@ -1987,10 +1937,21 @@ class TestGraphViewTabs:
         # ISA is first: the structural backbone every other view hangs off.
         assert 'id="mv-all" checked>' in body
 
-    def test_tabs_carry_no_script(self) -> None:
+    def test_the_tabs_themselves_still_carry_no_script(self) -> None:
+        """The tabs are CSS, and stay CSS.
+
+        The page as a whole no longer forbids script — the entity explorer
+        (#615) is a React Flow canvas, inlined, and the report's contract is
+        that it loads nothing, not that it runs nothing. This section is not
+        that section: it is a stack of finished SVG behind radio inputs, and a
+        script appearing in it would mean the CSS-only mechanism had quietly
+        been replaced by one that fails with JavaScript turned off.
+        """
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
-        assert "<script" not in page.lower()
-        assert "onclick" not in page.lower()
+        section = page.split("<h2>Graph views</h2>", 1)[1].split("</section>", 1)[0]
+
+        assert "<script" not in section.lower()
+        assert "onclick" not in _markup(page).lower()
 
     def test_absent_views_drop_their_tab_and_first_survivor_is_selected(self) -> None:
         # No compounds, no cell lines, nobody credited and nothing cited. The

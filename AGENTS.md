@@ -1942,7 +1942,46 @@ optional — omitting it (e.g. a bare `build_maturity_html(state)`) simply skips
 report stays useful without a serialized crate. The embedded file is named
 `ro-crate-metadata-maturity.html` (sharing the `ro-crate-metadata` stem of the crate's main file).
 
-The page is **self-contained** (inline CSS, no external assets) so it renders offline. The styling
+**The entity explorer (`builder/writers/entity_explorer.py`, #615).** The static views each answer
+one question, and the all-entities view answers "what is in here" without drawing an edge, because a
+node-link picture of a whole crate is a hairball on paper. Given a canvas the reader can pan and
+interrogate it stops being one, so the same `@graph` is also shipped to the browser and drawn with
+React Flow. `build_explorer_payload(metadata)` is the pure, deterministic model — the
+`build_crate_graph` nodes and edges with labels unescaped, the crate document verbatim, the category
+registry including each category's `glyph`, and one member list per view; `render_explorer_section`
+emits the mount point, the payload as a `<script type="application/json">` data island, and the
+vendored bundles.
+
+Views are **toggles, not tabs**: what is drawn is the union of the views that are on, with the edges
+induced between whatever that leaves visible, so "the compounds AND the samples" needs no view of
+its own. **Researcher** is the one that opens — everything the crate describes except the machinery
+that describes it, which is the `annotation` category (parameters, csvw columns and schemas,
+ontology terms, licences, profiles, the build's own action and software) plus every off-crate stub.
+The rule is by category and never by layer: Persons, Organisations and articles sit in the base
+packaging layer beside the plumbing, so a layer-based rule would drop exactly the credit a reader
+looks for; the root is kept whatever its category. The other toggles are the tabbed section's own
+selections, reused rather than re-derived — `_derivation_edges` and `_route_hop_ids` are shared with
+the SVG renderers for that reason, and tests hold each toggle to what its panel draws. A view no
+entity satisfies is not offered, the way an empty tab is not shown. Selecting an entity opens a side
+panel with its properties, its links in and out grouped by relation, and its JSON-LD; a toolbar
+toggle swaps that for the whole `ro-crate-metadata.json`. Every `@id` in either is a button that
+moves the selection — **never a link**: the payload carries the crate verbatim, `javascript:` URLs
+and all, so the absence of anchors is load-bearing and pinned by test.
+
+**Script, but nothing loaded.** The report's contract was "carries no script"; it is now *loads
+nothing*. React, React Flow, dagre and htm are vendored UMD builds under `builder/writers/vendor/`,
+pinned by `manifest.json` (name, version, licence, origin, sha256) and verified against it at render
+time — a bundle that no longer matches fails the render rather than shipping inside every crate
+built afterwards. They are inlined with a credit banner, and React Flow's stylesheet joins the
+report's single `<style>` rather than opening a second one in the body. This costs the report about
+450 KB of library plus a copy of the crate's own metadata: a JSON panel cannot `fetch` a sibling
+file from `file://`, and a report that only works where it was built is not an artifact that travels
+inside a crate. Tabs stay CSS-only — they are a different mechanism with a different failure mode —
+and print keeps them: the canvas is a screen affordance, so `@media print` hides it and shows a note
+saying where the interactive version lives.
+
+The page is **self-contained** (inline CSS, inlined scripts, no external assets) so it renders
+offline. The styling
 and document shell live in sibling assets — `maturity_report.css` and `maturity_report.html` (with
 `__STYLE__` / `__TITLE__` / `__BODY__` placeholders) — which `build_maturity_html` reads (cached) and
 **inlines** at render time; only the data-driven markup is assembled in Python. Embedding is
@@ -2077,6 +2116,9 @@ vitro-crate/
 │   │   ├── rocrate_writer.py, arc_writer.py
 │   │   ├── provenance_dag.py     Mermaid entity-graph / provenance DAG (#130)
 │   │   ├── maturity_report.py    Maturity / FAIR HTML report
+│   │   ├── entity_explorer.py   Interactive React Flow entity graph (#615)
+│   │   ├── entity_explorer.js   …its browser half (no build step)
+│   │   └── vendor/              Pinned UMD builds inlined into the report
 │   └── agents/                  Orchestration + LLM config
 │       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
 │       ├── llm.py               Shared model construction + usage mining, both modes (#309)

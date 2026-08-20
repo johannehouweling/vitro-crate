@@ -514,6 +514,12 @@ __CATEGORY_STYLES__
   .mat .panel{display:block !important; break-inside:avoid;}
   .mat .panel + .panel{margin-top:1.2rem; padding-top:1rem; border-top:1px solid #ccc;}
   .mat .panel > .panel-h{display:block; font-size:.95rem; font-weight:660; margin:0 0 .6rem;}
+  /* The explorer is a canvas the reader pans, filters and interrogates. Paper
+     can hold none of that, and a screenshot of whichever corner the viewport
+     happened to show would be a worse lie than saying so: print gets the note,
+     and the static views above it carry the crate's picture. */
+  .mat .ex-app{display:none;}
+  .mat .ex-print-note{display:block;}
 }
 
 /* The overflow fold inside a capped list: same muted voice as the '+N further'
@@ -526,3 +532,132 @@ __CATEGORY_STYLES__
 .mat li.more > details.more-fold > ul.sugg,
 .mat li.more > details.more-fold > ul.ind { margin:.35rem 0 0; font-style:normal; }
 
+
+
+/* ---------------------------------------------------------------------------
+   Entity explorer (#615)
+
+   The interactive counterpart to the graph views: one canvas, views that
+   combine, and a side panel that reads any entity's JSON-LD. Everything here is
+   `ex-`-prefixed and scoped under `.mat`, so it cannot reach the static views;
+   the entity palette is not repeated — a node takes its colour from `--ex-c`,
+   set inline from the same registry that generates `--cat-*`.
+   --------------------------------------------------------------------------- */
+.mat section.explorer{overflow:hidden;}
+.mat .ex-print-note{display:none; margin:0; color:var(--muted); font-size:.86rem;}
+.mat .ex-noscript{margin:.6rem 0 0; color:var(--muted); font-size:.86rem;}
+.mat .ex-app{height:min(80vh,860px); min-height:460px; margin:.2rem 0 0;
+  border:1px solid var(--hairline); border-radius:10px; overflow:hidden;
+  background:var(--surface);}
+.mat .ex-shell{display:flex; flex-direction:column; height:100%;}
+
+/* toolbar */
+.mat .ex-toolbar{display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center;
+  padding:.5rem .6rem; border-bottom:1px solid var(--hairline); background:var(--surface-2);}
+.mat .ex-views{display:flex; flex-wrap:wrap; gap:.3rem;}
+.mat .ex-tools{display:flex; align-items:center; gap:.4rem; margin-left:auto;}
+.mat .ex-chip{display:inline-flex; align-items:center; gap:.35rem; font:inherit;
+  font-size:.78rem; line-height:1.5; padding:.15rem .55rem; cursor:pointer;
+  color:var(--ink); background:var(--surface); border:1px solid var(--hairline);
+  border-radius:999px;}
+.mat .ex-chip:hover{border-color:var(--accent);}
+.mat .ex-chip:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+.mat .ex-chip[aria-pressed="true"]{background:var(--accent); border-color:var(--accent);
+  color:var(--accent-ink);}
+.mat .ex-chip-count{font-size:.72rem; color:var(--muted); background:var(--surface-2);
+  border-radius:999px; padding:0 .3rem;}
+.mat .ex-chip[aria-pressed="true"] .ex-chip-count{background:rgba(255,255,255,.22);
+  color:var(--accent-ink);}
+.mat .ex-search{font:inherit; font-size:.78rem; padding:.18rem .6rem; width:15rem;
+  max-width:40vw; color:var(--ink); background:var(--surface);
+  border:1px solid var(--hairline); border-radius:999px;}
+.mat .ex-count{font-size:.74rem; color:var(--muted); white-space:nowrap;}
+
+/* legend — the same wording the static legends use, drawn from the registry */
+.mat .ex-legend{display:flex; flex-wrap:wrap; gap:.2rem .8rem; padding:.3rem .6rem;
+  font-size:.72rem; color:var(--muted); border-bottom:1px solid var(--hairline);}
+.mat .ex-key{display:inline-flex; align-items:center; gap:.25rem;}
+.mat .ex-swatch{display:inline-block; width:15px; height:9px; border:1.4px solid var(--muted);
+  border-radius:3px;}
+.mat .ex-swatch-orphan{border-style:dashed;}
+.mat .ex-swatch-outside{border-style:dotted;}
+.mat .ex-glyph{flex:none;}
+
+/* canvas */
+.mat .ex-main{display:flex; flex:1; min-height:0;}
+.mat .ex-canvas{flex:1; min-width:0; position:relative;}
+.mat .ex-node{width:200px; height:44px; display:flex; align-items:center; gap:.4rem;
+  padding:.2rem .45rem; font-size:.68rem; line-height:1.2; color:var(--ink);
+  border:1.5px solid var(--ex-c); border-radius:7px;
+  background:color-mix(in srgb,var(--ex-c) 9%,var(--surface)); transition:opacity .15s;}
+/* Dashed and dotted carry the same two meanings they carry in the static views:
+   nothing in the crate points at this, and this is described somewhere else. */
+.mat .ex-node.ex-orphan{border-style:dashed;}
+.mat .ex-node.ex-outside{border-style:dotted; color:var(--muted); background:var(--surface-2);}
+.mat .ex-node.ex-selected{box-shadow:0 0 0 3px color-mix(in srgb,var(--ex-c) 45%,#fff);}
+.mat .ex-node.ex-hit{box-shadow:0 0 0 3px var(--warn);}
+.mat .ex-node.ex-dim{opacity:.28;}
+.mat .ex-node-text{flex:1; min-width:0;}
+.mat .ex-node-name{font-weight:640; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.mat .ex-node-tag{font-size:.58rem; letter-spacing:.04em; text-transform:uppercase;
+  color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.mat .ex-canvas .react-flow__handle{opacity:0; width:6px; height:6px; pointer-events:none;}
+.mat .ex-canvas .react-flow__attribution{display:none;}
+
+/* side panel */
+.mat .ex-side{width:23rem; max-width:45%; display:flex; flex-direction:column;
+  overflow:auto; border-left:1px solid var(--hairline); background:var(--surface);}
+.mat .ex-side-empty{align-items:center; justify-content:center; text-align:center;
+  padding:1rem;}
+.mat .ex-side-head{position:sticky; top:0; z-index:2; padding:.55rem .7rem 0;
+  background:var(--surface); border-bottom:1px solid var(--hairline);}
+.mat .ex-side-title{display:flex; align-items:center; gap:.3rem;}
+.mat .ex-side-name{margin:.3rem 0 .1rem; font-size:.95rem; line-height:1.25;}
+.mat .ex-side-id{color:var(--muted); font-size:.72rem; word-break:break-all;}
+.mat .ex-close{margin-left:auto; border:0; background:none; cursor:pointer;
+  font-size:1.05rem; line-height:1; color:var(--muted);}
+.mat .ex-eyebrow{text-transform:uppercase; letter-spacing:.06em; font-size:.62rem;
+  font-weight:660; color:var(--muted);}
+.mat .ex-flags{display:flex; flex-wrap:wrap; gap:.2rem; margin:.35rem 0 .45rem;}
+.mat .ex-tag{font-size:.68rem; padding:.02rem .4rem; color:var(--muted);
+  border:1px solid var(--hairline); border-radius:999px;}
+.mat .ex-tag-bad{color:var(--low-ink); border-color:var(--low);}
+.mat .ex-side-tabs{display:flex; gap:.1rem;}
+.mat .ex-side-tabs button{font:inherit; font-size:.74rem; padding:.3rem .45rem;
+  cursor:pointer; color:var(--muted); background:none; border:0;
+  border-bottom:2px solid transparent;}
+.mat .ex-side-tabs button[aria-selected="true"]{color:var(--accent); font-weight:640;
+  border-bottom-color:var(--accent);}
+.mat .ex-side-body{padding:.55rem .7rem 1.2rem;}
+.mat .ex-props{margin:0;}
+.mat .ex-prop{display:grid; grid-template-columns:minmax(5.5rem,max-content) 1fr;
+  gap:.2rem .6rem; margin-bottom:.35rem;}
+.mat .ex-prop dt{color:var(--muted); font-size:.7rem; padding-top:.1rem;}
+.mat .ex-prop dd{margin:0; min-width:0; word-break:break-word;}
+.mat .ex-link-group{margin-bottom:.5rem;}
+.mat .ex-relation{display:flex; gap:.3rem; margin:.35rem 0 .1rem; font-size:.7rem;
+  color:var(--muted);}
+.mat .ex-link{display:flex; align-items:center; gap:.3rem; padding:.05rem 0 .05rem .5rem;}
+.mat .ex-ref{font:inherit; font-size:.76rem; padding:0; cursor:pointer; text-align:left;
+  color:var(--accent); background:none; border:0; text-decoration:underline dotted;}
+.mat .ex-ref-outside{color:var(--muted);}
+.mat .ex-hint{color:var(--muted); font-size:.8rem;}
+.mat .ex-kbd{font:inherit; font-size:.72rem; padding:0 .25rem; background:var(--surface-2);
+  border:1px solid var(--hairline); border-radius:4px;}
+.mat .ex-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.72rem;}
+.mat .ex-muted{color:var(--muted);}
+
+/* JSON-LD */
+.mat .ex-json{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.7rem; line-height:1.45; word-break:break-word;}
+.mat .ex-json-indent{margin-left:.2rem; padding-left:.7rem; border-left:1px dotted var(--hairline);}
+.mat .ex-json-key{color:#7a3e9d;}
+.mat .ex-json-string{color:#1d6f2b;}
+.mat .ex-json-number{color:#8a5a00;}
+.mat .ex-json-null,.mat .ex-json-punct{color:var(--muted);}
+.mat .ex-json-entity{margin:.15rem 0; padding:.2rem .35rem; border:1px solid transparent;
+  border-radius:6px;}
+.mat .ex-json-current{background:var(--accent-soft); border-color:var(--accent);}
+.mat .ex-json-entity-head{display:flex; align-items:center; gap:.3rem; margin-bottom:.1rem;
+  font-family:inherit; font-size:.74rem;}
+.mat .ex-side-document .ex-json{padding:.5rem .7rem;}

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "react",
+    "version": "18.3.1",
+    "license": "MIT",
+    "source_url": "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
+    "file": "react.production.min.js",
+    "sha256": "d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd",
+    "bytes": 10751
+  },
+  {
+    "name": "react-dom",
+    "version": "18.3.1",
+    "license": "MIT",
+    "source_url": "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",
+    "file": "react-dom.production.min.js",
+    "sha256": "35f4f974f4b2bcd44da73963347f8952e341f83909e4498227d4e26b98f66f0d",
+    "bytes": 131835
+  },
+  {
+    "name": "@xyflow/react",
+    "version": "12.11.3",
+    "license": "MIT",
+    "source_url": "https://unpkg.com/@xyflow/react@12.11.3/dist/umd/index.js",
+    "file": "xyflow-react.umd.js",
+    "sha256": "f75a13b283b55041c89f9a7af0a1e109165134826dd86a651cf0ab258c60d06d",
+    "bytes": 187696
+  },
+  {
+    "name": "@xyflow/react (styles)",
+    "version": "12.11.3",
+    "license": "MIT",
+    "source_url": "https://unpkg.com/@xyflow/react@12.11.3/dist/style.css",
+    "file": "xyflow-react.style.css",
+    "sha256": "7ed5ae87a6c9bd664fce1802ce33fbe84faaefe33e21c82be35529df06e0c686",
+    "bytes": 18596
+  },
+  {
+    "name": "@dagrejs/dagre",
+    "version": "1.1.4",
+    "license": "MIT",
+    "source_url": "https://unpkg.com/@dagrejs/dagre@1.1.4/dist/dagre.min.js",
+    "file": "dagre.min.js",
+    "sha256": "2cde82baf0b9232c00aa13932945ff92a17fb08c6885a635592330a4c2c567c5",
+    "bytes": 96038
+  },
+  {
+    "name": "htm",
+    "version": "3.1.1",
+    "license": "Apache-2.0",
+    "source_url": "https://unpkg.com/htm@3.1.1/dist/htm.umd.js",
+    "file": "htm.umd.js",
+    "sha256": "7a31776e04bd4afde0d4308177d26f377716fcf7e4bd70be590746d6aa594f08",
+    "bytes": 1364
+  }
+]

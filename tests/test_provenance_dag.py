@@ -23,11 +23,16 @@ from builder.writers.maturity_report import _CSS_PATH as _CSS_SOURCE
 from builder.writers.maturity_report import _load_css
 from builder.writers.provenance_dag import (
     CATEGORY_STYLES,
+    _CTX_GLYPH,
     _crate_legend_lines,
+    _derivation_edges,
     _entity_category,
+    _graph_nodes,
+    _is_process,
     _mermaid_style,
     _node_class,
     _node_class_for_brief,
+    _route_hop_ids,
     _svg_node_shape,
     build_cellline_inventory,
     build_chemical_inventory,
@@ -230,6 +235,81 @@ def test_render_mermaid_html_escapes_label_markup_safely() -> None:
     html = render_mermaid_html(render_provenance_mermaid(_full_chain_graph()))
     # json.dumps escapes the source into a quoted literal containing <br/>.
     assert "<br/>" in html
+
+
+class TestSharedSelectors:
+    """The selections the static views draw are the ones other renderers reuse.
+
+    The derivation chain and the routed bands each used to decide membership
+    inside the function that drew it, so a second renderer over the same crate
+    could only re-derive the rule and drift from it. Both rules are now named
+    functions, and these tests pin them to what the SVG actually draws.
+    """
+
+    def test_derivation_edges_point_downstream(self) -> None:
+        nodes = _graph_nodes(_full_chain_graph())
+
+        edges = _derivation_edges(nodes)
+
+        # material --object--> process, process --result--> data.
+        assert ("#cellline", "#cc", "object") in edges
+        assert all(kind in ("object", "result") for _s, _d, kind in edges)
+        for src, dst, kind in edges:
+            assert src in nodes and dst in nodes, (src, dst)
+            assert _is_process(nodes[dst] if kind == "object" else nodes[src])
+
+    def test_derivation_edges_skip_references_outside_the_crate(self) -> None:
+        """An off-graph ref has nothing to attach to; the SVG never drew one."""
+        nodes = _graph_nodes(
+            {
+                "@graph": [
+                    {"@id": "./", "@type": "Dataset"},
+                    {
+                        "@id": "#p",
+                        "@type": "LabProcess",
+                        "input": {"@id": "https://example.org/elsewhere"},
+                        "result": {"@id": "#kept"},
+                    },
+                    {"@id": "#kept", "@type": "File"},
+                ]
+            }
+        )
+
+        edges = _derivation_edges(nodes)
+
+        assert edges == [("#p", "#kept", "result")]
+
+    def test_the_chain_svg_draws_exactly_the_derivation_endpoints(self) -> None:
+        """The equivalence the explorer's LabProcesses view rests on: the view's
+        membership is the endpoint set of these edges, so if the SVG drew some
+        other set the two renderings would disagree about the same crate."""
+        graph = _full_chain_graph()
+        nodes = _graph_nodes(graph)
+        endpoints = {e[0] for e in _derivation_edges(nodes)} | {
+            e[1] for e in _derivation_edges(nodes)
+        }
+
+        svg = render_provenance_svg(graph)
+
+        drawn = set(re.findall(r'<title>([^<]*)</title>', svg))
+        for nid in endpoints:
+            name = nodes[nid].get("name", nid)
+            assert any(name in title for title in drawn), (nid, name, sorted(drawn))
+        # …and nothing else: a node the chain does not touch stays out.
+        assert "cell line" not in svg  # the DefinedTerm, referenced but not derived
+
+    def test_route_hop_ids_walks_process_then_via(self) -> None:
+        """A compound reached through a table: two hops, rightmost last."""
+        assert _route_hop_ids("#proc", "data/table.csv") == ["#proc", "data/table.csv"]
+
+    def test_route_hop_ids_collapses_a_process_that_is_its_own_via(self) -> None:
+        """A CellCulture consuming its own cell line: drawing the process in two
+        columns with an edge between them would depict a step the crate has not."""
+        assert _route_hop_ids("#proc", "#proc") == ["#proc"]
+
+    def test_route_hop_ids_of_an_unlinked_member_is_empty(self) -> None:
+        assert _route_hop_ids(None, None) == []
+        assert _route_hop_ids("#proc", None) == []
 
 
 class TestRenderProvenanceSvg:
@@ -2191,6 +2271,28 @@ class TestCategoryRegistry:
         shapes = [style.mermaid for style in CATEGORY_STYLES.values()]
 
         assert len(set(shapes)) == len(shapes), shapes
+
+    def test_every_category_has_a_unique_glyph(self) -> None:
+        """The interactive explorer draws a glyph where the SVG views draw an
+        outline, and it obeys the same rule: shape is the channel that survives
+        greyscale, print and colour vision deficiency, so two categories sharing
+        a glyph would leave colour as the only thing telling them apart."""
+        glyphs = [style.glyph for style in CATEGORY_STYLES.values()] + [_CTX_GLYPH]
+
+        assert len(set(glyphs)) == len(glyphs), glyphs
+
+    def test_every_glyph_is_path_data_inside_the_fourteen_pixel_box(self) -> None:
+        """The glyph is rendered into ``viewBox="0 0 14 14"``. A coordinate
+        outside that box is clipped by the viewport, and a clipped glyph is a
+        different shape from the one the legend promises."""
+        for category, glyph in [
+            *((k, s.glyph) for k, s in CATEGORY_STYLES.items()),
+            ("ctx", _CTX_GLYPH),
+        ]:
+            assert glyph.startswith(("M", "m")), (category, glyph)
+            assert re.fullmatch(r"[MmLlHhVvCcSsQqTtAaZz0-9 .,-]+", glyph), (category, glyph)
+            for literal in re.findall(r"-?\d+(?:\.\d+)?", glyph):
+                assert -14.0 <= float(literal) <= 14.0, (category, glyph, literal)
 
     def test_every_category_has_a_unique_svg_outline(self) -> None:
         """The geometry, not the CSS class — two classes can draw one shape.
