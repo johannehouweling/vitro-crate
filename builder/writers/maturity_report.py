@@ -1857,11 +1857,8 @@ def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
         return "", ""
     counts = model.get("counts", {})
     orphans = counts.get("orphan", 0)
-    reachable = len(nodes) - orphans
-
     isolated = counts.get("isolated", 0)
     stranded = counts.get("stranded", 0)
-    links = counts.get("unreachable_clusters", 0)
 
     # No category-word swatch list (review comment: every word on this view is
     # a schema.org / bioschemas type). The cluster captions name the member
@@ -1892,16 +1889,10 @@ def _render_overview_panel(model: dict[str, Any]) -> tuple[str, str]:
         else '<p class="good-note">Every entity is reachable from the crate root.</p>'
     )
 
-    panel = (
-        '<p class="prov-cap">Every entity in the crate, one tile each, grouped by '
-        "functional category inside its paper layer — the crate's shape and its "
-        f"health on one screen. <b>{len(nodes)}</b> entities · <b>{reachable}</b> "
-        f"reachable · <b>{orphans}</b> not"
-        + (f" · <b>{links}</b> link{'' if links == 1 else 's'} away" if links else "")
-        + ".</p>\n"
-        f'  <div class="prov-scroll">{svg}</div>\n  {legend}\n'
-        f"  {note}"
-    )
+    # No intro paragraph (review comment): the map opens the panel directly.
+    # The counts it carried live on — total in the tab badge, the unreachable
+    # story in the note below the map.
+    panel = f'<div class="prov-scroll">{svg}</div>\n  {legend}\n  {note}'
     return panel, str(len(nodes))
 
 

@@ -2918,6 +2918,17 @@ class TestOverviewPanel:
                      "Investigation / Study / Assay"):
             assert word not in svg_text, f"a category word survived as a caption: {word}"
 
+    def test_the_overview_carries_no_intro_paragraph(self) -> None:
+        """Review comment: the "Every entity in the crate, one tile each…"
+        summary line is gone — the map opens the panel directly. The
+        unreachable story is not lost: the warning note below the map still
+        counts and explains the orphans."""
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=self._graph())
+        panel = page.split('id="p-all"', 1)[1].split('<div class="panel"', 1)[0]
+        assert '<p class="prov-cap">' not in panel
+        assert "one tile each" not in page
+        assert "are unreachable from the crate root" in panel
+
     def test_the_legend_carries_no_category_words(self) -> None:
         """Review comment: every word on this view should be a schema.org /
         bioschemas type. The cluster captions now name the types, so the
