@@ -18,7 +18,6 @@ from builder.state import CrateState
 from builder.tools.hitl import SimulatedHumanInterface
 from eval.agent_api import BuildAgent, BuildOutcome
 from eval.corpus import DEFAULT_CORPUS
-from eval.hitl import TrustedCorpusHumanInterface
 from eval.pipeline_factory import PipelineBuildAgent, make_pipeline_agent_factory
 
 # The pipeline drives the SHACL validator; give the module headroom over the CLI
@@ -32,15 +31,12 @@ class TestPipelineAgentWiring:
         agent = factory()
         assert isinstance(agent, BuildAgent)
 
-    def test_engine_uses_the_trusted_corpus_human_interface(self) -> None:
-        # Both arms share the eval's trusted-corpus interface so scan-root handling
-        # is symmetric across the A/B (#329). It is still a headless
-        # SimulatedHumanInterface subclass.
-        agent = PipelineBuildAgent()
-        engine = agent._make_engine()
-        assert isinstance(engine, AgentEngine)
-        assert isinstance(engine.human_interface, TrustedCorpusHumanInterface)
-        assert isinstance(engine.human_interface, SimulatedHumanInterface)
+    def test_engine_uses_the_production_headless_human(self) -> None:
+        """The same headless human the ReAct arm gets (#609)."""
+        from builder.tools.hitl import SimulatedHumanInterface
+
+        engine = make_pipeline_agent_factory()()._make_engine()
+        assert type(engine.human_interface) is SimulatedHumanInterface
 
     def test_build_returns_conformant_outcome(self) -> None:
         """A real build of the minimal case reaches BASE + ISA conformance.
