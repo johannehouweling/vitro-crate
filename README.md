@@ -1,10 +1,10 @@
 # ISA-Tox RO-Crate Builder (vitro-crate)
 
-**LLM-assisted builder for profile-conformant RO-Crates of *in vitro* toxicology data.**
+LLM-assisted builder for profile-conformant RO-Crates of *in vitro* toxicology data.
 
 [![CI](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml/badge.svg)](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml)
 
-The builder is a toolbox-based agent system that helps researchers create ISA-Tox profile-compliant RO-Crates. It uses a LangChain-powered LLM agent that dynamically decides which tools to call — entity drafting, lookups, validation, assessment — based on the current state of the crate.
+The builder is a toolbox-based agent system that helps researchers create ISA-Tox profile-compliant RO-Crates. It uses a LangChain-powered LLM agent that dynamically decides which tools to call, entity drafting, lookups, validation, assessment, based on the current state of the crate.
 
 ---
 
