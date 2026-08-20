@@ -2557,7 +2557,9 @@ def render_celllines_svg(inventory: dict[str, Any]) -> str:
         # stadium — the same entity keeps the same shape across every view.
         node_cls="material",
         more_tag="Sample · CellLine",
-        noun="cell lines",
+        # The reader-facing noun is the checklist's (Biological Model
+        # Information); the entities themselves stay cell lines.
+        noun="biological models",
         marker=_CELLLINE_MARKER,
     )
 

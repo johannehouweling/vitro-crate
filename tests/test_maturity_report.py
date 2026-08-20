@@ -1890,7 +1890,7 @@ class TestGraphViewTabs:
             "Datasets",
             "LabProcesses",
             "Chemicals",
-            "Cell lines",
+            "Biological models",
             "People &amp; orgs",
             "Citations",
         ):
@@ -2010,10 +2010,10 @@ class TestGraphViewTabs:
 
 
 class TestCellLinesPanel:
-    """The Cell lines view (#85): the biological test system, and whether it is
-    pinned down.
+    """The Biological models view (#85): the biological test system, and
+    whether it is pinned down.
 
-    A cell line fails the same two ways a compound does — unreachable when the
+    A model fails the same two ways a compound does — unreachable when the
     ``CellCulture`` consumes a freshly minted generic ``Sample`` instead of the
     declared line, and unidentified when it carries a name but no Cellosaurus
     RRID ("CHO-K1" names a family of divergent stocks; CVCL_0214 names one).
@@ -2065,19 +2065,37 @@ class TestCellLinesPanel:
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
         assert '<div class="panel" id="p-cell">' in page
-        assert '<span class="tb-n">Cell lines</span>' in page
+        assert '<span class="tb-n">Biological models</span>' in page
         assert "CHO-K1" in page
         assert "CVCL_0214" in page
         for column in ("RRID", "Type", "Organ", "Tissue", "Passage"):
-            assert f">{column}</th>" in page, f"missing cell-line column: {column}"
+            assert f">{column}</th>" in page, f"missing coverage column: {column}"
 
-    def test_unconsumed_line_is_called_out_with_the_fix(self) -> None:
+    def test_the_view_is_named_biological_models_wherever_a_reader_sees_it(self) -> None:
+        """The owner's term for the test system is the checklist's — "biological
+        model", as in the MIT module Biological Model Information — so the tab,
+        the table's corner header, the summary line, the legend and the
+        diagram's accessible name all say it. "Cell line" survives only where
+        it names the actual declaration being checked: the Type column's
+        tooltip (the entity is typed as a cell line) and ``CellLine`` itself.
+        """
+        page = self._page()
+        assert '<span class="tb-n">Biological models</span>' in page
+        assert '<th scope="col">Biological model</th>' in page
+        assert "<b>1</b> biological model ·" in page
+        assert "Biological model / sample</span>" in page
+        assert "Routes: 1 of 1 biological models reachable from a process" in page
+        panel = page.split('id="p-cell"', 1)[1].split("</section>", 1)[0]
+        rest = panel.replace('title="Typed as a cell line"', "")
+        assert "cell line" not in rest.lower(), "a reader-facing 'cell line' survived"
+
+    def test_unconsumed_model_is_called_out_with_the_fix(self) -> None:
         page = self._page(wire=False)
-        assert "1 of 1 cell lines are not consumed by any process." in page
+        assert "1 of 1 biological models are not consumed by any process." in page
         assert "<code>CellCulture</code>" in page
         assert "<code>input</code>" in page
 
-    def test_consumed_line_reports_a_clean_route(self) -> None:
+    def test_consumed_model_reports_a_clean_route(self) -> None:
         page = self._page(wire=True, rrid=True)
         assert "not consumed by any process" not in page
 
@@ -2086,7 +2104,7 @@ class TestCellLinesPanel:
         # and collapsing them would hide whichever the crate actually has.
         page = self._page(wire=True, rrid=False)
         assert "not consumed by any process" not in page
-        assert "1 of 1 cell lines carry no Cellosaurus RRID." in page
+        assert "1 of 1 biological models carry no Cellosaurus RRID." in page
 
     def test_crate_without_cell_lines_omits_the_view(self) -> None:
         graph = {
