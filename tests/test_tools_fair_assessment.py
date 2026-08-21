@@ -201,9 +201,9 @@ class TestDsmBlockers:
         import builder.tools.fair_assessment as fa
 
         monkeypatch.setattr(fa, "_load_yaml", lambda path: dict(self._TABLE))
-        monkeypatch.setitem(fa.DSM_CHECKS, "unique_id", lambda state: True)
+        monkeypatch.setitem(fa.DSM_CHECKS, "unique_id", lambda state, graph=None: True)
         for name in ("fails_a", "fails_b", "fails_c", "fails_d"):
-            monkeypatch.setitem(fa.DSM_CHECKS, name, lambda state: False)
+            monkeypatch.setitem(fa.DSM_CHECKS, name, lambda state, graph=None: False)
         return fa
 
     def test_only_the_next_levels_assessable_failures_block(self, monkeypatch):
@@ -211,8 +211,8 @@ class TestDsmBlockers:
         state = CrateState()
         assert fa._compute_dsm_level(state, dict(self._TABLE)) == 1
         assert fa.dsm_blockers(state) == [
-            ("L2-FAIL-A", "level 2, fails A"),
-            ("L2-FAIL-B", "level 2, fails B"),
+            ("L2-FAIL-A", "level 2, fails A", ""),
+            ("L2-FAIL-B", "level 2, fails B", ""),
         ], "na scope excluded, level 3 not yet in play, ids paired with their text"
 
     def test_a_level_five_crate_has_nothing_above_to_block(self, monkeypatch):
@@ -228,7 +228,7 @@ class TestDsmBlockers:
                 ]
             },
         )
-        monkeypatch.setitem(fa.DSM_CHECKS, "ok", lambda state: True)
+        monkeypatch.setitem(fa.DSM_CHECKS, "ok", lambda state, graph=None: True)
         state = CrateState()
         assert fa.dsm_blockers(state) == []
 
@@ -256,9 +256,9 @@ class TestDsmBlockers:
         by_id = {i["id"]: i for i in data["indicators"]}
         blockers = dsm_blockers(state)
         assert blockers, "the fixture must have blockers for this to test anything"
-        for bid, text in blockers:
+        for bid, text, _why in blockers:
             ind = by_id[bid]
             assert ind["level"] == level + 1
             assert ind["scope"] != "na"
             assert text == ind["text"]
-            assert DSM_CHECKS[ind["check"]](state) is False
+            assert DSM_CHECKS[ind["check"]](state, None) is False

@@ -10,7 +10,7 @@ assets) covering the four axes from the issue:
   only that the crate clears the required bar. When the verdict carries structured
   ``issue_records`` each severity row unfolds its own findings, grouped by profile
   layer inside (#510); a pre-records verdict falls back to the flat list;
-* **FAIR** — the gated Data Stewardship Maturity level on a ladder whose next rung
+* **FAIR** — the gated FAIRplus Dataset Maturity level on a ladder whose next rung
   shows the ratio of RDA-style indicators already met, plus what blocks the next level;
 * **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
 * **Reproducibility readiness** — a derived checklist.
@@ -849,15 +849,24 @@ def _profile_matrix_tile(
     )
 
 
-def _fair_tile(fair: FAIRReport, blockers: list[tuple[str, str]]) -> str:
+def _fair_tile(
+    fair: FAIRReport,
+    blockers: list[tuple[str, str, str]],
+    ceiling: dict[str, Any] | None = None,
+) -> str:
     """FAIR maturity: the gated DSM level, a ladder whose *next* rung shows the
     ratio of indicators already met (a gated 0 must not read as "nothing
     done"), and — in red — how many indicators stand before the next level."""
     met = sum(1 for i in fair.indicator_results if i.get("passed") is True)
     assessed = sum(1 for i in fair.indicator_results if i.get("passed") is not None)
     pct = round(met / assessed * 100) if assessed else 0
+    # The denominator is the highest level a crate can REACH, not the model's top
+    # rung: Level 5 is scored entirely on hosting and enterprise data governance, so
+    # "/ 5" advertises a rung no RO-Crate can stand on. Falls back to 5 only when the
+    # ceiling could not be computed.
+    cap = int((ceiling or {}).get("ceiling") or 5)
     rungs = ""
-    for level in range(1, 6):
+    for level in range(1, cap + 1):
         if level <= fair.dsm_level:
             rungs += '<span class="rung2 done"></span>'
         elif level == fair.dsm_level + 1:
@@ -876,23 +885,39 @@ def _fair_tile(fair: FAIRReport, blockers: list[tuple[str, str]]) -> str:
         # detail section is gone, so the blocking indicators are named right
         # here, one fold away, in the YAML's own words.
         n = len(blockers)
+        # The evidence is what makes a verdict auditable — the published model is a
+        # human assessment instrument, so "why did it say no?" must be answerable
+        # without reading the source.
         items = "".join(
-            f"<li><code>{html.escape(bid)}</code> {html.escape(text)}</li>"
-            for bid, text in blockers
+            f"<li><code>{html.escape(bid)}</code> {html.escape(text)}"
+            + (f'<span class="blk-why">{html.escape(why)}</span>' if why else "")
+            + "</li>"
+            for bid, text, why in blockers
         )
         blocked = (
             f'<details class="blockers"><summary><b>{n} '
             f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</summary>'
             f'<ul class="blk">{items}</ul></details>'
         )
+    # "Where could this crate get to?" — the gated level alone cannot distinguish a
+    # crate one fix from the top from one that is genuinely stuck.
+    reach = ""
+    attainable = (ceiling or {}).get("attainable")
+    if attainable is not None and attainable > fair.dsm_level:
+        reach = (
+            f'<div class="kpi-sub">reachable: <b>{attainable}</b> '
+            "once the indicators below are met</div>"
+        )
+    elif attainable is not None and cap and fair.dsm_level >= cap:
+        reach = '<div class="kpi-sub">at the ceiling for a crate</div>'
     return (
         '<article class="kpi fair-tile">'
         '<div class="kpi-h"><span class="eyebrow">FAIR maturity</span></div>'
-        f'<div class="kpi-v"><b>{fair.dsm_level}</b><span class="den">/ 5</span> '
+        f'<div class="kpi-v"><b>{fair.dsm_level}</b><span class="den">/ {cap}</span> '
         '<span class="tag-inline">DSM level<a class="fn" href="#fn-dsm">1</a></span></div>'
-        f'<div class="ladder2" role="img" aria-label="DSM level {fair.dsm_level} of 5; '
+        f'<div class="ladder2" role="img" aria-label="DSM level {fair.dsm_level} of {cap}; '
         f'{met} of {assessed} FAIR indicators met">{rungs}</div>'
-        f"{blocked}"
+        f"{reach}{blocked}"
         "</article>"
     )
 
@@ -1025,19 +1050,20 @@ def _render_kpis(
     tiers: list[dict[str, str]] | None,
     val: ValidationReport | None,
     fair: FAIRReport,
-    blockers: list[tuple[str, str]],
+    blockers: list[tuple[str, str, str]],
     mit: MITReport,
     repro_ready: int,
     repro_total: int,
     graph_counts: tuple[int, int] | None,
     *,
+    ceiling: dict[str, Any] | None = None,
     stale: bool = False,
 ) -> str:
     """The KPI grid: the profile × tier conformance matrix, FAIR maturity, the
     domain-coverage rose (spanning both rows), the graph tile (linked / total
     entities, only when a graph was supplied) and reproducibility readiness."""
     tiles = _profile_matrix_tile(val, tiers, stale)
-    tiles += _fair_tile(fair, blockers)
+    tiles += _fair_tile(fair, blockers, ceiling)
     tiles += _mit_rose_tile(mit)
     if graph_counts is not None:
         linked, total = graph_counts
@@ -1648,7 +1674,7 @@ def _render_references() -> str:
     return (
         '<div class="refs">\n'
         '  <span class="refs-h">References</span>\n'
-        '  <p id="fn-dsm"><span class="ref-n">1</span> Data Stewardship Maturity level, '
+        '  <p id="fn-dsm"><span class="ref-n">1</span> FAIRplus Dataset Maturity (DSM) level, '
         "0&ndash;5. Levels are gated: every indicator of a level must pass before the next is "
         "reached, so a crate can meet most indicators and still sit at level 0. Scored against "
         "the crate-assessable indicators of the FAIRplus Dataset Maturity (DSM) model &mdash; "
@@ -1662,6 +1688,70 @@ def _render_references() -> str:
         + _lk(MIT_INDICATORS_URL, "tox-maturity-indicators")
         + ".</p>\n"
         "</div>\n"
+    )
+
+
+def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, str]) -> str:
+    """The DSM's own **"% Complete" grid** — level × category, as the published sheet scores it.
+
+    The gated level answers "how far up the ladder", which is one number and a harsh
+    one: a single failing indicator at level 1 hides everything achieved at level 4.
+    The assessment sheet itself reports a 6x3 grid of percentages, so the report shows
+    that too — it is the model's own view of a dataset, and it is what makes progress
+    legible.
+
+    A cell we cannot assess reads "not assessed" rather than 0%: the sheet's denominator
+    is Excel ``COUNT``, which omits unanswered cells, so a percentage never counts an
+    unanswered indicator against the dataset. Every cell shows its denominator so the
+    coverage behind each number is visible rather than implied.
+    """
+    if not grid:
+        return ""
+    esc = html.escape
+    cats = (("C", "Content &amp; context"), ("R", "Representation &amp; format"),
+            ("H", "Hosting environment"))
+    head = "".join(f"<th>{label}</th>" for _code, label in cats)
+    rows = ""
+    for level in sorted(grid):
+        cells = ""
+        for code, _label in cats:
+            cell = grid[level].get(code)
+            if not cell or not cell.get("total"):
+                cells += '<td class="dsm-na">—</td>'
+                continue
+            total = cell["total"]
+            if cell.get("pct") is None:
+                cells += (
+                    '<td class="dsm-na"><span class="dsm-pct">not assessed</span>'
+                    f'<span class="dsm-den">0 of {total} assessable</span></td>'
+                )
+                continue
+            pct = cell["pct"]
+            state = "full" if pct >= 100 else ("part" if pct > 0 else "none")
+            cells += (
+                f'<td class="dsm-{state}"><span class="dsm-pct">{pct:g}%</span>'
+                f'<span class="dsm-den">{cell["passed"]}/{cell["assessed"]} '
+                f'of {total}</span></td>'
+            )
+        rows += (
+            f'<tr><th scope="row"><b>{level}</b> '
+            f'<span class="dsm-lvl">{esc(levels.get(level, ""))}</span></th>{cells}</tr>'
+        )
+    return (
+        "<section>\n"
+        '  <div class="sec-h"><h2>DSM &mdash; % complete by level and category</h2>'
+        '<span class="sec-meta">the assessment sheet&rsquo;s own scoring</span></div>\n'
+        '  <div class="tbl-scroll"><table class="dsm-grid">\n'
+        f"    <thead><tr><th>Level</th>{head}</tr></thead>\n"
+        f"    <tbody>{rows}</tbody>\n"
+        "  </table></div>\n"
+        '  <p class="dsm-note">Percentages follow the published sheet: satisfied &divide; '
+        "assessed &times; 100, with unassessed indicators excluded from the denominator "
+        "(Excel <code>COUNT</code>). Level&nbsp;0 states the pre-FAIRification condition "
+        "in the negative, so it is scored inverted &mdash; and it is not a rung on the "
+        "ladder. Hosting-environment indicators describe the environment serving the "
+        "dataset, so a crate cannot evidence them.</p>\n"
+        "</section>\n"
     )
 
 
@@ -2516,7 +2606,7 @@ def build_maturity_html(
     # Feed that MIT result into FAIR so the mit_coverage indicator (RDA-R1.3-01D)
     # reflects the graph-based coverage — state.mit_assessment is never populated
     # on this path (#311).
-    fair = assess_fair_maturity(state, mit=mit)
+    fair = assess_fair_maturity(state, mit=mit, graph=graph)
     val = validation if validation is not None else state.validation
 
     tiers = _severity_tiers(val) if _validation_has_signal(val) else None
@@ -2571,17 +2661,32 @@ def build_maturity_html(
         total = len(nodes)
         linked = total - sum(1 for n in nodes if n.get("orphan"))
         graph_counts = (linked, total)
-    from builder.tools.fair_assessment import dsm_blockers
+    from builder.tools.fair_assessment import (
+        DSM_INDICATORS_PATH,
+        _load_yaml,
+        dsm_blockers,
+        dsm_ceiling,
+        dsm_grid,
+    )
+
+    dsm_data = _load_yaml(DSM_INDICATORS_PATH) or {}
+    # The DSM's Level 2-4 field/value indicators live in the assembled graph, not
+    # CrateState, so the graph is threaded to every DSM entry point here.
+    dsm_reach = dsm_ceiling(state, dsm_data, graph)
+    dsm_section = _render_dsm_grid_section(
+        dsm_grid(state, dsm_data, graph), dsm_data.get("levels") or {}
+    )
 
     kpis = _render_kpis(
         tiers,
         val if _validation_has_signal(val) else None,
         fair,
-        dsm_blockers(state),
+        dsm_blockers(state, graph),
         mit,
         repro_ready,
         len(checks),
         graph_counts,
+        ceiling=dsm_reach,
         stale=stale,
     )
     prof_section = _render_profile_section(val, tiers, stale=stale)
@@ -2599,6 +2704,7 @@ def build_maturity_html(
         + explorer_section
         + coverage_section
         + prof_section
+        + dsm_section
         + mit_section
         + repro_section
         + _render_recommendations(val, graph, stale=stale)

@@ -12,8 +12,8 @@ FAIR *scoring* stays local and offline: every automated FAIR evaluator (F-UJI, t
 FAIR Evaluator, FAIROS) needs a published, resolvable URL and cannot score a local,
 pre-publication crate. Only the indicator definitions are externalised.
 
-The FAIRplus DSM ladder (``fair/dsm_indicators.yaml``) has no machine-readable upstream
-distribution and therefore stays curated — it is not touched here.
+The FAIRplus DSM ladder (``fair/dsm_indicators.yaml``) is generated from its own
+vendored assessment workbook by ``scripts/gen_dsm_indicators.py`` — not touched here.
 
 Regenerate with::
 
@@ -86,11 +86,12 @@ SOURCES: dict[str, Any] = {
         "retrieved": "2026-07-25",
     },
     "dsm": {
-        "name": "FAIRplus Data Stewardship Maturity Model",
+        "name": "FAIRplus Dataset Maturity Model (DSM)",
         "url": "https://fairplus.github.io/Data-Maturity/",
         "note": (
-            "No machine-readable upstream distribution; curated in "
-            "fair/dsm_indicators.yaml and scored by builder/tools/fair_assessment.py."
+            "Generated from the vendored assessment workbook by "
+            "scripts/gen_dsm_indicators.py into fair/dsm_indicators.yaml, and scored "
+            "by builder/tools/fair_assessment.py."
         ),
     },
     "nsdra": {
@@ -111,7 +112,8 @@ _HEADER = """\
 # are assessed intrinsically from one RO-Crate, and with which check) lives in
 # scripts/gen_fair_indicators.py. Accessibility indicators are protocol/repository
 # level and reported out-of-scope, not failed. R1.3-01D delegates to OECD MIT
-# in-vitro coverage. The FAIRplus DSM ladder stays curated in fair/dsm_indicators.yaml.
+# in-vitro coverage. The FAIRplus DSM ladder is generated separately into
+# fair/dsm_indicators.yaml by scripts/gen_dsm_indicators.py.
 """
 
 

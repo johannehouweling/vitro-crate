@@ -790,7 +790,7 @@ class FAIRReport:
 
     Attributes:
         indicator_results: List of individual indicator results as dicts.
-        dsm_level: Data Stewardship Maturity level (0-5).
+        dsm_level: FAIRplus Dataset Maturity (DSM) level (0-5).
     """
 
     indicator_results: list[dict[str, Any]] = field(default_factory=list)
