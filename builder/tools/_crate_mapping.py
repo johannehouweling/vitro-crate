@@ -1930,6 +1930,97 @@ def _synth_protocol(crate: ROCrate, assay_id: Any, cache: dict[str, Any]) -> Con
     return cache[key]
 
 
+def _culture_cell_lines(f: dict[str, Any], idx: dict[str, Any], name: str) -> list[Any]:
+    """The cell line(s) a CellCulture grows, or [] when none can be resolved.
+
+    Reads the whole ``cell_line`` list, falling back to the sample/object aliases
+    and finally to a line named in the process title. Shared by the branch that
+    builds the process and the one that picks its protocol, so "which lines is
+    this?" cannot be answered two different ways (#650).
+    """
+    lines = (
+        _resolve_many(idx, f.get("cell_line"))
+        or _resolve_many(idx, f.get("samples"))
+        or _resolve_many(idx, f.get("object"))
+        or _resolve_many(idx, f.get("input"))
+    )
+    if lines:
+        return lines
+    named = _cell_line_named_in(name, idx)
+    return [named] if named is not None else []
+
+
+def _culture_protocol(
+    crate: ROCrate, lines: list[Any], idx: dict[str, Any], cache: dict[str, Any]
+) -> Any:
+    """The protocol a culture of *lines* follows — study-level, one per line set.
+
+    Culturing a cell line is a study-level activity: S-VHPS22 keeps
+    ``cell_line_protocols/`` beside the assays with exactly one document per line.
+    Keying the fallback on ``assay_id`` instead made two assays growing SK-N-AS
+    invent two different stubs for the same procedure, and left the deposit's own
+    protocol documents referenced by nothing.
+
+    A real document wins outright: any LabProtocol-typed node in the crate whose
+    id or name names exactly one of these lines is that line's protocol. Only a
+    crate without one falls back to a stub, and even then the stub is minted once
+    per line set rather than once per assay.
+    """
+    if not lines:
+        return None
+    labels = [str(n.get("name") or "").strip() for n in lines]
+    labels = [lbl for lbl in labels if len(lbl) >= 2]
+    document = _protocol_document_for(labels, idx)
+    if document is not None:
+        return document
+    key = "cell_culture_" + "_".join(sorted(_slug(lbl) for lbl in labels) or ["unknown"])
+    if key not in cache:
+        joined = ", ".join(labels) or "an unnamed cell line"
+        cache[key] = crate.add(
+            ContextEntity(
+                crate,
+                f"#protocol_{_slug(key)}",
+                properties={
+                    "@type": "LabProtocol",
+                    "name": f"Cell culture protocol for {joined}",
+                    "intendedUse": "Cell culture",
+                },
+            )
+        )
+    return cache[key]
+
+
+def _protocol_document_for(labels: list[str], idx: dict[str, Any]) -> Any | None:
+    """A LabProtocol-typed node in the crate naming exactly one of *labels*.
+
+    Ambiguity resolves to None: a document matching two lines, or two documents
+    matching one, is not evidence for either (D5).
+    """
+    if not labels:
+        return None
+    wanted = [
+        re.compile(r"(?<![0-9a-z])" + re.escape(lbl.casefold()) + r"(?![0-9a-z])")
+        for lbl in labels
+    ]
+    found: list[Any] = []
+    seen: set[Any] = set()
+    for node in idx.values():
+        nid = getattr(node, "id", None)
+        if nid is None or nid in seen:
+            continue
+        types = getattr(node, "type", None)
+        types = types if isinstance(types, list) else [types]
+        if not any("LabProtocol" in str(t) for t in types if t):
+            continue
+        haystack = f"{nid} {node.get('name') or ''}".replace("%20", " ").casefold()
+        if "protocol" not in haystack:
+            continue
+        if sum(1 for rx in wanted if rx.search(haystack)) == 1:
+            seen.add(nid)
+            found.append(node)
+    return found[0] if len(found) == 1 else None
+
+
 def _synth_sample(crate: ROCrate, sid: str, name: str, derives_from: Any = None) -> Sample:
     props: dict[str, Any] = {}
     if derives_from is not None:
@@ -2610,9 +2701,16 @@ def _add_processes(
         # stub each process pointed at, and the actual SOP nobody referenced.
         # Same failure as `data_processing` / `computational_tool` below; same
         # answer, accept both spellings.
-        protocol = _resolve_one(idx, _first_of(f, _PROTOCOL_ALIASES)) or _synth_protocol(
-            crate, f.get("assay_id"), proto_cache
-        )
+        protocol = _resolve_one(idx, _first_of(f, _PROTOCOL_ALIASES))
+        if protocol is None and ptype == "CellCulture":
+            # Culturing is study-level, so its protocol is keyed on the cell line
+            # rather than the assay — two assays growing SK-N-AS follow one
+            # procedure, and the deposit ships one document per line (#650).
+            protocol = _culture_protocol(
+                crate, _culture_cell_lines(f, idx, name), idx, proto_cache
+            )
+        if protocol is None:
+            protocol = _synth_protocol(crate, f.get("assay_id"), proto_cache)
         node = _build_process(
             crate,
             ptype,
@@ -2675,15 +2773,9 @@ def _build_process(
         # uptake — and reading it with `_resolve_one` dropped the rest, leaving H4
         # cultured by nothing in the whole crate despite having its own entity and
         # its own study-level culture protocol.
-        cell_lines = (
-            _resolve_many(idx, f.get("cell_line"))
-            or samples
-            or obj
-            or [
-                _cell_line_named_in(name, idx)
-                or _synth_sample(crate, pid + "_input", f"Input ({name})")
-            ]
-        )
+        cell_lines = _culture_cell_lines(f, idx, name) or [
+            _synth_sample(crate, pid + "_input", f"Input ({name})")
+        ]
         cell_line = cell_lines if len(cell_lines) > 1 else cell_lines[0]
         if result:
             out = result[0]
