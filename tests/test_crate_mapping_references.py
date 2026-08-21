@@ -382,7 +382,7 @@ class TestProtocolFileTyping:
         files = [
             n
             for n in _graph(state)
-            if "File" in (n["@type"] if isinstance(n.get("@type"), list) else [n.get("@type")])
+            if "File" in TestProtocolFileTyping._types(n)
             and n.get("@id") != "ro-crate-metadata.json"
         ]
         assert len(files) == 1, f"expected one drafted File, got {[f['@id'] for f in files]}"
@@ -391,8 +391,10 @@ class TestProtocolFileTyping:
 
     @staticmethod
     def _types(node: dict) -> list[str]:
+        """``@type`` as a list, whether the node carries one or several."""
         value = node.get("@type")
-        return value if isinstance(value, list) else [value]
+        items = value if isinstance(value, list) else [value]
+        return [str(item) for item in items if item is not None]
 
     def test_a_scanned_protocol_document_is_co_typed_as_a_labprotocol(self) -> None:
         from builder.tools.document_discovery import CLASS_PROTOCOL
