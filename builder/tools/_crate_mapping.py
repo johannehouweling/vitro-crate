@@ -1763,6 +1763,42 @@ def _is_file_node(node: Any) -> bool:
     )
 
 
+def _cell_line_named_in(name: str, idx: dict[str, Any]) -> Any | None:
+    """The single CellLineSample whose name occurs in *name*, else None.
+
+    A culture may arrive with no ``cell_line`` field at all while its title says
+    exactly which line it grew — S-VHPS22's "SK-N-AS culture for thyroid hormone
+    receptor activation" did, and the crate recorded a synthesized placeholder as
+    the material being cultured. ``wire_unreferenced_domain_entities`` does not
+    reach this case: it rescues orphans, and that cell line was referenced by
+    three other cultures, so it was never orphaned.
+
+    Deliberately conservative. The match is on a word boundary, so a line called
+    "MO" does not match "MOre", and **two** matching lines resolve to None rather
+    than a coin flip — a title naming both is not evidence for either. Nothing is
+    claimed that the title does not say (D5).
+    """
+    if not name:
+        return None
+    haystack = name.casefold()
+    matches: list[Any] = []
+    seen: set[Any] = set()
+    for key, node in idx.items():
+        if not str(key).startswith("CellLineSample:"):
+            continue
+        nid = getattr(node, "id", None)
+        if nid in seen:
+            continue
+        label = str(node.get("name") or "").strip()
+        if len(label) < 2:
+            continue
+        pattern = r"(?<![0-9a-z])" + re.escape(label.casefold()) + r"(?![0-9a-z])"
+        if re.search(pattern, haystack):
+            seen.add(nid)
+            matches.append(node)
+    return matches[0] if len(matches) == 1 else None
+
+
 def _is_sample_node(node: Any) -> bool:
     """True if an ro-crate node is a Sample/BioSample material entity."""
     t = getattr(node, "type", None)
@@ -2634,12 +2670,21 @@ def _build_process(
     if ptype == "CellCulture":
         # CellCulture MUST take a cell-line Sample as object; synthesize a
         # placeholder input Sample if none was referenced/resolved.
-        cell_line = (
-            _resolve_one(idx, f.get("cell_line"))
-            or (samples[0] if samples else None)
-            or (obj[0] if obj else None)
-            or _synth_sample(crate, pid + "_input", f"Input ({name})")
+        # EVERY named line, not just the head of the list (#650). `cell_line` is
+        # a list field — S-VHPS22 cultured SK-N-AS *and* H4 for thyroid hormone
+        # uptake — and reading it with `_resolve_one` dropped the rest, leaving H4
+        # cultured by nothing in the whole crate despite having its own entity and
+        # its own study-level culture protocol.
+        cell_lines = (
+            _resolve_many(idx, f.get("cell_line"))
+            or samples
+            or obj
+            or [
+                _cell_line_named_in(name, idx)
+                or _synth_sample(crate, pid + "_input", f"Input ({name})")
+            ]
         )
+        cell_line = cell_lines if len(cell_lines) > 1 else cell_lines[0]
         if result:
             out = result[0]
         else:
