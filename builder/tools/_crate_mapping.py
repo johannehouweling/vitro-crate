@@ -1612,8 +1612,9 @@ def _add_leaves(
 
     # Samples / CellLineSamples auto-add themselves (AutoAddContextEntity).
     cell_term: list[Any] = [None]
+    lineage: list[tuple[Entity, Any]] = []
     for s in state.list_entities("Sample"):
-        _idx_add(
+        node = _idx_add(
             idx,
             s,
             Sample(
@@ -1623,6 +1624,7 @@ def _add_leaves(
                 properties=_scalar_props(s, skip=("name",)) or None,
             ),
         )
+        lineage.append((s, node))
 
     for cl in state.list_entities("CellLineSample"):
         if cell_term[0] is None:
@@ -1640,6 +1642,21 @@ def _add_leaves(
                 additionalProperty=characteristics or None,
                 properties=_scalar_props(cl, skip=("name", "accession")) or None,
             ),
+        )
+
+    # A Sample's declared lineage is a REFERENCE field, so `_scalar_props` drops
+    # it, and nothing wired it afterwards: `derives_from` is a documented `link`
+    # verb and a member of `_REF_FIELDS`, yet a Sample carrying one reached the
+    # crate with no `derivesFrom` at all — the profile's own
+    # "each Sample's derivesFrom links the source" (isa_tox.md) went unhonoured.
+    # Wired here, once every leaf exists, so a target built later in this function
+    # (a CellLineSample) still resolves (#650).
+    for entity, node in lineage:
+        _wire_references(
+            node,
+            "derivesFrom",
+            _first_of(entity.fields, ("derives_from", "derivesFrom")),
+            idx,
         )
 
     if include_all_scanned:
