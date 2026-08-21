@@ -1976,7 +1976,13 @@ packaging layer beside the plumbing, so a layer-based rule would drop exactly th
 looks for; the root is kept whatever its category. The other toggles are the tabbed section's own
 selections, reused rather than re-derived — `_derivation_edges` and `_route_hop_ids` are shared with
 the SVG renderers for that reason, and tests hold each toggle to what its panel draws. A view no
-entity satisfies is not offered, the way an empty tab is not shown. Selecting an entity opens a side
+entity satisfies is not offered, the way an empty tab is not shown. **A chip counts the view's
+subject, not its selection** (#625): a selection carries the context that makes it readable — the
+files a step touched, the process and table that link a compound to the work — so counting the
+members made every chip overstate its own label, LabProcesses by threefold. The subject comes from
+the same source the matching coverage block counts, and a test pins the two numbers to each other
+rather than each to a literal; it is counted *as drawn*, so a subject the view cannot show is never
+a number the reader has no way to look at. A view whose name covers everything it draws — `Researcher`, `All entities` — declares no subject and counts its members. Selecting an entity opens a side
 panel with its properties, its links in and out grouped by relation, and its JSON-LD; a toolbar
 toggle swaps that for the whole `ro-crate-metadata.json`. Every `@id` in either is a button that
 moves the selection — **never a link**: the payload carries the crate verbatim, `javascript:` URLs

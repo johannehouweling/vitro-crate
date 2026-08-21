@@ -19,6 +19,8 @@ import sys
 from html.parser import HTMLParser
 from typing import Any
 
+import pytest
+
 from builder.writers.entity_explorer import (
     EXPLORER_SCRIPT_COUNT,
     EXPLORER_VIEWS,
@@ -39,6 +41,7 @@ from builder.writers.provenance_dag import (
     _derivation_edges,
     _graph_nodes,
     build_cellline_inventory,
+    build_chemical_inventory,
     build_chemical_inventory,
     build_citation_inventory,
     build_crate_graph,
@@ -421,6 +424,123 @@ class TestViewMembership:
         payload = build_explorer_payload(tabbed_views_graph())
 
         assert {v["key"] for v in payload["views"]} <= {v.key for v in EXPLORER_VIEWS}
+
+
+class TestAChipCountsWhatItIsNamedFor:
+    """A view's members include the supporting entities it drags in so the
+    selection has context — the files a step touched, the hops that link a
+    compound to the work. Counting those on the chip makes every count overstate
+    the thing the label names, LabProcesses by threefold (#625).
+    """
+
+    def _counts(self, payload: dict[str, Any]) -> dict[str, int]:
+        return {v["key"]: v["count"] for v in payload["views"]}
+
+    def _members(self, payload: dict[str, Any]) -> dict[str, int]:
+        return {v["key"]: len(v["members"]) for v in payload["views"]}
+
+    def test_a_count_is_the_subject_not_the_selection(self) -> None:
+        """The compound view draws the process and table that link a compound to
+        the work it was used in. Those are context; the chip says how many
+        compounds."""
+        payload = build_explorer_payload(tabbed_views_graph())
+        chemicals = {
+            m["id"] for m in build_chemical_inventory(tabbed_views_graph())["chemicals"]
+        }
+
+        assert self._counts(payload)["chemicals"] == len(chemicals)
+        assert self._counts(payload)["chemicals"] < self._members(payload)["chemicals"]
+
+    def test_a_subject_the_view_cannot_draw_is_not_counted(self) -> None:
+        """The count is the subject *as drawn*.
+
+        A LabProcess with no inputs or outputs is off the derivation chain, so
+        the view does not draw it — and a chip that counted it would promise a
+        step the reader can never find on the canvas. The crate below holds two
+        processes and draws one.
+        """
+        graph = {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Two steps, one drawn",
+                    "hasPart": [{"@id": "out.csv"}],
+                },
+                {
+                    "@id": "#drawn",
+                    "@type": "LabProcess",
+                    "additionalType": "Exposure",
+                    "name": "A step on the chain",
+                    "object": {"@id": "#cells"},
+                    "result": {"@id": "out.csv"},
+                },
+                {
+                    "@id": "#undrawn",
+                    "@type": "LabProcess",
+                    "additionalType": "DataAnalysis",
+                    "name": "A step on no chain",
+                },
+                {"@id": "#cells", "@type": "Sample", "name": "Cells"},
+                {"@id": "out.csv", "@type": "File", "name": "out.csv"},
+            ]
+        }
+        payload = build_explorer_payload(graph)
+        members = next(v["members"] for v in payload["views"] if v["key"] == "processes")
+
+        assert "#undrawn" not in members, "the fixture stopped discriminating"
+        assert self._counts(payload)["processes"] == 1
+
+    def test_no_count_exceeds_what_the_view_can_draw(self) -> None:
+        """The same rule swept over a whole crate."""
+        payload = build_explorer_payload(plumbing_heavy_graph())
+        counts, members = self._counts(payload), self._members(payload)
+
+        for key in counts:
+            assert counts[key] <= members[key], key
+
+    def test_a_view_that_is_its_own_subject_counts_everything(self) -> None:
+        """"All entities" and "Researcher" name no narrower thing than what they
+        draw, so for them the two numbers are the same — and that is a fact
+        about the view, not a special case to exempt."""
+        payload = build_explorer_payload(plumbing_heavy_graph())
+        counts, members = self._counts(payload), self._members(payload)
+
+        for key in ("all", "researcher"):
+            assert counts[key] == members[key], key
+
+
+class TestTheChipAndTheCoverageBlockAgree:
+    """The section further down the report already counts the way the chips
+    should. Two numbers for one crate, from two code paths, so they are pinned
+    to each other rather than each to a literal."""
+
+    def _cov_n(self, page: str, block_id: str) -> int:
+        match = re.search(
+            rf'id="{block_id}"[^>]*><h3 class="cov-h">.*?<span class="cov-n">(\d+)</span>',
+            page,
+            re.S,
+        )
+        assert match, f"{block_id} reported no count"
+        return int(match.group(1))
+
+    @pytest.mark.parametrize(
+        ("block_id", "key"),
+        [
+            ("cov-isa", "assays"),
+            ("cov-chem", "chemicals"),
+            ("cov-cell", "samples"),
+            ("cov-people", "people"),
+        ],
+    )
+    def test_the_chip_says_what_the_block_says(self, block_id: str, key: str) -> None:
+        graph = tabbed_views_graph()
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        payload = build_explorer_payload(graph)
+
+        count = next(v["count"] for v in payload["views"] if v["key"] == key)
+        assert count == self._cov_n(page, block_id)
 
 
 class TestViewsAgreeWithTheirCoverageBlocks:

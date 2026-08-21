@@ -182,14 +182,50 @@ def _select_citations(crate: _Crate) -> set[str]:
     return ids
 
 
+def _of_category(*categories: str) -> Callable[[_Crate], set[str]]:
+    """Every drawn entity in one of *categories* — the subject of a view named
+    after a kind of entity rather than after an inventory."""
+
+    def subject(crate: _Crate) -> set[str]:
+        return {n["id"] for n in crate.model["nodes"] if n["category"] in categories}
+
+    return subject
+
+
+def _of_inventory(
+    name: str, members: str, level: str | None = None
+) -> Callable[[_Crate], set[str]]:
+    """The members of an inventory — the same source the matching coverage block
+    counts, so the chip and the block cannot drift apart (#625)."""
+
+    def subject(crate: _Crate) -> set[str]:
+        inv = crate.inventory(name)
+        return {
+            member["id"]
+            for member in inv[members]
+            if level is None or member.get("level") == level
+        }
+
+    return subject
+
+
 class ExplorerView(NamedTuple):
-    """One toggle: a named selection over the crate's entities."""
+    """One toggle: a named selection over the crate's entities.
+
+    ``select`` is what the toggle *draws*; ``subject`` is what it is *named
+    for*, and the chip counts that. The two differ because a selection carries
+    the context that makes it readable — the files a step touched, the process
+    and table that link a compound to the work — and counting those made every
+    chip overstate its own label, LabProcesses by threefold (#625). A view whose
+    name covers everything it draws leaves ``subject`` unset.
+    """
 
     key: str
     label: str
     hint: str
     default: bool
     select: Callable[[_Crate], set[str]]
+    subject: Callable[[_Crate], set[str]] | None = None
 
 
 # Order matters: "Researcher" opens the section, and the rest follow the tabbed
@@ -206,10 +242,20 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         "all", "All entities", "Everything the crate describes", False, _select_all
     ),
     ExplorerView(
-        "files", "Files", "Data files and the datasets that hold them", False, _select_files
+        "files",
+        "Files",
+        "Data files and the datasets that hold them",
+        False,
+        _select_files,
+        _of_category("data"),
     ),
     ExplorerView(
-        "assays", "Assays", "Investigation, studies and assays", False, _select_assays
+        "assays",
+        "Assays",
+        "Investigation, studies and assays",
+        False,
+        _select_assays,
+        _of_inventory("isa", "nodes", level="Assay"),
     ),
     ExplorerView(
         "processes",
@@ -217,20 +263,23 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         "Processes with what they consumed and produced",
         False,
         _select_processes,
+        _of_category("process"),
     ),
     ExplorerView(
         "chemicals",
-        "MolecularEntities",
+        "Chemicals",
         "Compounds and the work that used them",
         False,
         lambda crate: _routed(crate, "chemical", "chemicals"),
+        _of_inventory("chemical", "chemicals"),
     ),
     ExplorerView(
         "samples",
-        "Biological Samples",
+        "Biological models",
         "Cell lines and samples, and the work that used them",
         False,
         lambda crate: _routed(crate, "cellline", "celllines"),
+        _of_inventory("cellline", "celllines"),
     ),
     ExplorerView(
         "people",
@@ -238,10 +287,15 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         "Who the crate credits",
         False,
         _select_people,
+        _of_inventory("people", "agents"),
     ),
     ExplorerView(
-        "citations", "Citations", "What the crate cites, and who wrote it", False,
+        "citations",
+        "Citations",
+        "What the crate cites, and who wrote it",
+        False,
         _select_citations,
+        _of_inventory("citation", "articles"),
     ),
 )
 
@@ -364,12 +418,16 @@ def build_explorer_payload(
         members = view.select(crate) & crate.known
         if not members:
             continue
+        # The count is the subject *as drawn*: a subject the view cannot show
+        # would be a number the reader has no way to go and look at.
+        counted = members if view.subject is None else (view.subject(crate) & members)
         views.append(
             {
                 "key": view.key,
                 "label": view.label,
                 "hint": view.hint,
                 "default": view.default,
+                "count": len(counted),
                 "members": sorted(members),
             }
         )

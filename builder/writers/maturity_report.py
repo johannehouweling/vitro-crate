@@ -1801,8 +1801,8 @@ _COVERAGE_BLOCKS: tuple[tuple[str, str], ...] = (
     # Files before Assays: the review's "flip dataset and assays".
     ("cov-data", "Files"),
     ("cov-isa", "Assays"),
-    ("cov-chem", "MolecularEntities"),
-    ("cov-cell", "Biological Samples"),
+    ("cov-chem", "Chemicals"),
+    ("cov-cell", "Biological models"),
     ("cov-people", "Persons &amp; Organisations"),
     # Last, and next to People: the two answer the same kind of question about
     # credit, and a reader who has just checked who the crate credits is the one
@@ -2136,7 +2136,7 @@ _CELL_STATE_NOTE = {
 
 
 def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
-    """The Biological Samples view: the test system, and whether it is pinned down.
+    """The Biological models view: the test system, and whether it is pinned down.
 
     The reader-facing name is the owner's (review comment on the report
     artifact); the entities are cell lines, and the wording keeps
@@ -2213,7 +2213,7 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
         '<div class="chem-tbl-scroll"><table class="chem-tbl">'
         '<caption class="sr-only">Identification fields carried by each biological sample'
         "</caption>"
-        f'<thead><tr><th scope="col">Biological sample</th>{head}</tr></thead>'
+        f'<thead><tr><th scope="col">Biological model</th>{head}</tr></thead>'
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
