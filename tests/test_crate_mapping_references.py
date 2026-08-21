@@ -477,6 +477,63 @@ class TestProtocolFileTyping:
         assert next(n for n in plain["nodes"] if str(n["id"]) == drawn_id)["category"] == "data"
 
 
+class TestProtocolTypingAgainstTheShapes:
+    """Co-typing a document must not cost the crate its conformance (#646).
+
+    The ISA profile's ``FindISAProtocols`` is a two-stage rule: it targets
+    ``bioschemas:LabProtocol`` but only infers ``isa-ro-crate:Protocol`` for a
+    node some process reaches through ``executesLabProtocol``. Only then do the
+    ``ProtocolShouldHave{Name,Description,IntendedUse}`` shapes apply.
+
+    So the co-typing is inert to SHACL as long as nothing points a process at
+    the document — which is today's crate, where processes still execute the
+    separate fileless stub. This pins that, because the shapes are a dependency
+    nobody here controls: a profile release that dropped the ``sh:condition``
+    would start reporting every protocol document in every crate, and the
+    failure would surface as a mysterious conformance drop rather than as this
+    test.
+    """
+
+    def _issues(self, classification: str | None) -> list[str]:
+        from builder.state import FileClassification
+        from builder.tools._crate_mapping import _file_dest
+        from builder.tools.provenance import draft_file
+        from builder.tools.validation import build_and_validate
+
+        state = CrateState()
+        state.metadata.title = "Protocol crate"
+        draft_file(state, "cell culture protocol H4.docx")
+        dest = _file_dest(state.list_entities("File")[0])
+        state.scanned_files = [
+            FileClassification(
+                path=dest,
+                filename=Path(dest).name,
+                size=10,
+                mime_type="application/msword",
+                classification=classification,
+            )
+        ]
+        report = build_and_validate(state, severity="recommended", profile="isa")
+        return sorted(
+            f"{i.get('severity')}|{i.get('entity_id')}|{i.get('message')}"
+            for i in report["issues"]
+        )
+
+    def test_co_typing_adds_no_finding_the_crate_did_not_already_have(self) -> None:
+        from builder.tools.document_discovery import CLASS_PROTOCOL, CLASS_RAW_DATA
+
+        assert self._issues(CLASS_PROTOCOL) == self._issues(CLASS_RAW_DATA)
+
+    def test_the_document_is_not_asked_to_be_an_isa_protocol(self) -> None:
+        """The specific claim behind the equality above: nothing reaches the
+        document through executesLabProtocol, so the Protocol shapes never
+        target it. Asserted by name so this fails loudly if the profile ever
+        promotes on type alone."""
+        from builder.tools.document_discovery import CLASS_PROTOCOL
+
+        assert not [i for i in self._issues(CLASS_PROTOCOL) if "Protocol entity" in i]
+
+
 class TestSourceCodeFileTyping:
     """draft_file gains additional_types + programming_language so a script
     round-trips as @type:[File, SoftwareSourceCode] (gold plot.py)."""
