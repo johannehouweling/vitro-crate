@@ -9,9 +9,43 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from builder.state import CrateState, FAIRReport, MITReport
+
+# The graph primitives and the tri-state Verdict are shared with the Bridge2AI
+# AI-readiness instrument (builder/tools/air_assessment.py): both read one assembled
+# @graph and both answer in the same auditable shape, and two implementations of one
+# question is how two axes come to disagree about one crate. They keep their private
+# names here so every call site below reads unchanged.
+from builder.tools.assessment_graph import (
+    OPEN_MEDIA_TYPES as _OPEN_MEDIA_TYPES,
+)
+from builder.tools.assessment_graph import (
+    Graph,
+    Verdict,
+)
+from builder.tools.assessment_graph import (
+    as_verdict as _as_verdict,
+)
+from builder.tools.assessment_graph import (
+    columns as _columns,
+)
+from builder.tools.assessment_graph import (
+    is_external_iri as _is_external_iri,
+)
+from builder.tools.assessment_graph import (
+    needs_graph as _needs_graph,
+)
+from builder.tools.assessment_graph import (
+    node_types as _node_types,
+)
+from builder.tools.assessment_graph import (
+    nodes as _nodes,
+)
+from builder.tools.assessment_graph import (
+    ref_id as _ref_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -316,104 +350,12 @@ def _check_machine_interpretable(state: CrateState) -> bool:
 # return False rather than guessing — absent evidence is not evidence.
 # ---------------------------------------------------------------------------
 
-# Either an assembled ``@graph`` list or the whole crate document that wraps one —
-# callers hold whichever they were given, and normalising here beats making every
-# call site unwrap (the same tolerance `mit_assessment.graph_nodes` provides).
-Graph = list[dict[str, Any]] | dict[str, Any] | None
-
-
-class Verdict(NamedTuple):
-    """One indicator's answer, plus the evidence behind it.
-
-    A bare boolean cannot be audited: "DSM-3-C3 is false" is a verdict a reader has to
-    take on trust, and the FAIRplus model is a human assessment instrument whose whole
-    point is that an assessor can say *why*. ``evidence`` records what was looked for
-    and what was found, so every cell in the report is inspectable.
-
-    ``value`` is tri-state: ``True`` / ``False`` / ``None`` for "not assessed" — the
-    workbook's blank cell, which leaves the denominator rather than counting against
-    the dataset.
-    """
-
-    value: bool | None
-    evidence: str = ""
-
-    def __bool__(self) -> bool:  # pragma: no cover - guard, not behaviour
-        raise TypeError(
-            "Verdict is tri-state; test `.value is True` / `is False` / `is None` "
-            "explicitly rather than relying on truthiness."
-        )
-
-
-# What a check may hand back: a bare tri-state, or a Verdict carrying evidence.
+# What a DSM check may hand back: a bare tri-state, or a Verdict carrying evidence.
 # Both are accepted so evidence can be enriched check by check rather than in a
 # flag-day change to all forty.
 CheckResult = "bool | None | Verdict"
 DsmCheck = Callable[[CrateState, "Graph"], "bool | None | Verdict"]
 
-
-def _as_verdict(result: Any) -> Verdict:
-    """Coerce a check's return to a :class:`Verdict`.
-
-    Checks may return a bare ``bool``/``None`` or a full ``Verdict``, so evidence can
-    be enriched check by check without a flag-day change to all forty.
-    """
-    if isinstance(result, Verdict):
-        return result
-    return Verdict(result, "")
-
-# Media types that are open, documented and readable without licensed software.
-# The tox corpus is dominated by the opposite (GraphPad .prism/.pzf, .xls), which
-# is exactly what DSM-3-R5 is asking about, so this check genuinely discriminates.
-_OPEN_MEDIA_TYPES = frozenset(
-    {
-        "text/csv", "text/tab-separated-values", "text/plain", "text/markdown",
-        "application/json", "application/ld+json", "application/xml", "text/xml",
-        "application/x-hdf5", "application/x-netcdf", "image/png", "image/svg+xml",
-        "text/html", "application/pdf",
-    }
-)
-
-
-def _nodes(graph: Graph) -> list[dict[str, Any]]:
-    """The node list, whether *graph* is the list itself or the document holding it."""
-    if isinstance(graph, dict):
-        graph = graph.get("@graph")
-    return [n for n in (graph or []) if isinstance(n, dict)]
-
-
-def _needs_graph(graph: Graph) -> bool:
-    """True when there is no graph to read, so a graph-aware check cannot answer.
-
-    Returning ``False`` in that case would be a lie of exactly the kind this module
-    is being repaired for: it reads as "the crate fails this indicator" when the
-    truth is "nothing was assessed". Callers turn ``None`` into an *unanswered cell*
-    — excluded from the denominator, never counted against the dataset.
-    """
-    return not _nodes(graph)
-
-
-def _node_types(node: dict[str, Any]) -> set[str]:
-    raw = node.get("@type")
-    values = raw if isinstance(raw, list) else [raw]
-    return {str(v).split(":")[-1] for v in values if v}
-
-
-def _ref_id(value: Any) -> str:
-    """The ``@id`` a property points at, whether wrapped or bare."""
-    if isinstance(value, dict):
-        return str(value.get("@id") or "")
-    return str(value or "")
-
-
-def _columns(graph: Graph) -> list[dict[str, Any]]:
-    """Every csvw:Column node — the crate's field-level metadata."""
-    return [n for n in _nodes(graph) if "Column" in _node_types(n)]
-
-
-def _is_external_iri(value: Any) -> bool:
-    """An absolute http(s) IRI — a *shared* term, not a crate-local anchor."""
-    return _ref_id(value).startswith(("http://", "https://"))
 
 
 def _check_tidy_dataset(state: CrateState, graph: Graph) -> Verdict | None:
