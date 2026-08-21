@@ -145,7 +145,12 @@ class LabProcess(AutoAddContextEntity):
       to establish correspondence with inputs (both lists should have the same length).
     - ``agent``: schema.org/Person
       The performer.
-    - ``executesLabProtocol``: bioschemas.org/LabProtocol
+    - ``executesLabProtocol``: bioschemas.org/LabProtocol | File | list thereof
+      A step may follow more than one: a procedural SOP states *how*, while a
+      generated per-well condition table supplies the layout the SOP leaves out.
+      A plain ``File`` is accepted because a protocol entity is often exactly
+      that — a deposited document co-typed ``LabProtocol`` rather than built
+      through this class.
       The protocol executed.
     - ``parameterValue``: schema.org/PropertyValue
       Parameter value(s) of the experimental process, typically key-value pairs using ontology terms.
@@ -167,7 +172,7 @@ class LabProcess(AutoAddContextEntity):
         self,
         crate: ROCrate,
         identifier: str,
-        labprotocol: LabProtocol,
+        labprotocol: LabProtocol | File | list[LabProtocol | File],
         name: str | None = None,
         object: Sample | File | list[Sample | File] | None = None,
         result: Sample | File | list[Sample | File] | None = None,

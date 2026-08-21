@@ -192,10 +192,12 @@ class TestLabProcessSubtypes:
         assert "https://www.cellosaurus.org/CVCL_0027" in _ids(proc.get("input"))
         assert "#Sample_sample_out" in _ids(proc.get("output"))
 
-    def test_exposure_object_is_cells_result_is_condition_table(self, tmp_path):
+    def test_exposure_object_is_cells_result_is_the_exposed_sample(self, tmp_path):
         # ISA forbids a MolecularEntity as a process object (objects MUST be
-        # File/Sample/BioSample). The compound is therefore NOT in `object`; the
-        # Exposure's result is the CSVW condition table, which links the compound.
+        # File/Sample/BioSample). The compound is therefore NOT in `object`; it
+        # reaches the process as a `reagent` of the condition table, which the
+        # Exposure executes as its layout protocol. The Exposure's own result is
+        # the exposed Sample (#650).
         state = self._state_with_process(
             "Exposure",
             samples="sample_cult",
@@ -214,13 +216,36 @@ class TestLabProcessSubtypes:
         assert "#MolecularEntity_chem_1" not in obj_ids  # MolecularEntity — ISA-forbidden
 
         result_ids = _ids(proc.get("output"))  # output → schema:result (MUST)
-        assert result_ids, "Exposure MUST emit a result (the condition table)"
-        table = by_id[result_ids[0]]
-        # the result is the condition table: a File (ISA-valid result) + csvw:Table
-        tt = table["@type"] if isinstance(table["@type"], list) else [table["@type"]]
-        assert "File" in tt and "csvw:Table" in tt
-        # the compound is connected to the Exposure THROUGH the condition table
-        assert "#MolecularEntity_chem_1" in _ids(table.get("about"))
+        assert result_ids, "Exposure MUST emit a result (the exposed Sample)"
+        exposed = by_id[result_ids[0]]
+        et = (
+            exposed["@type"]
+            if isinstance(exposed["@type"], list)
+            else [exposed["@type"]]
+        )
+        assert "Sample" in et, f"Exposure result must be the exposed Sample: {et}"
+        assert "#Sample_sample_cult" in _ids(exposed.get("derivesFrom")), (
+            "the exposed Sample must derive from the cultured one"
+        )
+
+        # the condition table is the layout protocol the exposure follows, and the
+        # compound reaches the process as one of its reagents
+        protocol_ids = _ids(proc.get("executesLabProtocol"))
+        tables = [
+            by_id[i]
+            for i in protocol_ids
+            if "csvw:Table"
+            in (
+                by_id[i]["@type"]
+                if isinstance(by_id[i]["@type"], list)
+                else [by_id[i]["@type"]]
+            )
+        ]
+        assert tables, f"no condition table among the protocols: {protocol_ids}"
+        tt = tables[0]["@type"]
+        assert "File" in tt and "csvw:Table" in tt and "LabProtocol" in tt
+        assert "#MolecularEntity_chem_1" in _ids(tables[0].get("reagent"))
+        assert "#MolecularEntity_chem_1" in _ids(tables[0].get("about"))
 
     def test_exposure_condition_table_is_typed_csvw(self, tmp_path):
         # Issue #94 / #180: the condition table must be typed CSVW — a linked
@@ -237,7 +262,11 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
-        table = by_id[_ids(proc.get("output"))[0]]
+        table = next(
+            by_id[i]
+            for i in _ids(proc.get("executesLabProtocol"))
+            if str(i).endswith("condition_table.csv")
+        )
 
         # the table is linked to a schema entity via conformsTo (not a bare key)
         schema_ids = [s for s in _ids(table.get("conformsTo")) if "schema" in s]

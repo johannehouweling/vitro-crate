@@ -352,9 +352,16 @@ class TestExposureOutputIsConditionTable:
     as "mentioned by the study" rather than "the conditions of the exposure
     process", semantically weaker than the ISA-Tox intent.
 
-    The fix makes the Exposure's output the condition table, so the compounds
+    The fix made the Exposure's output the condition table, so the compounds
     attach as TRUE exposure conditions while the Study ``mentions`` becomes a
     redundant backstop. Orphan count must stay 0 (#273) and validation unchanged.
+
+    #650 later moved the table off ``result`` and onto ``executesLabProtocol``
+    (the layout is what the run follows, not what it emits) and added the
+    compounds as its ``reagent``s. What #285 guaranteed is unchanged and is still
+    asserted here; only the edge the compounds are reached by has moved. The
+    exposed-Sample half of that chain lives in
+    :class:`TestExposureProducesTheExposedSample`.
     """
 
     def _exposure_chain_state(self) -> tuple[CrateState, list[str]]:
@@ -390,34 +397,35 @@ class TestExposureOutputIsConditionTable:
         )
         return crate.metadata.generate()["@graph"]
 
-    def test_exposure_output_is_condition_table_about_compounds(self) -> None:
-        state, compound_ids = self._exposure_chain_state()
+    def test_the_condition_table_still_carries_the_compounds(self) -> None:
+        """#285's guarantee, re-pointed by #650.
+
+        #285 established that the compounds must attach as TRUE conditions of the
+        exposure rather than riding on the Study's ``schema:mentions`` backstop,
+        and made the condition table the Exposure's *result* to get there. #650
+        moves the table to the protocol slot — the per-well layout is what the
+        run follows, not what it produces — so the route changes while the
+        guarantee does not: the table is still built, still names every compound,
+        and is still reached from the Exposure.
+        """
+        state, _ = self._exposure_chain_state()
         graph = self._built_graph(state)
         by_id = {n.get("@id"): n for n in graph}
 
-        # The Exposure's output node must be a CSVW condition table, not a plain
-        # generic File. (An Exposure builds as @type LabProcess discriminated by
-        # additionalType="Exposure".)
         exposure = next(
             n
             for n in graph
             if "LabProcess" in _types(n) and n.get("additionalType") == "Exposure"
         )
-        out_ids = _node_ref_ids(exposure.get("output")) | _node_ref_ids(
-            exposure.get("result")
-        )
-        assert out_ids, "Exposure has no output node"
-        out_nodes = [by_id[i] for i in out_ids if i in by_id]
-        condition_tables = [n for n in out_nodes if "csvw:Table" in _types(n)]
+        reached = _node_ref_ids(exposure.get("executesLabProtocol"))
+        condition_tables = [
+            by_id[i] for i in reached if i in by_id and "csvw:Table" in _types(by_id[i])
+        ]
         assert condition_tables, (
-            "Exposure output must be a CSVW condition table (csvw:Table), not a "
-            f"generic placeholder File; got: {[n.get('@type') for n in out_nodes]}"
+            "the Exposure must reach a CSVW condition table; reached="
+            f"{[by_id[i].get('@type') for i in reached if i in by_id]}"
         )
 
-        # The condition table's `about` must list BOTH resolved MolecularEntities
-        # — the compounds ARE the conditions of this exposure (the substances the
-        # cells were exposed to), connected THROUGH the table (ISA forbids a
-        # MolecularEntity as a process object).
         compound_node_ids = {
             n.get("@id") for n in graph if "MolecularEntity" in _types(n)
         }
@@ -431,12 +439,6 @@ class TestExposureOutputIsConditionTable:
             "condition table's `about` must list every compound (the exposure "
             f"conditions); table about={about_ids}, compounds={compound_node_ids}"
         )
-
-        # No generic `proc_exposure_result.csv` placeholder File is the Exposure's
-        # output — the condition table replaced it.
-        assert not any(
-            "csvw:Table" not in _types(n) for n in out_nodes
-        ), f"Exposure still has a generic placeholder output: {out_nodes}"
 
     def test_compounds_are_not_orphaned(self) -> None:
         """Wiring compounds through the condition table keeps orphan count 0 (#273)."""
@@ -529,3 +531,151 @@ class TestNoPydanticShadowWarning:
             if issubclass(w.category, UserWarning) and "shadows" in str(w.message)
         ]
         assert not shadow, [str(w.message) for w in shadow]
+
+
+class TestExposureProducesTheExposedSample:
+    """Issue #650 — the Exposure emits the **exposed Sample**, and the compounds
+    reach the process through the protocol it executes.
+
+    The chain the profile describes runs
+    ``cultured sample --[Exposure]--> exposed sample``, but every step after
+    CellCulture used to hang off the same cultured sample and no exposed-sample
+    entity existed anywhere in the crate. The graph drew a star, so a reader
+    could not see what was exposed to what.
+
+    The compound cannot be a process object — ``isa-ro-crate/3_process.ttl``
+    restricts ``schema:object`` to File/Sample/BioSample at Violation severity —
+    and Bioschemas ``LabProcess`` has no other input slot. ``reagent`` is a
+    ``LabProtocol`` property whose published range includes
+    ``schema:MolecularEntity`` outright, so the compounds attach to the protocol
+    the exposure executes. The per-well condition table is that protocol when the
+    real SOP carries no experimental layout: it is what supplies the layout, not
+    a product of the run.
+    """
+
+    def _exposure_chain_state(self) -> tuple[CrateState, list[str]]:
+        from builder.tools.drafters import draft_molecular_entity
+
+        state, assay_id = _scaffold()
+        chem1 = draft_molecular_entity(state, "Methimazole", {"pubchem_cid": "1349907"})
+        chem2 = draft_molecular_entity(state, "Sodium iodide", {"pubchem_cid": "5238"})
+        draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+
+        exp = _processes_by_subtype(state)["Exposure"][0]
+        exp.set_fields_from_dict(
+            {"chemicals": [{"@id": chem1.entity_id}, {"@id": chem2.entity_id}]},
+            source="llm",
+        )
+        return state, [chem1.entity_id, chem2.entity_id]
+
+    @staticmethod
+    def _built_graph(state: CrateState) -> list[dict]:
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(
+            state,
+            output_dir=None,
+            materialize_payload=False,
+            include_all_scanned=False,
+        )
+        return crate.metadata.generate()["@graph"]
+
+    @staticmethod
+    def _process(graph: list[dict], subtype: str) -> dict:
+        return next(
+            n
+            for n in graph
+            if "LabProcess" in _types(n) and n.get("additionalType") == subtype
+        )
+
+    @staticmethod
+    def _out_ids(node: dict) -> set[str]:
+        return _node_ref_ids(node.get("output")) | _node_ref_ids(node.get("result"))
+
+    @staticmethod
+    def _in_ids(node: dict) -> set[str]:
+        return _node_ref_ids(node.get("input")) | _node_ref_ids(node.get("object"))
+
+    def test_the_exposure_emits_a_sample(self) -> None:
+        """The Exposure's result is a Sample — the exposed cells."""
+        state, _ = self._exposure_chain_state()
+        graph = self._built_graph(state)
+        by_id = {n.get("@id"): n for n in graph}
+
+        exposure = self._process(graph, "Exposure")
+        out_nodes = [by_id[i] for i in self._out_ids(exposure) if i in by_id]
+        samples = [n for n in out_nodes if "Sample" in _types(n)]
+        assert samples, (
+            "Exposure must emit an exposed Sample as its result; got "
+            f"{[n.get('@type') for n in out_nodes]}"
+        )
+
+    def test_the_exposed_sample_derives_from_the_cultured_one(self) -> None:
+        """The exposed Sample records what it was made from, so the chain is
+        traversable backwards as well as forwards."""
+        state, _ = self._exposure_chain_state()
+        graph = self._built_graph(state)
+        by_id = {n.get("@id"): n for n in graph}
+
+        exposure = self._process(graph, "Exposure")
+        culture = self._process(graph, "CellCulture")
+        cultured_ids = self._out_ids(culture)
+        assert cultured_ids, "test setup: CellCulture produced nothing"
+
+        exposed = [
+            by_id[i]
+            for i in self._out_ids(exposure)
+            if i in by_id and "Sample" in _types(by_id[i])
+        ]
+        assert exposed, "Exposure emitted no Sample"
+        derived = set()
+        for node in exposed:
+            derived |= _node_ref_ids(node.get("derivesFrom"))
+        assert cultured_ids & derived, (
+            "the exposed Sample must derivesFrom the cultured Sample; "
+            f"derivesFrom={derived}, cultured={cultured_ids}"
+        )
+
+    def test_the_condition_table_is_the_protocol_not_the_result(self) -> None:
+        """The per-well layout is what the exposure *follows*, not what it
+        produces."""
+        state, _ = self._exposure_chain_state()
+        graph = self._built_graph(state)
+        by_id = {n.get("@id"): n for n in graph}
+
+        exposure = self._process(graph, "Exposure")
+        out_nodes = [by_id[i] for i in self._out_ids(exposure) if i in by_id]
+        assert not [n for n in out_nodes if "csvw:Table" in _types(n)], (
+            "the condition table must not be the Exposure's result any more; "
+            f"result={[n.get('@id') for n in out_nodes]}"
+        )
+
+        protocol_ids = _node_ref_ids(exposure.get("executesLabProtocol"))
+        protocols = [by_id[i] for i in protocol_ids if i in by_id]
+        assert [n for n in protocols if "csvw:Table" in _types(n)], (
+            "the condition table must be one of the Exposure's protocols; "
+            f"protocols={[n.get('@type') for n in protocols]}"
+        )
+
+    def test_the_protocol_carries_the_compounds_as_reagents(self) -> None:
+        """``reagent`` is where Bioschemas puts the substances a protocol uses,
+        and its range admits a MolecularEntity directly."""
+        state, compound_ids = self._exposure_chain_state()
+        graph = self._built_graph(state)
+        by_id = {n.get("@id"): n for n in graph}
+
+        compound_node_ids = {n.get("@id") for n in graph if "MolecularEntity" in _types(n)}
+        assert len(compound_node_ids) == 2, (
+            f"expected 2 MolecularEntity nodes, got {compound_node_ids}"
+        )
+
+        exposure = self._process(graph, "Exposure")
+        reagents: set[str] = set()
+        for pid in _node_ref_ids(exposure.get("executesLabProtocol")):
+            node = by_id.get(pid)
+            if node is not None:
+                reagents |= _node_ref_ids(node.get("reagent"))
+        assert compound_node_ids <= reagents, (
+            "every compound must be a reagent of a protocol the exposure "
+            f"executes; reagents={reagents}, compounds={compound_node_ids}"
+        )

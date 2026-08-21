@@ -153,12 +153,16 @@ def test_a_declared_exposure_result_does_not_displace_the_condition_table():
 
     The condition table is not decoration: ISA forbids a MolecularEntity as a
     LabProcess object, so a compound reaches the experiment only *through* the
-    table (table --about--> compound). Substituting a declared result for it
-    severs that route silently — the crate keeps its compounds and loses every
-    link to them.
+    table. Substituting a declared result for it severs that route silently —
+    the crate keeps its compounds and loses every link to them.
 
     The EndpointReadout branch already appends rather than substitutes and says
     so in its own comment; this pins the Exposure branch to the same contract.
+
+    #650 moved the table from ``result`` to ``executesLabProtocol`` — the per-well
+    layout is what the run follows, not what it emits — so the table is looked for
+    there now. The contract is unchanged: the table is always built, and a
+    declared result is kept, never dropped.
     """
     state = _exposure_state()
     exposure = next(e for e in state.list_entities("LabProcess") if e.entity_id == "proc_exp")
@@ -173,15 +177,16 @@ def test_a_declared_exposure_result_does_not_displace_the_condition_table():
         e for e in graph if str(e.get("@id", "")).endswith("LabProcess_proc_exp")
     )
     results = _ids(process.get("output"))
+    protocols = _ids(process.get("executesLabProtocol"))
 
-    assert any(r.endswith("condition_table.csv") for r in results), (
-        f"the condition table was displaced by the declared result: {results}"
+    assert any(r.endswith("condition_table.csv") for r in protocols), (
+        f"the condition table was not built: protocols={protocols}"
     )
     assert any("declared" in r for r in results), (
         f"the declared result was dropped: {results}"
     )
     # …and the table still routes the compound to the process.
-    table = by_id[next(r for r in results if r.endswith("condition_table.csv"))]
+    table = by_id[next(r for r in protocols if r.endswith("condition_table.csv"))]
     schema = by_id[[s for s in _ids(table.get("conformsTo")) if "schema" in str(s)][0]]
     cols = {by_id[cid]["titles"]: by_id[cid] for cid in _ids(schema.get("columns"))}
     assert "#MolecularEntity_chem_1" in str(cols["compound"].get("valueUrl"))
@@ -193,7 +198,11 @@ def test_an_exposure_without_a_declared_result_still_gets_the_table():
     process = next(
         e for e in graph if str(e.get("@id", "")).endswith("LabProcess_proc_exp")
     )
-    assert [r for r in _ids(process.get("output")) if r.endswith("condition_table.csv")]
+    assert [
+        r
+        for r in _ids(process.get("executesLabProtocol"))
+        if r.endswith("condition_table.csv")
+    ]
 
 
 # --- (b) the readout's result is what it measured ---------------------------
