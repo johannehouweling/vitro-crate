@@ -220,3 +220,72 @@ def wide_fanout_graph(files: int = 60) -> dict[str, Any]:
         for i in range(files)
     ]
     return {"@graph": graph}
+
+
+def process_context_graph() -> dict[str, Any]:
+    """A crate where each step says what it is and what it belongs to.
+
+    The shape #626 is about. A LabProcess is reached from its Assay's ``about``
+    — an edge pointing *into* the process — and reaches its protocol through
+    ``executesLabProtocol``, an edge pointing *out*. Neither is part of the
+    material chain the derivation walk follows, so a selection built from that
+    walk alone shows the step and its files and never says how it was done or
+    which assay it serves.
+
+    Carries a second step that is off the material chain entirely — no inputs,
+    no outputs — with a protocol of its own and an assay pointing at it. That
+    step is not drawn, so neither is its context; a selector that swept up every
+    ``executes`` and ``about`` edge in the crate would draw both and pass a test
+    written with only an unreferenced protocol to exclude.
+    """
+    return {
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {
+                "@id": "./",
+                "@type": "Dataset",
+                "additionalType": "Investigation",
+                "name": "An investigation",
+                "hasPart": [{"@id": "#assay"}, {"@id": "result.csv"}],
+            },
+            {
+                "@id": "#assay",
+                "@type": "Dataset",
+                "additionalType": "Assay",
+                "name": "Uptake assay",
+                "about": [{"@id": "#exposure"}],
+            },
+            {
+                "@id": "#exposure",
+                "@type": "LabProcess",
+                "additionalType": "Exposure",
+                "name": "Exposure",
+                "object": {"@id": "#cells"},
+                "result": {"@id": "result.csv"},
+                "executesLabProtocol": {"@id": "#protocol"},
+            },
+            {"@id": "#protocol", "@type": "LabProtocol", "name": "Exposure protocol"},
+            {
+                "@id": "#orphan-step",
+                "@type": "LabProcess",
+                "additionalType": "DataAnalysis",
+                "name": "A step on no chain",
+                "executesLabProtocol": {"@id": "#unused-protocol"},
+            },
+            {
+                "@id": "#orphan-assay",
+                "@type": "Dataset",
+                "additionalType": "Assay",
+                "name": "An assay for the undrawn step",
+                "about": [{"@id": "#orphan-step"}],
+            },
+            {"@id": "#unused-protocol", "@type": "LabProtocol", "name": "A protocol nothing draws"},
+            {"@id": "#cells", "@type": "Sample", "name": "Cultured cells"},
+            {
+                "@id": "result.csv",
+                "@type": "File",
+                "name": "result.csv",
+                "encodingFormat": "text/csv",
+            },
+        ]
+    }

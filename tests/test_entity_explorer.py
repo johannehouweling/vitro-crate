@@ -45,7 +45,11 @@ from builder.writers.provenance_dag import (
     build_isa_inventory,
     build_people_inventory,
 )
-from tests.fixtures.crate_graphs import plumbing_heavy_graph, tabbed_views_graph
+from tests.fixtures.crate_graphs import (
+    plumbing_heavy_graph,
+    process_context_graph,
+    tabbed_views_graph,
+)
 
 _VENDOR_BANNER = "@xyflow/react (styles) 12.11.3"
 """A string only React Flow's vendored stylesheet puts in the page."""
@@ -320,14 +324,59 @@ class TestViewMembership:
         assert views["assays"] == {"./"}  # the fixture declares one Investigation
 
     def test_labprocesses_holds_the_derivation_chain(self) -> None:
+        """The chain is the spine of the view, and every link of it is drawn.
+
+        It used to be the WHOLE of the view, and this test pinned that — down to
+        asserting the protocol stayed out as "executed, not derived". #626
+        reverses that judgment: a step's protocol is what the reader asking how
+        it was done is looking for. The chain is still asserted whole; it is no
+        longer asserted alone.
+        """
         graph = tabbed_views_graph()
         edges = _derivation_edges(_graph_nodes(graph))
 
         views = _views(build_explorer_payload(graph))
 
-        assert views["processes"] == {e[0] for e in edges} | {e[1] for e in edges}
+        assert {e[0] for e in edges} | {e[1] for e in edges} <= views["processes"]
         assert {"#culture", "#exposure", "#line", "#cells", "#table"} <= views["processes"]
-        assert "#protocol" not in views["processes"]  # executed, not derived
+        assert "#protocol" in views["processes"]  # executed by #exposure (#626)
+
+    def test_labprocesses_holds_the_protocol_a_step_executes(self) -> None:
+        """A step's protocol is how it was done — the thing a reader asking
+        "how was this made" most wants — and it is not on the material chain the
+        derivation walk follows, so it used to be absent from the one view named
+        after the steps (#626)."""
+        views = _views(build_explorer_payload(process_context_graph()))
+
+        assert "#protocol" in views["processes"]
+
+    def test_labprocesses_holds_the_assay_a_step_belongs_to(self) -> None:
+        """The assay reaches its process through `about`, an edge pointing INTO
+        the process, so a walk that only follows a process's own outgoing
+        relations cannot find it."""
+        views = _views(build_explorer_payload(process_context_graph()))
+
+        assert "#assay" in views["processes"]
+
+    def test_labprocesses_leaves_out_the_context_of_a_step_it_does_not_draw(self) -> None:
+        """Followed, not collected.
+
+        The fixture's second step is off the material chain, so the view does
+        not draw it — and must not draw its protocol or its assay either. A
+        selector that swept up every ``executes`` and ``about`` edge in the
+        crate would pass the two tests above and fail this one.
+        """
+        views = _views(build_explorer_payload(process_context_graph()))
+
+        assert "#orphan-step" not in views["processes"]
+        assert "#unused-protocol" not in views["processes"]
+        assert "#orphan-assay" not in views["processes"]
+
+    def test_labprocesses_still_holds_the_whole_derivation_chain(self) -> None:
+        """The context is added to the chain, never in place of it."""
+        views = _views(build_explorer_payload(process_context_graph()))
+
+        assert {"#exposure", "#cells", "result.csv"} <= views["processes"]
 
     def test_molecularentities_brings_the_route_that_links_a_compound(self) -> None:
         """A compound is linked to its process through the condition table. The
