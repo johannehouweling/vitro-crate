@@ -172,7 +172,7 @@ class LabProcess(AutoAddContextEntity):
         self,
         crate: ROCrate,
         identifier: str,
-        labprotocol: LabProtocol | File | list[LabProtocol | File],
+        labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
         name: str | None = None,
         object: Sample | File | list[Sample | File] | None = None,
         result: Sample | File | list[Sample | File] | None = None,
@@ -180,7 +180,12 @@ class LabProcess(AutoAddContextEntity):
         add: bool = True,
     ):
         # Define default properties for this LabProcess
-        default_properties = {"@type": "LabProcess", "executesLabProtocol": labprotocol}
+        default_properties: dict = {"@type": "LabProcess"}
+        # Omitted rather than emitted as null when absent. A protocol is a SHOULD,
+        # not a MUST, and a step with no deposited document has none — the crate
+        # says nothing rather than saying "null" or naming a stub (#650).
+        if labprotocol is not None:
+            default_properties["executesLabProtocol"] = labprotocol
         if name is not None:
             default_properties["name"] = name
         if object is not None:
