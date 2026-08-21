@@ -375,6 +375,7 @@ class TestViewMembership:
         assert cats["https://aopwiki.org/events/2258"] == "pathway"
         assert cats["https://aopwiki.org/aops/610"] == "pathway"
         assert cats["#term"] == "annotation", "a plain term still qualifies rather than takes part"
+        assert cats["https://aopwiki.org/relationships/4615"] == "pathway", "and its links"
 
     def test_the_assays_view_and_the_canvas_agree_on_what_a_pathway_is(self) -> None:
         """One list, not two. The view selects what an assay mentions and the
