@@ -1108,20 +1108,25 @@ synthesizes regardless produces a crate whose every chain ends at an empty stub
 while the deposit's measurements sit beside it, referenced by nothing — and a
 crate that reports no problem, because the stub satisfied the shape.
 
-**The Exposure is the deliberate exception (#285):** it is
-NOT given a generic placeholder result here, because its build-time fallback
-(`_crate_mapping._synth_condition_table`) is the *semantically-correct* output — the
-CSVW **condition table** that `schema:about`-references the test MolecularEntities
-(the substances + doses the cells were exposed to). Synthesizing a generic result
-File would populate `result` and pre-empt that `table --about--> MolecularEntity`
-link, demoting the compounds to the weaker Study `schema:mentions` backstop. So the
-Exposure step is left output-less in state and the build emits the condition table
-as its result; the material flow still passes downstream via the step's inputs.
+**The Exposure is the deliberate exception (#285, #650):** it is
+NOT given a generic placeholder result here, because its build-time fallback is the
+*semantically-correct* output — the **exposed Sample**, the cells after treatment,
+deriving from the cultured sample it consumed. Synthesizing a generic result File
+would populate `result` and pre-empt it, leaving the crate with no exposed-sample
+entity at all and every downstream step hanging off the culture instead. So the
+Exposure step is left output-less in state and the build emits the exposed sample;
+the material flow still passes downstream via the step's inputs.
+
+The compounds do not ride on that output. They are **reagents of the per-well
+condition table**, which the build attaches as a protocol the exposure *executes* —
+the plate layout a procedural SOP leaves out — not as something it produces. That is
+the only route ISA permits: `schema:object` is restricted to File/Sample/BioSample at
+Violation severity, and Bioschemas `LabProcess` has no other input slot.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a
-CellCulture's output `Sample`; the Exposure's output is the build's condition
-table. **Skips (and reports under `skipped`):** a data producer nothing in the
+CellCulture's output `Sample`; the Exposure's output is the build's exposed
+`Sample`. **Skips (and reports under `skipped`):** a data producer nothing in the
 deposit evidences. **Reports rather than fills:** a data producer that IS
 evidenced but whose output the deposit lacks keeps no `result`, and the tox
 Violation carries that to the report.
