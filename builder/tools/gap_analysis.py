@@ -50,7 +50,7 @@ from builder.tools.mit_assessment import (
 logger = logging.getLogger(__name__)
 
 Tier = Literal["MUST", "SHOULD", "MAY"]
-Source = Literal["shacl", "mit", "fair"]
+Source = Literal["shacl", "mit", "fair", "air"]
 
 # The MIT checklist path, loader and parameter traversal all live in
 # builder.tools.mit_assessment (#357). This module had its own copy of each, with
@@ -65,7 +65,8 @@ class Gap:
     Attributes:
         tier: Requirement tier — ``"MUST"`` (blocking, SHACL REQUIRED),
             ``"SHOULD"`` (recommended), or ``"MAY"`` (optional).
-        source: Which assessor produced it — ``"shacl"`` / ``"mit"`` / ``"fair"``.
+        source: Which assessor produced it — ``"shacl"`` / ``"mit"`` / ``"fair"`` /
+            ``"air"`` (Bridge2AI AI-readiness).
         entity_id: The affected entity (``None`` for a crate-level gap).
         entity_type: The affected entity's type, when known.
         property: The missing field / parameter (a property IRI for SHACL, a
@@ -101,6 +102,8 @@ class GapReport:
             ``build_and_validate`` (best-effort; ``{}`` on a validation error).
         mit_overall: ``MITReport.overall_score`` (0.0-1.0).
         fair_summary: ``{dsm_level, indicators_passed, indicators_failed}``.
+        air_summary: The Bridge2AI seven-dimension profile plus criterion counts.
+            Deliberately carries no aggregate — the instrument's authors refuse one.
         counts: ``{must_open, should_open, may_open}``.
     """
 
@@ -108,6 +111,7 @@ class GapReport:
     conformance: dict[str, bool] = field(default_factory=dict)
     mit_overall: float = 0.0
     fair_summary: dict[str, Any] = field(default_factory=dict)
+    air_summary: dict[str, Any] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
 
 
@@ -573,6 +577,86 @@ def _fair_gaps(
 
 
 # ---------------------------------------------------------------------------
+# AI-readiness gaps
+# ---------------------------------------------------------------------------
+
+
+def _air_gaps(state: CrateState, *, graph: Any | None = None) -> tuple[list[Gap], dict[str, Any]]:
+    """Failing Bridge2AI criteria as gaps; also return the AI-readiness profile.
+
+    This is what makes AI-readiness a thing that changes crates rather than a tile
+    that grades them. Three rules keep it honest:
+
+    * **Only a real failure is a gap.** ``passed is None`` means the criterion is not
+      assessable from a crate — ethics, governance, hosting — and reporting it as work
+      the user could do would be a lie about both the crate and the instrument.
+    * **The YAML states intent; :func:`_is_committable` states reality, and reality
+      wins.** ``air/criteria.yaml`` declares a remedy per criterion, but a remedy
+      naming an entity type with no instance in state has nothing to write to. Letting
+      the declaration through would burn a human turn on an answer ``_apply_value``
+      then discards — the bug #375 fixed.
+    * **Never ``MUST``.** ``MUST`` is the SHACL build gate; no RO-Crate profile
+      requires AI-readiness, so emitting one would assert a conformance failure that
+      does not exist.
+
+    The gap ``message`` is the criterion id plus its published practice text and
+    nothing else. ``_gap_identity`` is ``(source, entity_id, property, message)`` and
+    the loop's skip set depends on it, so a live count here would change a gap's
+    identity whenever the crate changed and re-draw one the user already answered. The
+    counts belong in ``suggestion``, which identity ignores.
+    """
+    from builder.tools.air_assessment import assess_air_readiness
+
+    report = assess_air_readiness(state, graph=graph)
+    gaps: list[Gap] = []
+
+    for criterion in report.criterion_results:
+        if criterion.get("passed") is not False:
+            continue  # met, or never assessed — neither is work to do
+        ident = str(criterion.get("id") or "")
+        remedy = criterion.get("remedy") or {}
+        prop = remedy.get("property")
+        entity_type = remedy.get("entity_type")
+        route = remedy.get("route") or REPORT_ONLY
+
+        if route == REPORT_ONLY or not _is_committable(state, None, prop, entity_type):
+            route, prop, entity_type = REPORT_ONLY, ident, None
+
+        gaps.append(
+            Gap(
+                # Assessable and fixable is a recommendation; assessable and merely
+                # reportable is optional context. Neither blocks a build.
+                tier="SHOULD" if route != REPORT_ONLY else "MAY",
+                source="air",
+                entity_id=None,
+                entity_type=entity_type,
+                property=prop,
+                message=f"AI-readiness {ident} not met: {criterion.get('text', '')}".strip(),
+                suggestion=(
+                    f"{criterion.get('label', '')} "
+                    f"(dimension {criterion.get('dimension')}) — "
+                    f"{criterion.get('evidence', '')}"
+                ).strip(),
+                fix_hint=route,
+                # `auto_fixable` means precisely "fix_required_issues can clear it",
+                # and no repair rule targets an AI-readiness criterion. Claiming it
+                # would put a gap in front of the user that no tool can close.
+                auto_fixable=False,
+            )
+        )
+
+    summary: dict[str, Any] = {
+        "dimensions": report.dimensions,
+        "criteria_met": sum(1 for c in report.criterion_results if c.get("passed") is True),
+        "criteria_assessed": sum(
+            1 for c in report.criterion_results if c.get("passed") is not None
+        ),
+        "criteria_total": len(report.criterion_results),
+    }
+    return gaps, summary
+
+
+# ---------------------------------------------------------------------------
 # The unified gap engine
 # ---------------------------------------------------------------------------
 
@@ -596,7 +680,7 @@ def _sort_key(gap: Gap) -> tuple:
 
 
 def assess_gaps(state: CrateState) -> GapReport:
-    """Unify SHACL + MIT + FAIR into ONE prioritized :class:`GapReport`.
+    """Unify SHACL + MIT + FAIR + AI-readiness into ONE prioritized :class:`GapReport`.
 
     Pure and deterministic (no LLM, no network) and side-effect-free — ``state``
     is never mutated, so two calls on the same state return identical ordered
@@ -612,13 +696,14 @@ def assess_gaps(state: CrateState) -> GapReport:
     shacl_gaps, conformance, metadata_doc = _shacl_gaps(state)
     # ONE assembly per call: the MIT matcher scores against the very document the
     # SHACL pass just validated, rather than re-assembling the crate (#377). The
-    # FAIR assessor reads that same document, so all three sources answer about
-    # one crate rather than three differently-informed views of it.
+    # FAIR and AI-readiness assessors read that same document, so all four sources
+    # answer about one crate rather than four differently-informed views of it.
     mit_gaps, mit_overall = _mit_gaps(state, graph=metadata_doc)
     mit_report = assess_mit_coverage(state, graph=metadata_doc)
     fair_gaps, fair_summary = _fair_gaps(state, graph=metadata_doc, mit=mit_report)
+    air_gaps, air_summary = _air_gaps(state, graph=metadata_doc)
 
-    gaps = sorted([*shacl_gaps, *mit_gaps, *fair_gaps], key=_sort_key)
+    gaps = sorted([*shacl_gaps, *mit_gaps, *fair_gaps, *air_gaps], key=_sort_key)
 
     counts = {
         "must_open": sum(1 for g in gaps if g.tier == "MUST"),
@@ -631,5 +716,6 @@ def assess_gaps(state: CrateState) -> GapReport:
         conformance=conformance,
         mit_overall=mit_overall,
         fair_summary=fair_summary,
+        air_summary=air_summary,
         counts=counts,
     )
