@@ -2458,6 +2458,97 @@ def _file_size(path: Path) -> int | None:
         return None
 
 
+def _linked_nodes(process_node: Any, *keys: str) -> list[Any]:
+    """The entity node(s) a built process links under any of *keys*, de-duped."""
+    out: list[Any] = []
+    seen: set[Any] = set()
+    for key in keys:
+        value = process_node.get(key)
+        if value is None:
+            continue
+        for item in value if isinstance(value, list) else [value]:
+            cid = getattr(item, "id", None)
+            if cid is None or cid in seen:
+                continue
+            seen.add(cid)
+            out.append(item)
+    return out
+
+
+def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
+    """Make each step consume what the step before it produced (#650).
+
+    Every flavour used to read its inputs straight from the drafter with no link
+    to its neighbours — ``samples or obj`` for a readout, ``obj or samples`` for
+    an analysis. Handed a chain whose steps all name the cultured sample, the
+    crate drew a star: the raw and processed tiers both hung off the culture, and
+    the analysis "analysed" a Sample where the profile asks for the raw data.
+
+    Two corrections, both deliberately narrow, applied per assay so a four-assay
+    crate does not thread one assay's exposure into another's readout:
+
+    * **A readout that consumes the culture while an exposure intervened** is
+      redirected to the exposed sample. A readout naming anything else is left
+      alone, and so is one in an assay with **no** exposure at all — a
+      characterisation run measures the culture, and that is the truth rather
+      than the defect.
+    * **A Sample in an analysis's object** is the wrong KIND for the slot, which
+      the profile describes as the raw/condition data being analysed, so it is
+      replaced by the files the readout produced. A File the drafter named is the
+      right kind and survives untouched.
+
+    The object is never emptied: both flavours carry a REQUIRED ``schema:object``
+    under the tox profile, so a correction with nothing to put in its place makes
+    no change at all rather than trading a wrong answer for a violation.
+    """
+    groups: dict[Any, dict[str, list[Any]]] = {}
+    for assay, ptype, node in built:
+        key = getattr(assay, "id", None)
+        groups.setdefault(key, {}).setdefault(ptype, []).append(node)
+
+    for by_type in groups.values():
+        cultured_ids = {
+            getattr(n, "id", None)
+            for proc in by_type.get("CellCulture", [])
+            for n in _linked_nodes(proc, "output", "result")
+        }
+        exposed = [
+            n
+            for proc in by_type.get("Exposure", [])
+            for n in _linked_nodes(proc, "output", "result")
+            if _is_sample_node(n)
+        ]
+        for readout in by_type.get("EndpointReadout", []):
+            if not exposed:
+                continue
+            consumed = _linked_nodes(readout, "input", "object")
+            consumed_ids = {getattr(n, "id", None) for n in consumed}
+            # Only a readout hanging off the culture — or off nothing — is the
+            # defect. One naming its own material knows better than we do.
+            if consumed_ids and not consumed_ids <= cultured_ids:
+                continue
+            _set_refs(readout, "input", exposed)
+
+        readout_files = [
+            n
+            for proc in by_type.get("EndpointReadout", [])
+            for n in _result_file_nodes(proc)
+        ]
+        for analysis in by_type.get("DataAnalysis", []):
+            consumed = _linked_nodes(analysis, "input", "object")
+            kept = [n for n in consumed if not _is_sample_node(n)]
+            if len(kept) == len(consumed) and kept:
+                continue  # every value is already the right kind
+            replacement = kept or readout_files
+            if replacement:
+                _set_refs(analysis, "input", replacement)
+
+
+def _set_refs(node: Any, prop: str, entities: list[Any]) -> None:
+    """Replace ``node[prop]`` with references to *entities*."""
+    node[prop] = [{"@id": getattr(e, "id", e)} for e in entities]
+
+
 def _add_processes(
     state: CrateState,
     crate: ROCrate,
@@ -2467,6 +2558,10 @@ def _add_processes(
     materialize_payload: bool = True,
 ) -> None:
     proto_cache: dict[str, Any] = {}
+    # (assay, process_type, built node) for the chaining pass below. A process is
+    # built in isolation — it cannot see its neighbours — so making each step
+    # consume what the previous one produced has to happen once every step exists.
+    built: list[tuple[Any, str, Any]] = []
     for proc in state.list_entities("LabProcess"):
         f = proc.fields
         ptype = f.get("process_type") or f.get("additionalType") or ""
@@ -2501,6 +2596,7 @@ def _add_processes(
         # (D5 — the score itself is computed elsewhere, not here).
         _wire_references(node, "additionalProperty", f.get("additionalProperty"), idx)
         assay = _resolve_one(idx, f.get("assay_id"))
+        built.append((assay, ptype, node))
         if assay is not None:
             assay.append_to("about", node)
             # Result Files are the data of this assay → attach them to the Assay's
@@ -2510,6 +2606,8 @@ def _add_processes(
             # through directory Datasets, and an Assay is a contextual node.
             for file_node in _result_file_nodes(node):
                 _append_unique(assay, "hasPart", file_node)
+
+    _chain_processes(built)
 
 
 def _build_process(

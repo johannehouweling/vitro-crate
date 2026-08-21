@@ -679,3 +679,186 @@ class TestExposureProducesTheExposedSample:
             "every compound must be a reagent of a protocol the exposure "
             f"executes; reagents={reagents}, compounds={compound_node_ids}"
         )
+
+
+class TestTheChainFlowsThroughTheExposure:
+    """Issue #650 — a readout measures what the exposure produced, and an
+    analysis analyses what the readout recorded.
+
+    The defect this pins: EndpointReadout took ``samples or obj`` and
+    DataAnalysis took ``obj or samples``, both straight from the drafter, with no
+    link to the step before. Handed a chain whose steps all name the cultured
+    sample — which is what threading through an Exposure that produced nothing
+    yields — the crate drew a star: 12 raw files and 15 processed files both
+    hanging off the culture, and the analysis "analysing" a Sample where the
+    profile asks for the raw data.
+
+    Corrections are targeted, not blanket. A readout is redirected only when it
+    consumes the culture *and* an exposure intervened; a readout in an assay with
+    no exposure at all is measuring the culture and is left alone — the
+    characterisation runs in a real deposit do exactly that.
+    """
+
+    @staticmethod
+    def _built_graph(state: CrateState) -> list[dict]:
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(
+            state,
+            output_dir=None,
+            materialize_payload=False,
+            include_all_scanned=False,
+        )
+        return crate.metadata.generate()["@graph"]
+
+    @staticmethod
+    def _process(graph: list[dict], subtype: str) -> dict:
+        return next(
+            n
+            for n in graph
+            if "LabProcess" in _types(n) and n.get("additionalType") == subtype
+        )
+
+    @staticmethod
+    def _out_ids(node: dict) -> set[str]:
+        return _node_ref_ids(node.get("output")) | _node_ref_ids(node.get("result"))
+
+    @staticmethod
+    def _in_ids(node: dict) -> set[str]:
+        return _node_ref_ids(node.get("input")) | _node_ref_ids(node.get("object"))
+
+    def test_the_readout_consumes_the_exposed_sample(self) -> None:
+        state, assay_id = _scaffold()
+        draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        graph = self._built_graph(state)
+
+        exposure = self._process(graph, "Exposure")
+        readout = self._process(graph, "EndpointReadout")
+        culture = self._process(graph, "CellCulture")
+
+        exposed = self._out_ids(exposure)
+        cultured = self._out_ids(culture)
+        consumed = self._in_ids(readout)
+
+        assert consumed & exposed, (
+            f"the readout must measure the exposed sample; it consumes {consumed}, "
+            f"exposure produced {exposed}"
+        )
+        assert not (consumed & cultured), (
+            "the readout must not still hang off the cultured sample; "
+            f"consumes {consumed}, culture produced {cultured}"
+        )
+
+    def test_a_readout_without_an_exposure_keeps_the_cultured_sample(self) -> None:
+        """A characterisation run has no exposure — it measures the culture, and
+        that is the truth, not the star bug."""
+        state, assay_id = _scaffold()
+        draft_process_chain(
+            state,
+            assay_id,
+            chain=[c for c in _FULL_CHAIN if c["process_type"] != "Exposure"],
+        )
+        graph = self._built_graph(state)
+
+        culture = self._process(graph, "CellCulture")
+        readout = self._process(graph, "EndpointReadout")
+        assert self._in_ids(readout) & self._out_ids(culture), (
+            "with no exposure in the assay the readout measures the cultured "
+            f"sample; it consumes {self._in_ids(readout)}"
+        )
+
+    def test_the_analysis_consumes_data_not_a_sample(self) -> None:
+        state, assay_id = _scaffold()
+        draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        graph = self._built_graph(state)
+        by_id = {n.get("@id"): n for n in graph}
+
+        readout = self._process(graph, "EndpointReadout")
+        analysis = self._process(graph, "DataAnalysis")
+        consumed = self._in_ids(analysis)
+
+        assert consumed, "DataAnalysis MUST have an object (the data analysed)"
+        samples = [i for i in consumed if i in by_id and "Sample" in _types(by_id[i])]
+        assert not samples, (
+            "the analysis must not be handed a Sample where the profile asks for "
+            f"the raw/condition data being analysed; got {samples}"
+        )
+        assert consumed & self._out_ids(readout), (
+            f"the analysis must consume what the readout recorded; consumes "
+            f"{consumed}, readout produced {self._out_ids(readout)}"
+        )
+
+    def _star_wired(self) -> CrateState:
+        """The wiring a real deposit arrived with: every step naming the cultured
+        sample, which is what S-VHPS22 carried.
+
+        ``draft_process_chain`` threads its own steps correctly, so a chain it
+        builds cannot exhibit the defect. An agent that wires the processes
+        itself can and did — 12 raw files and 15 processed files both hanging off
+        one culture.
+        """
+        state, assay_id = _scaffold()
+        draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        culture = _processes_by_subtype(state)["CellCulture"][0]
+        cultured_id = next(iter(_ref_ids(culture.fields.get("result"))), None)
+        assert cultured_id, "test setup: the culture produced nothing"
+
+        for subtype in ("EndpointReadout", "DataAnalysis"):
+            proc = _processes_by_subtype(state)[subtype][0]
+            proc.set_fields_from_dict(
+                {"object": [{"@id": cultured_id}], "samples": [{"@id": cultured_id}]},
+                source="llm",
+            )
+        return state
+
+    def test_a_star_wired_readout_is_redirected_to_the_exposed_sample(self) -> None:
+        graph = self._built_graph(self._star_wired())
+        readout = self._process(graph, "EndpointReadout")
+        exposure = self._process(graph, "Exposure")
+        culture = self._process(graph, "CellCulture")
+
+        consumed = self._in_ids(readout)
+        assert consumed & self._out_ids(exposure), (
+            f"a readout wired to the culture must be redirected to the exposed "
+            f"sample; consumes {consumed}"
+        )
+        assert not (consumed & self._out_ids(culture)), (
+            f"the cultured sample must no longer be the readout's object: {consumed}"
+        )
+
+    def test_a_star_wired_analysis_is_redirected_to_the_readouts_data(self) -> None:
+        state = self._star_wired()
+        graph = self._built_graph(state)
+        by_id = {n.get("@id"): n for n in graph}
+
+        analysis = self._process(graph, "DataAnalysis")
+        readout = self._process(graph, "EndpointReadout")
+        consumed = self._in_ids(analysis)
+
+        samples = [i for i in consumed if i in by_id and "Sample" in _types(by_id[i])]
+        assert not samples, (
+            "a Sample in the analysis's object is the wrong KIND for the slot — "
+            f"the profile asks for the raw/condition data being analysed: {samples}"
+        )
+        assert consumed & self._out_ids(readout), (
+            f"the analysis must consume the readout's data; consumes {consumed}"
+        )
+
+    def test_a_declared_file_object_on_the_analysis_is_left_alone(self) -> None:
+        """Type-aware correction: a File is the right kind for the slot, so a
+        drafter that named one keeps it."""
+        from builder.tools.provenance import draft_file
+
+        state, assay_id = _scaffold()
+        draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        declared = draft_file(state, "declared.csv", path="data/declared.csv")
+        analysis = _processes_by_subtype(state)["DataAnalysis"][0]
+        analysis.set_fields_from_dict(
+            {"object": [{"@id": declared.entity_id}]}, source="llm"
+        )
+
+        graph = self._built_graph(state)
+        consumed = self._in_ids(self._process(graph, "DataAnalysis"))
+        assert any("declared" in i for i in consumed), (
+            f"a File the drafter named is the right kind and must be kept: {consumed}"
+        )
