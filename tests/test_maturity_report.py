@@ -55,7 +55,7 @@ def _block(page: str, block_id: str) -> str:
     next block, or the end of the section.
     """
     after = page.split(f'id="{block_id}"', 1)[1]
-    return re.split(r'<div class="cov" id=|</section>', after, maxsplit=1)[0]
+    return re.split(r'<details class="cov" id=|</section>', after, maxsplit=1)[0]
 
 
 def _mit_pct(page: str) -> int:
@@ -1432,7 +1432,7 @@ class TestDatasetsPanel:
     def test_rows_report_the_facts_and_unreachable_sorts_first(self) -> None:
         page = build_maturity_html(CrateState(), graph=self._graph())
         panel = _block(page, "cov-data")
-        assert '<h3 class="cov-h">Files' in page
+        assert '<summary class="cov-h">Files' in page
         rows = re.findall(r"<tr><th scope=\"row\">.*?</tr>", panel, re.S)
         assert len(rows) == 2
         assert "loose.csv" in rows[0] and 'class="mk no"' in rows[0]
@@ -1600,7 +1600,7 @@ class TestChemicalsSection:
 
     def test_section_renders_the_note_and_the_matrix(self) -> None:
         page = self._page()
-        assert '<div class="cov" id="cov-chem">' in page
+        assert '<details class="cov" id="cov-chem">' in page
         assert 'class="chem-tbl"' in page  # the identification matrix
         assert "Aflatoxin B1" in page
         # Matrix columns name the identification fields.
@@ -1766,9 +1766,75 @@ class TestChemicalsSection:
         # The report is offline/no-script; the chemicals diagram must not break
         # that (it is finished SVG, like the derivation chain).
         page = self._page()
-        panel = page.split('<div class="cov" id="cov-chem">', 1)[1].split("</div>", 1)[0]
+        panel = page.split('<details class="cov" id="cov-chem">', 1)[1].split("</div>", 1)[0]
         assert "<script" not in panel.lower()
         assert "src=" not in panel and "@import" not in panel
+
+
+class TestTheCoverageBlocksFoldDown:
+    """#629: the section is an inventory of a whole crate, and it sat between
+    the reader and everything below it."""
+
+    def _page(self) -> str:
+        return build_maturity_html(
+            vhps_fixture_state("S-VHPS21"), graph=tabbed_views_graph()
+        )
+
+    def _blocks(self, page: str) -> list[str]:
+        section = page.split('<section class="coverage">', 1)[1].split("</section>", 1)[0]
+        return re.findall(r"<details class=\"cov\"[^>]*>.*?</details>", section, re.S)
+
+    def test_every_block_is_a_fold(self) -> None:
+        page = self._page()
+        section = page.split('<section class="coverage">', 1)[1].split("</section>", 1)[0]
+
+        assert self._blocks(page), "no block folded"
+        assert '<div class="cov" id=' not in section, "a block stayed open by construction"
+
+    def test_the_summary_carries_the_name_and_the_count(self) -> None:
+        """A closed block shows only its summary, so the count has to be in it —
+        that number is the whole value of a block a reader has not opened."""
+        for block in self._blocks(self._page()):
+            summary = re.search(r"<summary[^>]*>(.*?)</summary>", block, re.S)
+            assert summary, block[:80]
+            if '<span class="cov-n">' in block:
+                assert '<span class="cov-n">' in summary.group(1)
+
+    def test_a_nested_fold_still_works(self) -> None:
+        """The Files block already nests one ``<details>`` per Dataset. Folding
+        the block around them must not swallow those: ``<details>`` nests, and
+        the inner ones keep their own state."""
+        page = self._page()
+        files = next(b for b in self._blocks(page) if 'id="cov-data"' in b)
+
+        assert 'class="ds-fold"' in files
+
+    def test_print_opens_every_block(self) -> None:
+        """The report prints. A printed copy that lost its inventory to a closed
+        fold would be worse than the scrolling this fixes — the same reason the
+        severity folds already force themselves open on paper."""
+        from builder.writers.maturity_report import _load_css
+
+        css = _load_css()
+        printed = css.split("@media print", 1)[1]
+
+        # The rule itself, not merely its words: `details.cov` and
+        # `display:block !important` each appear in the print block for other
+        # reasons, so asserting them separately passed with the rule deleted.
+        assert re.search(
+            r"details\.cov\s*>\s*\.cov-body\s*\{[^}]*display:\s*block\s*!important",
+            printed,
+        ), "print does not force the coverage folds open"
+
+    def test_the_fold_classes_are_styled(self) -> None:
+        """Same guard the report applies to itself: a class with no rule renders
+        at browser defaults, which for a summary means a stray disclosure
+        triangle beside a heading that already has one."""
+        from builder.writers.maturity_report import _load_css
+
+        css = _load_css()
+        for cls in ("cov-body",):
+            assert f".{cls}" in css, cls
 
 
 class TestCellLinesPanel:
@@ -1826,8 +1892,8 @@ class TestCellLinesPanel:
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
-        assert '<div class="cov" id="cov-cell">' in page
-        assert '<h3 class="cov-h">Biological models' in page
+        assert '<details class="cov" id="cov-cell">' in page
+        assert '<summary class="cov-h">Biological models' in page
         assert "CHO-K1" in page
         assert "CVCL_0214" in page
         for column in ("RRID", "Type", "Organ", "Tissue", "Passage"):
@@ -1845,7 +1911,7 @@ class TestCellLinesPanel:
         tooltip (the entity is typed as a cell line) and ``CellLine`` itself.
         """
         page = self._page()
-        assert '<h3 class="cov-h">Biological models' in page
+        assert '<summary class="cov-h">Biological models' in page
         assert '<th scope="col">Biological model</th>' in page
         panel = _block(page, "cov-cell")
         rest = panel.replace('title="Typed as a cell line"', "")
@@ -1957,7 +2023,7 @@ class TestPeoplePanel:
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
-        assert '<div class="cov" id="cov-people">' in page
+        assert '<details class="cov" id="cov-people">' in page
         assert "Josiah Carberry" in page
         assert "Brown University" in page
         for column in ("PID", "Name", "Affiliation", "Linked"):
@@ -2095,8 +2161,8 @@ class TestCitationsPanel:
 
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
-        assert '<div class="cov" id="cov-cite">' in page
-        assert '<h3 class="cov-h">Citations' in page
+        assert '<details class="cov" id="cov-cite">' in page
+        assert '<summary class="cov-h">Citations' in page
         assert "Two novel in vitro assays for OATP1C1" in page
         assert "10.1007/s00204-024-03787-2" in page
         for column in ("DOI", "Title", "Date", "Authors", "Resolve", "Cited"):

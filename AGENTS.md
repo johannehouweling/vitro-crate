@@ -1853,7 +1853,12 @@ outranks that state: one filed at a tier the profile defines no check at still r
 and filled to the ratio of indicators met, so a gated 0 never reads as "nothing done"), the **FAIR
 principle 1.3** rose (one wedge per MIT module: angle = share of the checklist, radius = fill;
 faint full wedges carry the share), a graph tile (linked / total entities) and reproducibility.
-Findings collapse into **Recommendations** rows — the validator's own message verbatim in a mono
+Each **Entity coverage** block is a fold (#629): the section is an inventory of a whole crate — the
+Files block alone lists 59 on a real deposit — so left open it sits between the reader and
+everything below it, and closed it reads as a contents list. The count rides in the summary
+because that number is the whole value of a block nobody opens, and `@media print` forces every
+fold open so a printed copy keeps the inventory it exists to carry. The Files block's own
+per-Dataset folds nest inside unchanged. Findings collapse into **Recommendations** rows — the validator's own message verbatim in a mono
 chip prefixed by its source layer, the severity badge, then `remediation.describe`'s bold
 instruction with `remediation.why`'s one muted consequence clause — and numbered **References**
 close the page (1: FAIRplus DSM / RDA FDMM; 2: tox-maturity-indicators). There is no FAIR pillar
