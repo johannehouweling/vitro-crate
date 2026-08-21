@@ -1,91 +1,911 @@
-# Faithful FAIRplus Data Stewardship Maturity Model (DSM) — the actual indicators.
+# GENERATED FILE — do not edit by hand.
 #
-# Source: FAIRplus Data-Maturity (github.com/fairplus/Data-Maturity), indicator text CC-BY 4.0.
-# Cite: FAIRplus Dataset Maturity (DSM) Model, https://fairplus.github.io/Data-Maturity/ (CC BY 4.0);
-#       itself derived from the RDA FAIR Data Maturity Model (doi:10.15497/rda00050).
+# Regenerate with:  uv run python scripts/gen_dsm_indicators.py
 #
-# We implement the crate-intrinsically assessable Content (C) and Representation (R) indicators for
-# levels 1-4. The DSM's third category — Hosting (H) — and the enterprise Level 5 are NOT
-# crate-intrinsic; they are reported `na` (not assessable), never failed.
-#
-# Level rule (per the DSM): cumulative + per-category. A crate-intrinsic level N is awarded only
-# when every assessable C and R indicator at levels 1..N passes; the per-level, per-category
-# "% complete" is also reported (mirroring the DSM assessment sheet). `scope: full` = directly
-# decidable from the @graph; `scope: partial` = a presence/structure heuristic (true semantic
-# compliance would need external/content checks); `scope: na` = not crate-intrinsic.
+# All 83 published FAIRplus Dataset Maturity Model (DSM) indicators, sourced verbatim
+# from the vendored assessment workbook (fair/fairplus_dsm_v1.2.xlsx; model text
+# CC BY 4.0, FAIRplus D2.6, doi:10.5281/zenodo.7464523).
+# `text` is the model's own wording; `granularity`, `rda_ref` and `fairsfair_ref` are
+# the model's own columns. The local scope/check mapping — which indicators this tool
+# assesses from one RO-Crate, and with which check — lives in
+# scripts/gen_dsm_indicators.py. Hosting-environment indicators and the Level 0
+# pre-FAIRification states are reported na (not assessable), never failed.
 
-license: "CC-BY-4.0"
-source: "https://fairplus.github.io/Data-Maturity/"
+source:
+  name: FAIRplus Dataset Maturity Model (DSM)
+  url: https://fairplus.github.io/Data-Maturity/
+  repository: https://github.com/FAIRplus/Data-Maturity
+  distribution: docs/assessment/FAIR-DSM-Assessment-Sheet-v1.2.xlsx (sheet 'MASTER (Levels View)') — vendored
+    as fair/fairplus_dsm_v1.2.xlsx
+  version: '1.2'
+  license: CC-BY-4.0
+  specification:
+    name: FAIRplus D2.6 FAIR Data Set Maturity model
+    doi: 10.5281/zenodo.7464523
+    url: https://doi.org/10.5281/zenodo.7464523
+    year: 2022
+    authors: Emam I, Rocca-Serra P, Sansone S-A, Portell-Silva L, Gadiya Y, Welter D, Juty N, Abbassi-Daloii
+      T
+  peer_reviewed:
+    citation: Welter D, Juty N, Rocca-Serra P, et al. FAIR in action - a flexible framework to guide FAIRification.
+      Sci Data 10:291 (2023)
+    doi: 10.1038/s41597-023-02167-2
+  assessment_tool: https://fairdsm.biospeak.solutions/
+  derived_from:
+    name: RDA FAIR Data Maturity Model
+    doi: 10.15497/rda00050
+    url: https://doi.org/10.15497/rda00050
+  retrieved: '2026-08-21'
+  note: 'The model assesses a DATASET, not an organisation: the FAIR Cookbook states it defines ''maturity
+    levels which can used to describe a dataset''. Level names are the workbook''s own ''State of Data''.
+    Indicators this tool cannot assess from a crate alone are reported na, never failed.'
+license: CC-BY-4.0
 levels:
-  1: "Individual researcher"
-  2: "Project"
-  3: "Consortium"
-  4: "Institutional data commons"
-  5: "Enterprise"
-
+  0: Single-use data
+  1: Identifiable Data
+  2: Described Data
+  3: Standardised Data
+  4: Semantically Typed Data
+  5: Managed Data Assets
+level_scope:
+  0: No re-use beyond the project lifetime
+  1: Data Object level
+  2: Project level
+  3: Community level
+  4: Cross-community level
+  5: Enterprise level
+questions:
+- question: Which of the following statements best describes the current state of Data to be shared and
+    re-used?
+  multi_select: false
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-R2
+    level: 0
+  - id: DSM-1-R2
+    level: 1
+- question: Which of the following statements best describe the state of your shareable Datasets?
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-2-R2
+    level: 2
+  - id: DSM-3-R2
+    level: 3
+  - id: DSM-4-R2
+    level: 4
+  - id: DSM-5-R2
+    level: 5
+- question: Which of the following statements best describes the Dataset's current format ?
+  multi_select: false
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-R5
+    level: 0
+  - id: DSM-1-R5
+    level: 1
+  - id: DSM-3-R5
+    level: 3
+  - id: DSM-4-R5
+    level: 4
+- question: Which of the following statements best describes the current state of the Dataset's Metadata?
+  multi_select: false
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-R3
+    level: 0
+  - id: DSM-1-R0
+    level: 1
+- question: Which of the following statements best describes how the Dataset's metadata is modeled and
+    represented?
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-1-R3
+    level: 1
+  - id: DSM-2-R3
+    level: 2
+  - id: DSM-3-R3
+    level: 3
+  - id: DSM-4-R3
+    level: 4
+  - id: DSM-5-R3
+    level: 5
+- question: Which of the following statements best describes the current format of the Dataset Metadata?
+  multi_select: true
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-R4
+    level: 0
+  - id: DSM-1-R4
+    level: 1
+  - id: DSM-2-R4
+    level: 2
+  - id: DSM-3-R4
+    level: 3
+  - id: DSM-4-R4
+    level: 4
+- question: Which of the following statements best describes how information describing the context of
+    the dataset(s) is represented?
+  multi_select: false
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-R1
+    level: 0
+  - id: DSM-1-R1
+    level: 1
+  - id: DSM-2-R1
+    level: 2
+  - id: DSM-3-R1
+    level: 3
+  - id: DSM-4-R1
+    level: 4
+  - id: DSM-5-R1
+    level: 5
+- question: The following statements refer to Dataset-Level content. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-C0
+    level: 0
+  - id: DSM-1-C0
+    level: 1
+  - id: DSM-2-C2
+    level: 2
+  - id: DSM-3-C2
+    level: 3
+  - id: DSM-4-C2
+    level: 4
+- question: The following statements refer to Field-Level content reported in a Dataset. Select all that
+    apply.
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-2-C3
+    level: 2
+  - id: DSM-3-C3
+    level: 3
+  - id: DSM-4-C3
+    level: 4
+  - id: DSM-5-C3
+    level: 5
+- question: The following statements refer to Value-Level (measurements) content reported in a Dataset
+    Field. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-2-C4
+    level: 2
+  - id: DSM-3-C4
+    level: 3
+  - id: DSM-4-C4
+    level: 4
+  - id: DSM-5-C4
+    level: 5
+- question: The following statements refer to Study/Project Level metadata that provides context for the
+    datasets interpretation. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-C1
+    level: 0
+  - id: DSM-1-C1
+    level: 1
+  - id: DSM-2-C1
+    level: 2
+  - id: DSM-3-C1
+    level: 3
+  - id: DSM-4-C1
+    level: 4
+- question: The following statements refer to Dataset-Level metadata reported in a Dataset's Descriptor.
+    Select all that apply.
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-0-C2
+    level: 0
+  - id: DSM-1-C2
+    level: 1
+  - id: DSM-1-C3
+    level: 1
+  - id: DSM-2-C5
+    level: 2
+  - id: DSM-3-C7
+    level: 3
+- question: The following statements refer to Field-level metadata. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-2-C6
+    level: 2
+  - id: DSM-3-C6
+    level: 3
+  - id: DSM-4-C5
+    level: 4
+- question: The following statements refer to value-level metadata. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-2-C7
+    level: 2
+  - id: DSM-3-C5
+    level: 3
+- question: The following statements refer to the Storage Capabilities of the Data and Metadata Hosting
+    Environments. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-0-H1
+    level: 0
+  - id: DSM-1-H1
+    level: 1
+  - id: DSM-2-H1
+    level: 2
+  - id: DSM-3-H1
+    level: 3
+- question: Which of the following statements best describe the hosting capabilities of the dataset(s)?
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-4-H1
+    level: 4
+- question: The following statements refer to the Retrieval Capabilities of the Data and Metadata Hosting
+    Environments. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: true
+  options:
+  - id: DSM-0-H2
+    level: 0
+  - id: DSM-1-H2
+    level: 1
+  - id: DSM-1-H3
+    level: 1
+  - id: DSM-2-H2
+    level: 2
+  - id: DSM-3-H2
+    level: 3
+  - id: DSM-3-H4
+    level: 3
+  - id: DSM-4-H2
+    level: 4
+- question: The following statements refer to the Search Capabilities of the Data and Metadata Hosting
+    Environments. Select all that apply.
+  multi_select: true
+  has_none_of_the_above: false
+  options:
+  - id: DSM-0-H3
+    level: 0
+  - id: DSM-1-H4
+    level: 1
+  - id: DSM-2-H3
+    level: 2
+  - id: DSM-3-H3
+    level: 3
+  - id: DSM-4-H2
+    level: 4
 indicators:
-  # ---- Level 1 — findable, access info, machine-readable descriptor ----
-  - {id: DSM-1-C0, level: 1, category: C, scope: full, check: unique_id,
-     text: "Each Dataset is assigned a unique identifier"}
-  - {id: DSM-1-C1, level: 1, category: C, scope: full, check: study_summary,
-     text: "Dataset Descriptor includes a descriptive study/project summary"}
-  - {id: DSM-1-C2, level: 1, category: C, scope: full, check: dataset_metadata,
-     text: "Dataset Descriptor includes identifying + descriptive dataset-level metadata"}
-  - {id: DSM-1-C3, level: 1, category: C, scope: full, check: access_info,
-     text: "Dataset Descriptor contains access information for the Dataset"}
-  - {id: DSM-1-R0, level: 1, category: R, scope: full, check: has_descriptor,
-     text: "Dataset metadata is a formally identifiable Dataset Descriptor"}
-  - {id: DSM-1-R1, level: 1, category: R, scope: full, check: context_fields,
-     text: "Contextual metadata reported at summary level in the Descriptor"}
-  - {id: DSM-1-R2, level: 1, category: R, scope: full, check: dataset_hierarchy,
-     text: "Data organised into Dataset(s) created for FAIR sharing"}
-  - {id: DSM-1-R3, level: 1, category: R, scope: full, check: general_schema,
-     text: "Descriptor conforms to a general-purpose metadata schema"}
-  - {id: DSM-1-R4, level: 1, category: R, scope: full, check: descriptor_machine_readable,
-     text: "Dataset Descriptor available in machine-readable format"}
-  - {id: DSM-1-R5, level: 1, category: R, scope: full, check: data_machine_readable,
-     text: "Dataset(s) available in machine-readable format"}
-
-  # ---- Level 2 — field/value metadata, generic dataset model ----
-  - {id: DSM-2-C5, level: 2, category: C, scope: full, check: cross_dataset_refs,
-     text: "Descriptor references related Datasets + joining fields"}
-  - {id: DSM-2-C6, level: 2, category: C, scope: full, check: field_level_metadata,
-     text: "Descriptor includes field-level metadata (name, description, data type)"}
-  - {id: DSM-2-C7, level: 2, category: C, scope: full, check: value_level_metadata,
-     text: "Descriptor includes value-level metadata / data-dictionary reference"}
-  - {id: DSM-2-R3, level: 2, category: R, scope: full, check: generic_model,
-     text: "Descriptor formally represents the dataset model, extending a generic model"}
-  - {id: DSM-2-R5, level: 2, category: R, scope: full, check: data_structured,
-     text: "Dataset(s) available in a structured machine-readable format"}
-  - {id: DSM-2-C1, level: 2, category: C, scope: partial, check: domain_model,
-     text: "A locally-defined Domain Model describes study design + key entities"}
-  - {id: DSM-2-C2, level: 2, category: C, scope: na,
-     text: "Field values follow Tidy-Data principles (needs file-content inspection)"}
-
-  # ---- Level 3 — community standards, controlled terms, standard license ----
-  - {id: DSM-3-C5, level: 3, category: C, scope: full, check: resolvable_terms,
-     text: "Value-level metadata includes resolvable identifiers for standard terms"}
-  - {id: DSM-3-C7, level: 3, category: C, scope: full, check: standard_license,
-     text: "Descriptor references a standard reuse license"}
-  - {id: DSM-3-R3, level: 3, category: R, scope: full, check: domain_standard,
-     text: "Descriptor uses a community-defined / domain-specific metadata standard"}
-  - {id: DSM-3-C6, level: 3, category: C, scope: partial, check: standard_field_metadata,
-     text: "Descriptor includes standard-compliant field-level metadata"}
-  - {id: DSM-3-C4, level: 3, category: C, scope: partial, check: controlled_values,
-     text: "Textual field values standardised against domain controlled terminologies"}
-
-  # ---- Level 4 — semantic model, linked data (presence-heuristic) ----
-  - {id: DSM-4-R6, level: 4, category: R, scope: full, check: license_machine,
-     text: "License / permitted use encoded in machine-readable form"}
-  - {id: DSM-4-C4, level: 4, category: C, scope: partial, check: standard_identifiers,
-     text: "Domain-entity values assigned unique standard identifiers"}
-  - {id: DSM-4-R2, level: 4, category: R, scope: partial, check: linked_data,
-     text: "Dataset content semantically represented as Linked Data"}
-  - {id: DSM-4-R3, level: 4, category: R, scope: partial, check: semantic_model,
-     text: "The Semantic Data Model is represented using Linked Data"}
-  - {id: DSM-4-R4, level: 4, category: R, scope: partial, check: machine_interpretable,
-     text: "Metadata in machine-readable AND machine-interpretable format"}
-
-  # ---- Level 5 — enterprise master/reference data — not crate-intrinsic ----
-  - {id: DSM-5, level: 5, category: "-", scope: na,
-     text: "Enterprise master/reference data + managed metadata registry (not crate-intrinsic)"}
+- id: DSM-0-C0
+  level: 0
+  category: C
+  scope: na
+  granularity: Dataset
+  text: Dataset(s) are NOT Identifiable via Unique Identifiers
+- id: DSM-0-C1
+  level: 0
+  category: C
+  scope: na
+  granularity: Project
+  text: Metadata does NOT contain context-related information required to interpret the data
+- id: DSM-0-C2
+  level: 0
+  category: C
+  scope: na
+  granularity: Dataset
+  text: Dataset Descriptor does NOT include a reference to the Dataset it describes
+- id: DSM-0-R1
+  level: 0
+  category: R
+  scope: na
+  granularity: Dataset
+  text: Contextual Metadata is NOT formally represented in any form
+- id: DSM-0-R2
+  level: 0
+  category: R
+  scope: na
+  granularity: Dataset
+  text: No representation of Data purposed for sharing and re-use is available
+- id: DSM-0-R3
+  level: 0
+  category: R
+  scope: na
+  granularity: Dataset
+  text: Metadata is available but NOT formally represented in a structured Dataset Descriptor
+- id: DSM-0-R4
+  level: 0
+  category: R
+  scope: na
+  granularity: Dataset
+  text: Metadata is NOT available in a Machine Readable Format
+- id: DSM-0-R5
+  level: 0
+  category: R
+  scope: na
+  granularity: Dataset
+  text: Dataset(s) are NOT available in a Machine Readable Format
+- id: DSM-0-H1
+  level: 0
+  category: H
+  scope: na
+  granularity: Storage Capability
+  text: Data or metadata is hosted in non-accessible storage (e.g., personal desktop, local file system
+    or archive)
+- id: DSM-0-H2
+  level: 0
+  category: H
+  scope: na
+  granularity: Retrieval Capability
+  text: Data or metadata is hosted in an accessible resource but with no retrieval capability
+- id: DSM-0-H3
+  level: 0
+  category: H
+  scope: na
+  granularity: Search Capability
+  text: Hosting enviornment does NOT offer searching capabilities to discover data or metadata
+- id: DSM-1-C0
+  level: 1
+  category: C
+  scope: full
+  check: unique_id
+  granularity: Dataset
+  rda_ref: RDA-F1-02D
+  fairsfair_ref: FsF-F1-01D
+  text: Each Dataset purposed for sharing and re-use is assigned a unique identifier
+- id: DSM-1-C1
+  level: 1
+  category: C
+  scope: full
+  check: study_summary
+  granularity: Project
+  fairsfair_ref: FsF-F2-01M
+  text: Dataset Descriptor(s) includes Descriptive Study/Project-Level summary information
+- id: DSM-1-C2
+  level: 1
+  category: C
+  scope: full
+  check: dataset_metadata
+  granularity: Dataset
+  fairsfair_ref: FsF-F2-01M
+  text: Dataset Descriptor(s) includes Identifying & Descriptive Dataset-Level metadata
+- id: DSM-1-C3
+  level: 1
+  category: C
+  scope: full
+  check: access_info
+  granularity: Dataset
+  rda_ref: RDA-A1-01M
+  fairsfair_ref: FsF-A1-01M
+  text: Dataset Descriptor(s) contains access information for the Dataset
+- id: DSM-1-R0
+  level: 1
+  category: R
+  scope: full
+  check: has_descriptor
+  granularity: Dataset
+  text: Dataset Metadata is formally represented in the form of an Identifiable Dataset Descriptor
+- id: DSM-1-R1
+  level: 1
+  category: R
+  scope: full
+  check: context_fields
+  granularity: ''
+  text: Contextual Metadata is represented at summary level and reported in the Dataset Descriptor
+- id: DSM-1-R2
+  level: 1
+  category: R
+  scope: full
+  check: dataset_hierarchy
+  granularity: Dataset
+  text: Data intended for sharing and reuse have a purposely defined representation as Datasets
+- id: DSM-1-R3
+  level: 1
+  category: R
+  scope: full
+  check: general_schema
+  granularity: Dataset
+  text: A representation of the Dataset Descriptor conforming to a relevant General Purpose Metadata Schema
+    is available
+- id: DSM-1-R4
+  level: 1
+  category: R
+  scope: full
+  check: descriptor_machine_readable
+  granularity: Dataset
+  rda_ref: RDA-I1-02M
+  fairsfair_ref: FsF-F4-01M
+  text: Dataset Descriptor is available in Machine Readable Format
+- id: DSM-1-R5
+  level: 1
+  category: R
+  scope: full
+  check: data_machine_readable
+  granularity: Dataset
+  rda_ref: RDA-I1-02D
+  text: Dataset(s) available in Machine Readable Format
+- id: DSM-1-H1
+  level: 1
+  category: H
+  scope: na
+  granularity: Storage Capability
+  rda_ref: RDA-F1-01M, RDA-F1-01D
+  text: Metadata hosting environment stores and maintains an identifiable Dataset Descriptor for each
+    identifiable Dataset
+- id: DSM-1-H2
+  level: 1
+  category: H
+  scope: na
+  granularity: Retrieval Capability
+  rda_ref: RDA-A1-03M, RDA-A1-03D
+  fairsfair_ref: FsF-F1-02D
+  text: The Dataset and its Descriptor are indexed and retrievable (in the same or separate hosting environments)
+    via unique and persistent identifiers
+- id: DSM-1-H3
+  level: 1
+  category: H
+  scope: na
+  granularity: Retrieval Capability
+  rda_ref: RDA-A1.1-01D
+  text: Retrieval of the Dataset and the Dataset Descriptor utilises a standardized communication protocol
+    that is open, free and universally implementable
+- id: DSM-1-H4
+  level: 1
+  category: H
+  scope: na
+  granularity: Search Capability
+  text: Metadata hosting environment offers the capability to browse and search contents of the Dataset
+    Descriptor
+- id: DSM-2-C1
+  level: 2
+  category: C
+  scope: partial
+  check: domain_model
+  granularity: Project
+  rda_ref: RDA-R1-01M
+  fairsfair_ref: FsF-R1-01MD
+  text: The locally defined Domain Model contains concepts that describes the overall project/study design,
+    the relationships between the Datasets, the key entities reported within the Datasets and the relationships
+    between them.
+- id: DSM-2-C2
+  level: 2
+  category: C
+  scope: partial
+  check: tidy_dataset
+  granularity: Dataset
+  rda_ref: RDA-F1-02D
+  fairsfair_ref: FsF-F1-01D
+  text: Where applicable, data is structured in the Dataset according to the Tidy Data Principles
+- id: DSM-2-C3
+  level: 2
+  category: C
+  scope: full
+  check: reference_fields
+  granularity: Dataset Fields
+  text: Dataset(s) include Reference Fields that enable joining related datasets
+- id: DSM-2-C4
+  level: 2
+  category: C
+  scope: partial
+  check: local_data_dictionary
+  granularity: Dataset Field Values
+  text: Where applicable, Dataset Field Values are standardized against a locally defined Data Dictionary
+    within and across related Datasets
+- id: DSM-2-C5
+  level: 2
+  category: C
+  scope: full
+  check: cross_dataset_refs
+  granularity: ''
+  text: Dataset Descriptor includes reference to related Datasets and if applicable the relevant joining
+    Dataset Fields
+- id: DSM-2-C6
+  level: 2
+  category: C
+  scope: full
+  check: field_level_metadata
+  granularity: Dataset Fields
+  rda_ref: RDA-F2-01M
+  fairsfair_ref: FsF-R1-01MD
+  text: Dataset Descriptor includes Field-level Metadata as prescribed by a locally defined Dataset Model
+- id: DSM-2-C7
+  level: 2
+  category: C
+  scope: full
+  check: value_level_metadata
+  granularity: Dataset Field Values
+  text: Dataset Descriptor includes Value-level Metadata or if applicable includes a reference to a locally
+    defined Data Dictionary
+- id: DSM-2-R1
+  level: 2
+  category: R
+  scope: partial
+  check: domain_model
+  granularity: Project
+  text: Contextual Metadata is formally represented and reported in the form of a locally defined Domain
+    Model
+- id: DSM-2-R2
+  level: 2
+  category: R
+  scope: full
+  check: local_dataset_model
+  granularity: Dataset
+  text: Dataset(s) are standardised to a locally defined Dataset Model suitable for data sharing and re-use
+- id: DSM-2-R3
+  level: 2
+  category: R
+  scope: full
+  check: generic_model
+  granularity: Dataset
+  rda_ref: RDA-R1.3-02M
+  text: Dataset Descriptor(s) adopt a Metadata Schema representation that describes the locally defined
+    Dataset Model including its structural metadata (i.e. Field-level and Value-level metadata)
+- id: DSM-2-R4
+  level: 2
+  category: R
+  scope: partial
+  check: model_documentation_human
+  granularity: Dataset
+  text: A formal documentation of the locally defined Domain Model is available in a Human Readable Format
+- id: DSM-2-R5
+  level: 2
+  category: R
+  scope: full
+  check: data_structured
+  granularity: Dataset
+  rda_ref: RDA-I1-02D
+  text: Dataset(s) available in Machine Readable Format
+- id: DSM-2-H1
+  level: 2
+  category: H
+  scope: na
+  granularity: Storage Capability
+  text: The Data hosting environment's Persistence Model is aligned with a locally defined Domain Model
+    to enable interpretation of Datasets
+- id: DSM-2-H2
+  level: 2
+  category: H
+  scope: na
+  granularity: Retrieval Capability
+  rda_ref: RDA-A1.1-01M
+  fairsfair_ref: FsF-A1-02M
+  text: Metadata hosting environment provides programmatic access and retrieval (API) for the Dataset
+    Descriptor
+- id: DSM-2-H3
+  level: 2
+  category: H
+  scope: na
+  granularity: Search Capability
+  rda_ref: RDA-F4-01M
+  text: Data hosting environment offers the capability to browse and search related Datasets
+- id: DSM-3-C1
+  level: 3
+  category: C
+  scope: full
+  check: min_info_guidelines
+  granularity: Project
+  rda_ref: RDA-R1.3-01M
+  fairsfair_ref: FsF-R1.3-01M
+  text: Where applicable, study-level / experimental metadata is reported in compliance with relevant
+    Minimum Information Reporting Guidelines
+- id: DSM-3-C2
+  level: 3
+  category: C
+  scope: partial
+  check: community_domain_model
+  granularity: Dataset
+  rda_ref: RDA-R1.3-01D
+  text: Where applicable, Dataset(s) definition and content are reported in compliance with relevant community-defined
+    Data Reporting Guidelines
+- id: DSM-3-C3
+  level: 3
+  category: C
+  scope: full
+  check: standard_field_names
+  granularity: ''
+  text: Where applicable, Dataset Field Names use standard controlled terms as recommended by the adopted
+    Standard
+- id: DSM-3-C4
+  level: 3
+  category: C
+  scope: partial
+  check: controlled_values
+  granularity: Dataset Field Values
+  rda_ref: RDA-I2-01D
+  text: Where applicable, Dataset Field Values are standardised against domain-specific Controlled Terminologies
+    and/or Ontology Terms
+- id: DSM-3-C5
+  level: 3
+  category: C
+  scope: full
+  check: resolvable_terms
+  granularity: ''
+  rda_ref: RDA-I2-01D
+  text: Value Level Metadata includes Resolvable Identifiers for Controlled and/or Standard Terms reported
+    in the Dataset
+- id: DSM-3-C6
+  level: 3
+  category: C
+  scope: partial
+  check: standard_field_metadata
+  granularity: ''
+  text: Dataset Descriptor includes standard-compliant Field-level Metadata as prescribed by the adopted
+    standard Dataset Model.
+- id: DSM-3-C7
+  level: 3
+  category: C
+  scope: full
+  check: standard_license
+  granularity: ''
+  text: Dataset Descriptor references a standard license under which the dataset can be re-used.
+- id: DSM-3-R1
+  level: 3
+  category: R
+  scope: partial
+  check: community_domain_model
+  granularity: Project
+  rda_ref: RDA-R1.3-01M
+  fairsfair_ref: FsF-R1.3-01M
+  text: Contextual Metadata is formally represented and modeled according to a community or domain-specific
+    standard
+- id: DSM-3-R2
+  level: 3
+  category: R
+  scope: full
+  check: local_dataset_model
+  granularity: Dataset
+  rda_ref: RDA-R1.3-01D
+  text: Dataset(s) are standardised to relevant Domain or Community Standard Dataset Model(s) suitable
+    for data sharing and re-use
+- id: DSM-3-R3
+  level: 3
+  category: R
+  scope: full
+  check: domain_standard
+  granularity: Dataset
+  rda_ref: RDA-R1.3-01M
+  fairsfair_ref: FsF-R1.3-01M
+  text: Dataset Descriptor(s) use community-defined or domain-specific metadata standard
+- id: DSM-3-R4
+  level: 3
+  category: R
+  scope: full
+  check: community_domain_model
+  granularity: ''
+  text: A formal documentation of the adopted Standard Dataset Model is available in a Machine Readable
+    Format
+- id: DSM-3-R5
+  level: 3
+  category: R
+  scope: full
+  check: non_proprietary_format
+  granularity: Dataset
+  rda_ref: RDA-I1-01D
+  fairsfair_ref: FsF-R1.3-02D
+  text: Dataset(s) available in non-proprietary Machine Readable Format as prescribed by a standard Dataset
+    Model
+- id: DSM-3-H1
+  level: 3
+  category: H
+  scope: na
+  granularity: Storage Capability
+  text: The Data hosting environment's Persistence Model is aligned with a standard Dataset model or compliant
+    with relevant Minimum Information Reporting Guidelines
+- id: DSM-3-H2
+  level: 3
+  category: H
+  scope: na
+  granularity: Retrieval Capability
+  rda_ref: RDA-F1-01D, RDA-A1-03D
+  fairsfair_ref: FsF-F1-02D
+  text: For each dataset, the hosting environment maintains a globally unique, persistent and resolvable
+    identifier for access and retrieval
+- id: DSM-3-H3
+  level: 3
+  category: H
+  scope: na
+  granularity: Search Capability
+  text: Data Hosting environment utilises controlled terms and/or ontology terms to search within Dataset
+    content.
+- id: DSM-3-H4
+  level: 3
+  category: H
+  scope: na
+  granularity: Retrieval Capability
+  rda_ref: RDA-A1.2-01D
+  text: If applicable, Dataset hosting environment offers dataset-level authentication and authorisation
+    capabilities
+- id: DSM-4-C1
+  level: 4
+  category: C
+  scope: partial
+  check: semantic_study_design
+  granularity: Dataset
+  text: The adopted Semantic Data Model includes study design Data Elements and the relationships between
+    them
+- id: DSM-4-C2
+  level: 4
+  category: C
+  scope: partial
+  check: common_data_elements
+  granularity: ''
+  text: Dataset(s) content is harmonised against a designed-for-purpose Semantic Data Model
+- id: DSM-4-C3
+  level: 4
+  category: C
+  scope: full
+  check: common_data_elements
+  granularity: Dataset Fields
+  rda_ref: RDA-I2-01D
+  text: Key Dataset Fields are mapped to Common Data Elements as defined by the Semantic Data Model
+- id: DSM-4-C4
+  level: 4
+  category: C
+  scope: partial
+  check: standard_identifiers
+  granularity: Dataset Field Values
+  text: Values for key Domain Entities reported in the Dataset(s) are standardised and assigned unique
+    Standard Identifiers
+- id: DSM-4-C5
+  level: 4
+  category: C
+  scope: partial
+  check: cde_relationships
+  granularity: Dataset Field Values
+  rda_ref: RDA-R1-01M
+  text: The Semantic Data Model includes a pre-defined set of Common Data Elements reported within the
+    Datasets and the relationships between them
+- id: DSM-4-R1
+  level: 4
+  category: R
+  scope: full
+  check: semantic_contextual_metadata
+  granularity: Dataset
+  text: Contextual Metadata is formally represented by a set of semantically defined Common Data Elements
+- id: DSM-4-R2
+  level: 4
+  category: R
+  scope: partial
+  check: linked_data
+  granularity: Dataset
+  text: Dataset(s) are standardised to a defined Semantic Data Model and represented using Linked Data
+    Represetations suitable for data sharing and re-use
+- id: DSM-4-R3
+  level: 4
+  category: R
+  scope: partial
+  check: semantic_model
+  granularity: Dataset
+  text: A Semantic Data Model (Metadata) used for data harmonisation across Datasets is formally defined
+    and represented using Linked Data Representations
+- id: DSM-4-R4
+  level: 4
+  category: R
+  scope: partial
+  check: machine_interpretable
+  granularity: Dataset Field Values
+  text: A Semantic Data Model (Metadata) describing the data is represented in a Machine Readable and
+    Machine Interptretable format
+- id: DSM-4-R5
+  level: 4
+  category: R
+  scope: partial
+  check: machine_interpretable_graph
+  granularity: ''
+  text: Datasets are available in a Machine Readable and Machine Interpretable format
+- id: DSM-4-R6
+  level: 4
+  category: R
+  scope: full
+  check: license_machine
+  granularity: Dataset Fields
+  text: If applicable, license information and/or permitted use and accessability to parts of the dataset
+    is formally represented and encoded in a Machine Readable Format
+- id: DSM-4-H1
+  level: 4
+  category: H
+  scope: na
+  granularity: Storage Capability
+  text: Data Hosting environment stores data in a relevant linked data store (e.g., Triple Store or Graph
+    Databaase)
+- id: DSM-4-H2
+  level: 4
+  category: H
+  scope: na
+  granularity: Retrieval Capability
+  text: Data Hosting Environment provides semantic querying capability
+- id: DSM-4-H3
+  level: 4
+  category: H
+  scope: na
+  granularity: Search Capability
+  text: Data Hosting Environment provides semantic search capability
+- id: DSM-5-C1
+  level: 5
+  category: C
+  scope: na
+  granularity: ''
+  text: WHAT's included in the MASTER Data Consolidation Model
+- id: DSM-5-C2
+  level: 5
+  category: C
+  scope: na
+  granularity: ''
+  text: What is included in the MASTER Dataset Model
+- id: DSM-5-C3
+  level: 5
+  category: C
+  scope: na
+  granularity: Dataset Fields
+  text: Dataset Fields are linked and harmonized against enterprise managed Metadata Elements (e.g. MDR
+    registered Data Elements)
+- id: DSM-5-C4
+  level: 5
+  category: C
+  scope: na
+  granularity: Dataset Field Values
+  text: Dataset Field values are controlled and managed via enterprise managed Reference and Master Data
+- id: DSM-5-C5
+  level: 5
+  category: C
+  scope: na
+  granularity: Dataset
+  rda_ref: RDA-R1.2-01M
+  fairsfair_ref: FsF-R1.1-01M
+  text: Metadata includes provenance information according to a cross-community language
+- id: DSM-5-R1
+  level: 5
+  category: R
+  scope: na
+  granularity: Dataset Fields
+  text: Data content and context is defined and managed by Master Data Management
+- id: DSM-5-R2
+  level: 5
+  category: R
+  scope: na
+  granularity: ''
+  text: Dataset(s) intended for sharing and re-use are granularly standardised and managed at the Data
+    Element Level (e.g. ISO 11179 MDR standard)
+- id: DSM-5-R3
+  level: 5
+  category: R
+  scope: na
+  granularity: ''
+  text: Common Data Elements and their value sets are defined and registered in a managed Metadata Registry
+- id: DSM-5-R4
+  level: 5
+  category: R
+  scope: na
+  granularity: ''
+  text: '[Metadata Formatting requirements]'
+- id: DSM-5-R5
+  level: 5
+  category: R
+  scope: na
+  granularity: ''
+  text: '[Dataset Formatting requirements]'
+- id: DSM-5-H1
+  level: 5
+  category: H
+  scope: na
+  granularity: ''
+  text: Hosting Environment implements Master Data Management Capability
+- id: DSM-5-H2
+  level: 5
+  category: H
+  scope: na
+  granularity: ''
+  text: Hosting Environment implements Reference Data Management Capability
+- id: DSM-5-H3
+  level: 5
+  category: H
+  scope: na
+  granularity: ''
+  text: Hosting Environment implements Data Governance Capability

@@ -95,7 +95,11 @@ class TestBuildMaturityHtml:
         for heading in ("Profile adherence", "FAIR", "OECD MIT", "Reproducibility readiness"):
             assert heading in page, f"missing section: {heading}"
         # Computed scores, not just the static labels:
-        assert re.search(r"DSM level [0-5] of 5", page), "no computed DSM level rendered"
+        # "of N", not a hard-coded "of 5": the denominator is the highest level a
+        # crate can REACH (Level 5 is scored entirely on hosting/enterprise
+        # capability, which no RO-Crate can evidence). The assertion's point is that
+        # a COMPUTED level is rendered, which it still makes.
+        assert re.search(r"DSM level [0-5] of [1-5]", page), "no computed DSM level rendered"
         assert re.search(r"\d+(?:\.\d+)?\s*%", page), "no computed MIT percentage rendered"
 
     def test_conformance_suggestions_rendered(self) -> None:
@@ -742,7 +746,7 @@ class TestFairTileAndRose:
             f"to level {fair.dsm_level + 1}" in page
         )
         # The count is drillable: the fold names every blocking indicator.
-        for bid, text in blockers:
+        for bid, text, _why in blockers:
             assert f"<code>{bid}</code>" in page and text in page, bid
 
     def test_the_rose_draws_every_module_to_the_scorers_numbers(self) -> None:

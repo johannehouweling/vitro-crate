@@ -573,8 +573,29 @@ turning a transient blip into red CI and violating #59's "runs offline" criterio
   offline-safe.
 
 #### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
-Score against `mit/invitro_tox.yaml` and `fair/indicators.yaml`. Both produce
-scores, not pass/fail.
+Score against `mit/invitro_tox.yaml`, `fair/indicators.yaml` and
+`fair/dsm_indicators.yaml`. All produce scores, not pass/fail.
+
+**Indicator definitions are generated from vendored published instruments, never
+hand-written**, so a definition cannot silently drift into a paraphrase of the model
+the paper claims to score:
+
+| Axis | Instrument | Vendored | Generator |
+|---|---|---|---|
+| FAIR | RDA FAIR Data Maturity Model (doi:10.15497/rda00050, CC-BY-4.0) | `fair/rda_fdmm.xlsx` | `scripts/gen_fair_indicators.py` |
+| DSM | FAIRplus **Dataset** Maturity Model v1.2 (FAIRplus D2.6, doi:10.5281/zenodo.7464523, model text CC-BY-4.0) | `fair/fairplus_dsm_v1.2.xlsx` | `scripts/gen_dsm_indicators.py` |
+
+Each generator carries **all** the published indicators — the DSM's full 83, not the
+subset we can assess — with verbatim text and the model's own columns, and keeps the
+repo-specific decision (which indicators are assessable from one crate, and with which
+check) in its own `LOCAL_SCOPE`. An indicator scoped for assessment whose check is not
+registered **raises**; it is a wiring bug, not a pass. That trap is why DSM-4-R6 was
+silently skipped while its level was awarded for free. `tests/test_dsm_indicators_source.py`
+and `tests/test_fair_indicators_source.py` pin each committed YAML to its generator's
+output and to the source workbook.
+
+Note the DSM model text is **CC-BY-4.0**; the FAIRplus repository's MIT `LICENSE.txt`
+covers only its Jekyll theme and does not license the model.
 
 ### External RO-Crate Packages
 
@@ -1879,9 +1900,34 @@ chip prefixed by its source layer, the severity badge, then `remediation.describ
 instruction with `remediation.why`'s one muted consequence clause — and numbered **References**
 close the page (1: FAIRplus DSM / RDA FDMM; 2: tox-maturity-indicators). There is no FAIR pillar
 detail section and no header verdict pill; the entity explorer, entity coverage, the
-profile-adherence breakdown, MIT
+profile-adherence breakdown, **the DSM "% complete" grid**, MIT
 coverage and reproducibility readiness keep their sections between the KPI grid and
-Recommendations. The MIT axis keeps the
+Recommendations.
+
+**The DSM axis reports the published model's own two views, not one.** The gated level
+answers "how far up the ladder" and is deliberately harsh — one failing level-1
+indicator hides everything achieved above it — so alongside it the report renders the
+6x3 **"% complete" grid** (level x category) that the FAIRplus assessment sheet itself
+computes (`fair_assessment.dsm_grid`). Both follow the sheet exactly: the denominator is
+its Excel `COUNT`, so an indicator this tool cannot assess is an *unanswered cell* and
+leaves the percentage rather than counting against it (`pct=None`, "not assessed", never
+0); Level 0 is scored **inverted** because its indicators state the pre-FAIRification
+condition in the negative, and it is not a rung on the ladder. The indicator definitions
+are generated from the vendored workbook (see below), never hand-written.
+
+**Three properties keep a DSM verdict honest.** (i) It is **tri-state**: an indicator
+with nothing to read answers `None` — the sheet's blank cell — and leaves the
+denominator rather than counting as a failure (`Verdict.__bool__` raises, so a caller
+cannot silently collapse `None` to `False`). (ii) Every verdict carries **evidence**
+stating what was measured (`"28 of 59 files are in an open format; proprietary present:
+…"`), because the published model is a human assessment instrument and "why did it say
+no?" must be answerable without reading the source. (iii) The instrument is a
+questionnaire of 18 multiple-choice questions whose options **nest by level**, so
+`dsm_verdicts` walks each question's ladder and **demotes** any option standing above a
+failed rung, recording the reason. Demoting (rather than promoting the lower rung) never
+credits maturity the crate has not evidenced at every step below. `dsm_verdicts` is the
+single evaluation pass — the level, the grid, the ceiling and the blockers all read it,
+so they cannot disagree. The MIT axis keeps the
 aggregate score as the headline and additionally breaks coverage out per guidance document (#491):
 each checklist parameter's `standards` map buckets it under the documents that require it
 (`MITReport.standard_scores`, labels from `MIT_STANDARD_LABELS`); documents overlap, so the

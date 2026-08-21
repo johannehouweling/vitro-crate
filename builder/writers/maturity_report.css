@@ -586,3 +586,24 @@ __CATEGORY_STYLES__
   .mat .ex-app{display:none;}
   .mat .ex-print-note{display:block;}
 }
+
+/* --- DSM "% Complete" grid (the assessment sheet's own 6x3 scoring) --------- */
+/* A wide table scrolls inside its own box so the page body never scrolls sideways. */
+.mat .tbl-scroll { overflow-x:auto; }
+.mat .dsm-grid { width:100%; border-collapse:collapse; font-size:.82rem; }
+.mat .dsm-grid th, .mat .dsm-grid td {
+  padding:.42rem .6rem; text-align:left; border-bottom:1px solid var(--hairline); }
+.mat .dsm-grid thead th {
+  font-size:.7rem; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--muted); font-weight:650; }
+.mat .dsm-grid tbody th { font-weight:600; white-space:nowrap; }
+.mat .dsm-grid .dsm-lvl { color:var(--muted); font-weight:450; }
+.mat .dsm-grid td { font-variant-numeric:tabular-nums; }
+.mat .dsm-pct { display:block; font-weight:650; }
+.mat .dsm-den { display:block; font-size:.7rem; color:var(--muted); }
+.mat .dsm-full .dsm-pct { color:var(--good-ink); }
+.mat .dsm-part .dsm-pct { color:var(--warn-ink); }
+.mat .dsm-none .dsm-pct { color:var(--low-ink); }
+.mat .dsm-na  .dsm-pct { color:var(--na-ink); font-weight:500; font-style:italic; }
+.mat .dsm-note { font-size:.72rem; color:var(--muted); margin:.55rem 0 0; line-height:1.5; }
+.mat .blk-why { display:block; font-size:.7rem; color:var(--muted); margin-top:.1rem; }
