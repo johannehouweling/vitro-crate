@@ -166,3 +166,57 @@ def plumbing_heavy_graph() -> dict[str, Any]:
             {"@id": "#tool", "@type": "SoftwareApplication", "name": "vitro-crate"},
         ],
     }
+
+
+def wide_fanout_graph(files: int = 60) -> dict[str, Any]:
+    """A crate shaped like a real deposit's file list: one root, many leaves.
+
+    The shape #619 is about. A deposit's root Dataset ``hasPart`` every file it
+    carries, and none of those files points anywhere, so a layered layout puts
+    the whole list on one rank — a column *files* nodes tall, whatever the rest
+    of the crate looks like. Measured on a real 293-entity crate, that is a
+    12,100 px layout inside a 620 px canvas.
+
+    Carries a small ISA backbone besides, so the packing has non-leaf nodes on
+    the same ranks to keep out of the way of.
+
+    Args:
+        files: How many files hang off the root.
+    """
+    graph: list[dict[str, Any]] = [
+        {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+        {
+            "@id": "./",
+            "@type": "Dataset",
+            "name": "A deposit with a long file list",
+            "hasPart": [{"@id": f"data/f{i}.csv"} for i in range(files)]
+            + [{"@id": "#assay"}],
+            "mentions": [{"@id": "#process"}],
+        },
+        {
+            "@id": "#assay",
+            "@type": "Dataset",
+            "additionalType": "Assay",
+            "name": "Uptake assay",
+            "about": [{"@id": "#process"}],
+        },
+        {
+            "@id": "#process",
+            "@type": "LabProcess",
+            "name": "Exposure",
+            "object": [{"@id": "data/f0.csv"}],
+            "result": [{"@id": "data/f1.csv"}],
+            "agent": [{"@id": "#lab"}],
+        },
+        {"@id": "#lab", "@type": "Organization", "name": "A lab"},
+    ]
+    graph += [
+        {
+            "@id": f"data/f{i}.csv",
+            "@type": "File",
+            "name": f"f{i}.csv",
+            "encodingFormat": "text/csv",
+        }
+        for i in range(files)
+    ]
+    return {"@graph": graph}

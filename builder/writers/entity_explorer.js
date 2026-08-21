@@ -53,7 +53,8 @@
   // those alongside the derivation is what made the whole-crate picture a
   // hairball on paper.
   var DERIVATION = new Set(['input', 'object', 'result', 'output']);
-  var NODE_W = 200, NODE_H = 44;
+  var layout = window.ExplorerLayout.layout;
+  var NODE_W = window.ExplorerLayout.NODE_W, NODE_H = window.ExplorerLayout.NODE_H;
   // How far the opening view is allowed to pull back. A crate's whole graph is
   // thousands of pixels tall — the researcher view of a real deposit lays out
   // around 2300x4000 — so "fit everything" means a field of 14px slivers with
@@ -72,23 +73,6 @@
   }
 
   function category(n) { return D.categories[n.category] || D.categories.ctx; }
-  function layerName(n) {
-    return n.layer ? D.layers[String(n.layer)] : 'Referenced, outside the crate';
-  }
-  function shortId(id) {
-    try {
-      var u = new URL(id);
-      return u.hostname.replace(/^www\./, '') + u.pathname;
-    } catch (err) { return decodeURIComponent(id); }
-  }
-
-  function Glyph(props) {
-    var c = D.categories[props.k] || D.categories.ctx;
-    var s = props.size || 14;
-    return html`<svg class="ex-glyph" width=${s} height=${s} viewBox="0 0 14 14"
-      aria-hidden="true"><path d=${c.glyph} fill=${c.colour} fill-opacity=".18"
-      stroke=${c.colour} stroke-width="1.3" stroke-linejoin="round" /></svg>`;
-  }
 
   /* ---- the state a reader can link to -------------------------------------- */
   function readHash() {
@@ -146,21 +130,6 @@
       if (merged.get(key).labels.indexOf(e.label) < 0) merged.get(key).labels.push(e.label);
     });
     return { visible: visible, edges: Array.from(merged.values()) };
-  }
-
-  function layout(visible, edges) {
-    var g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', nodesep: 12, ranksep: 90, marginx: 24, marginy: 24 });
-    g.setDefaultEdgeLabel(function () { return {}; });
-    visible.forEach(function (id) { g.setNode(id, { width: NODE_W, height: NODE_H }); });
-    edges.forEach(function (e) { g.setEdge(e.src, e.dst); });
-    dagre.layout(g);
-    var pos = new Map();
-    visible.forEach(function (id) {
-      var p = g.node(id);
-      pos.set(id, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 });
-    });
-    return pos;
   }
 
   /* ---- node ---------------------------------------------------------------- */

@@ -362,6 +362,7 @@ def build_explorer_payload(
 _ASSET_DIR = Path(__file__).resolve().parent
 _VENDOR_DIR = _ASSET_DIR / "vendor"
 _APP_PATH = _ASSET_DIR / "entity_explorer.js"
+_LAYOUT_PATH = _ASSET_DIR / "entity_explorer_layout.js"
 _MANIFEST_PATH = _VENDOR_DIR / "manifest.json"
 
 _APP_ID = "ex-app"
@@ -372,10 +373,11 @@ VENDOR_MANIFEST: tuple[dict[str, Any], ...] = tuple(
 )
 """Every third-party file the page inlines: name, version, licence, origin, digest."""
 
-# react, react-dom, the jsx-runtime shim, React Flow, dagre, htm, the data
-# island, the app. Named so a test can state the count without recounting the
-# implementation, and so an accidental extra <script> is a failure, not a habit.
-EXPLORER_SCRIPT_COUNT = 8
+# react, react-dom, the jsx-runtime shim, React Flow, dagre, htm, the layout
+# module, the data island, the app. Named so a test can state the count without
+# recounting the implementation, and so an accidental extra <script> is a
+# failure, not a habit.
+EXPLORER_SCRIPT_COUNT = 9
 
 _JS_BUNDLES = (
     "react.production.min.js",
@@ -435,6 +437,17 @@ def _app_js() -> str:
 
 
 @lru_cache(maxsize=1)
+def _layout_js() -> str:
+    """The layout module the app takes its node positions from.
+
+    Its own file, and its own ``<script>``: the geometry is pure — no DOM, no
+    React, no payload — so a test can run the code the page runs over a real
+    crate's graph, rather than over a second copy of it kept in the test.
+    """
+    return _LAYOUT_PATH.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
 def explorer_css() -> str:
     """React Flow's stylesheet, for inlining into the report's one stylesheet.
 
@@ -487,6 +500,7 @@ def render_explorer_section(
             scripts.append(f"<script>{_JSX_SHIM}</script>")
             continue
         scripts.append(f"<script>{_banner(filename)}\n{_vendor_text(filename)}</script>")
+    scripts.append(f"<script>{_layout_js()}</script>")
     scripts.append(
         f'<script id="{_DATA_ID}" type="application/json">'
         f"{_data_island(build_explorer_payload(metadata, default_views=default_views))}"
