@@ -377,50 +377,50 @@ class TestViewMembership:
         assert cats["#term"] == "annotation", "a plain term still qualifies rather than takes part"
         assert cats["https://aopwiki.org/relationships/4615"] == "pathway", "and its links"
 
-    def test_pathways_draws_the_whole_chain(self) -> None:
+    def test_the_aop_view_draws_the_whole_chain(self) -> None:
         """The view the chain never had. Assays reaches only what an ISA entity
         `mentions` — on a real deposit 5 of 36 — so every relationship and every
         key event no assay measures directly existed only inside "All entities",
         among 293 nodes (#652)."""
         views = _views(build_explorer_payload(aop_linked_graph()))
 
-        assert views["pathways"] >= {
+        assert views["aop"] >= {
             "https://aopwiki.org/aops/610",
             "https://aopwiki.org/events/2258",
             "https://aopwiki.org/events/9999",
             "https://aopwiki.org/relationships/4615",
         }
 
-    def test_pathways_holds_the_assay_that_measures_an_event(self) -> None:
+    def test_the_aop_view_holds_the_assay_that_measures_an_event(self) -> None:
         """Which assay measures which event is the question the view exists to
         answer, so the ISA entity pointing into the chain is drawn with it — the
         same context rule the Chemicals and Biological-models views follow."""
         views = _views(build_explorer_payload(aop_linked_graph()))
 
-        assert {"#assay", "#study"} <= views["pathways"]
+        assert {"#assay", "#study"} <= views["aop"]
 
-    def test_pathways_leaves_out_what_merely_mentions_an_event(self) -> None:
+    def test_the_aop_view_leaves_out_what_merely_mentions_an_event(self) -> None:
         """Context, not everything that points at the chain. The fixture's note
         mentions a key event and is not part of the science; drawing it would
         make `mentions` the rule rather than the backbone."""
         views = _views(build_explorer_payload(aop_linked_graph()))
 
-        assert "#note" not in views["pathways"]
+        assert "#note" not in views["aop"]
 
-    def test_the_pathways_chip_counts_the_chain_and_not_its_context(self) -> None:
+    def test_the_aop_chip_counts_the_chain_and_not_its_context(self) -> None:
         """A chip counts what its view is named for (#625). The fixture's chain
         is four entities and the view draws six; a chip reading 6 would overstate
         its own label the way LabProcesses did by threefold."""
         counts = {v["key"]: v["count"] for v in build_explorer_payload(aop_linked_graph())["views"]}
 
-        assert counts["pathways"] == 4
+        assert counts["aop"] == 4
 
     def test_a_crate_with_no_pathway_is_not_offered_the_view(self) -> None:
         """The same rule the process flavours follow (#624): a view no entity
         satisfies is omitted, never offered as a chip that draws nothing."""
         views = _views(build_explorer_payload(tabbed_views_graph()))
 
-        assert "pathways" not in views
+        assert "aop" not in views
 
     def test_the_assays_view_and_the_canvas_agree_on_what_a_pathway_is(self) -> None:
         """One list, not two. The view selects what an assay mentions and the
