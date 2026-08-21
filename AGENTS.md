@@ -447,6 +447,15 @@ Assembles the RO-Crate using [`ro-crate-py`](https://github.com/ResearchObject/r
 (`profiles/models/isa.py`, `profiles/models/tox.py`, `profiles/context.py`).
 Can produce partial crates at any point.
 
+Every term the crate's `@context` declares resolves to a real vocabulary's own canonical IRI — the
+policy `profiles/ontology_iris` states for lookup terms, applied to the context too. AOP terms are
+**AOPO**'s (`http://aopkb.org/aop_ontology#`), the ontology AOP-Wiki RDF itself annotates with; they
+spent months under an `aopwiki.org` path AOP-Wiki does not serve, so a whole vocabulary resolved to
+nothing while looking familiar (#644). A test holds every namespace in the context to a declared
+allow-list, so an invented one fails CI instead of shipping inside crates, and a second drives the
+real validator over a crate carrying the real context — a shape whose `sh:class` and the crate's
+`@context` disagree does not fail, it finds no target and never runs.
+
 #### Validator (`builder/tools/validation.py`, `profiles/validator.py`)
 Runs three-pass SHACL validation via `profiles/validator.py`, which wraps
 [`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator).

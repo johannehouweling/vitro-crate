@@ -112,14 +112,14 @@ class TestContextVocabulary:
         human-readable name.
         """
         ctx = {
-            "KeyEvent": "https://aopwiki.org/ontology/KeyEvent",
-            "has_key_event": "https://aopwiki.org/ontology/hasKeyEvent",
+            "KeyEvent": "http://aopkb.org/aop_ontology#KeyEvent",
+            "has_key_event": "http://aopkb.org/aop_ontology#has_key_event",
             "@vocab": "http://schema.org/",
         }
         doc = _doc([{"@id": "#e", "@type": "KeyEvent"}], context=[ctx])
         cited = _cited_iris(doc)
-        assert "https://aopwiki.org/ontology/KeyEvent" in cited
-        assert "https://aopwiki.org/ontology/hasKeyEvent" in cited
+        assert "http://aopkb.org/aop_ontology#KeyEvent" in cited
+        assert "http://aopkb.org/aop_ontology#has_key_event" in cited
 
     def test_namespace_keys_are_not_terms(self):
         assert _context_vocabulary({"@context": [{"@vocab": "http://schema.org/"}]}) == set()

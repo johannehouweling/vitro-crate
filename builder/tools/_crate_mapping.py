@@ -1461,7 +1461,7 @@ def _add_leaves(
     # _scalar_props preserves them rather than stripping them as resolver inputs.
     #
     # Each also carries schema:DefinedTerm, exactly as the csvw:Column nodes do.
-    # The AOP classes resolve to https://aopwiki.org/ontology/… (profiles/context.py),
+    # The AOP classes resolve to AOPO, http://aopkb.org/aop_ontology#… (profiles/context.py),
     # which is not a schema.org type — so the base profile asked every one of
     # these for one, 36 findings on a real crate. These are NOT cited vocabulary
     # we could argue our way out of describing: `materialize_aop_subgraph` fetches

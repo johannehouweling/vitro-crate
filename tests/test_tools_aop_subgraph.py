@@ -201,7 +201,7 @@ class TestMaterializeBuild:
 
         # Membership, not equality: each AOP node carries its AOP class AND
         # schema:DefinedTerm, because the AOP classes resolve to
-        # aopwiki.org/ontology/… and the base profile asks a described contextual
+        # aopkb.org/aop_ontology#… and the base profile asks a described contextual
         # entity for a schema.org type. The AOP class stays first.
         def _typed(node, wanted):
             types = node.get("@type")
