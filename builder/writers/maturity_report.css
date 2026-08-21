@@ -449,6 +449,14 @@ __CATEGORY_STYLES__
 .mat .ex-chip:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
 .mat .ex-chip[aria-pressed="true"]{background:var(--accent); border-color:var(--accent);
   color:var(--accent-ink);}
+/* The LabProcesses sub-row (#624): a filter on its parent, so it sits under the
+   toolbar rather than in it, and its chips read as subordinate. */
+.mat .ex-flavours{display:flex; flex-wrap:wrap; align-items:center; gap:.3rem;
+  padding:.35rem .6rem; border-bottom:1px solid var(--hairline);
+  background:var(--surface);}
+.mat .ex-sub-h{font-size:.66rem; font-weight:650; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted); margin-right:.15rem;}
+.mat .ex-chip.ex-sub{font-size:.74rem; padding:.1rem .45rem;}
 .mat .ex-chip-count{font-size:.72rem; color:var(--muted); background:var(--surface-2);
   border-radius:999px; padding:0 .3rem;}
 .mat .ex-chip[aria-pressed="true"] .ex-chip-count{background:rgba(255,255,255,.22);
