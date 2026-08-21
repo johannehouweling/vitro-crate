@@ -477,10 +477,10 @@
             placeholder="Search name, @id or type  ( / )"
             onInput=${function (e) { setQuery(e.target.value); }} />
           <button type="button" class="ex-chip" aria-pressed=${showDoc}
-            title="Read the crate's ro-crate-metadata.json"
+            title="Show the crate's whole ro-crate-metadata.json in the side panel, instead of the selected entity"
             onClick=${function () { setShowDoc(!showDoc); }}>JSON</button>
           <button type="button" class="ex-chip"
-            title="Frame the whole of what is shown"
+            title="Zoom out until everything currently on the canvas fits on screen"
             onClick=${function () { flow.fitView({ padding: 0.08, duration: 300 }); }}>Fit</button>
           <span class="ex-count">${summary(graph, hits)}</span>
         </div>
