@@ -1982,6 +1982,22 @@ toggle swaps that for the whole `ro-crate-metadata.json`. Every `@id` in either 
 moves the selection — **never a link**: the payload carries the crate verbatim, `javascript:` URLs
 and all, so the absence of anchors is load-bearing and pinned by test.
 
+**Where the nodes go (`entity_explorer_layout.js`, #619).** Layout is its own module and its own
+`<script>`, holding pure geometry — no DOM, no React, no payload — so a test can run the shipped code
+over a crate's graph rather than a Python restatement of it. A layered pass gives every node in a
+rank its own row, which a crate defeats by construction: the root `hasPart` every file it carries,
+so one rank holds the whole file list and the layout is as tall as the deposit is long (a real
+293-entity crate laid out 12,100 px inside a 620 px canvas). Leaves are what makes a rank wide and
+they are also what a row says nothing about — nothing hangs off them — so a rank holding more than
+`RANK_CAP` leaves is packed into a near-square grid. The packing is expressed to dagre rather than
+around it: each block enters the second pass as ONE stand-in node the size of the grid it will hold,
+with its members' edges redirected to the stand-in, so rank order, rank spacing and the room a block
+needs stay the layered algorithm's answers; the members are dealt into the box afterwards. A rank at
+or below the cap keeps its column, because a column is a rank and that reads better than a grid
+does. This does not make every view framable — a crate with 80 non-leaf entities over nine ranks is
+some 3,400 px tall whatever is done with its leaves, and "all entities" stays a view to navigate
+rather than to take in at once.
+
 **Script, but nothing loaded.** The report's contract was "carries no script"; it is now *loads
 nothing*. React, React Flow, dagre and htm are vendored UMD builds under `builder/writers/vendor/`,
 pinned by `manifest.json` (name, version, licence, origin, sha256) and verified against it at render
@@ -2129,6 +2145,7 @@ vitro-crate/
 │   │   ├── maturity_report.py    Maturity / FAIR HTML report
 │   │   ├── entity_explorer.py   Interactive React Flow entity graph (#615)
 │   │   ├── entity_explorer.js   …its browser half (no build step)
+│   │   ├── entity_explorer_layout.js  …where its nodes go (#619)
 │   │   └── vendor/              Pinned UMD builds inlined into the report
 │   └── agents/                  Orchestration + LLM config
 │       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
