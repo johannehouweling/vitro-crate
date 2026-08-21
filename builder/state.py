@@ -539,6 +539,35 @@ class GeneratorInfo:
         )
 
 
+# How long an identifier may be and still read as one. Long enough for a DOI URL
+# (`https://doi.org/10.1007/s00204-024-03787-2`, 42 characters), far short of a
+# title turned into a slug.
+IDENTIFIER_MAX = 48
+
+
+def looks_like_identifier(value: str | None) -> bool:
+    """Whether *value* reads as something a reader could cite.
+
+    A crate reached its report headlined
+    ``inv_neural_cell_screening_models_for_endocrine_disruption_of_thyroid_hormone_signaling``
+    — a filename slug sitting in the root's ``identifier`` where a registry
+    accession belongs (#628). A slug identifies nothing, and the crate carries
+    it as ``schema:identifier``, where every downstream consumer reads it as one.
+
+    Judged on shape alone, because the two callers cannot know provenance: the
+    report reads a finished crate, and the setter takes whatever the agent
+    extracted. A citable identifier is ONE COMPACT TOKEN — no whitespace, no
+    longer than :data:`IDENTIFIER_MAX`. ``S-VHPS21`` passes, a DOI URL passes, a
+    sentence with its spaces replaced by underscores does not.
+
+    This is a test of shape, never of existence: it cannot tell a real accession
+    from a well-formed invention, so callers use it to decide how much to CLAIM
+    for a value, never to decide that one is true.
+    """
+    text = (value or "").strip()
+    return bool(text) and not any(c.isspace() for c in text) and len(text) <= IDENTIFIER_MAX
+
+
 @dataclass
 class CrateMetadata:
     """Top-level metadata describing the RO-Crate itself.

@@ -289,6 +289,81 @@ class TestHeaderAndCards:
         assert "<h1>Some study</h1>" in page
         assert '<p class="subhead">' not in page
 
+    def test_a_title_slugged_into_the_identifier_does_not_headline(self) -> None:
+        """A crate reached the report headlined
+        `inv_neural_cell_screening_models_for_endocrine_disruption_of_thyroid_
+        hormone_signaling` — a filename slug sitting in the root's `identifier`
+        where a registry accession belongs (#628). The headline is what a reader
+        cites, so it leads with something citable: a slug is not, and the crate's
+        own title is."""
+        state = CrateState()
+        state.metadata.title = "Neural cell in vitro toxicology assays"
+        state.metadata.accession = (
+            "inv_neural_cell_screening_models_for_endocrine_disruption_of_"
+            "thyroid_hormone_signaling"
+        )
+
+        page = build_maturity_html(state)
+
+        assert "<h1>Neural cell in vitro toxicology assays</h1>" in page
+        assert f"<h1>{state.metadata.accession}</h1>" not in page
+
+    def test_the_browser_tab_follows_the_headline(self) -> None:
+        """The tab is the same claim in a smaller place; a slug there is the
+        first thing a reader sees of the crate."""
+        state = CrateState()
+        state.metadata.title = "A readable title"
+        state.metadata.accession = "inv_" + "_".join(["word"] * 20)
+
+        page = build_maturity_html(state)
+
+        assert "<title>A readable title — vitro-crate maturity report</title>" in page
+
+    def test_a_sentence_short_enough_to_fit_still_does_not_headline(self) -> None:
+        """The other half of the rule. A prose phrase written into the
+        identifier field is short enough to pass a length bound, and is still
+        not something anyone can cite — one token is what makes an identifier."""
+        state = CrateState()
+        state.metadata.title = "The real title"
+        state.metadata.accession = "thyroid assay set"
+
+        page = build_maturity_html(state)
+
+        assert "<h1>The real title</h1>" in page
+
+    def test_a_real_accession_still_leads(self) -> None:
+        """The rule refuses a slug, not an identifier. `S-VHPS21` is what people
+        cite this deposit by, and it stays the headline."""
+        page = build_maturity_html(self._state())
+
+        assert "<h1>S-VHPS21</h1>" in page
+
+    def test_a_doi_still_leads(self) -> None:
+        """Long, but a citable identifier — the bound is not merely "short"."""
+        state = CrateState()
+        state.metadata.title = "A study"
+        state.metadata.accession = "https://doi.org/10.1007/s00204-024-03787-2"
+
+        page = build_maturity_html(state)
+
+        assert f"<h1>{state.metadata.accession}</h1>" in page
+
+    def test_an_identifier_that_does_not_headline_is_still_reported(self) -> None:
+        """Demoted, never dropped: it is what the crate claims to be identified
+        by, and a reader who cannot see it cannot question it."""
+        state = CrateState()
+        state.metadata.title = "A study"
+        state.metadata.accession = "inv_" + "_".join(["word"] * 20)
+
+        page = build_maturity_html(state)
+
+        # Located by the card's own heading element, not by the words: the
+        # stylesheet's comments name the card too, and splitting on the text
+        # picked the CSS up instead.
+        card = page.split('<div class="hcard-h">About this study</div>', 1)[1]
+        card = card.split("</div>\n", 1)[0]
+        assert f'<span class="hlabel">Identifier</span>{state.metadata.accession}' in card
+
     def test_the_study_card_states_not_stated_rather_than_guessing(self) -> None:
         page = build_maturity_html(CrateState())
         card = re.search(r'<div class="hcard">.*?About this study.*?</div>\n', page, re.S)

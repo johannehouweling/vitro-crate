@@ -48,7 +48,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from builder.state import CrateState, Entity, FAIRReport, MITReport, ValidationReport
+from builder.state import (
+    CrateState,
+    Entity,
+    FAIRReport,
+    MITReport,
+    ValidationReport,
+    looks_like_identifier,
+)
 from builder.tools.document_discovery import (
     CLASS_PROCESSED_DATA,
     CLASS_RAW_DATA,
@@ -350,11 +357,17 @@ def _render_header(title: str, accession: str, subhead: str) -> str:
     """The page header: eyebrow, the accession as the headline, and a subhead —
     the publication's name when the crate has one, else the study title.
 
+    The accession leads because it is what a reader cites — but only while it
+    reads as one (:func:`state.looks_like_identifier`). A crate reached this
+    report headlined a filename slug sitting where a registry accession belongs
+    (#628); the title leads instead, and the study card reports the identifier
+    either way, since a reader who cannot see it cannot question it.
+
     No verdict pill, no chips, no scope caveats: conformance lives in the
     Profile conformance tile and the caveats with the findings they qualify
     (the #607 design handoff)."""
     esc = html.escape
-    h1 = accession or title
+    h1 = accession if looks_like_identifier(accession) else (title or accession)
     sub = f'<p class="subhead">{esc(subhead)}</p>\n' if subhead and subhead != h1 else ""
     return (
         "<header>\n"
@@ -420,6 +433,8 @@ def _study_facts(
         "publication": None,  # (doi url|None, display text, article name)
         "dataset_doi": None,
         "description": state.metadata.description or "",
+        # Reported whether or not it headlines the page (see `leads_the_page`).
+        "accession": (state.metadata.accession or "").strip(),
     }
     if graph is None:
         m = state.metadata
@@ -569,6 +584,7 @@ def _render_study_card(facts: dict[str, Any]) -> str:
         '<div class="hcard">\n'
         '  <div class="hcard-h">About this study</div>\n'
         '  <div class="hgrid">'
+        + (cell("Identifier", esc(facts["accession"])) if facts.get("accession") else "")
         + cell("Contact person", linked(facts.get("contact")))
         + cell("Affiliation", linked(facts.get("affiliation")))
         + cell("Funder", linked(facts.get("funder")))
@@ -2506,7 +2522,9 @@ def build_maturity_html(
     esc = html.escape
     title = state.metadata.title or "RO-Crate"
     accession = state.metadata.accession or ""
-    page_title = f"{accession or title} — vitro-crate maturity report"
+    # The tab is the same claim in a smaller place, so it follows the same rule.
+    headline = accession if looks_like_identifier(accession) else (title or accession)
+    page_title = f"{headline} — vitro-crate maturity report"
     # MIT is scored against the assembled @graph — the crate_slot vocabulary
     # describes the serialized crate, not CrateState (#311). The export path
     # passes the graph it already built; without one the assessor assembles its

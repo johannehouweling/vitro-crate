@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import json
 
 import pytest
@@ -392,3 +394,44 @@ class TestConsolidatedMutationTool:
         assert "set_fields" in names
         for redundant in ("update_entity", "bulk_set_fields", "set_entity_field"):
             assert redundant not in names
+
+
+class TestTheAccessionIsJudgedOnShape:
+    """#628: the crate carries the accession as ``schema:identifier``, where
+    every consumer reads it as something to cite."""
+
+    def test_a_slug_is_recorded_but_said_out_loud(self, caplog) -> None:
+        """Recorded, because refusing would drop the only identifier the crate
+        has and this tool cannot tell a weak one from a real one it has never
+        heard of. Said out loud, because a title slugged into that field
+        identifies nothing."""
+        from builder.tools.management import set_crate_metadata
+
+        state = CrateState()
+        slug = "inv_neural_cell_screening_models_for_endocrine_disruption_of_thyroid"
+        with caplog.at_level(logging.WARNING, logger="builder.tools.management"):
+            set_crate_metadata(state, accession=slug)
+
+        assert state.metadata.accession == slug
+        assert any("does not read as an identifier" in r.message for r in caplog.records)
+
+    def test_a_real_accession_passes_without_comment(self, caplog) -> None:
+        from builder.tools.management import set_crate_metadata
+
+        state = CrateState()
+        with caplog.at_level(logging.WARNING, logger="builder.tools.management"):
+            set_crate_metadata(state, accession="S-VHPS21")
+
+        assert state.metadata.accession == "S-VHPS21"
+        assert not caplog.records
+
+    def test_a_doi_passes_without_comment(self, caplog) -> None:
+        """Long, but one token and citable — the rule is not merely "short"."""
+        from builder.tools.management import set_crate_metadata
+
+        state = CrateState()
+        doi = "https://doi.org/10.1007/s00204-024-03787-2"
+        with caplog.at_level(logging.WARNING, logger="builder.tools.management"):
+            set_crate_metadata(state, accession=doi)
+
+        assert not caplog.records
