@@ -2009,6 +2009,15 @@ colour they are drawn in. A relationship is in it although nothing `mentions` on
 *reaches* and what an entity *is* are different questions, and a chain whose every link is drawn as
 vocabulary is not a chain.
 
+**Pathways** draws the chain from the other end: every `pathway`-category entity — the adverse
+outcome pathway, its key events and the `KeyEventRelationship`s ordering them — plus the ISA entity
+that `mentions` one, as context. Assays starts at the backbone and follows outward, so it shows only
+what an assay or study points at (5 of 36 on a real deposit); this view starts at the chain, so a
+relationship (which nothing mentions) and an event no assay measures directly are drawn too. The
+chip counts the chain, not the context (#625), and the view is not offered at all when the crate has
+none — `build_explorer_payload` omits any view no entity satisfies, so no per-view guard exists
+(#652).
+
 **LabProcesses** draws the derivation chain plus what each step *is*: the protocol a visible
 process executes and the assay whose `about` points at one. Neither edge lies on the material chain
 the derivation walk follows, and the two point in opposite directions — outward to the protocol,
