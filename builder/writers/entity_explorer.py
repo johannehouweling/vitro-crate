@@ -126,6 +126,39 @@ def _select_files(crate: _Crate) -> set[str]:
     return {n["id"] for n in crate.model["nodes"] if n["category"] in ("data", "container")}
 
 
+def _select_pathways(crate: _Crate) -> set[str]:
+    """The adverse outcome pathway itself, and who measures it.
+
+    The chain entire — the pathway, its key events and the relationships that
+    order them — plus the ISA entity that points into it, because *which assay
+    measures which event* is the question the view exists to answer and a bag of
+    events answers nothing.
+
+    Assays draws the same chain from the other end: it starts at the backbone and
+    follows `mentions` outward, so it shows only what an assay or study points
+    at — five of thirty-six on a real deposit. This view starts at the chain, so
+    a relationship (which nothing mentions) and a key event no assay measures
+    directly are drawn too, and the ISA entities arrive as context rather than as
+    the subject (#652).
+
+    Context, not everything that points here: a `CreativeWork` note mentioning a
+    key event is not part of the science, so the source is filtered to the
+    backbone exactly as `_select_assays` filters its destination by type.
+
+    No empty-crate guard: a crate with no pathway selects nothing here, and
+    `build_explorer_payload` already omits a view no entity satisfies rather than
+    offering a chip that draws an empty canvas.
+    """
+    chain = {n["id"] for n in crate.model["nodes"] if n["category"] == "pathway"}
+    backbone = {n["id"] for n in crate.inventory("isa")["nodes"]}
+    measured_by = {
+        edge["src"]
+        for edge in crate.model["edges"]
+        if edge["label"] == "mentions" and edge["src"] in backbone and edge["dst"] in chain
+    }
+    return chain | measured_by
+
+
 def _select_assays(crate: _Crate) -> set[str]:
     """The ISA backbone, and what its assays are for.
 
@@ -444,6 +477,14 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         False,
         lambda crate: _routed(crate, "cellline", "celllines"),
         _of_inventory("cellline", "celllines"),
+    ),
+    ExplorerView(
+        "pathways",
+        "Pathways",
+        "The adverse outcome pathway, and the assays that measure its events",
+        False,
+        _select_pathways,
+        _of_category("pathway"),
     ),
     ExplorerView(
         "people",
