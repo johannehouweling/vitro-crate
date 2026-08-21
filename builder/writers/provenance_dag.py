@@ -365,13 +365,19 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
     ),
 }
 
-# The two types the ISA-Tox profile defines for an adverse outcome pathway
-# (`profiles/shapes/tox/6_study_aop.ttl`, `7_assay_key_event.ttl`). ONE list,
-# read by three rules that would otherwise drift: which entities the Assays view
-# follows a `mentions` edge to (#627), what the node is captioned, and what
-# colour it is drawn in (#643). A type in one and not the others is drawn as
-# science and captioned as vocabulary, or the reverse.
-PATHWAY_TYPES = frozenset({"AdverseOutcomePathway", "KeyEvent"})
+# The types an adverse outcome pathway is made of — the pathway, its events, and
+# the relationships that order them (`materialize_aop_subgraph` mints all three;
+# `profiles/shapes/tox/6_study_aop.ttl` and `7_assay_key_event.ttl` are where the
+# first two are wired to a Study and an Assay). ONE list, read by three rules
+# that would otherwise drift: which entities the Assays view follows a `mentions`
+# edge to (#627), what the node is captioned, and what colour it is drawn in
+# (#643). A type in one and not the others is drawn as science and captioned as
+# vocabulary, or the reverse.
+#
+# A `KeyEventRelationship` is in the list although nothing `mentions` one: what a
+# view *reaches* and what an entity *is* are different questions, and a chain
+# whose links are drawn as vocabulary is not a chain.
+PATHWAY_TYPES = frozenset({"AdverseOutcomePathway", "KeyEvent", "KeyEventRelationship"})
 
 # Type preference for a node's caption, most specific first: a domain type
 # outranks the generic one it refines.

@@ -1662,6 +1662,18 @@ class TestCategoryRegistry:
         assert _entity_category({"@type": ["AdverseOutcomePathway", "DefinedTerm"]}) == "pathway"
         assert _node_class_for_brief({"tag": "KeyEvent"}) == "pathway"
 
+    def test_the_link_between_two_key_events_is_part_of_the_pathway(self) -> None:
+        """A ``KeyEventRelationship`` is what makes a pathway a pathway rather
+        than a bag of events, and the crate mints one per relation — nineteen of
+        them on a real deposit, against sixteen key events. Nothing ``mentions``
+        one, so a rule that recognised only what an assay points at would leave
+        the chain's every link drawn as vocabulary and captioned ``DefinedTerm``
+        while the events it connects were drawn as science."""
+        relationship = {"@type": ["KeyEventRelationship", "DefinedTerm"]}
+
+        assert _entity_category(relationship) == "pathway"
+        assert _tag(relationship) == "KeyEventRelationship"
+
     def test_an_ordinary_term_is_still_an_annotation(self) -> None:
         """The control. The rule is keyed to the two types the ISA-Tox profile
         defines, not to everything a crate happens to type ``DefinedTerm`` — a
