@@ -251,8 +251,8 @@ well (cell line, compound, concentration, exposure duration).
 |name|MUST|Text|The name of the process, e.g. "Exposure".|
 |object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one. (A `MolecularEntity` is **not** allowed here — see note above.)|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Exposure parameter(s); see expected values below. At least one.|
-|result|MUST|[File](https://schema.org/MediaObject) (typed also as `csvw:Table`) or [bioschemas.org/Sample](isa.md#sample)|The CSVW condition table (a `File` that is also a `csvw:Table`) and/or the exposed sample(s). At least one.|
-|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|
+|result|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject) (typed also as `csvw:Table`)|The exposed sample(s), and — once populated — the CSVW condition table whose rows name the sample each well produced. At least one.|
+|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol(s) this step executes: the procedural SOP, and the per-well condition table supplying the plate layout the SOP leaves out.|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). The profile requires at least one `parameterValue`; the following are recommended

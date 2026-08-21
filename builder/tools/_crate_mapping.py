@@ -50,6 +50,14 @@ ROCRATE_SPEC = "https://w3id.org/ro/crate/1.2"
 PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
 CELL_LINE_TERM_ID = iri("NCIT:C16403")
+# The material a CellCulture produces and an Exposure passes on: OBI's "cell
+# culture" is "a material entity comprised of cultured cells and the media in
+# which they are being propagated or stored" — exactly what both are. Exposure
+# changes a sample's STATE, not its kind, so both carry this one type and no
+# tox: class is invented for either (#650). What distinguishes the exposed one is
+# the compound and dose it received; those are ISA Factors, and a Factor cannot
+# be attached to a sample that stands for several wells at once (#654).
+CELL_CULTURE_TERM_ID = iri("OBI:0001876")
 
 # The spellings a LabProcess's protocol link arrives under. `labprotocol` is what
 # the draft schema advertises; `protocol` is the word the agent actually reaches
@@ -1392,6 +1400,23 @@ def _cell_line_term(crate: ROCrate) -> ContextEntity:
     )
 
 
+def _cell_culture_term(crate: ROCrate) -> ContextEntity:
+    """The shared, resolvable 'cell culture' DefinedTerm for a synthesized
+    Sample's ``sampleType`` — one node, referenced by every sample that is one."""
+    return crate.add(
+        ContextEntity(
+            crate,
+            CELL_CULTURE_TERM_ID,
+            properties={
+                "@type": "DefinedTerm",
+                "name": "cell culture",
+                "termCode": "OBI:0001876",
+                "inDefinedTermSet": {"@id": "http://purl.obolibrary.org/obo/obi.owl"},
+            },
+        )
+    )
+
+
 def _add_leaves(
     state: CrateState,
     crate: ROCrate,
@@ -2130,10 +2155,35 @@ def _protocol_document_for(
     return found[0] if len(found) == 1 else None
 
 
-def _synth_sample(crate: ROCrate, sid: str, name: str, derives_from: Any = None) -> Sample:
+def _mark_as_cultured(crate: ROCrate, sample: Any, lines: list[Any]) -> None:
+    """Give a drafted cultured sample the type and lineage it arrived without.
+
+    Both are gaps rather than corrections: a ``sampleType`` the drafter stated is
+    left alone, and so is a ``derivesFrom``. Only an empty slot is filled — the
+    same type-aware rule the rest of the chain follows (#650).
+    """
+    if sample is None:
+        return
+    if not _child_ids(sample, "sampleType"):
+        sample["sampleType"] = {"@id": _cell_culture_term(crate).id}
+    if not _child_ids(sample, "derivesFrom"):
+        for line in lines:
+            if getattr(line, "id", None) is not None:
+                _append_unique(sample, "derivesFrom", line)
+
+
+def _synth_sample(
+    crate: ROCrate,
+    sid: str,
+    name: str,
+    derives_from: Any = None,
+    sample_type: Any = None,
+) -> Sample:
     props: dict[str, Any] = {}
     if derives_from is not None:
         props["derivesFrom"] = derives_from
+    if sample_type is not None:
+        props["sampleType"] = sample_type
     ident = sid if sid.startswith("#") else "#" + _slug(sid)
     return Sample(crate, identifier=ident, name=name, properties=props or None)
 
@@ -2900,10 +2950,22 @@ def _build_process(
         ]
         cell_line = cell_lines if len(cell_lines) > 1 else cell_lines[0]
         if result:
+            # The drafter supplied the cultured sample, which is what happens on
+            # every real crate — `draft_process_chain` always does. It arrives as a
+            # bare Sample, so it said neither what it is nor where it came from,
+            # and the lineage stopped one link short of the cell line (#650).
+            # Filled in, never overruled: a value the drafter stated survives.
             out = result[0]
+            _mark_as_cultured(crate, out, cell_lines)
         else:
             label = f"Cultured ({name})"
-            out = _synth_sample(crate, pid + "_cultured", label, cell_line)
+            out = _synth_sample(
+                crate,
+                pid + "_cultured",
+                label,
+                cell_line,
+                sample_type=_cell_culture_term(crate),
+            )
         return LabProcessCellCulture(
             crate,
             identifier=pid,
@@ -2952,6 +3014,7 @@ def _build_process(
                 pid + "_exposed",
                 f"Exposed ({name})",
                 cells[0] if cells else None,
+                sample_type=_cell_culture_term(crate),
             )
             out = list(result) + [exposed]
         else:

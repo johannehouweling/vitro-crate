@@ -573,3 +573,75 @@ class TestSourceCodeFileTyping:
         assert node is not None
         assert node.get("@type") == "File", "plain File keeps scalar @type"
         assert "programmingLanguage" not in node
+
+
+class TestASampleInTheAnalysisSlotIsReported:
+    """Issue #650 — "the raw/condition data being analysed" is now checked.
+
+    The tox shape carried only ``minCount 1`` on DataAnalysis's ``schema:object``,
+    so a Sample satisfied it structurally while being wrong scientifically, and the
+    crate conformed. An assertion that cannot fail is not a check (#620).
+
+    Reported at **recommended** severity rather than required, deliberately. The
+    shape targets ``tox:LabProcessDataAnalysis`` — a class every already-deposited
+    crate's analyses fall into — so a Violation would retroactively fail crates
+    that were conformant when they were written. These two tests pin both halves:
+    the finding is raised, and conformance is not withdrawn.
+
+    The fixture gives the analysis no EndpointReadout to draw from, so the build's
+    chaining pass has nothing to correct it with and the wrong value survives to
+    the validator — which is the state a real crate reaches when its readout
+    produced no files.
+    """
+
+    def _state(self) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "Analysis crate"
+        state.add_entity(
+            Entity(
+                entity_id="assay_1",
+                type="Assay",
+                fields={"name": "A"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        state.add_entity(
+            Entity(
+                entity_id="sample_1",
+                type="Sample",
+                fields={"name": "cultured"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        state.add_entity(
+            Entity(
+                entity_id="proc_da",
+                type="LabProcess",
+                fields={
+                    "name": "Analyse",
+                    "process_type": "DataAnalysis",
+                    "assay_id": "assay_1",
+                    "object": ["sample_1"],
+                    "result": ["sample_1"],
+                    "data_processing": "Four-parameter logistic fit",
+                },
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        return state
+
+    def test_the_sample_is_reported(self) -> None:
+        from builder.tools.validation import build_and_validate
+
+        report = build_and_validate(self._state(), severity="recommended", profile="tox")
+        messages = [str(i.get("message")) for i in report["issues"]]
+        assert any("data analysed" in m for m in messages), (
+            f"a Sample in the analysis's data slot must be reported: {messages}"
+        )
+
+    def test_conformance_is_not_withdrawn(self) -> None:
+        """Recommended-tier, so a crate that was conformant stays conformant."""
+        from builder.tools.validation import build_and_validate
+
+        report = build_and_validate(self._state(), severity="required", profile="tox")
+        assert report["conformance"]["tox"] is True, report

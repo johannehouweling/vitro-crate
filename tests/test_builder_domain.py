@@ -841,3 +841,144 @@ class TestTheCultureProtocolIsStudyLevel:
         assert not any(
             str(n.get("@id", "")).startswith("#protocol_") for n in graph
         ), "nothing may be minted alongside the real document"
+
+
+class TestSynthesizedSamplesCarryTheirType:
+    """Issue #650 — a cultured or exposed sample says what kind of material it is.
+
+    Both are cell cultures: `OBI:0001876` is *"a material entity comprised of
+    cultured cells and the media in which they are being propagated or stored"*,
+    which is exactly what they are. Exposure changes a sample's **state**, not its
+    kind, so both carry the same type — and no `tox:` class is invented for either.
+
+    The distinction between them is the compound and dose the exposed one received.
+    Those are ISA **Factors**, and a factor cannot be attached to a sample that
+    stands for several wells at once: one sample carrying FactorValues for ten
+    compounds would assert a ten-compound cocktail. They arrive with the per-arm
+    samples in #654.
+    """
+
+    def _chain(self):
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("cell_a", "CellLineSample", name="SK-N-AS"))
+        state.add_entity(_ent("chem_1", "MolecularEntity", name="Amiodarone"))
+        state.add_entity(
+            _ent(
+                "proc_cult",
+                "LabProcess",
+                name="Culture",
+                process_type="CellCulture",
+                assay_id="assay_1",
+                cell_line=["cell_a"],
+                culture_medium="DMEM",
+            )
+        )
+        state.add_entity(
+            _ent(
+                "proc_exp",
+                "LabProcess",
+                name="Expose",
+                process_type="Exposure",
+                assay_id="assay_1",
+                chemicals=["chem_1"],
+                duration="24 h",
+            )
+        )
+        return state
+
+    @staticmethod
+    def _sample_of(by_id, process_id):
+        out = _ids(by_id[process_id].get("output"))
+        return [by_id[i] for i in out if "Sample" in str(by_id[i].get("@type"))]
+
+    def test_the_cultured_sample_declares_its_type(self, tmp_path):
+        _, by_id = _build(self._chain(), tmp_path)
+        samples = self._sample_of(by_id, "#LabProcess_proc_cult")
+        assert samples, "the culture produced no Sample"
+        term_ids = _ids(samples[0].get("sampleType"))
+        assert term_ids, f"a cultured sample MUST say what it is: {samples[0]}"
+        term = by_id[term_ids[0]]
+        assert "OBI:0001876" in str(term.get("termCode")), term
+
+    def test_the_exposed_sample_declares_the_same_type(self, tmp_path):
+        _, by_id = _build(self._chain(), tmp_path)
+        cultured = self._sample_of(by_id, "#LabProcess_proc_cult")
+        exposed = self._sample_of(by_id, "#LabProcess_proc_exp")
+        assert exposed, "the exposure produced no Sample"
+        assert _ids(exposed[0].get("sampleType")) == _ids(cultured[0].get("sampleType")), (
+            "exposure changes a sample's state, not its kind — both are cell "
+            f"cultures; cultured={_ids(cultured[0].get('sampleType'))} "
+            f"exposed={_ids(exposed[0].get('sampleType'))}"
+        )
+
+    def test_the_term_is_one_shared_entity(self, tmp_path):
+        """One DefinedTerm node, referenced twice — not two copies."""
+        graph, by_id = _build(self._chain(), tmp_path)
+        terms = [
+            n
+            for n in graph
+            if "DefinedTerm" in str(n.get("@type"))
+            and "OBI:0001876" in str(n.get("termCode"))
+        ]
+        assert len(terms) == 1, f"expected one shared cell-culture term, got {terms}"
+
+    def test_no_factor_is_attached_to_a_sample_standing_for_many_wells(self, tmp_path):
+        """A single exposed sample must not claim the compounds as its own Factors.
+
+        The exposure names its compounds because the assay tested them across
+        separate wells. Hanging them on one sample asserts a cocktail. Factors
+        arrive with the per-arm samples (#654).
+        """
+        _, by_id = _build(self._chain(), tmp_path)
+        exposed = self._sample_of(by_id, "#LabProcess_proc_exp")
+        factors = [
+            by_id[i]
+            for i in _ids(exposed[0].get("additionalProperty"))
+            if by_id.get(i, {}).get("additionalType") == "FactorValue"
+        ]
+        assert factors == [], (
+            f"a per-exposure sample may carry no exposure Factors yet: {factors}"
+        )
+
+    def _chain_with_drafted_result(self):
+        """The real-crate shape: the drafter supplies the culture's result.
+
+        `_synth_sample` only runs when the CellCulture has no `result` of its own,
+        and in a real deposit `draft_process_chain` always supplies one — so on
+        every crate we have actually built, the cultured sample was a drafted
+        entity that carried neither its type nor its lineage.
+        """
+        state = self._chain()
+        state.add_entity(_ent("sample_cult", "Sample", name="cultured cells"))
+        state.list_entities("LabProcess")[0].set_fields_from_dict(
+            {"result": ["sample_cult"]}, source="llm"
+        )
+        return state
+
+    def test_a_drafted_cultured_sample_still_declares_its_type(self, tmp_path):
+        _, by_id = _build(self._chain_with_drafted_result(), tmp_path)
+        sample = by_id["#Sample_sample_cult"]
+        term_ids = _ids(sample.get("sampleType"))
+        assert term_ids, f"a drafted cultured sample must say what it is: {sample}"
+        assert "OBI:0001876" in str(by_id[term_ids[0]].get("termCode"))
+
+    def test_a_drafted_cultured_sample_records_its_lineage(self, tmp_path):
+        _, by_id = _build(self._chain_with_drafted_result(), tmp_path)
+        derived = _ids(by_id["#Sample_sample_cult"].get("derivesFrom"))
+        assert "#CellLineSample_cell_a" in derived, (
+            f"the cultured sample must derive from the line it was grown from: {derived}"
+        )
+
+    def test_a_drafters_own_values_are_not_overwritten(self, tmp_path):
+        """Same type-aware rule as everywhere else: fill the gap, never overrule."""
+        state = self._chain_with_drafted_result()
+        state.add_entity(_ent("other_line", "CellLineSample", name="MO3.13"))
+        for e in state.list_entities("Sample"):
+            if e.entity_id == "sample_cult":
+                e.set_fields_from_dict({"derives_from": ["other_line"]}, source="llm")
+        _, by_id = _build(state, tmp_path)
+        derived = _ids(by_id["#Sample_sample_cult"].get("derivesFrom"))
+        assert "#CellLineSample_other_line" in derived, (
+            f"a lineage the drafter stated must survive: {derived}"
+        )
