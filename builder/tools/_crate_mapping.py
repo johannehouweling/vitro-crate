@@ -30,6 +30,7 @@ from rocrate.model import ContextEntity, DataEntity, File, Person
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
+from builder.tools.document_discovery import CLASS_PROTOCOL
 from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, Sample, param_id
 from profiles.models.tox import (
@@ -958,6 +959,27 @@ def _known_file_size(state: CrateState, fe: Entity, input_path: str | None) -> i
     return None
 
 
+def _scanned_class(state: Any, fe: Entity) -> str | None:
+    """What the scan called this file, or ``None`` if it holds no record of it.
+
+    Matched the way :func:`_known_file_size` matches — by base name, or by the
+    inventory path ending with the crate-relative destination — because the two
+    answer questions about the same file from the same inventory.
+
+    :func:`~builder.tools.document_discovery.classification_of` is the accessor
+    rather than the raw field, so a session saved before the scan stamped its
+    records (#591) is derived from what the record already holds instead of
+    being treated as unclassified.
+    """
+    from builder.tools.document_discovery import classification_of
+
+    dest = _file_dest(fe)
+    for fc in getattr(state, "scanned_files", []) or []:
+        if fc.filename == Path(dest).name or str(fc.path).endswith(dest):
+            return classification_of(fc, input_root=state.metadata.input_path or "")
+    return None
+
+
 def _file_source(fe: Entity, input_path: str | None) -> str | None:
     """Resolve the on-disk source for a File data entity, or ``None`` (#128).
 
@@ -1512,8 +1534,17 @@ def _add_leaves(
         # e.g. ["File", "SoftwareSourceCode"] for an analysis script (#180, gold
         # plot.py). A plain File keeps its scalar @type. additional_types is
         # consumed here, never emitted as a stray literal (see _STRUCT_FIELDS).
+        # A protocol document is typed as one (#646). The scan already decided
+        # this — `classify_file` stamps every deposit file — and the crate used
+        # to drop the answer, so the document went in as plain data while a
+        # separate fileless LabProtocol stub carried the description. `LabProtocol`
+        # resolves to https://bioschemas.org/LabProtocol through the context, and
+        # the report's categoriser tests it before File, so co-typing is all the
+        # graph view needs to draw the file as the protocol it is.
+        extra_types = list(fe.fields.get("additional_types") or [])
+        if _scanned_class(state, fe) == CLASS_PROTOCOL:
+            extra_types.append("LabProtocol")
         file_type: Any = "File"
-        extra_types = fe.fields.get("additional_types")
         if extra_types:
             seen: set[str] = set()
             file_type = []

@@ -20,6 +20,9 @@ is fast.
 
 from __future__ import annotations
 
+from pathlib import Path
+from urllib.parse import unquote
+
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance
@@ -319,6 +322,157 @@ class TestProcessAdditionalProperty:
         proc = _by_id(graph, "#LabProcess_report")
         assert proc is not None
         assert _ids(proc.get("additionalProperty")) == []
+
+
+class TestProtocolFileTyping:
+    """#646: a protocol document is typed as one, so it stops drawing as data.
+
+    The scan already decides this. ``classify_file`` stamps every deposit file
+    with one of ``FILE_CLASSES``, and it recognises the protocol documents in
+    these deposits — "4.1 Deiodinase activity assay.docx", "3.3 Bradford
+    protocol.xlsx" — from their names. The crate then dropped that answer:
+    the file went in as a plain ``File`` while a separate, fileless
+    ``#LabProtocol_...`` stub carried the description, so the graph view painted
+    the document as data and a reader following ``executesLabProtocol`` arrived
+    at something they could not open.
+
+    Co-typing is the same mechanism a script already uses (``["File",
+    "SoftwareSourceCode"]``), and ``LabProtocol`` resolves to
+    ``https://bioschemas.org/LabProtocol`` through ``profiles/context.py``, so
+    what lands in the crate is the bioschemas type rather than a local string.
+    """
+
+    @staticmethod
+    def _scanned(path: str, classification: str | None):
+        from builder.state import FileClassification
+
+        return FileClassification(
+            path=path,
+            filename=Path(path).name,
+            size=1024,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            classification=classification,
+        )
+
+    def _state_with(self, path: str, classification: str | None) -> CrateState:
+        """One drafted file, with the scan's record of it.
+
+        The record names the file as the crate ends up carrying it — the scan and
+        the builder read one deposit, so a fixture where they disagree would be
+        testing a situation that cannot arise.
+        """
+        from builder.tools.provenance import draft_file
+
+        state = CrateState()
+        state.metadata.title = "Protocol crate"
+        draft_file(state, path)
+        from builder.tools._crate_mapping import _file_dest
+
+        dest = _file_dest(state.list_entities("File")[0])
+        state.scanned_files = [self._scanned(dest, classification)]
+        return state
+
+    def _node(self, state: CrateState, path: str) -> dict:
+        """The one File the state drafts, however the builder named it.
+
+        `draft_file` slugifies a bare filename into ``data/`` when no deposit is
+        mounted, and @ids are percent-encoded besides, so the node is found by
+        being the drafted File rather than by string-matching the input.
+        """
+        files = [
+            n
+            for n in _graph(state)
+            if "File" in (n["@type"] if isinstance(n.get("@type"), list) else [n.get("@type")])
+            and n.get("@id") != "ro-crate-metadata.json"
+        ]
+        assert len(files) == 1, f"expected one drafted File, got {[f['@id'] for f in files]}"
+        assert Path(unquote(files[0]["@id"])).stem == Path(path).stem.replace(" ", "_")
+        return files[0]
+
+    @staticmethod
+    def _types(node: dict) -> list[str]:
+        value = node.get("@type")
+        return value if isinstance(value, list) else [value]
+
+    def test_a_scanned_protocol_document_is_co_typed_as_a_labprotocol(self) -> None:
+        from builder.tools.document_discovery import CLASS_PROTOCOL
+
+        node = self._node(
+            self._state_with("4.1 Deiodinase activity assay.docx", CLASS_PROTOCOL),
+            "4.1 Deiodinase activity assay.docx",
+        )
+
+        assert self._types(node) == ["File", "LabProtocol"]
+
+    def test_the_classifier_itself_decides_which_files_those_are(self) -> None:
+        """Pinned to the classifier rather than to a filename literal here: the
+        rule is "what the scan called a protocol", and a test that re-implemented
+        the naming heuristics would pass while the two drifted apart."""
+        from builder.tools.document_discovery import CLASS_PROTOCOL, classify_file
+
+        name = "3.3 Bradford protocol.xlsx"
+        assert classify_file(name, "", name)[0] == CLASS_PROTOCOL
+
+        node = self._node(self._state_with(name, CLASS_PROTOCOL), name)
+        assert "LabProtocol" in self._types(node)
+
+    def test_a_file_the_scan_called_something_else_stays_a_plain_file(self) -> None:
+        """The honesty control: co-typing everything would make the type mean
+        nothing. Raw data is not a protocol."""
+        from builder.tools.document_discovery import CLASS_RAW_DATA
+
+        node = self._node(self._state_with("004043.csv", CLASS_RAW_DATA), "004043.csv")
+
+        assert node.get("@type") == "File"
+
+    def test_a_file_the_scan_never_classified_stays_a_plain_file(self) -> None:
+        """A session saved before the scan stamped classifications, or a file
+        drafted without one: absence of evidence is not a protocol."""
+        node = self._node(self._state_with("mystery.docx", None), "mystery.docx")
+
+        assert node.get("@type") == "File"
+
+    def test_co_typing_composes_with_the_types_the_draft_already_asked_for(self) -> None:
+        """A draft that already names extra types keeps them, File stays first,
+        and nothing is repeated."""
+        from builder.tools.document_discovery import CLASS_PROTOCOL
+        from builder.tools.provenance import draft_file
+
+        state = CrateState()
+        state.metadata.title = "Protocol crate"
+        draft_file(state, "run.py", additional_types=["SoftwareSourceCode"])
+        state.scanned_files = [self._scanned("run.py", CLASS_PROTOCOL)]
+
+        types = self._types(self._node(state, "run.py"))
+        assert types[0] == "File"
+        assert set(types) == {"File", "SoftwareSourceCode", "LabProtocol"}
+        assert len(types) == len(set(types))
+
+    def test_the_graph_view_now_draws_it_as_a_protocol(self) -> None:
+        """The point of the change: the report's categoriser reads ``@type``, and
+        it checks LabProtocol before File, so the document leaves the data
+        category and is drawn — and coloured — as the protocol it is."""
+        from builder.tools.document_discovery import CLASS_PROTOCOL
+        from builder.writers.provenance_dag import build_crate_graph
+
+        name = "20251114_cell culture protocol H4.docx"
+        state = self._state_with(name, CLASS_PROTOCOL)
+        drawn_id = self._node(state, name)["@id"]
+        model = build_crate_graph({"@graph": _graph(state)}, layer="all", all_edges=True)
+        node = next(n for n in model["nodes"] if str(n["id"]) == drawn_id)
+
+        assert node["category"] == "protocol"
+        # The control: the same document, had the scan called it raw data,
+        # draws as data — so the classification is what moved it, and this test
+        # fails for the right reason if the co-typing is removed.
+        from builder.tools.document_discovery import CLASS_RAW_DATA
+
+        plain = build_crate_graph(
+            {"@graph": _graph(self._state_with(name, CLASS_RAW_DATA))},
+            layer="all",
+            all_edges=True,
+        )
+        assert next(n for n in plain["nodes"] if str(n["id"]) == drawn_id)["category"] == "data"
 
 
 class TestSourceCodeFileTyping:
