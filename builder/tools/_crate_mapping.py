@@ -1950,44 +1950,84 @@ def _culture_cell_lines(f: dict[str, Any], idx: dict[str, Any], name: str) -> li
     return [named] if named is not None else []
 
 
-def _culture_protocol(
+def _culture_protocols(
     crate: ROCrate, lines: list[Any], idx: dict[str, Any], cache: dict[str, Any]
-) -> Any:
-    """The protocol a culture of *lines* follows — study-level, one per line set.
+) -> list[Any]:
+    """The protocol(s) a culture of *lines* follows — ONE per cell line.
 
-    Culturing a cell line is a study-level activity: S-VHPS22 keeps
-    ``cell_line_protocols/`` beside the assays with exactly one document per line.
-    Keying the fallback on ``assay_id`` instead made two assays growing SK-N-AS
-    invent two different stubs for the same procedure, and left the deposit's own
-    protocol documents referenced by nothing.
+    Culturing a cell line is a study-level activity, and the deposit says so in
+    its layout: S-VHPS22 keeps ``cell_line_protocols/`` beside the assays holding
+    exactly one document per line — H4, MO3.13, SK-N-AS — and no document for any
+    combination. So a culture growing two lines executes two protocols.
 
-    A real document wins outright: any LabProtocol-typed node in the crate whose
-    id or name names exactly one of these lines is that line's protocol. Only a
-    crate without one falls back to a stub, and even then the stub is minted once
-    per line set rather than once per assay.
+    Keying on the whole SET instead invented ``#protocol_cell_culture_H4_SK-N-AS``:
+    a procedure nobody wrote, which no two cultures could share unless they grew
+    exactly the same lines. Per line, the SK-N-AS protocol is one entity every
+    assay that grows SK-N-AS points at.
+
+    A real document wins outright — any LabProtocol-typed node in the crate naming
+    that line. Only a crate without one falls back to a stub.
     """
-    if not lines:
+    out: list[Any] = []
+    seen: set[Any] = set()
+    for node in lines:
+        label = str(node.get("name") or "").strip()
+        if len(label) < 2:
+            continue
+        protocol = _protocol_document_for([label], idx)
+        if protocol is None:
+            key = "cell_culture_" + _slug(label)
+            if key not in cache:
+                cache[key] = crate.add(
+                    ContextEntity(
+                        crate,
+                        f"#protocol_{_slug(key)}",
+                        properties={
+                            "@type": "LabProtocol",
+                            "name": f"Cell culture protocol for {label}",
+                            "intendedUse": "Cell culture",
+                        },
+                    )
+                )
+            protocol = cache[key]
+        pid = getattr(protocol, "id", None)
+        if pid in seen:
+            continue
+        seen.add(pid)
+        out.append(protocol)
+    return out
+
+
+def _study_of(state: CrateState, idx: dict[str, Any], assay_id: Any) -> Any:
+    """The built Study node an assay belongs to, or None.
+
+    A process names its assay; the assay names its study. Read from state rather
+    than walked back out of the graph, because ``hasPart`` runs Study -> Assay and
+    there is no reverse edge to follow.
+    """
+    if not assay_id:
         return None
-    labels = [str(n.get("name") or "").strip() for n in lines]
-    labels = [lbl for lbl in labels if len(lbl) >= 2]
-    document = _protocol_document_for(labels, idx)
-    if document is not None:
-        return document
-    key = "cell_culture_" + "_".join(sorted(_slug(lbl) for lbl in labels) or ["unknown"])
-    if key not in cache:
-        joined = ", ".join(labels) or "an unnamed cell line"
-        cache[key] = crate.add(
-            ContextEntity(
-                crate,
-                f"#protocol_{_slug(key)}",
-                properties={
-                    "@type": "LabProtocol",
-                    "name": f"Cell culture protocol for {joined}",
-                    "intendedUse": "Cell culture",
-                },
-            )
-        )
-    return cache[key]
+    wanted = str(assay_id)
+    for assay in state.list_entities("Assay"):
+        if assay.entity_id != wanted:
+            continue
+        return _resolve_one(idx, assay.fields.get("study_id"))
+    return None
+
+
+def _link_to_study(study: Any, protocol: Any) -> None:
+    """Hang a culture protocol off the Study it belongs to.
+
+    Reachable through its process either way, but a protocol that governs several
+    assays is a study-level document and the backbone should say so. A deposited
+    document is ``hasPart`` — it is a real data entity in the payload; a
+    synthesized stub is ``mentions``, because claiming the study *contains* a file
+    that was never deposited would be a false claim about the payload.
+    """
+    if study is None or protocol is None:
+        return
+    prop = "hasPart" if _is_file_node(protocol) else "mentions"
+    _append_unique(study, prop, protocol)
 
 
 def _protocol_document_for(labels: list[str], idx: dict[str, Any]) -> Any | None:
@@ -2703,12 +2743,18 @@ def _add_processes(
         # answer, accept both spellings.
         protocol = _resolve_one(idx, _first_of(f, _PROTOCOL_ALIASES))
         if protocol is None and ptype == "CellCulture":
-            # Culturing is study-level, so its protocol is keyed on the cell line
-            # rather than the assay — two assays growing SK-N-AS follow one
-            # procedure, and the deposit ships one document per line (#650).
-            protocol = _culture_protocol(
+            # Culturing is study-level, so protocols are keyed on the CELL LINE
+            # rather than the assay — every assay growing SK-N-AS follows the one
+            # SK-N-AS procedure, and the deposit ships one document per line
+            # (#650). A culture of two lines therefore executes two.
+            culture_protocols = _culture_protocols(
                 crate, _culture_cell_lines(f, idx, name), idx, proto_cache
             )
+            if culture_protocols:
+                protocol = culture_protocols
+                study = _study_of(state, idx, f.get("assay_id"))
+                for one in culture_protocols:
+                    _link_to_study(study, one)
         if protocol is None:
             protocol = _synth_protocol(crate, f.get("assay_id"), proto_cache)
         node = _build_process(
@@ -2836,7 +2882,12 @@ def _build_process(
             out = list(result)
         # Both protocols: the real SOP (or the drafter's) states the procedure,
         # the generated table supplies the per-well layout it leaves out.
-        protocols = [protocol, table] if protocol is not None else [table]
+        existing = (
+            list(protocol)
+            if isinstance(protocol, list)
+            else ([protocol] if protocol is not None else [])
+        )
+        protocols = existing + [table]
         return LabProcessExposure(
             crate,
             identifier=pid,

@@ -2208,6 +2208,27 @@ discriminator (never a `@type` array), and a single conceptual entity is ONE nod
 `CellLineSample` (two entities sharing a bare `entity_id`) is discouraged by RO-Crate 1.2
 (§Contextual entities) and warns at `CrateState.add_entity` (#366).
 
+**A node may still carry more than one type — for reasons that are not
+discriminators.** D16 forbids expressing an ISA-Tox *specialization* as a `@type`
+array; it does not forbid a node being genuinely two things:
+
+- **Its published schema.org supertype.** RO-Crate RECOMMENDS a type in the
+  schema.org namespace, and the shape checking it is syntactic — it looks for an
+  IRI beginning `http(s)://schema.org/`. Our domain types resolve to
+  `https://bioschemas.org/…`, so a well-typed entity would fail it. `add_schema_org_types`
+  therefore appends the supertype: `LabProcess → schema:Action`, `LabProtocol →
+  schema:HowTo`, `Sample → schema:Thing`, `MolecularEntity → schema:BioChemEntity`.
+  Every one is READ from the vendored `profiles/vocabulary/type_supertypes.json`,
+  never decided in code — a published alignment, not our claim. See that function's
+  docstring for the rules; a type absent from the vocabulary simply gains nothing.
+- **Cross-vocabulary co-typing**, where one artefact really is two kinds of thing:
+  a deposited procedure document is `File` + `LabProtocol` (#646), and the generated
+  per-well condition table is `File` + `csvw:Table` + `LabProtocol` (#650) — a CSV,
+  a typed table, and the layout the exposure follows.
+
+The domain type stays FIRST in every case: it is the specific, meaningful one, and
+the rest are what a generic consumer can follow.
+
 ## 12. Project Structure
 
 Where each component lives:

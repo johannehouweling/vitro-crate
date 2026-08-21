@@ -232,8 +232,14 @@ class LabProtocol(AutoAddFile):
       Software or tool used as part of the protocol.
     - ``labEquipment``: schema.org/DefinedTerm | schema.org/PropertyValue (Component) | Text | URL
       Equipment used to follow one or more steps in this LabProtocol.
-    - ``reagent``: schema.org/BioChemEntity | schema.org/DefinedTerm | schema.org/PropertyValue (Component) | Text | URL
-      Reagents used in the protocol.
+    - ``reagent``: schema.org/BioChemEntity | schema.org/ChemicalSubstance | schema.org/DefinedTerm | schema.org/MolecularEntity | schema.org/PropertyValue (Component) | Text | URL
+      Reagents used in the protocol. The range is transcribed from
+      ``LabProtocol_v0.6-DRAFT``; ``ChemicalSubstance`` and ``MolecularEntity``
+      were missing from it, which mattered — a test compound is a
+      ``MolecularEntity``, so this is the property that carries it. It is the ONLY
+      route from an exposure to its compounds: the bundled ISA process shape
+      restricts ``schema:object`` to File/Sample/BioSample at Violation severity,
+      and Bioschemas ``LabProcess`` has no other input slot (#650).
     - ``url``: URL
       Pointer to protocol resources external to the ISA-Tab / ISA-JSON.
     - ``version``: Number | Text
