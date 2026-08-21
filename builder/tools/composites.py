@@ -193,15 +193,17 @@ _CHAIN_ORDER: tuple[str, ...] = (
 _SAMPLE_PRODUCERS = frozenset({"CellCulture"})
 
 # Subtypes whose build-time output fallback is the *semantically-correct* output
-# entity, so synthesizing a generic placeholder here would PRE-EMPT it (Issue
-# #285). The Exposure's build fallback (``_crate_mapping._synth_condition_table``)
-# is the CSVW **condition table** — the per-well design table that
-# ``schema:about``-references the test MolecularEntities (the substances + doses
-# the cells were exposed to). That ``table --about--> MolecularEntity`` edge is
-# the TRUE ISA-Tox link, but it only fires when the Exposure has NO explicit
-# ``result``. If ``draft_process_chain`` eagerly synthesized a generic result
-# File, ``result`` would be populated, the condition table would never build, and
-# the compounds would ride only on the weaker Study ``schema:mentions`` backstop.
+# entity, so synthesizing a generic placeholder here would PRE-EMPT it (#285).
+# The Exposure's build fallback is the **exposed Sample** — the cells after
+# treatment, deriving from the cultured sample it consumed (#650). A generic
+# result File drafted here would populate ``result`` and pre-empt it, leaving the
+# crate with no exposed-sample entity at all and every downstream step hanging off
+# the culture instead: the star this fixed.
+#
+# The compounds do not ride on the output. They are reagents of the per-well
+# condition table, which the build attaches as a protocol the exposure EXECUTES —
+# the layout a procedural SOP leaves out — not as something it produces.
+#
 # So we leave these steps' output to the build: the chain still flows downstream
 # via the step's inputs (``upstream_output = outputs or inputs``).
 _BUILD_SYNTHESIZES_OUTPUT = frozenset({"Exposure"})
@@ -279,8 +281,9 @@ def draft_process_chain(
     - **Synthesizes (only when needed):** the produced output entity for a step
       whose output is required but neither supplied nor derivable from the chain.
     - **Respects:** any explicit ``object`` / ``result`` you pass — those win over
-      synthesis, and the build still appends the typed CSVW condition table
-      (Exposure) / raw-measurements table (EndpointReadout) on top.
+      synthesis. A Sample you pass as an Exposure's ``result`` IS its exposed
+      sample rather than a duplicate; anything else you pass is kept alongside the
+      one the build adds, never substituted (#531).
 
     It is **idempotent**: process / placeholder ids are derived deterministically
     from the step, so re-running reuses (overwrites in place) the same entities
@@ -386,10 +389,10 @@ def draft_process_chain(
         # Sample for a material producer, a File for a data producer) — so the
         # next step can consume it by id and EndpointReadout / DataAnalysis never
         # dangle into a tox Violation. The EXCEPTION is a subtype whose build-time
-        # fallback is the semantically-correct output (the Exposure's CSVW
-        # condition table; #285): synthesizing a generic placeholder there would
-        # pre-empt the ``table --about--> MolecularEntity`` link, so we leave its
-        # output to the build (the chain still flows downstream via its inputs). ---
+        # fallback is the semantically-correct output (the Exposure's exposed
+        # Sample; #285, #650): synthesizing a generic placeholder there would
+        # pre-empt it and leave the crate with no exposed sample at all, so we
+        # leave its output to the build (the chain still flows via its inputs). ---
         outputs = _explicit_ids(step, "result", "output")
         if not outputs and ptype not in _BUILD_SYNTHESIZES_OUTPUT:
             # Ask the deposit before manufacturing anything (#589). A step whose
@@ -540,7 +543,7 @@ def _deposit_evidences(state: CrateState, ptype: str) -> bool:
     evidence" on every run and delete the chain outright.
 
     ``True`` for a subtype producing no data file (CellCulture, Exposure), whose
-    output is a Sample or the build's condition table.
+    output is a Sample — the cultured and the exposed one respectively.
     """
     if _CLASS_FOR_PROCESS.get(ptype) is None:
         return True
