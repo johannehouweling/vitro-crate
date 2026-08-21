@@ -73,6 +73,24 @@
   }
 
   function category(n) { return D.categories[n.category] || D.categories.ctx; }
+  function layerName(n) {
+    return n.layer ? D.layers[String(n.layer)] : 'Referenced, outside the crate';
+  }
+  function shortId(id) {
+    try {
+      var u = new URL(id);
+      return u.hostname.replace(/^www\./, '') + u.pathname;
+    } catch (err) { return decodeURIComponent(id); }
+  }
+
+  function Glyph(props) {
+    var c = D.categories[props.k] || D.categories.ctx;
+    var s = props.size || 14;
+    return html`<svg class="ex-glyph" width=${s} height=${s} viewBox="0 0 14 14"
+      aria-hidden="true"><path d=${c.glyph} fill=${c.colour} fill-opacity=".18"
+      stroke=${c.colour} stroke-width="1.3" stroke-linejoin="round" /></svg>`;
+  }
+
 
   /* ---- the state a reader can link to -------------------------------------- */
   function readHash() {
