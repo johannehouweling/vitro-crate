@@ -35,6 +35,20 @@ tox:DataAnalysisRequirements a sh:NodeShape ;
         sh:message "DataAnalysis process MUST have at least one schema:object (the raw/condition data being analysed)" ;
         sh:severity sh:Violation ;
     ] ;
+    # The slot above says "the raw/condition data being analysed" and enforced only
+    # minCount, so a Sample satisfied it structurally while being wrong
+    # scientifically — an assertion that cannot fail is not a check (#620, #650).
+    # Warning rather than Violation because this targets tox:LabProcessDataAnalysis,
+    # a class every already-deposited crate's analyses fall into: as a Violation it
+    # would retroactively fail crates that were conformant when they were written.
+    # Promote once the deposits in circulation have been rebuilt.
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:object ;
+        sh:class schema:MediaObject ;
+        sh:message "DataAnalysis schema:object SHOULD be the data analysed (a File), not a Sample" ;
+        sh:severity sh:Warning ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:result ;
