@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import html
 import json
+from collections import Counter
 import re
 import unicodedata
 import subprocess
@@ -163,6 +164,71 @@ class TestPayloadShape:
         assert by_id["./"]["status"] == "in_crate"
         assert by_id["./"]["orphan"] is False
         assert set(by_id["#sample"]) >= {"layer", "reach", "identifier_backed", "category"}
+
+
+class TestCategoryTypeCensus:
+    """What the legend labels itself from (#623): the type tags a category's
+    nodes actually carry, so the legend and the nodes say the same words."""
+
+    def _cats(self, graph: dict[str, Any] | None = None) -> dict[str, Any]:
+        return build_explorer_payload(graph or tabbed_views_graph())["categories"]
+
+    def test_a_category_names_the_tags_its_own_nodes_show(self) -> None:
+        payload = build_explorer_payload(tabbed_views_graph())
+        cats = payload["categories"]
+
+        for key, category in cats.items():
+            shown = {
+                node["type"].split(" · ")[0]
+                for node in payload["nodes"]
+                if node["category"] == key and node["type"]
+            }
+            assert set(category["types"]) == shown, key
+
+    def test_a_refinement_folds_into_its_base_type(self) -> None:
+        """Nodes are tagged ``Dataset · Assay``; the colour is the base type's,
+        and spelling every refinement out would make the legend the longest
+        thing on the page."""
+        cats = self._cats()
+
+        assert cats["container"]["types"] == ["Dataset"]
+
+    def test_the_census_is_ordered_by_how_much_of_the_crate_it_covers(self) -> None:
+        """Most common first — the legend spells out only the first two and
+        counts the rest away, so the order decides what a reader is told.
+
+        Over the plumbing-heavy crate, whose fallback bucket holds one type
+        three times and five others once each: a fixture where every type
+        appears equally often could not tell an ordering from its reverse.
+        """
+        payload = build_explorer_payload(plumbing_heavy_graph())
+        types = payload["categories"]["annotation"]["types"]
+        counted = Counter(
+            node["type"].split(" · ")[0]
+            for node in payload["nodes"]
+            if node["category"] == "annotation"
+        )
+
+        assert len(set(counted.values())) > 1, "the fixture stopped discriminating"
+        assert types[0] == max(counted, key=lambda t: (counted[t], t))
+        assert [counted[t] for t in types] == sorted(counted.values(), reverse=True)
+
+    def test_two_builds_of_one_crate_order_it_the_same_way(self) -> None:
+        """Ties are broken by name, not by dict order: the payload is pinned
+        byte-for-byte across runs, so an unstable tie would break the crate's
+        reproducibility, not merely the legend's wording."""
+        graph = tabbed_views_graph()
+
+        assert self._cats(graph) == self._cats(graph)
+
+    def test_a_category_with_no_types_keeps_its_wording(self) -> None:
+        """An off-crate reference has no type because the crate never describes
+        it. That key names a provenance status, not a category, and is the one
+        label the census cannot supply."""
+        cats = self._cats()
+
+        assert cats["ctx"]["types"] == []
+        assert cats["ctx"]["label"] == "Referenced outside the crate"
 
 
 class TestViewMembership:

@@ -1998,6 +1998,17 @@ does. This does not make every view framable — a crate with 80 non-leaf entiti
 some 3,400 px tall whatever is done with its leaves, and "all entities" stays a view to navigate
 rather than to take in at once.
 
+**The legend names types, not categories (#623).** A colour key labelled in category prose — "Sample
+/ material", "Term / parameter" — explains the canvas in a vocabulary the reader can see nowhere
+else, while every node on it is captioned with its type. Each key is therefore labelled from the
+crate's own census: the distinct type tags its nodes carry in that category, commonest first, the
+first two spelled out and the rest counted away with the full list on `title`. Derived, never a
+hand-kept map, so a category that gains a type is labelled with it the day it does, and the fallback
+bucket — which has no single type to name — is labelled as honestly as the rest. A refinement folds
+into its base (`Dataset · Assay` counts as `Dataset`): the colour is the base type's, and the
+refinement is what the node itself spells out. The one key the census cannot supply is the off-crate
+reference, which keeps its wording because it names a provenance status rather than a type.
+
 **Script, but nothing loaded.** The report's contract was "carries no script"; it is now *loads
 nothing*. React, React Flow, dagre and htm are vendored UMD builds under `builder/writers/vendor/`,
 pinned by `manifest.json` (name, version, licence, origin, sha256) and verified against it at render

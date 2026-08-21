@@ -90,7 +90,20 @@
       aria-hidden="true"><path d=${c.glyph} fill=${c.colour} fill-opacity=".18"
       stroke=${c.colour} stroke-width="1.3" stroke-linejoin="round" /></svg>`;
   }
-
+  // How many type names a legend key spells out before it counts the rest. The
+  // legend is one strip across the toolbar, so a bucket holding eight types
+  // would push the rest of the keys off it; the full census rides on `title`.
+  var LEGEND_TYPES = 2;
+  function legendLabel(c) {
+    var types = c.types || [];
+    if (!types.length) return c.label;
+    var shown = types.slice(0, LEGEND_TYPES).join(', ');
+    return types.length > LEGEND_TYPES ? shown + ' +' + (types.length - LEGEND_TYPES) : shown;
+  }
+  function legendTitle(c) {
+    var types = c.types || [];
+    return types.length > LEGEND_TYPES ? c.label + ' — ' + types.join(', ') : c.label;
+  }
 
   /* ---- the state a reader can link to -------------------------------------- */
   function readHash() {
@@ -488,8 +501,9 @@
       <div class="ex-legend">
         ${Object.keys(D.categories).filter(function (k) { return present.has(k); })
           .map(function (k) {
-            return html`<span key=${k} class="ex-key"><${Glyph} k=${k} size=${12} />
-              ${D.categories[k].label}</span>`;
+            var c = D.categories[k];
+            return html`<span key=${k} class="ex-key" title=${legendTitle(c)}>
+              <${Glyph} k=${k} size=${12} />${legendLabel(c)}</span>`;
           })}
         <span class="ex-key"><span class="ex-swatch ex-swatch-orphan"></span>unreachable from the root</span>
         <span class="ex-key"><span class="ex-swatch ex-swatch-outside"></span>outside the crate</span>

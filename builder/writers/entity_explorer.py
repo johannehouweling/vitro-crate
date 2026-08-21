@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
@@ -245,18 +246,57 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
 )
 
 
-def _categories() -> dict[str, dict[str, str]]:
+def _categories(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """The drawing registry, as the browser needs it.
 
-    Generated from :data:`CATEGORY_STYLES` for the same reason the stylesheet is
-    (`category_css`): a second hand-written palette is how the report came to
-    disagree with its own diagrams about what colour a file is.
+    Colours and glyphs are generated from :data:`CATEGORY_STYLES` for the same
+    reason the stylesheet is (`category_css`): a second hand-written palette is
+    how the report came to disagree with its own diagrams about what colour a
+    file is.
+
+    ``types`` is the census the legend labels itself from — the distinct type
+    tags this crate's nodes carry in that category, most common first (#623).
+    Every node on the canvas is captioned with its type, so a legend written in
+    category prose explains the colours in a vocabulary the reader can see
+    nowhere else; naming the tags makes the legend and the nodes say the same
+    words. Derived from the crate rather than kept by hand, so a category that
+    gains a type is labelled with it the day it does — and so the fallback
+    bucket, which has no single type to name, is labelled as honestly as the
+    rest.
+
+    A refinement folds into its base (``Dataset · Assay`` counts as
+    ``Dataset``): the colour is the base type's, and the refinements are what
+    the nodes themselves spell out.
     """
-    out = {
-        key: {"colour": style.colour, "label": style.label, "glyph": style.glyph}
+    census: dict[str, Counter] = {}
+    for node in nodes:
+        tag = str(node.get("type") or "").split(" · ")[0].strip()
+        if not tag:
+            continue
+        census.setdefault(str(node.get("category") or ""), Counter())[tag] += 1
+
+    def types_for(key: str) -> list[str]:
+        # Commonest first, ties by name: the legend spells out only the first
+        # few, and the payload is pinned byte-for-byte, so an unstable tie would
+        # break the crate's reproducibility and not merely the wording.
+        counted = census.get(key) or Counter()
+        return [tag for tag, _ in sorted(counted.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+    out: dict[str, dict[str, Any]] = {
+        key: {
+            "colour": style.colour,
+            "label": style.label,
+            "glyph": style.glyph,
+            "types": types_for(key),
+        }
         for key, style in CATEGORY_STYLES.items()
     }
-    out[_CTX_CATEGORY] = {"colour": _CTX_COLOUR, "label": _CTX_LABEL, "glyph": _CTX_GLYPH}
+    # An off-crate reference has no type because the crate never describes it,
+    # so this key keeps its wording: it names a provenance status, not a
+    # category, and is the one label the census cannot supply.
+    out[_CTX_CATEGORY] = {
+        "colour": _CTX_COLOUR, "label": _CTX_LABEL, "glyph": _CTX_GLYPH, "types": [],
+    }
     return out
 
 
@@ -342,7 +382,7 @@ def build_explorer_payload(
         "version": PAYLOAD_VERSION,
         "root": crate.root,
         "layers": {str(level): name for level, name in _LAYER_NAMES.items()},
-        "categories": _categories(),
+        "categories": _categories(nodes),
         "nodes": nodes,
         "edges": [
             {"src": e["src"], "dst": e["dst"], "label": e["label"]} for e in model["edges"]
