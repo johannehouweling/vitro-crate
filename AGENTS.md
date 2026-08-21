@@ -1973,7 +1973,15 @@ that describes it, which is the `annotation` category (parameters, csvw columns 
 ontology terms, licences, profiles, the build's own action and software) plus every off-crate stub.
 The rule is by category and never by layer: Persons, Organisations and articles sit in the base
 packaging layer beside the plumbing, so a layer-based rule would drop exactly the credit a reader
-looks for; the root is kept whatever its category. **LabProcesses** draws the derivation chain plus what each step *is*: the protocol a visible
+looks for; the root is kept whatever its category. **Assays** draws the ISA backbone plus what its assays are *for*: the adverse outcome pathway a
+study serves and the key events an assay measures, which the ISA-Tox profile hangs off
+`schema:mentions` (`7_assay_key_event.ttl`, `6_study_aop.ttl`). Followed from the backbone rather
+than swept from the crate, and filtered by type — `mentions` is general enough to carry the
+build's own action, and a key event nothing in the backbone claims is not one this crate's assays
+measure (#627). A domain type also outranks the generic one it refines when a node is captioned,
+so a key event reads as a key event rather than as the `DefinedTerm` it also is.
+
+**LabProcesses** draws the derivation chain plus what each step *is*: the protocol a visible
 process executes and the assay whose `about` points at one. Neither edge lies on the material chain
 the derivation walk follows, and the two point in opposite directions — outward to the protocol,
 inward from the assay — so the view showed every step and every file it touched while never saying

@@ -44,6 +44,7 @@ from builder.writers.provenance_dag import (
     _derivation_edges,
     _graph_nodes,
     _route_hop_ids,
+    _types,
     build_cellline_inventory,
     build_chemical_inventory,
     build_citation_inventory,
@@ -123,9 +124,40 @@ def _select_files(crate: _Crate) -> set[str]:
     return {n["id"] for n in crate.model["nodes"] if n["category"] in ("data", "container")}
 
 
+# What an assay is FOR. The ISA-Tox profile hangs both off `schema:mentions`
+# (`profiles/shapes/tox/7_assay_key_event.ttl`, `6_study_aop.ttl`), so the
+# relation alone does not identify them — a crate mentions its own build action
+# through it too. The type does (#627).
+_PATHWAY_TYPES = frozenset({"AdverseOutcomePathway", "KeyEvent"})
+
+
 def _select_assays(crate: _Crate) -> set[str]:
-    """The ISA backbone: Investigation → Study → Assay."""
-    return {n["id"] for n in crate.inventory("isa")["nodes"]}
+    """The ISA backbone, and what its assays are for.
+
+    Investigation → Study → Assay, plus the adverse outcome pathway a study
+    serves and the key events an assay measures. Those are the one thing in the
+    crate that says what an assay is *for*, and the view named after assays used
+    to select the backbone alone (#627).
+
+    Followed, never collected: a pathway reaches the canvas only through an ISA
+    entity that mentions it, so an ontology term nothing points at stays out.
+    ``mentions`` is a general relation, so what is mentioned is filtered by
+    type — the science joins the view, the build's own action does not.
+    """
+    backbone = {n["id"] for n in crate.inventory("isa")["nodes"]}
+    described = {
+        str(entity["@id"]): entity
+        for entity in crate.document.get("@graph", [])
+        if isinstance(entity, dict) and entity.get("@id")
+    }
+    pathway = {
+        edge["dst"]
+        for edge in crate.model["edges"]
+        if edge["label"] == "mentions"
+        and edge["src"] in backbone
+        and _types(described.get(edge["dst"], {})) & _PATHWAY_TYPES
+    }
+    return backbone | pathway
 
 
 # What a step *is*, as opposed to what it handled. Each is keyed by the edge the
