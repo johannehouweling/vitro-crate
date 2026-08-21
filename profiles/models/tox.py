@@ -243,7 +243,7 @@ class LabProcessCellCulture(LabProcess):
         crate: ROCrate,
         identifier: str,
         name: str,
-        cell_line: Sample,
+        cell_line: Sample | list[Sample],
         culture_medium: str,
         result: Sample,
         labprotocol: LabProtocol | File | list[LabProtocol | File],

@@ -472,3 +472,142 @@ class TestIdentifiersAndConformance:
         _, by_id = _build(state, tmp_path)
         desc_conforms = _ids(by_id["ro-crate-metadata.json"].get("conformsTo"))
         assert desc_conforms == ["https://w3id.org/ro/crate/1.2"]
+
+
+class TestTheCultureRecordsEveryCellLine:
+    """Issue #650 — a culture of two cell lines must say so.
+
+    ``cell_line`` is a list field: S-VHPS22's "Neural cell culture for thyroid
+    hormone uptake" names SK-N-AS *and* H4. The build read it with
+    ``_resolve_one``, which takes the head of the list, so the second line was
+    dropped — H4 was cultured by nothing in the whole crate despite carrying its
+    own cell-line entity and its own study-level culture protocol.
+    """
+
+    def _culture_state(self, cell_line):
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("cell_a", "CellLineSample", name="SK-N-AS"))
+        state.add_entity(_ent("cell_b", "CellLineSample", name="H4"))
+        state.add_entity(
+            _ent(
+                "proc_1",
+                "LabProcess",
+                name="Neural cell culture",
+                process_type="CellCulture",
+                assay_id="assay_1",
+                cell_line=cell_line,
+                culture_medium="DMEM",
+            )
+        )
+        return state
+
+    def test_every_named_cell_line_reaches_the_process(self, tmp_path):
+        state = self._culture_state(["cell_a", "cell_b"])
+        _, by_id = _build(state, tmp_path)
+        consumed = _ids(by_id["#LabProcess_proc_1"].get("input"))
+        assert "#CellLineSample_cell_a" in consumed, consumed
+        assert "#CellLineSample_cell_b" in consumed, (
+            f"the second cell line was dropped: {consumed}"
+        )
+
+    def test_the_cultured_sample_derives_from_every_line(self, tmp_path):
+        state = self._culture_state(["cell_a", "cell_b"])
+        _, by_id = _build(state, tmp_path)
+        out = _ids(by_id["#LabProcess_proc_1"].get("output"))
+        derived = _ids(by_id[out[0]].get("derivesFrom"))
+        assert {"#CellLineSample_cell_a", "#CellLineSample_cell_b"} <= set(derived), (
+            f"the cultured sample must derive from both lines: {derived}"
+        )
+
+    def test_a_single_cell_line_still_works(self, tmp_path):
+        state = self._culture_state("cell_a")
+        _, by_id = _build(state, tmp_path)
+        assert "#CellLineSample_cell_a" in _ids(
+            by_id["#LabProcess_proc_1"].get("input")
+        )
+
+
+class TestACultureFindsTheCellLineItIsNamedFor:
+    """Issue #650 — a process called "SK-N-AS culture for …" must not consume a
+    synthesized stub while the SK-N-AS entity sits in the same crate.
+
+    S-VHPS22's TR-activation culture carried no ``cell_line`` field, so the build
+    fell through to ``_synth_sample(pid + "_input")`` and the crate recorded a
+    placeholder as the material being cultured.
+
+    ``wire_unreferenced_domain_entities`` does not catch this: it rescues
+    *orphans*, and ``cell_sk_n_as`` was referenced by three other cultures, so it
+    was never orphaned and the culture that needed it was left alone. These
+    fixtures reproduce that — a second culture holds the reference — rather than
+    the easy single-culture case the wiring pass already handles.
+    """
+
+    def _state(self, proc_name, lines, *, anchored):
+        """*lines* are (id, name); *anchored* ids are referenced by a second
+        culture, so the orphan-wiring pass cannot rescue them."""
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        for eid, nm in lines:
+            state.add_entity(_ent(eid, "CellLineSample", name=nm))
+        state.add_entity(
+            _ent(
+                "proc_anchor",
+                "LabProcess",
+                name="Anchor culture",
+                process_type="CellCulture",
+                assay_id="assay_1",
+                cell_line=list(anchored),
+                culture_medium="DMEM",
+            )
+        )
+        state.add_entity(
+            _ent(
+                "proc_1",
+                "LabProcess",
+                name=proc_name,
+                process_type="CellCulture",
+                assay_id="assay_1",
+                culture_medium="DMEM",
+            )
+        )
+        return state
+
+    def test_a_cell_line_named_only_in_the_title_is_resolved(self, tmp_path):
+        state = self._state(
+            "SK-N-AS culture for thyroid hormone receptor activation",
+            [("cell_a", "SK-N-AS"), ("cell_b", "H4")],
+            anchored=("cell_a", "cell_b"),
+        )
+        _, by_id = _build(state, tmp_path)
+        consumed = _ids(by_id["#LabProcess_proc_1"].get("input"))
+        assert "#CellLineSample_cell_a" in consumed, (
+            f"the cell line named in the title must be consumed, not a stub: {consumed}"
+        )
+
+    def test_a_title_naming_nothing_still_gets_its_placeholder(self, tmp_path):
+        """No match is not a licence to guess."""
+        state = self._state(
+            "Neural cell culture",
+            [("cell_a", "SK-N-AS"), ("cell_b", "H4")],
+            anchored=("cell_a", "cell_b"),
+        )
+        _, by_id = _build(state, tmp_path)
+        consumed = _ids(by_id["#LabProcess_proc_1"].get("input"))
+        assert not (
+            {"#CellLineSample_cell_a", "#CellLineSample_cell_b"} & set(consumed)
+        ), f"nothing in the name matched, so nothing may be claimed: {consumed}"
+        assert consumed, "a CellCulture MUST still consume something"
+
+    def test_two_matching_names_are_not_guessed_between(self, tmp_path):
+        """An ambiguous title picks neither."""
+        state = self._state(
+            "SK-N-AS and H4 culture",
+            [("cell_a", "SK-N-AS"), ("cell_b", "H4")],
+            anchored=("cell_a", "cell_b"),
+        )
+        _, by_id = _build(state, tmp_path)
+        consumed = _ids(by_id["#LabProcess_proc_1"].get("input"))
+        assert not (
+            {"#CellLineSample_cell_a", "#CellLineSample_cell_b"} & set(consumed)
+        ), f"two lines match the title, so neither may be picked: {consumed}"
