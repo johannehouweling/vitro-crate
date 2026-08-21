@@ -15,6 +15,7 @@ from builder.state import (
     CrateState,
     Entity,
     FileClassification,
+    looks_like_identifier,
 )
 from builder.tools._crate_mapping import _REF_FIELDS
 from builder.tools.field_kinds import is_reference_field, is_resolvable_reference
@@ -835,6 +836,18 @@ def set_crate_metadata(
     if description not in (None, ""):
         m.description = description
     if accession not in (None, ""):
+        # Recorded either way — refusing it would drop the only identifier the
+        # crate has, and this tool cannot tell a weak one from a real one it has
+        # never heard of. Said out loud, though: the value travels in the crate
+        # as `schema:identifier`, where every consumer reads it as something to
+        # cite, and a title slugged into that field identifies nothing (#628).
+        if not looks_like_identifier(accession):
+            logger.warning(
+                "accession %r does not read as an identifier (an accession is one "
+                "compact token, e.g. S-VHPS21 or a DOI); recording it, but the "
+                "report will lead with the title instead",
+                accession,
+            )
         m.accession = accession
     if release_date not in (None, ""):
         m.release_date = release_date

@@ -1835,11 +1835,18 @@ coverage (`assess_mit_coverage`), and a derived reproducibility-readiness checkl
 
 The page follows the maturity-report design handoff (PR #607 records it): a header whose headline is the **accession** (subhead: the
 publication's name when the crate has one, else the study title), an **About this study** card
-(contact/affiliation/funder/licence/publication+dataset DOI — every value a fact the crate holds or
+(identifier/contact/affiliation/funder/licence/publication+dataset DOI — every value a fact the crate holds or
 an honest *not stated*, never a guess) and an **About this RO-Crate** card (the build facts behind
 the crate's own `vitro-crate build` CreateAction, plus a provenance note carrying the report id
 `MR-<date>-<hash6>`, rendered only when the report is built with the crate's graph — a state-only
-render cannot claim its figures come from the crate's metadata). Then a **KPI grid**: a profile ×
+render cannot claim its figures come from the crate's metadata). The headline is the accession, because that is what a reader cites — but only while it reads as one
+(`state.looks_like_identifier`: one compact token, no whitespace, no longer than a DOI URL). A crate
+reached this report headlined a filename slug sitting in the root's `identifier` where a registry
+accession belongs (#628), so a value that fails that test is demoted rather than dropped — the title
+leads, and the study card states the identifier, since a reader who cannot see it cannot question
+it. `set_crate_metadata` applies the same test and warns rather than refusing: the crate carries the
+value as `schema:identifier` whatever its shape, and the tool cannot tell a weak identifier from a
+real one it has never heard of. Then a **KPI grid**: a profile ×
 requirement-level conformance **matrix** (rows the three layers linked to their specs — IRIs pinned
 to `_crate_mapping`'s `conformsTo` constants by test — cells ✓/✗/– with counts on `title`; the
 Required column is the report's one headline verdict). A `–` carries two different sentences:
