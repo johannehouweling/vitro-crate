@@ -611,3 +611,80 @@ class TestACultureFindsTheCellLineItIsNamedFor:
         assert not (
             {"#CellLineSample_cell_a", "#CellLineSample_cell_b"} & set(consumed)
         ), f"two lines match the title, so neither may be picked: {consumed}"
+
+
+class TestTheCultureProtocolIsStudyLevel:
+    """Issue #650 — culturing a cell line is a study-level activity, so its
+    protocol is one entity shared by every assay that grows that line.
+
+    A culture with no protocol of its own fell through to ``_synth_protocol``,
+    which keys on ``assay_id``. Two assays growing SK-N-AS therefore invented two
+    different protocol stubs for the same procedure. The deposit says otherwise:
+    S-VHPS22 keeps ``cell_line_protocols/`` at study level with exactly one
+    document per line — H4, MO3.13, SK-N-AS.
+
+    A real document wins outright when the crate has one; the synthesized stub is
+    what a crate lacking it falls back to, and even then it is minted once per
+    cell line rather than once per assay.
+    """
+
+    def _two_assays(self, *, second_line="cell_a", protocol_files=()):
+        state = CrateState()
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        state.add_entity(_ent("assay_1", "Assay", name="A1", study_id="study_1"))
+        state.add_entity(_ent("assay_2", "Assay", name="A2", study_id="study_1"))
+        state.add_entity(_ent("cell_a", "CellLineSample", name="SK-N-AS"))
+        state.add_entity(_ent("cell_b", "CellLineSample", name="H4"))
+        for eid, nm, path in protocol_files:
+            state.add_entity(
+                _ent(eid, "File", name=nm, path=path, additional_types=["LabProtocol"])
+            )
+        for idx, (assay, line) in enumerate(
+            (("assay_1", "cell_a"), ("assay_2", second_line)), start=1
+        ):
+            state.add_entity(
+                _ent(
+                    f"proc_{idx}",
+                    "LabProcess",
+                    name=f"Culture {idx}",
+                    process_type="CellCulture",
+                    assay_id=assay,
+                    cell_line=[line],
+                    culture_medium="DMEM",
+                )
+            )
+        return state
+
+    def test_two_assays_growing_one_line_share_a_protocol(self, tmp_path):
+        _, by_id = _build(self._two_assays(), tmp_path)
+        first = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        second = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+        assert set(first) == set(second), (
+            "two assays culturing SK-N-AS the same way must execute ONE protocol; "
+            f"got {first} and {second}"
+        )
+
+    def test_cultures_of_different_lines_do_not_share(self, tmp_path):
+        _, by_id = _build(self._two_assays(second_line="cell_b"), tmp_path)
+        first = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        second = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+        assert set(first) != set(second), (
+            f"different cell lines are different procedures: {first} vs {second}"
+        )
+
+    def test_a_real_protocol_document_is_used_when_the_crate_has_one(self, tmp_path):
+        state = self._two_assays(
+            protocol_files=(
+                (
+                    "proto_sk",
+                    "20251114_cell culture protocol SK-N-AS.docx",
+                    "cell_line_protocols/20251114_cell culture protocol SK-N-AS.docx",
+                ),
+            )
+        )
+        _, by_id = _build(state, tmp_path)
+        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        assert any("cell_line_protocols" in str(i) for i in executed), (
+            "the deposit's own culture protocol must be executed rather than a "
+            f"synthesized stub; got {executed}"
+        )
