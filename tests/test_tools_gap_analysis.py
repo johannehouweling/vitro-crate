@@ -792,6 +792,55 @@ class TestMitGapsUseTheGraphMatcher:
         assert report.mit_overall == pytest.approx(scorer.overall_score, abs=1e-6)
 
 
+class TestFairGapsScoreAgainstTheSameAssembly:
+    """The gap engine and the maturity report must not disagree about one crate.
+
+    `_mit_gaps` was moved onto the assembled `@graph` under #377 for exactly this
+    reason; `_fair_gaps` was left calling `assess_fair_maturity(state)` with neither
+    the graph nor the MIT report. Every graph-aware DSM indicator therefore answered
+    "not assessed" inside the loop while the report answered them properly — two
+    different DSM levels for one crate, and the one the builder acted on was the
+    blind one.
+    """
+
+    @staticmethod
+    def _state() -> CrateState:
+        state = _backbone()
+        state.metadata.title = "Thyroid disruption assay"
+        state.metadata.description = "A study of TH transport inhibition."
+        return state
+
+    def test_the_gap_engine_sees_the_graph_the_report_sees(self):
+        from builder.tools.fair_assessment import assess_fair_maturity
+        from builder.tools.gap_analysis import _shacl_gaps
+        from builder.tools.mit_assessment import assess_mit_coverage
+
+        state = self._state()
+        _, _, metadata_doc = _shacl_gaps(state)
+        expected = assess_fair_maturity(
+            state, mit=assess_mit_coverage(state, graph=metadata_doc), graph=metadata_doc
+        )
+
+        summary = assess_gaps(state).fair_summary
+        assert summary["dsm_level"] == expected.dsm_level
+
+    def test_the_indicator_counts_agree_too(self):
+        from builder.tools.fair_assessment import assess_fair_maturity
+        from builder.tools.gap_analysis import _shacl_gaps
+        from builder.tools.mit_assessment import assess_mit_coverage
+
+        state = self._state()
+        _, _, metadata_doc = _shacl_gaps(state)
+        expected = assess_fair_maturity(
+            state, mit=assess_mit_coverage(state, graph=metadata_doc), graph=metadata_doc
+        )
+        passed = sum(1 for i in expected.indicator_results if i.get("passed") is True)
+        failed = sum(1 for i in expected.indicator_results if i.get("passed") is False)
+
+        summary = assess_gaps(state).fair_summary
+        assert (summary["indicators_passed"], summary["indicators_failed"]) == (passed, failed)
+
+
 class TestMitSingleOwner:
     """The scorer and the gap engine read ONE checklist, ONE way (#357).
 
