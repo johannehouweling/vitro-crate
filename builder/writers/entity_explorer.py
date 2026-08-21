@@ -40,6 +40,7 @@ from builder.writers.provenance_dag import (
     _CTX_COLOUR,
     _CTX_GLYPH,
     _LAYER_NAMES,
+    _PROCESS_DISCRIMINATORS,
     CATEGORY_STYLES,
     _derivation_edges,
     _graph_nodes,
@@ -169,7 +170,20 @@ _PROCESS_CONTEXT: tuple[tuple[str, bool], ...] = (
 )
 
 
-def _select_processes(crate: _Crate) -> set[str]:
+def _process_flavour(node: dict[str, Any]) -> str | None:
+    """The ISA-Tox discriminator a process node carries, if it carries one.
+
+    A process node's type tag *is* its discriminator, so the flavours need no
+    classification of their own (#624). A node captioned with more than one tag
+    (``A \u00b7 B``) is matched on any of them.
+    """
+    for tag in str(node.get("type") or "").split("\u00b7"):
+        if tag.strip() in _PROCESS_DISCRIMINATORS:
+            return tag.strip()
+    return None
+
+
+def _select_processes(crate: _Crate, flavour: str | None = None) -> set[str]:
     """The derivation chain, and what each step is and belongs to.
 
     :func:`_derivation_edges` walks the **material** chain — what a process
@@ -188,6 +202,22 @@ def _select_processes(crate: _Crate) -> set[str]:
     processes = {
         n["id"] for n in crate.model["nodes"] if n["category"] == "process" and n["id"] in chain
     }
+    if flavour is not None:
+        # A flavour is this rule restricted to one discriminator — never a fresh
+        # sweep of the crate by type, or it would draw steps the parent leaves
+        # out. The chain narrows with it, to what those steps touched.
+        processes = {
+            n["id"]
+            for n in crate.model["nodes"]
+            if n["id"] in processes and _process_flavour(n) == flavour
+        }
+        chain = set(processes)
+        for edge in edges:
+            src, dst = edge[0], edge[1]
+            if src in processes:
+                chain.add(dst)
+            if dst in processes:
+                chain.add(src)
     context = {
         edge["dst"] if outgoing else edge["src"]
         for edge in crate.model["edges"]
@@ -273,6 +303,34 @@ def _of_inventory(
     return subject
 
 
+def _of_process_flavour(flavour: str) -> Callable[[_Crate], set[str]]:
+    """The steps of one flavour — what its chip is named for, so the sub-row
+    counts the way every other chip does (#625)."""
+
+    def subject(crate: _Crate) -> set[str]:
+        return {
+            n["id"]
+            for n in crate.model["nodes"]
+            if n["category"] == "process" and _process_flavour(n) == flavour
+        }
+
+    return subject
+
+
+PROCESS_FLAVOURS: dict[str, str] = {
+    "cellculture": "CellCulture",
+    "exposure": "Exposure",
+    "endpointreadout": "EndpointReadout",
+    "dataanalysis": "DataAnalysis",
+}
+"""The LabProcesses sub-row: chip key -> the ISA-Tox discriminator it draws.
+
+The four are the profile's own LabProcess kinds (``_PROCESS_DISCRIMINATORS``),
+each with a shape file of its own; a fifth invented here would be a category no
+crate can carry.
+"""
+
+
 class ExplorerView(NamedTuple):
     """One toggle: a named selection over the crate's entities.
 
@@ -282,6 +340,8 @@ class ExplorerView(NamedTuple):
     and table that link a compound to the work — and counting those made every
     chip overstate its own label, LabProcesses by threefold (#625). A view whose
     name covers everything it draws leaves ``subject`` unset.
+
+    ``parent`` makes the view a refinement of another; see the field.
     """
 
     key: str
@@ -290,6 +350,15 @@ class ExplorerView(NamedTuple):
     default: bool
     select: Callable[[_Crate], set[str]]
     subject: Callable[[_Crate], set[str]] | None = None
+    parent: str | None = None
+    """The view this one refines, if any.
+
+    A child is drawn as a sub-row under its parent's chip and appears only
+    while the parent is on. Children **narrow**: a parent with active children
+    contributes the union of those children instead of its own members, so the
+    explorer keeps one interaction model — views combine — instead of gaining a
+    second one for the sub-row (#624).
+    """
 
 
 # Order matters: "Researcher" opens the section, and the rest follow the tabbed
@@ -328,6 +397,43 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         False,
         _select_processes,
         _of_category("process"),
+    ),
+    *(
+        ExplorerView(
+            key,
+            label,
+            hint,
+            False,
+            (lambda kind: lambda crate: _select_processes(crate, kind))(kind),
+            _of_process_flavour(kind),
+            parent="processes",
+        )
+        for key, kind, label, hint in (
+            (
+                "cellculture",
+                "CellCulture",
+                "Cell culture",
+                "Only the culture steps, with what they used and produced",
+            ),
+            (
+                "exposure",
+                "Exposure",
+                "Exposure",
+                "Only the exposure steps, with what they used and produced",
+            ),
+            (
+                "endpointreadout",
+                "EndpointReadout",
+                "Endpoint readout",
+                "Only the readout steps, with what they measured and produced",
+            ),
+            (
+                "dataanalysis",
+                "DataAnalysis",
+                "Data analysis",
+                "Only the analysis steps, with what they read and produced",
+            ),
+        )
     ),
     ExplorerView(
         "chemicals",
@@ -491,6 +597,7 @@ def build_explorer_payload(
                 "label": view.label,
                 "hint": view.hint,
                 "default": view.default,
+                "parent": view.parent,
                 "count": len(counted),
                 "members": sorted(members),
             }

@@ -32,6 +32,17 @@
     .filter(function (e) { return e && e['@id']; })
     .map(function (e) { return e['@id']; });
   var VIEW = new Map(D.views.map(function (v) { return [v.key, new Set(v.members)]; }));
+  // A view that refines another (#624): the LabProcesses sub-row. Children
+  // NARROW — a parent with active children draws their union instead of its own
+  // members — so the explorer keeps one rule, "what is on is what is drawn",
+  // rather than gaining a second interaction model for the sub-row.
+  var VIEW_PARENT = new Map(D.views.map(function (v) { return [v.key, v.parent || null]; }));
+  var CHILDREN = new Map();
+  D.views.forEach(function (v) {
+    if (!v.parent) return;
+    if (!CHILDREN.has(v.parent)) CHILDREN.set(v.parent, []);
+    CHILDREN.get(v.parent).push(v.key);
+  });
   // Everything some view can put on the canvas. Not `D.nodes.length`: that also
   // counts bare references the crate never describes, which no view offers, so
   // a denominator taken from it would be one the numerator can never reach.
@@ -113,6 +124,12 @@
       keys = D.views.filter(function (v) { return v.default; }).map(function (v) { return v.key; });
     }
     if (!keys.length) keys = [D.views[0].key];
+    // A link to a flavour opens LabProcesses too: the sub-row lives under its
+    // parent's chip, and a filter the reader cannot see is one they cannot undo.
+    keys.concat().forEach(function (k) {
+      var parent = VIEW_PARENT.get(k);
+      if (parent && keys.indexOf(parent) === -1) keys.push(parent);
+    });
     return {
       views: new Set(keys), selected: p.get('select') || null,
       document: p.get('json') === '1', query: p.get('q') || ''
@@ -131,7 +148,15 @@
   function visibleGraph(views, pinned) {
     var visible = new Set(pinned);
     views.forEach(function (key) {
-      VIEW.get(key).forEach(function (id) { visible.add(id); });
+      var kids = (CHILDREN.get(key) || []).filter(function (k) { return views.has(k); });
+      // A child that is on is drawn by its parent's turn, so a child whose
+      // parent is off draws nothing on its own — the sub-row is a filter on the
+      // parent, not a ninth chip.
+      if (!kids.length && VIEW_PARENT.get(key) && views.has(VIEW_PARENT.get(key))) return;
+      var sources = kids.length ? kids : [key];
+      sources.forEach(function (k) {
+        VIEW.get(k).forEach(function (id) { visible.add(id); });
+      });
     });
     var everything = views.has('all');
 
@@ -450,7 +475,14 @@
     function toggle(key) {
       setViews(function (prev) {
         var next = new Set(prev);
-        if (next.has(key)) next.delete(key); else next.add(key);
+        if (next.has(key)) {
+          next.delete(key);
+          // A sub-row goes with the chip that opens it; a filter still running
+          // behind a hidden control is one the reader cannot undo.
+          (CHILDREN.get(key) || []).forEach(function (k) { next.delete(k); });
+        } else {
+          next.add(key);
+        }
         if (!next.size) next.add(key);  // never leave the canvas blank
         return next;
       });
@@ -478,7 +510,7 @@
     return html`<div class="ex-shell">
       <div class="ex-toolbar">
         <div class="ex-views" role="group" aria-label="Views">
-          ${D.views.map(function (v) {
+          ${D.views.filter(function (v) { return !v.parent; }).map(function (v) {
             return html`<button key=${v.key} type="button" class="ex-chip"
               aria-pressed=${views.has(v.key)} title=${v.hint}
               onClick=${function () { toggle(v.key); }}>${v.label}
@@ -498,6 +530,18 @@
           <span class="ex-count">${summary(graph, hits)}</span>
         </div>
       </div>
+      ${D.views.some(function (v) { return v.parent && views.has(v.parent); })
+        ? html`<div class="ex-flavours" role="group" aria-label="Kinds of step">
+            <span class="ex-sub-h">Only</span>
+            ${D.views.filter(function (v) { return v.parent && views.has(v.parent); })
+              .map(function (v) {
+                return html`<button key=${v.key} type="button" class="ex-chip ex-sub"
+                  aria-pressed=${views.has(v.key)} title=${v.hint}
+                  onClick=${function () { toggle(v.key); }}>${v.label}
+                  <span class="ex-chip-count">${v.count}</span></button>`;
+              })}
+          </div>`
+        : null}
       <div class="ex-legend">
         ${Object.keys(D.categories).filter(function (k) { return present.has(k); })
           .map(function (k) {

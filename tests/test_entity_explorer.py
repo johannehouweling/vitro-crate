@@ -536,6 +536,147 @@ class TestViewMembership:
         assert {v["key"] for v in payload["views"]} <= {v.key for v in EXPLORER_VIEWS}
 
 
+class TestProcessFlavours:
+    """#624: the LabProcesses view also opens its four ISA-Tox flavours.
+
+    The flavours are a sub-row that appears only while ``LabProcesses`` is on,
+    and they **narrow** what that view contributes rather than adding to the
+    canvas: a parent view with active children draws the union of those
+    children instead of its own members. That keeps one interaction model —
+    views still combine — while answering the review's "just show endpoint
+    readout", and it answers what a dropdown cannot: Exposure *and* endpoint
+    readout together.
+
+    The selection needs no new classification. A process node's type tag is its
+    ISA-Tox discriminator already, so a flavour is the parent's own rule
+    restricted to one tag, context and all.
+    """
+
+    _KEYS = ("cellculture", "exposure", "endpointreadout", "dataanalysis")
+
+    def test_the_four_flavours_are_the_profiles_own_discriminators(self) -> None:
+        """Not a hand-written list: the profile defines exactly these four
+        LabProcess kinds, each with a shape file of its own, and a fifth
+        invented here would be a category the crate can never carry."""
+        from builder.writers.entity_explorer import PROCESS_FLAVOURS
+        from builder.writers.provenance_dag import _PROCESS_DISCRIMINATORS
+
+        assert set(PROCESS_FLAVOURS.values()) == set(_PROCESS_DISCRIMINATORS)
+        assert tuple(PROCESS_FLAVOURS) == self._KEYS
+
+    def test_a_flavour_is_a_child_of_the_labprocesses_view(self) -> None:
+        by_key = {v.key: v for v in EXPLORER_VIEWS}
+
+        assert [by_key[k].parent for k in self._KEYS] == ["processes"] * 4
+        assert by_key["processes"].parent is None
+        assert by_key["researcher"].parent is None
+
+    def test_the_payload_says_which_view_a_flavour_belongs_to(self) -> None:
+        """The browser builds the sub-row from this; without it the flavours
+        would render as four more top-level chips, which is the crowding the
+        sub-row exists to avoid."""
+        payload = build_explorer_payload(tabbed_views_graph())
+        parents = {v["key"]: v["parent"] for v in payload["views"]}
+
+        assert parents["exposure"] == "processes"
+        assert parents["cellculture"] == "processes"
+        assert parents["processes"] is None
+        assert parents["all"] is None
+
+    def test_a_flavour_draws_its_own_steps_and_not_the_others(self) -> None:
+        views = _views(build_explorer_payload(tabbed_views_graph()))
+
+        assert "#exposure" in views["exposure"]
+        assert "#culture" not in views["exposure"]
+        assert "#culture" in views["cellculture"]
+        assert "#exposure" not in views["cellculture"]
+
+    def test_a_flavour_brings_the_context_its_parent_brings(self) -> None:
+        """Narrowing the steps must not strip what makes a step readable — the
+        protocol it executes and the assay it serves (#626), and the material it
+        consumed and produced. A flavour showing bare process boxes would be a
+        worse answer than the unfiltered view."""
+        views = _views(build_explorer_payload(process_context_graph()))
+
+        assert {"#exposure", "#protocol", "#assay", "#cells", "result.csv"} <= views["exposure"]
+
+    def test_a_flavour_never_draws_a_step_its_parent_leaves_out(self) -> None:
+        """The fixture's DataAnalysis step is off the material chain, so the
+        parent view does not draw it — and a flavour is the parent's rule
+        restricted, never a fresh sweep of the crate by type. With no step left,
+        the flavour has nothing to show and is not offered at all."""
+        payload = build_explorer_payload(process_context_graph())
+        views = _views(payload)
+
+        assert "#orphan-step" not in views["processes"]
+        assert "dataanalysis" not in views
+        # No flavour draws it either. (Other views legitimately do — `researcher`
+        # shows the experiment whether or not a step sits on the material chain.)
+        assert not any(k in views and "#orphan-step" in views[k] for k in self._KEYS)
+
+    def test_the_flavours_between_them_cover_every_step_the_parent_draws(self) -> None:
+        """No step falls between the four: a reader who turns all of them on
+        sees what LabProcesses shows. Pinned against the parent's own subject so
+        a new discriminator in the profile fails here rather than silently
+        hiding steps."""
+        payload = build_explorer_payload(tabbed_views_graph())
+        nodes = {n["id"]: n for n in payload["nodes"]}
+        views = _views(payload)
+
+        def steps(key: str) -> set[str]:
+            return {i for i in views[key] if nodes[i]["category"] == "process"}
+
+        covered: set[str] = set()
+        for key in self._KEYS:
+            covered |= steps(key) if key in views else set()
+        assert covered == steps("processes")
+
+    def test_a_flavour_chip_counts_its_own_steps(self) -> None:
+        """The #625 rule holds for the sub-row too: the chip counts the subject
+        it is named for, not the context the selection drags in."""
+        payload = build_explorer_payload(tabbed_views_graph())
+        counts = {v["key"]: v["count"] for v in payload["views"]}
+        members = _views(payload)
+
+        assert counts["exposure"] == 1
+        assert counts["cellculture"] == 1
+        assert len(members["exposure"]) > counts["exposure"]  # context is drawn, not counted
+
+    def test_the_flavours_follow_their_parent_in_the_offered_order(self) -> None:
+        """A sub-row read out by a screen reader follows the chip it refines."""
+        offered = [v["key"] for v in build_explorer_payload(tabbed_views_graph())["views"]]
+        flavours = [k for k in offered if k in self._KEYS]
+
+        assert offered.index("processes") + 1 == offered.index(flavours[0])
+        assert offered[offered.index(flavours[0]) : offered.index(flavours[-1]) + 1] == flavours
+
+    def test_a_flavour_opens_nothing_by_default(self) -> None:
+        """An unfiltered LabProcesses is what the view has always meant; a
+        flavour pressed on load would silently hide steps from a reader who
+        never asked for a filter."""
+        payload = build_explorer_payload(tabbed_views_graph())
+
+        assert not any(v["default"] for v in payload["views"] if v["parent"])
+
+    def test_the_app_narrows_a_parent_to_its_active_children(self) -> None:
+        """A source-level guard, not a behavioural one: the narrowing runs in
+        the browser and this suite has no JS runtime. It pins the two lines that
+        carry the rule, so deleting either fails here rather than in a reader's
+        browser — the behaviour itself was checked by hand in a headless render.
+        """
+        source = _app_js()
+
+        assert "CHILDREN" in source
+        assert "ex-flavours" in source
+        # The sub-row is conditional on its parent being on.
+        assert "v.parent" in source
+
+    def test_the_sub_row_is_styled(self) -> None:
+        from builder.writers.maturity_report import _load_css
+
+        assert ".ex-flavours" in _load_css()
+
+
 class TestAChipCountsWhatItIsNamedFor:
     """A view's members include the supporting entities it drags in so the
     selection has context — the files a step touched, the hops that link a
