@@ -688,3 +688,92 @@ class TestTheCultureProtocolIsStudyLevel:
             "the deposit's own culture protocol must be executed rather than a "
             f"synthesized stub; got {executed}"
         )
+
+    def test_a_culture_of_two_lines_executes_one_protocol_per_line(self, tmp_path):
+        """One protocol per cell line, never a composite.
+
+        The deposit holds ``cell_culture protocol H4.docx``,
+        ``…MO3.13.docx`` and ``…SK-N-AS.docx`` — one document per line, and no
+        document for any combination. Keying a synthesized protocol on the whole
+        SET invented ``#protocol_cell_culture_H4_SK-N-AS``, which names a
+        procedure nobody wrote and which no two cultures can share unless they
+        grow exactly the same lines.
+        """
+        state = CrateState()
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        state.add_entity(_ent("assay_1", "Assay", name="A1", study_id="study_1"))
+        state.add_entity(_ent("assay_2", "Assay", name="A2", study_id="study_1"))
+        state.add_entity(_ent("cell_a", "CellLineSample", name="SK-N-AS"))
+        state.add_entity(_ent("cell_b", "CellLineSample", name="H4"))
+        state.add_entity(
+            _ent(
+                "proc_1",
+                "LabProcess",
+                name="Mixed culture",
+                process_type="CellCulture",
+                assay_id="assay_1",
+                cell_line=["cell_a", "cell_b"],
+                culture_medium="DMEM",
+            )
+        )
+        state.add_entity(
+            _ent(
+                "proc_2",
+                "LabProcess",
+                name="Single culture",
+                process_type="CellCulture",
+                assay_id="assay_2",
+                cell_line=["cell_a"],
+                culture_medium="DMEM",
+            )
+        )
+        _, by_id = _build(state, tmp_path)
+        mixed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        single = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+
+        assert len(mixed) == 2, (
+            f"a culture of two lines follows two protocols, not a composite: {mixed}"
+        )
+        assert not any("h4_sk" in str(i).casefold() for i in mixed), (
+            f"no composite protocol may be invented: {mixed}"
+        )
+        assert set(single) <= set(mixed), (
+            "the SK-N-AS protocol must be the SAME entity in both cultures; "
+            f"mixed={mixed} single={single}"
+        )
+
+    def test_the_culture_protocol_is_linked_to_the_study(self, tmp_path):
+        """Executed by its process AND hung off the Study it governs.
+
+        A protocol shared by several assays is a study-level document, and the
+        backbone should say so rather than leave it reachable only by walking
+        into a process.
+        """
+        _, by_id = _build(self._two_assays(), tmp_path)
+        executed = set(_ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol")))
+        study = by_id["#Study_study_1"]
+        linked = set(_ids(study.get("hasPart"))) | set(_ids(study.get("mentions")))
+        assert executed <= linked, (
+            f"the culture protocol must hang off the Study too; executed={executed} "
+            f"study links={linked}"
+        )
+
+    def test_a_deposited_protocol_is_a_part_of_the_study_not_a_mention(self, tmp_path):
+        """A real document is payload, so it is `hasPart`. A synthesized stub is
+        not, and claiming the study CONTAINS a file nobody deposited would be a
+        false claim about the payload."""
+        state = self._two_assays(
+            protocol_files=(
+                (
+                    "proto_sk",
+                    "20251114_cell culture protocol SK-N-AS.docx",
+                    "cell_line_protocols/20251114_cell culture protocol SK-N-AS.docx",
+                ),
+            )
+        )
+        _, by_id = _build(state, tmp_path)
+        study = by_id["#Study_study_1"]
+        parts = _ids(study.get("hasPart"))
+        assert any("cell_line_protocols" in str(i) for i in parts), (
+            f"a deposited culture protocol belongs in the Study's hasPart: {parts}"
+        )
