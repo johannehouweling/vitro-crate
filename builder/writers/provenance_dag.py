@@ -439,7 +439,19 @@ def _tag(node: dict[str, Any]) -> str:
     if _is_process(node):
         return _additional_type(node) or "LabProcess"
     types = _types(node)
-    for preferred in ("MolecularEntity", "Table", "File", "Sample"):
+    # A domain type outranks the generic one it refines. Without this the tag is
+    # whichever type sorts first, so a key event — typed `["KeyEvent",
+    # "DefinedTerm"]` — reached the canvas captioned "DefinedTerm", telling the
+    # reader it was a piece of vocabulary rather than the effect the assay
+    # measures (#627).
+    for preferred in (
+        "AdverseOutcomePathway",
+        "KeyEvent",
+        "MolecularEntity",
+        "Table",
+        "File",
+        "Sample",
+    ):
         if preferred in types:
             tag = preferred
             break

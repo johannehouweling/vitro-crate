@@ -49,6 +49,7 @@ from builder.writers.provenance_dag import (
     build_people_inventory,
 )
 from tests.fixtures.crate_graphs import (
+    aop_linked_graph,
     plumbing_heavy_graph,
     process_context_graph,
     tabbed_views_graph,
@@ -325,6 +326,66 @@ class TestViewMembership:
 
         assert views["assays"] == {n["id"] for n in build_isa_inventory(graph)["nodes"]}
         assert views["assays"] == {"./"}  # the fixture declares one Investigation
+
+    def test_assays_hold_the_key_events_an_assay_measures(self) -> None:
+        """What an assay is *for*. The profile links it through
+        ``schema:mentions`` (``7_assay_key_event.ttl``), and the view used to
+        select the ISA backbone alone (#627)."""
+        views = _views(build_explorer_payload(aop_linked_graph()))
+
+        assert "https://aopwiki.org/events/2258" in views["assays"]
+
+    def test_assays_hold_the_pathway_a_study_serves(self) -> None:
+        """The AOP hangs off the Study rather than the Assay
+        (``6_study_aop.ttl``), so a rule keyed to assays alone would miss it."""
+        views = _views(build_explorer_payload(aop_linked_graph()))
+
+        assert "https://aopwiki.org/aops/610" in views["assays"]
+
+    def test_assays_do_not_hold_whatever_else_the_crate_mentions(self) -> None:
+        """``mentions`` is a general relation: a crate mentions its own build
+        action through it. The view is about the science, so the rule is keyed
+        to what is mentioned, not merely to the relation."""
+        views = _views(build_explorer_payload(aop_linked_graph()))
+
+        assert "#build" not in views["assays"]
+
+    def test_a_key_event_is_captioned_as_one(self) -> None:
+        """A key event is typed ``["KeyEvent", "schema:DefinedTerm"]``, and the
+        node caption used to take whichever came first alphabetically — so the
+        crate's key events reached the canvas labelled "DefinedTerm",
+        indistinguishable from a csvw column's ontology term. Drawing them in
+        the Assays view (#627) is worth nothing if the canvas will not name
+        them: a domain type outranks the generic one it refines, the way
+        MolecularEntity and Sample already do."""
+        payload = build_explorer_payload(aop_linked_graph())
+        tags = {n["id"]: n["type"] for n in payload["nodes"]}
+
+        assert tags["https://aopwiki.org/events/2258"] == "KeyEvent"
+        assert tags["https://aopwiki.org/aops/610"] == "AdverseOutcomePathway"
+        assert tags["#term"] == "DefinedTerm", "a plain term is still a plain term"
+
+    def test_assays_do_not_hold_a_pathway_no_assay_claims(self) -> None:
+        """Followed from the backbone, not swept from the crate. The fixture's
+        second key event is mentioned only by a note outside the ISA entities,
+        so no assay claims it and the view must not show it as though one did."""
+        views = _views(build_explorer_payload(aop_linked_graph()))
+
+        assert "https://aopwiki.org/events/9999" not in views["assays"]
+
+    def test_assays_do_not_hold_an_unmentioned_term(self) -> None:
+        """Followed, not collected: an ontology term no ISA entity points at
+        stays out, whatever its type."""
+        views = _views(build_explorer_payload(aop_linked_graph()))
+
+        assert "#term" not in views["assays"]
+
+    def test_assays_still_hold_the_isa_backbone(self) -> None:
+        """The pathway is added to the backbone, never in place of it."""
+        graph = aop_linked_graph()
+        views = _views(build_explorer_payload(graph))
+
+        assert {n["id"] for n in build_isa_inventory(graph)["nodes"]} <= views["assays"]
 
     def test_labprocesses_holds_the_derivation_chain(self) -> None:
         """The chain is the spine of the view, and every link of it is drawn.

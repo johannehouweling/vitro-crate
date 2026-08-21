@@ -289,3 +289,77 @@ def process_context_graph() -> dict[str, Any]:
             },
         ]
     }
+
+
+def aop_linked_graph() -> dict[str, Any]:
+    """A crate whose assays say what they are *for*.
+
+    The shape #627 is about. The ISA-Tox profile links an Assay to the key
+    events it measures and a Study to the adverse outcome pathway it serves,
+    both through ``schema:mentions`` (``profiles/shapes/tox/7_assay_key_event.ttl``
+    and ``6_study_aop.ttl``). The Assays view selected the ISA backbone alone, so
+    the one thing that says what an assay is for was missing from the view named
+    after assays.
+
+    ``mentions`` is a general relation, so the crate also mentions something that
+    is neither — the build's own action, exactly as a real crate does — and it
+    must stay out of a view about the science. A second key event is mentioned
+    only by an entity outside the ISA backbone, so a rule that followed every
+    ``mentions`` edge in the crate rather than the ones leaving an assay or study
+    would draw a pathway no assay claims.
+    """
+    return {
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {
+                "@id": "./",
+                "@type": "Dataset",
+                "additionalType": "Investigation",
+                "name": "An investigation",
+                "hasPart": [{"@id": "#study"}],
+                "mentions": [{"@id": "#build"}],
+            },
+            {
+                "@id": "#study",
+                "@type": "Dataset",
+                "additionalType": "Study",
+                "name": "A study",
+                "hasPart": [{"@id": "#assay"}],
+                "mentions": [{"@id": "https://aopwiki.org/aops/610"}],
+            },
+            {
+                "@id": "#assay",
+                "@type": "Dataset",
+                "additionalType": "Assay",
+                "name": "Transport assay",
+                "mentions": [{"@id": "https://aopwiki.org/events/2258"}],
+            },
+            {
+                "@id": "https://aopwiki.org/aops/610",
+                "@type": ["AdverseOutcomePathway", "schema:DefinedTerm"],
+                "name": "Decreased thyroid hormone levels in the brain",
+            },
+            {
+                "@id": "https://aopwiki.org/events/2258",
+                "@type": ["KeyEvent", "schema:DefinedTerm"],
+                "name": "Inhibition, monocarboxylate transporter 8",
+            },
+            {
+                "@id": "#term",
+                "@type": "DefinedTerm",
+                "name": "An ontology term no assay mentions",
+            },
+            {
+                "@id": "#note",
+                "@type": "CreativeWork",
+                "name": "A note outside the ISA backbone",
+                "mentions": [{"@id": "https://aopwiki.org/events/9999"}],
+            },
+            {
+                "@id": "https://aopwiki.org/events/9999",
+                "@type": ["KeyEvent", "schema:DefinedTerm"],
+                "name": "A key event no assay measures",
+            },
+            {"@id": "#build", "@type": "CreateAction", "name": "vitro-crate build"},
+        ]
+    }
