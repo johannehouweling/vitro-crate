@@ -301,6 +301,10 @@ def aop_linked_graph() -> dict[str, Any]:
     the one thing that says what an assay is for was missing from the view named
     after assays.
 
+    The chain also carries a ``KeyEventRelationship`` — what makes a pathway a
+    pathway rather than a bag of events. Nothing ``mentions`` it, so it is the
+    case that separates "part of the pathway" from "followed from an assay".
+
     ``mentions`` is a general relation, so the crate also mentions something that
     is neither — the build's own action, exactly as a real crate does — and it
     must stay out of a view about the science. A second key event is mentioned
@@ -359,6 +363,13 @@ def aop_linked_graph() -> dict[str, Any]:
                 "@id": "https://aopwiki.org/events/9999",
                 "@type": ["KeyEvent", "schema:DefinedTerm"],
                 "name": "A key event no assay measures",
+            },
+            {
+                "@id": "https://aopwiki.org/relationships/4615",
+                "@type": ["KeyEventRelationship", "schema:DefinedTerm"],
+                "name": "Inhibition, MCT8 → A key event no assay measures",
+                "upstream_event": {"@id": "https://aopwiki.org/events/2258"},
+                "downstream_event": {"@id": "https://aopwiki.org/events/9999"},
             },
             {"@id": "#build", "@type": "CreateAction", "name": "vitro-crate build"},
         ]

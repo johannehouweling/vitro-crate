@@ -2003,8 +2003,11 @@ measure (#627). A domain type also outranks the generic one it refines when a no
 so a key event reads as a key event rather than as the `DefinedTerm` it also is — and it is drawn in
 its own `pathway` category, because what an assay measures takes part in the work rather than
 qualifying it, and the fallback bucket paints csvw columns and the build's own action (#643).
-`PATHWAY_TYPES` is the one list all three rules read: which nodes the view follows to, how they are
-captioned, and what colour they are drawn in.
+`PATHWAY_TYPES` — the pathway, its key events and the `KeyEventRelationship`s that order them — is
+the one list all three rules read: which nodes the view follows to, how they are captioned, and what
+colour they are drawn in. A relationship is in it although nothing `mentions` one: what a view
+*reaches* and what an entity *is* are different questions, and a chain whose every link is drawn as
+vocabulary is not a chain.
 
 **LabProcesses** draws the derivation chain plus what each step *is*: the protocol a visible
 process executes and the assay whose `about` points at one. Neither edge lies on the material chain
