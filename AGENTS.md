@@ -1973,7 +1973,12 @@ that describes it, which is the `annotation` category (parameters, csvw columns 
 ontology terms, licences, profiles, the build's own action and software) plus every off-crate stub.
 The rule is by category and never by layer: Persons, Organisations and articles sit in the base
 packaging layer beside the plumbing, so a layer-based rule would drop exactly the credit a reader
-looks for; the root is kept whatever its category. The other toggles are the tabbed section's own
+looks for; the root is kept whatever its category. **LabProcesses** draws the derivation chain plus what each step *is*: the protocol a visible
+process executes and the assay whose `about` points at one. Neither edge lies on the material chain
+the derivation walk follows, and the two point in opposite directions — outward to the protocol,
+inward from the assay — so the view showed every step and every file it touched while never saying
+how a step was done or which assay it served (#626). Followed, never collected: context reaches the
+canvas only through a step the view already draws. The other toggles are the tabbed section's own
 selections, reused rather than re-derived — `_derivation_edges` and `_route_hop_ids` are shared with
 the SVG renderers for that reason, and tests hold each toggle to what its panel draws. A view no
 entity satisfies is not offered, the way an empty tab is not shown. Selecting an entity opens a side

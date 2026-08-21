@@ -128,10 +128,42 @@ def _select_assays(crate: _Crate) -> set[str]:
     return {n["id"] for n in crate.inventory("isa")["nodes"]}
 
 
+# What a step *is*, as opposed to what it handled. Each is keyed by the edge the
+# crate draws and the direction it points, because the two disagree: a process
+# reaches its protocol, and an assay reaches its process (#626).
+_PROCESS_CONTEXT: tuple[tuple[str, bool], ...] = (
+    ("executes", True),  # process → the protocol it runs
+    ("about", False),  # assay → the process it is about
+)
+
+
 def _select_processes(crate: _Crate) -> set[str]:
-    """The derivation chain: every process and what it consumes and produces."""
+    """The derivation chain, and what each step is and belongs to.
+
+    :func:`_derivation_edges` walks the **material** chain — what a process
+    consumed and produced. Neither edge that says what a step *is* travels that
+    way, so the view used to show every step and every file it touched while
+    never saying how a step was done or which assay it served (#626).
+
+    Both are followed here, and followed rather than collected: only the
+    protocol a visible process executes and the assay whose ``about`` points at
+    a visible process join the selection, so a protocol belonging to no drawn
+    step stays out. The two point in opposite directions, which is why this
+    reads the model's edges instead of extending the derivation walk.
+    """
     edges = _derivation_edges(crate.nodes)
-    return {e[0] for e in edges} | {e[1] for e in edges}
+    chain = {e[0] for e in edges} | {e[1] for e in edges}
+    processes = {
+        n["id"] for n in crate.model["nodes"] if n["category"] == "process" and n["id"] in chain
+    }
+    context = {
+        edge["dst"] if outgoing else edge["src"]
+        for edge in crate.model["edges"]
+        for label, outgoing in _PROCESS_CONTEXT
+        if edge["label"] == label
+        and (edge["src"] if outgoing else edge["dst"]) in processes
+    }
+    return chain | context
 
 
 def _routed(crate: _Crate, inventory: str, members: str) -> set[str]:
