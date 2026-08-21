@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import CrateState, Entity, EntityProvenance, FileClassification
 from builder.tools.builder import build_crate
 
 
@@ -185,7 +185,10 @@ class TestLabProcessSubtypes:
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
         assert proc["additionalType"] == "CellCulture"
-        assert proc.get("executesLabProtocol")  # SHOULD, always synthesized
+        # No protocol is invented: this deposit holds no culture document, and a
+        # step with none has none (#650). `executesLabProtocol` is a SHOULD, so
+        # the honest gap costs a recommendation.
+        assert not proc.get("executesLabProtocol")
         # input → schema:object, output → schema:result (via the @context).
         # An accession-backed CellLineSample carries its Cellosaurus IRI as @id,
         # and the process wiring must follow it.
@@ -341,20 +344,57 @@ class TestLabProcessSubtypes:
         _, by_id = _build(state, tmp_path)
         assert "#LabProcess_proc_1" in _ids(by_id["#Assay_assay_1"].get("about"))
 
-    def test_protocol_synthesized_when_absent(self, tmp_path):
+    def test_no_protocol_is_invented_when_the_deposit_has_none(self, tmp_path):
+        """A stub protocol claims a procedure nobody wrote.
+
+        This used to synthesize `#protocol_<assay>` for every step that named no
+        protocol of its own. That silenced the ISA "Process entity SHOULD have a
+        protocol" warning with a fabrication — an assertion that cannot fail is
+        not a check (#620) — and put an entity in the crate whose `@id` was a
+        fragment rather than a file anyone deposited.
+
+        A protocol entity IS its file. With no such document, the process carries
+        no protocol and the warning reports the real gap.
+        """
         state = self._state_with_process("CellCulture", cell_line="cell_1")
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
+        graph, by_id = _build(state, tmp_path)
+        assert not by_id["#LabProcess_proc_1"].get("executesLabProtocol")
+        invented = [
+            n["@id"] for n in graph if str(n.get("@id", "")).startswith("#protocol_")
+        ]
+        assert invented == [], f"no protocol entity may be minted: {invented}"
+
+    def test_an_attached_protocol_is_the_file_itself(self, tmp_path):
+        """The protocol entity IS the deposited document — @id is its path.
+
+        No `schema:HowTo` companion is added here, and that is right: the supertype
+        pass exists so every entity carries a type in the schema.org namespace, and
+        `File` already is one (the context maps it to `schema:MediaObject`). The
+        companion is for a node that would otherwise have none, like a bare
+        `LabProtocol`.
+        """
+        state = self._state_with_process("CellCulture", cell_line="cell_1")
+        state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
+        state.add_entity(
+            _ent(
+                "proto_doc",
+                "File",
+                name="cell culture protocol HepG2.docx",
+                path="cell_line_protocols/cell culture protocol HepG2.docx",
+                additional_types=["LabProtocol"],
+            )
+        )
         _, by_id = _build(state, tmp_path)
-        proto_ref = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
-        assert proto_ref
-        proto = by_id[proto_ref[0]]
-        # Co-typed with its PUBLISHED schema.org supertype: RO-Crate recommends
-        # every entity also carry a schema.org type, and `LabProtocol
-        # rdfs:subClassOf schema:HowTo` is stated in the Bioschemas spec — read
-        # from profiles/vocabulary, not decided here.
+        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        assert executed, "the deposited culture protocol must be executed"
+        assert not executed[0].startswith("#"), (
+            f"a protocol's @id must be its file path, not a minted fragment: {executed}"
+        )
+        assert "cell_line_protocols" in executed[0], executed
+        proto = by_id[executed[0]]
         types = proto["@type"] if isinstance(proto["@type"], list) else [proto["@type"]]
-        assert "LabProtocol" in types
-        assert "schema:HowTo" in types, types
+        assert "LabProtocol" in types and "File" in types, types
 
 
 class TestOntologyAnnotations:
@@ -615,38 +655,50 @@ class TestACultureFindsTheCellLineItIsNamedFor:
 
 class TestTheCultureProtocolIsStudyLevel:
     """Issue #650 — culturing a cell line is a study-level activity, so its
-    protocol is one entity shared by every assay that grows that line.
+    protocol is one deposited document shared by every assay that grows that line.
 
-    A culture with no protocol of its own fell through to ``_synth_protocol``,
-    which keys on ``assay_id``. Two assays growing SK-N-AS therefore invented two
-    different protocol stubs for the same procedure. The deposit says otherwise:
-    S-VHPS22 keeps ``cell_line_protocols/`` at study level with exactly one
-    document per line — H4, MO3.13, SK-N-AS.
+    A culture with no protocol of its own used to fall through to a synthesized
+    `#protocol_<assay>` stub, so two assays growing SK-N-AS invented two different
+    protocols for the same procedure while the deposit's real documents were
+    referenced by nothing. S-VHPS22 keeps `cell_line_protocols/` at study level
+    with exactly one document per line — H4, MO3.13, SK-N-AS — and none for any
+    combination.
 
-    A real document wins outright when the crate has one; the synthesized stub is
-    what a crate lacking it falls back to, and even then it is minted once per
-    cell line rather than once per assay.
+    A protocol entity IS its file: `@id` is the document's path, with `name` and
+    `intendedUse` derived on top. Nothing is minted.
     """
 
-    def _two_assays(self, *, second_line="cell_a", protocol_files=()):
+    CULTURE_DOCS = (
+        ("proto_sk", "cell culture protocol SK-N-AS.docx"),
+        ("proto_h4", "cell culture protocol H4.docx"),
+    )
+
+    def _two_assays(self, *, second_line="cell_a", docs=CULTURE_DOCS, extra_docs=()):
         state = CrateState()
+        state.metadata.input_path = "/deposit"
         state.add_entity(_ent("study_1", "Study", name="S"))
         state.add_entity(_ent("assay_1", "Assay", name="A1", study_id="study_1"))
         state.add_entity(_ent("assay_2", "Assay", name="A2", study_id="study_1"))
         state.add_entity(_ent("cell_a", "CellLineSample", name="SK-N-AS"))
         state.add_entity(_ent("cell_b", "CellLineSample", name="H4"))
-        for eid, nm, path in protocol_files:
+        for eid, nm in tuple(docs) + tuple(extra_docs):
             state.add_entity(
-                _ent(eid, "File", name=nm, path=path, additional_types=["LabProtocol"])
+                _ent(
+                    eid,
+                    "File",
+                    name=nm,
+                    path=f"cell_line_protocols/{nm}",
+                    additional_types=["LabProtocol"],
+                )
             )
-        for idx, (assay, line) in enumerate(
+        for n, (assay, line) in enumerate(
             (("assay_1", "cell_a"), ("assay_2", second_line)), start=1
         ):
             state.add_entity(
                 _ent(
-                    f"proc_{idx}",
+                    f"proc_{n}",
                     "LabProcess",
-                    name=f"Culture {idx}",
+                    name=f"Culture {n}",
                     process_type="CellCulture",
                     assay_id=assay,
                     cell_line=[line],
@@ -659,121 +711,133 @@ class TestTheCultureProtocolIsStudyLevel:
         _, by_id = _build(self._two_assays(), tmp_path)
         first = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
         second = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
-        assert set(first) == set(second), (
-            "two assays culturing SK-N-AS the same way must execute ONE protocol; "
+        assert first and set(first) == set(second), (
+            "two assays culturing SK-N-AS follow ONE document; "
             f"got {first} and {second}"
         )
+
+    def test_the_protocol_is_the_document_itself(self, tmp_path):
+        _, by_id = _build(self._two_assays(), tmp_path)
+        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        assert executed and not executed[0].startswith("#"), (
+            f"a protocol's @id must be its file path, not a minted fragment: {executed}"
+        )
+        assert "cell_line_protocols" in executed[0], executed
 
     def test_cultures_of_different_lines_do_not_share(self, tmp_path):
         _, by_id = _build(self._two_assays(second_line="cell_b"), tmp_path)
         first = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
         second = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
-        assert set(first) != set(second), (
+        assert first and second and set(first) != set(second), (
             f"different cell lines are different procedures: {first} vs {second}"
         )
 
-    def test_a_real_protocol_document_is_used_when_the_crate_has_one(self, tmp_path):
-        state = self._two_assays(
-            protocol_files=(
-                (
-                    "proto_sk",
-                    "20251114_cell culture protocol SK-N-AS.docx",
-                    "cell_line_protocols/20251114_cell culture protocol SK-N-AS.docx",
-                ),
-            )
-        )
-        _, by_id = _build(state, tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
-        assert any("cell_line_protocols" in str(i) for i in executed), (
-            "the deposit's own culture protocol must be executed rather than a "
-            f"synthesized stub; got {executed}"
-        )
-
     def test_a_culture_of_two_lines_executes_one_protocol_per_line(self, tmp_path):
-        """One protocol per cell line, never a composite.
-
-        The deposit holds ``cell_culture protocol H4.docx``,
-        ``…MO3.13.docx`` and ``…SK-N-AS.docx`` — one document per line, and no
-        document for any combination. Keying a synthesized protocol on the whole
-        SET invented ``#protocol_cell_culture_H4_SK-N-AS``, which names a
-        procedure nobody wrote and which no two cultures can share unless they
-        grow exactly the same lines.
-        """
-        state = CrateState()
-        state.add_entity(_ent("study_1", "Study", name="S"))
-        state.add_entity(_ent("assay_1", "Assay", name="A1", study_id="study_1"))
-        state.add_entity(_ent("assay_2", "Assay", name="A2", study_id="study_1"))
-        state.add_entity(_ent("cell_a", "CellLineSample", name="SK-N-AS"))
-        state.add_entity(_ent("cell_b", "CellLineSample", name="H4"))
-        state.add_entity(
-            _ent(
-                "proc_1",
-                "LabProcess",
-                name="Mixed culture",
-                process_type="CellCulture",
-                assay_id="assay_1",
-                cell_line=["cell_a", "cell_b"],
-                culture_medium="DMEM",
-            )
-        )
-        state.add_entity(
-            _ent(
-                "proc_2",
-                "LabProcess",
-                name="Single culture",
-                process_type="CellCulture",
-                assay_id="assay_2",
-                cell_line=["cell_a"],
-                culture_medium="DMEM",
-            )
+        """One document per cell line, never a composite: the deposit holds no
+        document for any combination of lines."""
+        state = self._two_assays()
+        state.list_entities("LabProcess")[0].set_fields_from_dict(
+            {"cell_line": ["cell_a", "cell_b"]}, source="llm"
         )
         _, by_id = _build(state, tmp_path)
         mixed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
         single = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
-
         assert len(mixed) == 2, (
-            f"a culture of two lines follows two protocols, not a composite: {mixed}"
-        )
-        assert not any("h4_sk" in str(i).casefold() for i in mixed), (
-            f"no composite protocol may be invented: {mixed}"
+            f"a culture of two lines follows two documents, not a composite: {mixed}"
         )
         assert set(single) <= set(mixed), (
-            "the SK-N-AS protocol must be the SAME entity in both cultures; "
-            f"mixed={mixed} single={single}"
+            f"the SK-N-AS document must be the SAME entity in both: {mixed} / {single}"
+        )
+
+    def test_no_protocol_is_invented_when_the_deposit_has_none(self, tmp_path):
+        graph, by_id = _build(self._two_assays(docs=()), tmp_path)
+        assert not by_id["#LabProcess_proc_1"].get("executesLabProtocol")
+        invented = [
+            n["@id"] for n in graph if str(n.get("@id", "")).startswith("#protocol_")
+        ]
+        assert invented == [], f"no protocol entity may be minted: {invented}"
+
+    def test_a_protocol_for_a_different_step_is_not_claimed_as_the_culture_one(
+        self, tmp_path
+    ):
+        """Naming the cell line is not enough — the document must be about
+        culturing.
+
+        A file classified as a protocol and naming SK-N-AS may still describe the
+        deiodinase readout. Executing it as the CellCulture's protocol would
+        assert it explains how that line was grown, which nobody checked.
+        """
+        state = self._two_assays(
+            docs=(), extra_docs=(("proto_assay", "4.1 Deiodinase assay protocol SK-N-AS.docx"),)
+        )
+        _, by_id = _build(state, tmp_path)
+        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        assert not any("Deiodinase" in str(i) for i in executed), (
+            "an assay protocol that merely names the cell line must not be "
+            f"claimed as the culture protocol: {executed}"
+        )
+        assert executed == [], (
+            f"and nothing may be invented in its place: {executed}"
         )
 
     def test_the_culture_protocol_is_linked_to_the_study(self, tmp_path):
-        """Executed by its process AND hung off the Study it governs.
-
-        A protocol shared by several assays is a study-level document, and the
-        backbone should say so rather than leave it reachable only by walking
-        into a process.
-        """
+        """Executed by its process AND hung off the Study it governs — a protocol
+        shared by several assays is a study-level document."""
         _, by_id = _build(self._two_assays(), tmp_path)
         executed = set(_ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol")))
         study = by_id["#Study_study_1"]
         linked = set(_ids(study.get("hasPart"))) | set(_ids(study.get("mentions")))
-        assert executed <= linked, (
+        assert executed and executed <= linked, (
             f"the culture protocol must hang off the Study too; executed={executed} "
             f"study links={linked}"
         )
 
-    def test_a_deposited_protocol_is_a_part_of_the_study_not_a_mention(self, tmp_path):
-        """A real document is payload, so it is `hasPart`. A synthesized stub is
-        not, and claiming the study CONTAINS a file nobody deposited would be a
-        false claim about the payload."""
-        state = self._two_assays(
-            protocol_files=(
-                (
-                    "proto_sk",
-                    "20251114_cell culture protocol SK-N-AS.docx",
-                    "cell_line_protocols/20251114_cell culture protocol SK-N-AS.docx",
-                ),
-            )
-        )
-        _, by_id = _build(state, tmp_path)
-        study = by_id["#Study_study_1"]
-        parts = _ids(study.get("hasPart"))
+    def test_a_deposited_protocol_is_a_part_of_the_study(self, tmp_path):
+        """A real document is payload, so it belongs in the Study's hasPart."""
+        _, by_id = _build(self._two_assays(), tmp_path)
+        parts = _ids(by_id["#Study_study_1"].get("hasPart"))
         assert any("cell_line_protocols" in str(i) for i in parts), (
             f"a deposited culture protocol belongs in the Study's hasPart: {parts}"
         )
+
+    def test_a_scanned_protocol_document_is_attached(self, tmp_path):
+        """The S-VHPS22 case: the document is in the deposit but nobody attached it.
+
+        Its three `cell_line_protocols/*.docx` were scanned and never became File
+        entities — 48 entities from 54 scanned files — so the crate invented stubs
+        while the real protocols sat in the deposit unreferenced. The scan is the
+        evidence the file exists; the builder attaches it rather than mint anything.
+        """
+        deposit = tmp_path / "deposit" / "cell_line_protocols"
+        deposit.mkdir(parents=True)
+        doc = deposit / "20251114_cell culture protocol SK-N-AS.docx"
+        doc.write_text("Materials and methods: incubate and pipette the culture.")
+
+        state = self._two_assays(docs=())
+        state.metadata.input_path = str(tmp_path / "deposit")
+        state.scanned_files = [
+            FileClassification(
+                path=str(doc),
+                filename=doc.name,
+                size=doc.stat().st_size,
+                mime_type=(
+                    "application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document"
+                ),
+            )
+        ]
+        graph, by_id = _build(state, tmp_path / "out")
+        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        assert executed, "the deposit's own culture protocol must be attached"
+        assert "cell_line_protocols" in executed[0], executed
+        attached = by_id[executed[0]]
+        types = (
+            attached["@type"]
+            if isinstance(attached["@type"], list)
+            else [attached["@type"]]
+        )
+        assert "File" in types and "LabProtocol" in types, types
+        assert attached.get("intendedUse") == "Cell culture", attached.get("intendedUse")
+        assert not any(
+            str(n.get("@id", "")).startswith("#protocol_") for n in graph
+        ), "nothing may be minted alongside the real document"

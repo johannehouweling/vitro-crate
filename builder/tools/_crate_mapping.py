@@ -1917,17 +1917,15 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         _attach_explicit_parts(node, asy, idx, root)
 
 
-def _synth_protocol(crate: ROCrate, assay_id: Any, cache: dict[str, Any]) -> ContextEntity:
-    key = str(assay_id) if assay_id else "_default"
-    if key not in cache:
-        cache[key] = crate.add(
-            ContextEntity(
-                crate,
-                f"#protocol_{_slug(key)}",
-                properties={"@type": "LabProtocol", "name": f"Protocol for {key}"},
-            )
-        )
-    return cache[key]
+# A culture protocol has to be about CULTURING, not merely a protocol that happens
+# to name a cell line. "4.1 Deiodinase activity assay protocol SK-N-AS" is
+# classified as a protocol and names the line, yet describes the readout —
+# executing it as the CellCulture's protocol would assert it explains how that
+# line was grown, which nobody checked (#650).
+_CULTURE_PROTOCOL_CUE = re.compile(r"cell\s*culture|culturing|culture\s+protocol")
+# What a document found by each cue is FOR. Derived metadata on a real file — with
+# its name, the only thing added beyond the path that identifies it.
+_INTENDED_USE: dict[str, str] = {_CULTURE_PROTOCOL_CUE.pattern: "Cell culture"}
 
 
 def _culture_cell_lines(f: dict[str, Any], idx: dict[str, Any], name: str) -> list[Any]:
@@ -1950,23 +1948,97 @@ def _culture_cell_lines(f: dict[str, Any], idx: dict[str, Any], name: str) -> li
     return [named] if named is not None else []
 
 
+def _scanned_protocol_document(
+    state: CrateState,
+    crate: ROCrate,
+    label: str,
+    cue: re.Pattern[str],
+    *,
+    materialize_payload: bool,
+) -> Any | None:
+    """Attach the deposit's own protocol document for *label*, if it holds one.
+
+    A protocol entity IS its file: the ``@id`` is the crate-relative path of a
+    document that exists in the deposit, and only ``name`` and ``intendedUse`` are
+    derived on top. Nothing is minted.
+
+    Two independent pieces of evidence are required before a document is claimed,
+    because executing it asserts that it explains how this step turns its input
+    into its output: the scan classified it as a **protocol** by content
+    (:func:`~builder.tools.document_discovery.classification_of` reads for
+    "materials and methods", "procedure", "incubat", …), and its path is about
+    **this kind of step** (*cue*) and names this subject. Ambiguity resolves to
+    nothing — two candidate documents are evidence for neither (D5).
+    """
+    from builder.tools.document_discovery import CLASS_PROTOCOL, classification_of
+
+    input_root = state.metadata.input_path or ""
+    wanted = re.compile(r"(?<![0-9a-z])" + re.escape(label.casefold()) + r"(?![0-9a-z])")
+    hits = []
+    for fc in getattr(state, "scanned_files", []) or []:
+        haystack = f"{fc.path} {fc.filename}".replace("%20", " ").casefold()
+        if not cue.search(haystack) or not wanted.search(haystack):
+            continue
+        if classification_of(fc, input_root=input_root) != CLASS_PROTOCOL:
+            continue
+        hits.append(fc)
+    if len(hits) != 1:
+        return None
+
+    fc = hits[0]
+    abspath = Path(fc.path)
+    if not abspath.is_absolute() and input_root:
+        abspath = Path(input_root) / fc.path
+    try:
+        abspath = abspath.resolve()
+    except OSError:
+        return None
+    dest = f"data/{fc.filename}"
+    if input_root:
+        try:
+            dest = abspath.relative_to(Path(input_root).resolve()).as_posix()
+        except (ValueError, OSError):
+            pass
+
+    existing = crate.dereference(dest)
+    if existing is not None:
+        return existing
+
+    props: dict[str, Any] = {
+        "@type": ["File", "LabProtocol"],
+        "name": Path(fc.filename).stem,
+        "intendedUse": _INTENDED_USE.get(cue.pattern, "Laboratory procedure"),
+    }
+    if fc.mime_type:
+        props["encodingFormat"] = fc.mime_type
+    if fc.size:
+        props["contentSize"] = str(fc.size)
+    source = str(abspath) if (materialize_payload and abspath.is_file()) else None
+    return crate.add(File(crate, source, dest_path=dest, properties=props))
+
+
 def _culture_protocols(
-    crate: ROCrate, lines: list[Any], idx: dict[str, Any], cache: dict[str, Any]
+    state: CrateState,
+    crate: ROCrate,
+    lines: list[Any],
+    idx: dict[str, Any],
+    *,
+    materialize_payload: bool,
 ) -> list[Any]:
-    """The protocol(s) a culture of *lines* follows — ONE per cell line.
+    """The deposited protocol document(s) a culture of *lines* follows — one per
+    cell line, or none at all.
 
-    Culturing a cell line is a study-level activity, and the deposit says so in
-    its layout: S-VHPS22 keeps ``cell_line_protocols/`` beside the assays holding
-    exactly one document per line — H4, MO3.13, SK-N-AS — and no document for any
-    combination. So a culture growing two lines executes two protocols.
+    Culturing a cell line is a study-level activity and the deposit says so:
+    S-VHPS22 keeps ``cell_line_protocols/`` beside the assays with exactly one
+    document per line — H4, MO3.13, SK-N-AS — and none for any combination. So a
+    culture growing two lines follows two protocols, and the SK-N-AS document is
+    ONE entity that every assay growing SK-N-AS points at.
 
-    Keying on the whole SET instead invented ``#protocol_cell_culture_H4_SK-N-AS``:
-    a procedure nobody wrote, which no two cultures could share unless they grew
-    exactly the same lines. Per line, the SK-N-AS protocol is one entity every
-    assay that grows SK-N-AS points at.
-
-    A real document wins outright — any LabProtocol-typed node in the crate naming
-    that line. Only a crate without one falls back to a stub.
+    A document already in the crate is preferred; failing that the deposit's scan
+    is searched and the real file attached. **Never a stub.** An invented protocol
+    is a claim about a procedure nobody wrote, and it silences the ISA "Process
+    entity SHOULD have a protocol" warning — which is only a Warning, so the
+    honest gap costs a recommendation while the fabrication cost the truth (#650).
     """
     out: list[Any] = []
     seen: set[Any] = set()
@@ -1974,22 +2046,17 @@ def _culture_protocols(
         label = str(node.get("name") or "").strip()
         if len(label) < 2:
             continue
-        protocol = _protocol_document_for([label], idx)
+        protocol = _protocol_document_for(
+            [label], idx, _CULTURE_PROTOCOL_CUE
+        ) or _scanned_protocol_document(
+            state,
+            crate,
+            label,
+            _CULTURE_PROTOCOL_CUE,
+            materialize_payload=materialize_payload,
+        )
         if protocol is None:
-            key = "cell_culture_" + _slug(label)
-            if key not in cache:
-                cache[key] = crate.add(
-                    ContextEntity(
-                        crate,
-                        f"#protocol_{_slug(key)}",
-                        properties={
-                            "@type": "LabProtocol",
-                            "name": f"Cell culture protocol for {label}",
-                            "intendedUse": "Cell culture",
-                        },
-                    )
-                )
-            protocol = cache[key]
+            continue
         pid = getattr(protocol, "id", None)
         if pid in seen:
             continue
@@ -2030,7 +2097,9 @@ def _link_to_study(study: Any, protocol: Any) -> None:
     _append_unique(study, prop, protocol)
 
 
-def _protocol_document_for(labels: list[str], idx: dict[str, Any]) -> Any | None:
+def _protocol_document_for(
+    labels: list[str], idx: dict[str, Any], cue: re.Pattern[str]
+) -> Any | None:
     """A LabProtocol-typed node in the crate naming exactly one of *labels*.
 
     Ambiguity resolves to None: a document matching two lines, or two documents
@@ -2053,7 +2122,7 @@ def _protocol_document_for(labels: list[str], idx: dict[str, Any]) -> Any | None
         if not any("LabProtocol" in str(t) for t in types if t):
             continue
         haystack = f"{nid} {node.get('name') or ''}".replace("%20", " ").casefold()
-        if "protocol" not in haystack:
+        if not cue.search(haystack):
             continue
         if sum(1 for rx in wanted if rx.search(haystack)) == 1:
             seen.add(nid)
@@ -2724,7 +2793,6 @@ def _add_processes(
     *,
     materialize_payload: bool = True,
 ) -> None:
-    proto_cache: dict[str, Any] = {}
     # (assay, process_type, built node) for the chaining pass below. A process is
     # built in isolation — it cannot see its neighbours — so making each step
     # consume what the previous one produced has to happen once every step exists.
@@ -2741,22 +2809,30 @@ def _add_processes(
         # stub each process pointed at, and the actual SOP nobody referenced.
         # Same failure as `data_processing` / `computational_tool` below; same
         # answer, accept both spellings.
+        # A protocol entity IS its file. Where the drafter named none, the
+        # deposit's own document is attached — never a minted stub, which claims a
+        # procedure nobody wrote and silences the ISA "Process entity SHOULD have
+        # a protocol" warning that would otherwise report the real gap. That
+        # warning is a SHOULD, so honesty costs a recommendation; the stub cost
+        # the truth (#650).
         protocol = _resolve_one(idx, _first_of(f, _PROTOCOL_ALIASES))
         if protocol is None and ptype == "CellCulture":
             # Culturing is study-level, so protocols are keyed on the CELL LINE
             # rather than the assay — every assay growing SK-N-AS follows the one
-            # SK-N-AS procedure, and the deposit ships one document per line
-            # (#650). A culture of two lines therefore executes two.
+            # SK-N-AS procedure, and the deposit ships one document per line. A
+            # culture of two lines therefore executes two.
             culture_protocols = _culture_protocols(
-                crate, _culture_cell_lines(f, idx, name), idx, proto_cache
+                state,
+                crate,
+                _culture_cell_lines(f, idx, name),
+                idx,
+                materialize_payload=materialize_payload,
             )
             if culture_protocols:
                 protocol = culture_protocols
                 study = _study_of(state, idx, f.get("assay_id"))
                 for one in culture_protocols:
                     _link_to_study(study, one)
-        if protocol is None:
-            protocol = _synth_protocol(crate, f.get("assay_id"), proto_cache)
         node = _build_process(
             crate,
             ptype,

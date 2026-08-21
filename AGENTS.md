@@ -2363,6 +2363,33 @@ INPUT (dir / zip / conversation)
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.
 - **Tail = small strong-model agent.** The one place open-ended judgement is irreducible.
 
+### D17: A protocol entity IS its file — nothing is minted for one
+
+`executesLabProtocol` names a **deposited document**: its `@id` is the file's
+crate-relative path, and only `name` and `intendedUse` are derived on top. Where the
+drafter names no protocol, the deposit's scan is searched and the real file attached;
+where the deposit holds none, the step carries **no protocol at all**.
+
+The build used to synthesize `#protocol_<assay>` for any step that named none. That
+claimed a procedure nobody wrote, gave a fragment `@id` to something that should be a
+path, and silenced the ISA `Process entity SHOULD have a protocol` warning with a
+fabrication — an assertion that cannot fail is not a check (D-#620). The warning is a
+SHOULD, so the honest gap costs a recommendation while the stub cost the truth.
+
+Claiming a document requires two independent pieces of evidence, because executing it
+asserts it explains how that step turns its input into its output:
+
+1. The scan classified it as a protocol **by content**
+   (`document_discovery.classification_of`), not by filename.
+2. Its path is about **that kind of step** and names **exactly one** subject.
+
+Ambiguity resolves to nothing: two candidate documents, or one naming two subjects, is
+evidence for neither (D5). Culture protocols are keyed on the **cell line**, not the
+assay — culturing is study-level, and a deposit ships one document per line — so every
+assay growing SK-N-AS points at one entity, a culture of two lines executes two, and no
+composite is invented. Each is also linked to its Study: `hasPart` for a deposited
+document, which is real payload.
+
 ### 14.3 Build-path wiring contracts
 
 An empty crate is already valid from a single `scaffold_isa_backbone(...)` call
