@@ -794,11 +794,11 @@ collections the mapping already rendered.
 `materialize_aop_subgraph` (Issue #180) is the AOP counterpart of
 `scaffold_isa_backbone`: from the single model-supplied numeric `aop_id` it calls
 `lookup_aop` and materialises the entire pathway as typed contextual entities —
-one `aopwiki:AdverseOutcomePathway` carrying its `has_molecular_initiating_event`
+one `aopo:AdverseOutcomePathway` carrying its `has_molecular_initiating_event`
 / `has_key_event` / `has_adverse_outcome` / `has_key_event_relationship` link
-arrays, one `aopwiki:KeyEvent` per MIE/KE/AO (all share `@type KeyEvent`,
+arrays, one `aopo:KeyEvent` per MIE/KE/AO (all share `@type KeyEvent`,
 discriminated only by the `eventType` string), and one
-`aopwiki:KeyEventRelationship` per relation (`upstream_event` /
+`aopo:KeyEventRelationship` per relation (`upstream_event` /
 `downstream_event` by `@id`). Every node is keyed by its resolvable AOP-Wiki IRI,
 so all wiring is deterministic and idempotent and no id is ever fabricated (D5).
 These three types live in the shared `aop_entities` CrateState collection and
@@ -2000,7 +2000,11 @@ study serves and the key events an assay measures, which the ISA-Tox profile han
 than swept from the crate, and filtered by type — `mentions` is general enough to carry the
 build's own action, and a key event nothing in the backbone claims is not one this crate's assays
 measure (#627). A domain type also outranks the generic one it refines when a node is captioned,
-so a key event reads as a key event rather than as the `DefinedTerm` it also is.
+so a key event reads as a key event rather than as the `DefinedTerm` it also is — and it is drawn in
+its own `pathway` category, because what an assay measures takes part in the work rather than
+qualifying it, and the fallback bucket paints csvw columns and the build's own action (#643).
+`PATHWAY_TYPES` is the one list all three rules read: which nodes the view follows to, how they are
+captioned, and what colour they are drawn in.
 
 **LabProcesses** draws the derivation chain plus what each step *is*: the protocol a visible
 process executes and the assay whose `about` points at one. Neither edge lies on the material chain
@@ -2091,7 +2095,13 @@ its **colour**, its **legend wording** and its **glyph** (14×14 path data), key
 
 Colours are a constant-lightness ring in CIE Lab (L\* 47, chroma 44, hues 36° apart), with process
 and container split on lightness instead because sRGB is narrow in the blues. Worst pair dE 24
-(against 14 for the hand-picked palette it replaced); every stroke clears 3:1 on the page. Shape is
+(against 14 for the hand-picked palette it replaced); every stroke clears 3:1 on the page. The ring
+holds **ten**, and it is full — against a frozen palette the best eleventh colour anywhere in the
+sRGB gamut reaches dE 22.7, under that floor. So **saturation is the second channel**: the ring is
+for entities that take part in the work, and `annotation` — the bucket for an entity that *qualifies*
+another — is drawn muted (chroma 19) beside `ctx`'s near-grey for an entity the crate never typed.
+An eleventh category therefore costs a demotion rather than a new hue, and which entities earn a
+saturated colour is a design decision, not an accident of registry order. Shape is
 the channel that survives greyscale, print and colour vision deficiency, so **no two categories may
 share a glyph** — `TestCategoryRegistry` pins that, the palette separation, the contrast floor, and
 the generated-CSS coverage.

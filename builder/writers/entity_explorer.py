@@ -42,6 +42,7 @@ from builder.writers.provenance_dag import (
     _LAYER_NAMES,
     _PROCESS_DISCRIMINATORS,
     CATEGORY_STYLES,
+    PATHWAY_TYPES,
     _derivation_edges,
     _graph_nodes,
     _route_hop_ids,
@@ -125,13 +126,6 @@ def _select_files(crate: _Crate) -> set[str]:
     return {n["id"] for n in crate.model["nodes"] if n["category"] in ("data", "container")}
 
 
-# What an assay is FOR. The ISA-Tox profile hangs both off `schema:mentions`
-# (`profiles/shapes/tox/7_assay_key_event.ttl`, `6_study_aop.ttl`), so the
-# relation alone does not identify them — a crate mentions its own build action
-# through it too. The type does (#627).
-_PATHWAY_TYPES = frozenset({"AdverseOutcomePathway", "KeyEvent"})
-
-
 def _select_assays(crate: _Crate) -> set[str]:
     """The ISA backbone, and what its assays are for.
 
@@ -156,7 +150,7 @@ def _select_assays(crate: _Crate) -> set[str]:
         for edge in crate.model["edges"]
         if edge["label"] == "mentions"
         and edge["src"] in backbone
-        and _types(described.get(edge["dst"], {})) & _PATHWAY_TYPES
+        and _types(described.get(edge["dst"], {})) & PATHWAY_TYPES
     }
     return backbone | pathway
 

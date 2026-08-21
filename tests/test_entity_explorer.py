@@ -365,6 +365,32 @@ class TestViewMembership:
         assert tags["https://aopwiki.org/aops/610"] == "AdverseOutcomePathway"
         assert tags["#term"] == "DefinedTerm", "a plain term is still a plain term"
 
+    def test_a_key_event_is_drawn_as_science_not_plumbing(self) -> None:
+        """The caption was only half of it (#627). A key event still reached the
+        canvas in the colour the fallback bucket paints csvw columns, licences
+        and the build's own action, so a view about the science drew the
+        crate's science as plumbing (#643)."""
+        cats = {n["id"]: n["category"] for n in build_explorer_payload(aop_linked_graph())["nodes"]}
+
+        assert cats["https://aopwiki.org/events/2258"] == "pathway"
+        assert cats["https://aopwiki.org/aops/610"] == "pathway"
+        assert cats["#term"] == "annotation", "a plain term still qualifies rather than takes part"
+
+    def test_the_assays_view_and_the_canvas_agree_on_what_a_pathway_is(self) -> None:
+        """One list, not two. The view selects what an assay mentions and the
+        canvas colours what it selected, and each held its own copy of the two
+        ISA-Tox types — so a crate could show a node the view called science and
+        the canvas drew as plumbing."""
+        graph = aop_linked_graph()
+        payload = build_explorer_payload(graph)
+        backbone = {n["id"] for n in build_isa_inventory(graph)["nodes"]}
+        cats = {n["id"]: n["category"] for n in payload["nodes"]}
+
+        beyond_the_backbone = _views(payload)["assays"] - backbone
+
+        assert beyond_the_backbone, "the fixture's study and assay each mention one"
+        assert {cats[i] for i in beyond_the_backbone} == {"pathway"}
+
     def test_assays_do_not_hold_a_pathway_no_assay_claims(self) -> None:
         """Followed from the backbone, not swept from the crate. The fixture's
         second key event is mentioned only by a note outside the ISA entities,

@@ -350,11 +350,38 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
         "#af5546", "Publication",
         "M1 3h12l-2 8H3z",
     ),
+    "pathway": CategoryStyle(
+        "#6e7424", "Pathway / key event",
+        "M1 3l4 4-4 4z M7 3l4 4-4 4z",
+    ),
+    # The one category off the ring, muted on purpose: what *qualifies* the work
+    # is drawn more faintly than what takes part in it, with `ctx`'s near-grey
+    # below it for what the crate never typed at all. The ring is full at ten
+    # saturated colours, so this is what an eleventh category costs — see
+    # `TestCategoryRegistry.test_the_work_is_drawn_more_strongly_than_what_qualifies_it`.
     "annotation": CategoryStyle(
-        "#6e7424", "Term / parameter",
+        "#846050", "Term / parameter",
         "M1 3h9l3 4-3 4H1z",
     ),
 }
+
+# The two types the ISA-Tox profile defines for an adverse outcome pathway
+# (`profiles/shapes/tox/6_study_aop.ttl`, `7_assay_key_event.ttl`). ONE list,
+# read by three rules that would otherwise drift: which entities the Assays view
+# follows a `mentions` edge to (#627), what the node is captioned, and what
+# colour it is drawn in (#643). A type in one and not the others is drawn as
+# science and captioned as vocabulary, or the reverse.
+PATHWAY_TYPES = frozenset({"AdverseOutcomePathway", "KeyEvent"})
+
+# Type preference for a node's caption, most specific first: a domain type
+# outranks the generic one it refines.
+_TAG_PREFERENCE = (
+    *sorted(PATHWAY_TYPES),
+    "MolecularEntity",
+    "Table",
+    "File",
+    "Sample",
+)
 
 # The bucket for an entity no category claims. It is deliberately grey: a node
 # drawn in a category colour asserts that the crate said what it is, and an
@@ -444,14 +471,7 @@ def _tag(node: dict[str, Any]) -> str:
     # "DefinedTerm"]` — reached the canvas captioned "DefinedTerm", telling the
     # reader it was a piece of vocabulary rather than the effect the assay
     # measures (#627).
-    for preferred in (
-        "AdverseOutcomePathway",
-        "KeyEvent",
-        "MolecularEntity",
-        "Table",
-        "File",
-        "Sample",
-    ):
+    for preferred in _TAG_PREFERENCE:
         if preferred in types:
             tag = preferred
             break
@@ -791,6 +811,11 @@ def _entity_category(node: dict[str, Any]) -> str:
         return "org"
     if "ScholarlyArticle" in types:
         return "publication"
+    # Ahead of the fallback, not in it: an adverse outcome pathway and its key
+    # events are what the assay measures, not vocabulary that qualifies it, and
+    # `annotation` is by definition the bucket for the latter (#643).
+    if types & PATHWAY_TYPES:
+        return "pathway"
     return "annotation"
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import math
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -27,6 +28,7 @@ from builder.writers.entity_explorer import (
 )
 from builder.writers.provenance_dag import (
     CATEGORY_STYLES,
+    PATHWAY_TYPES,
     _CTX_COLOUR,
     _CTX_GLYPH,
     _derivation_edges,
@@ -36,6 +38,7 @@ from builder.writers.provenance_dag import (
     _node_class,
     _node_class_for_brief,
     _route_hop_ids,
+    _tag,
     build_cellline_inventory,
     build_chemical_inventory,
     build_citation_inventory,
@@ -1646,6 +1649,60 @@ class TestCategoryRegistry:
         assert _entity_category({"@type": "Organization"}) == "org"
         assert _entity_category({"@type": "Person"}) == "agent"
         assert _node_class_for_brief({"tag": "Organization"}) == "org"
+
+    def test_a_key_event_is_science_not_plumbing(self) -> None:
+        """``annotation`` is the bucket for "an entity that qualifies another
+        rather than taking part in the work". A key event is not that: it is
+        what the assay measures, and the most domain-specific thing a toxicology
+        crate carries. Once #627 drew them, sixteen key events and an adverse
+        outcome pathway reached the canvas in the fallback colour, beside csvw
+        columns, licences and the build's own ``CreateAction`` (#643).
+        """
+        assert _entity_category({"@type": ["KeyEvent", "DefinedTerm"]}) == "pathway"
+        assert _entity_category({"@type": ["AdverseOutcomePathway", "DefinedTerm"]}) == "pathway"
+        assert _node_class_for_brief({"tag": "KeyEvent"}) == "pathway"
+
+    def test_an_ordinary_term_is_still_an_annotation(self) -> None:
+        """The control. The rule is keyed to the two types the ISA-Tox profile
+        defines, not to everything a crate happens to type ``DefinedTerm`` — a
+        csvw column's term and a process parameter still qualify the work rather
+        than taking part in it."""
+        assert _entity_category({"@type": "DefinedTerm"}) == "annotation"
+        assert _entity_category({"@type": ["PropertyValue", "DefinedTerm"]}) == "annotation"
+
+    def test_a_pathway_type_is_both_coloured_and_captioned_by_its_own_name(self) -> None:
+        """Two rules that must not drift apart: #627 made the caption prefer the
+        domain type over the generic one it refines, #643 made the colour follow
+        the same types. A type in one list and not the other is drawn as science
+        and captioned as vocabulary, or the reverse — and no test of either half
+        alone would notice."""
+        for domain_type in PATHWAY_TYPES:
+            node = {"@type": [domain_type, "DefinedTerm"]}
+
+            assert _entity_category(node) == "pathway", domain_type
+            assert _tag(node) == domain_type, domain_type
+
+    def test_the_work_is_drawn_more_strongly_than_what_qualifies_it(self) -> None:
+        """Why the pathway takes the olive instead of an eleventh colour.
+
+        The ten are a ring at one lightness — L* ~47 at the highest chroma the
+        sRGB gamut allows for each hue — and it is full: against a frozen
+        palette the best eleventh colour anywhere in the gamut reaches dE 22.7,
+        under the floor ``test_colours_are_far_enough_apart_to_tell_apart``
+        pins. So the ring stays at ten and *which* entities earn a saturated one
+        becomes the rule: vivid for what takes part in the work, muted for what
+        comments on it, grey for what the crate never said (``ctx``). Drawing a
+        key event more faintly than a csvw column restates #643 in a different
+        colour.
+        """
+        assert self._chroma(CATEGORY_STYLES["pathway"].colour) >= 40
+        assert self._chroma(CATEGORY_STYLES["annotation"].colour) <= 25
+
+    @staticmethod
+    def _chroma(colour: str) -> float:
+        """C* — how saturated a colour is, independent of hue and lightness."""
+        _, a, b = srgb_to_lab(colour)
+        return math.hypot(a, b)
 
     @staticmethod
     def _graph(author: list[dict] | None) -> dict:
