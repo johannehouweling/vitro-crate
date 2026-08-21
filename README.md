@@ -189,7 +189,7 @@ build embeds a **maturity report** (`ro-crate-metadata-maturity.html`): profile
 conformance, FAIR maturity, OECD MIT coverage, reproducibility readiness — and an
 **interactive entity explorer**. The explorer draws the crate's whole entity graph,
 with views you turn on and off and combine (Researcher, Files, Assays,
-LabProcesses, MolecularEntities, Biological Samples, Persons & Organisations,
+LabProcesses, Chemicals, Biological models, Persons & Organisations,
 Citations), a search box, and a panel that shows any entity's properties, its
 links and its JSON-LD. Open the file in a browser — it is one self-contained
 page with no network access of any kind, so it works from a USB stick, an

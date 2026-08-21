@@ -1827,7 +1827,7 @@ class TestCellLinesPanel:
     def test_renders_diagram_and_matrix(self) -> None:
         page = self._page()
         assert '<div class="cov" id="cov-cell">' in page
-        assert '<h3 class="cov-h">Biological Samples' in page
+        assert '<h3 class="cov-h">Biological models' in page
         assert "CHO-K1" in page
         assert "CVCL_0214" in page
         for column in ("RRID", "Type", "Organ", "Tissue", "Passage"):
@@ -1837,13 +1837,16 @@ class TestCellLinesPanel:
         """The owner's term for the test system is the checklist's — "biological
         model", as in the MIT module Biological Model Information — so the block
         heading and the table's corner header both say it (the legend and the
-        diagram that also did are gone, #618). "Cell line" survives only where
+        diagram that also did are gone, #618). Until #625 this test's own name
+        and reasoning said "biological model" while its assertions still pinned
+        "Biological Samples"; the rename settles which of the two was right.
+        "Cell line" survives only where
         it names the actual declaration being checked: the Type column's
         tooltip (the entity is typed as a cell line) and ``CellLine`` itself.
         """
         page = self._page()
-        assert '<h3 class="cov-h">Biological Samples' in page
-        assert '<th scope="col">Biological sample</th>' in page
+        assert '<h3 class="cov-h">Biological models' in page
+        assert '<th scope="col">Biological model</th>' in page
         panel = _block(page, "cov-cell")
         rest = panel.replace('title="Typed as a cell line"', "")
         assert "cell line" not in rest.lower(), "a reader-facing 'cell line' survived"

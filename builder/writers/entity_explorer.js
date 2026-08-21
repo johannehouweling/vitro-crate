@@ -482,7 +482,7 @@
             return html`<button key=${v.key} type="button" class="ex-chip"
               aria-pressed=${views.has(v.key)} title=${v.hint}
               onClick=${function () { toggle(v.key); }}>${v.label}
-              <span class="ex-chip-count">${v.members.length}</span></button>`;
+              <span class="ex-chip-count">${v.count}</span></button>`;
           })}
         </div>
         <div class="ex-tools">
