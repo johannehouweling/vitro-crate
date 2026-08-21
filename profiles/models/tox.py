@@ -87,7 +87,7 @@ class LabProcessExposure(LabProcess):
         cell_seeding_density: str | None,
         microplate: str | None,
         samples: list[Sample],
-        labprotocol: LabProtocol,
+        labprotocol: LabProtocol | File | list[LabProtocol | File],
         name: str = "Exposure",
         result: list[Sample | File] | Sample | File | None = None,
         units: dict[str, str] | None = None,
@@ -146,7 +146,7 @@ class LabProcessEndpointReadout(LabProcess):
         crate: ROCrate,
         identifier: str,
         samples: list[Sample] | None,
-        labprotocol: LabProtocol,
+        labprotocol: LabProtocol | File | list[LabProtocol | File],
         result: list[File],
         detection_instrument: str | None,
         instrument_manufacturer: str | None,
@@ -246,7 +246,7 @@ class LabProcessCellCulture(LabProcess):
         cell_line: Sample,
         culture_medium: str,
         result: Sample,
-        labprotocol: LabProtocol,
+        labprotocol: LabProtocol | File | list[LabProtocol | File],
         properties: dict | None = None,
         add: bool = True,
     ):
@@ -292,7 +292,7 @@ class LabProcessDataAnalysis(LabProcess):
         identifier: str,
         object: list[File],  # raw-data inputs being analysed
         result: list[File],  # processed-data outputs
-        labprotocol: LabProtocol,
+        labprotocol: LabProtocol | File | list[LabProtocol | File],
         data_processing: str = "",
         software: str = "",
         acceptance_criteria: str | None = None,

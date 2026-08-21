@@ -681,6 +681,17 @@ _ROLE_KEYS = (
     "https://schema.org/jobTitle",
     "http://schema.org/roleName",
 )
+# A protocol's reagents — the substances the run uses. Drawn REVERSED, like
+# `input`: the arrow points AT the step that consumes the material, so a compound
+# reads as feeding the exposure that executes the protocol rather than hanging off
+# it. This is the only edge that puts a compound in the derivation story at all —
+# the bundled ISA process shape restricts schema:object to File/Sample/BioSample,
+# so a MolecularEntity can never be a process input directly (#650).
+_REAGENT_KEYS = (
+    "reagent",
+    "https://bioschemas.org/properties/reagent",
+    "https://bioschemas.org/reagent",
+)
 _PARAM_KEYS = (
     "parameter",
     "parameterValue",
@@ -703,6 +714,7 @@ _PRIMARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_CONTRIBUTOR_KEYS, "contributor", False),
     (_AFFILIATION_KEYS, "affiliation", False),
     (_PROTOCOL_KEYS, "executes", False),
+    (_REAGENT_KEYS, "reagent", True),
     (_INSTRUMENT_KEYS, "instrument", False),
     (_SAMPLETYPE_KEYS, "sampleType", False),
 )
