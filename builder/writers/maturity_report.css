@@ -279,6 +279,16 @@ __CATEGORY_STYLES__
    its sections. */
 .mat .cov + .cov { margin-top:1.4rem; padding-top:1.1rem;
   border-top:1px solid var(--hairline); }
+.mat details.cov > summary.cov-h { cursor:pointer; list-style:none; }
+.mat details.cov > summary.cov-h::-webkit-details-marker { display:none; }
+.mat details.cov > summary.cov-h::after { content:"+"; color:var(--muted); margin-left:auto;
+  font-weight:500; }
+.mat details.cov[open] > summary.cov-h::after { content:"\2212"; }
+.mat details.cov > summary.cov-h:hover { color:var(--accent); }
+.mat details.cov > summary.cov-h:focus-visible { outline:2px solid var(--accent);
+  outline-offset:2px; border-radius:4px; }
+.mat details.cov[open] > summary.cov-h { margin-bottom:.6rem; }
+.mat .cov-body { display:block; }
 .mat .cov-h { display:flex; align-items:baseline; gap:.45rem; margin:0 0 .6rem;
   font-size:.95rem; font-weight:660; }
 .mat .cov-n { font-size:.7rem; font-weight:500; color:var(--muted);
@@ -552,6 +562,10 @@ __CATEGORY_STYLES__
   .mat details.sev-fold > .sev-body{display:block !important;}
   .mat details.blockers > .blk{display:grid !important;}
   .mat details.sev-fold > summary::after{display:none;}
+  /* A coverage block is a fold on screen (#629); on paper it is opened, or the
+     printed copy loses the inventory it exists to carry. */
+  .mat details.cov > .cov-body{display:block !important;}
+  .mat details.cov > summary.cov-h::after{display:none;}
   /* The coverage section is longer than a page — every block is shown at
      once (#618) — so it breaks, while a single block stays whole. */
   .mat section.coverage,.mat section.explorer{break-inside:auto;}

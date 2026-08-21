@@ -628,7 +628,7 @@ class TestTheChipAndTheCoverageBlockAgree:
 
     def _cov_n(self, page: str, block_id: str) -> int:
         match = re.search(
-            rf'id="{block_id}"[^>]*><h3 class="cov-h">.*?<span class="cov-n">(\d+)</span>',
+            rf'id="{block_id}"[^>]*><summary class="cov-h">.*?<span class="cov-n">(\d+)</span>',
             page,
             re.S,
         )
@@ -666,7 +666,7 @@ class TestViewsAgreeWithTheirCoverageBlocks:
     def _listed(self, page: str, block_id: str) -> set[str]:
         """The entity names a coverage block's matrix lists."""
         after = page.split(f'id="{block_id}"', 1)[1]
-        block = re.split(r'<div class="cov" id=|</section>', after, maxsplit=1)[0]
+        block = re.split(r'<details class="cov" id=|</section>', after, maxsplit=1)[0]
         names = set()
         for cell in re.findall(r'<span class="cn">(.*?)</span>', block):
             text = html.unescape(re.sub(r"<[^>]+>", "", cell))

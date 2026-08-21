@@ -1870,10 +1870,17 @@ def _render_entity_coverage_section(
     if not live:
         return ""
 
+    # One fold per block (#629). The section is an inventory of a whole crate —
+    # on a real deposit the Files block alone lists 59 files — so left open it
+    # sits between the reader and everything below it. Closed, the section reads
+    # as a contents list: a name, a count, and a place to look. The count rides
+    # in the summary because it is the whole value of a block nobody opens, and
+    # `@media print` forces every fold open so a printed copy keeps its
+    # inventory. The Files block's own per-Dataset folds nest unchanged.
     bodies = "".join(
-        f'<div class="cov" id="{bid}"><h3 class="cov-h">{label}'
+        f'<details class="cov" id="{bid}"><summary class="cov-h">{label}'
         + (f'<span class="cov-n">{blocks[bid][1]}</span>' if blocks[bid][1] else "")
-        + f"</h3>{blocks[bid][0]}</div>"
+        + f'</summary><div class="cov-body">{blocks[bid][0]}</div></details>'
         for bid, label in live
     )
     return (
