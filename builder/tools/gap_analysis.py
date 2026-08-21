@@ -31,13 +31,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from builder.state import CrateState, Entity
+from builder.state import CrateState, Entity, MITReport
 from builder.tools.field_kinds import (
     CITATION_FIELDS,
     PERSON_FIELDS,
     is_identifier_field,
 )
 from builder.tools.mit_assessment import (
+    assess_mit_coverage,
     graph_nodes,
     iter_scorable_params,
     load_mit_yaml,
@@ -508,17 +509,26 @@ def _mit_gaps(state: CrateState, *, graph: Any | None = None) -> tuple[list[Gap]
 # ---------------------------------------------------------------------------
 
 
-def _fair_gaps(state: CrateState) -> tuple[list[Gap], dict[str, Any]]:
+def _fair_gaps(
+    state: CrateState, *, graph: Any | None = None, mit: MITReport | None = None
+) -> tuple[list[Gap], dict[str, Any]]:
     """Failing FAIR indicators as gaps; also return a FAIR summary.
 
     A *failing* indicator (``passed is False``) becomes a gap — ``SHOULD`` for an
     essential indicator, ``MAY`` for an important / nice-to-have one. Out-of-scope
     indicators (``passed is None``) are never gaps. The summary carries the DSM
     level and pass/fail indicator counts.
+
+    *graph* and *mit* are the same assembly and the same MIT report the SHACL and
+    MIT passes already used. Without them every graph-aware DSM indicator answers
+    "not assessed" here while the maturity report answers it properly, and the
+    R1.3 coverage indicator reads the never-populated ``state.mit_assessment`` —
+    one crate with two FAIR verdicts, of which the builder acts on the blind one.
+    This is the same defect #377 fixed for MIT, in the neighbouring assessor.
     """
     from builder.tools.fair_assessment import assess_fair_maturity
 
-    report = assess_fair_maturity(state)
+    report = assess_fair_maturity(state, mit=mit, graph=graph)
     passed = 0
     failed = 0
     gaps: list[Gap] = []
@@ -601,9 +611,12 @@ def assess_gaps(state: CrateState) -> GapReport:
     """
     shacl_gaps, conformance, metadata_doc = _shacl_gaps(state)
     # ONE assembly per call: the MIT matcher scores against the very document the
-    # SHACL pass just validated, rather than re-assembling the crate (#377).
+    # SHACL pass just validated, rather than re-assembling the crate (#377). The
+    # FAIR assessor reads that same document, so all three sources answer about
+    # one crate rather than three differently-informed views of it.
     mit_gaps, mit_overall = _mit_gaps(state, graph=metadata_doc)
-    fair_gaps, fair_summary = _fair_gaps(state)
+    mit_report = assess_mit_coverage(state, graph=metadata_doc)
+    fair_gaps, fair_summary = _fair_gaps(state, graph=metadata_doc, mit=mit_report)
 
     gaps = sorted([*shacl_gaps, *mit_gaps, *fair_gaps], key=_sort_key)
 
