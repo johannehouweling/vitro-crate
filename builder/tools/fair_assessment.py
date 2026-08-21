@@ -577,6 +577,9 @@ def _state_check(fn: Callable[[CrateState], bool]) -> DsmCheck:
     def _wrapped(state: CrateState, _graph: Graph) -> bool:
         return fn(state)
 
+    # Kept reachable so a test can prove that a Bridge2AI criterion declaring it
+    # shares this check really calls this function, not a look-alike of its own.
+    _wrapped.__wrapped_check__ = fn  # type: ignore[attr-defined]
     return _wrapped
 
 

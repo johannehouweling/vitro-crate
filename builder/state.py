@@ -839,6 +839,45 @@ class FAIRReport:
         )
 
 
+@dataclass
+class AIRReport:
+    """AI-readiness profile scored against the NIH Bridge2AI criteria.
+
+    Deliberately shaped so that no aggregate can be read off it. The authors are
+    explicit — *"We do not score it pass/fail overall, but along multiple dimensions
+    … yielding a characteristic readiness profile"* — so this carries seven
+    per-dimension figures and no total. Adding one would re-invent the very thing the
+    published instrument was adopted to replace.
+
+    Attributes:
+        criterion_results: One entry per published criterion — ``id``, ``dimension``,
+            verbatim ``text``, tri-state ``passed`` (``None`` = not assessable from a
+            crate), the ``check`` that answered it, and its ``evidence``.
+        dimensions: Per dimension, ``{dimension, name, met, assessed, total, pct,
+            published_pct}``. ``published_pct`` is the authors' own formula (met over
+            every criterion in the dimension); ``pct`` is ours, with unassessable
+            criteria excluded — a declared deviation, reported beside theirs rather
+            than in place of it. ``pct`` is ``None``, never ``0.0``, when nothing in
+            the dimension was assessed.
+    """
+
+    criterion_results: list[dict[str, Any]] = field(default_factory=list)
+    dimensions: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "criterion_results": list(self.criterion_results),
+            "dimensions": list(self.dimensions),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AIRReport:
+        return cls(
+            criterion_results=data.get("criterion_results", []),
+            dimensions=data.get("dimensions", []),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Reasoning & Checkpoint
 # ---------------------------------------------------------------------------
