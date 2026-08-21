@@ -126,7 +126,7 @@ def _select_files(crate: _Crate) -> set[str]:
     return {n["id"] for n in crate.model["nodes"] if n["category"] in ("data", "container")}
 
 
-def _select_pathways(crate: _Crate) -> set[str]:
+def _select_aop(crate: _Crate) -> set[str]:
     """The adverse outcome pathway itself, and who measures it.
 
     The chain entire — the pathway, its key events and the relationships that
@@ -478,12 +478,18 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         lambda crate: _routed(crate, "cellline", "celllines"),
         _of_inventory("cellline", "celllines"),
     ),
+    # Named for the framework, not for "pathways": in the toxicology community
+    # this crate is written for, a pathway is a WikiPathways molecular pathway —
+    # a different resource entirely — so the short label would promise genes and
+    # deliver key events. The full term is not jargon to the reader who needs
+    # this view; it is the framework they already work in.
     ExplorerView(
-        "pathways",
-        "Pathways",
-        "The adverse outcome pathway, and the assays that measure its events",
+        "aop",
+        "Adverse outcome pathway",
+        "The pathway your assays measure — the events, how they follow one "
+        "another, and which assay measures which",
         False,
-        _select_pathways,
+        _select_aop,
         _of_category("pathway"),
     ),
     ExplorerView(
