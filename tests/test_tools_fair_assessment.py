@@ -7,6 +7,121 @@ from builder.tools.fair_assessment import _check_access_info, assess_fair_maturi
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
 
+class TestTheLicenceIndicatorsGradeTheCrate:
+    """They read the licence off the assembled graph, not a field nobody writes.
+
+    `_read_declared_licence` (#535) puts the deposit's own licence on
+    `state.metadata.license`, and assembly puts it on the Root Data Entity. The four
+    licence checks read `entity.fields["license"]` — a field the builder never
+    populates and which never reaches the crate. So a crate carrying CC-BY in its
+    JSON, and rendering it on the report's study card, scored false on all four.
+    """
+
+    @staticmethod
+    def _graph(licence: str | None):
+        root: dict = {"@id": "./", "@type": "Dataset", "name": "A crate"}
+        if licence is not None:
+            root["license"] = {"@id": licence}
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork",
+                 "about": {"@id": "./"}},
+                root,
+            ]
+        }
+
+    def _verdicts(self, graph):
+        from builder.tools.fair_assessment import assess_fair_maturity
+
+        rep = assess_fair_maturity(CrateState(), graph=graph)
+        return {r["id"]: r["passed"] for r in rep.indicator_results}
+
+    def test_a_licence_on_the_crate_is_found(self):
+        got = self._verdicts(self._graph("https://creativecommons.org/licenses/by/4.0/"))
+        assert got["RDA-R1.1-01M"] is True, "present"
+        assert got["RDA-R1.1-02M"] is True, "a standard reuse licence"
+        assert got["RDA-R1.1-03M"] is True, "machine-understandable"
+
+    def test_no_licence_on_the_crate_fails_all_three(self):
+        got = self._verdicts(self._graph(None))
+        assert [got[i] for i in ("RDA-R1.1-01M", "RDA-R1.1-02M", "RDA-R1.1-03M")] == [
+            False, False, False,
+        ]
+
+    def test_the_not_stated_placeholder_is_not_a_licence(self):
+        """`#licence-not-stated` is what assembly writes when nobody declared one.
+
+        Counting it would invert the depositor's own statement in the one direction
+        that suppresses reuse — which is the defect #535 was opened for.
+        """
+        from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
+
+        got = self._verdicts(self._graph(LICENCE_NOT_STATED_ID))
+        assert got["RDA-R1.1-01M"] is False
+
+    def test_a_bare_string_licence_still_counts_as_present(self):
+        """"CC-BY" without a version is a declaration, just not a machine-actionable
+        one — #535 returns it verbatim rather than inventing a 4.0 URI (D5)."""
+        graph = self._graph(None)
+        graph["@graph"][1]["license"] = "CC-BY"
+        got = self._verdicts(graph)
+        assert got["RDA-R1.1-01M"] is True
+        assert got["RDA-R1.1-02M"] is True
+        assert got["RDA-R1.1-03M"] is False, "no IRI, so not machine-understandable"
+
+    def test_the_dsm_licence_check_is_the_rda_one(self):
+        """DSM-3-C7 asks the same question, so it calls the same function.
+
+        Compared at the CHECK level, not through `dsm_verdicts`: the DSM ladder can
+        demote a true statement whose lower rungs fail, which is correct behaviour and
+        would mask whether the two instruments agree about the licence itself.
+        """
+        from builder.tools.fair_assessment import (
+            DSM_CHECKS,
+            FAIR_CHECKS,
+            _check_standard_license,
+        )
+
+        graph = self._graph("https://creativecommons.org/licenses/by/4.0/")
+        assert DSM_CHECKS["standard_license"] is _check_standard_license
+        assert _check_standard_license(CrateState(), graph) is True
+        assert _check_standard_license(CrateState(), graph) is FAIR_CHECKS[
+            "license_standard"
+        ](CrateState(), graph)
+
+    def test_the_ladder_can_still_demote_a_licence_that_is_really_there(self):
+        """A thin crate fails DSM-1-C2, and the ladder demotes DSM-3-C7 above it.
+
+        Pinned because it looks like a licence bug and is not: the statements form a
+        ladder, and a level-3 claim cannot stand on an unmet level-1 one.
+        """
+        from builder.tools.fair_assessment import dsm_verdicts
+
+        graph = self._graph("https://creativecommons.org/licenses/by/4.0/")
+        verdict = dsm_verdicts(CrateState(), None, graph)["DSM-3-C7"]
+        assert verdict.value is False
+        assert "demoted" in verdict.evidence and "DSM-1-C2" in verdict.evidence
+
+    def test_state_and_graph_give_the_same_answer(self):
+        """`#535` writes the licence to `state.metadata.license`; assembly copies it to
+        the root. Both are the same fact, so a caller holding either must not get a
+        different verdict — that divergence is the whole defect."""
+        from builder.tools.fair_assessment import _effective_license
+
+        iri = "https://creativecommons.org/licenses/by/4.0/"
+        from_state = CrateState()
+        from_state.metadata.license = iri
+        assert _effective_license(from_state, None) == iri
+        assert _effective_license(CrateState(), self._graph(iri)) == iri
+
+    def test_nothing_anywhere_declares_a_licence(self):
+        """With no graph and no state licence the answer is "no", not "unknown" —
+        the fact is genuinely absent from both places it could live."""
+        from builder.tools.fair_assessment import _effective_license
+
+        assert _effective_license(CrateState(), None) == ''
+
+
 class TestAssessFairMaturity:
     """Tests for assess_fair_maturity — assesses FAIR maturity from CrateState."""
 
