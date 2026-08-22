@@ -1985,9 +1985,30 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
 # executing it as the CellCulture's protocol would assert it explains how that
 # line was grown, which nobody checked (#650).
 _CULTURE_PROTOCOL_CUE = re.compile(r"cell\s*culture|culturing|culture\s+protocol")
+# Analysis is cued, never assumed. A document reaches DataAnalysis only by saying
+# so — fitting a curve, running statistics, normalising, quantifying. On the real
+# deposit nothing matches, and that is the right answer: no S-VHPS22 document
+# describes the analysis step, so the honest output is the ISA "SHOULD have a
+# protocol" warning rather than a readout SOP misfiled as an analysis one.
+_ANALYSIS_PROTOCOL_CUE = re.compile(
+    r"data\s*analys|analysis|analyz|statistic|curve\s*fit|fitting|"
+    r"normalis|normaliz|quantif|calculat"
+)
 # What a document found by each cue is FOR. Derived metadata on a real file — with
 # its name, the only thing added beyond the path that identifies it.
-_INTENDED_USE: dict[str, str] = {_CULTURE_PROTOCOL_CUE.pattern: "Cell culture"}
+_INTENDED_USE: dict[str, str] = {
+    _CULTURE_PROTOCOL_CUE.pattern: "Cell culture",
+    _ANALYSIS_PROTOCOL_CUE.pattern: "Data analysis",
+}
+# Measuring is what an assay's SOP describes, so EndpointReadout is where an
+# assay-scoped protocol lands unless a cue sends it elsewhere. Ordered: the first
+# cue that matches wins, and culture is asked first because a culture document
+# naming an assay would otherwise read as that assay's readout procedure.
+_STEP_PROTOCOL_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("CellCulture", _CULTURE_PROTOCOL_CUE),
+    ("DataAnalysis", _ANALYSIS_PROTOCOL_CUE),
+)
+_DEFAULT_PROTOCOL_STEP = "EndpointReadout"
 
 
 def _culture_cell_lines(f: dict[str, Any], idx: dict[str, Any], name: str) -> list[Any]:
@@ -2157,6 +2178,66 @@ def _link_to_study(study: Any, protocol: Any) -> None:
         return
     prop = "hasPart" if _is_file_node(protocol) else "mentions"
     _append_unique(study, prop, protocol)
+
+
+def _step_for_protocol(haystack: str) -> str:
+    """Which step a protocol document describes, from its path and name.
+
+    Default is :data:`_DEFAULT_PROTOCOL_STEP`; a cue moves it. Cue order matters
+    and is fixed in :data:`_STEP_PROTOCOL_CUES`.
+    """
+    text = haystack.replace("%20", " ").casefold()
+    for step, cue in _STEP_PROTOCOL_CUES:
+        if cue.search(text):
+            return step
+    return _DEFAULT_PROTOCOL_STEP
+
+
+def _assay_protocol_documents(
+    state: CrateState, assay_id: Any, idx: dict[str, Any], ptype: str
+) -> list[Any]:
+    """The protocol documents *this assay* ships for *ptype*, in deposit order.
+
+    Scoped by the Assay's own ``hasPart`` — which already lists its documents —
+    rather than by matching folder names, so an assay never borrows a sibling's
+    procedure. Every matching document is returned, not one: each assay in the
+    deposit ships two to four (RNA isolation, then DNase, then cDNA/qPCR are
+    three steps of one readout), and returning one of four would be a silent
+    choice. The single-hit D5 rule still governs :func:`_protocol_document_for`,
+    where a *cell line* has to disambiguate between candidates; here there is no
+    subject to be ambiguous about.
+
+    Nothing is minted: a document is claimed only if it is already a
+    LabProtocol-typed node in the crate, which means the deposit shipped the file
+    (D17).
+    """
+    if not assay_id:
+        return []
+    wanted = str(assay_id)
+    parts: list[Any] = []
+    for assay in state.list_entities("Assay"):
+        if assay.entity_id != wanted:
+            continue
+        for key in ("hasPart", "has_part"):
+            parts.extend(_resolve_many(idx, assay.fields.get(key)))
+        break
+
+    out: list[Any] = []
+    seen: set[Any] = set()
+    for node in parts:
+        nid = getattr(node, "id", None)
+        if nid is None or nid in seen:
+            continue
+        types = getattr(node, "type", None)
+        types = types if isinstance(types, list) else [types]
+        if not any("LabProtocol" in str(t) for t in types if t):
+            continue
+        haystack = f"{nid} {node.get('name') or ''}"
+        if _step_for_protocol(haystack) != ptype:
+            continue
+        seen.add(nid)
+        out.append(node)
+    return out
 
 
 def _protocol_document_for(
@@ -2920,6 +3001,19 @@ def _add_processes(
                 study = _study_of(state, idx, f.get("assay_id"))
                 for one in culture_protocols:
                     _link_to_study(study, one)
+        elif protocol is None:
+            # Everything else is assay-scoped: the deposit files an assay's
+            # procedures beside its data, and the Assay already lists them under
+            # hasPart. A document lands on EndpointReadout unless it says it is
+            # about culturing or analysis, because measuring is what an assay's
+            # SOP describes. DataAnalysis legitimately comes up empty on the real
+            # deposit — no document there covers that step — and an empty result
+            # is the honest one (D17).
+            assay_protocols = _assay_protocol_documents(
+                state, f.get("assay_id"), idx, ptype
+            )
+            if assay_protocols:
+                protocol = assay_protocols
         node = _build_process(
             crate,
             ptype,
