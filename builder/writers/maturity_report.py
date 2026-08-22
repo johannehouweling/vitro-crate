@@ -991,7 +991,17 @@ def _air_tile(air: AIRReport, *, wide: bool = False) -> str:
     crate failed" are different claims.
     """
     if not air.criterion_results:
-        return ""
+        # The criteria file could not be read. Every other axis still renders — but a
+        # tile that quietly disappears reads as a report with four axes rather than
+        # one whose fifth could not be scored, which is the exact confusion this
+        # instrument's "not assessed" discipline exists to prevent.
+        return (
+            f'<article class="kpi{" wide" if wide else ""}">'
+            '<div class="kpi-h"><span class="eyebrow">AI-readiness</span></div>'
+            '<div class="kpi-v"><b class="air-na">not assessed</b></div>'
+            '<div class="kpi-sub">the Bridge2AI criteria could not be read</div>'
+            "</article>"
+        )
     met = sum(1 for c in air.criterion_results if c.get("passed") is True)
     assessed = sum(1 for c in air.criterion_results if c.get("passed") is not None)
     total = len(air.criterion_results)

@@ -83,7 +83,7 @@ __CATEGORY_STYLES__
 .mat .tag-inline { font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
 .mat .kpi-sub { font-size:.78rem; color:var(--muted); margin-top:-.15rem; }
 
-/* meters / dots / ladder */
+/* meters / bars / ladder */
 .mat .meter { height:8px; border-radius:999px; background:var(--track); overflow:hidden; }
 .mat .meter > i { display:block; height:100%; border-radius:999px; }
 .mat .fill-cov { background:var(--cov); }
@@ -413,7 +413,6 @@ __CATEGORY_STYLES__
 .mat li.more > details.more-fold > ul.ind { margin:.35rem 0 0; font-style:normal; }
 
 
-
 /* ---------------------------------------------------------------------------
    Entity explorer (#615)
 
@@ -550,11 +549,6 @@ __CATEGORY_STYLES__
   font-family:inherit; font-size:.74rem;}
 .mat .ex-side-document .ex-json{padding:.5rem .7rem;}
 
-/* Print rules come LAST on purpose. They are plain declarations inside a media
-   query, so a screen rule of equal specificity written later in the file beats
-   them — which is how the explorer's print note came to be hidden on paper by
-   the `display:none` that hides it on screen. Anything added below this block
-   inherits that trap. */
 
 /* --- DSM "% Complete" grid (the assessment sheet's own 6x3 scoring) --------- */
 /* A wide table scrolls inside its own box so the page body never scrolls sideways. */
@@ -594,6 +588,11 @@ __CATEGORY_STYLES__
 .mat .air-theirs { color:var(--muted); font-weight:550; }
 .mat .air-na { color:var(--na-ink); font-weight:500; font-style:italic; }
 
+/* Print rules come LAST on purpose. They are plain declarations inside a media
+   query, so a screen rule of equal specificity written later in the file beats
+   them — which is how the explorer's print note came to be hidden on paper by
+   the `display:none` that hides it on screen. Anything added below this block
+   inherits that trap. */
 @media print{
   .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}
   .mat section,.mat .kpi{break-inside:avoid;border:1px solid #ccc;box-shadow:none;}

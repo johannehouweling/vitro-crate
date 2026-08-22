@@ -855,7 +855,7 @@ class TestFairTileAndRose:
 
     def test_the_footnote_superscripts_resolve(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        for fn in ("fn-dsm", "fn-mit"):
+        for fn in ("fn-dsm", "fn-mit", "fn-air"):
             assert f'href="#{fn}"' in page and f'id="{fn}"' in page
 
     def test_the_references_cite_what_the_assessors_actually_implement(self) -> None:
@@ -2969,6 +2969,31 @@ class TestTheOverflowLinePointsSomewhere:
         in the markup — the same class of bug as a class with no CSS rule."""
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
         assert 'id="adherence"' in page
+
+
+class TestAnUnreadableInstrumentIsSaidNotHidden:
+    """A missing `air/criteria.yaml` must not silently delete a KPI tile.
+
+    `assess_air_readiness` returns an empty `AIRReport` rather than raising, so the
+    other three axes still render — which is right. But a tile that quietly vanishes
+    reads to a viewer as a report with four axes, not as one whose fifth could not be
+    scored, and the whole point of this axis is that "not assessed" is stated.
+    """
+
+    def test_the_tile_says_not_assessed_rather_than_disappearing(self) -> None:
+        from builder.state import AIRReport
+        from builder.writers.maturity_report import _air_tile
+
+        tile = _air_tile(AIRReport())
+        assert "AI-readiness" in tile
+        assert "not assessed" in tile
+
+    def test_the_section_is_omitted_entirely(self) -> None:
+        """The section is detail; with nothing to detail there is nothing to show."""
+        from builder.state import AIRReport
+        from builder.writers.maturity_report import _render_air_section
+
+        assert _render_air_section(AIRReport()) == ""
 
 
 class TestTheRecommendationsCloseTheReport:
