@@ -15,12 +15,14 @@ Tool categories:
     - builder.py: ROCrate assembly
     - validation.py: SHACL validation wrapper
     - mit_assessment.py: MIT coverage scoring
-    - fair_assessment.py: FAIR maturity scoring
+    - fair_assessment.py: FAIR maturity scoring (RDA + FAIRplus DSM)
+    - air_assessment.py: AI-readiness scoring (NIH Bridge2AI criteria)
     - session.py: Session persistence and resume
 """
 
 from __future__ import annotations
 
+from builder.tools.air_assessment import assess_air_readiness
 from builder.tools.builder import build_crate, export_crate
 from builder.tools.data_content import populate_condition_table, validate_table
 from builder.tools.drafters import (
@@ -80,6 +82,7 @@ from builder.tools.validation import build_and_validate, validate
 from builder.tools.verification import verify_all_identifiers, verify_identifier
 
 __all__ = [
+    "assess_air_readiness",
     "assess_fair_maturity",
     "assess_mit_coverage",
     "build_and_validate",

@@ -3865,6 +3865,7 @@ _ENTITY_DEPENDENT_TOOLS = frozenset(
         "verify_all_identifiers",
         "assess_mit_coverage",
         "assess_fair_maturity",
+        "assess_air_readiness",
         "validate",
         "validate_table",
         "export_crate",

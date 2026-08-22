@@ -68,7 +68,7 @@ __CATEGORY_STYLES__
 .mat .kgrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
   grid-auto-rows:minmax(8.25rem,auto); gap:.8rem; margin:1.3rem 0 .85rem; }
 .mat .kpi.rose-tile { grid-row:span 2; }
-/* Without a graph there is no Graph tile; the reproducibility tile widens so
+/* Without a graph there is no Graph tile; the AI-readiness tile widens so
    the second row carries no empty cell. */
 .mat .kpi.wide { grid-column:span 2; }
 .mat .kpi { background:var(--surface); border:1px solid var(--border); border-radius:12px;
@@ -93,15 +93,15 @@ __CATEGORY_STYLES__
 .mat .meter.na { background:repeating-linear-gradient(45deg,var(--na-a) 0 5px,var(--na-b) 5px 10px);
   display:flex; align-items:center; justify-content:center; font-size:.62rem; color:var(--na-ink);
   letter-spacing:.03em; }
-.mat .dots { display:flex; gap:.28rem; }
-.mat .dot { width:.85rem; height:.85rem; border-radius:50%; }
-.mat .dot.on { background:var(--good); } .mat .dot.off { background:var(--track); }
 /* The DSM ladder: achieved rungs solid, the NEXT rung dashed red and filled to
    the ratio of indicators already met — a gated 0 must not read as "nothing
    done" — later rungs the track. */
 .mat .ladder2 { display:flex; gap:.22rem; }
 .mat .rung2 { flex:1; height:.56rem; border-radius:2px; background:var(--track); }
 .mat .rung2.done { background:var(--good); }
+/* The unreached rungs read as the bare track. Spelled out rather than left to
+   the base rule so the state is visible in the stylesheet, not inferred. */
+.mat .rung2.off { background:var(--track); }
 .mat .rung2.next { background:color-mix(in srgb,var(--low) 9%,transparent);
   border:1px dashed var(--low); overflow:hidden; }
 .mat .rung2.next > i { display:block; height:100%;
@@ -206,7 +206,7 @@ __CATEGORY_STYLES__
 }
 /* The bars carry their meaning in their fill; do not let print or
    forced-colours strip it. */
-.mat .meter, .mat .meter *, .mat .rung2, .mat .rung2 > i, .mat .dot {
+.mat .meter, .mat .meter *, .mat .rung2, .mat .rung2 > i, .mat .airbar i {
   print-color-adjust:exact; -webkit-print-color-adjust:exact; forced-color-adjust:none; }
 
 /* profile detail */
@@ -264,11 +264,6 @@ __CATEGORY_STYLES__
 @media (max-width:560px){ .mat .sev-drow{ grid-template-columns:1.3rem 1fr auto; }
   .mat .sev-drow .sn{ grid-column:2 / -1; } }
 
-/* reproducibility */
-.mat ul.repro { list-style:none; margin:0; padding:0; display:grid; gap:.5rem; }
-.mat ul.repro li { display:flex; gap:.6rem; align-items:flex-start; }
-.mat ul.repro .rl { font-weight:550; font-size:.9rem; }
-.mat ul.repro .hint { display:block; font-size:.78rem; color:var(--muted); margin-top:.1rem; }
 
 .mat .cov-cap { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; max-width:60ch; }
 /* entity coverage — one block per kind of entity, stacked (#618).
@@ -582,6 +577,22 @@ __CATEGORY_STYLES__
 .mat .dsm-note { font-size:.72rem; color:var(--muted); margin:.55rem 0 0; line-height:1.5; }
 .mat .blk-why { display:block; font-size:.7rem; color:var(--muted); margin-top:.1rem; }
 
+
+/* AI-readiness: the seven-dimension profile. Bars, not a single number — the
+   instrument's authors refuse an aggregate, and a lone percentage here would be
+   the invented metric this axis replaced. A dimension nothing could be assessed
+   in is drawn hollow, never as a bar of height zero: "not assessed" and "failed"
+   must not look alike. */
+.mat .airbars { display:flex; gap:.22rem; align-items:flex-end; height:2.1rem; margin-top:.45rem; }
+.mat .airbar {
+  flex:1; height:100%; display:flex; align-items:flex-end;
+  background:var(--track); border-radius:2px; overflow:hidden;
+}
+.mat .airbar i { display:block; width:100%; background:var(--accent); border-radius:2px; }
+.mat .airbar.na { background:none; border:1px dashed var(--na-ink); }
+.mat .air-grid td:first-of-type + td .dsm-pct { font-weight:650; }
+.mat .air-theirs { color:var(--muted); font-weight:550; }
+.mat .air-na { color:var(--na-ink); font-weight:500; font-style:italic; }
 
 @media print{
   .mat{background:#fff;color:#000;padding:0;--surface:#fff;--surface-2:#fff;}

@@ -13,7 +13,8 @@ assets) covering the four axes from the issue:
 * **FAIR** — the gated FAIRplus Dataset Maturity level on a ladder whose next rung
   shows the ratio of RDA-style indicators already met, plus what blocks the next level;
 * **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
-* **Reproducibility readiness** — a derived checklist.
+* **AI-readiness** — the NIH Bridge2AI criteria as a seven-dimension profile,
+  with the authors' own per-dimension percentage reported beside ours.
 
 ``export_crate`` embeds the rendered page as a ``CreativeWork`` ``about`` ``./``,
 mirroring the entity-graph (#130) and preview (#86) artifacts.
@@ -49,18 +50,12 @@ from pathlib import Path
 from typing import Any
 
 from builder.state import (
+    AIRReport,
     CrateState,
-    Entity,
     FAIRReport,
     MITReport,
     ValidationReport,
     looks_like_identifier,
-)
-from builder.tools.document_discovery import (
-    CLASS_PROCESSED_DATA,
-    CLASS_RAW_DATA,
-    FILE_CLASSES,
-    classify_file,
 )
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import (
@@ -134,88 +129,6 @@ def _validation_has_signal(validation: ValidationReport) -> bool:
     )
 
 
-def _file_class(entity: Entity) -> str:
-    """What a crate File is: its stamped classification, or read from its name.
-
-    ``attach_files`` stamps every File it places, and ``_deposited_outputs``
-    stamps the ones it wires (#591). A File the agent drafted directly may carry
-    no role at all, and a crate whose data arrived that way must not read as
-    having none — so its name and destination path answer instead, through the
-    same classifier rather than a second rule.
-
-    Only a role the classifier itself emits is taken as a class. ``role`` is free
-    text — ``draft_file`` stamps whatever the agent passes, and the spine stamped
-    ``raw_data``/``processed_data`` before the classification existed, which a
-    resumed session carries forever. Read as classes those match neither tier, so
-    a crate whose data was all present reported having none.
-    """
-    if (role := str(entity.fields.get("role") or "")) in FILE_CLASSES:
-        return role
-    name = str(entity.fields.get("name") or "")
-    return classify_file(name, "", str(entity.fields.get("dest_path") or name))[0]
-
-
-def _reproducibility_checks(state: CrateState) -> list[tuple[str, bool, str]]:
-    """Derive a reproducibility-readiness checklist ``(label, ok, hint)``."""
-    processes = state.list_entities("LabProcess")
-    protocols = state.list_entities("LabProtocol")
-
-    def _has(entity_list: list, keys: tuple[str, ...]) -> bool:
-        return any(any(e.fields.get(k) for k in keys) for e in entity_list)
-
-    protocol_ok = bool(protocols) or _has(processes, ("description",))
-    io_ok = _has(processes, ("object", "result", "input", "output", "samples", "derives_from"))
-    instrument_ok = _has(
-        processes,
-        ("detection_instrument", "instrument_manufacturer", "software", "data_processing"),
-    )
-    # Every File in the crate is one the deposit actually contains: a step with
-    # no deposited output is left unwired rather than given an empty stand-in
-    # (#592). What the row CLAIMS is narrower than that, though — a crate
-    # shipping three protocols and no measurements is not a crate with its data
-    # included — so it counts the files classified as data (#591).
-    data_ok = any(
-        _file_class(f) in (CLASS_RAW_DATA, CLASS_PROCESSED_DATA)
-        for f in state.list_entities("File")
-    )
-    investigations = state.list_entities("Investigation")
-    attribution_ok = (
-        bool(state.metadata.title)
-        and bool(state.list_entities("Person"))
-        and (bool(state.metadata.accession) or _has(investigations, ("identifier",)))
-    )
-
-    return [
-        (
-            "Experimental protocol documented",
-            protocol_ok,
-            "Add a LabProtocol or describe each LabProcess.",
-        ),
-        (
-            "Process inputs/outputs wired",
-            io_ok,
-            "Link process object/result (the derivation chain) so steps are traceable.",
-        ),
-        (
-            "Instruments / software recorded",
-            instrument_ok,
-            "Record the detection instrument, manufacturer, or analysis software.",
-        ),
-        (
-            "Data files included",
-            data_ok,
-            "Attach the raw/processed data files referenced by the assays — the "
-            "synthesized placeholder tables are empty templates, not data.",
-        ),
-        (
-            "Attribution & identity",
-            attribution_ok,
-            "Set a title, at least one Person (author), and an accession/identifier.",
-        ),
-    ]
-
-
-# --- severity tiers (#306) -------------------------------------------------
 def _plural_issues(n: int) -> str:
     return f"{n} issue" if n == 1 else f"{n} issues"
 
@@ -1062,14 +975,52 @@ def _mit_rose_tile(mit: MITReport) -> str:
     )
 
 
+def _air_tile(air: AIRReport, *, wide: bool = False) -> str:
+    """AI-readiness: coverage of the assessable criteria, over the seven dimensions.
+
+    There is deliberately **no percentage headline**. The instrument's authors refuse
+    an aggregate — *"We do not score it pass/fail overall"* — so one number here would
+    be exactly the invented metric this axis replaced. The figure shown is coverage
+    (met of assessed) and the bars are the profile; a dimension nothing could be
+    assessed in is drawn hollow, not empty-at-zero, because "we did not look" and "the
+    crate failed" are different claims.
+    """
+    if not air.criterion_results:
+        return ""
+    met = sum(1 for c in air.criterion_results if c.get("passed") is True)
+    assessed = sum(1 for c in air.criterion_results if c.get("passed") is not None)
+    total = len(air.criterion_results)
+    bars = ""
+    for dim in air.dimensions:
+        pct = dim.get("pct")
+        label = html.escape(str(dim.get("name") or ""))
+        if pct is None:
+            bars += f'<span class="airbar na" title="{label}: not assessed"></span>'
+        else:
+            bars += (
+                f'<span class="airbar" title="{label}: {pct:g}% of '
+                f'{dim.get("assessed")} assessed">'
+                f'<i style="height:{max(pct, 3):g}%"></i></span>'
+            )
+    return (
+        f'<article class="kpi{" wide" if wide else ""}">'
+        '<div class="kpi-h"><span class="eyebrow">AI-readiness</span></div>'
+        f'<div class="kpi-v"><b>{met}</b><span class="den">/ {assessed}</span> '
+        '<span class="tag-inline">criteria met<a class="fn" href="#fn-air">3</a></span></div>'
+        f'<div class="airbars" role="img" aria-label="{met} of {assessed} assessable '
+        f'Bridge2AI criteria met across seven dimensions">{bars}</div>'
+        f'<div class="kpi-sub">{total - assessed} of {total} not assessable from a crate</div>'
+        "</article>"
+    )
+
+
 def _render_kpis(
     tiers: list[dict[str, str]] | None,
     val: ValidationReport | None,
     fair: FAIRReport,
     blockers: list[tuple[str, str, str]],
     mit: MITReport,
-    repro_ready: int,
-    repro_total: int,
+    air: AIRReport,
     graph_counts: tuple[int, int] | None,
     *,
     ceiling: dict[str, Any] | None = None,
@@ -1077,7 +1028,7 @@ def _render_kpis(
 ) -> str:
     """The KPI grid: the profile × tier conformance matrix, FAIR maturity, the
     domain-coverage rose (spanning both rows), the graph tile (linked / total
-    entities, only when a graph was supplied) and reproducibility readiness."""
+    entities, only when a graph was supplied) and the AI-readiness profile."""
     tiles = _profile_matrix_tile(val, tiers, stale)
     tiles += _fair_tile(fair, blockers, ceiling)
     tiles += _mit_rose_tile(mit)
@@ -1090,18 +1041,7 @@ def _render_kpis(
             '<div class="kpi-sub">number linked and retrieved entities</div>'
             "</article>"
         )
-    dots = "".join(
-        f'<span class="dot {"on" if i < repro_ready else "off"}"></span>'
-        for i in range(repro_total)
-    )
-    tiles += (
-        f'<article class="kpi{"" if graph_counts is not None else " wide"}">'
-        '<div class="kpi-h"><span class="eyebrow">Reproducibility</span></div>'
-        f'<div class="kpi-v"><b>{repro_ready}</b><span class="den">/ {repro_total}</span> '
-        '<span class="tag-inline">readiness level</span></div>'
-        f'<div class="dots" role="img" aria-label="{repro_ready} of {repro_total}">{dots}</div>'
-        "</article>"
-    )
+    tiles += _air_tile(air, wide=graph_counts is None)
     return f'<div class="kgrid">{tiles}</div>\n'
 
 
@@ -1628,7 +1568,13 @@ def _render_recommendations(
     esc = html.escape
 
     # The source layer the chip names, in the crate's own vocabulary.
-    source_labels = {**dict(_PROFILE_LAYERS), "fair": "FAIR", "mit": "MIT", "graph": "Graph"}
+    source_labels = {
+        **dict(_PROFILE_LAYERS),
+        "fair": "FAIR",
+        "mit": "MIT",
+        "air": "AI-readiness",
+        "graph": "Graph",
+    }
 
     def _row(action: Any) -> str:
         chip = ""
@@ -1685,7 +1631,9 @@ def _render_references() -> str:
     Maturity model's crate-assessable indicators (``fair/dsm_indicators.yaml``
     implements them), itself derived from the RDA FAIR Data Maturity Model.
     Note 2 names what the domain checklist is: the tox-maturity-indicators
-    FAIR maturity indicators under principle R1.3.
+    FAIR maturity indicators under principle R1.3. Note 3 names the AI-readiness
+    instrument and, deliberately, that it is still a preprint and that its criterion
+    text is quoted verbatim under a no-derivatives licence.
     """
     return (
         '<div class="refs">\n'
@@ -1703,6 +1651,15 @@ def _render_references() -> str:
         "R1.3 (domain-relevant community standards), as defined in "
         + _lk(MIT_INDICATORS_URL, "tox-maturity-indicators")
         + ".</p>\n"
+        '  <p id="fn-air"><span class="ref-n">3</span> AI-readiness is scored against the NIH '
+        "Bridge2AI &ldquo;AI-readiness Criteria for Biomedical Data&rdquo; &mdash; "
+        + _lk("https://doi.org/10.1101/2024.10.23.619844", "doi.org/10.1101/2024.10.23.619844")
+        + " (v6, 2026&ndash;04&ndash;24; <b>still a preprint</b>) &mdash; using the scoring "
+        "model from the authors&rsquo; own self-evaluation worksheet, "
+        + _lk("https://doi.org/10.5281/zenodo.13961091", "doi.org/10.5281/zenodo.13961091")
+        + ". Criterion text is quoted verbatim under CC&nbsp;BY-ND&nbsp;4.0. It is a "
+        "self-evaluation instrument, and its authors describe their own evaluation as "
+        "subjective.</p>\n"
         "</div>\n"
     )
 
@@ -1771,20 +1728,74 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
     )
 
 
-def _render_repro_section(checks: list[tuple[str, bool, str]]) -> str:
+def _render_air_section(air: AIRReport) -> str:
+    """The Bridge2AI profile: seven dimensions, both denominators, then what failed.
+
+    Two percentages per dimension, and the pair is the point. ``theirs`` is the
+    published formula — met divided by every criterion in the dimension, exactly as
+    the authors' worksheet computes it. ``ours`` divides by what a crate could
+    actually be assessed on. Reporting only the second would quietly restate a
+    32-author instrument as something it is not; reporting only the first would score
+    a crate 0% on research ethics for having no way to show consent.
+
+    Failing criteria are named in the instrument's own words, with the evidence behind
+    each verdict — this is a self-evaluation instrument, and "why did it say no?" has
+    to be answerable without reading the source.
+    """
+    if not air.criterion_results:
+        return ""
     esc = html.escape
-    ready = sum(1 for _, ok, _ in checks if ok)
-    items = "".join(
-        f'<li>{_mk(_kind(ok))}<div><span class="rl">{esc(label)}</span>'
-        + ("" if ok else f'<span class="hint">{esc(hint)}</span>')
-        + "</div></li>"
-        for label, ok, hint in checks
-    )
+    rows = ""
+    for dim in air.dimensions:
+        pct, published = dim.get("pct"), dim.get("published_pct")
+        ours = (
+            '<span class="dsm-pct air-na">not assessed</span>'
+            if pct is None
+            else f'<span class="dsm-pct">{pct:g}%</span>'
+        )
+        rows += (
+            f'<tr><th scope="row">{esc(str(dim.get("name") or ""))}</th>'
+            f"<td>{ours}</td>"
+            f'<td><span class="dsm-pct air-theirs">{published:g}%</span></td>'
+            f'<td><span class="dsm-den">{dim.get("met")}/{dim.get("assessed")} '
+            f'of {dim.get("total")}</span></td></tr>'
+        )
+    failing = [c for c in air.criterion_results if c.get("passed") is False]
+    unmet = ""
+    if failing:
+        items = "".join(
+            f'<li><code>{esc(str(c.get("id")))}</code> {esc(str(c.get("text", "")))}'
+            + (
+                f'<span class="blk-why">{esc(str(c.get("evidence")))}</span>'
+                if c.get("evidence")
+                else ""
+            )
+            + "</li>"
+            for c in failing
+        )
+        unmet = (
+            f'<details class="blockers"><summary><b>{len(failing)} '
+            f'criteri{"a" if len(failing) != 1 else "on"}</b> assessed and not met'
+            f'</summary><ul class="blk">{items}</ul></details>'
+        )
     return (
         "<section>\n"
-        '  <div class="sec-h"><h2>Reproducibility readiness</h2>'
-        f'<span class="sec-meta"><b>{ready}/{len(checks)}</b> met</span></div>\n'
-        f'  <ul class="repro">{items}</ul>\n'
+        '  <div class="sec-h"><h2>AI-readiness &mdash; the Bridge2AI profile</h2>'
+        '<span class="sec-meta">seven dimensions, no overall score</span></div>\n'
+        '  <div class="tbl-scroll"><table class="dsm-grid air-grid">\n'
+        "    <thead><tr><th>Dimension</th><th>of assessed</th><th>published</th>"
+        "<th>met</th></tr></thead>\n"
+        f"    <tbody>{rows}</tbody>\n"
+        "  </table></div>\n"
+        f"  {unmet}\n"
+        '  <p class="dsm-note">The authors report no aggregate score &mdash; '
+        "&ldquo;we do not score it pass/fail overall&rdquo; &mdash; so neither does this. "
+        "<b>Published</b> is their own formula: criteria met &divide; every criterion in "
+        "the dimension &times; 100. <b>Of assessed</b> excludes criteria a crate cannot "
+        "evidence &mdash; research ethics, repository governance, hosting and APIs "
+        "&mdash; which is a documented deviation, since the published denominator has "
+        "no &ldquo;not assessed&rdquo; state. Criteria are quoted verbatim under "
+        "CC&nbsp;BY-ND&nbsp;4.0.</p>\n"
         "</section>\n"
     )
 
@@ -2646,8 +2657,6 @@ def build_maturity_html(
             # loudly as a green tick, and it was measured on a different crate.
             tier["summary"] = "out of date"
             tier["note"] = "Recorded before the crate's latest changes."
-    checks = _reproducibility_checks(state)
-    repro_ready = sum(1 for _, ok, _ in checks if ok)
 
     # The study facts prefer the graph (its publication names the subhead);
     # without one the card renders what the state itself holds.
@@ -2686,6 +2695,7 @@ def build_maturity_html(
         total = len(nodes)
         linked = total - sum(1 for n in nodes if n.get("orphan"))
         graph_counts = (linked, total)
+    from builder.tools.air_assessment import assess_air_readiness
     from builder.tools.fair_assessment import (
         DSM_INDICATORS_PATH,
         _load_yaml,
@@ -2693,6 +2703,11 @@ def build_maturity_html(
         dsm_ceiling,
         dsm_grid,
     )
+
+    # Every axis reads the SAME assembled graph. AI-readiness asks about entities and
+    # the links between them, which exist only once the crate is assembled — with no
+    # graph its criteria report "not assessed" rather than guessing.
+    air = assess_air_readiness(state, graph=graph)
 
     dsm_data = _load_yaml(DSM_INDICATORS_PATH) or {}
     # The DSM's Level 2-4 field/value indicators live in the assembled graph, not
@@ -2708,15 +2723,14 @@ def build_maturity_html(
         fair,
         dsm_blockers(state, graph),
         mit,
-        repro_ready,
-        len(checks),
+        air,
         graph_counts,
         ceiling=dsm_reach,
         stale=stale,
     )
     prof_section = _render_profile_section(val, tiers, stale=stale)
     mit_section = _render_mit_section(mit)
-    repro_section = _render_repro_section(checks)
+    air_section = _render_air_section(air)
 
     # The crate card closes the content: how the report was built is provenance
     # a reader wants last, not between the headline and the verdict. The
@@ -2731,7 +2745,7 @@ def build_maturity_html(
         + prof_section
         + dsm_section
         + mit_section
-        + repro_section
+        + air_section
         + _render_recommendations(val, graph, stale=stale)
         + crate_card
         + _render_references()

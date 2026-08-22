@@ -119,6 +119,7 @@ LOCAL_SCOPE: dict[str, tuple[str, str, Remedy]] = {
     # ---- 6 Computability --------------------------------------------------------
     "6.a": ("full", "validatable_standard", REPORT_ONLY_REMEDY),
     "6.c": ("full", "portable_formats", REPORT_ONLY_REMEDY),
+    "6.d": ("partial", "data_components_present", REPORT_ONLY_REMEDY),
 }
 
 # Where an AIR criterion asks a question one of the other two instruments already
