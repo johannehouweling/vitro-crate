@@ -139,8 +139,10 @@ PIPELINE_UNREACHED: Mapping[str, str] = {
         "reach for. Not dead code."
     ),
     "build_crate": (
-        "Its only production route is writers/rocrate_writer <- writers/arc_writer, "
-        "and write_arc has no production caller. Overlaps #360."
+        "Back-compat alias for export_crate, which is the tool the arm actually "
+        "calls. Its one in-tree caller, writers/rocrate_writer, itself has no "
+        "production caller, so the alias is genuinely unreachable — it survives "
+        "for the old tool name, not for a route."
     ),
     "set_validation_preference": (
         "Records a mid-session change of mind about the RECOMMENDED/OPTIONAL "

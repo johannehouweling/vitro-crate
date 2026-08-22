@@ -84,9 +84,9 @@ Within the agent loop, the agent is **not** guided by a predefined workflow grap
 The orchestration is **emergent** — the agent dynamically routes itself based on context, feedback, and user input. A validation failure sends it back to drafting; an incomplete MIT score triggers more lookups.
 
 One step is **always** run as fixed initialization before the agent loop:
-1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows). No role classification, no ARC sorting — just a list of what's in the input directory.
+1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows). No role classification — just a list of what's in the input directory.
 
-This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The ARC folder structure is not scaffolded upfront — it is produced as an output by `arc_writer.py` once entity annotations are complete.
+This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
 
 ### Guard Rails: Approved Scan Roots
 The agent's `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set that records user-confirmed paths. The guard **fails closed** (#197): with no approved roots, *nothing* is scannable. When the agent calls `scan_files(path)`:
@@ -624,7 +624,7 @@ This project builds on the existing RO-Crate Python ecosystem rather than reinve
 |---------|------|-----------------|---------------|
 | [`ro-crate-py`](https://github.com/ResearchObject/ro-crate-py) | `uv add rocrate`<br>(import `rocrate`) | Official Python SDK for creating and manipulating RO-Crates. Provides `ROCrate`, `ContextEntity`, `File`, and other base entity classes. | The entity model classes in `profiles/models/isa.py` and `profiles/models/tox.py` subclass `rocrate.model.ContextEntity` and `rocrate.model.File`. The builder uses `ROCrate` to assemble the crate and serialise `ro-crate-metadata.json`. |
 | [`rocrate-validator`](https://github.com/crs4/rocrate-validator) | `uv add roc-validator`<br>(import `rocrate_validator`) | Official SHACL-based validation library. Supports multi-profile validation (base RO-Crate → ISA → domain extensions) with severity levels. | `profiles/validator.py` wraps this in three passes (RO-Crate 1.2, ISA, ISA-Tox), suppressing inherited-profile duplicates so each pass reports only its own layer. |
-| [`rocrate-wizard`](https://github.com/ResearchObject/rocrate-wizard) *(external frontend)* | TBD | Frontend/UI layer that uses this backend (vitro-crate) to provide a user-facing RO-Crate builder. | This repo is the dependency — `rocrate-wizard` imports from `vitro-crate` and adds the web UI/CLI on top. Referenced in the ARC template's conversion workflow. |
+| [`rocrate-wizard`](https://github.com/ResearchObject/rocrate-wizard) *(external frontend)* | TBD | Frontend/UI layer that uses this backend (vitro-crate) to provide a user-facing RO-Crate builder. | This repo is the dependency — `rocrate-wizard` imports from `vitro-crate` and adds the web UI/CLI on top. |
 
 These packages are imported directly — we do not fork or vendor them. Version requirements are declared in `pyproject.toml`.
 
@@ -795,9 +795,10 @@ unzip_file(path: str, output_dir: str | None = None) → str   # extract a .zip,
 initialization to classify inputs and feed the state brief. The full readers
 (`read_file`/`read_excel`/`read_docx`/`extract_pdf_text`) and the archive tools
 (`preview_archive`/`unzip_file`) are dispatchable so the agent can pull a file's
-full contents on demand. There is **no `scaffold_arc` tool** — ARC is an *output*
-format only (D7); the ARC folder tree is materialised at export time by
-`builder/writers/arc_writer.py::write_arc`, not assembled from scanned inputs.
+full contents on demand. Every tool named in this section exists in the code —
+**never document a tool that does not exist**: the parity guard in
+`tests/test_agents_doc_toolbox.py` fails the build on a phantom tool name in
+this section (Issue #145).
 
 ### Entity Drafting Tools
 ```
@@ -1400,8 +1401,7 @@ the structure and semantics of `ro-crate-metadata.json`. They do **not** check
 the **payload**: whether the rows of a referenced CSV actually match its declared
 schema. The Frictionless layer (`builder/tools/data_content.py`,
 `validate_table`) closes that gap, mirroring the metadata/data split in the
-BioHackEU25 report "Towards a Robust Validation Service for Data and Metadata in
-ARC RO-Crates" (Chadwick et al., biohackrxiv `zah28`).
+BioHackEU25 report by Chadwick et al. (biohackrxiv `zah28`).
 
 `validate_table(file, table_schema, foreign_keys=None, entity_id=None)` validates
 a CSV's content against a Frictionless `tableSchema` descriptor (column types and
@@ -1563,30 +1563,30 @@ Input comes in tiers of readiness. The agent should prefer the most structured f
 
 **Guiding principle:** Meet the input where it is. Read every metadata file present and reuse every field it can, whatever its structure; if nothing is present, build everything from conversation and lookups. Never discard curated metadata.
 
-### ARC Working Layout & Output
+### Output Format
 
-**ARC (Annotated Research Context)** is not an input format and is **not optional** — it *is* the output. The RO-Crate *is* a directory with an `ro-crate-metadata.json` at its root, and that directory follows the ARC layout. The `arc_writer.py` component projects CrateState entities onto the VHP4Safety ARC template at `arc/arc-template/` and populates the ARC tree. Since the ARC tree *is* the crate, the output is a single self-describing directory:
+The output is a single self-describing RO-Crate directory: `ro-crate-metadata.json`
+at its root, describing everything beside it. `export_crate`
+(`builder/tools/builder.py`) is the only step that materialises the crate
+directory — `build_and_validate` assembles and validates entirely in memory.
 
 ```
-<accession_arc>/               RO-Crate root directory
-├── ro-crate-metadata.json     RO-Crate metadata (describes everything in the ARC)
-├── isa.investigation.xlsx      generic ARC investigation table (optional)
-├── studies/<study>/
-│   ├── isa.study.xlsx          generic ARC study table (optional)
-│   ├── protocols/              SHARED protocols: starting material/data → samples
-│   └── resources/              external data the study references
-├── assays/<assay>/
-│   ├── ToxTemp_<assay>.md      test-method description (authoritative per assay)
-│   ├── isa.assay.xlsx          generic ARC assay table (optional)
-│   ├── dataset/
-│   │   ├── raw_data/           raw instrument output
-│   │   └── processed_data/     analysed results
-│   └── protocols/              assay-specific protocols: samples → measurement
-├── workflows/<wf>/             reusable analysis scripts/tools + environment
-└── runs/<run>/                 parameters + inputs for one execution of a workflow
+<output_dir>/                        RO-Crate root directory
+├── ro-crate-metadata.json           the RO-Crate metadata descriptor
+├── ro-crate-preview.html            browsable preview, no tooling needed (#86)
+├── ro-crate-metadata-maturity.html  maturity report + entity explorer (#85)
+└── <payload>                        the described files, copied in
 ```
 
-The `arc_writer` maps CrateState entities (`Investigation`, `Study`, `Assay`, `LabProcess`, `Sample`, `File`) onto this directory structure. Each assay gets a `ToxTemp_<assay>.md` derived from LabProcess metadata. Protocols are exported from `LabProtocol` entities. The `dataset/raw_data/` and `dataset/processed_data/` trees are where a file's classification (§4, *File classification & document discovery*) places it — the writer creates both today and does not yet file into them (#360).
+Payload files land at their path **relative to the input tree**, so an exported
+crate mirrors the folder the depositor handed over. A `File` entity's
+`dest_path` is contained to the crate root — an absolute or traversing path is
+refused and replaced with a `data/<slug>` fallback, so no payload byte is ever
+written outside the output directory (#167). Generated tables land under `data/`
+(an exposure's condition table at `data/<exposure>_condition_table.csv`). Every
+scanned file the agent did not explicitly place is still attached to the root
+`hasPart` as a plain `File` leaf, so an export never silently drops a file
+(#175).
 
 ## 10. Lookup Services
 
@@ -1708,9 +1708,6 @@ Every identifier verified against source. Never fabricate.
 
 ### D6: Field-Level Completion Tracking
 Per-field, per-entity completion using MIT YAML as reference. Enables precise resume and accurate scoring.
-
-### D7: ARC as Output, Not Input
-The ARC folder structure is not scaffolded upfront. The agent builds a raw file inventory (path, size, mime type, first rows) during initialization, then progressively binds files to `LabProcess` instances as annotations emerge through conversation and HITL. The ARC tree is produced as an output by `arc_writer.py` once entity annotations are complete. ARC is a delivery format, not a working layout.
 
 ### D8: Observability via Reasoning Log
 Every tool call, state change, and reasoning step is recorded in `CrateState.checkpoint.reasoning_log` as a structured event: `{"step": int, "action": str, "tool": str, "result": str, "timestamp": datetime}`. This log enables:
@@ -2306,7 +2303,6 @@ vitro-crate/
 ├── mit/invitro_tox.yaml         Minimum Information Table
 ├── fair/                        FAIR indicators (RDA FDMM + FAIRplus DSM, vendored)
 ├── air/                         Bridge2AI AI-readiness criteria (vendored)
-├── arc/                         ARC template/spec
 ├── input/                       Example inputs
 ├── builder/                     Core builder system
 │   ├── state.py                 CrateState dataclass
@@ -2323,7 +2319,7 @@ vitro-crate/
 │   ├── readers/                 Input readers
 │   │   ├── directory.py, existing_crate.py, metadata_files.py
 │   ├── writers/                 Output writers
-│   │   ├── rocrate_writer.py, arc_writer.py
+│   │   ├── rocrate_writer.py
 │   │   ├── provenance_dag.py     Entity-graph model + inventories (#130)
 │   │   ├── maturity_report.py    Maturity / FAIR HTML report
 │   │   ├── entity_explorer.py   Interactive React Flow entity graph (#615)
@@ -2393,7 +2389,7 @@ INPUT (dir / zip / conversation)
    small TAIL AGENT (strong model) ── only for: no-metadata conversational build,   content repairs)
                                        genuine ambiguity, HITL
    │
-   ▼ OUTPUT: ARC RO-Crate dir + payload + embedded graph/maturity/preview
+   ▼ OUTPUT: RO-Crate dir + payload + embedded graph/maturity/preview
 ```
 
 - **Spine = code.** The Priority 1–4 heuristic (§4) becomes control flow, not prose.

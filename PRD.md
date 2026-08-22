@@ -1,5 +1,8 @@
 # PRD: LLM-Assisted ISA-Tox RO-Crate Builder Backend
 
+> **Historical.** This is the original PRD. The authoritative design is AGENTS.md; conventions are
+> in CONTRIBUTING.md. Retained for the original requirements and user stories.
+
 ## Problem Statement
 
 Toxicology researchers generate *in vitro* data that must be packaged as FAIR, profile-conformant RO-Crates for submission to public repositories. Currently, creating an ISA-Tox RO-Crate requires manual metadata assembly across multiple tools (PubChem lookups, Cellosaurus queries, SHACL validation, MIT coverage checks). This process is time-consuming, error-prone, and requires expertise in both toxicology semantics and RO-Crate internals.
@@ -16,7 +19,7 @@ Researchers lack a guided, interactive assistant that can:
 An LLM-agent-assisted builder backend that uses a **toolbox architecture** rather than a rigid pipeline. The agent (LLM) dynamically decides which tools to call based on the current `CrateState` — the single source of truth that tracks every entity, field completion status, validation results, and session progress.
 
 The system:
-1. Scans input to build a raw file inventory (path, size, mime type, first rows) — no role classification, no ARC sorting, just what's in the input — and seeds an initial state
+1. Scans input to build a raw file inventory (path, size, mime type, first rows) — no role classification, no sorting into an output layout, just what's in the input — and seeds an initial state
 2. Drafts entities (Investigation, Study, Assay, MolecularEntity, CellLineSample, LabProcess types, People, Organizations, Publications) using LLM calls backed by verified lookups
 3. Validates continuously against the three-pass SHACL profile — MUST issues block progress, SHOULD/MAY issues guide improvement
 4. Scores MIT coverage (per-module completion percentages) and FAIR maturity (indicator-level pass/fail with DSM level)
@@ -37,17 +40,20 @@ The system:
 10. As a toxicology researcher, I want to review each drafted entity before it's committed, so that I can approve, edit, or reject the agent's work.
 11. As a toxicology researcher, I want to see a validation report after drafting, so that I know which REQUIRED fields are still missing and what SHOULD/MAY improvements are available.
 12. As a toxicology researcher, I want the builder to block crate assembly if there are any REQUIRED validation failures, so that I never produce an invalid RO-Crate.
-13. As a toxicology researcher, I want to see MIT coverage scores per module (Chemical Information, Biological Model Information, General Information), so that I can prioritize filling gaps.
+13. As a toxicology researcher, I want to see MIT coverage scores per module (e.g., Chemical Information, Biological Model Information, General Information), so that I can prioritize filling gaps.
 14. As a toxicology researcher, I want to see FAIR maturity scores, so that I understand how findable, accessible, interoperable, and reusable my crate is.
 15. As a toxicology researcher, I want to save my session mid-way, so that I can resume work later without losing progress.
 16. As a toxicology researcher, I want the builder to auto-save after key milestones (scan, draft, validate, HITL), so that I never lose work.
 17. As a toxicology researcher, I want to resume a saved session, so that the agent picks up from its last checkpoint with full context.
 18. As a toxicology researcher, I want to run validation on the assembled crate before finalization, so that I catch any issues introduced during assembly.
 19. As a toxicology researcher, I want the agent to detect when it's stuck and escalate to me for guidance.
-20. As a toxicology researcher, I want the final output to be an ARC directory (which *is* the RO-Crate), so that the `ro-crate-metadata.json` at its root describes every file already organized in studies, assays, datasets, and protocols.
-21. As a developer integrating this builder, I want to understand the toolbox interface, so that I can add new tools or input readers without changing the agent loop.
-22. As a developer extending the system, I want field-level completion metadata on every entity, so that I can build custom UIs that show exactly what's missing.
+20. As a developer integrating this builder, I want to understand the toolbox interface, so that I can add new tools or input readers without changing the agent loop.
+21. As a developer extending the system, I want field-level completion metadata on every entity, so that I can build custom UIs that show exactly what's missing.
 ## Implementation Decisions
+
+> **Status: describes the ReAct arm.** The shipped default is the deterministic, code-orchestrated
+> pipeline (`BuildMode.PIPELINE`, the `--interactive` default); the LLM-ordered loop below is the
+> `--react` opt-in. Both arms are first-class and permanently co-maintained — see AGENTS.md §14 and D15.
 
 ### Architecture: Toolbox, Not Graph
 The LLM agent is given a set of tools (file scanning, entity drafting, lookups, validation, assessment, session management) and decides the order of calls based on the current `CrateState`. No predefined workflow graph. Validation failures and HITL feedback can route the agent to any earlier stage. Max iterations and HITL escalation prevent infinite loops.
@@ -80,9 +86,9 @@ All identifiers are verified against their source. The agent never fabricates. V
 
 ### Fixed Initialization: scan_files
 Before the agent loop starts, one step runs as a hard precondition:
-1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows of CSV/TSV/XLSX). No role classification, no ARC sorting — just a list of what's in the input directory.
+1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows of CSV/TSV/XLSX). No role classification, no sorting into an output layout — just a list of what's in the input directory.
 
-This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The ARC folder structure is not scaffolded upfront — it is produced as an output by `arc_writer.py` once entity annotations are complete.
+This inventory is the only precondition. The agent uses it during entity drafting to bind files to `LabProcess` instances as annotations emerge. The output folder structure is never scaffolded upfront — there is no scaffolding tool; the layout is a product of the export, never a precondition.
 
 ### Guard Rails: Approved Scan Roots
 The `scan_files` tool is restricted to directories the user has explicitly approved. Every session tracks `CrateState.approved_scan_roots`. When the agent calls `scan_files(path)`, the path must be within an approved root or the call is denied. New roots are added only through user approval (HITL or CLI input). This prevents the LLM agent from accessing arbitrary filesystem locations and provides a clear audit trail.
@@ -104,18 +110,21 @@ All lookups follow: return `{found: bool, data: dict, error: str | None}`, never
 
 ### Existing Base
 The following already exists in the codebase and will be used directly:
-- `profiles/context.py` — Complete JSON-LD context with 175+ mappings
+- `profiles/context.py` — Complete JSON-LD context for the ISA-Tox terms
 - `profiles/validator.py` — Three-pass SHACL validation wrapping `rocrate_validator`
 - `profiles/models/isa.py` — LabProcess, LabProtocol, ParameterValue, Sample, File entity classes
 - `profiles/models/tox.py` — LabProcessExposure, EndpointReadout, CellCulture, DataAnalysis, CellLineSample
-- `profiles/schemas/isa.yaml` and `profiles/schemas/tox.yaml` — ISA and ISA-Tox profile schemas
+- `profiles/shapes/tox/*.ttl` — ISA-Tox RO-Crate SHACL shapes; the ISA pass uses `rocrate_validator`'s bundled `isa-ro-crate` profile. `profiles/docs/isa.md` and `profiles/docs/isa_tox.md` — the ISA and ISA-Tox RO-Crate profile specs.
 - `lookups/` — PubChem, Cellosaurus, AOP-Wiki, BAO, ORCID, ROR, Crossref, IUCLID clients
 - `mit/invitro_tox.yaml` — Complete MIT YAML (~3900 lines) with `crate_slot` mappings
 - `fair/indicators.yaml` and `fair/dsm_indicators.yaml` — FAIR maturity indicators
-- `arc/` — ARC template specification and template files
 - `input/raw/` — Example zip folders (S-VHPS21.zip, S-VHPS22.zip, S-VHPS26.zip) containing search output with various file types and metadata across one or more assays
 
 ## Testing Decisions
+
+> **Status: superseded on mocking.** CONTRIBUTING.md §"Writing tests that actually test" is the live
+> authority: drive the real entry point over real input and avoid mocks except for a non-deterministic
+> seam (LLM/network), so the "mocked tools" prescription below no longer holds. The seam ranking does.
 
 ### Testing Philosophy
 Tests focus on external behavior, not implementation details. The key seam is the **agent engine orchestrator** (`engine.py`), tested with mocked tools. Individual tools are tested with real lookups (where feasible) or mocked APIs.
@@ -128,14 +137,14 @@ Tests focus on external behavior, not implementation details. The key seam is th
 5. **Session persistence** — Save and resume: does the engine restore correctly from a saved session?
 
 ### Prior Art
-No existing tests in the codebase — this is the first testing effort. `profiles/validator.py` has well-defined `ValidationResult` dataclass. Lookups follow a consistent `{found, data, error}` return shape making them mockable via a simple adapter.
+The repository now carries a large pytest suite under `tests/` (run with `uv run pytest`); CONTRIBUTING.md §Testing is the live authority on how tests are written here. `profiles/validator.py` has a well-defined `ValidationResult` dataclass.
 
 ## Out of Scope
 
 - **Web API / Frontend**: The builder is a Python library. FastAPI or Streamlit frontend is future work.
 - **Multi-user workflows**: Provenance model supports single-user only. Multi-persona collaboration is future work.
 - **MCP integration**: The toolbox architecture is MCP-ready but MCP server registration is future work.
-- **ARC workflow/run execution**: The builder produces an ARC directory as output (which *is* the RO-Crate), but executing the ARC `workflows/` and `runs/` (running the analysis tools themselves) is out of scope.
+- **Analysis execution**: The builder describes and packages analyses; running the analysis tools themselves (executing notebooks, scripts, or workflow engines over the input data) is out of scope.
 - **Custom profile loading**: Additional profiles beyond ISA-Tox are future work.
 - **Batch processing**: Each session is isolated. Parallel sessions straightforward but not implemented.
 - **Non-toxicology domains**: The MIT YAML and SHACL shapes are specific to *in vitro* toxicology.
