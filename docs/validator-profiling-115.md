@@ -1,5 +1,14 @@
 # Validator bottleneck profiling and decision (#115)
 
+> **Decision record for #115 (closed).** Measured 2026-06-26 on the machine described
+> below, revised 2026-08-11; the durable decision lives in [AGENTS.md](../AGENTS.md)
+> §"Validator". Read the tables as a dated measurement record, not as today's
+> wall-clock — the passes now run concurrently and the build gates memoize one sweep
+> per state, so the closing **Net** no longer holds. Two rules here are still live:
+> do **not** re-attempt shape-parse caching or owlrl tuning (Recommendation 1), and
+> do **not** fold the three validation passes (Recommendation 3) — that gate is
+> upstream and is **not** cleared, despite #110 being closed.
+
 Forward-looking investigation of the *remaining* three-pass SHACL validation cost,
 after the working-directory-walk fix already landed (the `_patch_in_memory_descriptor_id`
 note in [AGENTS.md](../AGENTS.md) §"Validator"). The earlier fix removed a ~57s
@@ -178,12 +187,27 @@ override resolution*, not just the parsed `.ttl`.
    loses result-equivalence and downgrades the base layer from RO-Crate 1.2 to the
    1.1 the bundled chain inherits. It is feasible *for routing* (issues do carry an
    originating profile id), so it becomes safe only if/when the bundled
-   `tox/isa → ro-crate` chain is rebased onto `ro-crate-1.2` (tracked in #110) and a
-   byte-identical issue-set test passes. Until then, keep the three passes.
-4. **File the upstream request** with `crs4/rocrate-validator`: a reusable, injectable
-   **composed** shapes-registry / pre-inferred ontology graph so the inheritance
-   composition + override resolution isn't recomputed per call. That is the only
-   path to an order-of-magnitude win at our layer.
+   `tox/isa → ro-crate` chain is rebased onto `ro-crate-1.2` and a byte-identical
+   issue-set test passes. That gate is upstream, not ours: the 1.1 lineage is
+   deliberate and pinned here (`profiles/shapes/tox/profile.ttl`,
+   `tests/test_profile_lineage.py`, #361) until the upstream `isa-ro-crate` profile
+   bumps its own. Until then, keep the three passes.
+4. **The upstream request is filed** with `crs4/rocrate-validator`
+   (crs4/rocrate-validator#184, open): a reusable, injectable **composed**
+   shapes-registry / pre-inferred ontology graph so the inheritance composition +
+   override resolution isn't recomputed per call. That is the only path to an
+   order-of-magnitude win at our layer.
+
+> **Superseded in part.** Two result-equivalent levers have since shipped at our
+> layer: the three profile passes run concurrently (`_validate_passes_parallel` in
+> `profiles/validator.py`; `VITRO_VALIDATE_SERIAL=1` forces the serial path) and the
+> build gates reuse one SHACL sweep per state (`_SWEEP_MEMO` in
+> `builder/tools/validation.py`) — see those docstrings for the measured wins. So
+> process *parallelism*, not the process reuse ruled out in §4, was the lever taken, and
+> "irreducible at our layer" no longer holds. The pass-fold gate is also named wrong
+> here: #110 is closed and only ever covered the descriptor flip; folding waits on the
+> upstream `isa-ro-crate` lineage bump (Recommendation 3). Recommendation 2's
+> severity-gating decision is still open and unmade.
 
 **Net:** no safe self-contained code lever was found that is provably
 result-equivalent, so no validator behaviour is changed in this PR. The residual

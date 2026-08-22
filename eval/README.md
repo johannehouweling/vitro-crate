@@ -6,9 +6,10 @@ defensible win for this system is *cost, latency, reproducibility, testability,
 predictability* — not blanket correctness — so we measure those directly instead of
 asserting them.
 
-The harness is **agent-agnostic**: it measures the current prose-prompt ReAct engine
-today and a future deterministic pipeline tomorrow, by swapping a single factory. The
-corpus, metrics, and report are unchanged across architectures, so two runs diff cleanly.
+The harness is **agent-agnostic**: it measures the prose-prompt ReAct engine and the
+deterministic pipeline — both shipped, the pipeline being the `--interactive` default
+— by swapping a single factory. The corpus, metrics, and report are unchanged across
+architectures, so two runs diff cleanly.
 
 > **Cost note.** A *live* harness run makes real LLM calls (your configured
 > DeepSeek-flash / OpenAI / Anthropic credentials) — that is its purpose. **CI and the
@@ -32,8 +33,8 @@ only the factory:
 
 | Architecture | Factory | Status |
 |--------------|---------|--------|
-| ReAct engine (as-built) | `eval.react_factory.make_react_agent_factory()` | implemented — **DEFAULT** |
-| Deterministic pipeline | `eval.pipeline_factory.make_pipeline_agent_factory()` (same shape) | implemented (opt-in, §14.5) |
+| ReAct engine (as-built) | `eval.react_factory.make_react_agent_factory()` | implemented — the harness's **`--arch` DEFAULT** |
+| Deterministic pipeline | `eval.pipeline_factory.make_pipeline_agent_factory()` (same shape) | implemented — the shipped **product** default (D15); opt-in here (§14.5) |
 | Offline tests | an in-memory mock returning canned `CrateState`s | tests only |
 
 `ReActBuildAgent` wraps the existing LangGraph ReAct loop: it creates a headless
@@ -79,6 +80,7 @@ data — all inputs are in-repo and offline:
 | `structured-svhps21` | `structured` | Scan the in-repo `tests/fixtures/svhps21_input` folder (README + raw/processed CSVs) and build from its structured metadata. |
 | `structured-svhps22` | `structured` | **Entity-drafting** case: scan a *richer* `tests/fixtures/svhps22_input` folder (README naming a compound + cell line + protocol, plus raw/processed CSVs) and draft the full ISA-Tox domain set. Carries a `min_entities` content quota (below). |
 | `unstructured-conversation` | `unstructured` | No metadata files — the whole crate is elicited from the prompt. |
+| `arbitrary-tox-folder` | `unstructured` | Realistic arbitrary research folder, **no metadata file**: a study description, a methods/protocol write-up, a compound list, and nested measurement + analysis CSVs. Exercises the full scan → extract → materialize → assess path for **both** arms. Carries a complete-study `min_entities` quota (below). |
 
 **Success predicate** (shared, strict): a case succeeds when its crate reaches
 `{base, isa, tox}` REQUIRED conformance via `build_and_validate`
@@ -90,15 +92,18 @@ the agent *acted* — an almost-empty backbone can pass it. A case may also decl
 records `meets_quota` + `entity_counts` (`meets_entity_quota`) so the A/B can
 compare whether the drafted *content* is actually there, not just that the agent
 acted. `min_entities` never changes the success predicate — cases without it report
-`meets_quota = None`. The `structured-svhps22` case uses it to demand a compound, a
-cell line, and both attached data files; `structured-svhps21` (conformance-only)
-is deliberately kept as the looser baseline.
+`meets_quota = None`. Two cases declare one: `structured-svhps22` demands a compound,
+a cell line, both attached data files and the AOP-Wiki pathway; `arbitrary-tox-folder`
+demands a complete study — the ISA backbone, a cell line, a compound, a protocol, the
+four-step `LabProcess` chain and both data files. `structured-svhps21`
+(conformance-only) is deliberately kept as the looser baseline.
 
 ## The metrics
 
 Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runner.py)):
 
-- **success** (bool) + the per-layer **conformance** map;
+- **success** (bool, repeat #1) beside `success_per_repeat`, `success_rate` and
+  `always_succeeds` across repeats (#405), + the per-layer **conformance** map;
 - **content quality** — `meets_quota` (bool / `None`) + `entity_counts`, recorded for
   cases that declare a `min_entities` quota (see above); `None` otherwise;
 - **the manuscript's evaluation axes** (#474, [`scorers.py`](scorers.py)) —
@@ -108,24 +113,13 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
   parameters, and `mit_propertyid_detail` names which bound so a zero is
   diagnosable (an exact-IRI join: where the crate and the MIT YAML curate
   different terms for one concept, the parameter honestly reads unbound).
-  `csvw_typing`: CSVW typing and referential integrity, **row-level** — half for
-  a CSVW-typed *and populated* condition table (a header-only table scores 0,
-  never a vacuous pass), half for its reference cells resolving in-crate, with
-  the #408 multivalued-`valueUrl` drop never penalised. `csvw_typing` is `None` —
+  `csvw_air`: the AI-readiness axis, **row-level** — half for a CSVW-typed
+  *and populated* condition table (a header-only table scores 0, never a
+  vacuous pass), half for its reference cells resolving in-crate, with the
+  #408 multivalued-`valueUrl` drop never penalised. `csvw_air` is `None` —
   "not assessed" — for an arm without a pipeline condition-table report
-  (ReAct). It was called `csvw_air` and presented as the AI-readiness axis; no
-  Bridge2AI criterion operates below file level, so it now feeds the real axis
-  as the evidence for criterion 2.c rather than standing in for it (#657).
-  Both are additive; neither touches `success`. Both surface per repeat
-  (`*_per_repeat`) and in `compare_reports`;
-- **AI-readiness** (#657, [`builder/tools/air_assessment.py`](../builder/tools/air_assessment.py))
-  — the published NIH Bridge2AI criteria, scored against the same assembled
-  `@graph`. Recorded as **two integers**, `air_met` and `air_assessed`, and the
-  seven per-dimension percentages in `air_detail["dimensions"]`. There is
-  deliberately no single `air` column: the instrument's authors refuse a
-  cross-dimension aggregate — *"we do not score it pass/fail overall"* — so one
-  would be our invention, which is what this axis exists to stop. `air_met /
-  air_assessed` is coverage, not a score;
+  (ReAct). Both are additive; neither touches `success`. Both surface per
+  repeat (`*_per_repeat`) and in `compare_reports`;
 - **tokens** — input / output / total, summed from the run's `profile.ndjson`
   (`node_end`/`model` events);
 - **latency** — wall-clock seconds for the build;
@@ -155,7 +149,11 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
   `datePublished`/`dateModified` stripped, nodes sorted by `@id`) compared across
   repeats; identical ⇒ deterministic. With `repeats == 1`, determinism is `None`.
 
-The aggregate `EvalReport.summary()` reports **success rate**, **mean/median tokens**,
+The aggregate `EvalReport.summary()` reports **`success_rate`** — the share of
+*attempted* (case × repeat) builds that reached conformance, **not** repeat #1's
+pass rate (#405) — beside **`num_success_all_repeats`** (every repeat conformed) and
+**`num_success_any_repeat`** (at least one did), whose gap is where a flaky case
+shows up, **mean/median tokens**,
 **mean/median latency**, the **determinism rate**, the **stop-reason breakdown**
 (`num_completed` / `num_cap_hit` / `num_error`), **`num_not_applicable`** and
 **`num_cases_compared`** (the denominator every rate above uses — cases the arm
@@ -194,19 +192,31 @@ git tag react-baseline      # tags the ReAct baseline commit (AGENTS.md §14.5)
 git push origin react-baseline
 ```
 
-### Deterministic pipeline run (offline — no credentials, no model)
+### Deterministic pipeline run
 
 ```bash
-# The spine calls no LLM, so this needs no provider configured.
 uv run --extra langchain python -m eval --arch pipeline --label pipeline
 # -> writes eval_reports/pipeline.ndjson
 ```
 
-Then diff it against the frozen baseline with `compare_reports`. On the shared corpus
-both arms reach full ISA-Tox conformance; the pipeline is expected to win the D15
-levers — **clean self-termination** (no recursion-cap stalls), **determinism rate
-1.0** (identical `@graph` hash across repeats), and **much lower cost, tokens, and
-latency** (its bounded drafter leaf makes far fewer model calls).
+With **no provider configured** every spine step is deterministic and the drafter
+leaf is a strict no-op, which is what lets this arm run in CI for real. That is a
+property of the unconfigured environment, not of the architecture: the spine does
+call a model — through its bounded leaves — whenever a provider is set.
+
+> **A real A/B needs credentials on BOTH arches.** Diffing a credentialed ReAct
+> baseline against a no-provider pipeline run silently no-ops the drafter leaf, so
+> an undrafted crate scores as a free win — a false-negative comparison (#179).
+
+Then diff it against the frozen baseline with `compare_reports`. The D15 levers the
+A/B exists to settle are **clean self-termination** (no recursion-cap stalls),
+**determinism rate 1.0** (identical `@graph` hash across repeats — the property the
+deterministic path asserts), and **cost, tokens, and latency** (the spine reaches
+the model only through its bounded leaves — gated calls it skips when they cannot
+change state — where a ReAct turn loop spends a model call every turn until it stops
+itself or hits the cap). Do not restate the published figures as settled: every one
+of them predates the harness fixes in #609 and must be re-measured before it is
+quoted again.
 
 `--arch react|pipeline` (DEFAULT `react`) selects the factory; ReAct stays the default
 so the existing baseline workflow is unchanged. Other options: `--repeats N` (builds per

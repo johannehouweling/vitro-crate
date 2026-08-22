@@ -10,18 +10,23 @@ Profiling is **always active** — every agent session automatically writes a
 `profile.ndjson` file. The verbosity of console logging is controlled by
 the `-v` / `-vv` flags:
 
-- **Default (no flag):** INFO and above — normal progress messages, no per-file timing.
+- **Default (no flag):** WARNING and above — quiet, no per-file timing. Under
+  `--interactive` with no `-v`/`-vv` this is raised to INFO automatically so that
+  pipeline progress is visible; an explicitly requested verbosity is never downgraded.
 - **`-v`:** INFO level — ensures you see summary timing (e.g. "Scan complete: 150 files in 2.34s").
-- **`-vv`:** DEBUG level — per-file scan timing, read timing, and all profiler events
-  are also shown in the console. Recommended for troubleshooting slow operations.
+- **`-vv`:** DEBUG level — per-file scan timing, read timing, and scan progress every
+  100 files. Recommended for troubleshooting slow operations. Profiler events are never
+  mirrored to the console at any verbosity: read them from `profile.ndjson` itself, or
+  with `--dashboard`.
 
 ### Interactive vs Batch Mode
 
 - **Interactive mode** (`--interactive`): The Rich spinner shows the current tool name.
   With `-vv`, the spinner updates more frequently because tool-internal DEBUG messages
   appear. Profile data accumulates normally in `profile.ndjson`.
-- **Batch mode** (no `--interactive`): Profiling data is written to `profile.ndjson`
-  normally. Console output is quiet — use `-v` or `-vv` to see progress.
+- **Batch mode** (no `--interactive`): No agent runs — the input is scanned, a summary
+  is printed and the command exits, so `profile.ndjson` is created but stays empty.
+  Console output is quiet — use `-v` or `-vv` to see progress.
 
 ## Event Schema
 
@@ -36,11 +41,17 @@ Every line in `profile.ndjson` is a JSON object with **required fields**:
 
 | Event | Optional fields | When emitted |
 |-------|----------------|--------------|
-| `tool_call` | `tool`, `duration_ms`, `iteration`, `args` | After each tool execution completes |
+| `tool_call` | `tool`, `duration_ms`, `iteration`, `args`, `result` | After each tool execution completes. `result` is the stringified return value, truncated to 500 characters. |
 | `node_start` | `node`, `iteration` | When a graph node begins execution |
 | `node_end` | `node`, `duration_ms`, `iteration`, `messages_in`, `messages_out`, `produced_tool_calls`, `tools`, `input_tokens`, `output_tokens`, `model_name`, `response_text` | When a graph node finishes execution. For `"node": "model"` events, `input_tokens`, `output_tokens`, `model_name`, and `response_text` are populated from the LLM response (when available). `response_text` is truncated to ~2000 characters. |
-| `scan_progress` | `processed`, `total`, `duration_ms` | Every 100 files during scanning (DEBUG level only) |
+| `tool_start` | `tool`, `iteration`, `args` | *Before* a tool begins executing, so a long call is visible while it runs; the matching `tool_call` follows on return. |
+| `tool_failed` | `tool`, `iteration`, `args`, `error` | When a tool raises. A raising tool writes no `tool_call`, so this is its only record. `error` is truncated to 300 characters. |
+| `tool_suppressed` | `tool`, `iteration`, `args`, `reason` | When a ReAct guard refuses a tool call before dispatch. No `tool_start` or `tool_call` follows, so without this the model bouncing off a guard is indistinguishable from idle time. |
 | `hitl_wait` | `tool` | Emitted *before* the agent blocks on a human-in-the-loop tool (`present_to_human` / `request_input`). The matching `tool_call` event for the same `tool` is written only after the human responds, so a trailing `hitl_wait` with no following `tool_call` marks an open ⏸ pause. The dashboard uses this for its ▶/⏸ status badge (issue #193). |
+
+`duration_ms` is stored **unrounded** so that sub-millisecond tool and node timings
+survive — rounding at write time collapsed fast calls to `0.0`. Consumers round at
+display or analysis time.
 
 ### Example Lines
 
@@ -57,8 +68,9 @@ Every line in `profile.ndjson` is a JSON object with **required fields**:
  "messages_in": 5, "messages_out": 1, "produced_tool_calls": true,
  "input_tokens": 350, "output_tokens": 240, "model_name": "gpt-4o"}
 
-{"event": "scan_progress", "processed": 100, "total": 350,
- "duration_ms": 1234.5, "timestamp": "2026-06-21T12:30:45"}
+{"event": "tool_failed", "tool": "lookup_compound", "iteration": 4,
+ "timestamp": "2026-06-21T12:30:48",
+ "args": "{'name': 'unobtainium'}", "error": "TimeoutError: read timed out"}
 ```
 
 ## Analysing Profile Logs
@@ -83,8 +95,11 @@ jq -r 'select(.event == "node_end") | [.node, .duration_ms, .iteration] | @tsv' 
 ### Using Python / pandas
 
 ```python
+# pandas is not a project dependency — run this with `uv run --with pandas python`
 import json
 from pathlib import Path
+
+import pandas as pd
 
 records = []
 for line in Path("sessions/test-session/profile.ndjson").read_text().splitlines():

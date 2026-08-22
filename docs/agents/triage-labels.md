@@ -10,6 +10,12 @@
 | Ready for human | `ready-for-human` | Requires human implementation |
 | Won't fix | `wontfix` | Will not be actioned |
 
+Of these, only `ready-for-agent` and `wontfix` exist on the tracker, and only `ready-for-agent` is in use; `needs-triage`, `needs-info` and `ready-for-human` have never been created. Do not apply a label from this table without checking `gh label list` first.
+
 ## Custom overrides
 
-None — defaults are used as-is.
+Three project labels exist alongside the GitHub defaults:
+
+- `blocked-upstream` — the issue is gated on a fix in an external project (`crs4/rocrate-validator`). Do not pick one up as agent work.
+- `security` — security vulnerability or hardening.
+- `performance` — performance work.
