@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import builder.config as _config
+from builder.state import conformance_by_layer
 
 logger = logging.getLogger(__name__)
 
@@ -372,9 +373,15 @@ def _build_cratestate_panel(
 
     # Validation status
     val = state.get("validation", {})
-    base_ok = val.get("base_passed", False)
-    isa_ok = val.get("isa_passed", False)
-    tox_ok = val.get("tox_passed", False)
+    # Cumulative, not the raw per-pass flags: each flag reports only what its
+    # own layer adds, so reading them raw painted "✓ Base ✗ ISA ✓ Tox" — which
+    # cannot happen for a stack where ISA-Tox is adopted on top of ISA.
+    conforms = conformance_by_layer(
+        base=val.get("base_passed", False),
+        isa=val.get("isa_passed", False),
+        tox=val.get("tox_passed", False),
+    )
+    base_ok, isa_ok, tox_ok = conforms["base"], conforms["isa"], conforms["tox"]
     required_count = len(val.get("required_issues", []))
     val_parts = [
         f"{'✓' if base_ok else '✗'} Base",

@@ -1992,6 +1992,33 @@ a green zero; REQUIRED/RECOMMENDED issue text is still surfaced as `Must fix` / 
 suggestions. Rendering this from `state.validation` alone (no new validation machinery) keeps the
 pure/cheap contract.
 
+**Conformance is cumulative, because the profile is a stack.** The packaging (RO-Crate) and
+structural (ISA) layers are adopted as published and the domain layer refines them, so
+interoperability is inherited rather than rebuilt and a conforming crate is *simultaneously* a valid
+RO-Crate and an ISA-structured object. The matrix therefore reports each row over `_LAYER_CHAIN` —
+its own checks **and** every layer it extends. Grading each layer in isolation showed the
+contradiction that motivated this: a real crate reported ISA failing REQUIRED on 11 findings while
+ISA-Tox, judged on its own 35 checks and blind to the 140 it inherits, passed clean. Nothing may now
+pass a tier a layer beneath it fails, and a cell whose findings are not its own says so — *"11
+findings at this level, 11 inherited"* — so a reader knows which layer to fix.
+
+The rule lives in `state.conformance_by_layer` / `PROFILE_LAYER_CHAIN`, and **every** surface that
+paints conformance composes through it rather than reading the three per-pass flags raw: the
+matrix, the `prof-card` REQUIRED cards, the TUI status dots (`● base ○ ISA ● Tox` said the crate
+failed ISA and passed ISA-Tox), the TUI summary and conformance lines, `dashboard`'s
+`✓ Base ✗ ISA ✓ Tox`, and `session`'s `validation_status`. Each raw flag reports only what its own
+layer ADDS, which is a fact about the pass and not about the crate; six places restated it and all
+six drew the same impossible picture.
+
+This is also what makes the OPTIONAL column answerable. ISA and our tox profile declare no `sh:Info`
+shape of their own, so in isolation that column was a permanent dash reading as *"this level does
+not apply"* — false for a profile whose conformance includes RO-Crate's twelve MAY checks. It is
+composed from the per-layer verdicts rather than by enabling the validator's own inherited
+reporting: ISA is 1.1-lineage while the base pass runs 1.2, so inherited reporting mixes two
+versions of one spec (measured: 25 findings under `isa` overlapping the base pass's 17 in only 6 —
+neither superset nor partition). Upstream tracks the version bump as crs4/rocrate-validator#194;
+composing needs no re-validation and cannot mix spec versions.
+
 **A verdict states the ground it stands on (#530).** "Is every declared Data Entity part of the
 payload?" is REQUIRED by the base profile and answerable only where the payload exists — the
 in-memory gate validates a document, so that check emits *nothing* there, and its silence must never

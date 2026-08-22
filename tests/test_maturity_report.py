@@ -641,23 +641,136 @@ class TestProfileConformanceMatrix:
         for profile in ("base", "isa", "tox"):
             assert cells[f"{profile}-optional"][0] == "na"
 
-    def test_a_tier_the_profile_defines_no_checks_at_is_neutral_not_green(self) -> None:
-        """ISA and ISA-Tox declare no MAY (``sh:Info``) shape at all, so their
-        OPTIONAL column can only ever come back empty. Reading that emptiness as
-        "no findings at this level" reports the profile's own silence as the
-        crate's clean bill of health (#620): the cell says "no checks defined"
-        instead, and only the base profile — which does define MAY checks — can
-        earn a green there."""
+    def test_a_tier_nothing_in_the_stack_checks_is_neutral_not_green(
+        self, monkeypatch
+    ) -> None:
+        """#620's guarantee, restated for a cumulative matrix.
+
+        It used to be reachable through ISA's OPTIONAL column, because ISA
+        declares no ``sh:Info`` shape of its own. Now that a row reports what it
+        inherits, that column is answered by the base profile's twelve, and the
+        state is only reached when NOTHING in the stack checks a tier — an
+        unreadable profile registry, or a tier every layer drops. Empty is still
+        never a green: a profile's silence is not the crate's cleanliness.
+        """
+        import builder.writers.maturity_report as report
+
+        monkeypatch.setattr(
+            report, "_tier_capability", lambda: {k: frozenset() for k, _ in report._PROFILE_LAYERS}
+        )
         val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
         val.assessed_tiers = {"required", "recommended", "optional"}
+
         cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+
+        for profile in ("base", "isa", "tox"):
+            assert cells[f"{profile}-optional"] == ("na", "no checks defined at this level")
+
+    def test_a_layer_cannot_pass_where_the_layer_it_extends_fails(self) -> None:
+        """Conformance is cumulative, and the matrix has to say so.
+
+        The profile is a three-layer stack in which each layer is adopted on top
+        of the one below — "interoperability is inherited rather than rebuilt",
+        so a conforming crate "is simultaneously a valid RO-Crate and an
+        ISA-structured object". A real report showed ISA failing REQUIRED while
+        ISA-Tox passed it, which under that architecture cannot happen: ISA-Tox
+        was graded on its own 35 checks while ignoring the 140 it inherits.
+        """
+        val = ValidationReport(base_passed=True, isa_passed=False, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        val.issue_records = [
+            {"profile": "isa", "severity": "required", "entity_id": "#a", "message": "m"},
+        ]
+
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+
+        assert cells["isa-required"][0] == "no"
+        assert cells["tox-required"][0] == "no", cells["tox-required"]
+
+    def test_an_inherited_finding_shows_in_the_layers_above_it(self) -> None:
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        val.issue_records = [
+            {"profile": "base", "severity": "recommended", "entity_id": "#a", "message": "m"},
+        ]
+
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+
+        assert cells["base-recommended"][0] == "no"
+        assert cells["isa-recommended"][0] == "no", cells["isa-recommended"]
+        assert cells["tox-recommended"][0] == "no", cells["tox-recommended"]
+
+    def test_the_optional_level_is_inherited_rather_than_absent(self) -> None:
+        """ISA and ISA-Tox declare no MAY shape of their own, but they extend a
+        profile that does — so their OPTIONAL cell reports what they inherit,
+        not a dash. A dash there reads as "this level does not apply", which is
+        false for a profile whose conformance includes RO-Crate's."""
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+
         assert cells["base-optional"] == ("ok", "no findings at this level")
-        assert cells["isa-optional"] == ("na", "no checks defined at this level")
-        assert cells["tox-optional"] == ("na", "no checks defined at this level")
-        # A tier all three DO define checks at is untouched: a clean sweep there
-        # is a real result, and still reads as one.
-        assert cells["isa-recommended"] == ("ok", "no findings at this level")
-        assert cells["tox-required"] == ("ok", "no findings at this level")
+        assert cells["isa-optional"][0] == "ok", cells["isa-optional"]
+        assert cells["tox-optional"][0] == "ok", cells["tox-optional"]
+
+    def test_an_inherited_optional_finding_fails_the_rows_that_inherit_it(self) -> None:
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        val.issue_records = [
+            {"profile": "base", "severity": "optional", "entity_id": "#a", "message": "m"},
+        ]
+
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+
+        assert cells["isa-optional"][0] == "no", cells["isa-optional"]
+        assert cells["tox-optional"][0] == "no", cells["tox-optional"]
+
+    def test_the_title_says_when_the_findings_were_inherited(self) -> None:
+        """A reader fixing ISA-Tox needs to know the failure is not ISA-Tox's."""
+        val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        val.issue_records = [
+            {"profile": "isa", "severity": "recommended", "entity_id": "#a", "message": "m"},
+        ]
+
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+
+        assert "inherited" in cells["tox-recommended"][1], cells["tox-recommended"]
+        assert "inherited" not in cells["isa-recommended"][1], cells["isa-recommended"]
+
+    def test_the_base_row_still_reports_only_itself(self) -> None:
+        """It is the bottom of the stack: there is nothing beneath it to inherit."""
+        val = ValidationReport(base_passed=True, isa_passed=False, tox_passed=False)
+        val.assessed_tiers = {"required", "recommended", "optional"}
+        val.issue_records = [
+            {"profile": "isa", "severity": "required", "entity_id": "#a", "message": "m"},
+            {"profile": "tox", "severity": "required", "entity_id": "#b", "message": "m"},
+        ]
+
+        cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
+
+        assert cells["base-required"] == ("ok", "no findings at this level")
+
+    def test_the_profile_cards_agree_with_the_matrix(self) -> None:
+        """The REQUIRED cards are the same claim in a second place, so they
+        inherit the same way. A card reading "ISA-Tox met" beside a matrix cell
+        reading "ISA-Tox not met" would be the report contradicting itself."""
+        import re as _re
+
+        val = ValidationReport(base_passed=True, isa_passed=False, tox_passed=True)
+        val.assessed_tiers = {"required"}
+
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val)
+        cards = _re.findall(
+            r'<div class="prof-card"><span class="mk (\w+)"[^>]*>[^<]*</span><span>([^<]+)</span>',
+            page,
+        )
+        by_name = {name: mark for mark, name in cards}
+
+        assert by_name, page[:400]
+        assert by_name["ISA"] == "no"
+        assert by_name["ISA-Tox"] == "no", by_name
 
     def test_a_finding_outranks_the_no_checks_state(self) -> None:
         """A finding filed at a tier the profile defines no checks at — a
@@ -687,7 +800,11 @@ class TestProfileConformanceMatrix:
         val.assessed_tiers = {"required"}
         cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
         assert cells["base-required"] == ("no", "profile gate failed")
-        assert cells["isa-required"][0] == "ok"
+        # And it carries: ISA and ISA-Tox are adopted on top of RO-Crate, so
+        # neither can be conformant at a tier RO-Crate failed. The cell says the
+        # failure is not its own.
+        assert cells["isa-required"] == ("no", "a profile it extends did not pass")
+        assert cells["tox-required"] == ("no", "a profile it extends did not pass")
 
     def test_a_pre_records_verdict_still_counts_by_profile(self) -> None:
         """A checkpoint written before ``issue_records`` existed carries only
@@ -698,9 +815,9 @@ class TestProfileConformanceMatrix:
         val.should_issues = ["[isa] #a: SHOULD have x", "[isa] #b: SHOULD have y",
                              "[base] ./: SHOULD have z"]
         cells = self._cells(build_maturity_html(vhps_fixture_state("S-VHPS21"), validation=val))
-        assert cells["isa-recommended"] == ("no", "2 findings at this level")
         assert cells["base-recommended"] == ("no", "1 finding at this level")
-        assert cells["tox-recommended"] == ("ok", "no findings at this level")
+        assert cells["isa-recommended"] == ("no", "3 findings at this level, 1 inherited")
+        assert cells["tox-recommended"] == ("no", "3 findings at this level, 3 inherited")
 
     def test_findings_with_no_profile_get_their_own_row(self) -> None:
         val = ValidationReport(base_passed=True, isa_passed=True, tox_passed=True)

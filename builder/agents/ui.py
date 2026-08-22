@@ -42,6 +42,11 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+# A pure helper over three booleans, not a coupling to the engine: the renderers
+# stay unit-testable, and the one rule for what "conforms" means lives in one
+# place rather than being restated at every surface that paints it.
+from builder.state import conformance_by_layer
+
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
 
@@ -558,13 +563,18 @@ def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None =
             )
         )
 
+    # Cumulative, never the raw per-pass flags: a layer cannot pass where the
+    # layer it extends fails, and `● base ○ ISA ● Tox` said exactly that.
+    conforms = conformance_by_layer(
+        base=snap.base_passed, isa=snap.isa_passed, tox=snap.tox_passed
+    )
     return (
         f"{field('session', snap.session_id)}  {_SEP}  "
         f"{field('entities', f'{snap.entity_count} entities')}  {_SEP}  "
         f"{field(*_work_field(snap))}  {_SEP}  "
-        f"{_dot(snap.base_passed)} {field('base', 'base')}  "
-        f"{_dot(snap.isa_passed)} {field('isa', 'ISA')}  "
-        f"{_dot(snap.tox_passed)} {field('tox', 'Tox')}"
+        f"{_dot(conforms['base'])} {field('base', 'base')}  "
+        f"{_dot(conforms['isa'])} {field('isa', 'ISA')}  "
+        f"{_dot(conforms['tox'])} {field('tox', 'Tox')}"
         f"{token_str}"
     )
 
@@ -742,10 +752,13 @@ def render_resume_summary(snap: UiSnapshot, *, resumed: bool) -> RenderableType:
         mit_text, mit_color = format_mit_coverage(snap.mit_score, assessed=True)
         summary.add_row("MIT score:", f"[{mit_color}]{mit_text}[/{mit_color}]")
 
+    conforms = conformance_by_layer(
+        base=snap.base_passed, isa=snap.isa_passed, tox=snap.tox_passed
+    )
     val_status = [
-        "[green]base[/green]" if snap.base_passed else "[red]base[/red]",
-        "[green]ISA[/green]" if snap.isa_passed else "[red]ISA[/red]",
-        "[green]ISA-Tox[/green]" if snap.tox_passed else "[red]ISA-Tox[/red]",
+        f"[{'green' if conforms[layer] else 'red'}]{label}"
+        f"[/{'green' if conforms[layer] else 'red'}]"
+        for layer, label in (("base", "base"), ("isa", "ISA"), ("tox", "ISA-Tox"))
     ]
     summary.add_row("Validation:", "  ".join(val_status))
 
@@ -803,13 +816,13 @@ def render_goodbye(
 
         # Only report a tier that actually ran: "0 recommended issues" would
         # otherwise claim a clean bill of health for checks nobody performed.
+        composed = conformance_by_layer(
+            base=snap.base_passed, isa=snap.isa_passed, tox=snap.tox_passed
+        )
         conformance = "  ".join(
-            f"[{'green' if ok else 'red'}]{label}[/{'green' if ok else 'red'}]"
-            for label, ok in (
-                ("base", snap.base_passed),
-                ("ISA", snap.isa_passed),
-                ("Tox", snap.tox_passed),
-            )
+            f"[{'green' if composed[layer] else 'red'}]{label}"
+            f"[/{'green' if composed[layer] else 'red'}]"
+            for layer, label in (("base", "base"), ("isa", "ISA"), ("tox", "Tox"))
         )
         open_counts: list[str] = [
             f"[red]{snap.required_issue_count} required[/red]"

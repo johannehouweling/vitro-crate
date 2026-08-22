@@ -199,3 +199,38 @@ class TestFader:
         )
         assert "issues" in before
         assert before["issues"] != after["issues"]
+
+
+class TestTheDotsCannotContradictThemselves:
+    """`● base  ○ ISA  ● Tox` says the crate fails ISA and passes ISA-Tox.
+
+    It cannot. The profile is a stack — ISA-Tox is adopted on top of ISA, which
+    is adopted on top of RO-Crate — so conformance is cumulative and a layer
+    cannot pass where the layer it extends fails. The footer read the three
+    per-pass flags raw, each of which reports only what its own layer adds.
+    """
+
+    def test_a_layer_cannot_pass_where_the_one_it_extends_fails(self) -> None:
+        markup = render_status_markup(_snap(base_passed=True, isa_passed=False, tox_passed=True))
+
+        dots = re.findall(r"\[(green|grey50)\]([●○])\[/\1\]", markup)
+        assert len(dots) == 3, markup
+        assert [d[1] for d in dots] == ["●", "○", "○"], markup
+
+    def test_a_whole_stack_that_passes_is_untouched(self) -> None:
+        markup = render_status_markup(_snap(base_passed=True, isa_passed=True, tox_passed=True))
+
+        assert [d[1] for d in re.findall(r"\[(green|grey50)\]([●○])\[/\1\]", markup)] == [
+            "●",
+            "●",
+            "●",
+        ], markup
+
+    def test_a_failing_base_takes_every_layer_with_it(self) -> None:
+        markup = render_status_markup(_snap(base_passed=False, isa_passed=True, tox_passed=True))
+
+        assert [d[1] for d in re.findall(r"\[(green|grey50)\]([●○])\[/\1\]", markup)] == [
+            "○",
+            "○",
+            "○",
+        ], markup
