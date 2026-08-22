@@ -482,6 +482,73 @@ class TestExposureOutputIsConditionTable:
         assert report["ok"] is True, report
 
 
+class TestTheAssayListsTheProtocolFilesItExecutes:
+    """#650 / #532 — a protocol File the assay's processes execute is the
+    assay's part too, and nesting it must not un-parent it from the root.
+
+    Result Files have been dual-parented under their Assay since #532: nested
+    under the ISA container AND kept in the root's ``hasPart``, because the
+    RO-Crate file tree is walked through directory Datasets and an Assay is a
+    contextual node, so a file parented only there is unreachable.
+
+    #650 moved the generated condition table off the Exposure's ``result`` and
+    onto its ``executesLabProtocol`` — the per-well layout is what the run
+    follows, not what it emits. That took the table out of the result-nesting
+    pass's reach, and on a deposit whose only assay-scoped File is that table
+    the Assay's ``hasPart`` emptied: the ISA nesting vanished with no profile
+    complaining, exactly the #532 failure mode. A protocol a process follows is
+    assay data in the same sense its output is, so it is nested the same way.
+    """
+
+    @staticmethod
+    def _built() -> tuple[list[dict], dict]:
+        state, _ = TestExposureOutputIsConditionTable()._exposure_chain_state()
+        graph = TestExposureOutputIsConditionTable._built_graph(state)
+        return graph, {n.get("@id"): n for n in graph}
+
+    def test_the_executed_protocol_is_nested_under_its_assay(self) -> None:
+        graph, by_id = self._built()
+        assay = next(
+            n for n in graph if n.get("additionalType") == "Assay"
+        )
+        executed = {
+            i
+            for n in graph
+            if "LabProcess" in _types(n)
+            for i in _node_ref_ids(n.get("executesLabProtocol"))
+        }
+        protocol_files = {
+            i for i in executed if i in by_id and "File" in _types(by_id[i])
+        }
+        assert protocol_files, (
+            "no process executes a protocol that is a File — the fixture no "
+            "longer exercises the nesting this pins"
+        )
+        nested = _node_ref_ids(assay.get("hasPart"))
+        assert protocol_files <= nested, (
+            "every protocol File the assay's processes execute must be under "
+            f"the Assay's hasPart; missing={protocol_files - nested}, "
+            f"assay hasPart={nested}"
+        )
+
+    def test_nesting_does_not_unparent_the_protocol_from_the_root(self) -> None:
+        graph, by_id = self._built()
+        assay = next(n for n in graph if n.get("additionalType") == "Assay")
+        root = next(n for n in graph if n.get("@id") == "./")
+        nested_files = {
+            i
+            for i in _node_ref_ids(assay.get("hasPart"))
+            if i in by_id and "File" in _types(by_id[i])
+        }
+        assert nested_files, "the Assay nests no File — nothing to check"
+        root_parts = _node_ref_ids(root.get("hasPart"))
+        assert nested_files <= root_parts, (
+            "a File nested under the Assay must stay in the root's hasPart or "
+            "a plain ro-crate-py consumer cannot reach it (#532); "
+            f"unreachable={nested_files - root_parts}"
+        )
+
+
 class TestNoPydanticShadowWarning:
     """The optional validation flag must not be named ``validate`` — that
     shadows ``pydantic.BaseModel.validate`` and makes pydantic emit a

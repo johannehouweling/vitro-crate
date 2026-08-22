@@ -1869,6 +1869,26 @@ def _result_file_nodes(process_node: Any) -> list[Any]:
     return out
 
 
+def _protocol_file_nodes(process_node: Any) -> list[Any]:
+    """The File node(s) a built LabProcess executes as its protocol.
+
+    The sibling of :func:`_result_file_nodes`. A LabProtocol in this crate is
+    never a stub — the entity IS the document (D17) — so a protocol that is not
+    a File is a reference to something outside the payload and is not nested.
+    """
+    out: list[Any] = []
+    seen: set[Any] = set()
+    value = process_node.get("executesLabProtocol")
+    if value is None:
+        return out
+    for item in value if isinstance(value, list) else [value]:
+        cid = getattr(item, "id", None)
+        if cid is not None and _is_file_node(item) and cid not in seen:
+            seen.add(cid)
+            out.append(item)
+    return out
+
+
 def _attach_explicit_parts(node: Any, entity: Entity, idx: dict[str, Any], root: Any) -> None:
     """Move a Study/Assay entity's explicit ``hasPart`` File members under its node.
 
@@ -2929,6 +2949,17 @@ def _add_processes(
             # through directory Datasets, and an Assay is a contextual node.
             for file_node in _result_file_nodes(node):
                 _append_unique(assay, "hasPart", file_node)
+            # ...and so is the protocol it followed. A protocol entity IS its
+            # file (D17), so the same #532 reachability rule applies: nest it
+            # under the Assay, keep the root's reference. Skipped for a
+            # study-level protocol — one shared across assays is already hung
+            # off the Study, and re-parenting it per assay is the duplication
+            # that made it study-level in the first place.
+            study_parts = set(_child_ids(_study_of(state, idx, f.get("assay_id"))))
+            for protocol_node in _protocol_file_nodes(node):
+                if getattr(protocol_node, "id", None) in study_parts:
+                    continue
+                _append_unique(assay, "hasPart", protocol_node)
 
     _chain_processes(built)
 
