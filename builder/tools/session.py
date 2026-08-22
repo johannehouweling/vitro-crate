@@ -13,7 +13,7 @@ import os
 import tempfile
 
 import builder.config as _config
-from builder.state import CrateState
+from builder.state import CrateState, conformance_by_layer
 
 logger = logging.getLogger(__name__)
 
@@ -149,11 +149,12 @@ def get_status(state: CrateState) -> dict:
         "entity_counts": entity_counts,
         "total_entities": total_entities,
         "mit_score": state.mit_assessment.overall_score,
-        "validation_status": {
-            "base": state.validation.base_passed,
-            "isa": state.validation.isa_passed,
-            "tox": state.validation.tox_passed,
-        },
+        # Cumulative: a layer cannot conform where the layer it extends does not.
+        "validation_status": conformance_by_layer(
+            base=state.validation.base_passed,
+            isa=state.validation.isa_passed,
+            tox=state.validation.tox_passed,
+        ),
         "iteration_count": state.iteration_count,
         "stuck": state.stuck,
         "last_action": last_action,

@@ -660,6 +660,36 @@ class CrateMetadata:
         )
 
 
+# Each profile layer, and every layer it is adopted on top of. The profile is a
+# stack: the packaging (RO-Crate) and structural (ISA) layers are adopted as
+# published and the domain layer refines them, so interoperability is inherited
+# rather than rebuilt and a conforming crate is simultaneously a valid RO-Crate
+# and an ISA-structured object. Conformance is therefore CUMULATIVE, and every
+# surface that reports it — the maturity report's matrix and REQUIRED cards, the
+# TUI's status dots — composes through here rather than reading the three
+# per-pass flags raw. Each flag reports only what its own layer ADDS, so reading
+# them raw let a crate show ISA failing while ISA-Tox passed.
+PROFILE_LAYER_CHAIN: dict[str, tuple[str, ...]] = {
+    "base": ("base",),
+    "isa": ("base", "isa"),
+    "tox": ("base", "isa", "tox"),
+}
+
+
+def conformance_by_layer(*, base: bool, isa: bool, tox: bool) -> dict[str, bool]:
+    """Each layer's conformance, INCLUDING every layer it is adopted on top of.
+
+    The arguments are the raw per-pass verdicts — what each layer's own checks
+    said. The result is what "this crate conforms to X" actually means, and it
+    is monotone by construction: nothing passes where a layer beneath it fails.
+    """
+    own = {"base": base, "isa": isa, "tox": tox}
+    return {
+        layer: all(own[beneath] for beneath in chain)
+        for layer, chain in PROFILE_LAYER_CHAIN.items()
+    }
+
+
 @dataclass
 class ValidationReport:
     """Results from the three-pass SHACL validation.

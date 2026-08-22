@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from builder.state import (
+    PROFILE_LAYER_CHAIN,
     AIRReport,
     CrateState,
     FAIRReport,
@@ -704,9 +705,17 @@ def _profile_matrix_tile(
     mark with the finding count on its ``title``. An unassessed tier — and every
     cell of a stale or never-run verdict — is the neutral mark, never a green.
 
-    So is a tier the profile defines no check at (:func:`_tier_capability`): a
-    green there would report the profile's silence as the crate's cleanliness.
-    Only a tier that could have failed is allowed to pass."""
+    So is a tier NOTHING in the stack defines a check at
+    (:func:`_tier_capability`): a green there would report the profiles' silence
+    as the crate's cleanliness. Only a tier that could have failed may pass.
+
+    Each row is cumulative over :data:`~builder.state.PROFILE_LAYER_CHAIN` — its
+    own checks and every layer it extends — because that is what conformance to
+    a layered profile means. It is also what makes the OPTIONAL column answerable at all: ISA and
+    ISA-Tox declare no ``sh:Info`` shape of their own, but they extend a profile
+    that declares twelve, and a crate conforming to ISA-Tox conforms to those
+    too. Reporting each layer in isolation left that column a permanent dash,
+    which reads as "this level does not apply" rather than "inherited"."""
     heads = "".join(f'<span class="pmx-h">{t.capitalize()}</span>' for t in _TIER_KEYS)
     rows = ""
     counts = _profile_tier_counts(val if tiers is not None else None)
@@ -717,30 +726,39 @@ def _profile_matrix_tile(
         "tox": val.tox_passed if val else False,
     }
     for key, label in _PROFILE_LAYERS:
+        chain = PROFILE_LAYER_CHAIN[key]
         cells = ""
         for tier in _TIER_KEYS:
-            n = counts.get(key, {}).get(tier, 0)
+            own = counts.get(key, {}).get(tier, 0)
+            n = sum(counts.get(layer, {}).get(tier, 0) for layer in chain)
+            inherited = n - own
+            tail = f", {inherited} inherited" if inherited else ""
             if tiers is None:
                 state, title = "na", "not yet validated"
             elif stale:
                 state, title = "na", "recorded before the crate&rsquo;s latest changes"
             elif tier not in assessed:
                 state, title = "na", "not assessed at this level"
-            elif tier == "required" and not passed[key]:
+            elif tier == "required" and not all(passed[layer] for layer in chain):
                 state = "no"
                 title = (
-                    f"{n} finding{'s' if n != 1 else ''} at this level"
+                    f"{n} finding{'s' if n != 1 else ''} at this level{tail}"
                     if n
-                    else "profile gate failed"
+                    else (
+                        "profile gate failed"
+                        if not passed[key]
+                        else "a profile it extends did not pass"
+                    )
                 )
             elif n:
-                state, title = "no", f"{n} finding{'s' if n != 1 else ''} at this level"
-            elif tier not in _tier_capability().get(key, frozenset()):
-                # The profile has no rule at this level, so an empty result here
-                # is the profile's silence, not the crate's cleanliness (#620).
-                # Ranked below the count: a finding filed at such a tier — by a
-                # local checker, or by a checkpoint from a profile version that
-                # did have rules here — is still a finding, and still shows.
+                state = "no"
+                title = f"{n} finding{'s' if n != 1 else ''} at this level{tail}"
+            elif not any(tier in _tier_capability().get(layer, frozenset()) for layer in chain):
+                # Nothing in the stack has a rule at this level, so an empty
+                # result is the profiles' silence rather than the crate's
+                # cleanliness (#620). Ranked below the count: a finding filed at
+                # such a tier — by a local checker, or by a checkpoint from a
+                # profile version that did have rules here — is still a finding.
                 state, title = "none", "no checks defined at this level"
             else:
                 state, title = "ok", "no findings at this level"
@@ -1069,6 +1087,7 @@ _PROFILE_LAYERS: tuple[tuple[str, str], ...] = (
     ("tox", "ISA-Tox"),
 )
 
+
 # How many findings of each tier the suggestion list shows before it summarises
 # the rest. REQUIRED is uncapped: those block conformance, so every one is named.
 # With grouped rendering (#510) the advisory caps apply per profile group — the
@@ -1333,10 +1352,15 @@ def _render_profile_section(
             "</section>\n"
         )
 
+    # Cumulative, on the same terms as the matrix (`PROFILE_LAYER_CHAIN`): these
+    # cards are the same conformance claim in a second place, and a card reading
+    # "ISA-Tox met" beside a cell reading "ISA-Tox not met" is the report
+    # contradicting itself.
     passed_by_layer = {"base": val.base_passed, "isa": val.isa_passed, "tox": val.tox_passed}
     cards = "".join(
-        f'<div class="prof-card">{_mk(_kind(passed_by_layer[key]))}<span>{esc(name)}</span>'
-        "<em>REQUIRED</em></div>"
+        f'<div class="prof-card">'
+        f"{_mk(_kind(all(passed_by_layer[layer] for layer in PROFILE_LAYER_CHAIN[key])))}"
+        f"<span>{esc(name)}</span><em>REQUIRED</em></div>"
         for key, name in _PROFILE_LAYERS
     )
     severity_detail = _render_severity_detail(val, tiers)

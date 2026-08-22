@@ -505,10 +505,19 @@ def tiers_defined(layer: str) -> frozenset[str]:
 
     Read from the validator's own profile registry — the same objects the pass
     runs — rather than from a hand-kept list, so a profile that gains a MAY rule
-    is honoured the day it does. Inherited requirements count only where the pass
-    reports them: ``isa`` and ``tox`` run with
-    ``disable_inherited_profiles_issue_reporting``, so an inherited MAY rule could
-    not surface under those layers.
+    is honoured the day it does. This reports what a layer's own PASS can emit:
+    ``isa`` and ``tox`` run with ``disable_inherited_profiles_issue_reporting``,
+    so an inherited MAY rule cannot surface under those layers here.
+
+    That suppression stays, and it is not the report's answer to inheritance.
+    The ISA profile is 1.1-lineage while the base pass runs 1.2, so reporting
+    inherited findings under ``isa`` mixes two versions of one spec: measured on
+    a real crate it yields 25 findings under ``isa`` overlapping the base pass's
+    17 in only 6 — neither a superset nor a partition. Upstream tracks the bump
+    (crs4/rocrate-validator#194). Until it lands, the maturity report composes
+    conformance from these per-layer results instead, through
+    ``maturity_report._LAYER_CHAIN``, which needs no re-validation and cannot mix
+    spec versions.
 
     Args:
         layer: A key of :data:`_PROFILE_PASSES` ("base" | "isa" | "tox").
