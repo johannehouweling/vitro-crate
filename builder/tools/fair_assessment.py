@@ -132,30 +132,69 @@ def _check_reuse_attributes(state: CrateState) -> bool:
     return len(state.list_entities()) >= 2
 
 
-def _check_license_present(state: CrateState) -> bool:
-    """Check that metadata includes license information."""
+def _effective_license(state: CrateState, graph: Graph = None) -> str:
+    """The licence the crate actually asserts, or ``""``.
+
+    Read from the assembled Root Data Entity, because that is the licence a reader
+    gets. The three RDA R1.1 indicators and DSM-3-C7 used to read
+    ``entity.fields["license"]`` — a field nothing populates and which never reaches
+    the crate. `_read_declared_licence` (#535) writes the deposit's own declaration to
+    ``state.metadata.license`` and ``_crate_mapping`` assembles it onto the root, so a
+    crate could carry CC-BY in its JSON, render it on the report's study card, and
+    score false on every licence indicator. The crate was right; the instrument was
+    pointed at the wrong object.
+
+    ``LICENCE_NOT_STATED_ID`` is what assembly writes when nobody declared one.
+    Counting it would invert the depositor's own statement in the direction that
+    suppresses reuse — the defect #535 exists to prevent — so it reads as absent.
+
+    Falls back to ``state.metadata.license`` when no graph was supplied, then to an
+    entity field, so a caller holding only state still gets an answer where one
+    honestly exists.
+    """
+    from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
+
+    def _usable(value: Any) -> str:
+        text = _ref_id(value) or str(value or "")
+        return "" if text == LICENCE_NOT_STATED_ID else text
+
+    if not _needs_graph(graph):
+        for node in _nodes(graph):
+            if node.get("@id") == "./" or "Dataset" in _node_types(node):
+                if found := _usable(node.get("license")):
+                    return found
+        return ""
+    if found := _usable(state.metadata.license):
+        return found
     for entity in state.list_entities():
-        if "license" in entity.fields and entity.fields["license"]:
-            return True
-    return False
+        if found := _usable(entity.fields.get("license")):
+            return found
+    return ""
 
 
-def _check_license_standard(state: CrateState) -> bool:
-    """Check that metadata refers to a standard reuse license."""
-    for entity in state.list_entities():
-        lic = entity.fields.get("license", "")
-        if lic and ("creativecommons" in str(lic).lower() or "cc-" in str(lic).lower()):
-            return True
-    return False
+def _check_license_present(state: CrateState, graph: Graph = None) -> bool:
+    """RDA-R1.1-01M — metadata includes information about the reuse licence."""
+    return bool(_effective_license(state, graph))
 
 
-def _check_license_machine(state: CrateState) -> bool:
-    """Check that license is machine-understandable (URL)."""
-    for entity in state.list_entities():
-        lic = entity.fields.get("license", "")
-        if lic and str(lic).startswith("http"):
-            return True
-    return False
+def _check_license_standard(state: CrateState, graph: Graph = None) -> bool:
+    """RDA-R1.1-02M — the licence is a *standard* reuse licence, not bespoke terms."""
+    lic = _effective_license(state, graph).lower()
+    return bool(lic) and any(
+        token in lic
+        for token in ("creativecommons", "cc-", "cc0", "spdx.org", "opensource.org",
+                      "apache", "mit", "bsd", "gpl", "opendatacommons", "odbl")
+    )
+
+
+def _check_license_machine(state: CrateState, graph: Graph = None) -> bool:
+    """RDA-R1.1-03M — the licence is machine-understandable, i.e. a resolvable IRI.
+
+    A bare label is a real declaration and #535 returns it verbatim rather than
+    inventing a version (D5) — but "CC-BY" does not say which version, so it is not
+    machine-understandable and this indicator is the one that says so.
+    """
+    return _effective_license(state, graph).startswith(("http://", "https://"))
 
 
 def _check_provenance(state: CrateState) -> bool:
@@ -290,9 +329,13 @@ def _check_resolvable_terms(state: CrateState) -> bool:
     return False
 
 
-def _check_standard_license(state: CrateState) -> bool:
-    """Descriptor references a standard reuse license."""
-    return _check_license_present(state)
+def _check_standard_license(state: CrateState, graph: Graph = None) -> bool:
+    """DSM-3-C7 — the descriptor references a standard reuse licence.
+
+    Answered by the RDA check for the same question, so the two instruments cannot
+    return different verdicts about one crate.
+    """
+    return _check_license_standard(state, graph)
 
 
 def _check_domain_standard(state: CrateState) -> bool:
@@ -583,6 +626,13 @@ def _state_check(fn: Callable[[CrateState], bool]) -> DsmCheck:
     return _wrapped
 
 
+# RDA checks that take the assembled ``@graph`` as a second argument. The rest of the
+# registry is state-only; this set is the migration boundary, not a permanent design —
+# see #665 for why the licence indicators moved first and what a wider move would cost.
+_GRAPH_AWARE_FAIR_CHECKS: frozenset[str] = frozenset(
+    {"license_present", "license_standard", "license_machine"}
+)
+
 # Map check names to functions
 FAIR_CHECKS: dict[str, Any] = {
     "root_global_id": _check_root_global_id,
@@ -622,7 +672,7 @@ DSM_CHECKS: dict[str, DsmCheck] = {
     "data_structured": _state_check(_check_data_structured),
     "domain_model": _state_check(_check_domain_model),
     "resolvable_terms": _state_check(_check_resolvable_terms),
-    "standard_license": _state_check(_check_standard_license),
+    "standard_license": _check_standard_license,
     "domain_standard": _state_check(_check_domain_standard),
     "standard_field_metadata": _state_check(_check_standard_field_metadata),
     "controlled_values": _state_check(_check_controlled_values),
@@ -634,7 +684,7 @@ DSM_CHECKS: dict[str, DsmCheck] = {
     # Readable Format" reuses the RDA R1.1-03M check — same question, both models.
     # It was defined but never registered here, so _compute_dsm_level skipped it
     # and handed out Level 4 for free.
-    "license_machine": _state_check(_check_license_machine),
+    "license_machine": _check_license_machine,
     # --- graph-aware: the DSM's dataset field/value indicators (Levels 2-4) ---
     "tidy_dataset": _check_tidy_dataset,
     "reference_fields": _check_reference_fields,
@@ -704,6 +754,11 @@ def assess_fair_maturity(
                 # never-populated state.mit_assessment (#311).
                 if check_name == "mit_coverage":
                     passed = _mit_has_coverage(mit_report)
+                elif check_name in _GRAPH_AWARE_FAIR_CHECKS:
+                    # The licence lives on the assembled root, not on CrateState —
+                    # see _effective_license. Passing the graph is what makes this
+                    # indicator answerable from the crate a reader receives (#665).
+                    passed = FAIR_CHECKS[check_name](state, graph)
                 else:
                     passed = FAIR_CHECKS[check_name](state)
                 indicator_results.append(
