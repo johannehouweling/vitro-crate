@@ -572,9 +572,10 @@ turning a transient blip into red CI and violating #59's "runs offline" criterio
   the #59 e2e harness also runs with the network disabled to prove the path is
   offline-safe.
 
-#### MIT & FAIR Assessors (`builder/tools/mit_assessment.py`, `builder/tools/fair_assessment.py`)
-Score against `mit/invitro_tox.yaml`, `fair/indicators.yaml` and
-`fair/dsm_indicators.yaml`. All produce scores, not pass/fail.
+#### Maturity Assessors (`builder/tools/{mit,fair,air}_assessment.py`)
+Score against `mit/invitro_tox.yaml`, `fair/indicators.yaml`,
+`fair/dsm_indicators.yaml` and `air/criteria.yaml`. All produce scores, not
+pass/fail, and share one verdict shape (`builder/tools/assessment_graph.py`).
 
 **Indicator definitions are generated from vendored published instruments, never
 hand-written**, so a definition cannot silently drift into a paraphrase of the model
@@ -2285,7 +2286,8 @@ vitro-crate/
 │   ├── cellosaurus.py, pubchem.py, comptox.py, aopwiki.py, bao.py
 │   └── orcid.py, ror.py, crossref.py, iuclid.py, _http.py
 ├── mit/invitro_tox.yaml         Minimum Information Table
-├── fair/                        FAIR indicators
+├── fair/                        FAIR indicators (RDA FDMM + FAIRplus DSM, vendored)
+├── air/                         Bridge2AI AI-readiness criteria (vendored)
 ├── arc/                         ARC template/spec
 ├── input/                       Example inputs
 ├── builder/                     Core builder system
@@ -2296,6 +2298,7 @@ vitro-crate/
 │   │   ├── scanner.py, drafters.py, composites.py, management.py
 │   │   ├── lookups.py, verification.py, builder.py, validation.py
 │   │   ├── repair.py, gap_analysis.py, mit_assessment.py, fair_assessment.py
+│   │   ├── air_assessment.py, assessment_graph.py  Bridge2AI axis + shared verdicts
 │   │   ├── data_content.py, file_readers.py, hitl.py, session.py
 │   │   ├── field_kinds.py        Shared field-kind vocabulary (both arms)
 │   │   ├── registry.py, _crate_mapping.py, dashboard.py, provenance.py
@@ -2732,7 +2735,7 @@ INPUT → Extract → Materialize → Assess → Auto-resolve →  …  →  Gui
   guidance tail (§14.6.1) can still take the answer from the user through the same
   tool. Counted on `_materialize_plan`'s result as `key_events`.
 - **Assess** (`assess_gaps`, the gap engine #215, this section) — one
-  prioritized `GapReport` unifying SHACL + MIT + FAIR.
+  prioritized `GapReport` unifying SHACL + MIT + FAIR + AI-readiness.
 - **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every
   `auto_fixable` gap deterministically from state alone, no prompt.
 - **Guidance** (`run_guidance` #218 / #244, §14.6.1) — the **code-driven HITL
@@ -3029,7 +3032,8 @@ renders the count of open **MUST** issues plus base/isa/tox conformance.
 **It REUSES the validation result the pipeline already computed** (`run_pipeline`
 returns `{conformance, issues, …}` from its required-severity fix loop) rather
 than calling `assess_gaps` afresh: a fresh `assess_gaps` re-runs the heaviest
-`severity="optional"` SHACL + MIT + FAIR sweep (the #115 validation bottleneck),
+`severity="optional"` SHACL + MIT + FAIR + AI-readiness sweep (the #115
+validation bottleneck),
 which on every headless build is both a real per-build UX regression and a CI
 timeout (#296). Because the pipeline validates only at REQUIRED severity, SHOULD/MAY
 gaps are not computed on this fast path — the line reports them as *not assessed*
@@ -3041,11 +3045,13 @@ extra SHACL (`tests/test_agents_build.py::TestHeadlessGapSummary`); the interact
 path is unchanged (it still runs `run_guidance` + `format_guidance_summary`).
 
 **Stage C — the gap engine.** `assess_gaps(state: CrateState) -> GapReport`
-(`builder/tools/gap_analysis.py`) unifies the three assessors into ONE
+(`builder/tools/gap_analysis.py`) unifies the four assessors into ONE
 prioritized gap list the Guidance stage consumes. It is a **pure, deterministic,
 idempotent library function** (no LLM, no network, never mutates `state`) — and a
 **library function only, NOT a four-place LLM tool**: the spine/guidance *code*
-imports and calls it. It calls (does not re-implement) the three assessors:
+imports and calls it. It calls (does not re-implement) the four assessors, all
+against the SAME assembled document the SHACL sweep validated — a second
+assembly is how two axes come to disagree about one crate (#377):
 
 - `build_and_validate(state, severity="optional", profile="all")` — one widest
   sweep yields REQUIRED + RECOMMENDED + OPTIONAL SHACL issues, each already
@@ -3087,6 +3093,14 @@ recommended, MAY = optional):
 | MIT param, `additional: true` | **MAY** |
 | FAIR failing indicator, `essential` | **SHOULD** |
 | FAIR failing indicator, otherwise | **MAY** |
+| AI-readiness criterion failed, remedy committable | **SHOULD** |
+| AI-readiness criterion failed, remedy `report-only` | **MAY** |
+| AI-readiness criterion **not assessed** | *no gap* |
+
+An AI-readiness gap is **never MUST and never `auto_fixable`**: MUST is the SHACL
+build gate and no RO-Crate profile requires AI-readiness, and `auto_fixable` means
+precisely "`fix_required_issues` can clear it", which no repair rule does for a
+Bridge2AI criterion.
 
 Each `Gap` carries `{tier, source, entity_id, entity_type, property, message,
 suggestion, fix_hint, auto_fixable}`: `suggestion` is the expected propertyID
@@ -3115,7 +3129,8 @@ presence of an `entity_id` — MIT gaps deliberately keep `entity_id is None`, a
 populating it would flip ~167 report-only pseudo-field slots
 (`MolecularEntity:char`, `LabProcessExposure:param`, …) into ask-user turns that
 would write literal `"char"` / `"param"` keys. `GapReport` adds
-`{gaps, conformance, mit_overall, fair_summary, counts}`, with `gaps` sorted
+`{gaps, conformance, mit_overall, fair_summary, air_summary, counts}`, with
+`gaps` sorted
 **all MUST, then SHOULD, then MAY**, then **committable before `report-only`**
 within a tier, stable secondary by `(source, entity_id, property)` — so the loop
 always reaches the gaps it can act on first.

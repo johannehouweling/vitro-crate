@@ -832,6 +832,18 @@ TOOL_SPECS = [
         "parameters": {"type": "object", "properties": {}},
     },
     {
+        "name": "assess_air_readiness",
+        "description": (
+            "Score the crate against the published NIH Bridge2AI AI-readiness "
+            "criteria. Returns a SEVEN-DIMENSION PROFILE and no overall score — the "
+            "instrument's authors do not score AI-readiness pass/fail overall, so "
+            "there is no single number to report. A criterion a crate cannot "
+            "evidence (research ethics, repository governance, hosting) is reported "
+            "not assessed, never failed."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "save_session",
         "description": "Save session to disk",
         "parameters": {"type": "object", "properties": {"label": {"type": "string"}}},
@@ -1091,6 +1103,7 @@ _TOOL_REGISTRY_MODULES: tuple[str, ...] = (
     "builder.tools.composites",
     "builder.tools.data_content",
     "builder.tools.drafters",
+    "builder.tools.air_assessment",
     "builder.tools.fair_assessment",
     "builder.tools.file_readers",
     "builder.tools.lookups",

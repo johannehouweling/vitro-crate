@@ -564,6 +564,7 @@ class AgentEngine:
         if cls._registry is not None:
             return cls._registry
 
+        import builder.tools.air_assessment  # noqa: F401
         import builder.tools.builder  # noqa: F401
         import builder.tools.composites  # noqa: F401
         import builder.tools.data_content  # noqa: F401

@@ -4,9 +4,12 @@ Two axes the manuscript's §Evaluation defines but the codebase lacked:
 
 - ``mit_propertyid_coverage`` — per-parameter MIT coverage joined via
   ``schema:propertyID``, counting only non-empty non-placeholder bindings.
-- ``condition_table_typing_score`` — the AI-readiness axis, scored ROW-LEVEL so a
-  header-only table cannot pass tautologically (#473), and never penalising
-  the #408 rule that legitimately drops a multivalued column's ``valueUrl``.
+- ``condition_table_typing_score`` — CSVW typing and referential integrity,
+  scored ROW-LEVEL so a header-only table cannot pass tautologically (#473), and
+  never penalising the #408 rule that legitimately drops a multivalued column's
+  ``valueUrl``. It was called ``csvw_air_score`` and presented as the
+  AI-readiness axis; that axis is now the published Bridge2AI instrument, and
+  this feeds it as evidence for criterion 2.c (#657).
 
 Pure-metric tests: hand-built graphs and states (the ``eval/tests`` metric
 convention), no SHACL, no network, no LLM.
