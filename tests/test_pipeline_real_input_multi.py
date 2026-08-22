@@ -651,9 +651,10 @@ class TestStudyWideProtocols:
 class TestEveryAssayHasBothDataRoles:
     """Each S-VHPS22 assay must carry a raw AND a processed exemplar (#pairing).
 
-    An assay represented by only one half is a shape the exporter never sees:
-    the raw/processed split is what ``arc_writer`` projects onto the crate's
-    ``dataset/raw_data`` and ``dataset/processed_data`` trees.
+    An assay represented by only one half would leave one of the two steps with
+    no output: the raw/processed split is what decides whether a data file is
+    claimed as an ``EndpointReadout``'s output or a ``DataAnalysis``'s
+    (``composites._CLASS_FOR_PROCESS``).
     """
 
     @pytest.mark.parametrize("assay", _S22_ASSAYS)

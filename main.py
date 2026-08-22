@@ -179,7 +179,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-o",
         type=str,
         default=None,
-        help="Path for the output ARC directory (RO-Crate)",
+        help="Path for the output RO-Crate directory",
     )
     parser.add_argument(
         "--resume",

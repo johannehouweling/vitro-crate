@@ -2,7 +2,7 @@
 
 Ensures the hand-written tool list in the design doc cannot drift away from the
 real, dispatchable toolbox — i.e. it can never reintroduce a phantom tool like
-the long-gone ``scaffold_arc`` (Issue #145). Every tool name documented in §5
+a tool that never existed (Issue #145). Every tool name documented in §5
 must be a real, LLM-callable tool: either specced in ``TOOL_SPECS`` or one of the
 engine's special-cased / session-init tools.
 """
