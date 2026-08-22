@@ -88,6 +88,7 @@ Build, validate & assess:
 - populate_condition_table: Write per-well rows into an Exposure's CSVW condition table (or attach a plate-map CSV)
 - assess_mit_coverage: Score MIT coverage
 - assess_fair_maturity: Score FAIR maturity
+- assess_air_readiness: Score AI-readiness against the published Bridge2AI criteria — a seven-dimension profile with NO overall score
 
 Session & human-in-the-loop:
 - save_session: Save the session
