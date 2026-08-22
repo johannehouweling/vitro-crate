@@ -178,6 +178,152 @@ class TestISAHierarchy:
 
 
 
+class TestTheAssayProtocolReachesItsStep:
+    """#650 item 3 — an assay's deposited protocols reach the step they describe.
+
+    Only CellCulture ever got a protocol. EndpointReadout and DataAnalysis fell
+    through to nothing, so S-VHPS22's nine assay-scoped documents — the
+    transporter assay, Bradford, deiodinase activity, the UPLC run, RNA
+    isolation, cDNA/qPCR — were carried in the payload and executed by no step.
+
+    Three rules, each pinned below:
+
+    * **The default is EndpointReadout.** Measuring is what an assay's SOP
+      describes; culture and analysis are reached only by an explicit cue.
+    * **A step executes ALL of its documents, not one.** Every assay in the
+      deposit ships two to four (assay_04 has three sequential ones: RNA
+      isolation, DNase, cDNA/qPCR). The single-hit D5 rule still governs the
+      culture lookup, where a *cell line* has to disambiguate; here there is no
+      subject to be ambiguous about, and picking one of four would be a silent
+      choice rather than an honest list.
+    * **Nothing is minted.** A step with no document keeps none (D17).
+    """
+
+    ASSAY_DIR = "assay_02_deiodinase"
+
+    def _state(self, *, docs=("4.1 Deiodinase activity assay.docx",), steps=(
+        ("proc_read", "EndpointReadout"),
+    )):
+        state = CrateState()
+        state.metadata.input_path = "/deposit"
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        doc_ids = []
+        for n, nm in enumerate(docs, start=1):
+            eid = f"doc_{n}"
+            doc_ids.append(eid)
+            state.add_entity(
+                _ent(
+                    eid,
+                    "File",
+                    name=nm,
+                    path=f"{self.ASSAY_DIR}/{nm}",
+                    additional_types=["LabProtocol"],
+                )
+            )
+        state.add_entity(
+            _ent("assay_1", "Assay", name="A1", study_id="study_1", hasPart=doc_ids)
+        )
+        for pid, ptype in steps:
+            state.add_entity(
+                _ent(
+                    pid,
+                    "LabProcess",
+                    name=ptype,
+                    process_type=ptype,
+                    assay_id="assay_1",
+                    endpoint="deiodinase activity",
+                    detection_instrument="gamma counter",
+                )
+            )
+        return state
+
+    def test_the_readout_executes_the_assays_protocol(self, tmp_path):
+        _, by_id = _build(self._state(), tmp_path)
+        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        assert executed, "the readout executes none of its assay's protocols"
+        assert any("Deiodinase" in e for e in executed), executed
+
+    def test_the_protocol_is_the_document_itself(self, tmp_path):
+        _, by_id = _build(self._state(), tmp_path)
+        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        assert executed and not executed[0].startswith("#"), (
+            f"a protocol's @id must be its file path, not a minted stub: {executed}"
+        )
+        assert self.ASSAY_DIR in executed[0], executed
+
+    def test_every_protocol_the_assay_ships_is_executed(self, tmp_path):
+        """Two to four per assay is the norm; one-of-four would be a silent pick."""
+        state = self._state(
+            docs=("4.1 Deiodinase activity assay.docx", "3.3 Bradford protocol.xlsx")
+        )
+        _, by_id = _build(state, tmp_path)
+        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        assert sum("Deiodinase" in e for e in executed) == 1, executed
+        assert sum("Bradford" in e for e in executed) == 1, executed
+
+    def test_an_analysis_document_goes_to_the_analysis_not_the_readout(self, tmp_path):
+        state = self._state(
+            docs=(
+                "4.1 Deiodinase activity assay.docx",
+                "5.4 Data analysis and curve fitting.docx",
+            ),
+            steps=(("proc_read", "EndpointReadout"), ("proc_ana", "DataAnalysis")),
+        )
+        _, by_id = _build(state, tmp_path)
+        # A crate @id percent-encodes its spaces; compare on the decoded path.
+        def _paths(pid):
+            return [
+                e.replace("%20", " ")
+                for e in _ids(by_id[pid].get("executesLabProtocol"))
+            ]
+
+        readout = _paths("#LabProcess_proc_read")
+        analysis = _paths("#LabProcess_proc_ana")
+        assert any("Data analysis" in e for e in analysis), analysis
+        assert not any("Data analysis" in e for e in readout), (
+            f"an analysis protocol must not be claimed by the readout: {readout}"
+        )
+        assert not any("Deiodinase" in e for e in analysis), (
+            f"a readout protocol must not be claimed by the analysis: {analysis}"
+        )
+
+    def test_an_analysis_with_no_document_of_its_own_executes_none(self, tmp_path):
+        """DataAnalysis comes up empty on the real deposit, and that is correct.
+
+        No S-VHPS22 document describes the analysis step, so the honest output is
+        the ISA "SHOULD have a protocol" warning — not a stub that silences it
+        with a procedure nobody wrote (D17).
+        """
+        state = self._state(
+            steps=(("proc_read", "EndpointReadout"), ("proc_ana", "DataAnalysis"))
+        )
+        _, by_id = _build(state, tmp_path)
+        assert _ids(by_id["#LabProcess_proc_ana"].get("executesLabProtocol")) == []
+        assert not any(str(i).startswith("#protocol_") for i in by_id), (
+            f"a stub was minted: {[i for i in by_id if str(i).startswith('#protocol_')]}"
+        )
+
+    def test_another_assays_protocol_is_not_borrowed(self, tmp_path):
+        """Scoping is the assay's own hasPart, not "any protocol in the crate"."""
+        state = self._state()
+        state.add_entity(
+            _ent(
+                "doc_other",
+                "File",
+                name="4.3 Protocol UPLC runnen.docx",
+                path="assay_03_metabolism/4.3 Protocol UPLC runnen.docx",
+                additional_types=["LabProtocol"],
+            )
+        )
+        state.add_entity(_ent("assay_2", "Assay", name="A2", study_id="study_1",
+                              hasPart=["doc_other"]))
+        _, by_id = _build(state, tmp_path)
+        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        assert not any("UPLC" in e for e in executed), (
+            f"assay_02's readout borrowed assay_03's protocol: {executed}"
+        )
+
+
 class TestLabProcessSubtypes:
     def _state_with_process(self, process_type, **proc_fields):
         state = CrateState()
