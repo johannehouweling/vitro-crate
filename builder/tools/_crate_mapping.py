@@ -2955,7 +2955,8 @@ def _add_processes(
             # study-level protocol — one shared across assays is already hung
             # off the Study, and re-parenting it per assay is the duplication
             # that made it study-level in the first place.
-            study_parts = set(_child_ids(_study_of(state, idx, f.get("assay_id"))))
+            study = _study_of(state, idx, f.get("assay_id"))
+            study_parts = set(_child_ids(study)) if study is not None else set()
             for protocol_node in _protocol_file_nodes(node):
                 if getattr(protocol_node, "id", None) in study_parts:
                     continue

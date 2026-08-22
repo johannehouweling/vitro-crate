@@ -156,6 +156,27 @@ class TestISAHierarchy:
         parts = _ids(by_id["#Assay_assay_1"].get("hasPart"))
         assert parts.count("data/raw.csv") == 1
 
+    def test_an_assay_without_a_study_still_builds(self, tmp_path):
+        """A process whose Assay names no Study must not take the build down.
+
+        Nesting an executed protocol under its Assay consults the Study's parts
+        first, so a study-level protocol is not re-parented per assay. That
+        lookup returns nothing for a bare Assay — every minimal fixture in this
+        suite, and any deposit whose backbone is still incomplete — and reading
+        parts off it crashed `assemble_crate` outright rather than degrading to
+        "no study-level protocols to skip" (#650).
+        """
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))  # no study_id
+        state.add_entity(_ent("raw", "File", name="raw.csv", dest_path="data/raw.csv"))
+        state.add_entity(
+            _ent("er", "LabProcess", process_type="EndpointReadout", name="R",
+                 assay_id="assay_1", result=["raw"])
+        )
+        _, by_id = _build(state, tmp_path)
+        assert "data/raw.csv" in _ids(by_id["#Assay_assay_1"].get("hasPart"))
+
+
 
 class TestLabProcessSubtypes:
     def _state_with_process(self, process_type, **proc_fields):
