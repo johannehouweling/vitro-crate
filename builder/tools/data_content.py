@@ -58,6 +58,26 @@ logger = logging.getLogger(__name__)
 # ``biosample_type`` on ``cell_line`` — see the collision rule in
 # :func:`project_condition_rows`. Reporting them is the honest outcome; inventing a
 # canonical home for a measurement column is exactly the fabrication D5 forbids.
+_HEADER_SEPARATORS = re.compile(r"[^0-9a-z]+")
+
+
+def _normalise_header(name: str) -> str:
+    """Fold a source header onto the alias table's ``snake_case`` spelling.
+
+    The aliases are written the way a tidy export names its columns; a working
+    spreadsheet is not. S-VHPS22's gamma counter writes ``Run ID``, and exact
+    matching meant ``run_id`` mapped while ``Run ID`` did not — so every human
+    header landed in ``unmapped_source_columns`` and not one of the deposit's 20
+    spreadsheets could serve as a condition table (#656).
+
+    Case, spaces, hyphens and dots all fold; digits are kept, because ``T3`` and
+    ``T4`` are different columns. This widens the *spelling* of a known name and
+    nothing else — the folded header still has to BE an alias, so a column with
+    no canonical home stays unmapped and stays reported.
+    """
+    return _HEADER_SEPARATORS.sub("_", str(name).strip().casefold()).strip("_")
+
+
 _CONDITION_TABLE_ALIASES: dict[str, str] = {
     "well": "well_id",
     "well_position": "well_id",
@@ -90,6 +110,13 @@ _CONDITION_TABLE_ALIASES: dict[str, str] = {
     "assay_endpoint": "assay",
     "replicate": "technical_replicate",
     "replicate_id": "technical_replicate",
+}
+
+# The alias table keyed by folded name. Built once, and from the table itself so
+# the two can never drift — `"cell line"` folds to `cell_line` here rather than
+# being spelled twice above.
+_NORMALISED_ALIASES: dict[str, str] = {
+    _normalise_header(alias): target for alias, target in _CONDITION_TABLE_ALIASES.items()
 }
 
 # Tidy sources split a duration into value + unit columns where the canonical table
@@ -397,7 +424,7 @@ def project_condition_rows(
     from builder.tools._crate_mapping import _CONDITION_TABLE_HEADER
 
     canonical = _CONDITION_TABLE_HEADER.strip("\n").split(",")
-    canonical_set = set(canonical)
+    canonical_by_norm = {_normalise_header(c): c for c in canonical}
 
     projected: list[dict[str, Any]] = []
     mapped: set[str] = set()
@@ -408,12 +435,13 @@ def project_condition_rows(
         # Canonical headers first, so an alias can never displace them.
         for key, value in row.items():
             name = str(key).strip()
-            if name in canonical_set and _has_value(value):
-                out[name] = value
-                mapped.add(name)
+            canonical_name = canonical_by_norm.get(_normalise_header(name))
+            if canonical_name is not None and _has_value(value):
+                out[canonical_name] = value
+                mapped.add(canonical_name)
         # Value+unit pairs are composed BEFORE the alias pass, so both halves reach
         # the single canonical column they share instead of colliding there.
-        lowered_row = {str(k).strip().lower(): v for k, v in row.items()}
+        lowered_row = {_normalise_header(k): v for k, v in row.items()}
         # Headers the pair rule CLAIMED on this row, i.e. suppressed from
         # `unmapped_source_columns`. A header is claimed only once it has actually
         # been consumed — or had nothing to give. Claiming the pair unconditionally
@@ -452,12 +480,12 @@ def project_condition_rows(
 
         for key, value in row.items():
             name = str(key).strip()
-            if name in canonical_set:
+            normalised = _normalise_header(name)
+            if normalised in canonical_by_norm:
                 continue
-            lowered = name.lower()
-            if lowered in paired_headers:
+            if normalised in paired_headers:
                 continue
-            target = _CONDITION_TABLE_ALIASES.get(lowered)
+            target = _NORMALISED_ALIASES.get(normalised)
             if target is not None:
                 if _has_value(value) and target not in out:
                     out[target] = value
@@ -651,8 +679,22 @@ def condition_table_fit(rows: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
     on how much of the schema it fills.
     """
     projection = project_condition_rows(rows)
-    wells = sum(1 for r in projection["rows"] if _has_value(r.get("well_id")))
+    keys = [r.get("well_id") for r in projection["rows"] if _has_value(r.get("well_id"))]
+    wells = len(keys)
     mapped = len(projection["mapped_columns"])
+    # A well key has to tell the samples apart. `Run ID` names the counter RUN —
+    # the raw file — so it reads 4669 on all 80 rows of S-VHPS22's gamma-counter
+    # sheet, one row per tube. Accepting it there would emit 80 rows that each
+    # claim to be the same sample: worse than the empty table #656 reported,
+    # because it looks populated.
+    #
+    # The `run_id` alias itself is right and stays. A tidy export's run_id
+    # genuinely is its per-row key, and refusing it would drop all 1048 rows of
+    # that case. What distinguishes the two is not the header, it is whether the
+    # column varies — so that is what is asked. A single row cannot vary and is
+    # not penalised.
+    if wells > 1 and len({str(k) for k in keys}) == 1:
+        return (0, 0)
     return (wells, mapped) if wells and mapped else (0, 0)
 
 

@@ -17,6 +17,7 @@ from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import _CONDITION_TABLE_COLUMNS
 from builder.tools.data_content import (
     _UNIT_SUFFIX_RE,
+    condition_table_fit,
     csvw_to_frictionless,
     populate_condition_table,
     project_condition_rows,
@@ -241,6 +242,101 @@ class TestProjectConditionRows:
         assert got["concentration_value"] == "10"
         assert got["concentration_unit"] == "uM"
         assert got["exposure_duration"] == "24h"
+
+
+class TestSourceHeadersAreNormalisedBeforeMapping:
+    """#656 — a human header must map as well as a machine one.
+
+    The alias table is keyed in ``snake_case``; real spreadsheets are not.
+    S-VHPS22's gamma counter writes ``Run ID``, ``Rack``, ``Det``, ``Pos``, and
+    matching was exact — so ``run_id`` mapped and ``Run ID`` did not. Every
+    human-written header fell into ``unmapped_source_columns`` and the sheet
+    described nothing, which is why **zero of the deposit's 20 spreadsheets**
+    could serve as a condition table.
+
+    Normalising is a reader-boundary fix: case, spaces, hyphens and dots all
+    fold to the alias spelling. It is not a licence to guess — the folded name
+    still has to BE an alias, so an unrelated column stays unmapped and stays
+    reported.
+    """
+
+    @pytest.mark.parametrize(
+        "header",
+        ["Run ID", "run id", "Run-ID", "RUN_ID", "Run  Id"],
+        ids=["title", "lower-space", "hyphen", "upper", "double-space"],
+    )
+    def test_a_human_spelling_of_an_alias_maps(self, header):
+        out = project_condition_rows([{header: "4669"}])
+        assert "well_id" in out["mapped_columns"], (
+            f"{header!r} is the same column as run_id; got {out}"
+        )
+
+    def test_a_human_spelling_of_a_canonical_column_maps(self):
+        out = project_condition_rows([{"Cell Line": "SK-N-AS"}])
+        assert "cell_line" in out["mapped_columns"], out
+
+    def test_the_real_gamma_counter_header_maps_its_key(self):
+        """The exact header that shipped zero rows."""
+        row = {
+            "Protocol ID": 65,
+            "Protocol name": "TELLING 5 min",
+            "Run ID": 4669,
+            "Rack": 1,
+            "Det": 1,
+            "Pos": 1,
+            "I-125 CPM": 7026.73,
+        }
+        out = project_condition_rows([row])
+        assert "well_id" in out["mapped_columns"], out
+        assert out["rows"][0]["well_id"] == 4669, out["rows"][0]
+
+    def test_an_unrelated_column_is_still_unmapped_and_still_reported(self):
+        """Normalising must not turn "no canonical home" into a silent guess."""
+        out = project_condition_rows([{"I-125 CPM": 7026.73}])
+        assert out["mapped_columns"] == [], out
+        assert "I-125 CPM" in out["unmapped_source_columns"], out
+
+
+class TestAKeyThatNeverVariesIsNotAKey:
+    """#656 — ``well_id`` identifies the exposed sample, so it has to tell them apart.
+
+    ``Run ID`` names the counter run, i.e. the raw file: it is **4669 on all 80
+    rows** of the gamma-counter sheet, one row per tube. Mapping it to
+    ``well_id`` there would emit 80 rows that all claim to be the same sample —
+    worse than the empty table #656 reported, because it looks populated.
+
+    The alias itself is right and stays: a tidy export's ``run_id`` genuinely is
+    its per-row key, and removing it would drop all 1048 rows of that case on
+    the floor. What was missing is the gate — a well key that never varies
+    across more than one row does not identify anything.
+    """
+
+    def test_a_varying_key_still_qualifies(self):
+        rows = [{"run_id": n, "compound": "Xn"} for n in range(1, 5)]
+        wells, mapped = condition_table_fit(rows)
+        assert wells == 4 and mapped >= 1, (wells, mapped)
+
+    def test_a_constant_key_across_many_rows_does_not(self):
+        rows = [{"run_id": 4669, "compound": "Xn"} for _ in range(80)]
+        assert condition_table_fit(rows) == (0, 0), (
+            "80 rows sharing one key identify one sample, not eighty"
+        )
+
+    def test_a_single_row_is_not_penalised(self):
+        """One row cannot vary, and a one-condition table is still a table."""
+        wells, mapped = condition_table_fit([{"run_id": 4669, "compound": "Xn"}])
+        assert wells == 1 and mapped >= 1, (wells, mapped)
+
+    def test_the_real_gamma_counter_sheet_is_refused(self):
+        rows = [
+            {"Run ID": 4669, "Rack": rack, "Pos": pos, "I-125 CPM": 1.0}
+            for rack in range(1, 9)
+            for pos in range(1, 11)
+        ]
+        assert len(rows) == 80
+        assert condition_table_fit(rows) == (0, 0), (
+            "Run ID is the raw file, not the sample — this sheet has no per-sample key"
+        )
 
 
 class TestPopulateRefusesRatherThanBlanking:
