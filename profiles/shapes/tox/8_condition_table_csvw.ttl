@@ -3,22 +3,30 @@
 # carries a datatype and an ontology propertyUrl (machine-actionable, and the
 # basis of the reproducibility-readiness metric).
 
+@prefix bioschemas-prop: <https://bioschemas.org/properties/> .
 @prefix csvw: <http://www.w3.org/ns/csvw#> .
-@prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 
-# The Exposure result SHOULD include a CSVW-typed condition table.
+# The Exposure SHOULD follow a CSVW-typed condition table.
+#
+# On `executesLabProtocol`, not `schema:result`: the per-well layout is what the
+# run FOLLOWS, not what it emits (#650). An Exposure produces the exposed
+# Sample; the table states which well got which compound at which dose, which is
+# a protocol the run reads. Reading `schema:result` here reported a missing
+# table on every exposure that had one — a check that fires on correct crates
+# is worse than no check, because it sends the repair loop after a defect that
+# is not there.
 tox:ExposureShouldEmitCsvwConditionTable a sh:NodeShape ;
-    sh:name "Exposure SHOULD emit a CSVW condition table" ;
-    sh:description "An exposure's condition-table result SHOULD be CSVW-typed" ;
+    sh:name "Exposure SHOULD follow a CSVW condition table" ;
+    sh:description "An exposure's condition-table protocol SHOULD be CSVW-typed" ;
     sh:targetClass tox:LabProcessExposure ;
     sh:property [
         a sh:PropertyShape ;
-        sh:path schema:result ;
+        sh:path bioschemas-prop:executesLabProtocol ;
         sh:qualifiedValueShape [ sh:class csvw:Table ] ;
         sh:qualifiedMinCount 1 ;
-        sh:message "Exposure SHOULD emit a CSVW-typed condition table (csvw:Table) as a schema:result" ;
+        sh:message "Exposure SHOULD follow a CSVW-typed condition table (csvw:Table) via executesLabProtocol" ;
         sh:severity sh:Warning ;
     ] .
 

@@ -392,6 +392,102 @@ class TestEmptyConditionTableSaysSo:
         assert "NO rows" not in str(table.get("description", "") or "")
 
 
+class TestTheCsvwShapeLooksWhereTheTableIs:
+    """The tox CSVW shape must read the edge the table is actually on (#650).
+
+    ``tox:ExposureShouldEmitCsvwConditionTable`` was written when the condition
+    table was the Exposure's ``schema:result``. #650 moved it to
+    ``executesLabProtocol`` — the per-well layout is what the run follows, not
+    what it emits — and the shape was not moved with it. The Warning then fired
+    on **every** exposure, including ones that do emit a perfectly good table:
+    a false gap, and worse than a missing check because it reports a defect that
+    is not there.
+
+    Nothing caught it. No test in the suite asserted on this shape, so a
+    recommended-severity finding could invert its meaning without turning CI
+    red. Both directions are pinned here so the next move breaks a test.
+    """
+
+    @staticmethod
+    def _document(state: CrateState) -> dict:
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, None, materialize_payload=False)
+        return crate.metadata.generate()
+
+    @staticmethod
+    def _condition_table_findings(doc: dict) -> list[str]:
+        """Every tox finding about the condition table, at any severity.
+
+        ``severity="optional"`` because the shape is a SHOULD — at the default
+        ``required`` gate it is filtered out before a test could see it, which
+        is the other half of why this regression was invisible.
+        """
+        from profiles.validator import validate_crate_dict
+
+        results = validate_crate_dict(doc, severity="optional", profile="tox")
+        return [
+            str(getattr(issue, "message", ""))
+            for result in (results or [])
+            for issue in (getattr(result, "issues", None) or [])
+            if "condition table" in str(getattr(issue, "message", "")).lower()
+        ]
+
+    def test_an_exposure_that_emits_the_table_is_not_reported(self):
+        doc = self._document(_exposure_state())
+        assert any(
+            str(e.get("@id", "")).endswith("condition_table.csv")
+            for e in doc["@graph"]
+        ), "fixture no longer produces a condition table — this pins nothing"
+
+        findings = self._condition_table_findings(doc)
+        assert findings == [], (
+            "the exposure emits a CSVW condition table, so the shape must not "
+            f"report one missing; got {findings}"
+        )
+
+    def test_an_exposure_that_reaches_no_table_is_still_reported(self):
+        """The check must be able to fail, or it is not a check (D-#620).
+
+        Every built Exposure gets a condition table, so the unmet case is made
+        by cutting the edge on the assembled document rather than by starving
+        the builder — which also keeps this a test of the *shape* rather than
+        of the synthesis path.
+        """
+        doc = self._document(_exposure_state())
+        table_ids = {
+            str(e.get("@id", ""))
+            for e in doc["@graph"]
+            if str(e.get("@id", "")).endswith("condition_table.csv")
+        }
+        assert table_ids, "fixture produced no table to detach"
+
+        detached = 0
+        for entity in doc["@graph"]:
+            if entity.get("additionalType") != "Exposure":
+                continue
+            for key in ("executesLabProtocol", "result"):
+                value = entity.get(key)
+                if value is None:
+                    continue
+                items = value if isinstance(value, list) else [value]
+                kept = [
+                    it
+                    for it in items
+                    if not (
+                        isinstance(it, dict) and str(it.get("@id")) in table_ids
+                    )
+                ]
+                if len(kept) != len(items):
+                    detached += 1
+                entity[key] = kept
+        assert detached, "no exposure edge pointed at the table — nothing was cut"
+
+        assert self._condition_table_findings(doc), (
+            "an exposure that reaches no CSVW condition table must be reported"
+        )
+
+
 def test_property_url_stays_an_id_reference_not_a_bare_string():
     """propertyUrl must be ``{"@id": …}``, not the bare URI string.
 
