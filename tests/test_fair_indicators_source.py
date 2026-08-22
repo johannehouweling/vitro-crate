@@ -54,6 +54,52 @@ PUBLISHED_TOTAL = 41
 PUBLISHED_PER_PRIORITY = {"essential": 20, "important": 14, "useful": 7}
 
 
+class TestTheProvenanceIsCitable:
+    """A reader must be able to get from this file to the actual works, correctly.
+
+    These are offline pins on values verified live against Crossref, DataCite and
+    Zenodo — a citation nobody has resolved is a citation nobody should trust.
+    """
+
+    def test_the_specification_and_the_paper_are_not_conflated(self):
+        """They are two works. One `citation` beside one `doi` made them look like one.
+
+        `10.15497/rda00050` is the RDA deliverable and has no authors; Bahim et al. is
+        a separate peer-reviewed article. Quoting the author list against the
+        deliverable's DOI produces a reference that does not resolve to what it names.
+        """
+        rda = yaml.safe_load(INDICATORS_YAML.read_text())["sources"]["rda"]
+        assert rda["specification"]["doi"] == "10.15497/rda00050"
+        assert rda["peer_reviewed"]["doi"] == "10.5334/dsj-2020-041"
+        assert rda["specification"]["doi"] != rda["peer_reviewed"]["doi"]
+        assert "Bahim" in rda["peer_reviewed"]["citation"]
+        assert "Bahim" not in str(rda["specification"])
+
+    def test_the_specification_is_attributed_to_the_alliance_not_to_authors(self):
+        rda = yaml.safe_load(INDICATORS_YAML.read_text())["sources"]["rda"]
+        assert rda["specification"]["publisher"] == "Research Data Alliance"
+        assert "author" not in rda["specification"]
+
+    def test_the_vendored_workbook_is_the_published_file(self):
+        """Byte-identical to Zenodo record 3909563's FAIR_evaluation_levels_v0.02.xlsx.
+
+        Checked live once; pinned here so a re-vendoring that silently substitutes a
+        different or edited workbook fails rather than quietly changing what the
+        indicator definitions say.
+        """
+        import hashlib
+
+        assert (
+            hashlib.md5(RDA_XLSX.read_bytes()).hexdigest()
+            == "b6231346dff874a3675747ab3e295fd9"
+        )
+        assert RDA_XLSX.stat().st_size == 195824
+
+    def test_the_licence_is_the_one_the_publisher_states(self):
+        rda = yaml.safe_load(INDICATORS_YAML.read_text())["sources"]["rda"]
+        assert rda["license"] == "CC-BY-4.0"
+
+
 class TestTheWholePublishedModelIsCarried:
     """All 41 indicators, including the ones this tool cannot answer.
 

@@ -127,13 +127,33 @@ LOCAL_SCOPE: dict[str, tuple[str | None, str | None]] = {
 }
 
 SOURCES: dict[str, Any] = {
+    # The specification and the journal article are DIFFERENT works and are recorded
+    # separately, as the DSM block does. They were previously one entry — a `citation`
+    # naming Bahim et al. beside a `doi` pointing at the RDA deliverable, which has no
+    # authors — so anyone citing from here produced the right author list against the
+    # wrong DOI.
     "rda": {
         "name": "RDA FAIR Data Maturity Model",
-        "citation": "Bahim et al. 2020, Data Science Journal 19(1):41",
-        "doi": "10.15497/rda00050",
+        "specification": {
+            "name": "FAIR Data Maturity Model: specification and guidelines",
+            "publisher": "Research Data Alliance",
+            "doi": "10.15497/rda00050",
+            "url": "https://doi.org/10.15497/rda00050",
+            "year": 2020,
+        },
+        "peer_reviewed": {
+            "citation": (
+                "Bahim C, Casorrán-Amilburu C, Dekkers M, Herczog E, Loozen N, "
+                "Repanas K, Russell K, Stall S. The FAIR Data Maturity Model: An "
+                "Approach to Harmonise FAIR Assessments. Data Science Journal "
+                "19(1):41 (2020)"
+            ),
+            "doi": "10.5334/dsj-2020-041",
+        },
         "distribution": (
             "FAIR_evaluation_levels_v0.02.xlsx (sheet 'FAIR Indicators_v0.05'), "
-            "Zenodo record 3909563 — vendored as fair/rda_fdmm.xlsx"
+            "Zenodo record 3909563 — vendored as fair/rda_fdmm.xlsx, byte-identical "
+            "to the published file (md5 b6231346dff874a3675747ab3e295fd9)"
         ),
         "license": "CC-BY-4.0",
         "retrieved": "2026-07-25",
