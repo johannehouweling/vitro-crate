@@ -74,23 +74,110 @@ def _load_yaml(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _root_node(graph: Graph) -> dict[str, Any]:
+    """The Root Data Entity — whatever ``ro-crate-metadata.json`` says it is ``about``.
+
+    Followed through the descriptor rather than assumed to be ``./`` so the reading
+    matches the RO-Crate spec's own definition, which is what a third-party reader
+    would follow.
+    """
+    by_id = {str(n.get("@id")): n for n in _nodes(graph)}
+    descriptor = by_id.get("ro-crate-metadata.json", {})
+    return by_id.get(_ref_id(descriptor.get("about")) or "./", by_id.get("./", {}))
+
+
+def _payload_files(graph: Graph) -> tuple[list[dict[str, Any]], set[str]]:
+    """The crate's *data*: File nodes the root claims, transitively through ``hasPart``.
+
+    "The data" cannot mean "every node". The ISA backbone always mints a Study
+    ``Dataset`` into the root's ``hasPart`` — a crate with two empty entities and no
+    payload whatsoever still has one — so any indicator answered by "``hasPart``
+    resolves" is answered by the builder's own scaffolding, not by data. That is the
+    #670 defect in miniature: an indicator about the data, satisfied by the metadata.
+
+    Returns the File nodes and every ``@id`` walked, so a caller can also ask whether
+    the references resolve.
+    """
+    by_id = {str(n.get("@id")): n for n in _nodes(graph)}
+    seen: set[str] = set()
+    found: list[dict[str, Any]] = []
+    queue = [_root_node(graph)]
+    while queue:
+        parts = queue.pop().get("hasPart")
+        for ref in parts if isinstance(parts, list) else [parts] if parts else []:
+            part_id = _ref_id(ref)
+            if part_id in seen:
+                continue
+            seen.add(part_id)
+            child = by_id.get(part_id)
+            if child is None:
+                continue
+            if "File" in _node_types(child):
+                found.append(child)
+            if "Dataset" in _node_types(child):
+                queue.append(child)
+    return found, seen
+
+
+def _root_pid(graph: Graph) -> str:
+    """The persistent identifier the crate claims for itself, or ``""``.
+
+    A DOI, or any absolute IRI. A bare accession like ``S-VHPS22`` does not qualify:
+    it is unique inside BioStudies and ambiguous outside it, and the whole point of
+    the indicator is identification that survives leaving the source repository.
+    """
+    root = _root_node(graph)
+    for value in (root.get("identifier"), root.get("@id")):
+        text = _ref_id(value) or str(value or "")
+        if text.startswith(("http://", "https://", "10.")) or "doi" in text.lower():
+            return text
+    return ""
+
+
 def _check_root_global_id(state: CrateState) -> bool:
     """Check that the crate has a globally unique identifier (accession or session_id)."""
     return bool(state.metadata.accession or state.session_id)
 
 
-def _check_every_entity_has_id(state: CrateState) -> bool:
-    """Check that every entity has an entity_id."""
-    entities = state.list_entities()
-    if not entities:
+def _check_every_entity_has_id(state: CrateState, graph: Graph = None) -> bool | None:
+    """RDA-F1-02D — *the data* is identified by a globally unique identifier.
+
+    Asks it of the data. The old check was ``all(bool(e.entity_id) …)``, which is
+    vacuously true over any entity the builder holds and never asks whether there is
+    data to identify at all: a crate of two empty entities passed it.
+
+    A File is globally identified when its own ``@id`` or ``contentUrl`` is an
+    absolute IRI, or when the root carries a PID the crate-relative paths compose
+    against. On this corpus that is false everywhere, because nothing writes a DOI to
+    the root — the same root cause as RDA-F1-01M, and the two flip together when it is
+    fixed. False for a stated reason is a finding; true for no reason is not.
+    """
+    if _needs_graph(graph):
+        return None
+    files, _ = _payload_files(graph)
+    if not files:
         return False
-    return all(bool(e.entity_id) for e in entities)
+    if _root_pid(graph):
+        return True
+    return all(
+        _is_external_iri(f.get("@id"))
+        or _is_external_iri(f.get("contentUrl"))
+        or _is_external_iri(f.get("identifier"))
+        for f in files
+    )
 
 
-def _check_pid_form(state: CrateState) -> bool:
-    """Check that metadata is identified by a persistent identifier."""
-    accession = state.metadata.accession or ""
-    return bool(accession and (accession.startswith("10.") or "doi" in accession.lower()))
+def _check_pid_form(state: CrateState, graph: Graph = None) -> bool | None:
+    """RDA-F1-01M — metadata is identified by a persistent identifier.
+
+    Reads the assembled root, so the answer is one a reader can reproduce from the
+    crate alone. With no graph it answers "not assessed" rather than falling back to
+    ``state.metadata.accession``: a mix of read-from-crate and guessed-from-session
+    verdicts in one column is exactly the ambiguity #670 exists to remove.
+    """
+    if _needs_graph(graph):
+        return None
+    return bool(_root_pid(graph))
 
 
 def _check_rich_metadata(state: CrateState) -> bool:
@@ -98,19 +185,102 @@ def _check_rich_metadata(state: CrateState) -> bool:
     return bool(state.metadata.title and state.metadata.description)
 
 
-def _check_metadata_refs_data(state: CrateState) -> bool:
-    """Check that metadata references data (entities present)."""
-    return len(state.list_entities()) > 0
+def _check_metadata_refs_data(state: CrateState, graph: Graph = None) -> bool | None:
+    """RDA-F3-01M — metadata includes the identifier for *the data*.
+
+    The descriptor must name the root, the root must claim at least one payload File,
+    and every reference walked must resolve to a node in the graph. The old check was
+    ``len(state.list_entities()) > 0``.
+
+    Note the ISA backbone trap: "the root's ``hasPart`` is non-empty and resolves" is
+    *also* a tautology, because assembly always mints a Study ``Dataset`` there. It is
+    payload that has to be named — see :func:`_payload_files`.
+    """
+    if _needs_graph(graph):
+        return None
+    by_id = {str(n.get("@id")): n for n in _nodes(graph)}
+    descriptor = by_id.get("ro-crate-metadata.json", {})
+    root_id = _ref_id(descriptor.get("about"))
+    if not root_id or root_id not in by_id:
+        return False
+    files, walked = _payload_files(graph)
+    if not files:
+        return False
+    return all(part_id in by_id for part_id in walked)
 
 
-def _check_jsonld_context(state: CrateState) -> bool:
-    """Check that metadata uses JSON-LD context / machine-understandable format."""
-    return len(state.list_entities()) > 0
+_RO_CRATE_PROFILE_PREFIX = "https://w3id.org/ro/crate/"
 
 
-def _check_fair_vocabularies(state: CrateState) -> bool:
-    """Check that metadata uses FAIR-compliant vocabularies (has entity types)."""
-    return len(state.list_entities()) > 0
+def _check_jsonld_context(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """RDA-I1-01M / I1-02M — metadata in a standardised, machine-understandable
+    knowledge representation.
+
+    The crate's own descriptor answers this: ``ro-crate-metadata.json`` declaring
+    ``conformsTo`` an RO-Crate version IRI *is* the statement "this file is JSON-LD
+    following RO-Crate". The old check was ``len(state.list_entities()) > 0``.
+
+    An empty crate still passes, and honestly so — the serialisation really is
+    standardised whether or not anything was put in it. What changes is that the
+    answer now comes from the crate rather than from a session object no reader has,
+    which is the half of #670 that is about reproducibility rather than rigour.
+
+    Kept distinct from :func:`_check_conforms_to_profile`, which asks the *community
+    standard* question (a domain profile beyond bare RO-Crate). Two indicators sharing
+    one check can never disagree, so the two pairs read different edges.
+    """
+    if _needs_graph(graph):
+        return None
+    for node in _nodes(graph):
+        if node.get("@id") != "ro-crate-metadata.json":
+            continue
+        conforms = node.get("conformsTo")
+        for ref in conforms if isinstance(conforms, list) else [conforms]:
+            if _ref_id(ref).startswith(_RO_CRATE_PROFILE_PREFIX):
+                return Verdict(True, f"descriptor conformsTo {_ref_id(ref)}")
+        return Verdict(False, "descriptor declares no RO-Crate profile")
+    return Verdict(False, "no ro-crate-metadata.json descriptor in the crate")
+
+
+def _check_fair_vocabularies(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """RDA-I2-01M — metadata uses FAIR-compliant vocabularies.
+
+    Counts the crate's term-bearing nodes and asks how many are actually bound to a
+    resolvable vocabulary: a ``csvw:Column`` with an absolute-IRI ``propertyUrl``, a
+    ``DefinedTerm`` whose ``@id`` or ``inDefinedTermSet`` is one, or a
+    ``PropertyValue`` with an absolute-IRI ``propertyID``.
+
+    The old check was ``len(state.list_entities()) > 0``, i.e. it credited a crate for
+    having any entity at all. A crate that annotates nothing with a controlled term
+    now scores 0 of 0 and fails, which is the point.
+
+    **The bound ratio is the informative output, not the boolean.** A majority is a
+    stated convention and nothing more; it is deliberately *not* fitted to the crates
+    on hand, whose bound ratios run 0.56-0.87 with a median of 0.70, so any sharper
+    cut would be reading a threshold off a corpus that is essentially one deposit.
+    Read the evidence string, and see #670 for why the number beats the verdict.
+    """
+    if _needs_graph(graph):
+        return None
+    total = bound = 0
+    for node in _nodes(graph):
+        types = _node_types(node)
+        if "Column" in types:
+            total, bound = total + 1, bound + _is_external_iri(node.get("propertyUrl"))
+        elif "DefinedTerm" in types:
+            total += 1
+            bound += _is_external_iri(node.get("@id")) or _is_external_iri(
+                node.get("inDefinedTermSet")
+            )
+        elif "PropertyValue" in types:
+            total, bound = total + 1, bound + _is_external_iri(node.get("propertyID"))
+    if not total:
+        return Verdict(False, "no term-bearing node in the crate to bind")
+    return Verdict(
+        bound / total > 0.5,
+        f"{bound} of {total} term-bearing nodes resolve to an external vocabulary "
+        f"({bound / total:.0%})",
+    )
 
 
 def _check_qualified_refs(state: CrateState) -> bool:
@@ -127,9 +297,88 @@ def _check_qualified_refs(state: CrateState) -> bool:
     return False
 
 
-def _check_reuse_attributes(state: CrateState) -> bool:
-    """Check that a plurality of accurate, relevant attributes exists."""
-    return len(state.list_entities()) >= 2
+# The root attributes a reader needs to reuse a dataset without asking anybody.
+_REUSE_ATTRIBUTES = (
+    "name",
+    "description",
+    "license",
+    "identifier",
+    "datePublished",
+    "author",
+    "creator",
+    "publisher",
+    "conformsTo",
+    "keywords",
+    "citation",
+    "contactPoint",
+)
+# The four RO-Crate 1.2 requires on the Root Data Entity. Anchoring the check here
+# rather than on "any N of the twelve" is what keeps it a reading of the spec instead
+# of a threshold read off whichever crates happened to be on disk.
+_ROOT_REQUIRED = ("name", "description", "datePublished", "license")
+_REUSE_BEYOND_REQUIRED = 2
+# The entities a reuser has to be able to identify: what was dosed, what it was dosed
+# on, and how. A name alone does not let anyone re-run or re-analyse the work.
+_REUSE_SUBJECT_TYPES = frozenset(
+    {"MolecularEntity", "Sample", "CellLineSample", "LabProtocol"}
+)
+
+
+def _check_reuse_attributes(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """RDA-R1-01M — a plurality of accurate and relevant attributes, to allow reuse.
+
+    Two limbs, because "plurality" is about the description, not the count of things
+    described. The root must carry all four attributes RO-Crate requires of it
+    (``_ROOT_REQUIRED``) plus ``_REUSE_BEYOND_REQUIRED`` more from
+    ``_REUSE_ATTRIBUTES`` — "plurality" being more than the bare minimum the spec
+    already mandates. And a majority of the crate's subjects must carry a name *plus*
+    something that identifies them: a description, an identifier, or an
+    ``additionalProperty``. Nobody can reuse a chemical given only a common name.
+
+    The old check was ``len(state.list_entities()) >= 2``. That is the flagship #670
+    absurdity: two entities whose ``fields`` are ``{}`` have zero attributes between
+    them and passed an indicator about the plurality of attributes.
+
+    Placeholders do not count. ``_DEFAULT_ROOT_NAME`` is the constant
+    ``_apply_root_name`` falls back to when nothing supplied a title, and
+    ``LICENCE_NOT_STATED_ID`` is what assembly writes when nobody declared a licence;
+    crediting either would move the same tautology one level down.
+    """
+    if _needs_graph(graph):
+        return None
+    from builder.tools._crate_mapping import LICENCE_NOT_STATED_ID
+    from builder.tools.builder import _DEFAULT_ROOT_NAME
+
+    root = _root_node(graph)
+    present = []
+    for attribute in _REUSE_ATTRIBUTES:
+        value = root.get(attribute)
+        if not value:
+            continue
+        if attribute in ("name", "description") and str(value) == _DEFAULT_ROOT_NAME:
+            continue
+        if attribute == "license" and _ref_id(value) == LICENCE_NOT_STATED_ID:
+            continue
+        present.append(attribute)
+
+    subjects = [n for n in _nodes(graph) if _node_types(n) & _REUSE_SUBJECT_TYPES]
+    described = [
+        n
+        for n in subjects
+        if n.get("name")
+        and (n.get("description") or n.get("identifier") or n.get("additionalProperty"))
+    ]
+    missing = [a for a in _ROOT_REQUIRED if a not in present]
+    beyond = len(present) - (len(_ROOT_REQUIRED) - len(missing))
+    enough_subjects = bool(subjects) and len(described) / len(subjects) > 0.5
+    evidence = (
+        f"root carries {len(present)} of {len(_REUSE_ATTRIBUTES)} reuse attributes"
+        + (f", missing required {missing}" if missing else f", {beyond} beyond the four required")
+        + f"; {len(described)} of {len(subjects)} subjects are described beyond a name"
+    )
+    return Verdict(
+        not missing and beyond >= _REUSE_BEYOND_REQUIRED and enough_subjects, evidence
+    )
 
 
 def _effective_license(state: CrateState, graph: Graph = None) -> str:
@@ -197,16 +446,56 @@ def _check_license_machine(state: CrateState, graph: Graph = None) -> bool:
     return _effective_license(state, graph).startswith(("http://", "https://"))
 
 
-def _check_provenance(state: CrateState) -> bool:
-    """Check that metadata includes provenance per community standards."""
-    return any(e._provenance.created_by != "missing" for e in state.list_entities())
+def _check_provenance(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """RDA-R1.2-01M — provenance information according to community-specific standards.
+
+    RO-Crate's community standard for provenance is a ``CreateAction`` naming the
+    ``instrument`` that produced the crate and pointing its ``result`` at the root.
+    The old check read ``entity._provenance.created_by``, a session-only attribute
+    that never reaches the crate: it recorded who told *us* about an entity, which is
+    not the same claim, and no reader could reproduce it.
+
+    An empty crate still passes. The provenance of the packaging act is genuinely
+    recorded; what is absent is data for it to be about, and that absence is caught by
+    the indicators that ask about data.
+    """
+    if _needs_graph(graph):
+        return None
+    root_id = str(_root_node(graph).get("@id") or "./")
+    for node in _nodes(graph):
+        if "CreateAction" not in _node_types(node):
+            continue
+        if node.get("instrument") and _ref_id(node.get("result")) == root_id:
+            return Verdict(True, f"CreateAction {node.get('@id')} records the build")
+    return Verdict(False, "no CreateAction records how the crate was produced")
 
 
-def _check_conforms_to_profile(state: CrateState) -> bool:
-    """Check that metadata complies with a community standard."""
-    types = {e.type for e in state.list_entities()}
-    has_isa_types = bool(types & {"Investigation", "Study", "Assay", "LabProcess"})
-    return has_isa_types
+def _check_conforms_to_profile(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """RDA-R1.3-01M / R1.3-02M — compliance with a (machine-understandable) community
+    standard.
+
+    The root must declare ``conformsTo`` a *domain* profile — something beyond the
+    bare RO-Crate packaging IRI, which :func:`_check_jsonld_context` already covers.
+    The old check inferred the standard from the presence of ISA-shaped entity types
+    in session state, which is a guess about what the crate probably conforms to
+    rather than a reading of what it declares.
+    """
+    if _needs_graph(graph):
+        return None
+    conforms = _root_node(graph).get("conformsTo")
+    declared = [
+        _ref_id(ref)
+        for ref in (conforms if isinstance(conforms, list) else [conforms])
+        if _is_external_iri(ref)
+    ]
+    domain = [iri for iri in declared if not iri.startswith(_RO_CRATE_PROFILE_PREFIX)]
+    if domain:
+        return Verdict(True, f"root conformsTo {', '.join(domain)}")
+    return Verdict(
+        False,
+        "root declares no domain profile"
+        + (f" (only {', '.join(declared)})" if declared else ""),
+    )
 
 
 def _mit_has_coverage(report: MITReport) -> bool:
@@ -338,9 +627,15 @@ def _check_standard_license(state: CrateState, graph: Graph = None) -> bool:
     return _check_license_standard(state, graph)
 
 
-def _check_domain_standard(state: CrateState) -> bool:
-    """Descriptor uses a community-defined metadata standard."""
-    return _check_conforms_to_profile(state)
+def _check_domain_standard(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-3-R3 — descriptor uses a community-defined metadata standard.
+
+    Same question as RDA-R1.3-01M, so it stays the same function: two implementations
+    of one question is how two axes come to disagree about one crate. It follows
+    ``_check_conforms_to_profile`` onto the graph for that reason, not because the DSM
+    ladder needed it.
+    """
+    return _check_conforms_to_profile(state, graph)
 
 
 def _check_standard_field_metadata(state: CrateState) -> bool:
@@ -630,7 +925,25 @@ def _state_check(fn: Callable[[CrateState], bool]) -> DsmCheck:
 # registry is state-only; this set is the migration boundary, not a permanent design —
 # see #665 for why the licence indicators moved first and what a wider move would cost.
 _GRAPH_AWARE_FAIR_CHECKS: frozenset[str] = frozenset(
-    {"license_present", "license_standard", "license_machine"}
+    {
+        "license_present",
+        "license_standard",
+        "license_machine",
+        # #670: these four asked their question of CrateState and could not fail. They
+        # now read the crate a reader receives, and answer "not assessed" rather than
+        # guess when no graph was supplied.
+        "pid_form",
+        "every_entity_has_id",
+        "metadata_refs_data",
+        "fair_vocabularies",
+        "reuse_attributes",
+        # These three could already answer honestly on an empty crate, but answered
+        # from session state a reader never receives. Moving them closes the
+        # reproducibility half of #670 without changing any verdict.
+        "jsonld_context",
+        "provenance",
+        "conforms_to_profile",
+    }
 )
 
 # Map check names to functions
@@ -673,7 +986,7 @@ DSM_CHECKS: dict[str, DsmCheck] = {
     "domain_model": _state_check(_check_domain_model),
     "resolvable_terms": _state_check(_check_resolvable_terms),
     "standard_license": _check_standard_license,
-    "domain_standard": _state_check(_check_domain_standard),
+    "domain_standard": _check_domain_standard,
     "standard_field_metadata": _state_check(_check_standard_field_metadata),
     "controlled_values": _state_check(_check_controlled_values),
     "standard_identifiers": _state_check(_check_standard_identifiers),
@@ -757,8 +1070,10 @@ def assess_fair_maturity(
                 elif check_name in _GRAPH_AWARE_FAIR_CHECKS:
                     # The licence lives on the assembled root, not on CrateState —
                     # see _effective_license. Passing the graph is what makes this
-                    # indicator answerable from the crate a reader receives (#665).
-                    passed = FAIR_CHECKS[check_name](state, graph)
+                    # indicator answerable from the crate a reader receives (#665),
+                    # and is what lets the #670 checks ask about data rather than
+                    # about how many entities the session happens to hold.
+                    passed = _as_verdict(FAIR_CHECKS[check_name](state, graph)).value
                 else:
                     passed = FAIR_CHECKS[check_name](state)
                 indicator_results.append(

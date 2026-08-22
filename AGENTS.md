@@ -598,6 +598,24 @@ output and to the source workbook.
 Note the DSM model text is **CC-BY-4.0**; the FAIRplus repository's MIT `LICENSE.txt`
 covers only its Jekyll theme and does not license the model.
 
+**A check reads the crate, not the session.** An indicator is scored against the
+assembled `@graph` — the bytes a reader receives — so a third party scoring the
+published crate reaches our published number. Given no graph a check answers *not
+assessed* (`None`), which leaves the denominator, rather than guessing from
+`CrateState`; `_GRAPH_AWARE_FAIR_CHECKS` names the checks that hold to this and
+`assessment_graph.needs_graph` states why the alternative is a lie. Two indicators
+asking one question share one function, so the axes cannot disagree about one crate.
+
+**A check must be able to fail, and must ask the published question.** `len(entities)
+> 0` is not an assessment: it scores that the builder ran. The floor is pinned by
+`tests/test_fair_metrics_can_fail.py`, which scores a crate holding two empty entities
+and no payload and requires every indicator whose published text names *the data* to
+read `False`; the packaging indicators it may legitimately meet are enumerated there
+with reasons. Moving a check to the graph without rewriting its predicate inflates the
+score — porting DSM-1-C1 and DSM-1-R0 as-is lifts twelve crates a level for free —
+so **a migration ships with a real crate that fails it, and published scores are
+expected to go down** (#670).
+
 ### External RO-Crate Packages
 
 This project builds on the existing RO-Crate Python ecosystem rather than reinventing crate assembly, validation, or entity models:

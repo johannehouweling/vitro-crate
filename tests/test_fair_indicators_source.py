@@ -180,17 +180,39 @@ class TestFairIndicatorsDerivedFromRda:
             assert ind["priority"] == rda[iid]["priority"], iid
             assert ind["text"] == rda[iid]["text"], iid
 
-    def test_fair_scores_unchanged_for_golden_crate(self):
-        """Re-sourcing definitions must not move any score (definitions only, not
-        logic) — regression against the pre-#356 assessment of S-VHPS21."""
+    def test_fair_scores_for_golden_crate(self):
+        """The per-indicator pin for S-VHPS21, scored the way production scores it.
+
+        Was ``test_fair_scores_unchanged_for_golden_crate``, asserting that re-sourcing
+        the definitions moved no verdict. #670 moves verdicts on purpose, so the pin
+        is re-derived rather than defended, and the assessment now runs against the
+        assembled ``@graph`` — which is what both production callers pass, and the only
+        input a reader of the published crate has.
+
+        Two verdicts changed, both downwards, both for a stated reason:
+
+        * ``RDA-F1-02D`` True -> **False**. "Data is identified by a globally unique
+          identifier": the crate's Files carry crate-relative paths and the root mints
+          no DOI for them to compose against. The old check asked whether every
+          ``Entity`` had an ``entity_id``, which nothing in the crate can falsify.
+        * ``RDA-R1-01M`` True -> **False**. "Plurality of accurate and relevant
+          attributes": the root declares no licence — one of the four RO-Crate requires
+          — and 1 of its 4 subjects is described beyond a bare name. The old check was
+          ``len(state.list_entities()) >= 2``.
+
+        13 met / 5 failed -> **11 met / 7 failed**. ``dsm_level`` is unmoved at 2;
+        the ladder must not rise when checks move to the graph (#670).
+        """
         from builder.tools.fair_assessment import assess_fair_maturity
+        from builder.tools.mit_assessment import _assemble_graph
         from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
-        rep = assess_fair_maturity(vhps_fixture_state("S-VHPS21"))
+        state = vhps_fixture_state("S-VHPS21")
+        rep = assess_fair_maturity(state, graph={"@graph": _assemble_graph(state) or []})
         got = {r["id"]: (r.get("passed"), r.get("scope", "")) for r in rep.indicator_results}
         expected = {
             "RDA-F1-02M": (True, ""),
-            "RDA-F1-02D": (True, ""),
+            "RDA-F1-02D": (False, ""),
             "RDA-F1-01M": (False, ""),
             "RDA-F2-01M": (True, ""),
             "RDA-F3-01M": (True, ""),
@@ -202,7 +224,7 @@ class TestFairIndicatorsDerivedFromRda:
             "RDA-I2-01M": (True, ""),
             "RDA-I3-01M": (True, ""),
             "RDA-I3-03M": (True, ""),
-            "RDA-R1-01M": (True, ""),
+            "RDA-R1-01M": (False, ""),
             "RDA-R1.1-01M": (False, ""),
             "RDA-R1.1-02M": (False, ""),
             "RDA-R1.1-03M": (False, ""),
@@ -231,12 +253,35 @@ class TestFairIndicatorsDerivedFromRda:
     def test_widening_the_model_did_not_move_the_score(self):
         """The met count is a property of the crate, not of how many we ask."""
         from builder.tools.fair_assessment import assess_fair_maturity
+        from builder.tools.mit_assessment import _assemble_graph
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        state = vhps_fixture_state("S-VHPS21")
+        rep = assess_fair_maturity(state, graph={"@graph": _assemble_graph(state) or []})
+        met = sum(1 for r in rep.indicator_results if r.get("passed") is True)
+        failed = sum(1 for r in rep.indicator_results if r.get("passed") is False)
+        # 11/7 is the post-#670 baseline, pinned indicator-by-indicator in the test
+        # above (13/5 before; F1-02D and R1-01M now fail for stated reasons).
+        # R1.3-01D reads False here because no MIT report is passed.
+        assert (met, failed) == (11, 7), "the verdicts moved; only the denominator should"
+        assert len(rep.indicator_results) == 41, "the whole model is reported"
+
+    def test_the_graph_is_what_makes_the_score_answerable(self):
+        """#670: ten indicators read the crate, so state alone cannot answer them.
+
+        Not a redundant restatement of the pin above — it fixes *which* input the
+        number belongs to. A caller passing no graph gets "not assessed" for those
+        ten, and 4 met is a smaller, honest claim rather than the same claim guessed
+        from a session object no reader receives.
+        """
+        from builder.tools.fair_assessment import assess_fair_maturity
         from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
         rep = assess_fair_maturity(vhps_fixture_state("S-VHPS21"))
         met = sum(1 for r in rep.indicator_results if r.get("passed") is True)
-        failed = sum(1 for r in rep.indicator_results if r.get("passed") is False)
-        # 13/5 is the pre-widening baseline, pinned indicator-by-indicator in the
-        # test above. R1.3-01D reads False here because no MIT report is passed.
-        assert (met, failed) == (13, 5), "the verdicts moved; only the denominator should"
-        assert len(rep.indicator_results) == 41, "the whole model is reported"
+        in_scope_unanswered = sum(
+            1
+            for r in rep.indicator_results
+            if r.get("passed") is None and r.get("scope") != "out_of_scope"
+        )
+        assert (met, in_scope_unanswered) == (4, 10)
