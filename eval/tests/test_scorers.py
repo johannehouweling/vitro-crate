@@ -4,7 +4,7 @@ Two axes the manuscript's §Evaluation defines but the codebase lacked:
 
 - ``mit_propertyid_coverage`` — per-parameter MIT coverage joined via
   ``schema:propertyID``, counting only non-empty non-placeholder bindings.
-- ``csvw_air_score`` — the AI-readiness axis, scored ROW-LEVEL so a
+- ``condition_table_typing_score`` — the AI-readiness axis, scored ROW-LEVEL so a
   header-only table cannot pass tautologically (#473), and never penalising
   the #408 rule that legitimately drops a multivalued column's ``valueUrl``.
 
@@ -20,7 +20,7 @@ from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.mit_assessment import load_mit_yaml, unique_module_params
-from eval.scorers import csvw_air_score, mit_propertyid_coverage
+from eval.scorers import condition_table_typing_score, mit_propertyid_coverage
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -226,7 +226,7 @@ class TestCsvwAirScore:
 
     def test_no_pipeline_report_reads_not_assessed(self) -> None:
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
-        result = csvw_air_score(_ref_state(), graph, None)
+        result = condition_table_typing_score(_ref_state(), graph, None)
         assert result["score"] is None
         assert "not assessed" in result["reason"]
 
@@ -234,7 +234,7 @@ class TestCsvwAirScore:
         # THE anti-tautology guard: full CSVW typing over zero rows is vacuous.
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": False, "rows": 0, "path": ""}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.0
 
     def test_populated_resolving_table_scores_full(self, tmp_path: Path) -> None:
@@ -244,7 +244,7 @@ class TestCsvwAirScore:
         )
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 1.0
 
     def test_dropped_valueurl_on_multivalued_column_is_not_penalised(self, tmp_path: Path) -> None:
@@ -259,7 +259,7 @@ class TestCsvwAirScore:
         )
         graph = _table_graph(compound_value_url=False, cell_line_value_url=True)
         record = {"populated": True, "rows": 2, "path": path}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 1.0
 
     def test_single_valued_column_missing_valueurl_is_penalised(self, tmp_path: Path) -> None:
@@ -271,7 +271,7 @@ class TestCsvwAirScore:
         )
         graph = _table_graph(compound_value_url=False, cell_line_value_url=True)
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.75
 
     def test_unresolvable_cell_fails_its_column(self, tmp_path: Path) -> None:
@@ -281,13 +281,13 @@ class TestCsvwAirScore:
         )
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.75
 
     def test_unreadable_payload_earns_only_the_typed_half(self, tmp_path: Path) -> None:
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": True, "rows": 3, "path": str(tmp_path / "missing.csv")}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.5
         assert "payload" in result["reason"]
 
@@ -297,7 +297,7 @@ class TestCsvwAirScore:
             [{"well_id": "1", "cell_line": "CHO-K1", "compound": "Thyroxine"}],
         )
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(_ref_state(), [], record)
+        result = condition_table_typing_score(_ref_state(), [], record)
         assert result["score"] == 0.0
 
     def test_case_mismatched_cell_does_not_resolve(self, tmp_path: Path) -> None:
@@ -310,7 +310,7 @@ class TestCsvwAirScore:
         )
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.75
         assert result["columns"]["compound"]["resolves_in_crate"] is False
 
@@ -323,7 +323,7 @@ class TestCsvwAirScore:
         path = _write_table(tmp_path / "t.csv", [])
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": True, "rows": 3, "path": path}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.0
 
     def test_blank_reference_column_is_penalised_and_diagnosable(
@@ -338,7 +338,7 @@ class TestCsvwAirScore:
         )
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.75
         assert result["columns"]["compound"]["cells"] == 0
 
@@ -349,7 +349,7 @@ class TestCsvwAirScore:
         path.write_bytes(b"well_id,compound\n1,bad\xff\xfecell\n")
         graph = _table_graph(compound_value_url=True, cell_line_value_url=True)
         record = {"populated": True, "rows": 1, "path": str(path)}
-        result = csvw_air_score(_ref_state(), graph, record)
+        result = condition_table_typing_score(_ref_state(), graph, record)
         assert result["score"] == 0.5
         assert "payload" in result["reason"]
 
@@ -369,7 +369,7 @@ class TestCsvwAirScore:
         target_trio = _table_graph(compound_value_url=True, cell_line_value_url=True)
         target_trio[0]["@id"] = "data/exp2_condition_table.csv"
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(_ref_state(), [decoy, *target_trio], record)
+        result = condition_table_typing_score(_ref_state(), [decoy, *target_trio], record)
         assert result["score"] == 1.0
 
     def test_real_emitter_graph_is_matched(self, tmp_path: Path) -> None:
@@ -399,6 +399,6 @@ class TestCsvwAirScore:
             ],
         )
         record = {"populated": True, "rows": 1, "path": path}
-        result = csvw_air_score(state, graph, record)
+        result = condition_table_typing_score(state, graph, record)
         assert result["score"] == 1.0
         assert set(result["columns"]) == {"compound", "cell_line"}
