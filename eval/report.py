@@ -97,11 +97,17 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
                 # Additive content-quality signal — ``None`` for cases that do not
                 # declare a min_entities quota.
                 "meets_quota": result.meets_quota,
-                # The manuscript's evaluation axes (#474): per-parameter
-                # propertyID-joined MIT coverage, and the row-level CSVW /
-                # AI-readiness score (``None`` = not assessed on that arm).
+                # The measurement axes: per-parameter propertyID-joined MIT
+                # coverage, and the row-level CSVW typing / referential-integrity
+                # score (``None`` = not assessed on that arm).
                 "mit_propertyid": result.mit_propertyid,
                 "csvw_typing": result.csvw_typing,
+                # AI-readiness as coverage, never as one number: the Bridge2AI
+                # authors refuse a cross-dimension aggregate, so the diff carries
+                # met-of-assessed and leaves the seven-dimension profile in
+                # ``air_detail`` on the case line (#657).
+                "air_met": result.air_met,
+                "air_assessed": result.air_assessed,
                 # Spread across repeats (#400). Without these the diff reports
                 # means with no dispersion, so a real tweak is indistinguishable
                 # from run-to-run noise on the stochastic ReAct arm. Note

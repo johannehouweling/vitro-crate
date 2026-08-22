@@ -613,11 +613,13 @@ def _run_case(
             typing_details.append({})
         else:
             try:
-                air = condition_table_typing_score(
+                typed = condition_table_typing_score(
                     outcome_i.state, graph_i, _condition_table_report(outcome_i)
                 )
-                typing_scores.append(air["score"])
-                typing_details.append({"reason": air["reason"], "columns": air["columns"]})
+                typing_scores.append(typed["score"])
+                typing_details.append(
+                    {"reason": typed["reason"], "columns": typed["columns"]}
+                )
             except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
                 logger.warning("CSVW typing scoring failed for %s: %s", case.case_id, exc)
                 typing_scores.append(None)

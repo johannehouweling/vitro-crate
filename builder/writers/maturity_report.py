@@ -129,6 +129,11 @@ def _validation_has_signal(validation: ValidationReport) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Severity tiers (#306)
+# ---------------------------------------------------------------------------
+
+
 def _plural_issues(n: int) -> str:
     return f"{n} issue" if n == 1 else f"{n} issues"
 
