@@ -1321,9 +1321,22 @@ agent task (bulk placement tool — follow-up).
 
 ### Assessment Tools
 ```
-assess_mit_coverage() → MITReport
-assess_fair_maturity() → FAIRReport
+assess_mit_coverage()   → MITReport
+assess_fair_maturity()  → FAIRReport
+assess_air_readiness()  → AIRReport
 ```
+All three score published instruments and share one shape: a tri-state verdict per
+item carrying the evidence behind it (`builder/tools/assessment_graph.Verdict`), read
+from the assembled `@graph` rather than from `CrateState` — the domain content exists
+only after assembly. An item the tool cannot assess from a crate is reported *not
+assessed*, never failed, and leaves the denominator.
+
+`AIRReport` carries **no aggregate score**. The Bridge2AI authors state that
+AI-readiness is not scored pass/fail overall, so the axis is seven per-dimension
+percentages; a single number would be an invented metric wearing a citation. Each
+dimension reports the published denominator (every criterion) beside the local one
+(criteria assessed), because the published formula has no "not assessed" state and
+substituting ours silently would misstate the instrument.
 
 ### Session & HITL Tools
 ```
@@ -1866,7 +1879,7 @@ dashboard and covers four axes: profile adherence (rendered from the crate's exi
 `state.validation` — it does **not** re-run the SHACL validator, so the embed adds no validation
 cost to export — validation stays a separate step), FAIR indicators + DSM level
 (`assess_fair_maturity`, with `dsm_blockers` naming what stands before the next level), OECD MIT
-coverage (`assess_mit_coverage`), and a derived reproducibility-readiness checklist.
+coverage (`assess_mit_coverage`), and AI-readiness (`assess_air_readiness`).
 
 The page follows the maturity-report design handoff (PR #607 records it): a header whose headline is the **accession** (subhead: the
 publication's name when the crate has one, else the study title), an **About this study** card
@@ -1894,7 +1907,9 @@ from a list kept by hand, so only a tier that could have failed is allowed to pa
 outranks that state: one filed at a tier the profile defines no check at still reads ✗, the FAIR ladder (the *next* rung dashed red
 and filled to the ratio of indicators met, so a gated 0 never reads as "nothing done"), the **FAIR
 principle 1.3** rose (one wedge per MIT module: angle = share of the checklist, radius = fill;
-faint full wedges carry the share), a graph tile (linked / total entities) and reproducibility.
+faint full wedges carry the share), a graph tile (linked / total entities) and the AI-readiness
+profile (met of assessed, with the seven dimensions as bars; a dimension nothing could be assessed
+in is drawn hollow rather than at zero).
 Each **Entity coverage** block is a fold (#629): the section is an inventory of a whole crate — the
 Files block alone lists 59 on a real deposit — so left open it sits between the reader and
 everything below it, and closed it reads as a contents list. The count rides in the summary
@@ -1903,10 +1918,11 @@ fold open so a printed copy keeps the inventory it exists to carry. The Files bl
 per-Dataset folds nest inside unchanged. Findings collapse into **Recommendations** rows — the validator's own message verbatim in a mono
 chip prefixed by its source layer, the severity badge, then `remediation.describe`'s bold
 instruction with `remediation.why`'s one muted consequence clause — and numbered **References**
-close the page (1: FAIRplus DSM / RDA FDMM; 2: tox-maturity-indicators). There is no FAIR pillar
-detail section and no header verdict pill; the entity explorer, entity coverage, the
+close the page (1: FAIRplus DSM / RDA FDMM; 2: tox-maturity-indicators; 3: the Bridge2AI
+AI-readiness criteria, named as a preprint and as quoted verbatim under CC BY-ND). There is no FAIR
+pillar detail section and no header verdict pill; the entity explorer, entity coverage, the
 profile-adherence breakdown, **the DSM "% complete" grid**, MIT
-coverage and reproducibility readiness keep their sections between the KPI grid and
+coverage and the AI-readiness profile keep their sections between the KPI grid and
 Recommendations.
 
 **The DSM axis reports the published model's own two views, not one.** The gated level
@@ -3052,6 +3068,12 @@ imports and calls it. It calls (does not re-implement) the three assessors:
   `_nonempty` unwraps a single-key `{"@id": …}` before checking, so a placeholder
   is not made real by being modelled as an entity rather than a string (#540).
 - `assess_fair_maturity` — every *failing* indicator is a gap.
+- `assess_air_readiness` — every criterion **assessed and not met** is a gap; a
+  criterion the tool cannot assess never becomes one. Each criterion declares a
+  remedy in `air/criteria.yaml`, and `_is_committable` has the final veto: a remedy
+  naming an entity type with no instance in state is forced `report-only` rather than
+  spending a human turn on a value `_apply_value` would discard. Never `MUST` — that
+  tier is the SHACL build gate, and no profile requires AI-readiness.
 
 **Tiering** mirrors the §6 validation layers (MUST = blocking, SHOULD =
 recommended, MAY = optional):
