@@ -31,10 +31,17 @@ a binding exists with a non-empty, non-placeholder ``value``. Decisions:
 - Run-provenance PropertyValues (owned by the ``CreateAction``) are excluded,
   matching :func:`eval.metrics.crate_graph_hash`'s exclusion.
 
-**The CSVW / AI-readiness axis, scored row-level.**
-:func:`csvw_air_score` gives half the axis to "the condition table is
+**CSVW typing and referential integrity, scored row-level.**
+:func:`condition_table_typing_score` gives half its score to "the condition table is
 CSVW-typed *and populated*" and half to "its reference cells resolve
-in-crate". Decisions:
+in-crate".
+
+This used to be called ``csvw_air_score`` and was presented as the manuscript's
+AI-readiness axis. It is a good measurement and a bad name: no Bridge2AI criterion
+operates below file level, let alone on a table column, so what it measures is CSVW
+typing and referential integrity. AI-readiness is now scored by the published
+instrument (:mod:`builder.tools.air_assessment`), and this feeds it as the evidence
+behind criterion 2.c ("a machine-readable data dictionary or schema"). Decisions:
 
 - **Row-level, not schema-level**: a header-only table scores zero. Every
   crate this builder assembles carries the full typed schema regardless of
@@ -269,12 +276,15 @@ def _read_rows(path: str) -> list[dict[str, str]] | None:
         return None
 
 
-def csvw_air_score(
+def condition_table_typing_score(
     state: CrateState,
     graph: dict[str, Any] | list[dict[str, Any]] | None,
     condition_table: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """The AI-readiness axis: typed-and-populated half + reference half.
+    """CSVW typing and referential integrity: typed-and-populated half + reference half.
+
+    Evidence for Bridge2AI criterion 2.c, not an axis of its own — see the module
+    docstring for why the old ``csvw_air_score`` name overstated what this measures.
 
     ``condition_table`` is the build's own report
     (``pipeline_result["materialized"]["condition_table"]``); ``None`` means

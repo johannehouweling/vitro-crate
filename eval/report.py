@@ -101,7 +101,7 @@ def compare_reports(*reports: EvalReport) -> dict[str, Any]:
                 # propertyID-joined MIT coverage, and the row-level CSVW /
                 # AI-readiness score (``None`` = not assessed on that arm).
                 "mit_propertyid": result.mit_propertyid,
-                "csvw_air": result.csvw_air,
+                "csvw_typing": result.csvw_typing,
                 # Spread across repeats (#400). Without these the diff reports
                 # means with no dispersion, so a real tweak is indistinguishable
                 # from run-to-run noise on the stochastic ReAct arm. Note

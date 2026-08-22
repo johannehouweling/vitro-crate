@@ -2,7 +2,7 @@
 
 The success predicate stays untouched; the two axes are additive signals in
 the ``meets_quota`` mould: ``mit_propertyid`` (always computable from the
-assembled graph) and ``csvw_air`` (``None`` — "not assessed" — for an arm
+assembled graph) and ``csvw_typing`` (``None`` — "not assessed" — for an arm
 that produced no pipeline condition-table report, e.g. ReAct).
 
 Fully offline via mock agents; ``build_and_validate`` runs, so the module
@@ -69,21 +69,48 @@ class TestScorerAxesRecorded:
         assert len(react_result.mit_propertyid_per_repeat) == 2
 
     def test_csvw_axis_not_assessed_without_pipeline_report(self, react_result) -> None:
-        assert react_result.csvw_air is None
-        assert react_result.csvw_air_per_repeat == [None, None]
+        assert react_result.csvw_typing is None
+        assert react_result.csvw_typing_per_repeat == [None, None]
 
     def test_csvw_axis_assessed_from_pipeline_report(self, pipeline_result) -> None:
         # An unpopulated table is a real (deflating) verdict, not "unknown".
-        assert pipeline_result.csvw_air == 0.0
-        assert pipeline_result.csvw_air_per_repeat == [0.0]
+        assert pipeline_result.csvw_typing == 0.0
+        assert pipeline_result.csvw_typing_per_repeat == [0.0]
+
+    def test_ai_readiness_is_scored_on_both_arms(self, react_result, pipeline_result) -> None:
+        """AI-readiness reads the assembled graph, so no arm is exempt from it.
+
+        Unlike `csvw_typing`, it does not depend on a pipeline condition-table
+        report — a ReAct crate is as assessable as a pipeline one.
+        """
+        for result in (react_result, pipeline_result):
+            assert isinstance(result.air_met, int)
+            assert isinstance(result.air_assessed, int)
+            assert 0 <= result.air_met <= result.air_assessed <= 28
+        assert len(react_result.air_met_per_repeat) == 2
+
+    def test_the_ai_readiness_profile_has_seven_dimensions_and_no_total(
+        self, pipeline_result
+    ) -> None:
+        """The authors refuse a cross-dimension aggregate; a column would re-add one."""
+        dimensions = pipeline_result.air_detail["dimensions"]
+        assert [d["dimension"] for d in dimensions] == [0, 1, 2, 3, 4, 5, 6]
+        for dim in dimensions:
+            assert dim["published_pct"] is not None, "theirs is always computable"
+        line = pipeline_result.to_dict()
+        assert "air" not in line, "a single `air` number is the metric this axis replaced"
 
     def test_axes_serialize_into_the_case_line(self, react_result) -> None:
         line = react_result.to_dict()
         assert "mit_propertyid" in line
-        assert "csvw_air" in line
+        assert "csvw_typing" in line
         assert "mit_propertyid_per_repeat" in line
-        assert "csvw_air_per_repeat" in line
+        assert "csvw_typing_per_repeat" in line
         assert "mit_propertyid_detail" in line
+        assert "air_met" in line
+        assert "air_assessed" in line
+        assert "air_met_per_repeat" in line
+        assert "air_detail" in line
 
 
 class TestAxesInComparison:
@@ -108,11 +135,11 @@ class TestAxesInComparison:
             deterministic=None,
             repeats=1,
             mit_propertyid=0.25,
-            csvw_air=None,
+            csvw_typing=None,
             mit_propertyid_per_repeat=[0.25],
-            csvw_air_per_repeat=[None],
+            csvw_typing_per_repeat=[None],
         )
         report = EvalReport(label="a", repeats=1, results=[result])
         cases = compare_reports(report)["cases"]["c1"]["a"]
         assert cases["mit_propertyid"] == 0.25
-        assert cases["csvw_air"] is None
+        assert cases["csvw_typing"] is None

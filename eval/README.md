@@ -108,13 +108,24 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
   parameters, and `mit_propertyid_detail` names which bound so a zero is
   diagnosable (an exact-IRI join: where the crate and the MIT YAML curate
   different terms for one concept, the parameter honestly reads unbound).
-  `csvw_air`: the AI-readiness axis, **row-level** — half for a CSVW-typed
-  *and populated* condition table (a header-only table scores 0, never a
-  vacuous pass), half for its reference cells resolving in-crate, with the
-  #408 multivalued-`valueUrl` drop never penalised. `csvw_air` is `None` —
+  `csvw_typing`: CSVW typing and referential integrity, **row-level** — half for
+  a CSVW-typed *and populated* condition table (a header-only table scores 0,
+  never a vacuous pass), half for its reference cells resolving in-crate, with
+  the #408 multivalued-`valueUrl` drop never penalised. `csvw_typing` is `None` —
   "not assessed" — for an arm without a pipeline condition-table report
-  (ReAct). Both are additive; neither touches `success`. Both surface per
-  repeat (`*_per_repeat`) and in `compare_reports`;
+  (ReAct). It was called `csvw_air` and presented as the AI-readiness axis; no
+  Bridge2AI criterion operates below file level, so it now feeds the real axis
+  as the evidence for criterion 2.c rather than standing in for it (#657).
+  Both are additive; neither touches `success`. Both surface per repeat
+  (`*_per_repeat`) and in `compare_reports`;
+- **AI-readiness** (#657, [`builder/tools/air_assessment.py`](../builder/tools/air_assessment.py))
+  — the published NIH Bridge2AI criteria, scored against the same assembled
+  `@graph`. Recorded as **two integers**, `air_met` and `air_assessed`, and the
+  seven per-dimension percentages in `air_detail["dimensions"]`. There is
+  deliberately no single `air` column: the instrument's authors refuse a
+  cross-dimension aggregate — *"we do not score it pass/fail overall"* — so one
+  would be our invention, which is what this axis exists to stop. `air_met /
+  air_assessed` is coverage, not a score;
 - **tokens** — input / output / total, summed from the run's `profile.ndjson`
   (`node_end`/`model` events);
 - **latency** — wall-clock seconds for the build;

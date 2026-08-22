@@ -25,10 +25,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from builder.state import CrateState
+from builder.tools.air_assessment import assess_air_readiness
 from eval.agent_api import AgentFactory, BuildOutcome
 from eval.corpus import EvalCase, meets_entity_quota, reaches_isa_tox_conformance
 from eval.metrics import compute_cost, crate_graph_hash, mine_profile_metrics
-from eval.scorers import csvw_air_score, mit_propertyid_coverage
+from eval.scorers import condition_table_typing_score, mit_propertyid_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -95,14 +96,22 @@ class CaseResult:
     cases without a quota, ``meets_quota`` is ``None`` and ``entity_counts`` empty
     — the signal is purely additive and never affects ``success``.
 
-    ``mit_propertyid`` / ``csvw_air`` are the manuscript's two evaluation axes
-    (#474, :mod:`eval.scorers`), additive in the same mould: per-parameter MIT
-    coverage joined via ``schema:propertyID``, and the row-level CSVW /
-    AI-readiness score. Headlines are repeat #1's; ``*_per_repeat`` record every
-    repeat (#405). ``csvw_air`` is ``None`` — "not assessed" — for an arm with
-    no pipeline condition-table report (ReAct, mocks); ``mit_propertyid`` is
-    ``None`` when the crate graph could not be assembled or the MIT YAML
-    offers no joinable parameters — not assessed, never a fabricated zero.
+    ``mit_propertyid`` / ``csvw_typing`` are additive measurement axes
+    (#474, :mod:`eval.scorers`): per-parameter MIT coverage joined via
+    ``schema:propertyID``, and the row-level CSVW typing and referential-integrity
+    score. Headlines are repeat #1's; ``*_per_repeat`` record every repeat (#405).
+    ``csvw_typing`` is ``None`` — "not assessed" — for an arm with no pipeline
+    condition-table report (ReAct, mocks); ``mit_propertyid`` is ``None`` when the
+    crate graph could not be assembled or the MIT YAML offers no joinable
+    parameters — not assessed, never a fabricated zero.
+
+    ``air_met`` / ``air_assessed`` are AI-readiness, scored against the published
+    NIH Bridge2AI criteria (#657, :mod:`builder.tools.air_assessment`). They are two
+    integers rather than one float **on purpose**: the instrument's authors refuse a
+    cross-dimension aggregate — "we do not score it pass/fail overall" — so a single
+    ``air`` column would re-invent the metric this axis replaced. The seven
+    per-dimension percentages live in ``air_detail["dimensions"]``, which is where a
+    reader should look; ``air_met / air_assessed`` is coverage, not a score.
     """
 
     case_id: str
@@ -135,11 +144,15 @@ class CaseResult:
     conformance_per_repeat: list[dict[str, bool]] = field(default_factory=list)
     meets_quota_per_repeat: list[bool | None] = field(default_factory=list)
     mit_propertyid: float | None = None
-    csvw_air: float | None = None
+    csvw_typing: float | None = None
     mit_propertyid_detail: dict[str, Any] = field(default_factory=dict)
-    csvw_air_detail: dict[str, Any] = field(default_factory=dict)
+    csvw_typing_detail: dict[str, Any] = field(default_factory=dict)
     mit_propertyid_per_repeat: list[float | None] = field(default_factory=list)
-    csvw_air_per_repeat: list[float | None] = field(default_factory=list)
+    csvw_typing_per_repeat: list[float | None] = field(default_factory=list)
+    air_met: int | None = None
+    air_assessed: int | None = None
+    air_detail: dict[str, Any] = field(default_factory=dict)
+    air_met_per_repeat: list[int | None] = field(default_factory=list)
 
     @property
     def total_tokens(self) -> int:
@@ -236,11 +249,15 @@ class CaseResult:
             "conformance_per_repeat": self.conformance_per_repeat,
             "meets_quota_per_repeat": self.meets_quota_per_repeat,
             "mit_propertyid": self.mit_propertyid,
-            "csvw_air": self.csvw_air,
+            "csvw_typing": self.csvw_typing,
             "mit_propertyid_detail": self.mit_propertyid_detail,
-            "csvw_air_detail": self.csvw_air_detail,
+            "csvw_typing_detail": self.csvw_typing_detail,
             "mit_propertyid_per_repeat": self.mit_propertyid_per_repeat,
-            "csvw_air_per_repeat": self.csvw_air_per_repeat,
+            "csvw_typing_per_repeat": self.csvw_typing_per_repeat,
+            "air_met": self.air_met,
+            "air_assessed": self.air_assessed,
+            "air_detail": self.air_detail,
+            "air_met_per_repeat": self.air_met_per_repeat,
             "success_rate": self.success_rate,
             "always_succeeds": self.always_succeeds,
             "variance": self.variance(),
@@ -485,7 +502,7 @@ def _condition_table_report(outcome: BuildOutcome) -> dict[str, Any] | None:
 
     Lives at ``pipeline_result["materialized"]["condition_table"]`` — the field
     the pipeline arm reports and the ReAct arm (and mocks) leave ``None``, which
-    is exactly the "not assessed" signal :func:`eval.scorers.csvw_air_score`
+    is exactly the "not assessed" signal :func:`eval.scorers.condition_table_typing_score`
     expects.
     """
     result = outcome.pipeline_result
@@ -547,13 +564,16 @@ def _run_case(
     # The manuscript axes (#474) join against the assembled graph the build
     # loop above already produced for the hash (one assembly per repeat, shared).
     # The MIT score is memoised on the digest like the conformance predicate;
-    # csvw_air additionally depends on the repeat's OWN pipeline report (the
+    # csvw_typing additionally depends on the repeat's OWN pipeline report (the
     # condition-table path is per-session), so it is computed per repeat. Both
     # are guarded — one bad crate or CSV must never abort a multi-case run.
     mit_by_digest: dict[str, tuple[float | None, dict[str, Any]]] = {}
     mit_scores: list[float | None] = []
-    air_scores: list[float | None] = []
-    air_details: list[dict[str, Any]] = []
+    typing_scores: list[float | None] = []
+    typing_details: list[dict[str, Any]] = []
+    air_met: list[int | None] = []
+    air_assessed: list[int | None] = []
+    air_profiles: list[list[dict[str, Any]]] = []
     for (outcome_i, _), digest, graph_i in zip(
         repeat_runs, hashes, repeat_graphs, strict=True
     ):
@@ -589,19 +609,42 @@ def _run_case(
         mit_scores.append(mit_by_digest[digest][0])
 
         if graph_i is None:
-            air_scores.append(None)
-            air_details.append({})
+            typing_scores.append(None)
+            typing_details.append({})
         else:
             try:
-                air = csvw_air_score(
+                air = condition_table_typing_score(
                     outcome_i.state, graph_i, _condition_table_report(outcome_i)
                 )
-                air_scores.append(air["score"])
-                air_details.append({"reason": air["reason"], "columns": air["columns"]})
+                typing_scores.append(air["score"])
+                typing_details.append({"reason": air["reason"], "columns": air["columns"]})
             except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
-                logger.warning("CSVW/AIR scoring failed for %s: %s", case.case_id, exc)
-                air_scores.append(None)
-                air_details.append({})
+                logger.warning("CSVW typing scoring failed for %s: %s", case.case_id, exc)
+                typing_scores.append(None)
+                typing_details.append({})
+
+        # AI-readiness is scored per repeat, not memoised on the crate digest: two
+        # repeats can share a canonical @graph and still differ in state, and one of
+        # the 28 criteria is answered from state rather than from the graph.
+        if graph_i is None:
+            air_met.append(None)
+            air_assessed.append(None)
+            air_profiles.append([])
+        else:
+            try:
+                report = assess_air_readiness(outcome_i.state, graph=graph_i)
+                air_met.append(
+                    sum(1 for c in report.criterion_results if c.get("passed") is True)
+                )
+                air_assessed.append(
+                    sum(1 for c in report.criterion_results if c.get("passed") is not None)
+                )
+                air_profiles.append(report.dimensions)
+            except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
+                logger.warning("AI-readiness scoring failed for %s: %s", case.case_id, exc)
+                air_met.append(None)
+                air_assessed.append(None)
+                air_profiles.append([])
     predicate = predicates[0]
     quota = quotas[0]
 
@@ -656,11 +699,15 @@ def _run_case(
         conformance_per_repeat=[dict(p["conformance"]) for p in predicates],
         meets_quota_per_repeat=[q["meets_quota"] for q in quotas],
         mit_propertyid=mit_scores[0],
-        csvw_air=air_scores[0],
+        csvw_typing=typing_scores[0],
         mit_propertyid_detail=mit_by_digest[hashes[0]][1],
-        csvw_air_detail=air_details[0],
+        csvw_typing_detail=typing_details[0],
         mit_propertyid_per_repeat=mit_scores,
-        csvw_air_per_repeat=air_scores,
+        csvw_typing_per_repeat=typing_scores,
+        air_met=air_met[0] if air_met else None,
+        air_assessed=air_assessed[0] if air_assessed else None,
+        air_detail={"dimensions": air_profiles[0]} if air_profiles else {},
+        air_met_per_repeat=air_met,
     )
 
 
