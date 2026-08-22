@@ -507,6 +507,7 @@ _TOOL_ICONS: dict[str, str] = {
     "populate_condition_table": "\U0001f4c8",
     "assess_mit_coverage": "\U0001f52e",
     "assess_fair_maturity": "\U0001f52e",
+    "assess_air_readiness": "\U0001f52e",
     "save_session": "\U0001f4be",
     "load_session": "\U0001f4c1",
     "list_sessions": "\U0001f4ca",

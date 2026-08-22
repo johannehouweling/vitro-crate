@@ -443,7 +443,8 @@ criteria:
 - id: 6.d
   dimension: 6
   label: Contextualized
-  scope: na
+  scope: partial
+  check: data_components_present
   worksheet_label: Contextualized
   remedy:
     entity_type: null

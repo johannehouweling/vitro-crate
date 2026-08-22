@@ -35,7 +35,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from builder.state import AIRReport, CrateState
+from builder.state import AIRReport, CrateState, Entity
 from builder.tools.assessment_graph import (
     Graph,
     Verdict,
@@ -45,6 +45,12 @@ from builder.tools.assessment_graph import (
     node_types,
     nodes,
     ref_id,
+)
+from builder.tools.document_discovery import (
+    CLASS_PROCESSED_DATA,
+    CLASS_RAW_DATA,
+    FILE_CLASSES,
+    classify_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -449,8 +455,8 @@ def _check_project_level_links(state: CrateState, graph: Graph) -> Verdict | Non
     orphans = [n for n in structural if n.get("@id") not in referenced]
     return Verdict(
         bool(parts) and not orphans,
-        f"root lists {len(parts)} parts; {len(orphans)}/{len(structural)} typed entities "
-        "are referenced by nothing",
+        f"root lists {len(parts)} parts; {len(orphans)}/{len(structural)} typed "
+        "entities are unreferenced",
     )
 
 
@@ -487,6 +493,54 @@ def _check_access_conditions(state: CrateState, graph: Graph) -> Verdict | None:
         False,
         "0 entities state conditionsOfAccess — a reader cannot tell whether this data "
         "is public or controlled",
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6 — Computability (continued): the data-availability predicate, harvested
+# ---------------------------------------------------------------------------
+
+def _file_class(entity: Entity) -> str:
+    """What a crate File is: its stamped classification, or read from its name.
+
+    ``attach_files`` stamps every File it places, and ``_deposited_outputs``
+    stamps the ones it wires (#591). A File the agent drafted directly may carry
+    no role at all, and a crate whose data arrived that way must not read as
+    having none — so its name and destination path answer instead, through the
+    same classifier rather than a second rule.
+
+    Only a role the classifier itself emits is taken as a class. ``role`` is free
+    text — ``draft_file`` stamps whatever the agent passes, and the spine stamped
+    ``raw_data``/``processed_data`` before the classification existed, which a
+    resumed session carries forever. Read as classes those match neither tier, so
+    a crate whose data was all present reported having none.
+    """
+    if (role := str(entity.fields.get("role") or "")) in FILE_CLASSES:
+        return role
+    name = str(entity.fields.get("name") or "")
+    return classify_file(name, "", str(entity.fields.get("dest_path") or name))[0]
+
+
+
+def _check_data_components(state: CrateState, _graph: Graph) -> Verdict:
+    """6.d — examples of the data components, to aid understanding of their content.
+
+    ``partial``: the criterion's first half — splits, and what was withheld during
+    collection — has no crate property to read. Its second half does: a crate that
+    ships its measurements is providing the data components; one that ships only
+    protocols and empty template tables is not, whatever its file count says.
+
+    The predicate is inherited verbatim from the invented reproducibility checklist
+    this axis replaced, including the #591 refinement that made it correct — a role
+    string is only read as a class when the classifier itself emits it, because
+    ``draft_file`` stamps whatever the agent passes and a resumed session carries the
+    pre-classification spellings forever. That was hard-won and is kept as written.
+    """
+    files = state.list_entities("File")
+    data = [f for f in files if _file_class(f) in (CLASS_RAW_DATA, CLASS_PROCESSED_DATA)]
+    return Verdict(
+        bool(data),
+        f"{len(data)}/{len(files)} files classify as raw or processed data",
     )
 
 
@@ -553,6 +607,7 @@ def _build_registry() -> dict[str, AirCheck]:
         "payload_checksums": _check_payload_checksums,
         "access_conditions": _check_access_conditions,
         "project_level_links": _check_project_level_links,
+        "data_components_present": _check_data_components,
         "validatable_standard": _check_validatable_standard,
         "portable_formats": _check_non_proprietary_format,
     }
@@ -715,3 +770,11 @@ def air_blockers(state: CrateState, graph: Graph = None) -> list[tuple[str, str,
         if answers.get(str(c.get("id"))) is not None
         and answers[str(c.get("id"))].value is False
     ]
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
+
+TOOL_REGISTRY.register("assess_air_readiness", assess_air_readiness, takes_state=True)

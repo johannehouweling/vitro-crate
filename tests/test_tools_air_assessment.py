@@ -212,6 +212,59 @@ class TestSharedQuestionsShareTheirImplementation:
         assert mine is (theirs.value if isinstance(theirs, Verdict) else theirs)
 
 
+class TestCriterion6dReadsTheFileClassification:
+    """6.d asks for the data components, and any File at all is not that.
+
+    Inherited verbatim from the reproducibility checklist this axis replaced — the
+    one predicate of that checklist worth keeping. It used to be
+    ``bool(state.list_entities("File"))``, which a crate holding three protocols and
+    no measurements satisfied; it counts the files classified as data (#591), and
+    reaches that class through the same classifier the rest of the build uses,
+    because ``File.role`` is free text that predates the classification and outlives
+    it.
+    """
+
+    @staticmethod
+    def _row(*files: dict[str, str]) -> bool:
+        state = CrateState()
+        for index, fields in enumerate(files):
+            state.add_entity(Entity(entity_id=f"file_{index}", type="File", fields=dict(fields)))
+        return air_verdicts(state, None, _graph())["6.d"].value
+
+    def test_a_crate_of_protocols_is_not_a_crate_with_data(self) -> None:
+        assert not self._row(
+            {"name": "SOP.docx", "dest_path": "data/SOP.docx"},
+            {"name": "README.txt", "dest_path": "data/README.txt"},
+        )
+
+    def test_the_measurements_count(self) -> None:
+        assert self._row(
+            {"name": "SOP.docx", "dest_path": "data/SOP.docx"},
+            {"name": "004043.csv", "dest_path": "data/004043.csv", "role": "raw_data_file"},
+        )
+
+    def test_a_session_saved_before_the_classification_still_counts(self) -> None:
+        """The spine used to stamp ``raw_data``/``processed_data`` on every File.
+
+        Those sessions resume without re-running discovery, so their crates carry
+        the retired spelling forever. Read as a class it matches neither tier and
+        the row went dark on a crate whose data was all present.
+        """
+        assert self._row(
+            {"name": "004043.csv", "dest_path": "data/004043.csv", "role": "raw_data"},
+            {"name": "Combined.xlsx", "dest_path": "data/Combined.xlsx", "role": "processed_data"},
+        )
+
+    def test_a_role_the_classification_does_not_use_is_not_a_class(self) -> None:
+        """``role`` is free text — ``draft_file`` takes whatever the agent passes.
+
+        A label the classifier never emits says nothing about which tier the file
+        is, so the file is classified rather than taken at its word.
+        """
+        assert self._row({"name": "004043.csv", "dest_path": "data/004043.csv", "role": "figure"})
+        assert not self._row({"name": "SOP.docx", "dest_path": "data/SOP.docx", "role": "figure"})
+
+
 class TestTheReportShape:
     def test_it_returns_an_air_report(self):
         assert isinstance(assess_air_readiness(CrateState(), graph=_graph()), AIRReport)
