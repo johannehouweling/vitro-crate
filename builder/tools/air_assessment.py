@@ -134,7 +134,7 @@ def _state_check(
     def _wrapped(state: CrateState, _graph: Graph) -> Verdict:
         return Verdict(fn(state), evidence(state) if evidence else "")
 
-    _wrapped.__wrapped_check__ = fn  # type: ignore[attr-defined]
+    setattr(_wrapped, "__wrapped_check__", fn)  # noqa: B010
     return _wrapped
 
 

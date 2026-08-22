@@ -225,7 +225,7 @@ class TestCriterion6dReadsTheFileClassification:
     """
 
     @staticmethod
-    def _row(*files: dict[str, str]) -> bool:
+    def _row(*files: dict[str, str]) -> bool | None:
         state = CrateState()
         for index, fields in enumerate(files):
             state.add_entity(Entity(entity_id=f"file_{index}", type="File", fields=dict(fields)))

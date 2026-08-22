@@ -41,8 +41,8 @@ WORKSHEET_MD5 = "ea7690d1b3b2ead58c2436e7723f6ecc"
 
 def _load_generator():
     spec = importlib.util.spec_from_file_location("gen_air_criteria", GENERATOR)
+    assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
