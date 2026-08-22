@@ -14,6 +14,7 @@ import importlib.util
 import pathlib
 
 import openpyxl
+import pytest
 import yaml
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -46,6 +47,70 @@ def _rda_rows() -> dict[str, dict[str, str]]:
                 "text": str(row[5]).strip(),
             }
     return out
+
+
+# The published model, as distributed in the vendored RDA spreadsheet.
+PUBLISHED_TOTAL = 41
+PUBLISHED_PER_PRIORITY = {"essential": 20, "important": 14, "useful": 7}
+
+
+class TestTheWholePublishedModelIsCarried:
+    """All 41 indicators, including the ones this tool cannot answer.
+
+    The DSM and Bridge2AI files carry every published item and mark what they cannot
+    assess. This one used to carry 21 and simply omit the other 20, so "14 of 21 met"
+    read as coverage of the model when it was really 14 of 41 with 20 never asked.
+    An instrument you report against is one you have to reproduce in full; which parts
+    we answer is a local decision that must be visible, not implied by absence.
+    """
+
+    def test_every_published_indicator_is_present(self):
+        committed = yaml.safe_load(INDICATORS_YAML.read_text())["indicators"]
+        assert len(committed) == PUBLISHED_TOTAL
+        assert {i["id"] for i in committed} == set(_rda_rows())
+
+    def test_the_priority_split_is_the_published_one(self):
+        from collections import Counter
+
+        committed = yaml.safe_load(INDICATORS_YAML.read_text())["indicators"]
+        assert dict(Counter(i["priority"] for i in committed)) == PUBLISHED_PER_PRIORITY
+
+    def test_the_useful_tier_is_no_longer_missing_entirely(self):
+        """All 7 `useful` indicators were absent — a whole priority tier unasked."""
+        committed = yaml.safe_load(INDICATORS_YAML.read_text())["indicators"]
+        assert sum(1 for i in committed if i["priority"] == "useful") == 7
+
+    def test_every_unassessed_indicator_says_why(self):
+        """"Not assessed" without a reason is indistinguishable from an oversight."""
+        committed = yaml.safe_load(INDICATORS_YAML.read_text())["indicators"]
+        unscored = [i for i in committed if i.get("scope") == "out_of_scope"]
+        assert unscored
+        for ind in unscored:
+            assert ind.get("reason"), f"{ind['id']} is out of scope with no reason given"
+            assert "check" not in ind, f"{ind['id']} is out of scope but names a check"
+
+    def test_every_scored_indicator_names_a_registered_check(self):
+        from builder.tools.fair_assessment import FAIR_CHECKS
+
+        committed = yaml.safe_load(INDICATORS_YAML.read_text())["indicators"]
+        for ind in committed:
+            if ind.get("scope") != "out_of_scope":
+                assert ind["check"] in FAIR_CHECKS, f"{ind['id']} names an unknown check"
+
+    def test_the_generator_refuses_an_id_the_model_does_not_define(self):
+        gen = _load_generator()
+        gen.LOCAL_SCOPE["RDA-NOPE-01M"] = ("check", None)
+        try:
+            with pytest.raises(KeyError, match="not an RDA"):
+                gen.build_data()
+        finally:
+            gen.LOCAL_SCOPE.pop("RDA-NOPE-01M", None)
+
+    def test_the_report_states_what_is_asked_and_what_is_not(self):
+        gen = _load_generator()
+        report = gen.format_report(gen.build_data())
+        assert "41" in report
+        assert "out of scope" in report.lower()
 
 
 class TestFairIndicatorsDerivedFromRda:
@@ -100,5 +165,32 @@ class TestFairIndicatorsDerivedFromRda:
             "RDA-R1.3-02M": (True, ""),
             "RDA-R1.3-01D": (False, ""),
         }
+        # Carrying the whole model adds 20 indicators this tool does not answer. They
+        # report "not assessed" and must not move a single verdict above.
+        expected.update(
+            {
+                iid: (None, "out_of_scope")
+                for iid in (
+                    "RDA-F1-01D", "RDA-F4-01M", "RDA-A1-01M", "RDA-A1-02D",
+                    "RDA-A1-03M", "RDA-A1-03D", "RDA-A1-04M", "RDA-A1-05D",
+                    "RDA-A1.1-01M", "RDA-A1.1-01D", "RDA-A1.2-01D", "RDA-I1-01D",
+                    "RDA-I1-02D", "RDA-I2-01D", "RDA-I3-01D", "RDA-I3-02M",
+                    "RDA-I3-02D", "RDA-I3-04M", "RDA-R1.2-02M", "RDA-R1.3-02D",
+                )
+            }
+        )
         assert got == expected
         assert rep.dsm_level == 2
+
+    def test_widening_the_model_did_not_move_the_score(self):
+        """The met count is a property of the crate, not of how many we ask."""
+        from builder.tools.fair_assessment import assess_fair_maturity
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        rep = assess_fair_maturity(vhps_fixture_state("S-VHPS21"))
+        met = sum(1 for r in rep.indicator_results if r.get("passed") is True)
+        failed = sum(1 for r in rep.indicator_results if r.get("passed") is False)
+        # 13/5 is the pre-widening baseline, pinned indicator-by-indicator in the
+        # test above. R1.3-01D reads False here because no MIT report is passed.
+        assert (met, failed) == (13, 5), "the verdicts moved; only the denominator should"
+        assert len(rep.indicator_results) == 41, "the whole model is reported"

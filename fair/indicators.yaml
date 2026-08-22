@@ -10,6 +10,11 @@
 # level and reported out-of-scope, not failed. R1.3-01D delegates to OECD MIT
 # in-vitro coverage. The FAIRplus DSM ladder is generated separately into
 # fair/dsm_indicators.yaml by scripts/gen_dsm_indicators.py.
+#
+# ALL 41 published indicators are carried, including the ones this tool cannot answer.
+# Each of those states WHY, as `scope: out_of_scope` plus a `reason`. Omitting them
+# made a coverage figure overstate itself: "14 of 21 met" reads as coverage of the
+# model when it is really 14 of 41 with 20 never asked.
 
 sources:
   rda:
@@ -30,6 +35,17 @@ sources:
     citation: Ammar, Evelo & Willighagen 2024, Scientific Data 11:503
     doi: 10.1038/s41597-024-03324-x
 indicators:
+- id: RDA-F1-01M
+  dimension: F
+  priority: essential
+  check: pid_form
+  text: Metadata is identified by a persistent identifier
+- id: RDA-F1-01D
+  dimension: F
+  priority: essential
+  scope: out_of_scope
+  reason: the crate's payload files carry no persistent identifier of their own
+  text: Data is identified by a persistent identifier
 - id: RDA-F1-02M
   dimension: F
   priority: essential
@@ -40,11 +56,6 @@ indicators:
   priority: essential
   check: every_entity_has_id
   text: Data is identified by a globally unique identifier
-- id: RDA-F1-01M
-  dimension: F
-  priority: essential
-  check: pid_form
-  text: Metadata is identified by a persistent identifier
 - id: RDA-F2-01M
   dimension: F
   priority: essential
@@ -55,20 +66,83 @@ indicators:
   priority: essential
   check: metadata_refs_data
   text: Metadata includes the identifier for the data
+- id: RDA-F4-01M
+  dimension: F
+  priority: essential
+  scope: out_of_scope
+  reason: harvesting and indexing are properties of the repository serving the crate
+  text: Metadata is offered in such a way that it can be harvested and indexed
+- id: RDA-A1-01M
+  dimension: A
+  priority: important
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Metadata contains information to enable the user to get access to the data
 - id: RDA-A1-02M
   dimension: A
   priority: essential
   scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
   text: Metadata can be accessed manually (i.e. with human intervention)
+- id: RDA-A1-02D
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Data can be accessed manually (i.e. with human intervention)
+- id: RDA-A1-03M
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Metadata identifier resolves to a metadata record
+- id: RDA-A1-03D
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Data identifier resolves to a digital object
+- id: RDA-A1-04M
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Metadata is accessed through standardised protocol
 - id: RDA-A1-04D
   dimension: A
   priority: essential
   scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
   text: Data is accessible through standardised protocol
+- id: RDA-A1-05D
+  dimension: A
+  priority: important
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Data can be accessed automatically (i.e. by a computer program)
+- id: RDA-A1.1-01M
+  dimension: A
+  priority: essential
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Metadata is accessible through a free access protocol
+- id: RDA-A1.1-01D
+  dimension: A
+  priority: important
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Data is accessible through a free access protocol
+- id: RDA-A1.2-01D
+  dimension: A
+  priority: useful
+  scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
+  text: Data is accessible through an access protocol that supports authentication and authorisation
 - id: RDA-A2-01M
   dimension: A
   priority: essential
   scope: out_of_scope
+  reason: the access protocol is a property of the repository serving the crate, not of the crate itself
   text: Metadata is guaranteed to remain available after data is no longer available
 - id: RDA-I1-01M
   dimension: I
@@ -80,21 +154,66 @@ indicators:
   priority: important
   check: jsonld_context
   text: Metadata uses machine-understandable knowledge representation
+- id: RDA-I1-01D
+  dimension: I
+  priority: important
+  scope: out_of_scope
+  reason: the payload is tabular measurement data, not a knowledge representation; only the metadata layer
+    is expressed in a standardised format
+  text: Data uses knowledge representation expressed in standardised format
+- id: RDA-I1-02D
+  dimension: I
+  priority: important
+  scope: out_of_scope
+  reason: the payload is tabular measurement data, not a knowledge representation; only the metadata layer
+    is expressed in a standardised format
+  text: Data uses machine-understandable knowledge representation
 - id: RDA-I2-01M
   dimension: I
   priority: important
   check: fair_vocabularies
   text: Metadata uses FAIR-compliant vocabularies
+- id: RDA-I2-01D
+  dimension: I
+  priority: useful
+  scope: out_of_scope
+  reason: the payload is tabular measurement data, not a knowledge representation; only the metadata layer
+    is expressed in a standardised format
+  text: Data uses FAIR-compliant vocabularies
 - id: RDA-I3-01M
   dimension: I
   priority: important
   check: qualified_refs
   text: Metadata includes references to other metadata
+- id: RDA-I3-01D
+  dimension: I
+  priority: useful
+  scope: out_of_scope
+  reason: references made from inside the payload files are not inspected
+  text: Data includes references to other data
+- id: RDA-I3-02M
+  dimension: I
+  priority: useful
+  scope: out_of_scope
+  reason: references made from inside the payload files are not inspected
+  text: Metadata includes references to other data
+- id: RDA-I3-02D
+  dimension: I
+  priority: useful
+  scope: out_of_scope
+  reason: references made from inside the payload files are not inspected
+  text: Data includes qualified references to other data
 - id: RDA-I3-03M
   dimension: I
   priority: important
   check: qualified_refs
   text: Metadata includes qualified references to other metadata
+- id: RDA-I3-04M
+  dimension: I
+  priority: useful
+  scope: out_of_scope
+  reason: references made from inside the payload files are not inspected
+  text: Metadata include qualified references to other data
 - id: RDA-R1-01M
   dimension: R
   priority: essential
@@ -120,6 +239,13 @@ indicators:
   priority: important
   check: provenance
   text: Metadata includes provenance information according to community-specific standards
+- id: RDA-R1.2-02M
+  dimension: R
+  priority: useful
+  scope: out_of_scope
+  reason: no cross-community provenance language (PROV-O, PAV) is emitted, so there is nothing to check
+    compliance against
+  text: Metadata includes provenance information according to a cross-community language
 - id: RDA-R1.3-01M
   dimension: R
   priority: essential
@@ -135,3 +261,10 @@ indicators:
   priority: essential
   check: mit_coverage
   text: Data complies with a community standard
+- id: RDA-R1.3-02D
+  dimension: R
+  priority: important
+  scope: out_of_scope
+  reason: the payload's compliance with a machine-understandable community standard is a property of the
+    data files, which this tool does not validate here
+  text: Data is expressed in compliance with a machine-understandable community standard
