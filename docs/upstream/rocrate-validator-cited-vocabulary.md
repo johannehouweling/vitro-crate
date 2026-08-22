@@ -1,7 +1,7 @@
-# Upstream request (draft)
+# Upstream request
 
 **Target:** [crs4/rocrate-validator](https://github.com/crs4/rocrate-validator)
-**Status:** to file
+**Status:** filed as [crs4/rocrate-validator#195](https://github.com/crs4/rocrate-validator/issues/195), open and unadopted. Local tracking issue #524 holds the follow-up if it lands.
 
 Everything below the line is the issue text.
 
