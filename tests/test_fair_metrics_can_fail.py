@@ -37,9 +37,22 @@ always carries a name, because ``builder.tools.builder._apply_root_name`` derive
 one and falls back to a constant. Ported as-is they would lift 12 crates from DSM
 0 to DSM 1 for free. ``test_the_ladder_stays_on_the_floor_when_scored_from_the_graph``
 is what makes that regression loud.
+
+**What the DSM rewrite actually did.** Fifteen checks moved onto the graph, and
+``DSM-1-C0`` (``unique_id``) moved with them — deliberately, because it is the rung
+that holds the corrected ``study_summary`` down. No crate in the corpus carries a
+persistent identifier for its datasets, so the published ladder collapsed from
+``{0: 32, 2: 6}`` to ``{0: 38}`` over the 38 sessions+EMPTY, and the Level-1-granted
+ladder from ``{1: 32, 2: 6}`` to ``{1: 38}``. Nothing rose anywhere; six crates fell
+from 2 to 0. Scores going down is the rule here, not a bug.
+
+Nine of the rewrites were refuted and are not here. They are named and pinned in
+``_DSM_STATE_BOUND`` below, as a burn-down: that list may shrink and may never grow.
 """
 
 from __future__ import annotations
+
+import copy
 
 import pytest
 
@@ -356,3 +369,478 @@ class TestTheAnswerIsReproducibleFromTheCrateAlone:
             assert results[indicator] is None, (
                 f"{indicator} answered {results[indicator]!r} with no crate to read"
             )
+
+
+# ---------------------------------------------------------------------------
+# The DSM half of #670. Same principle, applied to the FAIRplus ladder.
+# ---------------------------------------------------------------------------
+
+# DSM checks a crate with no data may still honestly meet. Each is a property of the
+# packaging: the descriptor really is machine-readable and really does declare its
+# schemas, whether or not anything was put in the crate.
+_DSM_ALLOWED: dict[str, str] = {
+    "descriptor_machine_readable": (
+        'DSM-1-R4 "Dataset Descriptor is available in Machine Readable Format" — '
+        "ro-crate-metadata.json is JSON-LD. True for the same honest reason as "
+        "RDA-I1-01M."
+    ),
+    "general_schema": (
+        'DSM-1-R3 "A representation of the Dataset Descriptor conforming to a relevant '
+        'General Purpose Metadata Schema is available" — the descriptor declares '
+        "conformsTo RO-Crate, which is that schema."
+    ),
+    "domain_standard": (
+        'DSM-3-R3 "Descriptor uses a community-defined metadata standard" — the same '
+        "question as RDA-R1.3-01M, sharing its function, and allowlisted there for the "
+        "same reason: the root really does declare the ISA-Tox profile."
+    ),
+    "community_domain_model": (
+        "DSM-3-C2/R1/R4 — conformance to a community domain model, declared as a "
+        "resolvable profile IRI on the root. Honest, but note the predicate must "
+        "actually test for a domain profile: matching any IRI containing the substring "
+        '"profile" is how this one passes for the wrong reason.'
+    ),
+}
+
+# DSM checks that pass on the empty crate and must not. Every one of these names the
+# *dataset*, its *fields*, or its *values* — none of which exist here.
+_DSM_MUST_FAIL: dict[str, str] = {
+    "context_fields": 'DSM-1-R1 "Contextual Metadata is represented at summary level"',
+    "data_machine_readable": 'DSM-1-R5 "Dataset(s) available in Machine Readable Format" — there are no datasets',
+    "data_structured": 'DSM-2-R5 — same published text as DSM-1-R5, at Level 2',
+    "dataset_hierarchy": 'DSM-1-R2 "Data intended for sharing and reuse have a purposely defined representation as Datasets"',
+    "dataset_metadata": 'DSM-1-C2 "Dataset Descriptor(s) includes Identifying & Descriptive Dataset-Level metadata"',
+    "field_level_metadata": 'DSM-2-C6 "Dataset Descriptor includes Field-level Metadata" — the crate has no fields',
+    "generic_model": 'DSM-2-R3 "Dataset Descriptor(s) adopt a Metadata Schema representation that describes the locally defined Dataset Model"',
+    "linked_data": 'DSM-4-R2 "Dataset(s) are standardised to a defined Semantic Data Model"',
+    "machine_interpretable": 'DSM-4-R4 "A Semantic Data Model describing the data is represented in a Machine Readable and Machine Interpretable format"',
+    "semantic_model": 'DSM-4-R3 "A Semantic Data Model used for data harmonisation across Datasets is formally defined"',
+    "standard_field_metadata": 'DSM-3-C6 "Dataset Descriptor includes standard-compliant Field-level Metadata"',
+}
+
+
+# The DSM checks that still answer from ``CrateState`` alone, and why each one is
+# still there. This is a **burn-down**: every entry names a rewrite that was written,
+# measured against all 62 crates, and refuted — in each case by a mutation that makes
+# the crate *worse* while raising the score, or by a serialisation edit that carries no
+# information at all. The list may shrink. It may never grow.
+#
+# Nine rewrites were refuted across these eight registry entries: ``domain_model``
+# backs both DSM-2-C1 (``domain_model_content``) and DSM-2-R1
+# (``domain_model_representation``), and both proposals for it were rejected.
+_DSM_STATE_BOUND: dict[str, str] = {
+    "access_info": (
+        "DSM-1-C3 — proposed as `scope: na`. Half the indicator (the access protocol) "
+        "really is a property of the repository, but the other half (FsF-A1-01M, access "
+        "level and conditions) is answerable from the crate today by aliasing "
+        "`air_assessment._check_access_conditions`, so scoping it na would suppress a "
+        "true finding."
+    ),
+    "context_fields": (
+        "DSM-1-R1 — its only discriminating limb is root-transitive reachability, which "
+        "is borrowed from an open `verify_isa_reachability` REQUIRED bug: adding one "
+        "`mentions` sweep from the root, which is what that validator's own fix text "
+        "instructs, makes it True on 61 of 62 crates."
+    ),
+    "domain_model": (
+        "DSM-2-C1 — the only discriminating limb accepts a reference that need not "
+        "resolve (one dangling `{'@id': '#nowhere'}` flips 40 of 54 failures), and what "
+        "it actually reads corpus-wide is grant administration: 'project reference', "
+        "'work package', 'contact person' and nothing else. DSM-2-R1 — self-reference "
+        "flips 35 of 35, retyping the offending nodes flips 34, and deleting them flips "
+        "31: a crate scores better for throwing its context away than for modelling it "
+        "badly."
+    ),
+    "generic_model": (
+        "DSM-2-R3 — one appended node defeats it. Attachment carries 100% of the "
+        "discrimination and is satisfied by any Dataset anywhere in the graph, so "
+        "`{'@id': '#shim', '@type': 'Dataset', 'mentions': [every csvw:Table]}` flips "
+        "all four real failures to True."
+    ),
+    "has_descriptor": (
+        "DSM-1-R0 — its one discriminating limb is 'the root's name must not equal its "
+        "own type label', and **deleting the root's `additionalType` flips 13 of 13 "
+        "failures to True**. Declaring less raises the score; so does renaming the root "
+        "'Investigations'."
+    ),
+    "resolvable_terms": (
+        "DSM-3-C5 — the population excludes `csvw:Column`, and that exclusion is what "
+        "the verdict rests on: 2260 nodes in the corpus are typed both Column and "
+        "DefinedTerm and hold their resolvable identifier in `propertyUrl`, a slot the "
+        "predicate does not read. Dropping the exclusion moves 48 crates."
+    ),
+    "semantic_model": (
+        "DSM-4-R3 — the anti-synthesis limb does not resist synthesis. **Truncating "
+        "each `propertyUrl` IRI by one path segment**, copying the column title as the "
+        "term name and emitting `x:<counter>` as the code — all pure string operations "
+        "on IRIs the crate already holds — flips it True on 7 of the 7 crates where "
+        "that limb decides the answer."
+    ),
+    "value_level_metadata": (
+        "DSM-2-C7 — two zero-knowledge edits make it pass on 61 of 61 crates that "
+        "declare columns: spelling the numeric datatypes `xsd:unsignedInt`, which the "
+        "hand-typed quantitative list does not know, and emitting one constant "
+        "`inDefinedTermSet` per column, which is a builder correctness improvement "
+        "rather than an attack. An earlier proposal also **flipped True when you "
+        "deleted PropertyValue nodes**."
+    ),
+}
+
+# The subset of ``_DSM_STATE_BOUND`` an empty crate still meets — the tautologies #670
+# did not remove. They are listed in ``_DSM_MUST_FAIL`` with the false claim each one
+# makes, and their assertions there are marked ``xfail(strict=True)``: the assertion
+# still runs, and the day one of them starts failing honestly the suite goes red and
+# demands the entry be deleted from here.
+_DSM_STILL_TAUTOLOGICAL: frozenset[str] = frozenset(
+    {"context_fields", "generic_model", "semantic_model"}
+)
+
+
+def _must_fail_params() -> list:
+    """``_DSM_MUST_FAIL`` as parameters, with the known tautologies pinned as xfail."""
+    return [
+        pytest.param(
+            check,
+            why,
+            marks=pytest.mark.xfail(
+                strict=True, reason=f"still state-bound: {_DSM_STATE_BOUND[check]}"
+            ),
+        )
+        if check in _DSM_STILL_TAUTOLOGICAL
+        else pytest.param(check, why)
+        for check, why in sorted(_DSM_MUST_FAIL.items())
+    ]
+
+
+def _dsm_verdicts(state: CrateState, graph: dict) -> dict[str, object]:
+    from builder.tools.assessment_graph import as_verdict
+    from builder.tools.fair_assessment import DSM_CHECKS
+
+    return {name: as_verdict(fn(state, graph)).value for name, fn in DSM_CHECKS.items()}
+
+
+class TestTheDsmIndicatorsCannotBeMetByAnEmptyCrate:
+    """The DSM half of #670 — the ladder's rungs must ask about the dataset.
+
+    Fifteen checks read True on a crate holding two empty entities and no payload.
+    Eleven of them name the dataset, its fields or its values in their published text,
+    so they are stating something the crate cannot evidence. The other four are about
+    the packaging and may honestly pass; they are enumerated in ``_DSM_ALLOWED``.
+
+    Eight of the eleven now fail, because they read the crate. The remaining three are
+    ``_DSM_STILL_TAUTOLOGICAL``: every graph-based rewrite proposed for them was
+    refuted, so they keep their ``len(state.list_entities()) > 0`` bodies and their
+    assertions here are pinned ``xfail(strict=True)`` rather than deleted. The claim
+    each one makes is still written down, and the pin still runs.
+    """
+
+    @pytest.mark.parametrize(("check", "why"), _must_fail_params())
+    def test_dataset_indicators_must_fail(self, empty_state, empty_graph, check, why) -> None:
+        assert _dsm_verdicts(empty_state, empty_graph)[check] is not True, why
+
+    @pytest.mark.parametrize(("check", "why"), sorted(_DSM_ALLOWED.items()))
+    def test_packaging_indicators_may_pass(self, empty_state, empty_graph, check, why) -> None:
+        assert _dsm_verdicts(empty_state, empty_graph)[check] is True, why
+
+    def test_nothing_outside_the_allowlist_passes(self, empty_state, empty_graph) -> None:
+        """The closed half of the pin — a new DSM tautology cannot slip in unnamed.
+
+        Pinned as an equality, not as a subset, so it is closed in both directions: a
+        new tautology fails it, and so does a fixed one, which forces the entry out of
+        ``_DSM_STILL_TAUTOLOGICAL`` instead of letting the debt list rot.
+        """
+        passing = {k for k, v in _dsm_verdicts(empty_state, empty_graph).items() if v is True}
+        assert passing - set(_DSM_ALLOWED) == set(_DSM_STILL_TAUTOLOGICAL), (
+            f"an empty crate meets {sorted(passing)}. Either the check is a new "
+            "tautology, or it belongs in _DSM_ALLOWED with a written reason — and a "
+            "check that stopped being a tautology must leave _DSM_STILL_TAUTOLOGICAL."
+        )
+
+    def test_every_dsm_check_reads_the_crate(self, empty_state, empty_graph) -> None:
+        """The burn-down pin: exactly these checks still answer from CrateState alone.
+
+        ``_state_check`` marks a wrapped state-only check with ``__wrapped_check__``;
+        that attribute is how you enumerate what still needs moving. #670 moved fifteen
+        and left these eight registry entries — nine refuted rewrites, since
+        ``domain_model`` backs both DSM-2-C1 and DSM-2-R1 — behind.
+
+        Each survived two rounds of design and adversarial verification, and each was
+        refuted by an edit that carries no information: ``has_descriptor``'s
+        discriminating limb flips True when you **delete** the root's
+        ``additionalType``; ``semantic_model`` becomes True corpus-wide when you
+        **truncate each propertyUrl IRI by one path segment**; ``value_level_metadata``
+        flipped True when you **deleted PropertyValue nodes**. ``_DSM_STATE_BOUND``
+        carries the rest, one line each.
+
+        This is an equality, so the number can only go down: fixing one means deleting
+        its entry, and adding a new state-bound check means this test goes red.
+        """
+        from builder.tools.fair_assessment import DSM_CHECKS
+
+        state_bound = {n for n, fn in DSM_CHECKS.items() if hasattr(fn, "__wrapped_check__")}
+        assert state_bound == set(_DSM_STATE_BOUND), (
+            "the set of DSM checks that still score the session rather than the crate "
+            f"has changed: {sorted(state_bound)}. If one was fixed, delete its entry "
+            "from _DSM_STATE_BOUND; nothing may be added to it."
+        )
+
+
+class TestTheRewrittenDsmPredicatesDiscriminate:
+    """The other half of the DSM rule: a rewritten check must be able to *pass*, too.
+
+    ``unique_id`` is False on all 62 crates on hand and ``cross_dataset_refs``' external
+    limb is dead on every one of them, so neither is exercised on the passing side by
+    any fixture. These build the passing case by hand, so "false everywhere" cannot be
+    mistaken for "correctly strict".
+    """
+
+    @staticmethod
+    def _verdict(name: str, graph: dict):
+        from builder.tools.assessment_graph import as_verdict
+        from builder.tools.fair_assessment import DSM_CHECKS
+
+        return as_verdict(DSM_CHECKS[name](CrateState(), graph))
+
+    @staticmethod
+    def _two_dataset_crate() -> dict:
+        """A root, one Assay holding a deposited file, and a related dataset elsewhere."""
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Thyroid uptake assay",
+                    "description": "MCT8-MDCK1 uptake of T3.",
+                    "hasPart": [{"@id": "assays/a1/"}],
+                    "isBasedOn": {"@id": "https://doi.org/10.5281/zenodo.1"},
+                },
+                {
+                    "@id": "assays/a1/",
+                    "@type": "Dataset",
+                    "additionalType": "Assay",
+                    "name": "Uptake assay",
+                    "hasPart": [{"@id": "assays/a1/uptake.csv"}],
+                },
+                {
+                    "@id": "assays/a1/uptake.csv",
+                    "@type": "File",
+                    "name": "uptake.csv",
+                    "encodingFormat": "text/csv",
+                },
+            ]
+        }
+
+    def test_a_cited_dataset_counts_only_when_the_crate_types_it_as_one(self) -> None:
+        """DSM-2-C5's external limb needs a ``Dataset``-typed node, not a bare reference.
+
+        A crate may relate itself to a dataset it does not carry — that is how a reuse
+        crate earns the indicator — but the reference alone says nothing about what was
+        cited. Pinned in all three states because the difference is one ``@type``.
+        """
+        graph = self._two_dataset_crate()
+        assert self._verdict("cross_dataset_refs", graph).value is False
+
+        stub = {"@id": "https://doi.org/10.5281/zenodo.1", "@type": "Dataset"}
+        graph["@graph"].append(stub)
+        assert self._verdict("cross_dataset_refs", graph).value is True
+
+        stub["@type"] = "CreativeWork"
+        assert self._verdict("cross_dataset_refs", graph).value is False
+
+    def test_dsm_1_r4_answers_exactly_what_the_rda_check_answers(self) -> None:
+        """DSM-1-R4's own ``rda_ref`` names RDA-I1-02M, so it delegates to that check.
+
+        Pinned as **equality of verdict**, not as ``DSM_CHECKS[...] is
+        _check_jsonld_context``: the registry entry is a delegating wrapper carrying the
+        docstring, so an identity assertion is false while the claim it stands for —
+        that the two axes cannot disagree about one crate — is true.
+        """
+        from builder.tools.fair_assessment import _check_jsonld_context
+
+        conformant = copy.deepcopy(self._two_dataset_crate())
+        conformant["@graph"][0]["conformsTo"] = {"@id": "https://w3id.org/ro/crate/1.2"}
+
+        unprofiled = copy.deepcopy(self._two_dataset_crate())  # descriptor, no conformsTo
+
+        headless = copy.deepcopy(self._two_dataset_crate())
+        headless["@graph"] = headless["@graph"][1:]  # no descriptor node at all
+
+        for label, graph in (
+            ("conformant", conformant),
+            ("no profile declared", unprofiled),
+            ("no descriptor node", headless),
+        ):
+            mine = self._verdict("descriptor_machine_readable", graph)
+            theirs = _check_jsonld_context(CrateState(), graph)
+            assert mine == theirs, f"{label}: DSM-1-R4 {mine} vs RDA-I1-02M {theirs}"
+        assert self._verdict("descriptor_machine_readable", conformant).value is True
+        assert self._verdict("descriptor_machine_readable", headless).value is False
+
+    @staticmethod
+    def _schematised_table(content_size: int) -> dict:
+        """One CSV declaring two fully described columns, at a stated byte size."""
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "data/plate.csv"}]},
+                {
+                    "@id": "data/plate.csv",
+                    "@type": ["File", "csvw:Table"],
+                    "name": "plate.csv",
+                    "encodingFormat": "text/csv",
+                    "contentSize": str(content_size),
+                    "tableSchema": {"@id": "#schema"},
+                },
+                {
+                    "@id": "#schema",
+                    "@type": "csvw:Schema",
+                    "columns": [{"@id": "#col_well"}, {"@id": "#col_dose"}],
+                },
+                {
+                    "@id": "#col_well",
+                    "@type": "csvw:Column",
+                    "titles": "well",
+                    "datatype": "string",
+                    "propertyUrl": {"@id": "http://purl.obolibrary.org/obo/OBI_0000073"},
+                },
+                {
+                    "@id": "#col_dose",
+                    "@type": "csvw:Column",
+                    "titles": "dose",
+                    "datatype": "double",
+                    "propertyUrl": {"@id": "http://purl.obolibrary.org/obo/CHEBI_23888"},
+                },
+            ]
+        }
+
+    def test_a_header_only_table_cannot_become_populated_by_its_encoding(self) -> None:
+        """DSM-3-C6's row test must have margin against a BOM and against CRLF.
+
+        The derived header of ``well,dose`` is 10 bytes assuming LF. A crate that wrote
+        the identical empty file with a UTF-8 BOM and RFC 4180's CRLF stores 14, and an
+        exact-equality cut would call that a populated table — which is how the whole
+        0-of-62 result on this corpus sat one byte away from 39-of-62 with no data
+        added. Every byte count in this test is a specification quantity, not a
+        threshold: 10 = the header, +3 = the BOM, +1 = CRLF for LF, +2 = the shortest
+        possible two-column record.
+        """
+        header = len("well,dose\n")
+        for size, why in (
+            (header, "the header alone"),
+            (header + 1, "the header with a CRLF terminator"),
+            (header + 3, "the header behind a UTF-8 BOM"),
+            (header + 4, "the header behind a BOM and terminated CRLF"),
+        ):
+            verdict = self._verdict("standard_field_metadata", self._schematised_table(size))
+            assert verdict.value is False, f"{why} was read as holding rows: {verdict}"
+            assert "no rows" in verdict.evidence
+
+        populated = self._verdict(
+            "standard_field_metadata", self._schematised_table(header + 4 + 2)
+        )
+        assert populated.value is True, (
+            f"a table one whole record longer than the noise floor must count: {populated}"
+        )
+
+    def test_unique_id_passes_only_when_the_crate_is_identified_outside_itself(self) -> None:
+        """DSM-1-C0 is False on all 62 crates on hand, so its passing case is built here.
+
+        Both limbs must be satisfiable together: every shared Dataset assigned an
+        identifier, and the crate globally identified. A bare accession is neither.
+        """
+        graph = self._two_dataset_crate()
+        root = next(n for n in graph["@graph"] if n["@id"] == "./")
+        assay = next(n for n in graph["@graph"] if n["@id"] == "assays/a1/")
+        assay["identifier"] = "a1"
+
+        root["identifier"] = "S-VHPS22"
+        assert self._verdict("unique_id", graph).value is False, (
+            "an accession is unique inside BioStudies and ambiguous outside it"
+        )
+
+        root["identifier"] = "https://doi.org/10.5281/zenodo.1234567"
+        assert self._verdict("unique_id", graph).value is True
+
+        del assay["identifier"]
+        assert self._verdict("unique_id", graph).value is False, (
+            "a root PID does not identify a Dataset the crate never named"
+        )
+
+
+class TestInflationCannotHideBehindAFailingLevelOne:
+    """The ladder is cumulative, so a Level-2+ tautology is invisible until L1 passes.
+
+    ``_compute_dsm_level`` stops at the first level with a failure. Today Level 1 fails
+    on 32 of 38 real sessions — because ``unique_id``, ``study_summary`` and
+    ``has_descriptor`` read ``CrateState`` fields nothing writes — so **every crate is
+    capped at 0 and no change above Level 1 can move the published number at all**.
+
+    That makes "the published ladder did not rise" worthless as a safety check for
+    Levels 2-4: it is guaranteed by a defect, not by the predicates under test. An
+    adversarial review of #670's first DSM proposals measured exactly this — two
+    Level-2 predicates that moved the published distribution not at all lifted **24
+    crates a level** once Level 1 was allowed to pass.
+
+    So this measures the ladder with Level 1 forced True. That is the number a
+    Level-2+ change has to defend, and it is the one that stays honest after the
+    Level-1 checks are eventually fixed.
+    """
+
+    @staticmethod
+    def _level_with_level_one_granted(state: CrateState, graph: dict) -> int:
+        """The DSM level this crate would reach if Level 1 were satisfied."""
+        from builder.tools.assessment_graph import Verdict
+        from builder.tools.fair_assessment import (
+            DSM_INDICATORS_PATH,
+            _assessable_indicators,
+            _load_yaml,
+            dsm_verdicts,
+        )
+
+        data = _load_yaml(DSM_INDICATORS_PATH)
+        assert data is not None
+        answers = dsm_verdicts(state, data, graph)
+        level_one = {
+            str(ind.get("id")) for ind, _ in _assessable_indicators(data, 1)
+        }
+        granted = {
+            k: (Verdict(True, "granted") if k in level_one else v)
+            for k, v in answers.items()
+        }
+
+        levels = sorted(
+            {
+                lvl
+                for ind in data.get("indicators", [])
+                if isinstance(lvl := ind.get("level"), int) and lvl >= 1
+            }
+        )
+        reached = 0
+        for level in levels:
+            answered = [
+                v.value
+                for ind, _ in _assessable_indicators(data, level)
+                if (v := granted.get(str(ind.get("id")))) is not None
+                and v.value is not None
+            ]
+            if not answered or not all(answered):
+                break
+            reached = level
+        return reached
+
+    def test_the_empty_crate_reaches_no_further_than_level_one(
+        self, empty_state, empty_graph
+    ) -> None:
+        """Even handed Level 1 outright, a crate with no data must climb no higher.
+
+        Levels 2-4 are about the dataset's fields, values and semantics. A crate with
+        none of those cannot evidence them, so anything above 1 here is a Level-2+
+        tautology — the class of defect the published number cannot currently see.
+        """
+        reached = self._level_with_level_one_granted(empty_state, empty_graph)
+        assert reached <= 1, (
+            f"with Level 1 granted, an empty crate reaches DSM {reached}. Some "
+            "Level-2+ indicator is satisfied by the builder's scaffolding rather than "
+            "by data."
+        )

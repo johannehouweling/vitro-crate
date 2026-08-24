@@ -7,7 +7,7 @@ and computes DSM level from fair/dsm_indicators.yaml check results.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +132,349 @@ def _root_pid(graph: Graph) -> str:
         if text.startswith(("http://", "https://", "10.")) or "doi" in text.lower():
             return text
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Shared JSON-LD shape primitives, and the crate populations the DSM asks about
+#
+# Any property in a JSON-LD document may be written as a scalar, as a list, or as a
+# node object, and all three spellings are legal for one crate. A predicate that reads
+# ``node.get(key)`` straight therefore scores a crate on its serialisation habit
+# rather than on its content: ``str(["text/csv"]).split(";")[0]`` is ``"['text/csv']"``,
+# which is in no set, so a legal crate reads as having declared no format at all. Both
+# rounds of #670's adversarial review caught proposals mishandling list-valued
+# ``tableSchema``, ``columns``, ``valueUrl`` and ``datatype``, so the normalisation
+# lives here, once, and every check below reads through it rather than re-deriving it.
+# ---------------------------------------------------------------------------
+
+
+def _values(node: dict[str, Any], key: str) -> list[Any]:
+    """Every value of *key*, whether it was written as a scalar or as a list."""
+    raw = node.get(key)
+    if raw is None:
+        return []
+    return list(raw) if isinstance(raw, list) else [raw]
+
+
+def _ids(value: Any) -> list[str]:
+    """Every ``@id`` a property value carries: scalar, node object, or a list of either.
+
+    :func:`_ref_id` stringifies a list into its Python repr, so a one-element list
+    defeats every comparison built on it and leaks ``[{'@id': …}]`` into published
+    evidence.
+    """
+    items = value if isinstance(value, list) else [value]
+    return [rid for item in items if (rid := _ref_id(item))]
+
+
+def _ref_ids(node: dict[str, Any], *keys: str) -> list[str]:
+    """The ``@id``s *node* points at through *keys*, list- and node-object-safe."""
+    return [rid for key in keys for rid in _ids(node.get(key))]
+
+
+def _any_external(value: Any) -> bool:
+    """True when any ``@id`` a (possibly list-valued) property carries is an absolute IRI."""
+    return any(rid.startswith(("http://", "https://")) for rid in _ids(value))
+
+
+def _text(value: Any) -> str:
+    """A property's literal text, normalised — scalar or list, one reading.
+
+    Comparing one raw value against another is how a list-valued ``name`` silently
+    stops matching a scalar ``description``.
+    """
+    items = value if isinstance(value, list) else [value]
+    words = " ".join(str(i) for i in items if isinstance(i, str | int | float))
+    return " ".join(words.split()).strip().lower().rstrip(".")
+
+
+def _outgoing_refs(
+    node: dict[str, Any], keys: tuple[str, ...] | None = None
+) -> Iterator[str]:
+    """Every node this one *references*, as ``{"@id": …}`` — never a bare literal.
+
+    A reference in JSON-LD is a node object. A bare string that happens to equal
+    another node's ``@id`` is a literal, and walking it as an edge would let a crate
+    grow its own graph by writing a matching string into a text field. ``@type``'s
+    values are class names, not references.
+    """
+    for key, value in node.items():
+        if key in ("@id", "@type", "@context"):
+            continue
+        if keys is not None and key not in keys:
+            continue
+        for item in value if isinstance(value, list) else [value]:
+            if isinstance(item, dict) and (rid := str(item.get("@id") or "")):
+                yield rid
+
+
+def _has_role(node: dict[str, Any], role: str) -> bool:
+    """Whether *node* declares the ISA role *role*, list- or scalar-valued."""
+    return any(_ref_id(v) == role or str(v) == role for v in _values(node, "additionalType"))
+
+
+def _model_datasets(graph: Graph) -> list[dict[str, Any]]:
+    """The Datasets the crate's own model defines — every Dataset but the root.
+
+    The root is excluded because it is packaging: RO-Crate requires it, so an edge that
+    starts there is the serialiser talking, not the model.
+    """
+    root_id = str(_root_node(graph).get("@id") or "./")
+    return [
+        n
+        for n in _nodes(graph)
+        if "Dataset" in _node_types(n) and str(n.get("@id")) != root_id
+    ]
+
+
+def _matches_slot_type(node: dict[str, Any], slot: str) -> bool:
+    """Whether *node* is this crate's realisation of the MIT crate slot *slot*.
+
+    Delegates to ``mit_assessment._node_matches_slot_type``, the canonical D16 matcher,
+    rather than comparing ``additionalType`` as a raw string: the canonical path routes
+    the value through ``_local``, so the legal CURIE spelling ``isa:CellLine`` still
+    matches. A hand-rolled equality test does not, and #670's second review measured
+    what that costs — rewriting every ``additionalType: "CellLine"`` to ``"isa:CellLine"``
+    evaporated the whole cell-line population and flipped 39 of 42 failing crates to
+    True on DSM-3-C4.
+
+    The one thing added on top is the list spelling: ``_additional_type_of`` reads a
+    scalar or a node object but returns ``None`` for ``["CellLine"]``, and a subject
+    that drops out of the population makes the indicator *easier*, so the list form is
+    folded in here rather than left to inflate the score.
+    """
+    from builder.tools.mit_assessment import _SLOT_TYPE_MATCH, _local, _node_matches_slot_type
+
+    if _node_matches_slot_type(node, slot):
+        return True
+    rule = _SLOT_TYPE_MATCH.get(slot)
+    if rule is None:
+        return False
+    bases, additional = rule
+    if additional is None or not (bases & {_local(t) for t in _node_types(node)}):
+        return False
+    return any(
+        _local(_ref_id(v) or str(v)) == additional for v in _values(node, "additionalType")
+    )
+
+
+# Media types that carry data a machine can parse into records without a human in the
+# loop — the SECOND star of the 5-star Open Data scheme ("structured data … e.g. Excel
+# instead of an image scan of a table"). Deliberately wider than ``_OPEN_MEDIA_TYPES``,
+# which is the THIRD star and is DSM-3-R5's question: a spreadsheet is machine readable
+# but proprietary; a PDF or a README is open but is a rendering, not data. DSM-3-R5 is
+# scored on the INTERSECTION of the two, so the two rungs cannot contradict each other
+# about one crate.
+_MACHINE_READABLE_MEDIA_TYPES = frozenset(
+    {
+        "text/csv", "text/tab-separated-values", "text/turtle",
+        "application/json", "application/ld+json",
+        "application/xml", "text/xml",
+        "application/x-hdf5", "application/x-netcdf", "application/parquet",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/vnd.oasis.opendocument.spreadsheet",
+    }
+)
+
+# Media types that do not identify the format at all: a machine handed one of these
+# still has to guess. ``application/octet-stream`` is the IANA name for "unknown bytes".
+_OPAQUE_MEDIA_TYPES = frozenset(
+    {
+        "", "application/octet-stream", "binary/octet-stream", "application/x-binary",
+        "application/unknown", "unknown",
+    }
+)
+
+# Payload that holds fields — delimited text and spreadsheets alike.
+_TABULAR_MEDIA_TYPES = frozenset(
+    {
+        "text/csv", "text/tab-separated-values",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/vnd.oasis.opendocument.spreadsheet",
+    }
+)
+_TABULAR_SUFFIXES = (".csv", ".tsv", ".tab", ".xls", ".xlsx", ".xlsm", ".ods")
+_DELIMITED_MEDIA_TYPES = frozenset({"text/csv", "text/tab-separated-values"})
+_DELIMITED_SUFFIXES = (".csv", ".tsv", ".tab")
+
+# How much longer than its derived header a delimited file can be while still holding
+# no record: a UTF-8 BOM (3 bytes) plus the CRLF RFC 4180 mandates where the derivation
+# assumed LF (1 byte). Both are read off the specifications, not off a corpus.
+_ENCODING_SLACK = 4
+
+
+def _media_type(node: dict[str, Any]) -> str:
+    """``encodingFormat`` as a bare lowercase media type, list- and node-object-safe.
+
+    Only the first non-empty declaration is read, so ``["application/octet-stream",
+    "text/csv"]`` reads as octet-stream. That is the deflationary choice, and it is
+    stated here rather than left implicit.
+    """
+    for value in _values(node, "encodingFormat"):
+        text = _ref_id(value) if isinstance(value, dict) else str(value or "")
+        text = text.split(";")[0].strip().lower()
+        if text:
+            return text
+    return ""
+
+
+def _is_tabular(node: dict[str, Any]) -> bool:
+    """A payload file that holds fields — delimited text or a spreadsheet.
+
+    Read from the media type *or* the suffix *or* a ``csvw:Table`` typing, so a crate
+    cannot shrink a denominator by declining to declare its data tabular.
+    """
+    return (
+        _media_type(node) in _TABULAR_MEDIA_TYPES
+        or str(node.get("@id") or "").lower().endswith(_TABULAR_SUFFIXES)
+        or "Table" in _node_types(node)
+    )
+
+
+def _minted_by_the_builder(node: dict[str, Any]) -> bool:
+    """Whether the crate declares this payload file as one the tool wrote for itself.
+
+    ``_synth_condition_table`` and the process-result templates write header-only CSVs
+    into ``data/`` on every build and stamp ``AUTOGENERATED`` on their ``name``
+    (``_crate_mapping.AUTOGENERATED_MARKER``, written unconditionally at mapping time
+    and never cleared afterwards), so "the crate contains a CSV" is a fact about the
+    assembler, not about the deposit.
+
+    The marker is a **naming convention** — matched on ``name``, shared with
+    ``air_assessment`` and ``provenance_dag._AUTOGENERATED_MARKER`` — not a typed flag.
+    Two residuals follow and are load-bearing for the checks that read this: a scaffold
+    whose name was edited reads as deposited, and a builder-minted condition table that
+    ``populate_condition_table`` later filled with the depositor's own plate map still
+    reads as minted.
+    """
+    from builder.tools._crate_mapping import AUTOGENERATED_MARKER
+
+    return str(node.get("name") or "").upper().startswith(AUTOGENERATED_MARKER)
+
+
+def _deposited_files(graph: Graph) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(payload files the crate received, payload files the builder minted itself).
+
+    The split every DSM check about *the data* reads, so that none of them is answered
+    by the assembler's own templates. See :func:`_minted_by_the_builder` for what the
+    marker is and what it cannot see.
+    """
+    files, _walked = _payload_files(graph)
+    minted = [f for f in files if _minted_by_the_builder(f)]
+    minted_ids = {id(f) for f in minted}
+    return [f for f in files if id(f) not in minted_ids], minted
+
+
+# XSD/CSVW datatypes a machine can compute with rather than merely store. The CSVW
+# default is ``string``, so a string-ish type declares nothing about the value.
+_COMPUTABLE_DATATYPES = frozenset(
+    {
+        "decimal", "double", "float", "integer", "int", "long", "short", "byte",
+        "nonnegativeinteger", "positiveinteger", "nonpositiveinteger", "negativeinteger",
+        "unsignedint", "unsignedlong", "unsignedshort", "unsignedbyte",
+        "boolean", "date", "datetime", "datestamp", "time", "duration",
+        "gyear", "gmonth", "gday", "gyearmonth", "gmonthday", "anyuri", "hexbinary",
+        "base64binary",
+    }
+)
+_OPAQUE_DATATYPES = frozenset(
+    {
+        "string", "normalizedstring", "token", "name", "language", "anyatomictype",
+        "any", "json", "html", "xml",
+    }
+)
+_KNOWN_DATATYPES = _COMPUTABLE_DATATYPES | _OPAQUE_DATATYPES
+
+
+def _datatype_names(field: dict[str, Any]) -> list[str]:
+    """Every declared CSVW datatype as a bare lowercase local name.
+
+    Unwraps the list form, the ``{"base": …}`` object form and every IRI/CURIE spelling
+    of one datatype, so a notation cannot be mistaken for a semantics. All declared
+    values are returned, never just the first, so ``["string", "double"]`` cannot
+    smuggle a computable type past a quantifier that means "every declared type".
+
+    The local-name reduction is what makes the whitelist notation-blind, and it is also
+    its weakness: a custom IRI whose local name collides (``https://ex.org/mytype#double``,
+    ``foo:double``) is credited. That is inflation by naming, narrower than the
+    blacklist hole it replaces; matching full XSD/CSVW IRIs plus their canonical
+    prefixes is the tighter construction if it is ever needed.
+    """
+    out: list[str] = []
+    for declared in _values(field, "datatype"):
+        if isinstance(declared, dict):
+            declared = declared.get("base") or declared.get("@id")
+        text = str(declared or "").strip()
+        if text:
+            out.append(text.rsplit("#", 1)[-1].rsplit("/", 1)[-1].rsplit(":", 1)[-1].lower())
+    return out
+
+
+def _declares_a_datatype(field: dict[str, Any]) -> bool:
+    """At least one datatype, and every one declared is one CSVW/XSD defines."""
+    names = _datatype_names(field)
+    return bool(names) and all(n in _KNOWN_DATATYPES for n in names)
+
+
+def _datatype_is_computable(field: dict[str, Any]) -> bool:
+    """Every declared datatype is one a machine can compute with."""
+    names = _datatype_names(field)
+    return bool(names) and all(n in _COMPUTABLE_DATATYPES for n in names)
+
+
+def _schema_fields(graph: Graph) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[str]]]:
+    """(table ``@id`` → its resolved ``csvw:Column`` nodes, table ``@id`` → unresolved refs).
+
+    ``tableSchema`` and ``columns`` are both normalised, so a one-element list does not
+    read as "no schema", and an unresolved reference is reported rather than silently
+    dropped — "no schema" and "a schema whose columns do not resolve" are different
+    findings and an evidence string must not conflate them.
+    """
+    by_id = {str(n.get("@id")): n for n in _nodes(graph) if n.get("@id")}
+    resolved: dict[str, list[dict[str, Any]]] = {}
+    dangling: dict[str, list[str]] = {}
+    for node in _nodes(graph):
+        schema_ids = _ref_ids(node, "tableSchema")
+        if not schema_ids:
+            continue
+        found: list[dict[str, Any]] = []
+        missing: list[str] = []
+        for schema_id in schema_ids:
+            schema = by_id.get(schema_id)
+            if schema is None:
+                missing.append(schema_id)
+                continue
+            for ref in _ref_ids(schema, "columns", "column"):
+                if ref in by_id:
+                    found.append(by_id[ref])
+                else:
+                    missing.append(ref)
+        resolved[str(node.get("@id"))] = found
+        dangling[str(node.get("@id"))] = missing
+    return resolved, dangling
+
+
+def _prescribed_column_ids(graph: Graph) -> set[str]:
+    """Every ``csvw:Column`` a ``csvw:Schema`` in this crate lists — the *prescribed* fields.
+
+    A column nothing declares is prescribed by nothing.
+    """
+    out: set[str] = set()
+    for node in _nodes(graph):
+        if "Schema" in _node_types(node):
+            out.update(_ref_ids(node, "columns", "column"))
+    return out
+
+
+def _column_is_described(column: dict[str, Any], prescribed: set[str]) -> bool:
+    """A CSVW column description: listed by a schema, named, and typed."""
+    return (
+        str(column.get("@id")) in prescribed
+        and bool(_values(column, "titles") or _values(column, "name"))
+        and _declares_a_datatype(column)
+    )
 
 
 def _check_root_global_id(state: CrateState) -> bool:
@@ -515,19 +858,231 @@ def _check_mit_coverage_indicator(state: CrateState) -> bool:
 
 
 # DSM indicator checks
-def _check_unique_id(state: CrateState) -> bool:
-    """Each Dataset is assigned a unique identifier."""
-    return bool(state.session_id or state.metadata.accession)
+def _check_unique_id(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-C0 — Each Dataset purposed for sharing and re-use is assigned a unique
+    identifier.
+
+    Asks the published quantifier, over the published granularity. "Each Dataset
+    purposed for sharing" is the Root Data Entity plus every ``Dataset`` it gathers
+    through ``hasPart`` — what a reader receives as separately citable units. Two
+    limbs, and both come from the sentence:
+
+    *Each.* Every one of those Datasets must carry an identifier **assigned** to it: a
+    non-empty ``identifier``, or an absolute-IRI ``@id``. A crate-relative ``@id``
+    (``./``, ``assays/a1/``) is a location inside this ZIP, not an assignment, and
+    counting it would make the limb a property of JSON-LD flattening rather than of the
+    crate. This is the limb :func:`_check_every_entity_has_id` cannot express: it
+    short-circuits on the root PID, so a crate whose second Dataset is unidentified
+    passes it.
+
+    *Unique.* Not "distinct" — flattening already forces every ``@id`` apart, so testing
+    distinctness tests the serialiser. The only content left is *globally* unique, which
+    is also what both cross-references in this indicator's own row say (``rda_ref:
+    RDA-F1-02D``, ``fairsfair_ref: FsF-F1-01D``, both "globally unique"). Evidenced by a
+    root PID the crate-relative paths compose against, or by every Dataset carrying an
+    absolute IRI of its own. :func:`_root_pid` is shared with RDA-F1-01M/F1-02D on
+    purpose: the two axes may weigh identification differently, but they must not
+    disagree about whether this crate is globally identified.
+
+    The old check was ``bool(state.session_id or state.metadata.accession)`` — a session
+    handle no reader receives, true of every build that ran.
+
+    **Reachable, and false today.** No crate on hand reaches it: 62 of 62 roots carry a
+    minted slug or a bare accession, none an IRI. It is not *unreachable*.
+    ``_populate_isa_backbone`` copies ``inv.fields["identifier"]`` onto the root verbatim
+    and ``readers.existing_crate`` copies an ingested root ``identifier`` into
+    ``metadata.accession``, so an Investigation — or an input crate — declaring a DOI
+    produces a root PID with no code change (measured: True).
+
+    It gates Level 1, so until something mints one the DSM ladder reads 0 for every
+    crate, and :func:`dsm_ceiling` reports DSM-1-C0 as the blocker. That is the finding
+    RDA-F1-01M and RDA-F1-02D already publish; what changes is that the two axes stop
+    contradicting each other, where before the DSM awarded Level 2 on the strength of a
+    ``session_id``. The route out is one the tool owns: 15 of these crates carry the real
+    BioStudies accession ``S-VHPS22``, and emitting it as
+    ``https://www.ebi.ac.uk/biostudies/studies/S-VHPS22`` — the identifier it already
+    has, written so it resolves — would satisfy this with no depositor action.
+
+    **Stated limitations, all measured.** :func:`_root_pid` accepts any text containing
+    ``doi`` or starting with ``10.``, so ``10.happy`` reads as a persistent identifier;
+    the fix belongs there, shared with the two RDA indicators, not in a second copy
+    here. The *each* limb accepts any non-empty identifier string, so it discriminates
+    nothing on this corpus and exists to stop the check collapsing into
+    :func:`_check_every_entity_has_id`. A universal quantifier over Datasets is
+    evadable by demotion: retyping an unidentified child ``Dataset`` to ``File``, or
+    dropping it from ``hasPart``, removes it from the denominator. And the root enters
+    the population on the descriptor's word alone, so a root typed ``Person`` is still
+    counted as a Dataset offered for sharing — DSM-1-R3
+    (:func:`_check_general_schema`) is the indicator that catches that.
+    """
+    if _needs_graph(graph):
+        return None
+    by_id = {str(n.get("@id")): n for n in _nodes(graph)}
+    root = _root_node(graph)
+    shared: list[dict[str, Any]] = [root] if root else []
+    seen = {str(root.get("@id"))} if root else set()
+    queue = list(shared)
+    while queue:
+        for part_id in _ref_ids(queue.pop(), "hasPart"):
+            if part_id in seen:
+                continue
+            seen.add(part_id)
+            child = by_id.get(part_id)
+            if child is not None and "Dataset" in _node_types(child):
+                shared.append(child)
+                queue.append(child)
+    if not shared:
+        return Verdict(False, "the crate offers no Dataset to identify")
+
+    def _assigned(node: dict[str, Any]) -> str:
+        for item in _values(node, "identifier"):
+            text = (_ref_id(item) if isinstance(item, dict) else str(item or "")).strip()
+            if text:
+                return text
+        return str(node.get("@id")) if _is_external_iri(node.get("@id")) else ""
+
+    assigned = [_assigned(d) for d in shared]
+    named = [a for a in assigned if a]
+    pid = _root_pid(graph)
+    globally = bool(pid) or (bool(named) and all(_is_external_iri(a) for a in named))
+    return Verdict(
+        len(named) == len(shared) and globally,
+        f"{len(named)} of {len(shared)} Datasets offered for sharing carry an assigned "
+        f"identifier; the crate's own persistent identifier is "
+        f"{pid or 'absent, so none of them is identified outside this crate'}",
+    )
 
 
-def _check_study_summary(state: CrateState) -> bool:
-    """Dataset Descriptor includes a descriptive study/project summary."""
-    return bool(state.metadata.title and state.metadata.description)
+def _check_study_summary(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-C1 — Dataset Descriptor(s) includes Descriptive Study/Project-Level summary
+    information.
+
+    The **prose rung** of the study-design question. Its questionnaire item ladders
+    DSM-1-C1 → DSM-2-C1 → DSM-3-C1 → DSM-4-C1: a summary here, a domain model of
+    concepts at Level 2, reporting guidelines at Level 3, a semantic model at Level 4.
+    So this rung is satisfied by a *sentence*, by the model's own design, and asking for
+    structure here would answer DSM-2-C1's question instead.
+
+    Two limbs, both from the indicator's own words. *Summary information* is information
+    the descriptor does not already state as identity, so a description that merely
+    repeats the title states none — that is a structural fact of the assembly fallback
+    chain (``_populate_root_and_conformance`` falls back description → title → name),
+    and it is read off the crate rather than out of a tool constant, so a reader with
+    only the JSON reproduces it. *Study/Project-Level* is the granularity column: in an
+    ISA crate the project is the root Investigation and the studies are the Study
+    Datasets it defines, so a study that is named and never described is not summarised,
+    however good the investigation's abstract.
+
+    The old check was ``bool(state.metadata.title and state.metadata.description)``.
+    ``state.metadata.title`` is ``None`` on 29 of 32 real sessions because the pipeline
+    never writes it, while the assembled root has carried a real abstract all along —
+    the #535 defect, an instrument pointed at the wrong object.
+
+    **What the first limb actually tests, stated plainly.** It is string inequality and
+    nothing more: setting the root description to the title plus one word defeats it, and
+    it was measured doing so on 4 of the 6 crates that fail this limb. Nor does it judge
+    the prose — 13 of the 51 crates that pass do so on the generated stub
+    "Drafted Investigation description.", which is content-free. No reader-side anchor
+    exists to catch that: ``AUTOGENERATED_MARKER`` is only ever prefixed to generated
+    *names*, never to a root description, and no crate in the corpus carries per-field
+    provenance that would flag a value as machine-drafted. So this indicator can say a
+    summary is *present and distinct*; it cannot say it is *informative*.
+
+    This check raises the indicator on crates that always met it, so it must not land
+    without the honest DSM-1-C0 (:func:`_check_unique_id`) in the same change — on its
+    own the pair moves the published ladder upward, which is the direction #670 exists
+    to prevent.
+
+    No attribution is read. Whether the crate names an author is credit, not summary
+    information, and it is asked by RDA-R1-01M.
+    """
+    if _needs_graph(graph):
+        return None
+    root = _root_node(graph)
+    summary, label = _text(root.get("description")), _text(root.get("name"))
+    if not summary or summary == label:
+        return Verdict(
+            False,
+            "the descriptor states no project-level summary beyond the project's own title",
+        )
+    studies = [d for d in _model_datasets(graph) if _has_role(d, "Study")]
+    if not studies:
+        return Verdict(False, "the descriptor defines no study to summarise")
+    unsummarised = [d for d in studies if not _text(d.get("description"))]
+    if unsummarised:
+        return Verdict(
+            False,
+            f"{len(unsummarised)} of {len(studies)} studies are named but never summarised",
+        )
+    return Verdict(True, f"the project and all {len(studies)} of its studies carry a summary")
 
 
-def _check_dataset_metadata(state: CrateState) -> bool:
-    """Dataset Descriptor includes identifying + descriptive metadata."""
-    return len(state.list_entities()) > 0
+def _check_dataset_metadata(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-C2 — Dataset Descriptor(s) includes Identifying & Descriptive Dataset-Level
+    metadata.
+
+    Two demands in one sentence — *identifying* and *descriptive* — asked at the
+    granularity the indicator names, Dataset-Level. So every Dataset the root gathers
+    for sharing must carry a name that identifies it and a description that describes
+    it, and there must be data underneath for those Datasets to be about.
+
+    The old check was ``len(state.list_entities()) > 0``: a crate of two empty entities
+    passed an indicator about the metadata of its datasets.
+
+    **Why universal rather than a majority.** DSM-1-C2's own text does not contain the
+    word "Each"; it is an unquantified plural ("Dataset Descriptor(s) includes …
+    Dataset-Level metadata"). This module reads an unquantified plural as universal
+    wherever it appears — here, in DSM-2-C6, DSM-2-C7 and DSM-3-C4 — because the
+    alternative is a ratio, and any ratio would be read off two deposits. The floor for
+    a single Dataset is RO-Crate's own: the Root Data Entity MUST carry ``name`` and
+    ``description``, and this indicator's plural extends that floor to the Datasets the
+    root gathers.
+
+    **The scaffolding trap, twice over.** The ISA backbone always mints a Study
+    ``Dataset`` into the root's ``hasPart``, so "there is a Dataset" is the builder
+    talking; and ``_apply_root_name`` always names the root, falling back to
+    ``_DEFAULT_ROOT_NAME``, so "the root has a name" is too. Hence the constant is not
+    counted as a name, and the payload limb reads *deposited* files only.
+
+    Every text comparison goes through :func:`_text`, so a root whose ``name`` is written
+    as ``["ISA-Tox RO-Crate"]`` is recognised as the placeholder it is; reading
+    ``node.get`` straight would score the crate on its serialisation habit.
+
+    The Dataset set is keyed by ``@id``, root included, so a crate whose ``hasPart``
+    contains a cycle back to the root cannot count the root twice.
+    """
+    if _needs_graph(graph):
+        return None
+    from builder.tools.builder import _DEFAULT_ROOT_NAME
+
+    deposited, minted = _deposited_files(graph)
+    if not deposited:
+        return Verdict(
+            False,
+            f"the crate gathers no deposited data to describe ({len(minted)} file(s), "
+            "all minted by the tool)"
+            if minted
+            else "the crate gathers no data to describe",
+        )
+    _files, walked = _payload_files(graph)
+    by_id = {str(n.get("@id")): n for n in _nodes(graph) if n.get("@id")}
+    datasets: dict[str, dict[str, Any]] = {
+        i: by_id[i] for i in walked if i in by_id and "Dataset" in _node_types(by_id[i])
+    }
+    root = _root_node(graph)
+    datasets[str(root.get("@id") or "./")] = root
+    described = [
+        n
+        for n in datasets.values()
+        if _text(n.get("name"))
+        and _text(n.get("description"))
+        and _text(n.get("name")) != _text(_DEFAULT_ROOT_NAME)
+    ]
+    return Verdict(
+        len(described) == len(datasets),
+        f"{len(described)} of {len(datasets)} shared Datasets carry both an identifying "
+        f"name and a description of their own, over {len(deposited)} deposited data file(s)",
+    )
 
 
 def _check_access_info(state: CrateState) -> bool:
@@ -559,34 +1114,455 @@ def _check_context_fields(state: CrateState) -> bool:
     return len(state.list_entities()) > 0 or bool(state.metadata.title)
 
 
-def _check_dataset_hierarchy(state: CrateState) -> bool:
-    """Data organised into Dataset(s) created for FAIR sharing."""
-    return len(state.list_entities()) > 0
+def _check_dataset_hierarchy(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-R2 — Data intended for sharing and reuse have a purposely defined
+    representation as Datasets.
+
+    Asks it of the data the crate actually received. The old check was
+    ``len(state.list_entities()) > 0``: a session holding two empty entities and no
+    payload "had a purposely defined representation as Datasets".
+
+    Two limbs, and the anchor for each.
+
+    *Deposited data.* The builder writes header-only CSVs into ``data/`` on every build
+    and marks them ``AUTOGENERATED`` in their own ``name``, so a crate that received
+    nothing still carries CSVs. Deposited data means the files the crate did not write
+    for itself (:func:`_deposited_files`), and that filter alone is what fails the empty
+    crate.
+
+    *Below the root.* Only a Dataset **below** the root can evidence that the data was
+    *purposely organised* rather than merely gathered, because :func:`_payload_files`
+    already **defines** the payload as the Files the root reaches through ``hasPart``:
+    given that definition, "some Dataset holds a deposited file" is entailed by the
+    population itself. Measured, a root-inclusive variant returns True on 61 of 62 crates
+    and False only on the empty one, i.e. it is the deposited-file guard restated.
+
+    **The root exclusion has no specification sentence behind it**, only the published
+    word "purposely", and it is the limb that produces both real failures on this
+    corpus. That trade is stated rather than hidden: dropping the exclusion costs the two
+    failures and leaves the check answering the guard, so it is kept, and a reader should
+    know it is a reading and not a citation.
+
+    The candidate Datasets are restricted to the ``@id``s :func:`_payload_files` walked
+    from the root — the same restriction :func:`_check_data_structured` applies for the
+    same reason. Scanning every ``Dataset`` node in the graph instead makes the check one
+    unreachable node deep: appending a single ``{"@id": "#ghost", "@type": "Dataset",
+    "hasPart": [<any deposited file>]}`` outside the root's ``hasPart`` flipped both real
+    failures to True.
+
+    **What the corpus can and cannot show.** The only real discrimination here is between
+    two builds of the same two deposits — 22 of 23 S-VHPS22 builds put deposited files
+    under the named Study and ``_v4`` does not; S-VHPS26 ``_v1`` does and ``_v2`` does
+    not. Same input, different LLM run. So this measures builder nondeterminism on the
+    crates on hand; its power against an unseen deposit is unmeasured.
+
+    The verdict is existential because the statement it displaces is a universal negative
+    — DSM-0-R2, the only other option in this single-select question, reads "No
+    representation of Data purposed for sharing and re-use is available". Its negation is
+    "at least one", not "most", so no ratio is fitted; the ratio is reported as evidence
+    instead.
+    """
+    if _needs_graph(graph):
+        return None
+    files, minted = _deposited_files(graph)
+    deposited = {str(f.get("@id")) for f in files}
+    if not deposited:
+        return Verdict(
+            False,
+            "the crate carries no deposited data file to represent"
+            + (f" ({len(minted)} payload files, all builder-generated)" if minted else ""),
+        )
+    by_id = {str(n.get("@id")): n for n in _nodes(graph) if n.get("@id")}
+    _payload, walked = _payload_files(graph)
+    root_id = str(_root_node(graph).get("@id") or "./")
+    defined: list[dict[str, Any]] = []
+    held: set[str] = set()
+    for node in _nodes(graph):
+        node_id = str(node.get("@id"))
+        if node_id == root_id or node_id not in walked:
+            continue
+        if "Dataset" not in _node_types(node):
+            continue
+        seen: set[str] = set()
+        queue, mine = [node], set()
+        while queue:
+            for part_id in _ref_ids(queue.pop(), "hasPart"):
+                if part_id in seen:
+                    continue
+                seen.add(part_id)
+                child = by_id.get(part_id)
+                if child is None:
+                    continue
+                if part_id in deposited:
+                    mine.add(part_id)
+                if "Dataset" in _node_types(child):
+                    queue.append(child)
+        if mine:
+            defined.append(node)
+            held |= mine
+    names = ", ".join(str(d.get("name") or d.get("@id")) for d in defined[:3])
+    return Verdict(
+        bool(defined),
+        f"{len(held)} of {len(deposited)} deposited data files sit under {len(defined)} "
+        f"Dataset(s) the crate defines below the root"
+        + (
+            f" ({names})"
+            if defined
+            else f"; the root holds all {len(deposited)} directly, and no Dataset below "
+            "it claims any"
+        ),
+    )
 
 
-def _check_general_schema(state: CrateState) -> bool:
-    """Descriptor conforms to a general-purpose metadata schema."""
-    return len(state.list_entities()) > 0
+def _check_general_schema(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-R3 — A representation of the Dataset Descriptor conforming to a relevant
+    General Purpose Metadata Schema is available.
+
+    Packaging, and it stays packaging: an empty crate passes, honestly and by design
+    (``_DSM_ALLOWED`` in ``test_fair_metrics_can_fail``). The old check was
+    ``len(state.list_entities()) > 0``, which measured the session; this reads the
+    descriptor a reader holds.
+
+    Its own ladder says what it is asking. The R3 question runs L1 general-purpose schema
+    → L2 ``generic_model`` (the schema also describes the local Dataset Model and its
+    structural metadata) → L3 ``domain_standard`` → L4 semantic. So L1 asks only: *is the
+    descriptor written in a general-purpose metadata schema at all?*
+
+    Deliberately **not** ``conformsTo``. DSM-1-R4 (``descriptor_machine_readable`` →
+    :func:`_check_jsonld_context`) already reads that IRI, and a predicate that added a
+    limb to it would be a strict superset of R4 on the same rung — a second
+    implementation of one question, which is how two axes come to disagree about one
+    crate. R4's question is the *format*; this one is the *schema*. They are independent
+    here: strip ``conformsTo`` and this still passes, type the root ``Person`` and R4
+    still passes. If DSM-1-R4 is ever given a body that is not a ``conformsTo`` test, the
+    two must be re-diffed.
+
+    Conformance to the general-purpose schema is therefore checked structurally, against
+    schema.org — the schema RO-Crate is a profile of:
+
+    * the Dataset Descriptor exists and is *about* a node the crate defines (RO-Crate's
+      own definition of a descriptor; one whose ``about`` dangles is not one), and
+    * that node is typed ``Dataset``, the general-purpose class, and
+    * it uses the general-purpose descriptive slots the schema requires of it —
+      ``_ROOT_REQUIRED``, the four RO-Crate 1.2 mandates on the Root Data Entity.
+
+    The third limb is about the *slots*, not their contents: ``license`` pointing at
+    ``#licence-not-stated`` still demonstrates that the crate states its terms in
+    schema.org's vocabulary. Whether those values are substantive is RDA-R1-01M's
+    question (:func:`_check_reuse_attributes`, which excludes exactly those placeholders
+    and demands two attributes beyond the required four), and the two disagree on 22 of
+    the 62 crates measured. Same four names, two different questions: is the slot used,
+    and is the value worth anything.
+
+    RO-Crate requires exactly one ``about``; a descriptor declaring several is tolerated
+    here by selecting the Dataset-typed one, which is the generous reading. Failing a
+    multi-valued ``about`` outright would be the stricter one.
+    """
+    if _needs_graph(graph):
+        return None
+    by_id = {str(n.get("@id")): n for n in _nodes(graph)}
+    descriptor = by_id.get("ro-crate-metadata.json")
+    if descriptor is None:
+        return Verdict(False, "the crate carries no ro-crate-metadata.json descriptor")
+    targets = _ids(descriptor.get("about"))
+    if not targets:
+        return Verdict(
+            False,
+            "the descriptor does not say what it is about, so it is not a Dataset Descriptor",
+        )
+    about = next((t for t in targets if "Dataset" in _node_types(by_id.get(t, {}))), targets[0])
+    described = by_id.get(about)
+    if described is None:
+        return Verdict(
+            False,
+            f"the descriptor is about {about}, which the crate does not define, so it "
+            "describes no Dataset",
+        )
+    if "Dataset" not in _node_types(described):
+        return Verdict(
+            False,
+            f"the descriptor describes {about}, typed {described.get('@type')!r} rather "
+            "than the general-purpose class Dataset",
+        )
+    missing = [slot for slot in _ROOT_REQUIRED if not described.get(slot)]
+    if missing:
+        return Verdict(
+            False,
+            f"the Dataset Descriptor omits the general-purpose schema's required "
+            f"{', '.join(missing)} on {about}",
+        )
+    return Verdict(
+        True,
+        f"the Dataset Descriptor describes {about} as a schema.org Dataset carrying "
+        f"{', '.join(_ROOT_REQUIRED)}",
+    )
 
 
-def _check_descriptor_machine_readable(state: CrateState) -> bool:
-    """Dataset Descriptor available in machine-readable format."""
-    return len(state.list_entities()) > 0
+def _check_descriptor_machine_readable(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-R4 — Dataset Descriptor is available in Machine Readable Format.
+
+    The published model answers this itself: the indicator's ``rda_ref`` column
+    (``fair/dsm_indicators.yaml``, DSM-1-R4) names RDA-I1-02M, which
+    :func:`_check_jsonld_context` already implements. So it delegates to that function
+    rather than getting a look-alike of its own — two implementations of one question is
+    how two axes come to disagree about one crate, which is why
+    :func:`_check_standard_license` and :func:`_check_domain_standard` are written the
+    same way.
+
+    The old check was ``len(state.list_entities()) > 0``. Replacing it changes no verdict
+    on any crate; what it changes is where the verdict comes from, which is the
+    reproducibility half of #670 and the only half this indicator has.
+
+    **Stated plainly: this cannot fail for a crate this builder produces, and this
+    migration must not be counted among the checks #670 made able to fail.** A serialised
+    RO-Crate descriptor is JSON-LD declaring an RO-Crate profile by construction. It
+    fails only for a foreign or damaged crate — no descriptor node, or one that declares
+    no profile — and that is the honest extent of it. Inventing a stricter reading would
+    answer a different question than the one printed in the model, and would contradict
+    ``_DSM_ALLOWED``, which pins this as a packaging indicator an empty crate may
+    honestly meet.
+
+    **Shared blast radius.** Because this delegates, a change to
+    :func:`_check_jsonld_context` moves RDA-I1-01M, RDA-I1-02M and DSM-1-R4 together.
+    That is the trade being bought, and it is pinned by test — as *equality of verdict*
+    over a crate, not as ``DSM_CHECKS["descriptor_machine_readable"] is
+    _check_jsonld_context``, which a delegating wrapper makes false.
+    """
+    return _check_jsonld_context(state, graph)
 
 
-def _check_data_machine_readable(state: CrateState) -> bool:
-    """Dataset(s) available in machine-readable format."""
-    return len(state.list_entities()) > 0
+def _check_data_machine_readable(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-R5 — Dataset(s) available in Machine Readable Format.
+
+    Asks it of the data, not of the session. The old check was
+    ``len(state.list_entities()) > 0``.
+
+    **How this differs from the same sentence at Level 2.** DSM-2-R5 carries identical
+    published text, and the four rungs of *this* question (``fair/dsm_indicators.yaml``
+    lists DSM-0/1/3/4-R5 and **not** DSM-2-R5) read as the 5-star Open Data ladder: a
+    rendering a human must read (L0), structured data software can parse even in a
+    proprietary container (L1, here), a non-proprietary format (L3,
+    :func:`_check_non_proprietary_format`), terms that resolve (L4). So Level 1 asks
+    *machine readable*, which an ``.xlsx`` satisfies and a ``.docx`` does not, and
+    deliberately does not ask "open" — that is L3's job. DSM-2-R5
+    (:func:`_check_data_structured`) is told apart by its level's own ``level_scope``:
+    Data Object level here, Project level there.
+
+    The scaffolding trap: the builder writes header-only ``text/csv`` templates into
+    ``data/`` on every build, so "the crate contains a CSV" is a fact about
+    ``_synth_condition_table``. Those are excluded by :func:`_deposited_files`.
+
+    Existential because the option it displaces, DSM-0-R5, is the universal negative
+    "Dataset(s) are NOT available in a Machine Readable Format"; its negation is "at
+    least one". A majority reading was measured and rejected: it fails 38 of 62 crates
+    with a cut sitting within 0.06 of this corpus's own median — a threshold read off two
+    deposits.
+
+    **No real crate on hand fails this.** Every deposit in the corpus ships an ``.xlsx``
+    or a ``.csv``. The failing evidence is a constructed docx-only deposit; what the
+    migration buys on real crates is that the verdict is now reproducible from the
+    published crate and no longer credits the builder's own templates.
+    """
+    if _needs_graph(graph):
+        return None
+    deposited, minted = _deposited_files(graph)
+    if not deposited:
+        return Verdict(
+            False,
+            "the crate carries no deposited data file"
+            + (f" ({len(minted)} payload files, all builder-generated)" if minted else ""),
+        )
+    formats = [_media_type(f) for f in deposited]
+    readable = [f for f in formats if f in _MACHINE_READABLE_MEDIA_TYPES]
+    undeclared = sum(1 for f in formats if not f)
+    other = sorted({f for f in formats if f and f not in _MACHINE_READABLE_MEDIA_TYPES})
+    return Verdict(
+        bool(readable),
+        f"{len(readable)} of {len(deposited)} deposited files declare a machine-readable "
+        "data format"
+        + (f"; {undeclared} declare no format at all" if undeclared else "")
+        + (f"; renderings/opaque: {', '.join(other[:3])}" if other else ""),
+    )
 
 
-def _check_cross_dataset_refs(state: CrateState) -> bool:
-    """Descriptor references related Datasets."""
-    return _check_qualified_refs(state)
+# The properties by which a descriptor relates one Dataset to another. ``hasPart`` is
+# how an RO-Crate states that a deposit is composed of several datasets; the rest are
+# how it points at a dataset it does not contain.
+_RELATING_PROPERTIES = (
+    "hasPart",
+    "mentions",
+    "about",
+    "isPartOf",
+    "sameAs",
+    "isBasedOn",
+    "citation",
+)
 
 
-def _check_field_level_metadata(state: CrateState) -> bool:
-    """Descriptor includes field-level metadata."""
-    return len(state.list_entities()) > 1
+def _check_cross_dataset_refs(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-2-C5 — Dataset Descriptor includes reference to related Datasets and if
+    applicable the relevant joining Dataset Fields.
+
+    The old check delegated to ``_check_qualified_refs(state)`` — "some entity field
+    repeats another entity's id" — which says nothing about *Datasets* and is invisible
+    to a reader holding only the crate.
+
+    **A Dataset counts only when it stands as a dataset in its own right**, which means
+    it *directly* holds a File the builder did not mint, or it is a Dataset outside this
+    crate named by an absolute IRI. Attribution is deliberately one-hop: an earlier draft
+    recursed, so a single file two levels down counted for every ancestor and the
+    always-minted Study answered the indicator by itself the moment the backbone minted
+    one Assay beneath it. One-hop attribution gives each File exactly one Dataset, and
+    that is what makes "related Datasets" plural in fact and not just in the text.
+
+    "Related" is read as the descriptor's own relating properties rather than as
+    containment alone, so a crate that cites a dataset it does not carry earns it. **That
+    external limb requires the cited dataset to exist as a ``Dataset``-typed node in the
+    ``@graph``**: a bare ``isBasedOn: {"@id": "https://doi.org/…"}`` with no node behind
+    it does not count, and a stub typed ``CreativeWork`` does not either. On the corpus
+    the limb contributes nothing — no crate references a Dataset outside itself — but the
+    ISA decomposition of one deposit into Study and Assays is a real statement that these
+    datasets relate, and it is the same statement the joining-fields limb presupposes:
+    you join datasets you have both of.
+
+    The ``AUTOGENERATED`` name is the crate's own declaration that the builder wrote the
+    file, and that is the question here — not whether the table has rows, which is what
+    made the same marker unsound for :func:`_check_standard_field_metadata`. Its
+    provenance is exact: ``_crate_mapping`` writes ``_autogenerated_name("Condition
+    table")`` unconditionally at mapping time and ``populate_condition_table`` never
+    clears it, so **a Dataset whose only file is the depositor's own plate map, copied
+    verbatim into a minted condition table, is judged to hold no deposited data.** That
+    costs nothing on this corpus (0 crates) and it matters on exactly one crate in the
+    other direction, where it is right: every Assay in ``svhps22_real_input_crate_v4``
+    holds nothing but 26-37 byte result stubs and a 129-byte empty condition table while
+    all 72 depositor files hang off the root.
+
+    Second limb, the model's own "if applicable": a column whose ``valueUrl`` names an
+    in-crate entity is a declared join, and a declared join that dangles is worse than no
+    join. Nothing dangles on this corpus, so the limb only ever reports "n of n" today.
+
+    **Knock-on, measured.** DSM-2-C5 and DSM-3-C7 ("Dataset Descriptor references a
+    standard license") sit in one ladder question, so :func:`dsm_verdicts`' monotonicity
+    walk demotes C7 wherever C5 fails: 12 crates that do reference a standard licence now
+    publish "demoted: DSM-2-C5 (level 2) is not met" in the licence cell of the grid. The
+    gated level does not move; the published grid does.
+    """
+    if _needs_graph(graph):
+        return None
+    by_id = {str(n.get("@id")): n for n in _nodes(graph)}
+    root = _root_node(graph)
+
+    def holds_deposited_data(node: dict[str, Any]) -> bool:
+        return any(
+            (child := by_id.get(rid)) is not None
+            and "File" in _node_types(child)
+            and not _minted_by_the_builder(child)
+            for rid in _ids(node.get("hasPart"))
+        )
+
+    related: dict[str, dict[str, Any]] = {}
+    queue, walked = [root], {str(root.get("@id") or "./")}
+    while queue:
+        for rid in _outgoing_refs(queue.pop(), _RELATING_PROPERTIES):
+            if rid in walked:
+                continue
+            walked.add(rid)
+            child = by_id.get(rid)
+            if child is None or "Dataset" not in _node_types(child):
+                continue
+            related[rid] = child
+            queue.append(child)
+    standing = {
+        rid
+        for rid, dataset in related.items()
+        if holds_deposited_data(dataset) or rid.startswith(("http://", "https://"))
+    }
+    joins = [
+        c
+        for c in _columns(graph)
+        if _ids(c.get("valueUrl")) and not _any_external(c.get("valueUrl"))
+    ]
+    dangling = [c for c in joins if any(r not in by_id for r in _ids(c.get("valueUrl")))]
+    return Verdict(
+        len(standing) >= 2 and not dangling,
+        f"{len(standing)} of the {len(related)} Datasets the descriptor relates stand as "
+        f"datasets in their own right; {len(joins) - len(dangling)} of {len(joins)} "
+        "declared joining fields resolve in-crate",
+    )
+
+
+def _check_field_level_metadata(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-2-C6 — Dataset Descriptor includes Field-level Metadata as prescribed by a
+    locally defined Dataset Model.
+
+    Two demands in one sentence: the field metadata must be *prescribed by a model*, and
+    the descriptor must *include* it — for the data, not for a corner of it.
+
+    *Prescribed*: every ``csvw:Column`` describing a table must be listed by a
+    ``csvw:Schema`` in this crate and carry what a CSVW column description consists of, a
+    title and a ``datatype`` (:func:`_column_is_described`). A column nothing declares is
+    prescribed by nothing.
+
+    *Included*: **every** deposited data file that holds fields must have them described.
+    Not a majority — "includes" is read here exactly as DSM-2-C7 reads the same verb one
+    row down, and as this change reads every unquantified plural in the model. An earlier
+    draft put a 0.5 cut here and it failed the sensitivity test: moving it +0.1 flipped 30
+    of 62 crates, and the two modes it separated (0.333 and 0.571) were two builder
+    versions, not two quality tiers. There is no number here to move now.
+
+    **The denominator cannot be shrunk by not declaring data tabular.** Counting only
+    files whose ``encodingFormat`` is CSV/TSV meant shipping the same data as
+    spreadsheets *raised* the score: measured, a crate with one schematised CSV plus
+    twenty undescribed ``.xlsx`` files scored "1 of 1 tabular data files … (100%)" and
+    passed. The denominator is every **deposited** payload file that holds fields —
+    delimited text *and* spreadsheets, by media type or by suffix (:func:`_is_tabular`) —
+    so the same crate now reads "1 of 21 … (5%)" and fails. Builder-minted templates stay
+    out of it: a schema the tool wrote for a table the tool generated is not the
+    descriptor including field metadata for the deposit.
+
+    **What this measures on the corpus.** Coverage is 0% on all 61 crates that hold
+    deposited tabular data — the deposit's own CSVs and spreadsheets carry no schema at
+    all, and every CSVW schema in these crates belongs to a table the builder minted. The
+    coverage ratio stays in the evidence because it, not the boolean, is what tells a
+    depositor how far off they are.
+
+    Residuals, both stated: tabularity is inferred from media type or suffix, so an
+    extensionless delimited deposit escapes the denominator and a formatted ``.xlsx``
+    report wrongly enters it; and ``AUTOGENERATED`` is a name prefix, so a renamed
+    template re-enters both halves.
+
+    The old check was ``len(state.list_entities()) > 1``, which counted session objects
+    and never looked at a field.
+    """
+    if _needs_graph(graph):
+        return None
+    deposited, _minted = _deposited_files(graph)
+    tabular = [f for f in deposited if _is_tabular(f)]
+    if not tabular:
+        return Verdict(
+            False, "the crate deposits no tabular data whose fields could be described"
+        )
+    prescribed = _prescribed_column_ids(graph)
+    resolved, _dangling = _schema_fields(graph)
+    described = [
+        t
+        for t in tabular
+        if (cols := resolved.get(str(t.get("@id"))))
+        and all(_column_is_described(c, prescribed) for c in cols)
+    ]
+    described_ids = {str(t.get("@id")) for t in described}
+    undescribed = sorted(
+        str(t.get("name") or t.get("@id"))
+        for t in tabular
+        if str(t.get("@id")) not in described_ids
+    )
+    covered = len(described) / len(tabular)
+    return Verdict(
+        len(described) == len(tabular),
+        f"{len(described)} of {len(tabular)} deposited tabular data files have their "
+        f"fields prescribed by a schema that names and types every column ({covered:.0%})"
+        + (f"; undescribed: {', '.join(undescribed[:3])}" if undescribed else ""),
+    )
 
 
 def _check_value_level_metadata(state: CrateState) -> bool:
@@ -599,9 +1575,103 @@ def _check_generic_model(state: CrateState) -> bool:
     return len(state.list_entities()) > 0
 
 
-def _check_data_structured(state: CrateState) -> bool:
-    """Dataset(s) available in a structured machine-readable format."""
-    return len(state.list_entities()) > 0
+def _check_data_structured(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-2-R5 — Dataset(s) available in Machine Readable Format.
+
+    Word for word DSM-1-R5, and the workbook leaves DSM-2-R5 out of the question ladder
+    the other four options of that sentence form (``fair/dsm_indicators.yaml``: that
+    single-select question lists DSM-0/1/3/4-R5 only). The two rows are told apart by
+    their level's own ``level_scope``: Level 1 is "Data Object level", Level 2 "Project
+    level". That is the whole difference and it is what this reads. DSM-1-R5 asks whether
+    *a* data object is machine readable; this asks it of the project — **every** Dataset
+    the local model defines must be backed by data, and **no deposited file may leave a
+    machine guessing what it is**.
+
+    **What the format limb detects.** Not unreadability — identification. A file typed
+    ``application/octet-stream`` (the IANA name for "unknown bytes") or carrying no
+    ``encodingFormat`` at all tells a machine nothing, and that is the failure this limb
+    names. It deliberately does *not* demand a machine-readable data format of every
+    payload file: a crate is allowed to carry a README and a protocol PDF beside its
+    data, and a correctly typed ``.prism`` passes this rung. Requiring open formats here
+    would score Level 3's question at Level 2 (:func:`_check_non_proprietary_format` is
+    DSM-3-R5) and make the ladder incoherent.
+
+    **Coordination with DSM-1-R5, in writing.** DSM-1-R5 stays existential and Data
+    Object level ("at least one deposited file is in a machine-readable data format").
+    This row stays universal and Project level ("every model Dataset is backed, every
+    deposited file is identified"). If DSM-1-R5 is ever made project-scoped or
+    open-format-scoped, the two identically-worded rows collapse into one claim scored
+    twice and one of them must be scoped ``na``.
+
+    Both limbs read one walk. :func:`_payload_files` walks ``hasPart`` from the root, and
+    the backing test is confined to the ``@id``s that walk reached, so a model Dataset
+    unreachable from the root cannot count as backed by files outside the denominator.
+    The walk is still not fully symmetric: a floating Dataset can count as backed by
+    *borrowing* an already-walked file. The direction is neutral-to-harder, because the
+    floater also enters the denominator. The format limb reads deposited files only:
+    failing a deposit because the builder omitted ``encodingFormat`` from one of its own
+    templates would be scoring the assembler (measured: 30 minted files in the corpus
+    carry no media type).
+
+    Builder scaffolding is in the denominator where it belongs: the minted Study
+    ``Dataset`` counts, so the empty crate reads "0 of 1 Datasets are backed by data"
+    rather than passing because ``hasPart`` resolves.
+
+    Measured: 19 of 62 crates pass. Of the 43 failures, 36 fail on the format limb alone,
+    1 on unbacked model Datasets alone, and 6 on both — so the format limb carries 42 of
+    the 43, and ``application/octet-stream`` appears on a *deposited* file in 41 of 62
+    crates.
+
+    The old check was ``len(state.list_entities()) > 0``.
+    """
+    if _needs_graph(graph):
+        return None
+    by_id = {str(n.get("@id")): n for n in _nodes(graph) if n.get("@id")}
+    root_id = str(_root_node(graph).get("@id") or "./")
+    model = [
+        n
+        for n in _nodes(graph)
+        if "Dataset" in _node_types(n) and str(n.get("@id")) != root_id
+    ]
+    if not model:
+        return Verdict(False, "the crate defines no Dataset besides the root")
+
+    _payload, walked = _payload_files(graph)
+
+    def backing(dataset: dict[str, Any]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        queue, found = [dataset], []
+        while queue:
+            for ident in _ref_ids(queue.pop(), "hasPart"):
+                if ident in seen or ident not in walked:
+                    continue
+                seen.add(ident)
+                child = by_id.get(ident)
+                if child is None:
+                    continue
+                if "File" in _node_types(child):
+                    found.append(child)
+                if "Dataset" in _node_types(child):
+                    queue.append(child)
+        return found
+
+    backed = [d for d in model if backing(d)]
+    deposited, _minted = _deposited_files(graph)
+    identified = [f for f in deposited if _media_type(f) not in _OPAQUE_MEDIA_TYPES]
+    opaque = sorted(
+        {
+            _media_type(f) or "(no encodingFormat)"
+            for f in deposited
+            if _media_type(f) in _OPAQUE_MEDIA_TYPES
+        }
+    )
+    return Verdict(
+        len(backed) == len(model) and bool(deposited) and len(identified) == len(deposited),
+        f"{len(backed)} of {len(model)} Datasets in the local model are backed by data; "
+        f"{len(identified)} of {len(deposited)} deposited files name the format a machine "
+        "would read them with"
+        + (f"; unidentified: {', '.join(opaque[:3])}" if opaque else ""),
+    )
 
 
 def _check_domain_model(state: CrateState) -> bool:
@@ -638,32 +1708,432 @@ def _check_domain_standard(state: CrateState, graph: Graph = None) -> Verdict | 
     return _check_conforms_to_profile(state, graph)
 
 
-def _check_standard_field_metadata(state: CrateState) -> bool:
-    """Descriptor includes standard-compliant field-level metadata."""
-    return len(state.list_entities()) > 1
+def _check_standard_field_metadata(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-3-C6 — Dataset Descriptor includes standard-compliant Field-level Metadata as
+    prescribed by the adopted standard Dataset Model.
+
+    The old check was ``len(state.list_entities()) > 1`` — **byte-identical** to
+    DSM-2-C6's, so the locally-defined rung and the adopted-standard rung of one question
+    were literally the same test and could never disagree. An empty crate met both. The
+    published difference is the whole content of this indicator: L2 says "as prescribed
+    by a **locally defined** Dataset Model", L3 "standard-compliant … as prescribed by
+    the **adopted standard** Dataset Model".
+
+    Two limbs.
+
+    *Over data that exists.* A schema over zero rows asserts nothing — the crate says so
+    itself: ``_EMPTY_CONDITION_TABLE_NOTE`` reads "Any schema-level conformance claim
+    over these columns is vacuous until rows are populated" (#473). But that note is
+    written only where a definite zero was measured (95 of the 274 schema-bearing tables
+    here), so emptiness is established from the file instead: a delimited table holding at
+    least one record is longer than its own header line by at least one record, and both
+    quantities are derivable from the schema's own column ``titles``.
+
+    **The margin, and why it is not equality.** The header is derived as
+    ``",".join(titles)`` plus one LF byte, which assumes LF, while RFC 4180 mandates CRLF
+    and this project's own writer (``data_content.py``, ``csv.DictWriter`` at its default
+    CRLF line terminator) emits one more byte than the derivation predicts. Judging
+    "populated" as ``size > header`` therefore sits at zero bytes of margin: every one of
+    the 135 size-judged tables in the corpus lands at exactly ``size - header == 0``, and
+    a +1 byte shift — a CRLF terminator, a UTF-8 BOM — flips 39 of 62 crates from False
+    to True with no data added. So the cut is spec-anchored instead: a minimal CSV record
+    over *n* columns is at least *n* bytes (*n-1* delimiters plus a terminator), and a
+    table counts as populated only at ``size >= header + _ENCODING_SLACK + len(cols)``.
+    ``_ENCODING_SLACK`` covers the two ways a header-only file can be longer than the
+    derivation says without holding a record — a UTF-8 BOM and a CRLF terminator on the
+    header line. Both bounds are read off the specifications, not off the corpus; a
+    sensitivity run showed this corpus flat out to a margin of 400 bytes and the one
+    genuinely populated example surviving to 439, so the margin costs nothing. A
+    ``csvw:rowCount`` stated on the table would supersede the byte estimate entirely; no
+    crate on hand states one.
+
+    A table whose size or titles are not stated is counted as *not evidenced* rather than
+    as populated, because "it holds data" is a positive claim. The ``#473`` note is read
+    before the byte estimate, so a stale note out-votes a stated size — the conservative
+    order, and the one place the two emptiness signals can mask each other.
+
+    Explicitly **not** the ``AUTOGENERATED`` name prefix. ``_synth_condition_table``
+    writes that name unconditionally and ``populate_condition_table`` never clears it, so
+    keying on it would mean no populated depositor table could ever earn the indicator —
+    the mirror image of the tautology. Rows are the honest provenance signal anyway: they
+    are the depositor's plate map, whoever named the file.
+
+    *In the adopted standard's vocabulary.* Compliance is not partial, so **every** column
+    of such a table must declare a ``datatype`` and a ``propertyUrl`` that is an external
+    IRI, read through :func:`_any_external` so that the ``{"@id": …}`` and list spellings
+    ``_build_csvw_schema`` itself uses for the sibling ``valueUrl`` are not scored as
+    absent. Stricter than DSM-3-C3 (``standard_field_names``), which asks only whether
+    *some* field name maps to an ontology, and stricter than DSM-2-C6, which may credit a
+    locally declared schema.
+
+    Not evidence: the root always declares ``conformsTo`` both profile IRIs, so "a
+    standard has been adopted" is a constant and cannot be part of the answer.
+
+    Reachable by data alone, and measured: every one of the 274 schema-bearing tables on
+    hand already satisfies the vocabulary limb, and every one is header-only, so the
+    indicator turns entirely on rows. Running ``populate_condition_table`` with the
+    depositor's per-well design and re-exporting takes one table from 129 bytes to 568 and
+    flips this to True.
+
+    Scope: every node carrying a ``tableSchema``, not only the payload the root gathers —
+    field-level metadata in the descriptor counts wherever it is attached, and a schema
+    hung off a process result outside ``hasPart`` is still in the descriptor. Inline
+    schema and column objects are read in place; a ``columns`` or ``tableSchema`` given as
+    a bare object or a scalar is normalised.
+    """
+    if _needs_graph(graph):
+        return None
+    from builder.tools._crate_mapping import _EMPTY_CONDITION_TABLE_NOTE
+
+    by_id = {str(n.get("@id")): n for n in _nodes(graph)}
+
+    def _resolve(value: Any) -> dict[str, Any] | None:
+        if isinstance(value, dict) and set(value) - {"@id"}:
+            return value
+        node = by_id.get(_ref_id(value))
+        return node if isinstance(node, dict) else None
+
+    populated: list[dict[str, Any]] = []
+    compliant: list[dict[str, Any]] = []
+    vacuous = unmeasured = 0
+    for node in _nodes(graph):
+        if not node.get("tableSchema"):
+            continue
+        cols = [
+            column
+            for ref in _values(node, "tableSchema")
+            if (schema := _resolve(ref)) is not None
+            for entry in _values(schema, "columns")
+            if (column := _resolve(entry)) is not None
+        ]
+        if not cols:
+            continue
+        titles = [str(c.get("titles") or c.get("name") or "") for c in cols]
+        size = str(node.get("contentSize") or "").strip()
+        delimited = _media_type(node) in _DELIMITED_MEDIA_TYPES or str(
+            node.get("@id") or ""
+        ).lower().endswith(_DELIMITED_SUFFIXES)
+        header = len((",".join(titles) + "\n").encode("utf-8"))
+        if _text(node.get("description")) == _text(_EMPTY_CONDITION_TABLE_NOTE):
+            vacuous += 1
+            continue
+        if not (size.isdigit() and all(titles) and delimited):
+            unmeasured += 1
+            continue
+        if int(size) < header + _ENCODING_SLACK + len(cols):
+            vacuous += 1
+            continue
+        populated.append(node)
+        if all(c.get("datatype") and _any_external(c.get("propertyUrl")) for c in cols):
+            compliant.append(node)
+    return Verdict(
+        bool(compliant),
+        f"{len(compliant)} of {len(populated)} data tables holding rows declare every "
+        f"field against an external vocabulary"
+        + (f"; {vacuous} schema(s) describe a table with no rows" if vacuous else "")
+        + (f"; {unmeasured} table(s) state no size to judge" if unmeasured else ""),
+    )
 
 
-def _check_controlled_values(state: CrateState) -> bool:
-    """Textual field values standardised against domain controlled terminologies."""
-    for entity in state.list_entities():
-        for value in entity.fields.values():
-            if isinstance(value, str) and ("_" in value or ":" in value):
-                return True
-    return False
+def _check_controlled_values(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-3-C4 — Where applicable, Dataset Field Values are standardised against
+    domain-specific Controlled Terminologies and/or Ontology Terms.
+
+    The old check credited any session field value containing an underscore or a colon.
+
+    **On "Where applicable".** It restricts *which* values are judged; it does not
+    license a pass when none exist. Scored from a crate, "nothing applicable" and
+    "nothing done" are the same evidence, and reading the second as the first is the
+    whole of #670. So a crate carrying no value of a kind the domain has a terminology
+    for fails, with that stated as the reason. **Consequence, by design: a crate from a
+    domain with no chemical and no cell-line values fails this indicator
+    unconditionally.** That is the reading under which DSM-3-C4 can fail at all, and the
+    indicator is scoped ``partial`` in the workbook for exactly this reason.
+
+    **What the population is.** Every ``MolecularEntity`` and every cell-line ``Sample``
+    in the crate — not only those a condition-table column happens to point at. These are
+    the chemical and cell-line field values the crate publishes, however they got there;
+    no claim is made that a table column licensed the population.
+
+    "are standardised" is unquantified, so it is a claim about all of them: one bound
+    compound beside a cell line named only ``H4`` has not standardised its field values.
+    That sentence is the threshold anchor, which is why no ratio is fitted.
+
+    Two scaffolding traps avoided. ``sampleType`` is not counted: the builder writes
+    ``NCIT:C16403`` ("Cell Line") onto every cell line, which types the *field*, not the
+    *value*. Nor is a bare accession counted, only a resolvable IRI — the reason
+    :func:`_root_pid` gives, that an accession is unique inside its registry and
+    ambiguous outside it.
+
+    The type test goes through :func:`_matches_slot_type`, i.e. through
+    ``mit_assessment``'s canonical D16 matcher, rather than comparing ``additionalType``
+    as a raw string. A re-implementation that compared it literally was measured: writing
+    the legal CURIE ``isa:CellLine`` made the entire cell-line population evaporate and
+    flipped 39 of the 42 failing crates to True.
+
+    **What a True verdict is and is not evidence of.** Measured over the corpus, 578 of
+    582 ``MolecularEntity`` nodes already carry a PubChem compound IRI as their ``@id``
+    while only 89 of 134 cell lines are bound. The compound limb is a near-constant of the
+    assembler; a True verdict here is almost entirely a statement about cell lines. The
+    evidence string reports the two limbs separately so a reader is not misled about which
+    one was tested. A ``Sample`` that simply omits ``additionalType``, or spells it "Cell
+    Line", still leaves the population — inherent to typing by a D16 string.
+    """
+    if _needs_graph(graph):
+        return None
+
+    def is_subject(node: dict[str, Any]) -> bool:
+        return any(
+            _matches_slot_type(node, slot) for slot in ("MolecularEntity", "CellLineSample")
+        )
+
+    def bound(node: dict[str, Any]) -> bool:
+        if _is_external_iri(node.get("@id")):
+            return True
+        return any(
+            _is_external_iri(item)
+            for key in ("identifier", "sameAs", "url")
+            for item in _values(node, key)
+        )
+
+    subjects = [n for n in _nodes(graph) if is_subject(n)]
+    if not subjects:
+        return Verdict(
+            False,
+            "no chemical or cell-line field value in the crate for a domain terminology "
+            "to standardise",
+        )
+    chem = [n for n in subjects if "MolecularEntity" in _node_types(n)]
+    lines = [n for n in subjects if "MolecularEntity" not in _node_types(n)]
+    unbound = sorted({str(n.get("name") or n.get("@id")) for n in subjects if not bound(n)})
+    return Verdict(
+        not unbound,
+        f"{len(chem) - len([n for n in chem if not bound(n)])} of {len(chem)} chemical "
+        f"and {len(lines) - len([n for n in lines if not bound(n)])} of {len(lines)} "
+        "cell-line field values resolve to a domain terminology"
+        + (f"; named only in free text: {', '.join(unbound[:3])}" if unbound else ""),
+    )
 
 
-def _check_standard_identifiers(state: CrateState) -> bool:
-    """Domain-entity values assigned unique standard identifiers."""
-    for entity in state.list_entities():
-        for field, value in entity.fields.items():
-            if field in ("identifier", "accession", "doi", "orcid", "ror") and value:
-                return True
-    return False
+# Public registers that mint identifiers for the domain entities an in-vitro study
+# reports — the substances tested, and the biological material they were tested on.
+# Named by the reporting standards this tool already serves (OECD/ECHA substance
+# identity: CAS, InChIKey, DTXSID, EC; biological resources: Cellosaurus, RRID, NCBI
+# Taxonomy; ontology PURLs for everything else), plus the resolvers that front them.
+# It is a list of registers, not a cut fitted to a distribution.
+_REGISTER_HOSTS = (
+    "pubchem.ncbi.nlm.nih.gov", "comptox.epa.gov", "cellosaurus.org",
+    "www.cellosaurus.org", "identifiers.org", "n2t.net", "bioregistry.io",
+    "purl.obolibrary.org", "purl.bioontology.org", "ebi.ac.uk", "www.ebi.ac.uk",
+    "ncbi.nlm.nih.gov", "www.ncbi.nlm.nih.gov", "rrid.site", "scicrunch.org",
+    "www.wikidata.org",
+)
+_REGISTER_ACCESSIONS = (
+    "DTXSID", "DTXCID", "CHEBI:", "CHEBI_", "CVCL_", "CVCL:", "RRID:", "CHEMBL",
+    "UNII:", "INCHIKEY=", "NCBITAXON:", "NCBITAXON_", "UBERON:", "UBERON_", "CL:",
+    "EFO:", "CAS:", "CASRN:", "ATCC:",
+)
+_IDENTITY_KEYS = (
+    "identifier", "sameAs", "url", "termCode", "propertyID", "alternateName", "@id",
+)
+# The crate's own packaging: files, datasets and tables are not domain entities. Read as
+# a *typing* test, never as membership of the ``hasPart`` closure — see
+# :func:`_check_standard_identifiers` for what the latter costs.
+_PACKAGING_TYPES = frozenset({"File", "Dataset", "Table"})
 
 
-def _check_linked_data(state: CrateState) -> bool:
-    """Dataset content semantically represented as Linked Data."""
-    return len(state.list_entities()) > 0
+def _register_iri(value: Any) -> bool:
+    """An IRI minted by a public register — not merely an absolute URL."""
+    iri = _ref_id(value)
+    if not iri.startswith(("http://", "https://")):
+        return False
+    parts = iri.split("/")
+    return len(parts) > 2 and parts[2].lower() in _REGISTER_HOSTS
+
+
+def _register_accession(value: Any) -> bool:
+    """A bare accession from a public register (``DTXSID…``, ``CVCL_…``, ``CHEBI:…``)."""
+    return isinstance(value, str) and value.strip().upper().startswith(_REGISTER_ACCESSIONS)
+
+
+def _check_standard_identifiers(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-4-C4 — Values for key Domain Entities reported in the Dataset(s) are
+    standardised and assigned unique Standard Identifiers.
+
+    The subjects are the domain entities the crate's **datasets** report, gathered from
+    the three independent places the crate states them: a field value that resolves to
+    one (``csvw:Column.valueUrl``), a table that says what it is about
+    (``csvw:Table.about``), and the process that produced the table saying what went into
+    it (``LabProcess.input`` / ``object``).
+
+    **Three sources, because one is gameable.** A denominator built from ``valueUrl``
+    alone and filtered through a closed list of expected types lets a crate retype its
+    process-output ``Sample`` nodes from ``["Sample", "Thing"]`` to bare ``Thing`` and
+    earn the indicator by typing its cell-line values *less*. There is no type allowlist
+    here at all: whatever the datasets name is a subject, and a subject that is absent,
+    untyped or unexpected counts as unidentified rather than disappearing. And because
+    the same entity is named in three places, no single deletion removes it from the
+    denominator; removing it from all three deletes the crate's record of which
+    biological material the assay used.
+
+    **Crate parts leave the denominator by their type, never by their position.** A
+    subject is dropped only when the node it resolves to is typed ``File``, ``Dataset`` or
+    ``Table`` (``_PACKAGING_TYPES``). Dropping it for being named anywhere in
+    :func:`_payload_files`' ``hasPart`` closure — which carries no type gate — reopened
+    the same silent-vanish hole one layer down: appending the four unidentified output
+    ``Sample`` nodes of ``svhps22_real_input_crate_v20`` to the root's ``hasPart``, a pure
+    addition that says nothing false about identity, flipped that crate and 60 of 60
+    applicable crates from False to True.
+
+    **A register, not any URL.** Counting any absolute IRI lets a crate raise its score by
+    repointing a column at a lab wiki page. An identifier here has to come from a public
+    register — an IRI on a register host, or an accession such as ``DTXSID…``, ``CVCL_…``,
+    ``CHEBI:…``. **Stated limitation: this is a syntax test, not a resolution test.** The
+    tool is offline by design (#117), so a syntactically valid but fabricated accession
+    passes; writing the constant ``CVCL_0000`` onto every crate-local node was measured
+    flipping 58 of 60 crates to True. It raises the cost of inventing an identifier; it
+    cannot make it impossible.
+
+    ``all``, not a majority: the published statement quantifies over the values the
+    datasets report. Measured on this corpus every crate fails, and it fails for a
+    specific, fixable reason — the ``compound`` column resolves to a PubChem IRI while the
+    ``cell_line`` column resolves to a locally minted output ``Sample`` carrying no
+    identifier, even though the crate holds the Cellosaurus IRI for the same cells on the
+    culture process's ``input``. Propagating that identifier onto the output Sample takes
+    ``_v20`` from 10 of 14 to 12 of 14, so the indicator stays honest under the obvious
+    builder fix rather than collapsing.
+
+    The old check scanned ``entity.fields`` for a key named ``identifier`` / ``accession``
+    / ``doi`` / ``orcid`` / ``ror``, which asks whether the *session* recorded an
+    identifier for anything at all.
+    """
+    if _needs_graph(graph):
+        return None
+    by_id = {str(n.get("@id")): n for n in _nodes(graph) if n.get("@id")}
+    tables = {str(n.get("@id")) for n in _nodes(graph) if "Table" in _node_types(n)}
+    packaging = {i for i, n in by_id.items() if _node_types(n) & _PACKAGING_TYPES}
+
+    subjects: set[str] = set()
+
+    def _collect(node: dict[str, Any], key: str) -> None:
+        for item in _values(node, key):
+            ident = _ref_id(item)
+            if ident and ident not in packaging:
+                subjects.add(ident)
+
+    for node in _nodes(graph):
+        types = _node_types(node)
+        if "Column" in types:
+            _collect(node, "valueUrl")
+        if "Table" in types:
+            _collect(node, "about")
+        produced = {_ref_id(o) for o in _values(node, "output") + _values(node, "result")}
+        if produced & tables:
+            _collect(node, "input")
+            _collect(node, "object")
+
+    if not subjects:
+        return Verdict(
+            False,
+            "the crate's datasets report no domain entity: no field value resolves to "
+            "one, no table says what it is about, and no process names what it used",
+        )
+
+    def _identified(ident: str) -> bool:
+        if _register_iri(ident) or _register_accession(ident):
+            return True
+        node = by_id.get(ident)
+        if node is None:
+            return False
+        for key in _IDENTITY_KEYS:
+            for item in _values(node, key):
+                if _register_iri(item) or _register_accession(item):
+                    return True
+                named = by_id.get(_ref_id(item))
+                if named is None:
+                    continue
+                if _register_iri(named.get("propertyID")):
+                    return True
+                if any(_register_accession(v) for v in _values(named, "value")):
+                    return True
+        return False
+
+    identified = {s for s in subjects if _identified(s)}
+    missing = sorted(subjects - identified)
+    return Verdict(
+        len(identified) == len(subjects),
+        f"{len(identified)} of {len(subjects)} domain entities reported by the crate's "
+        f"datasets carry an identifier from a public register"
+        + (f"; unidentified: {', '.join(missing[:2])}" if missing else ""),
+    )
+
+
+def _check_linked_data(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-4-R2 — Dataset(s) are standardised to a defined Semantic Data Model and
+    represented using Linked Data Representations suitable for data sharing and re-use.
+
+    Asked of the *deposit's* published tabular data: every CSV/TSV the crate received
+    must be described by a schema whose every field binds to an external property IRI.
+    Binding is what makes the representation *linked* rather than merely declared.
+
+    The old check was ``len(state.list_entities()) > 0``.
+
+    **The scaffolding trap, and why the denominator is deposited files.** This builder
+    mints a CSVW schema for the condition tables it writes itself, and every column of
+    that template carries a ``propertyUrl`` — so those tables are the only ones in the
+    corpus that are ever 100% bound. Counting them would let a deposit that ships no CSV
+    of its own (all ``.xlsx``/``.prism``, which
+    :func:`_check_non_proprietary_format` calls the corpus norm) score DSM-4-R2 purely off
+    the builder's template: measured, a crate stripped of its three deposited CSVs scored
+    "4 of 4 tabular datasets … bind to an external property IRI". So the minted tables
+    leave **both** numerator and denominator, and the ratio becomes a statement about the
+    deposit.
+
+    ``all`` rather than a ratio, because the published statement is about the shareable
+    Datasets, unquantified: one modelled table beside three unmodelled ones does not make
+    the crate's datasets standardised.
+
+    Non-tabular payload (a PDF protocol, a ``.prism`` blob) is outside the denominator: it
+    cannot be standardised to a tabular model, and DSM-3-R5 is the indicator that asks
+    about it. So is a spreadsheet, which means an ``.xlsx``-only deposit fails on the
+    "no deposited tabular dataset" guard rather than on binding.
+
+    Every JSON-LD shape is normalised before resolving — ``tableSchema``, ``columns`` and
+    ``propertyUrl`` may each be a scalar, a list or a node object, and an array-wrapped
+    schema must not read as "no schema" (:func:`_schema_fields`). A schema whose column
+    references do not resolve in the crate is not credited.
+    """
+    if _needs_graph(graph):
+        return None
+    deposited, _minted = _deposited_files(graph)
+    tables = [
+        f
+        for f in deposited
+        if _media_type(f) in _DELIMITED_MEDIA_TYPES
+        or str(f.get("@id") or "").lower().endswith(_DELIMITED_SUFFIXES)
+    ]
+    if not tables:
+        return Verdict(False, "the crate publishes no deposited tabular dataset to standardise")
+    resolved, dangling = _schema_fields(graph)
+    linked = 0
+    for table in tables:
+        table_id = str(table.get("@id"))
+        fields = resolved.get(table_id) or []
+        if (
+            fields
+            and not dangling.get(table_id)
+            and all(
+                (urls := _values(f, "propertyUrl"))
+                and all(_is_external_iri(u) for u in urls)
+                for f in fields
+            )
+        ):
+            linked += 1
+    return Verdict(
+        linked == len(tables),
+        f"{linked} of {len(tables)} deposited tabular datasets are described by a schema "
+        "whose every field binds to an external property IRI",
+    )
 
 
 def _check_semantic_model(state: CrateState) -> bool:
@@ -671,9 +2141,74 @@ def _check_semantic_model(state: CrateState) -> bool:
     return len(state.list_entities()) > 0
 
 
-def _check_machine_interpretable(state: CrateState) -> bool:
-    """Metadata in machine-readable AND machine-interpretable format."""
-    return len(state.list_entities()) > 0
+def _check_machine_interpretable(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-4-R4 — A Semantic Data Model (Metadata) describing the data is represented in a
+    Machine Readable and Machine Interpretable format.
+
+    Distinct from DSM-4-R5, which this module answers with
+    :func:`_check_machine_interpretable_graph`: R5 asks whether *a* resolvable term exists
+    anywhere in the crate (one PropertyValue or one bound column is enough), while R4's
+    granularity in ``fair/dsm_indicators.yaml`` is **Dataset Field Values** and its
+    subject is the model *describing the data*. So R4 is answered over the fields that
+    model declares, and only over models attached to a data file — a schema no file points
+    at describes nothing.
+
+    Two limbs, one for each adjective, both universal because the sentence is
+    unquantified. *Machine readable*: every declared field carries an explicit
+    ``datatype`` **and every datatype it declares is one CSVW/XSD defines** — anchored on
+    CSVW, where an absent datatype defaults to ``string`` and therefore declares nothing,
+    and where ``datatype: "bananas"`` declares nothing either. *Machine interpretable*:
+    the model must say what the value **is** — an IRI a machine can resolve (``valueUrl``)
+    or a literal it can compute with (a non-string XSD type).
+
+    **Why a computable literal counts, and why ``propertyUrl`` does not.** R4's
+    granularity is Dataset Field *Values*. ``propertyUrl`` types the field *name*, and
+    that is DSM-3-C3's published question ("Dataset Field Names use standard controlled
+    terms"), already scored by :func:`_check_standard_field_names`; crediting it here
+    would score one question twice and — measured — would make this indicator True on 61
+    of 62 crates, because the builder's own schema template binds ``propertyUrl`` on every
+    column it writes. A declared ``xsd:double`` is weaker evidence than an IRI: it says
+    the value is a number rather than what the number denotes. It is counted because at
+    value level "this is a quantity" is a statement a machine can act on, where
+    ``xsd:string`` is not — but it is the weaker half of the limb and a reader should
+    treat the ratio, not the boolean, as the informative output.
+
+    Datatypes are compared as normalised local names against a **whitelist**, never a
+    blacklist (:func:`_datatype_names`): a blacklist makes the verdict flippable by
+    notation alone, so ``xsd:string``, ``http://www.w3.org/2001/XMLSchema#string`` and
+    ``["string", "double"]`` must all read as the same non-computable declaration. The
+    stated cost of the local-name reduction is that a custom IRI whose local name collides
+    is credited.
+
+    The old check was ``len(state.list_entities()) > 0``.
+    """
+    if _needs_graph(graph):
+        return None
+    resolved, dangling = _schema_fields(graph)
+    modelled = {t: f for t, f in resolved.items() if f}
+    fields = [f for cols in modelled.values() for f in cols]
+    if not fields:
+        broken = [t for t, missing in dangling.items() if missing]
+        return Verdict(
+            False,
+            f"{len(broken)} data file(s) declare a tableSchema whose columns do not "
+            "resolve in the crate"
+            if broken
+            else "no data file in the crate is described by a field-level model",
+        )
+    readable = [f for f in fields if _declares_a_datatype(f)]
+    interpretable = [
+        f
+        for f in fields
+        if any(_is_external_iri(v) for v in _values(f, "valueUrl"))
+        or _datatype_is_computable(f)
+    ]
+    return Verdict(
+        len(readable) == len(fields) and len(interpretable) == len(fields),
+        f"of {len(fields)} fields modelled across {len(modelled)} data file(s), "
+        f"{len(readable)} declare a CSVW datatype and {len(interpretable)} say what the "
+        "value is — a resolvable term or a computable literal",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -801,22 +2336,47 @@ def _check_community_domain_model(state: CrateState, graph: Graph) -> bool | Non
 
 
 def _check_non_proprietary_format(state: CrateState, graph: Graph) -> Verdict | None:
-    """DSM-3-R5 — Dataset(s) available in a non-proprietary Machine Readable Format.
+    """DSM-3-R5 — Dataset(s) available in a non-proprietary Machine Readable Format as
+    prescribed by a standard Dataset Model.
 
-    True when the crate carries at least one data file in an open format. This is
-    the indicator the in-vitro corpus most often fails: GraphPad ``.prism``/``.pzf``
-    and legacy ``.xls`` need licensed software to read.
+    The indicator the in-vitro corpus most often fails: GraphPad ``.prism``/``.pzf`` and
+    legacy ``.xls`` need licensed software to read.
+
+    Scored so that the L3 rung is a **subset** of the L1 rung
+    (:func:`_check_data_machine_readable`) rather than an independent list: "open" is
+    ``_MACHINE_READABLE_MEDIA_TYPES & _OPEN_MEDIA_TYPES``, so nothing L1 calls a rendering
+    (``text/plain``, ``application/pdf``, ``image/png``) can be called an open *dataset*
+    here. It also reads the same deposited-file population, so the builder's own CSVs stop
+    answering it, and the media type is read list- and node-object-safely.
+
+    Before this the published report could assert "Dataset(s) are NOT available in a
+    Machine Readable Format" at Level 1 and "Dataset(s) available in non-proprietary
+    Machine Readable Format" at Level 3 about one crate; the cumulative level hid it, the
+    indicator table did not. Executed on a docx-only crate, the previous body returned
+    True, "2 of 3 files are in an open format". Verified over all 62 corpus crates: there
+    is no crate where this is True and DSM-1-R5 is not.
+
+    The narrowing is a real behaviour change to this indicator, made as part of #670's
+    DSM rewrite rather than in its own change: a deposit whose only data is a delimited
+    ``.txt`` now fails where it passed. The direction is down.
     """
     if _needs_graph(graph):
         return None
-    files = [n for n in _nodes(graph) if "File" in _node_types(n)]
-    fmts = [str(n.get("encodingFormat") or "").split(";")[0].strip() for n in files]
-    open_fmts = [f for f in fmts if f in _OPEN_MEDIA_TYPES]
-    closed = sorted({f for f in fmts if f and f not in _OPEN_MEDIA_TYPES})
+    open_and_readable = _MACHINE_READABLE_MEDIA_TYPES & _OPEN_MEDIA_TYPES
+    deposited, minted = _deposited_files(graph)
+    if not deposited:
+        return Verdict(
+            False,
+            "the crate carries no deposited data file"
+            + (f" ({len(minted)} payload files, all builder-generated)" if minted else ""),
+        )
+    fmts = [_media_type(f) for f in deposited]
+    open_fmts = [f for f in fmts if f in open_and_readable]
+    closed = sorted({f for f in fmts if f and f not in open_and_readable})
     return Verdict(
         bool(open_fmts),
-        f"{len(open_fmts)} of {len(files)} files are in an open format"
-        + (f"; proprietary present: {', '.join(closed[:3])}" if closed else ""),
+        f"{len(open_fmts)} of {len(deposited)} deposited files are data in an open format"
+        + (f"; proprietary or not data: {', '.join(closed[:3])}" if closed else ""),
     )
 
 
@@ -968,31 +2528,40 @@ FAIR_CHECKS: dict[str, Any] = {
 # Every value takes ``(state, graph)``. Older CrateState-only checks are adapted
 # by ``_state_check``; the Level 2-4 field/value indicators read the graph directly.
 DSM_CHECKS: dict[str, DsmCheck] = {
-    "unique_id": _state_check(_check_unique_id),
-    "study_summary": _state_check(_check_study_summary),
-    "dataset_metadata": _state_check(_check_dataset_metadata),
+    # --- #670: these read the assembled crate, and answer "not assessed" without one ---
+    "unique_id": _check_unique_id,
+    "study_summary": _check_study_summary,
+    "dataset_metadata": _check_dataset_metadata,
+    "dataset_hierarchy": _check_dataset_hierarchy,
+    "general_schema": _check_general_schema,
+    "descriptor_machine_readable": _check_descriptor_machine_readable,
+    "data_machine_readable": _check_data_machine_readable,
+    "cross_dataset_refs": _check_cross_dataset_refs,
+    "field_level_metadata": _check_field_level_metadata,
+    "data_structured": _check_data_structured,
+    "standard_field_metadata": _check_standard_field_metadata,
+    "controlled_values": _check_controlled_values,
+    "standard_identifiers": _check_standard_identifiers,
+    "linked_data": _check_linked_data,
+    "machine_interpretable": _check_machine_interpretable,
+    # --- still scored from CrateState: the rewrites #670 could not land honestly ---
+    # Nine refuted rewrites over these eight entries — ``domain_model`` backs both
+    # DSM-2-C1 and DSM-2-R1, and both proposals for it were rejected. Each resisted two
+    # rounds of adversarial review, and each was refuted by an edit that carries no
+    # information: deleting a declaration, retyping a node, or truncating an IRI raised
+    # the score. ``test_every_dsm_check_reads_the_crate`` pins the list with the reason
+    # for each; it is a burn-down, so the number may only go down.
     "access_info": _state_check(_check_access_info),
     "has_descriptor": _state_check(_check_has_descriptor),
     "context_fields": _state_check(_check_context_fields),
-    "dataset_hierarchy": _state_check(_check_dataset_hierarchy),
-    "general_schema": _state_check(_check_general_schema),
-    "descriptor_machine_readable": _state_check(_check_descriptor_machine_readable),
-    "data_machine_readable": _state_check(_check_data_machine_readable),
-    "cross_dataset_refs": _state_check(_check_cross_dataset_refs),
-    "field_level_metadata": _state_check(_check_field_level_metadata),
     "value_level_metadata": _state_check(_check_value_level_metadata),
     "generic_model": _state_check(_check_generic_model),
-    "data_structured": _state_check(_check_data_structured),
     "domain_model": _state_check(_check_domain_model),
     "resolvable_terms": _state_check(_check_resolvable_terms),
+    "semantic_model": _state_check(_check_semantic_model),
+    # --- graph-aware already, because they share an RDA check ---
     "standard_license": _check_standard_license,
     "domain_standard": _check_domain_standard,
-    "standard_field_metadata": _state_check(_check_standard_field_metadata),
-    "controlled_values": _state_check(_check_controlled_values),
-    "standard_identifiers": _state_check(_check_standard_identifiers),
-    "linked_data": _state_check(_check_linked_data),
-    "semantic_model": _state_check(_check_semantic_model),
-    "machine_interpretable": _state_check(_check_machine_interpretable),
     # DSM-4-R6 "License information is formally represented/encoded in a Machine
     # Readable Format" reuses the RDA R1.1-03M check — same question, both models.
     # It was defined but never registered here, so _compute_dsm_level skipped it

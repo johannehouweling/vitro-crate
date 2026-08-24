@@ -200,8 +200,10 @@ class TestFairIndicatorsDerivedFromRda:
           — and 1 of its 4 subjects is described beyond a bare name. The old check was
           ``len(state.list_entities()) >= 2``.
 
-        13 met / 5 failed -> **11 met / 7 failed**. ``dsm_level`` is unmoved at 2;
-        the ladder must not rise when checks move to the graph (#670).
+        13 met / 5 failed -> **11 met / 7 failed**. ``dsm_level`` 2 -> **0** once the
+        DSM half of #670 landed: the ladder must never rise when checks move to the
+        graph, and here it falls, because this crate's only payload file is one the
+        builder minted. The four Level-1 blockers are named beside the assertion below.
         """
         from builder.tools.fair_assessment import assess_fair_maturity
         from builder.tools.mit_assessment import _assemble_graph
@@ -248,7 +250,13 @@ class TestFairIndicatorsDerivedFromRda:
             }
         )
         assert got == expected
-        assert rep.dsm_level == 2
+        # DSM 0, down from 2 before #670's DSM rewrite. The golden crate's only payload
+        # file is a builder-minted condition table, so the three Level-1 indicators that
+        # ask about *the data* (DSM-1-C2, DSM-1-R2, DSM-1-R5) now fail, and DSM-1-C0
+        # fails because nothing mints a persistent identifier for the root. The number
+        # went down because the checks stopped scoring the session; see
+        # tests/test_fair_metrics_can_fail.py for the corpus-wide measurement.
+        assert rep.dsm_level == 0
 
     def test_widening_the_model_did_not_move_the_score(self):
         """The met count is a property of the crate, not of how many we ask."""

@@ -274,6 +274,12 @@ class TestTheModelsOwnPercentCompleteGrid:
         Driven through the real scorer rather than asserted structurally: a
         level-0 indicator wired to a check that PASSES must score 0 there, which
         is the opposite of every other level.
+
+        The driving check was ``unique_id`` until #670 moved it onto the assembled
+        crate, where it answers "not assessed" without a graph — an unanswered cell
+        leaves the denominator, so neither rung would score and the inversion would
+        go untested. ``has_descriptor`` is one of the checks that still answers from
+        ``CrateState``, so it drives the same test with a graph-free fixture.
         """
         from builder.tools import fair_assessment as fa
         from tests.fixtures.vhps_golden_crates import vhps_fixture_state
@@ -281,13 +287,13 @@ class TestTheModelsOwnPercentCompleteGrid:
         data = {
             "indicators": [
                 {"id": "DSM-0-C0", "level": 0, "category": "C",
-                 "scope": "full", "check": "unique_id"},
+                 "scope": "full", "check": "has_descriptor"},
                 {"id": "DSM-1-C0", "level": 1, "category": "C",
-                 "scope": "full", "check": "unique_id"},
+                 "scope": "full", "check": "has_descriptor"},
             ]
         }
         state = vhps_fixture_state("S-VHPS21")
-        assert fa.DSM_CHECKS["unique_id"](state, None) is True
+        assert fa.DSM_CHECKS["has_descriptor"](state, None) is True
         grid = fa.dsm_grid(state, data)
         assert grid[0]["C"]["passed"] == 0, "a satisfied Level-0 negative must not score"
         assert grid[1]["C"]["passed"] == 1, "the same check at Level 1 must score"
