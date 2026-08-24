@@ -2343,6 +2343,28 @@ toggle swaps that for the whole `ro-crate-metadata.json`. Every `@id` in either 
 moves the selection — **never a link**: the payload carries the crate verbatim, `javascript:` URLs
 and all, so the absence of anchors is load-bearing and pinned by test.
 
+**An assay is a selectable lane (#686).** One sub-row per assay sits under the Assays chip, minted
+from the crate rather than declared: every other view is a question about the crate, an assay lane is
+named for an entity only this crate has. A lane draws that assay's steps, the materials **one hop**
+out from them, the protocol under each step, and the compounds one hop past those protocols. It
+draws neither the Study, the Investigation, nor the assay itself — drawn, the assay would connect to
+every step and rebuild the star #678 took apart, so it frames the view instead. The material walk is
+a hop and not a closure, or a shared file would lead out of the assay and undo the scoping. Children
+narrow their parent (#624), so choosing an assay replaces the Assays selection and the containers
+drop with it. The key is built from the assay's **name**, because the key is what a shared link
+carries and real ids repeat their own kind; names are not unique, so where two assays share one,
+every lane with that slug takes an id-derived suffix — decided across all assays before any key is
+minted, so keys never depend on the order the graph listed them in. A lane declares `lane` in the
+payload, and the browser picks its layout off that rather than off a naming convention.
+
+**Compounds are one hop past a protocol.** ISA restricts `schema:object` to File/Sample/BioSample at
+Violation severity, so a `MolecularEntity` is never a process input directly; `reagent` is a
+LabProtocol property ranging over it, and `Exposure --executes--> table --reagent--> compound` is the
+correct representation rather than a detour to shorten (#650). The process views follow that second
+hop, anchored on the protocols the drawn steps execute — a compound with no edge to any drawn work is
+what the view is not for. The model draws `reagent` reversed, so the arrow points at the step that
+consumes the material.
+
 **Where the nodes go (`entity_explorer_layout.js`, #619).** Layout is its own module and its own
 `<script>`, holding pure geometry — no DOM, no React, no payload — so a test can run the shipped code
 over a crate's graph rather than a Python restatement of it. A layered pass gives every node in a
@@ -2358,6 +2380,22 @@ or below the cap keeps its column, because a column is a rank and that reads bet
 does. This does not make every view framable — a crate with 80 non-leaf entities over nine ranks is
 some 3,400 px tall whatever is done with its leaves, and "all entities" stays a view to navigate
 rather than to take in at once.
+
+**Where an assay's nodes go (`assay_lane_layout.js`, #686).** Ranking by dependency puts a protocol
+in a rank to the *right* of the step that executes it, so the material chain a reader is following is
+interrupted by what is not material. A lane splits the two directions instead: **horizontal is the
+material chain, vertical is what qualifies a step.** The spine is laid out by the module above rather
+than by geometry of its own — node size, rank gaps and the grid a wide rank packs into are one answer
+given once, so a lane node and a canvas node cannot drift apart — and what is left here is the band:
+a protocol under the step that executes it, a protocol's reagents under the protocol. Both tiers are
+*dealt* into a grid, because a step may execute several protocols and a table may list a dozen
+reagents, and each block is bounded by the spine's own width, so substances cost height and never
+width. `derivesFrom` is excluded from the ranking edges though it is material: a cultured sample
+derives from the line its culture consumed, so the edge points back up the chain. The module returns
+`null` for a graph that is not one chain and the caller falls back to the generic canvas, same
+styling, no seam — declining is the module's job, so the app never has to know which shapes are
+spines. The page loads both modules as plain `<script>` tags, which is the UMD branch `require()`
+never exercises, so a test evaluates the page's own script bodies with no `module` in scope.
 
 **The legend names types, not categories (#623).** A colour key labelled in category prose — "Sample
 / material", "Term / parameter" — explains the canvas in a vocabulary the reader can see nowhere
@@ -2533,6 +2571,7 @@ vitro-crate/
 │   │   ├── entity_explorer.py   Interactive React Flow entity graph (#615)
 │   │   ├── entity_explorer.js   …its browser half (no build step)
 │   │   ├── entity_explorer_layout.js  …where its nodes go (#619)
+│   │   ├── assay_lane_layout.js  …where one assay's nodes go (#686)
 │   │   └── vendor/              Pinned UMD builds inlined into the report
 │   └── agents/                  Orchestration + LLM config
 │       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
