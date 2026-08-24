@@ -38,3 +38,8 @@ ab_comparison/
 mutants/
 .mutmut-cache/
 Maturity report UI mockups.zip
+
+# Deposits and context bundles are NEVER published: they are unpublished
+# experimental data, and this repository is public.
+context/*.zip
+input/raw/*.zip
