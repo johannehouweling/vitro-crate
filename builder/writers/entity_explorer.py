@@ -39,7 +39,6 @@ from typing import Any, Callable, NamedTuple
 from builder.writers.provenance_dag import (
     _CTX_CATEGORY,
     _CTX_COLOUR,
-    _CTX_GLYPH,
     _LAYER_NAMES,
     _PROCESS_DISCRIMINATORS,
     CATEGORY_STYLES,
@@ -59,7 +58,7 @@ from builder.writers.provenance_dag import (
     vocab_prefix,
 )
 
-PAYLOAD_VERSION = 3
+PAYLOAD_VERSION = 4
 """Bumped when the payload's shape changes, so a stale cached script is loud."""
 
 _CTX_LABEL = "Referenced outside the crate"
@@ -681,7 +680,7 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
 def _categories(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """The drawing registry, as the browser needs it.
 
-    Colours and glyphs are generated from :data:`CATEGORY_STYLES` for the same
+    Colours are generated from :data:`CATEGORY_STYLES` for the same
     reason the stylesheet is (`category_css`): a second hand-written palette is
     how the report came to disagree with its own diagrams about what colour a
     file is.
@@ -718,7 +717,6 @@ def _categories(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         key: {
             "colour": style.colour,
             "label": style.label,
-            "glyph": style.glyph,
             "types": types_for(key),
         }
         for key, style in CATEGORY_STYLES.items()
@@ -729,7 +727,6 @@ def _categories(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     out[_CTX_CATEGORY] = {
         "colour": _CTX_COLOUR,
         "label": _CTX_LABEL,
-        "glyph": _CTX_GLYPH,
         "types": [],
     }
     return out
@@ -857,6 +854,7 @@ _VENDOR_DIR = _ASSET_DIR / "vendor"
 _APP_PATH = _ASSET_DIR / "entity_explorer.js"
 _LAYOUT_PATH = _ASSET_DIR / "entity_explorer_layout.js"
 _LANE_PATH = _ASSET_DIR / "assay_lane_layout.js"
+_CODEC_PATH = _ASSET_DIR / "payload_codec.js"
 _MANIFEST_PATH = _VENDOR_DIR / "manifest.json"
 
 _APP_ID = "ex-app"
@@ -868,10 +866,10 @@ VENDOR_MANIFEST: tuple[dict[str, Any], ...] = tuple(
 """Every third-party file the page inlines: name, version, licence, origin, digest."""
 
 # react, react-dom, the jsx-runtime shim, React Flow, dagre, htm, the layout
-# module, the assay lane's layout, the data island, the app. Named so a test can
-# state the count without recounting the implementation, and so an accidental
-# extra <script> is a failure, not a habit.
-EXPLORER_SCRIPT_COUNT = 10
+# module, the assay lane's layout, the payload codec, the data island, the app.
+# Named so a test can state the count without recounting the implementation, and
+# so an accidental extra <script> is a failure, not a habit.
+EXPLORER_SCRIPT_COUNT = 11
 
 _JS_BUNDLES = (
     "react.production.min.js",
@@ -953,6 +951,18 @@ def _lane_js() -> str:
 
 
 @lru_cache(maxsize=1)
+def _codec_js() -> str:
+    """The expander that turns the island back into the model (#694).
+
+    Loaded before the data island and the app, since the app expands the payload
+    on its first line. Its own file and its own ``<script>``, for the reason the
+    layout modules have theirs: it is pure, so a test can run the shipped code
+    against what Python produced instead of against a second copy of it.
+    """
+    return _CODEC_PATH.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
 def explorer_css() -> str:
     """React Flow's stylesheet, for inlining into the report's one stylesheet.
 
@@ -963,6 +973,41 @@ def explorer_css() -> str:
     return "\n" + _banner("xyflow-react.style.css") + "\n" + _vendor_text("xyflow-react.style.css")
 
 
+def _compact(payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload as the page carries it — the same model, encoded small (#694).
+
+    A mean ``@id`` in a real crate is 53 characters, and the readable model
+    repeats one per edge endpoint and one per view membership: on S-VHPS22 that
+    is roughly 1,800 copies of strings already sitting in ``nodes``. The report
+    ships *inside* the crate and is opened from disk, so no transfer encoding
+    ever squeezes them; raw bytes are what lands in the deposit.
+
+    Three encodings, all lossless and all reversed by ``expand`` in
+    ``payload_codec.js``:
+
+    * an edge becomes ``[src_index, dst_index, label]``;
+    * a view's members become indices;
+    * a node's ``name`` is omitted where it equals its ``label``, which is true
+      of 249 of 254 nodes on the reference crate.
+
+    :func:`build_explorer_payload` is deliberately left alone. It is the model —
+    readable, id-addressed, and what every Python consumer and test reads — and
+    compaction is a property of the wire, not of what the explorer means.
+    """
+    index = {node["id"]: i for i, node in enumerate(payload["nodes"])}
+    return {
+        **payload,
+        "nodes": [
+            {k: v for k, v in node.items() if not (k == "name" and v == node["label"])}
+            for node in payload["nodes"]
+        ],
+        "edges": [[index[e["src"]], index[e["dst"]], e["label"]] for e in payload["edges"]],
+        "views": [
+            {**view, "members": [index[m] for m in view["members"]]} for view in payload["views"]
+        ],
+    }
+
+
 def _data_island(payload: dict[str, Any]) -> str:
     """The payload, as JSON that cannot be read as HTML.
 
@@ -971,7 +1016,7 @@ def _data_island(payload: dict[str, Any]) -> str:
     tag. The crate is untrusted text (#169) and an entity name is a place a
     ``</script>`` can arrive from.
     """
-    text = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    text = json.dumps(_compact(payload), ensure_ascii=True, separators=(",", ":"))
     return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
@@ -1003,6 +1048,7 @@ def render_explorer_section(
         scripts.append(f"<script>{_banner(filename)}\n{_vendor_text(filename)}</script>")
     scripts.append(f"<script>{_layout_js()}</script>")
     scripts.append(f"<script>{_lane_js()}</script>")
+    scripts.append(f"<script>{_codec_js()}</script>")
     scripts.append(
         f'<script id="{_DATA_ID}" type="application/json">'
         f"{_data_island(build_explorer_payload(metadata, default_views=default_views))}"

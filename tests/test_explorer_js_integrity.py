@@ -30,7 +30,12 @@ _PROBE = _REPO / "tests" / "fixtures" / "js_names_probe.js"
 # adding to it is a deliberate act and not a way to quiet the check.
 _PAGE_GLOBALS = ("React", "ReactDOM", "htm", "dagre", "window", "document", "console")
 
-_SCRIPTS = ("entity_explorer.js", "entity_explorer_layout.js", "assay_lane_layout.js")
+_SCRIPTS = (
+    "entity_explorer.js",
+    "entity_explorer_layout.js",
+    "assay_lane_layout.js",
+    "payload_codec.js",
+)
 
 
 def _node() -> str:

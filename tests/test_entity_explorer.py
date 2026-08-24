@@ -132,9 +132,13 @@ class TestPayloadShape:
         assert set(payload["categories"]) == set(CATEGORY_STYLES) | {"ctx"}
         for key, style in CATEGORY_STYLES.items():
             assert payload["categories"][key]["colour"] == style.colour
-            assert payload["categories"][key]["glyph"] == style.glyph
+            # The glyph is NOT shipped: nothing has drawn one since #688 chose
+            # colour only, and a payload field no reader reads is weight in every
+            # generated report (#694). The registry keeps the data and its
+            # uniqueness rule so restoring the channel stays a one-line change.
+            assert "glyph" not in payload["categories"][key]
             assert payload["categories"][key]["label"] == style.label
-        assert payload["categories"]["ctx"]["glyph"] == _CTX_GLYPH
+        assert "glyph" not in payload["categories"]["ctx"]
 
     def test_it_carries_the_crate_document_verbatim(self) -> None:
         """Both JSON modes read from it, so it must be the document the crate

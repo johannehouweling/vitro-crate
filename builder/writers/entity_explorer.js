@@ -22,7 +22,12 @@
       Handle = RF.Handle, Position = RF.Position, useReactFlow = RF.useReactFlow,
       MarkerType = RF.MarkerType;
 
-  var D = JSON.parse(document.getElementById('ex-data').textContent);
+  // Expanded first, so everything below sees the model as Python built it: the
+  // island carries ids as indices and omits a `name` that repeats its `label`
+  // (#694), and no other line in this file knows that.
+  var D = window.PayloadCodec.expand(
+    JSON.parse(document.getElementById('ex-data').textContent)
+  );
   var NODE = new Map(D.nodes.map(function (n) { return [n.id, n]; }));
   var ENTITY = new Map(
     (D.document['@graph'] || []).filter(function (e) { return e && e['@id']; })
