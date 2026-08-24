@@ -3021,6 +3021,9 @@ def _add_processes(
     # named only one — so the cultures have to exist first. Ordering the pass is
     # enough; nothing else here depends on the draft's own order.
     cultured_by_assay: dict[Any, list[Any]] = {}
+    # protocol id -> [(assay_id, assay node, protocol node)], one row per process
+    # that executes it. Placement waits for all of them; see `_place_protocols`.
+    protocol_use: dict[Any, list[tuple[Any, Any, Any]]] = {}
     ordered = sorted(
         state.list_entities("LabProcess"),
         key=lambda p: 0
@@ -3060,9 +3063,6 @@ def _add_processes(
             )
             if culture_protocols:
                 protocol = culture_protocols
-                study = _study_of(state, idx, f.get("assay_id"))
-                for one in culture_protocols:
-                    _link_to_study(study, one)
         elif protocol is None:
             # Everything else is assay-scoped: the deposit files an assay's
             # procedures beside its data, and the Assay already lists them under
@@ -3092,10 +3092,6 @@ def _add_processes(
                 per_line = _culture_protocols(
                     state, crate, [line], idx, materialize_payload=materialize_payload
                 )
-                if per_line:
-                    study = _study_of(state, idx, assay_key)
-                    for one in per_line:
-                        _link_to_study(study, one)
                 nodes.append(
                     _build_process(
                         crate,
@@ -3137,10 +3133,50 @@ def _add_processes(
             )
         for node in nodes:
             _wire_process_node(
-                state, crate, idx, proc, node, f, ptype, built, first=(node is nodes[0])
+                state,
+                crate,
+                idx,
+                proc,
+                node,
+                f,
+                ptype,
+                built,
+                protocol_use,
+                first=(node is nodes[0]),
             )
 
+    _place_protocols(state, idx, protocol_use)
     _chain_processes(built)
+
+
+def _place_protocols(
+    state: CrateState,
+    idx: dict[str, Any],
+    protocol_use: dict[Any, list[tuple[Any, Any, Any]]],
+) -> None:
+    """Hang each protocol where its use says it belongs (#678).
+
+    `_link_to_study`'s own contract is that "a protocol that governs several
+    assays is a study-level document and the backbone should say so" — but the
+    build keyed on the protocol's KIND, hoisting every culture protocol to the
+    Study however many assays actually followed it, and nesting every other one
+    under its Assay however many shared it. Reuse decides now:
+
+    * followed by more than one assay -> the Study, once
+    * followed by exactly one -> that Assay
+
+    A protocol entity IS its file (D17), so the #532 reachability rule applies
+    either way: nest it, and keep the root's reference.
+    """
+    for rows in protocol_use.values():
+        assays = {key for key, _assay, _protocol in rows if key is not None}
+        _key, assay, protocol = rows[0]
+        if len(assays) > 1:
+            _link_to_study(study := _study_of(state, idx, _key), protocol)
+            if study is not None:
+                continue
+        if assay is not None:
+            _append_unique(assay, "hasPart", protocol)
 
 
 def _wire_process_node(
@@ -3152,6 +3188,7 @@ def _wire_process_node(
     f: dict[str, Any],
     ptype: str,
     built: list[tuple[Any, str, Any]],
+    protocol_use: dict[Any, list[tuple[Any, Any, Any]]],
     *,
     first: bool,
 ) -> None:
@@ -3185,18 +3222,13 @@ def _wire_process_node(
     # through directory Datasets, and an Assay is a contextual node.
     for file_node in _result_file_nodes(node):
         _append_unique(assay, "hasPart", file_node)
-    # ...and so is the protocol it followed. A protocol entity IS its
-    # file (D17), so the same #532 reachability rule applies: nest it
-    # under the Assay, keep the root's reference. Skipped for a
-    # study-level protocol — one shared across assays is already hung
-    # off the Study, and re-parenting it per assay is the duplication
-    # that made it study-level in the first place.
-    study = _study_of(state, idx, f.get("assay_id"))
-    study_parts = set(_child_ids(study)) if study is not None else set()
+    # ...and so is the protocol it followed, but WHERE it hangs depends on how
+    # many assays follow it, which is not knowable while one process is being
+    # wired. Usage is recorded here and placed once every process exists.
     for protocol_node in _protocol_file_nodes(node):
-        if getattr(protocol_node, "id", None) in study_parts:
-            continue
-        _append_unique(assay, "hasPart", protocol_node)
+        protocol_use.setdefault(getattr(protocol_node, "id", None), []).append(
+            (f.get("assay_id"), assay, protocol_node)
+        )
 
     _chain_processes(built)
 
