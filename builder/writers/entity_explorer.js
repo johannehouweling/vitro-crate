@@ -48,6 +48,15 @@
   // a fact about the selection, not a naming convention the browser re-derives.
   var LANE = new Set(D.views.filter(function (v) { return v.lane; })
     .map(function (v) { return v.key; }));
+  /* What an edge says it is, in the crate's own vocabulary (#688).
+   *
+   * The model's labels are this codebase's words — an edge is `input` because
+   * that reads well beside `result` — but the predicate the crate is serialized
+   * with is `schema:object`. A reader who copies a name off the canvas has to
+   * find it in the JSON-LD, so the payload carries the mapping and this looks it
+   * up rather than keeping a second copy of the vocabulary here.
+   */
+  function term(label) { return (D.relations && D.relations[label]) || label; }
   // Everything some view can put on the canvas. Not `D.nodes.length`: that also
   // counts bare references the crate never describes, which no view offers, so
   // a denominator taken from it would be one the numerator can never reach.
@@ -100,12 +109,20 @@
     } catch (err) { return decodeURIComponent(id); }
   }
 
-  function Glyph(props) {
+  /* A category, as colour and nothing else (#688).
+   *
+   * This was a per-category SVG shape, and shape was the redundant channel that
+   * survived greyscale, print and colour vision deficiency — `CATEGORY_STYLES`
+   * guaranteed no two categories shared one. Dropping it leaves eleven
+   * categories on a colour ring the registry itself calls full at ten, so the
+   * cost is real and is recorded rather than forgotten: the mitigations that
+   * ship with it are the inspector naming the type in words on every entity, and
+   * the legend remaining the one place the mapping is stated.
+   */
+  function Swatch(props) {
     var c = D.categories[props.k] || D.categories.ctx;
-    var s = props.size || 14;
-    return html`<svg class="ex-glyph" width=${s} height=${s} viewBox="0 0 14 14"
-      aria-hidden="true"><path d=${c.glyph} fill=${c.colour} fill-opacity=".18"
-      stroke=${c.colour} stroke-width="1.3" stroke-linejoin="round" /></svg>`;
+    return html`<span class="ex-swatch" aria-hidden="true"
+      style=${{ '--ex-c': c.colour }}></span>`;
   }
   // How many type names a legend key spells out before it counts the rest. The
   // legend is one strip across the toolbar, so a bucket holding eight types
@@ -203,13 +220,16 @@
     var cls = ['ex-node'];
     if (n.orphan) cls.push('ex-orphan');
     if (n.status !== 'described') cls.push('ex-outside');
+    // A tinted fill means the bytes are in the crate directory. Read off
+    // `residence`, never off `status`: every described entity shares a status,
+    // so tinting on that would paint a compound as though it were a file (#687).
+    if (n.residence === 'carried') cls.push('ex-carried');
     if (props.data.hit) cls.push('ex-hit');
     if (props.data.dim) cls.push('ex-dim');
     if (props.selected) cls.push('ex-selected');
     return html`<div class=${cls.join(' ')} style=${{ '--ex-c': c.colour }}
         title=${(n.name || n.label) + ' — ' + n.id}>
       <${Handle} type="target" position=${Position.Left} />
-      <${Glyph} k=${n.category} size=${16} />
       <div class="ex-node-text">
         <div class="ex-node-name">${n.label}</div>
         <div class="ex-node-tag">${n.type}</div>
@@ -281,7 +301,7 @@
             return html`<div key=${id} data-entity=${id}
                 class=${'ex-json-entity' + (id === sel ? ' ex-json-current' : '')}>
               <div class="ex-json-entity-head">
-                ${n ? html`<${Glyph} k=${n.category} size=${12} />` : null}
+                ${n ? html`<${Swatch} k=${n.category} />` : null}
                 ${n ? html`<${Ref} id=${id} goTo=${goTo} />`
                     : html`<span class="ex-mono">${shortId(id)}</span>`}
                 <span class="ex-muted">${n ? n.type : 'not drawn'}</span>
@@ -325,7 +345,7 @@
           ${pair[1].map(function (id) {
             var t = NODE.get(id);
             return html`<div key=${id} class="ex-link">
-              ${t ? html`<${Glyph} k=${t.category} size=${12} />` : null}
+              ${t ? html`<${Swatch} k=${t.category} />` : null}
               <${Ref} id=${id} goTo=${goTo} /></div>`;
           })}
         </div>`;
@@ -340,7 +360,7 @@
     return html`<aside class="ex-side">
       <div class="ex-side-head">
         <div class="ex-side-title">
-          <${Glyph} k=${n.category} size=${16} />
+          <${Swatch} k=${n.category} />
           <span class="ex-eyebrow">${category(n).label}</span>
           <button type="button" class="ex-close" title="Clear selection"
             onClick=${props.onClose}>×</button>
@@ -456,9 +476,14 @@
         var colour = lit ? category(NODE.get(e.src)).colour : '#b8bcc4';
         return {
           id: e.src + ' ' + e.dst, source: e.src, target: e.dst,
-          label: lit ? e.labels.join(', ') : undefined,
-          labelStyle: { fontSize: 10 }, labelBgStyle: { fill: '#fff', fillOpacity: 0.92 },
-          labelBgPadding: [3, 1],
+          // Named only while lit, and named in the crate's vocabulary. No
+          // background box: the label takes the edge's own colour and a halo
+          // knocks the line out from behind the text (see `.ex-canvas
+          // .react-flow__edge-text` in the stylesheet), so it reads as part of
+          // the edge rather than as a card sitting on top of one.
+          label: lit ? e.labels.map(term).join(', ') : undefined,
+          labelShowBg: false,
+          labelStyle: { fontSize: 10, fill: colour },
           style: { stroke: colour, strokeWidth: lit ? 2 : 1, opacity: hits && !lit ? 0.25 : 1 },
           markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: colour },
           zIndex: lit ? 10 : 0
@@ -572,7 +597,7 @@
           .map(function (k) {
             var c = D.categories[k];
             return html`<span key=${k} class="ex-key" title=${legendTitle(c)}>
-              <${Glyph} k=${k} size=${12} />${legendLabel(c)}</span>`;
+              <${Swatch} k=${k} />${legendLabel(c)}</span>`;
           })}
         <span class="ex-key"><span class="ex-swatch ex-swatch-orphan"></span>unreachable from the root</span>
         <span class="ex-key"><span class="ex-swatch ex-swatch-outside"></span>outside the crate</span>
@@ -580,7 +605,13 @@
       <div class="ex-main">
         <div class="ex-canvas">
           <${ReactFlowCanvas} nodes=${nodes} edges=${edges} nodeTypes=${nodeTypes}
-            onNodeClick=${function (_e, n) { setSelected(n.id); }}
+            onNodeClick=${function (_e, n) {
+              // Click again to clear, taking the edge labels with it. Selection
+              // used to change only by choosing something else, so a reader who
+              // had finished with an entity had nowhere to put the selection
+              // down except the empty canvas.
+              setSelected(function (was) { return was === n.id ? null : n.id; });
+            }}
             onPaneClick=${function () { setSelected(null); }}
             nodesConnectable=${false} minZoom=${0.05} fitView
             proOptions=${{ hideAttribution: true }}>
