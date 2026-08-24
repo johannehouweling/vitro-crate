@@ -667,9 +667,13 @@ covers only its Jekyll theme and does not license the model.
 assembled `@graph` — the bytes a reader receives — so a third party scoring the
 published crate reaches our published number. Given no graph a check answers *not
 assessed* (`None`), which leaves the denominator, rather than guessing from
-`CrateState`; `_GRAPH_AWARE_FAIR_CHECKS` names the checks that hold to this and
-`assessment_graph.needs_graph` states why the alternative is a lie. Two indicators
-asking one question share one function, so the axes cannot disagree about one crate.
+`CrateState`; `_GRAPH_AWARE_FAIR_CHECKS` names the RDA checks that hold to this,
+every DSM check registered unwrapped in `DSM_CHECKS` holds to it too, and
+`assessment_graph.needs_graph` states why the alternative is a lie. `_state_check`
+marks what is left — a **burn-down**, enumerated with the reason each rewrite was
+refuted in `tests/test_fair_metrics_can_fail.py`, which may shrink and may not grow.
+Two indicators asking one question share one function, so the axes cannot disagree
+about one crate.
 
 **A check must be able to fail, and must ask the published question.** `len(entities)
 > 0` is not an assessment: it scores that the builder ran. The floor is pinned by
