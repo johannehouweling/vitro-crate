@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -900,11 +902,110 @@ def _fair_shares(needs: list[int], budget: int) -> list[int]:
     return shares
 
 
+# How many folders the shape lists before it elides the rest. A pathological
+# deposit must not spend the context describing itself, and what is left out is
+# stated rather than trailing off — the same rule the candidate cap follows
+# (#587).
+_MAX_SHAPE_FOLDERS = 10
+
+# What the files sitting at the branch point itself are called in the listing.
+# A deposit keeps its descriptor and READMEs there, beside the folders.
+_AT_THIS_LEVEL = "(here)"
+
+# A tree needs at least this many branches to say anything the class census has
+# not. The trimmed fixtures are a single chain of directories, and #599 is
+# explicit that a census must never be longer than the file list it summarises.
+_MIN_SHAPE_BRANCHES = 2
+
+
+def _class_tally(files: Sequence[FileClassification]) -> str:
+    """``1358 raw data, 74 processed data, 22 metadata, 14 protocol``, biggest first."""
+    counts = Counter(f.classification or CLASS_RAW_DATA for f in files)
+    return ", ".join(
+        f"{n} {name.replace('_data_file', ' data').replace('_', ' ').strip()}"
+        for name, n in counts.most_common()
+    )
+
+
+def _branch_point(relatives: Sequence[str]) -> PurePosixPath:
+    """The directory where the deposit actually branches.
+
+    A submission is routinely one folder deep before anything differs —
+    svhps22 puts all 1468 files under `study_01_TH-DNT_Tier1_NeuralCellLines/`,
+    so listing the top level reports one folder holding everything and tells the
+    agent nothing. Descend while there is exactly one child DIRECTORY, whatever
+    files sit beside it (a deposit keeps its descriptor at the root).
+    """
+    prefix = PurePosixPath()
+    while True:
+        children = {
+            rest.parts[0]
+            for relative in relatives
+            if (rest := _below(prefix, relative)) is not None and len(rest.parts) > 1
+        }
+        if len(children) != 1:
+            return prefix
+        prefix = prefix / next(iter(children))
+
+
+def _below(prefix: PurePosixPath, relative: str) -> PurePosixPath | None:
+    """*relative* re-rooted at *prefix*, or ``None`` when it does not live there."""
+    path = PurePosixPath(str(relative).replace("\\", "/"))
+    try:
+        return path.relative_to(prefix)
+    except ValueError:
+        return None
+
+
+def summarise_deposit(
+    files: Sequence[FileClassification], *, input_root: str, max_folders: int = _MAX_SHAPE_FOLDERS
+) -> str:
+    """The deposit's shape: what it holds, and how its folders are weighted (#599).
+
+    The ranking shows a bounded sample and used to say only "1428 not surfaced" —
+    a bare number, from which a deposit whose tail is 1352 instrument printouts
+    reads exactly like one hiding 16 unread protocols. Every scanned file has
+    carried a classification since #591, so the census is free and complete; it
+    was simply discarded in favour of the count.
+
+    The folder tree is listed from :func:`_branch_point` and bounded to
+    *max_folders*, with the remainder stated. It is omitted entirely when the
+    deposit does not branch — a tree of one limb repeats the tally above it.
+    """
+    if not files:
+        return ""
+    relatives = [_relative(f.path, input_root).replace("\\", "/") for f in files]
+    by_relative = dict(zip(relatives, files))
+    header = f"Deposit: {len(files)} files — {_class_tally(files)}."
+
+    prefix = _branch_point(relatives)
+    groups: dict[str, list[FileClassification]] = {}
+    for relative in relatives:
+        rest = _below(prefix, relative)
+        if rest is None:
+            continue
+        key = rest.parts[0] + "/" if len(rest.parts) > 1 else _AT_THIS_LEVEL
+        groups.setdefault(key, []).append(by_relative[relative])
+    if len(groups) < _MIN_SHAPE_BRANCHES:
+        return header
+
+    ordered = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    lines = [f"Shape ({prefix}/):" if str(prefix) != "." else "Shape:"]
+    for name, members in ordered[:max_folders]:
+        lines.append(f"  {name:<44.44s} {len(members):5d} — {_class_tally(members)}")
+    if (rest_folders := ordered[max_folders:]) :
+        hidden = sum(len(members) for _, members in rest_folders)
+        lines.append(f"  + {len(rest_folders)} more folders, {hidden} files")
+    return header + "\n" + "\n".join(lines)
+
+
 def format_document_context(
     candidates: list[DocumentationCandidate],
     *,
     max_chars: int = _MAX_CONTEXT_CHARS,
     total_scanned: int | None = None,
+    deposit: Sequence[FileClassification] | None = None,
+    input_root: str = "",
 ) -> str:
     """Format ranked candidates as bounded, kind-labelled agent context.
 
@@ -912,7 +1013,24 @@ def format_document_context(
     scanned, the context says so. A silent cap reads as "this is everything" —
     the same reason the maturity report names the findings it hid rather than
     trailing off (#587).
+
+    Given the whole *deposit* inventory, the context LEADS with its shape
+    (:func:`summarise_deposit`) and breaks the hidden tail down by class rather
+    than reporting a bare count (#599). The sample is only meaningful against
+    what it is a sample OF: 40 files of 1468 is 2.7% of a submission whose
+    remaining 1428 could be all instrument printouts or could hide sixteen
+    unread protocols, and "1428 not surfaced" cannot tell those apart.
+
+    The shape is charged to the same budget as the entries, and taken off the
+    top: it is bounded by construction (:data:`_MAX_SHAPE_FOLDERS`), so it
+    cannot crowd out the documents it exists to introduce — the failure
+    :func:`_fair_shares` prevents one layer down.
     """
+    shape = summarise_deposit(deposit, input_root=input_root) if deposit else ""
+    if shape:
+        max_chars = max(0, max_chars - len(shape) - len(_JOINER))
+    if total_scanned is None and deposit is not None:
+        total_scanned = len(deposit)
     headers = [f"[{c.kind}/{c.classification}] {c.relative_path}\n" for c in candidates]
     bodies = [_context_body(c) for c in candidates]
     blocks = [header + body for header, body in zip(headers, bodies)]
@@ -936,11 +1054,19 @@ def format_document_context(
             kept = body[: room - len(header) - len(_TRUNCATED)].rstrip()
             parts.append(header + kept + _TRUNCATED)
     context = _JOINER.join(parts)
+    if shape:
+        context = shape + _JOINER + context
     if total_scanned is not None and total_scanned > len(candidates):
         hidden = total_scanned - len(candidates)
+        # Broken down by class where the inventory is in hand: a tail that is
+        # all instrument output is not worth opening, and one holding unread
+        # protocols is, and a bare count says neither (#599).
+        named = {c.path for c in candidates}
+        rest = [f for f in deposit if f.path not in named] if deposit else []
+        breakdown = f": {_class_tally(rest)}" if rest else ""
         context += (
             f"\n\n({len(candidates)} of {total_scanned} scanned files shown; "
-            f"{hidden} not surfaced — read any of them directly if this list "
-            "does not cover what you need.)"
+            f"{hidden} not surfaced{breakdown} — read any of them directly if "
+            "this list does not cover what you need.)"
         )
     return context

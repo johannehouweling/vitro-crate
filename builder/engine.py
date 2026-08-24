@@ -331,18 +331,11 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     # Pass the scan size so the context can say what it left out: the ranking
     # decides what the agent sees at all, and a silent cap reads as "this is
     # everything" (#587).
-    engine.state.documents = [
-        {
-            "kind": c.kind,
-            "classification": c.classification,
-            "filename": c.filename,
-            "relative_path": c.relative_path,
-            "score": c.score,
-            "reasons": list(c.reasons),
-            "preview": c.preview,
-        }
-        for c in candidates
-    ]
+    # `to_dict()`, not a near-copy of it: hand-rolling the same seven fields
+    # dropped `path`, so a candidate rebuilt by `DocumentationCandidate.from_dict`
+    # had no identity to match against the inventory — and the "not surfaced"
+    # breakdown counted the whole deposit instead of the files it hid (#599).
+    engine.state.documents = [c.to_dict() for c in candidates]
     if candidates and engine.state.metadata:
         logger.info("Document discovery: %d candidates", len(candidates))
 

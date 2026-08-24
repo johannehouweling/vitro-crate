@@ -573,9 +573,12 @@ def _gather_context(engine: AgentEngine) -> str:
     # engine while this ran instead.
     documents = getattr(state, "documents", [])
     if documents:
+        scanned = list(getattr(state, "scanned_files", None) or [])
+        approved = sorted(getattr(state, "approved_scan_roots", None) or [])
         rendered = format_document_context(
             [DocumentationCandidate.from_dict(doc) for doc in documents],
-            total_scanned=len(getattr(state, "scanned_files", None) or []),
+            deposit=scanned,
+            input_root=approved[0] if approved else (state.metadata.input_path or ""),
         )
         if rendered:
             parts.append("Discovered documentation:\n" + rendered)
