@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from builder.state import CrateState
@@ -22,65 +23,66 @@ from builder.tools.lookups import (
 _VERIFY_WORKERS = 6
 
 
-def _select_verifier(entity_type: str, field: str):
-    """Return an appropriate lookup function for an identifier-like field."""
-    field_name = field.lower()
-    if entity_type == "MolecularEntity" and field_name == "dtxsid":
-        return lookup_dtxsid, "comptox"
-    if entity_type == "MolecularEntity" and field_name in {
-        "identifier",
-        "cas",
-        "casrn",
-        "cas_number",
-        "pubchem_cid",
-        "inchikey",
-    }:
-        return lookup_compound, "pubchem"
-    if entity_type == "CellLineSample" and field_name in {"identifier", "accession"}:
-        return lookup_cell_line, "cellosaurus"
-    if entity_type == "Person" and field_name in {"identifier", "orcid"}:
-        return lookup_orcid, "orcid"
-    if entity_type == "Publication" and field_name in {"identifier", "doi"}:
-        return lookup_doi, "crossref"
-    return None, None
-
-
 # ---------------------------------------------------------------------------
 # Single source of truth for verifiable (entity_type, field) pairs.
-# This is the *authoritative* set — both _select_verifier and
-# verify_all_identifiers derive from it, so they can never drift apart.
+#
+# The dispatch table IS the authoritative set: a pair cannot be declared
+# verifiable without naming the lookup that serves it. ``verify_all_identifiers``
+# decides what to queue from these keys, and ``verify_identifier`` dispatches
+# through the same table — so the two cannot drift apart (#64).
+#
+# The table holds the lookup functions themselves, so the dependency stays
+# visible to the linter and the type checker. ``_select_verifier`` re-resolves
+# each through the module namespace by name before returning it, so patching
+# ``builder.tools.verification.lookup_*`` still takes effect.
 # ---------------------------------------------------------------------------
+_VERIFIERS: dict[tuple[str, str], tuple[Callable[[str], dict], str]] = {
+    # MolecularEntity resolves through PubChem, except dtxsid (EPA CompTox)
+    ("MolecularEntity", "identifier"): (lookup_compound, "pubchem"),
+    ("MolecularEntity", "cas"): (lookup_compound, "pubchem"),
+    ("MolecularEntity", "casrn"): (lookup_compound, "pubchem"),
+    ("MolecularEntity", "cas_number"): (lookup_compound, "pubchem"),
+    ("MolecularEntity", "pubchem_cid"): (lookup_compound, "pubchem"),
+    ("MolecularEntity", "inchikey"): (lookup_compound, "pubchem"),
+    ("MolecularEntity", "dtxsid"): (lookup_dtxsid, "comptox"),
+    # CellLineSample resolves through Cellosaurus
+    ("CellLineSample", "identifier"): (lookup_cell_line, "cellosaurus"),
+    ("CellLineSample", "accession"): (lookup_cell_line, "cellosaurus"),
+    # Person resolves through ORCID
+    ("Person", "identifier"): (lookup_orcid, "orcid"),
+    ("Person", "orcid"): (lookup_orcid, "orcid"),
+    # Publication resolves through Crossref
+    ("Publication", "identifier"): (lookup_doi, "crossref"),
+    ("Publication", "doi"): (lookup_doi, "crossref"),
+}
 
-_VERIFIABLE_FIELDS: frozenset[tuple[str, str]] = frozenset(
-    [
-        # MolecularEntity fields that map to PubChem lookup
-        ("MolecularEntity", "identifier"),
-        ("MolecularEntity", "cas"),
-        ("MolecularEntity", "casrn"),
-        ("MolecularEntity", "cas_number"),
-        ("MolecularEntity", "pubchem_cid"),
-        ("MolecularEntity", "inchikey"),
-        # MolecularEntity dtxsid maps to the EPA CompTox lookup
-        ("MolecularEntity", "dtxsid"),
-        # CellLineSample fields that map to Cellosaurus lookup
-        ("CellLineSample", "identifier"),
-        ("CellLineSample", "accession"),
-        # Person fields that map to ORCID lookup
-        ("Person", "identifier"),
-        ("Person", "orcid"),
-        # Publication fields that map to Crossref lookup
-        ("Publication", "identifier"),
-        ("Publication", "doi"),
-    ]
-)
+_VERIFIABLE_FIELDS: frozenset[tuple[str, str]] = frozenset(_VERIFIERS)
+
+
+def _select_verifier(entity_type: str, field: str):
+    """Return the lookup function and service name for an identifier field.
+
+    Returns ``(None, None)`` when the pair is not verifiable. The pair must be
+    a key of :data:`_VERIFIERS`, which is also what :data:`_VERIFIABLE_FIELDS`
+    is built from — so a pair this returns nothing for is never queued by
+    ``verify_all_identifiers`` in the first place.
+    """
+    entry = _VERIFIERS.get((entity_type, field.lower()))
+    if entry is None:
+        return None, None
+    verifier, lookup_name = entry
+    # Re-resolve through the module namespace so a patched
+    # ``builder.tools.verification.lookup_*`` is honoured.
+    name = getattr(verifier, "__name__", "")
+    return globals().get(name, verifier), lookup_name
 
 
 def _get_verifiable_fields() -> frozenset[tuple[str, str]]:
-    """Return the set of (entity_type, field) pairs that have a verifier.
+    """Return the (entity_type, field) pairs that have a verifier.
 
-    This is the single source of truth for which identifier fields can be
-    auto-verified. Both ``verify_all_identifiers`` and ``_select_verifier``
-    are derived from this set.
+    The single source of truth for which identifier fields can be
+    auto-verified: the keys of :data:`_VERIFIERS`, which ``_select_verifier``
+    dispatches through.
     """
     return _VERIFIABLE_FIELDS
 
@@ -231,10 +233,6 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     }
 
 
-# Legacy re-export — derived automatically from _get_verifiable_fields so it
-# always stays in sync. Only the flat field names are exposed here; the
-# authoritative pair-based set is _get_verifiable_fields().
-_IDENTIFIER_FIELDS: frozenset[str] = frozenset({f for (_t, f) in _get_verifiable_fields()})
 
 
 def verify_all_identifiers(state: CrateState) -> list[dict]:
