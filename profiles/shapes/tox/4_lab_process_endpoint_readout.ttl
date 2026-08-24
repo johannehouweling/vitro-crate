@@ -61,6 +61,6 @@ tox:EndpointReadoutConsumesExposedMaterial a sh:NodeShape ;
             [ sh:class schema:MediaObject ]
             [ sh:class bioschemas:Sample ]
         ) ;
-        sh:message "EndpointReadout process MUST have at least one schema:object naming what it measured — the exposed Sample, or the File it re-analysed. A readout with no input does not say what was measured." ;
+        sh:message "EndpointReadout process MUST have at least one schema:object naming what it measured — the exposed Sample, or the File it re-analysed" ;
         sh:severity sh:Violation ;
     ] .
