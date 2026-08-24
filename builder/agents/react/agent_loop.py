@@ -3597,7 +3597,10 @@ def _format_document_context(documents: list[dict[str, Any]] | None) -> str:
     if not documents:
         return ""
     lines: list[str] = []
-    for number, doc in enumerate(documents[:20], 1):  # safety cap — never exceed 20
+    # Every ranked candidate: the cap is `discover_documents`' to set, and a
+    # second one here silently halved it (#675). A file the agent is not told
+    # exists is a file it cannot read.
+    for number, doc in enumerate(documents, 1):
         raw = str(doc.get("classification", "document")).strip() or "document"
         label = _DOCUMENT_CLASS_LABELS.get(raw.lower())
         if label is None:
@@ -4366,7 +4369,7 @@ def run_interactive_agent(
             # context when several documents have different roles.
             documents = getattr(engine.state, "documents", [])
             document_lines = []
-            for doc in documents[:20]:
+            for doc in documents:
                 label = doc.get("classification", "document")
                 name = doc.get("filename", doc.get("relative_path", "?"))
                 score = doc.get("score", 0.0)

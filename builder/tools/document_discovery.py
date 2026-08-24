@@ -21,6 +21,12 @@ _DOCUMENT_SUFFIXES = {
     ".txt", ".xml", ".xls", ".xlsx", ".yaml", ".yml",
 }
 _TEXT_MIMES = ("text/", "application/json", "application/xml", "application/pdf")
+# How many ranked candidates the agent is told exist. The cap belongs HERE and
+# nowhere else: both arms used to slice `documents[:20]` on their way to the
+# model, silently halving it and throwing away the allocation #595 had just made
+# across the four classes (#675).
+MAX_DOCUMENT_CANDIDATES = 40
+
 _MAX_PREVIEW_CHARS = 3_000
 _MAX_CONTEXT_CHARS = 18_000
 _JOINER = "\n\n"
@@ -38,6 +44,26 @@ class DocumentationCandidate:
     score: float
     reasons: list[str] = field(default_factory=list)
     preview: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DocumentationCandidate:
+        """Rebuild a candidate from what ``state.documents`` stored (#675).
+
+        The engine keeps the ranking as plain dicts so a session round-trips as
+        JSON; the arms need the objects back to render through the one bounded
+        formatter. Missing keys take the dataclass defaults rather than raising:
+        a checkpoint written before a field existed is still a ranked document.
+        """
+        return cls(
+            path=str(data.get("path") or ""),
+            filename=str(data.get("filename") or ""),
+            relative_path=str(data.get("relative_path") or data.get("filename") or ""),
+            kind=str(data.get("kind") or KIND_OPAQUE),
+            classification=str(data.get("classification") or CLASS_RAW_DATA),
+            score=float(data.get("score") or 0.0),
+            reasons=list(data.get("reasons") or []),
+            preview=str(data.get("preview") or ""),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -695,7 +721,7 @@ def discover_documents(
     *,
     input_root: str,
     approved_roots: set[str],
-    max_candidates: int = 40,
+    max_candidates: int = MAX_DOCUMENT_CANDIDATES,
     max_context_chars: int = _MAX_CONTEXT_CHARS,
     previews: dict[str, str] | None = None,
 ) -> list[DocumentationCandidate]:

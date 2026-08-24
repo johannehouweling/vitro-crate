@@ -65,6 +65,10 @@ from typing import TYPE_CHECKING, Any, Callable
 from builder.agents.llm import ModelOverrides, UsageSink, _as_int
 from builder.agents.llm import make_usage_logger as _make_usage_logger
 from builder.config import get_provider
+from builder.tools.document_discovery import (
+    DocumentationCandidate,
+    format_document_context,
+)
 
 # Deterministic given/family split lives in the pure drafter module so the
 # materialize path here and every direct ``draft_person`` call share ONE contract
@@ -558,26 +562,23 @@ def _gather_context(engine: AgentEngine) -> str:
             parts.append("Scanned files:\n" + "\n".join(file_lines))
 
     # Document discovery context (#179): ranked, classified documentation
-    # discovered by the engine after scanning. This is stored as a list of
-    # compact dicts on state and rendered as a concise summary line per doc.
+    # discovered by the engine after scanning, stored on state as compact dicts.
+    # Rendered through the ONE bounded formatter rather than re-rolled here
+    # (#675). Hand-rolling it took `documents[:20]` with `preview[:2000]` each
+    # and no ceiling — 26 587 characters against an 18 000 budget on svhps22,
+    # and half the ranked candidates never named at all. Everything
+    # `format_document_context` decides (the max-min fair character budget of
+    # #587, #591's refusal to emit an entry too small to carry its own filename,
+    # #595's allocation of the slots across the four classes) stopped at the
+    # engine while this ran instead.
     documents = getattr(state, "documents", [])
     if documents:
-        doc_lines: list[str] = []
-        for doc in documents[:20]:
-            role = doc.get("classification", "document")
-            name = doc.get("filename", doc.get("relative_path", "?"))
-            score = doc.get("score", 0.0)
-            reasons = doc.get("reasons", [])
-            reason_str = "; ".join(reasons[:2]) if reasons else ""
-            line = f"[{role}] {name} (score: {score:.2f})"
-            if reason_str:
-                line += f" — {reason_str}"
-            preview = str(doc.get("preview") or "").strip()
-            if preview:
-                line += f"\n{preview[:2000]}"
-            doc_lines.append(line)
-        if doc_lines:
-            parts.append("Discovered documentation:\n" + "\n".join(doc_lines))
+        rendered = format_document_context(
+            [DocumentationCandidate.from_dict(doc) for doc in documents],
+            total_scanned=len(getattr(state, "scanned_files", None) or []),
+        )
+        if rendered:
+            parts.append("Discovered documentation:\n" + rendered)
 
     return "\n\n".join(parts).strip()
 
