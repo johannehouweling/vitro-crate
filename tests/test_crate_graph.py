@@ -271,10 +271,10 @@ def test_entity_category_is_functional_not_layer() -> None:
     assert nodes["https://orcid.org/0000-0002-1825-0097"]["category"] == "agent"
 
 
-def test_in_crate_person_with_orcid_id_is_not_external() -> None:
+def test_a_described_person_with_an_orcid_is_not_external() -> None:
     nodes = _by_id(build_crate_graph(_crate()))
     person = nodes["https://orcid.org/0000-0002-1825-0097"]
-    assert person["status"] == "in_crate"
+    assert person["status"] == "described"
     assert person["identifier_backed"] is True  # resolvable @id
 
 
@@ -337,9 +337,7 @@ def test_a_role_term_referenced_by_job_title_is_reachable() -> None:
     crate["@graph"].append(
         {"@id": "#person_a", "@type": "Person", "name": "Ada", "jobTitle": {"@id": term_id}}
     )
-    crate["@graph"].append(
-        {"@id": term_id, "@type": "DefinedTerm", "name": "Corresponding author"}
-    )
+    crate["@graph"].append({"@id": term_id, "@type": "DefinedTerm", "name": "Corresponding author"})
     nodes = _by_id(build_crate_graph(crate))
     assert nodes[term_id]["orphan"] is False
 
@@ -442,7 +440,7 @@ def test_layer_filter_all_keeps_everything() -> None:
 
 def test_layer_filter_isa_drops_domain() -> None:
     model = build_crate_graph(_crate(), layer="isa")  # layer 2
-    layers = {n["id"]: n["layer"] for n in model["nodes"] if n["status"] == "in_crate"}
+    layers = {n["id"]: n["layer"] for n in model["nodes"] if n["status"] == "described"}
     assert all(v <= 2 for v in layers.values())
     assert "#aflb1" not in layers  # MolecularEntity (L3) dropped
     assert "#study1" in layers  # Study (L2) kept
@@ -451,9 +449,9 @@ def test_layer_filter_isa_drops_domain() -> None:
 
 def test_layer_filter_crate_keeps_only_packaging() -> None:
     model = build_crate_graph(_crate(), layer="crate")  # layer 1
-    in_crate = [n for n in model["nodes"] if n["status"] == "in_crate"]
-    assert all(n["layer"] == 1 for n in in_crate)
-    ids = {n["id"] for n in in_crate}
+    described = [n for n in model["nodes"] if n["status"] == "described"]
+    assert all(n["layer"] == 1 for n in described)
+    ids = {n["id"] for n in described}
     assert "./" in ids and "#raw" in ids  # packaging survives
     assert "#study1" not in ids  # structural dropped
 
@@ -467,5 +465,3 @@ def test_counts_present() -> None:
 
 
 # --- renderer (Mermaid formatting) ------------------------------------------
-
-

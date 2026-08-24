@@ -202,7 +202,7 @@
     // there is no second palette in the stylesheet to fall out of step with it.
     var cls = ['ex-node'];
     if (n.orphan) cls.push('ex-orphan');
-    if (n.status !== 'in_crate') cls.push('ex-outside');
+    if (n.status !== 'described') cls.push('ex-outside');
     if (props.data.hit) cls.push('ex-hit');
     if (props.data.dim) cls.push('ex-dim');
     if (props.selected) cls.push('ex-selected');
@@ -225,7 +225,7 @@
     if (!target) {
       return html`<span class="ex-mono ex-muted">${shortId(props.id)}</span>`;
     }
-    var cls = 'ex-ref' + (target.status === 'in_crate' ? '' : ' ex-ref-outside');
+    var cls = 'ex-ref' + (target.status === 'described' ? '' : ' ex-ref-outside');
     return html`<button type="button" class=${cls} title=${props.id}
       onClick=${function () { props.goTo(props.id); }}>${target.label}</button>`;
   }
@@ -307,7 +307,7 @@
     if (n.orphan) flags.push({ text: 'unreachable from the root', bad: true });
     if (n.status === 'dangling') flags.push({ text: 'nothing describes this id', bad: true });
     if (n.status === 'external') flags.push({ text: 'described outside the crate', bad: false });
-    if (n.status === 'in_crate' && !n.identifier_backed) {
+    if (n.status === 'described' && !n.identifier_backed) {
       flags.push({ text: 'no persistent identifier', bad: false });
     }
 

@@ -175,6 +175,38 @@ def _is_uri(value: Any) -> bool:
     return isinstance(value, str) and "://" in value
 
 
+def _residence(nid: str) -> str:
+    """Where an entity's bytes live, read off its ``@id`` (#687).
+
+    Orthogonal to ``status``, which says whether the crate *describes* an id.
+    Both facts were carried by one field, so a Cellosaurus IRI, a ``#fragment``
+    PropertyValue and a PDF on disk were indistinguishable — and anything drawn
+    from that (a payload tint, say) would claim a compound's bytes are in the
+    crate.
+
+    * ``carried`` — a relative path: the bytes belong in the crate directory.
+      ``./`` is the directory itself.
+    * ``record`` — a ``#fragment``: a description the metadata holds, no bytes.
+    * ``elsewhere`` — an absolute IRI: described here, resolvable, and outside.
+
+    Ids that nothing describes are ``named`` — assigned where the stubs are
+    built, since that is not a property of the id's shape.
+
+    The shape is the whole rule: it is decidable, needs no disk and no network,
+    and a report must render the same wherever it is read. It is also the only
+    rule available where this runs — the maturity report is rendered *into* the
+    crate before ``crate.write()`` materialises anything, so at that moment no
+    relative path exists on disk and a check against it would call every file
+    missing. The cost is that a ``File`` declared and never materialised reads as
+    carried; that is a defect in the crate, and validation is where it belongs.
+    """
+    if _is_uri(nid):
+        return "elsewhere"
+    if nid.startswith("#"):
+        return "record"
+    return "carried"
+
+
 def _as_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -315,43 +347,53 @@ class CategoryStyle(NamedTuple):
 # explorer draws — rather than a mapping between three.
 CATEGORY_STYLES: dict[str, CategoryStyle] = {
     "container": CategoryStyle(
-        "#667fd6", "Investigation / Study / Assay",
+        "#667fd6",
+        "Investigation / Study / Assay",
         "M2 3h10v8H2z M4 3v8 M10 3v8",
     ),
     "process": CategoryStyle(
-        "#0066a0", "Process",
+        "#0066a0",
+        "Process",
         "M4 2h6l3 5-3 5H4L1 7z",
     ),
     "protocol": CategoryStyle(
-        "#00809a", "Protocol",
+        "#00809a",
+        "Protocol",
         "M4 3h9l-3 8H1z",
     ),
     "material": CategoryStyle(
-        "#387e42", "Sample / material",
+        "#387e42",
+        "Sample / material",
         "M5 3h4a4 4 0 0 1 0 8H5a4 4 0 0 1 0-8z",
     ),
     "chemical": CategoryStyle(
-        "#966527", "Compound",
+        "#966527",
+        "Compound",
         "M7 2.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z",
     ),
     "data": CategoryStyle(
-        "#b14e71", "File / table",
+        "#b14e71",
+        "File / table",
         "M2 4c0-1.1 2.2-2 5-2s5 .9 5 2v6c0 1.1-2.2 2-5 2s-5-.9-5-2z M2 4c0 1.1 2.2 2 5 2s5-.9 5-2",
     ),
     "agent": CategoryStyle(
-        "#95599b", "Person",
+        "#95599b",
+        "Person",
         "M7 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z M7 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6z",
     ),
     "org": CategoryStyle(
-        "#00816e", "Organisation",
+        "#00816e",
+        "Organisation",
         "M2 3h10v8H2z",
     ),
     "publication": CategoryStyle(
-        "#af5546", "Publication",
+        "#af5546",
+        "Publication",
         "M1 3h12l-2 8H3z",
     ),
     "pathway": CategoryStyle(
-        "#6e7424", "Pathway / key event",
+        "#6e7424",
+        "Pathway / key event",
         "M1 3l4 4-4 4z M7 3l4 4-4 4z",
     ),
     # The one category off the ring, muted on purpose: what *qualifies* the work
@@ -360,7 +402,8 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
     # saturated colours, so this is what an eleventh category costs — see
     # `TestCategoryRegistry.test_the_work_is_drawn_more_strongly_than_what_qualifies_it`.
     "annotation": CategoryStyle(
-        "#846050", "Term / parameter",
+        "#846050",
+        "Term / parameter",
         "M1 3h9l3 4-3 4H1z",
     ),
 }
@@ -975,8 +1018,9 @@ def build_crate_graph(
     """Turn a serialized RO-Crate ``@graph`` into a deterministic graph model.
 
     Classifies every node into a paper layer, marks each referenced ``@id`` as
-    ``in_crate`` / ``external`` (resolvable URI, not a node) / ``dangling`` (not a
-    node and not resolvable), flags orphans (in-crate nodes not connected to the
+    ``described`` / ``external`` (resolvable URI, not a node) / ``dangling`` (not
+    a node and not resolvable), records where its bytes live
+    (:func:`_residence`), flags orphans (described nodes not connected to the
     Root Data Entity), and applies a cumulative ``--layer`` filter.
 
     Args:
@@ -989,7 +1033,11 @@ def build_crate_graph(
     Returns:
         ``{"nodes": [...], "edges": [...], "hidden_count": int, "counts": {...},
         "root": str|None}``. Each node: ``{id, label, type, layer, status,
-        identifier_backed, orphan, reach, cluster, cluster_size}``.
+        residence, identifier_backed, orphan, reach, cluster, cluster_size}``.
+
+        ``status`` and ``residence`` answer different questions and must not be
+        read for each other: the first is whether the crate describes the id, the
+        second is where its bytes are.
 
         ``orphan`` stays the union "not reachable from the root". ``reach``
         refines it into ``linked`` / ``isolated`` (unreachable and joined to
@@ -1023,8 +1071,7 @@ def build_crate_graph(
     # reserved artifact as external plumbing rather than a dangling entity.
     referenced = {e["src"] for e in full_edges} | {e["dst"] for e in full_edges}
     stub_ids = {
-        r for r in referenced
-        if r not in nodes and str(r).rsplit("/", 1)[-1] not in _EXCLUDED_IDS
+        r for r in referenced if r not in nodes and str(r).rsplit("/", 1)[-1] not in _EXCLUDED_IDS
     }
 
     def _layer_of(nid: str) -> int:
@@ -1062,7 +1109,8 @@ def build_crate_graph(
             "type": _tag(node),
             "category": _entity_category(node),
             "layer": lyr,
-            "status": "in_crate",
+            "status": "described",
+            "residence": _residence(nid),
             "identifier_backed": id_backed,
             # Kept as the union of the two unreachable states so every existing
             # consumer (mermaid overlay, matrices, topology strip) is unaffected.
@@ -1084,6 +1132,9 @@ def build_crate_graph(
             "category": None,
             "layer": None,
             "status": "external" if external else "dangling",
+            # Not a shape question: nothing describes these, so wherever the id
+            # points, this crate does not say what is there.
+            "residence": "named",
             "identifier_backed": external,
             "orphan": False,
             "reach": "linked",
@@ -1312,11 +1363,7 @@ def _graph_nodes(
     one bad node. Skipping the node degrades one row instead.
     """
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    return {
-        n["@id"]: n
-        for n in graph
-        if isinstance(n, dict) and isinstance(n.get("@id"), str)
-    }
+    return {n["@id"]: n for n in graph if isinstance(n, dict) and isinstance(n.get("@id"), str)}
 
 
 def _is_chemical(node: dict[str, Any]) -> bool:
@@ -1523,9 +1570,7 @@ def _route_state(route: dict[str, Any] | None) -> str:
     return "wired" if route["process"] else "mentioned"
 
 
-def _route_bands(
-    members: list[dict[str, Any]], nodes: dict[str, Any]
-) -> list[dict[str, Any]]:
+def _route_bands(members: list[dict[str, Any]], nodes: dict[str, Any]) -> list[dict[str, Any]]:
     """Group routed members into the diagram's bands.
 
     Members sharing a ``(process, via)`` pair travel together — the relation is
@@ -1537,9 +1582,9 @@ def _route_bands(
     banded: dict[tuple[str, str | None, str | None], list[dict[str, Any]]] = {}
     for member in members:
         route = member["route"] or {}
-        banded.setdefault(
-            (member["state"], route.get("process"), route.get("via")), []
-        ).append(member)
+        banded.setdefault((member["state"], route.get("process"), route.get("via")), []).append(
+            member
+        )
     return [
         {
             "state": state,
@@ -1631,9 +1676,7 @@ def build_chemical_inventory(
     for cid in sorted(chem_ids, key=lambda c: (_name(nodes[c]).casefold(), c)):
         node = nodes[cid]
         ids = _chem_identifiers(node, nodes)
-        fields: dict[str, bool] = {
-            scheme: scheme in ids for scheme, *_rest in _CHEM_ID_SCHEMES
-        }
+        fields: dict[str, bool] = {scheme: scheme in ids for scheme, *_rest in _CHEM_ID_SCHEMES}
         structure = {
             label: value
             for label, keys in _CHEM_STRUCTURE_FIELDS
@@ -1745,9 +1788,7 @@ def _cellline_rrid(node: dict[str, Any], nodes: dict[str, Any]) -> str | None:
                 candidates.extend(
                     v for v in (_literal(pv, _VALUE_KEYS), pv.get("@id")) if isinstance(v, str)
                 )
-    candidates.extend(
-        v for v in (_literal(node, _URL_KEYS), node.get("@id")) if isinstance(v, str)
-    )
+    candidates.extend(v for v in (_literal(node, _URL_KEYS), node.get("@id")) if isinstance(v, str))
     for cand in candidates:
         match = _RRID_RE.search(cand)
         if match:
@@ -2163,9 +2204,7 @@ def build_isa_inventory(
     nodes = _graph_nodes(metadata)
     root_id = _find_root_id(nodes, [n for n in graph if isinstance(n, dict)])
     levels = {
-        nid: lvl
-        for nid, n in nodes.items()
-        if (lvl := _isa_level(n, nid == root_id)) is not None
+        nid: lvl for nid, n in nodes.items() if (lvl := _isa_level(n, nid == root_id)) is not None
     }
     if not levels:
         return {
@@ -2315,6 +2354,7 @@ CITATION_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("Cited in the crate", "Cited"),
 )
 
+
 def _is_article(node: dict[str, Any]) -> bool:
     """True for a publication entity.
 
@@ -2352,9 +2392,7 @@ def _article_doi(node: dict[str, Any], nodes: dict[str, Any]) -> str | None:
                 candidates.extend(
                     v for v in (_literal(pv, _VALUE_KEYS), pv.get("@id")) if isinstance(v, str)
                 )
-    candidates.extend(
-        v for v in (_literal(node, _URL_KEYS), node.get("@id")) if isinstance(v, str)
-    )
+    candidates.extend(v for v in (_literal(node, _URL_KEYS), node.get("@id")) if isinstance(v, str))
     for candidate in candidates:
         match = _DOI_RE.search(candidate)
         if match:
@@ -2362,9 +2400,7 @@ def _article_doi(node: dict[str, Any], nodes: dict[str, Any]) -> str | None:
     return None
 
 
-def _citation_authors(
-    node: dict[str, Any], nodes: dict[str, Any]
-) -> list[dict[str, Any]]:
+def _citation_authors(node: dict[str, Any], nodes: dict[str, Any]) -> list[dict[str, Any]]:
     """The article's credit list, resolved and unresolved alike.
 
     ``contributor`` is read alongside ``author`` and the two deduplicated: the
@@ -2575,5 +2611,3 @@ def _node_class_for_brief(brief: dict[str, str]) -> str:
     """
     head = brief.get("tag", "").split(" · ", 1)[0]
     return _node_class({"@type": head, "additionalType": head})
-
-
