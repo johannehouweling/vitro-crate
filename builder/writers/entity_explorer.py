@@ -56,7 +56,7 @@ from builder.writers.provenance_dag import (
     build_people_inventory,
 )
 
-PAYLOAD_VERSION = 2
+PAYLOAD_VERSION = 3
 """Bumped when the payload's shape changes, so a stale cached script is loud."""
 
 _CTX_LABEL = "Referenced outside the crate"
@@ -117,7 +117,7 @@ def _select_researcher(crate: _Crate) -> set[str]:
     return {
         n["id"]
         for n in crate.model["nodes"]
-        if n["status"] == "in_crate" and (n["category"] != "annotation" or n["id"] == crate.root)
+        if n["status"] == "described" and (n["category"] != "annotation" or n["id"] == crate.root)
     }
 
 
@@ -781,7 +781,11 @@ def build_explorer_payload(
             "type": html.unescape(n["type"]),
             "category": n["category"] or _CTX_CATEGORY,
             "layer": n["layer"],
+            # Two facts, never one: `status` is whether the crate describes this
+            # id, `residence` is where its bytes are. Reading either for the
+            # other paints a compound as though it were a file (#687).
             "status": n["status"],
+            "residence": n["residence"],
             "orphan": n["orphan"],
             "reach": n["reach"],
             "identifier_backed": n["identifier_backed"],

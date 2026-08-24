@@ -169,7 +169,7 @@ class TestPayloadShape:
         by_id = {n["id"]: n for n in payload["nodes"]}
 
         assert by_id["#missing-instrument"]["status"] == "dangling"
-        assert by_id["./"]["status"] == "in_crate"
+        assert by_id["./"]["status"] == "described"
         assert by_id["./"]["orphan"] is False
         assert set(by_id["#sample"]) >= {"layer", "reach", "identifier_backed", "category"}
 
@@ -259,7 +259,7 @@ class TestViewMembership:
         payload = build_explorer_payload(graph)
         shown = set().union(*(set(v["members"]) for v in payload["views"]))
 
-        assert {n["id"] for n in payload["nodes"] if n["status"] == "in_crate"} <= shown
+        assert {n["id"] for n in payload["nodes"] if n["status"] == "described"} <= shown
 
     def test_researcher_hides_the_machinery(self) -> None:
         """Parameters, column definitions, ontology terms, the licence, the
@@ -767,9 +767,7 @@ class TestAChipCountsWhatItIsNamedFor:
         the work it was used in. Those are context; the chip says how many
         compounds."""
         payload = build_explorer_payload(tabbed_views_graph())
-        chemicals = {
-            m["id"] for m in build_chemical_inventory(tabbed_views_graph())["chemicals"]
-        }
+        chemicals = {m["id"] for m in build_chemical_inventory(tabbed_views_graph())["chemicals"]}
 
         assert self._counts(payload)["chemicals"] == len(chemicals)
         assert self._counts(payload)["chemicals"] < self._members(payload)["chemicals"]
@@ -824,7 +822,7 @@ class TestAChipCountsWhatItIsNamedFor:
             assert counts[key] <= members[key], key
 
     def test_a_view_that_is_its_own_subject_counts_everything(self) -> None:
-        """"All entities" and "Researcher" name no narrower thing than what they
+        """ "All entities" and "Researcher" name no narrower thing than what they
         draw, so for them the two numbers are the same — and that is a fact
         about the view, not a special case to exempt."""
         payload = build_explorer_payload(plumbing_heavy_graph())
@@ -1013,7 +1011,7 @@ class TestExplorerSection:
         """The crate is untrusted text (#169). The island is JSON, so the escape
         that matters is the one that stops it being read as HTML."""
         graph = tabbed_views_graph()
-        graph["@graph"][1]["name"] = '</script><img src=x onerror=alert(1)>'
+        graph["@graph"][1]["name"] = "</script><img src=x onerror=alert(1)>"
 
         section = render_explorer_section(graph)
 
@@ -1023,7 +1021,7 @@ class TestExplorerSection:
         # …and the crate's own text survives the escaping intact.
         payload = json.loads(island)
         root = next(n for n in payload["nodes"] if n["id"] == "./")
-        assert root["label"] == '</script><img src=x onerror=alert(1)>'
+        assert root["label"] == "</script><img src=x onerror=alert(1)>"
         assert "<img" not in section
 
     def test_the_section_names_itself_and_its_mount_point(self) -> None:
@@ -1138,8 +1136,16 @@ class TestTheExplorerBuildsNoLinks:
 
         # `src` on its own would match every edge's source field; these are the
         # forms that actually put a URL somewhere the browser follows or parses.
-        for sink in ("href", "src=", "window.open", "location.assign", "innerHTML",
-                     "outerHTML", "dangerouslySetInnerHTML", "<a "):
+        for sink in (
+            "href",
+            "src=",
+            "window.open",
+            "location.assign",
+            "innerHTML",
+            "outerHTML",
+            "dangerouslySetInnerHTML",
+            "<a ",
+        ):
             assert sink not in source, sink
 
 
@@ -1184,7 +1190,7 @@ class TestStandalonePage:
         assert "<title>S-VHPS22 entity graph</title>" in page
 
     def test_a_crate_supplied_title_cannot_close_the_tag(self) -> None:
-        page = render_explorer_page(tabbed_views_graph(), title='</title><script>x()</script>')
+        page = render_explorer_page(tabbed_views_graph(), title="</title><script>x()</script>")
 
         assert "<script>x()</script>" not in page
         assert "&lt;/title&gt;" in page
