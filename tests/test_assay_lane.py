@@ -251,3 +251,42 @@ class TestTheLaneKeyIsReadableAndUnique:
         reversed_graph["@graph"] = list(reversed(graph["@graph"]))
         backward = {v["label"] + v["key"] for v in self._views(reversed_graph)}
         assert forward == backward, (sorted(forward), sorted(backward))
+
+
+class TestThePageCarriesTheLane:
+    """The lane is a second layout module, so the page has to ship it and the
+    app has to know which views it applies to."""
+
+    def test_a_lane_view_says_it_is_one(self, payload):
+        lanes = [v for v in payload["views"] if v.get("parent") == "assays"]
+        assert lanes and all(v["lane"] for v in lanes)
+
+    def test_no_other_view_claims_to_be_one(self, payload):
+        """The app picks the layout off this flag, so a view that wrongly
+        carried it would be drawn as a chain it is not."""
+        others = [v for v in payload["views"] if v.get("parent") != "assays"]
+        assert others and not any(v["lane"] for v in others)
+
+    def test_the_page_ships_the_lane_module(self):
+        from builder.writers.entity_explorer import render_explorer_section
+
+        section = render_explorer_section(assay_lane_graph())
+        assert "AssayLaneLayout" in section
+
+    def test_the_lane_module_loads_after_the_layout_it_reads(self):
+        """It takes NODE_W/NODE_H from `ExplorerLayout` at factory time, so a
+        page that loaded it first would define the lane against `undefined`."""
+        from builder.writers.entity_explorer import render_explorer_section
+
+        section = render_explorer_section(assay_lane_graph())
+        assert section.index("root.ExplorerLayout = factory") < section.index(
+            "root.AssayLaneLayout = factory"
+        )
+
+    def test_the_lane_module_loads_before_the_app_that_calls_it(self):
+        from builder.writers.entity_explorer import render_explorer_section
+
+        section = render_explorer_section(assay_lane_graph())
+        assert section.index("root.AssayLaneLayout = factory") < section.index(
+            "window.AssayLaneLayout"
+        )

@@ -43,6 +43,11 @@
     if (!CHILDREN.has(v.parent)) CHILDREN.set(v.parent, []);
     CHILDREN.get(v.parent).push(v.key);
   });
+  // The views that draw one assay's chain, and so want the lane layout (#686).
+  // Read off the payload rather than matched on a key: which views are lanes is
+  // a fact about the selection, not a naming convention the browser re-derives.
+  var LANE = new Set(D.views.filter(function (v) { return v.lane; })
+    .map(function (v) { return v.key; }));
   // Everything some view can put on the canvas. Not `D.nodes.length`: that also
   // counts bare references the crate never describes, which no view offers, so
   // a denominator taken from it would be one the numerator can never reach.
@@ -65,6 +70,7 @@
   // hairball on paper.
   var DERIVATION = new Set(['input', 'object', 'result', 'output']);
   var layout = window.ExplorerLayout.layout;
+  var laneLayout = window.AssayLaneLayout ? window.AssayLaneLayout.layout : null;
   var NODE_W = window.ExplorerLayout.NODE_W, NODE_H = window.ExplorerLayout.NODE_H;
   // How far the opening view is allowed to pull back. A crate's whole graph is
   // thousands of pixels tall — the researcher view of a real deposit lays out
@@ -387,7 +393,26 @@
     }, [views, selected, showDoc, query]);
 
     var graph = useMemo(function () { return visibleGraph(views, pinned); }, [views, pinned]);
-    var positions = useMemo(function () { return layout(graph.visible, graph.edges); }, [graph]);
+    /* Where the nodes go.
+     *
+     * One assay on its own is a chain, and a chain reads as a lane: the material
+     * runs left to right and what qualifies a step hangs below it. Anything else
+     * — several assays at once, the whole crate — is not one chain, so it goes
+     * on the generic canvas.
+     *
+     * The lane may still decline a graph that is nominally an assay but does not
+     * fit a spine (a characterisation run with no exposure, two exposures, an
+     * assay carrying AOP entities). It returns null and the fallback is the same
+     * canvas, same styling, no visible seam.
+     */
+    var positions = useMemo(function () {
+      var lanes = Array.from(views).filter(function (k) { return LANE.has(k); });
+      if (lanes.length === 1 && laneLayout) {
+        var laid = laneLayout(graph.visible, graph.edges, NODE);
+        if (laid) return laid;
+      }
+      return layout(graph.visible, graph.edges);
+    }, [graph, views]);
 
     var needle = query.trim().toLowerCase();
     var hits = useMemo(function () {
