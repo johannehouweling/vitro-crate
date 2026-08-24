@@ -56,7 +56,7 @@ from builder.writers.provenance_dag import (
     build_people_inventory,
 )
 
-PAYLOAD_VERSION = 1
+PAYLOAD_VERSION = 2
 """Bumped when the payload's shape changes, so a stale cached script is loud."""
 
 _CTX_LABEL = "Referenced outside the crate"
@@ -451,6 +451,14 @@ class ExplorerView(NamedTuple):
     default: bool
     select: Callable[[_Crate], set[str]]
     subject: Callable[[_Crate], set[str]] | None = None
+    lane: bool = False
+    """Whether this view draws one assay's chain, and so wants the lane layout.
+
+    The app reads this to pick a layout rather than matching on a key or on a
+    parent: which views are lanes is a fact about the selection, and the browser
+    should not have to re-derive it from a naming convention.
+    """
+
     parent: str | None = None
     """The view this one refines, if any.
 
@@ -539,6 +547,7 @@ def _assay_lane_views(crate: _Crate) -> list[ExplorerView]:
             "This assay end to end — its materials, steps, protocols and compounds",
             False,
             (lambda i: lambda c: _select_assay_lane(c, i))(assay_id),
+            lane=True,
             parent="assays",
         )
         for assay_id, name, slug in named
@@ -798,6 +807,7 @@ def build_explorer_payload(
                 "hint": view.hint,
                 "default": view.default,
                 "parent": view.parent,
+                "lane": view.lane,
                 "count": len(counted),
                 "members": sorted(members),
             }
@@ -830,6 +840,7 @@ _ASSET_DIR = Path(__file__).resolve().parent
 _VENDOR_DIR = _ASSET_DIR / "vendor"
 _APP_PATH = _ASSET_DIR / "entity_explorer.js"
 _LAYOUT_PATH = _ASSET_DIR / "entity_explorer_layout.js"
+_LANE_PATH = _ASSET_DIR / "assay_lane_layout.js"
 _MANIFEST_PATH = _VENDOR_DIR / "manifest.json"
 
 _APP_ID = "ex-app"
@@ -841,10 +852,10 @@ VENDOR_MANIFEST: tuple[dict[str, Any], ...] = tuple(
 """Every third-party file the page inlines: name, version, licence, origin, digest."""
 
 # react, react-dom, the jsx-runtime shim, React Flow, dagre, htm, the layout
-# module, the data island, the app. Named so a test can state the count without
-# recounting the implementation, and so an accidental extra <script> is a
-# failure, not a habit.
-EXPLORER_SCRIPT_COUNT = 9
+# module, the assay lane's layout, the data island, the app. Named so a test can
+# state the count without recounting the implementation, and so an accidental
+# extra <script> is a failure, not a habit.
+EXPLORER_SCRIPT_COUNT = 10
 
 _JS_BUNDLES = (
     "react.production.min.js",
@@ -915,6 +926,17 @@ def _layout_js() -> str:
 
 
 @lru_cache(maxsize=1)
+def _lane_js() -> str:
+    """The layout an assay lane takes its node positions from.
+
+    Loaded after :func:`_layout_js` and before the app: it reads that module's
+    node size at factory time, so the order is a requirement rather than a
+    convention.
+    """
+    return _LANE_PATH.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
 def explorer_css() -> str:
     """React Flow's stylesheet, for inlining into the report's one stylesheet.
 
@@ -964,6 +986,7 @@ def render_explorer_section(
             continue
         scripts.append(f"<script>{_banner(filename)}\n{_vendor_text(filename)}</script>")
     scripts.append(f"<script>{_layout_js()}</script>")
+    scripts.append(f"<script>{_lane_js()}</script>")
     scripts.append(
         f'<script id="{_DATA_ID}" type="application/json">'
         f"{_data_island(build_explorer_payload(metadata, default_views=default_views))}"
