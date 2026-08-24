@@ -85,3 +85,53 @@ def test_the_check_can_fail(tmp_path: Path) -> None:
     wounded.write_text(source[:start] + source[end:], encoding="utf-8")
 
     assert _free_names(wounded) == ["layerName"]
+
+
+class TestThePageLoadsInABrowser:
+    """The UMD branch the report actually runs.
+
+    Every other check in this repo reaches the layout modules through
+    ``require()``, which takes the CommonJS branch of their wrapper. The page
+    takes the other one: plain ``<script>`` tags, attaching to ``window``. A
+    module that failed to attach itself, or one placed before the module it
+    reads at factory time, would pass the whole suite and throw in front of a
+    reader (#686).
+    """
+
+    def _run(self, scripts: list[str], expect: list[str]) -> dict:
+        probe = _REPO / "tests" / "fixtures" / "browser_load_probe.js"
+        result = subprocess.run(
+            [_node(), str(probe)],
+            input=json.dumps({"scripts": scripts, "expect": expect}),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(result.stdout)
+
+    def _geometry_scripts(self) -> list[str]:
+        """dagre and the two layout modules, in the order the page emits them."""
+        import re
+
+        from builder.writers.entity_explorer import render_explorer_section
+        from tests.fixtures.crate_graphs import assay_lane_graph
+
+        section = render_explorer_section(assay_lane_graph())
+        bodies = re.findall(r"<script[^>]*>(.*?)</script>", section, re.S)
+        wanted = ("dagre", "root.ExplorerLayout = factory", "root.AssayLaneLayout = factory")
+        return [
+            body
+            for body in bodies
+            if any(marker in (body if marker != "dagre" else body[:2000]) for marker in wanted)
+        ]
+
+    def test_both_layout_modules_attach_themselves_to_the_window(self):
+        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneLayout"])
+        assert out["defined"] == {"ExplorerLayout": True, "AssayLaneLayout": True}
+
+    def test_the_lane_takes_its_node_size_from_the_layout_beside_it(self):
+        """One component, one set of constants: a lane node and a canvas node
+        are the same node, so the two must not be able to drift apart."""
+        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneLayout"])
+        assert out["sizes"]["AssayLaneLayout"] == out["sizes"]["ExplorerLayout"]
+        assert out["sizes"]["ExplorerLayout"] == {"NODE_W": 200, "NODE_H": 44}
