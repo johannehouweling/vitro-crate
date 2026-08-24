@@ -42,3 +42,25 @@ tox:EndpointReadoutRequirements a sh:NodeShape ;
         sh:message "EndpointReadout process MUST have at least one schema:additionalProperty (e.g. Detection Instrument, Endpoint, Measured Entity)" ;
         sh:severity sh:Violation ;
     ] .
+
+# What the readout MEASURED. The shape above asks only for a result, so a readout
+# consuming nothing — or the wrong material — validated clean (#650, #678).
+# File OR Sample: a readout measures exposed cells, a re-analysis measures
+# deposited data. That the object should be an EXPOSURE's output is deliberately
+# not asserted here — a characterisation run legitimately measures the culture,
+# and that condition spans two entities, so `_chain_processes` enforces it.
+tox:EndpointReadoutConsumesExposedMaterial a sh:NodeShape ;
+    sh:name "EndpointReadout MUST say what it measured" ;
+    sh:description "An endpoint readout declares the material or data it consumed." ;
+    sh:targetClass tox:LabProcessEndpointReadout ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:object ;
+        sh:minCount 1 ;
+        sh:or (
+            [ sh:class schema:MediaObject ]
+            [ sh:class bioschemas:Sample ]
+        ) ;
+        sh:message "EndpointReadout process MUST have at least one schema:object naming what it measured — the exposed Sample, or the File it re-analysed. A readout with no input does not say what was measured." ;
+        sh:severity sh:Violation ;
+    ] .
