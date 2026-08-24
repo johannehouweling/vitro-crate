@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from builder.state import Entity, EntityProvenance, FieldCompletion
+from builder.tools import verification
 from builder.tools.verification import (
-    _IDENTIFIER_FIELDS,
+    _VERIFIERS,
     _get_verifiable_fields,
+    _select_verifier,
     verify_all_identifiers,
     verify_identifier,
 )
@@ -350,23 +352,47 @@ class TestVerifiableFieldSet:
             "Organization ror should produce NO results from verify_all_identifiers"
         )
 
-    def test_sync_test_fails_if_drift_occurs(self):
-        """Ensure _IDENTIFIER_FIELDS (legacy set) and _get_verifiable_fields()
-        stay in sync — this test will fail if they drift apart, alerting
-        developers to update both."""
-        # Get the flat set of field names from _get_verifiable_fields
-        derived_fields = {f for (_t, f) in _get_verifiable_fields()}
+    def test_every_verifiable_pair_dispatches_to_a_verifier(self):
+        """Every pair the authoritative set admits must resolve to a verifier.
 
-        # Every field in _IDENTIFIER_FIELDS that has a verifier should also
-        # appear in the derived set. (Fields like 'ror' that have NO verifier
-        # are excluded from the derived set.)
-        for field in _IDENTIFIER_FIELDS:
-            if field == "ror":
-                continue  # ror has no verifier; allowed to be missing
-            assert field in derived_fields, (
-                f"{field} is in _IDENTIFIER_FIELDS but NOT in derived "
-                f"verifiable fields — they must be kept in sync"
-            )
+        `verify_all_identifiers` decides what to QUEUE from this set, while
+        `verify_identifier` decides what to CALL via `_select_verifier`. A pair
+        in the set with no verifier is queued and then answered "No verifier
+        configured" — and §6 treats a verification failure as REQUIRED, so a
+        valid identifier would block the build.
+        """
+        unwired = sorted(
+            (t, f) for (t, f) in _get_verifiable_fields() if _select_verifier(t, f)[0] is None
+        )
+        assert not unwired, (
+            f"verifiable but not dispatchable: {unwired} — "
+            "adding a pair to the authoritative set must also wire a verifier"
+        )
+
+    def test_that_guard_is_not_vacuous(self, monkeypatch):
+        """The guard above must actually fail when the two sources disagree.
+
+        Its predecessor compared `_IDENTIFIER_FIELDS` against the expression it
+        was *defined as*, so it could never fail. This injects real drift and
+        pins that the check catches it.
+        """
+        monkeypatch.setattr(
+            verification,
+            "_VERIFIABLE_FIELDS",
+            frozenset(verification._VERIFIABLE_FIELDS | {("Organization", "ror")}),
+        )
+        unwired = sorted(
+            (t, f) for (t, f) in _get_verifiable_fields() if _select_verifier(t, f)[0] is None
+        )
+        assert unwired == [("Organization", "ror")]
+
+    def test_the_authoritative_set_is_the_dispatch_table(self):
+        """One source, not two: the verifiable pairs ARE the table's keys.
+
+        Structural, not conventional — a pair cannot be declared verifiable
+        without supplying the verifier that serves it.
+        """
+        assert _get_verifiable_fields() == frozenset(_VERIFIERS)
 
 
 class TestCellLineAccessionIdentityCheck:

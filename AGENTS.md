@@ -1555,18 +1555,17 @@ id-only allow-list would flag every row of a correct table.
 ### Verification Layer
 Checks that identifiers resolve at their source. Verification failures are REQUIRED — the identifier must be corrected or removed. Leaving a field empty is acceptable (shows up in MIT/FAIR scores but does not block).
 
-> **Status: the single source of truth is not wired to `_select_verifier`.**
-> `_select_verifier` is still a hand-written `if`/`elif` chain carrying its own inline
-> field sets, so a pair added to `_VERIFIABLE_FIELDS` without a matching branch comes
-> back from `verify_all_identifiers` as a blocking `No verifier configured` failure
-> rather than being skipped.
-
-**Derivation (Issue #64):** The set of verifiable fields is no longer a hard-coded flat list.
-`verify_all_identifiers` and `_select_verifier` both derive from `_VERIFIABLE_FIELDS` — a
-frozenset of `(entity_type, field_name)` pairs — so they can never drift apart.
-`_IDENTIFIER_FIELDS` is kept as a legacy re-export derived automatically from the same
-source. Fields like `casrn`/`cas_number`/`inchikey` on `MolecularEntity` are now included,
-while fields like `ror` on `Organization` (which has no verifier) are correctly excluded.
+**Derivation (Issue #64).** `_VERIFIERS` maps each `(entity_type, field_name)` pair to the
+lookup that serves it, and `_VERIFIABLE_FIELDS` is that table's keys — so a pair cannot be
+declared verifiable without wiring the verifier that answers for it.
+`verify_all_identifiers` decides what to queue from those keys and `verify_identifier`
+dispatches through the same table, so the two cannot drift apart. Fields like
+`casrn`/`cas_number`/`inchikey` on `MolecularEntity` are included, while `ror` on
+`Organization` — which has no verifier — is excluded and so is never queued. That exclusion
+is the point: a pair declared verifiable with no verifier behind it comes back
+`No verifier configured`, which §6 treats as a REQUIRED blocking failure on a perfectly
+valid identifier. `tests/test_tools_verification.py` pins the invariant and fails on
+injected drift.
 
 ## 7. Session Persistence & Resume
 
