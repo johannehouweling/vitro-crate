@@ -1,0 +1,90 @@
+# Cultured and co-cultured material — how many cell lines a Sample may come from.
+#
+# A CellCulture of several lines emitting ONE Sample asserts the lines were mixed.
+# The builder splits such a step per line (#678); these make the claim
+# unrepresentable, so a hand-authored or ReAct-built crate cannot make it either.
+#
+# Co-culture is a real design and is accommodated, not forbidden. The material
+# says which it is — never the number of lines listed — and both directions are
+# checked, or the co-culture type becomes a way to escape the first rule.
+#
+#   OBI:0001876  cell culture  ->  exactly one line
+#   NCIT:C93168  co-culture    ->  two or more
+#
+# Path is `schema:isBasedOn`: `derivesFrom` is the compact term the crate writes,
+# and `profiles.context` maps it there. Targeting the alias constrains nothing.
+# OBI:0001876 covers the exposed sample too — an exposure changes a sample's
+# state, not its kind — and one exposed sample derives from one cultured one.
+
+@prefix bioschemas: <https://bioschemas.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
+
+# Type a Sample by the material it declares itself to be — same idiom and same
+# `sh:order 10` tier as `tox:FindCellLineSamples`.
+tox:FindCulturedSamples a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify cultured samples within the RO-Crate" ;
+    sh:description "A Sample whose sampleType is OBI's 'cell culture' holds cultured cells." ;
+    sh:targetClass bioschemas:Sample ;
+    sh:order 10 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:CulturedSample ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path schema:sampleType ;
+                sh:hasValue <http://purl.obolibrary.org/obo/OBI_0001876> ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+    ] .
+
+tox:FindCoCultureSamples a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify co-culture samples within the RO-Crate" ;
+    sh:description "A Sample whose sampleType is NCIT's 'Co-Culture' holds cells grown together." ;
+    sh:targetClass bioschemas:Sample ;
+    sh:order 10 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:CoCultureSample ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path schema:sampleType ;
+                sh:hasValue <http://purl.obolibrary.org/obo/NCIT_C93168> ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+    ] .
+
+tox:CulturedSampleDerivesFromOneLine a sh:NodeShape ;
+    sh:name "A cultured Sample derives from ONE cell line" ;
+    sh:description "Culturing several lines separately yields one Sample each; one Sample from several lines is a co-culture and must say so." ;
+    sh:targetClass tox:CulturedSample ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:isBasedOn ;
+        sh:maxCount 1 ;
+        sh:message "A cultured Sample MUST derive from at most one cell line — deriving from several asserts a co-culture. Culture each line separately, or type the material as a co-culture (NCIT:C93168)." ;
+        sh:severity sh:Violation ;
+    ] .
+
+tox:CoCultureDerivesFromSeveralLines a sh:NodeShape ;
+    sh:name "A co-culture Sample derives from SEVERAL cell lines" ;
+    sh:description "The co-culture type describes a mixture; a single line grown alone is a plain culture." ;
+    sh:targetClass tox:CoCultureSample ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:isBasedOn ;
+        sh:minCount 2 ;
+        sh:message "A Sample typed as a co-culture (NCIT:C93168) MUST derive from two or more cell lines. One line grown alone is a cell culture (OBI:0001876)." ;
+        sh:severity sh:Violation ;
+    ] .
