@@ -180,3 +180,90 @@ class TestExposureDoesNotRelocateTheMerge:
                 f"{node.get('name')!r} derives from {len(lineage)} samples; an "
                 "exposed sample comes from exactly one cultured sample"
             )
+
+
+class TestTheReadoutMeasuresWhatTheExposureProduced:
+    """The surviving half of #650, live in S-VHPS22.
+
+    ``_chain_processes`` redirects a readout off the cultured sample onto the
+    exposed one, but grouped by ASSAY — and culturing is study-level, shared
+    between the deiodinase and metabolism assays. The deiodinase group held no
+    CellCulture, so its ``cultured_ids`` was empty, the guard never matched, and
+    its readout kept consuming the culture while an exposure sat between them.
+    """
+
+    def _borrowed_culture(self, *, with_exposure=True):
+        """assay_2 exposes and measures cells that assay_1 grew."""
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="Metabolism"))
+        state.add_entity(_ent("assay_2", "Assay", name="Deiodinase"))
+        state.add_entity(
+            _ent("cell_a", "CellLineSample", name="SK-N-AS", accession="CVCL_1700")
+        )
+        state.add_entity(_ent("sample_cult", "Sample", name="cultured"))
+        state.add_entity(
+            _ent(
+                "proc_cult",
+                "LabProcess",
+                name="Culture SK-N-AS",
+                process_type="CellCulture",
+                assay_id="assay_1",
+                cell_line="cell_a",
+                culture_medium="CT medium",
+                result="sample_cult",
+            )
+        )
+        if with_exposure:
+            state.add_entity(
+                _ent(
+                    "proc_exp",
+                    "LabProcess",
+                    name="2-hour D3 activity exposure",
+                    process_type="Exposure",
+                    assay_id="assay_2",
+                    samples="sample_cult",
+                    duration="2 hours",
+                )
+            )
+        state.add_entity(
+            _ent(
+                "proc_read",
+                "LabProcess",
+                name="D3 deiodinase activity readout",
+                process_type="EndpointReadout",
+                assay_id="assay_2",
+                samples="sample_cult",
+                detection_instrument="UPLC",
+                endpoint="T3 conversion",
+            )
+        )
+        return state
+
+    def test_readout_consumes_the_exposed_sample_not_the_cultured_one(self, tmp_path):
+        graph, by_id = _build(self._borrowed_culture(), tmp_path)
+        exposure = _processes(graph, "Exposure")[0]
+        readout = _processes(graph, "EndpointReadout")[0]
+        exposed = {
+            r
+            for r in _ids(exposure.get("output"))
+            if r in by_id and _typed(by_id[r], "Sample")
+        }
+        consumed = set(_ids(readout.get("input")))
+        assert exposed, "the exposure produced no exposed sample to measure"
+        assert consumed & exposed, (
+            "the readout measured the cultured sample while an exposure sat "
+            f"between them: consumed={sorted(consumed)} exposed={sorted(exposed)}"
+        )
+
+    def test_a_readout_with_no_exposure_still_measures_the_culture(self, tmp_path):
+        """A characterisation run is the truth, not the defect.
+
+        An assay with no Exposure measures the culture, and nothing should
+        redirect it — there is no exposed sample and inventing one would assert
+        an intervention that never happened.
+        """
+        graph, _ = _build(self._borrowed_culture(with_exposure=False), tmp_path)
+        readout = _processes(graph, "EndpointReadout")[0]
+        assert _ids(readout.get("input")), (
+            "a readout in an exposure-free assay keeps consuming the culture"
+        )
