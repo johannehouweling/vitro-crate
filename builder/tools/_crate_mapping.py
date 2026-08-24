@@ -2949,12 +2949,23 @@ def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
         key = getattr(assay, "id", None)
         groups.setdefault(key, {}).setdefault(ptype, []).append(node)
 
+    # What counts as a cultured sample is a STUDY-level question, not an assay
+    # one: culturing is shared, and S-VHPS22's deiodinase assay exposes and
+    # measures cells the metabolism assay grew. Scoped to the group, that assay's
+    # `cultured_ids` came out empty, the guard below never matched, and its
+    # readout kept consuming the culture with an exposure sitting between them —
+    # the half of #650 that survived it (#678).
+    #
+    # Only this lookup widens. `exposed` stays per-assay: one assay's exposure
+    # must never become another's readout input.
+    cultured_ids = {
+        getattr(n, "id", None)
+        for _assay, ptype, node in built
+        if ptype == "CellCulture"
+        for n in _linked_nodes(node, "output", "result")
+    }
+
     for by_type in groups.values():
-        cultured_ids = {
-            getattr(n, "id", None)
-            for proc in by_type.get("CellCulture", [])
-            for n in _linked_nodes(proc, "output", "result")
-        }
         exposed = [
             n
             for proc in by_type.get("Exposure", [])
