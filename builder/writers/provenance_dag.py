@@ -836,6 +836,46 @@ def _qualify(url: str, spaces: dict[str, str]) -> str:
 
 
 @lru_cache(maxsize=1)
+def vocab_prefix() -> str:
+    """The prefix a bare property key expands under, per the crate's ``@vocab``.
+
+    JSON-LD says an unmapped term expands against ``@vocab``, and the crate
+    declares ``http://schema.org/``. So a key the context does not name is a
+    schema.org property by the crate's own rule, not by a guess made here.
+    """
+    from profiles.context import ISA_TOX_CONTEXT
+
+    declared = ISA_TOX_CONTEXT[0]
+    return _qualify(str(declared.get("@vocab", "")), _namespaces()).rstrip(":") or "schema"
+
+
+@lru_cache(maxsize=1)
+def property_terms() -> dict[str, str]:
+    """Entity key → the property it expands to, qualified (#688).
+
+    The inspector listed an entity's raw JSON keys, which are the serializer's
+    shorthand: ``input`` and ``object`` are one predicate, ``studies`` and
+    ``assays`` and ``hasPart`` are another, and a reader had to know the context
+    to see it. This is that context, read rather than restated.
+
+    Only terms mapping to a **property** IRI are returned. A key absent from here
+    expands under :func:`vocab_prefix`.
+    """
+    from profiles.context import ISA_TOX_CONTEXT
+
+    declared = ISA_TOX_CONTEXT[0]
+    spaces = _namespaces()
+    return {
+        term: _qualify(value, spaces)
+        for term, value in declared.items()
+        if not term.startswith("@")
+        and isinstance(value, str)
+        and "://" in value
+        and not (value.endswith("/") or value.endswith("#"))
+    }
+
+
+@lru_cache(maxsize=1)
 def relation_terms() -> dict[str, str]:
     """Edge label → the property it stands for, qualified (#688).
 
