@@ -57,6 +57,7 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
     fixable iff exactly one un-wired File exists (unambiguous target).
     """
     state = _backbone()
+    state.add_entity(_entity("s1", "Sample", name="exposed cells"))
     state.add_entity(
         _entity(
             "er1",
@@ -68,7 +69,11 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
             # parameter so the separate "MUST have at least one
             # additionalProperty" issue does not also fire and mask the repair
             # under test — `_pv` no longer emits a placeholder to satisfy it.
+            # Same reasoning for `samples`, since #678: a readout MUST now name
+            # what it measured, and that MUST would otherwise fire alongside
+            # the one under test and make the repair look incomplete.
             detection_instrument="Plate reader",
+            samples="s1",
         )
     )
     for i in range(n_files):
