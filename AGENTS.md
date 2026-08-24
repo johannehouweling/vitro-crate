@@ -407,6 +407,24 @@ cannot read. A share too small to carry even the entry's `[kind/class] path` hea
 buys nothing, so that entry is dropped and its share returned rather than emitted as
 a fragment.
 
+**The context leads with the deposit's SHAPE, then the sample (#599).** A ranked sample is only
+meaningful against what it is a sample of: 40 files of 1468 is 2.7% of a submission, and
+"1428 not surfaced" cannot tell a tail of 1352 instrument printouts apart from one hiding sixteen
+unread protocols. Since #591 every scanned file carries a classification, so the census is free and
+complete — it was simply discarded in favour of the count. `summarise_deposit` states the tally per
+class, then the folders that hold the files with their own tallies, and the "not surfaced" line is
+broken down the same way.
+
+The folder listing starts at `_branch_point` rather than the top: a submission is routinely one
+folder deep before anything differs (svhps22 puts all 1468 files under
+`study_01_TH-DNT_Tier1_NeuralCellLines/`), so listing the root reports one folder holding everything.
+Descend while there is exactly one child DIRECTORY, whatever files sit beside it — a deposit keeps
+its descriptor at the root. The tree is bounded to `_MAX_SHAPE_FOLDERS` with the remainder stated,
+and is omitted entirely below `_MIN_SHAPE_BRANCHES`: a tree of one limb repeats the tally above it,
+and a census must never be longer than the file list it summarises. It is charged to the same
+character budget, taken off the top, and bounded by construction so it cannot crowd out the
+documents it exists to introduce.
+
 **Both arms render through `format_document_context`, and the cap has one home (#675).**
 None of the above reached a model for a while: the engine built the bounded context and
 used the string for its LENGTH in a log line, while each arm re-rolled its own from
