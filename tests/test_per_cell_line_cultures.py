@@ -267,3 +267,81 @@ class TestTheReadoutMeasuresWhatTheExposureProduced:
         assert _ids(readout.get("input")), (
             "a readout in an exposure-free assay keeps consuming the culture"
         )
+
+
+class TestAProtocolSitsWhereItIsUsed:
+    """Invariant 4 — the protocol is the reused entity, so reuse decides placement.
+
+    ``_link_to_study``'s own docstring already says it: "a protocol that governs
+    several assays is a study-level document and the backbone should say so". The
+    implementation keyed on the protocol's KIND instead — every culture protocol
+    went to the Study, however many assays actually followed it.
+    """
+
+    def _two_assays_one_line_each(self):
+        """Each assay grows a different line, so neither document is shared."""
+        state = CrateState()
+        state.metadata.input_path = "/deposit"
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        state.add_entity(_ent("assay_1", "Assay", name="A1", study_id="study_1"))
+        state.add_entity(_ent("assay_2", "Assay", name="A2", study_id="study_1"))
+        state.add_entity(_ent("cell_a", "CellLineSample", name="SK-N-AS"))
+        state.add_entity(_ent("cell_b", "CellLineSample", name="H4"))
+        for eid, nm in (
+            ("proto_sk", "cell culture protocol SK-N-AS.docx"),
+            ("proto_h4", "cell culture protocol H4.docx"),
+        ):
+            state.add_entity(
+                _ent(
+                    eid,
+                    "File",
+                    name=nm,
+                    path=f"cell_line_protocols/{nm}",
+                    additional_types=["LabProtocol"],
+                )
+            )
+        for n, (assay, line) in enumerate(
+            (("assay_1", "cell_a"), ("assay_2", "cell_b")), start=1
+        ):
+            state.add_entity(
+                _ent(
+                    f"proc_{n}",
+                    "LabProcess",
+                    name=f"Culture {n}",
+                    process_type="CellCulture",
+                    assay_id=assay,
+                    cell_line=line,
+                    culture_medium="DMEM",
+                )
+            )
+        return state
+
+    def test_a_protocol_used_by_one_assay_is_not_hoisted_to_the_study(self, tmp_path):
+        _, by_id = _build(self._two_assays_one_line_each(), tmp_path)
+        study_parts = _ids(by_id["#Study_study_1"].get("hasPart"))
+        hoisted = [p for p in study_parts if "cell_line_protocols" in str(p)]
+        assert not hoisted, (
+            "each document is followed by exactly one assay, so none is a "
+            f"study-level protocol: {hoisted}"
+        )
+
+    def test_a_protocol_used_by_one_assay_nests_under_that_assay(self, tmp_path):
+        _, by_id = _build(self._two_assays_one_line_each(), tmp_path)
+        a1 = _ids(by_id["#Assay_assay_1"].get("hasPart"))
+        a2 = _ids(by_id["#Assay_assay_2"].get("hasPart"))
+        assert any("SK-N-AS" in str(p) for p in a1), (
+            f"assay_1 follows the SK-N-AS document: {a1}"
+        )
+        assert any("H4" in str(p) for p in a2), f"assay_2 follows the H4 document: {a2}"
+
+    def test_a_shared_protocol_is_still_study_level(self, tmp_path):
+        """The other half: reuse across assays is what makes it study-level."""
+        state = self._two_assays_one_line_each()
+        state.get_entity("proc_2").set_fields_from_dict(
+            {"cell_line": "cell_a"}, source="llm"
+        )
+        _, by_id = _build(state, tmp_path)
+        study_parts = _ids(by_id["#Study_study_1"].get("hasPart"))
+        assert any("SK-N-AS" in str(p) for p in study_parts), (
+            f"both assays grow SK-N-AS, so its document is study-level: {study_parts}"
+        )
