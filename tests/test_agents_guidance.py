@@ -70,6 +70,7 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
     exactly one un-wired File exists (the deterministic-repair rule's predicate).
     """
     state = _backbone()
+    state.add_entity(_entity("s1", "Sample", name="exposed cells"))
     state.add_entity(
         _entity(
             "er1",
@@ -79,8 +80,11 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
             assay_id="as1",
             # As in tests/test_tools_repair.py: the missing RESULT is the gap
             # under test, so give the readout a real parameter rather than let
-            # the separate additionalProperty MUST fire alongside it.
+            # the separate additionalProperty MUST fire alongside it. Same
+            # reasoning for `samples`, since #678: a readout MUST now say what it
+            # measured, and that MUST would otherwise fire alongside this one.
             detection_instrument="Plate reader",
+            samples="s1",
         )
     )
     for i in range(n_files):

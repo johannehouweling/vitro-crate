@@ -28,6 +28,7 @@ repair loop can never drift on what "deterministically fixable" means.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -50,7 +51,7 @@ from builder.tools.mit_assessment import (
 logger = logging.getLogger(__name__)
 
 Tier = Literal["MUST", "SHOULD", "MAY"]
-Source = Literal["shacl", "mit", "fair", "air"]
+Source = Literal["shacl", "mit", "fair", "air", "identity"]
 
 # The MIT checklist path, loader and parameter traversal all live in
 # builder.tools.mit_assessment (#357). This module had its own copy of each, with
@@ -242,6 +243,87 @@ def _instances_of(state: CrateState, entity_type: str | None) -> list[Entity]:
         return list(state.list_entities(entity_type))
     except (KeyError, ValueError):  # pragma: no cover — unknown type is rare
         return []
+
+
+# ---------------------------------------------------------------------------
+# Identity gaps
+# ---------------------------------------------------------------------------
+
+_PUNCT = re.compile(r"[^0-9a-z]+")
+
+
+def _identity_key(name: str) -> str:
+    """A cell-line name with case and punctuation removed, tokens intact.
+
+    "H4", "H-4" and "h 4" collapse together; "CHO-K1" and "CHO-K1 hOATP1C1" do
+    not, because the extra token survives. That distinction is the point: an
+    engineered derivative is a different line, and
+    :func:`~builder.tools.lookups.cell_line_names_match` already refuses to treat
+    it as its parent.
+    """
+    return _PUNCT.sub("", (name or "").casefold())
+
+
+def _identity_gaps(state: CrateState) -> list[Gap]:
+    """Cell lines that may be one line under two spellings — a question, not a merge.
+
+    S-VHPS22 carries "H4" and "H-4" as separate entities, neither resolved. They
+    are probably one line typed twice, and the builder must not act on "probably":
+    Cellosaurus registers H4 (``CVCL_1239``) and H-4 (``CVCL_6C19``) as DISTINCT
+    records that each list the other's name as a synonym, and a third
+    (``CVCL_HA56``) also answers to H4. All three are human, so neither
+    punctuation nor species separates them. There is no general property that
+    tells "one line typed twice" from "two lines sharing a synonym", so merging
+    on a normalised name would fabricate an identity (D5).
+
+    Reported only where NOTHING can settle it — every entity in the group lacks
+    an accession. One accession anywhere in the group answers the question
+    already, and two different accessions mean two lines however alike the names
+    look; :func:`_find_cell_line_by_accession` then merges the ones that really
+    are the same. This is the residue that identifier resolution could not reach.
+
+    One gap per group, not per entity: three spellings of one name is one
+    question.
+    """
+    groups: dict[str, list[Entity]] = {}
+    resolved: set[str] = set()
+    for entity in _instances_of(state, "CellLineSample"):
+        key = _identity_key(str(entity.fields.get("name") or ""))
+        if not key:
+            continue
+        groups.setdefault(key, []).append(entity)
+        if entity.fields.get("accession") or entity.fields.get("identifier"):
+            resolved.add(key)
+
+    gaps: list[Gap] = []
+    for key, members in sorted(groups.items()):
+        if key in resolved or len(members) < 2:
+            continue
+        names = sorted({str(m.fields.get("name") or m.entity_id) for m in members})
+        gaps.append(
+            Gap(
+                tier="SHOULD",
+                source="identity",
+                entity_id=members[0].entity_id,
+                entity_type="CellLineSample",
+                property="name",
+                message=(
+                    f"{len(members)} cell lines differ only in punctuation or case "
+                    f"({', '.join(names)}) and none resolved to a Cellosaurus "
+                    "accession. They may be one line under several spellings, or "
+                    "genuinely different lines that share a synonym — Cellosaurus "
+                    "registers such pairs. The crate cannot tell them apart."
+                ),
+                suggestion=(
+                    "Confirm whether these name one cell line. If they do, give the "
+                    "accession (CVCL_*) so the entities merge on identity; if they "
+                    "do not, name them distinctly."
+                ),
+                fix_hint="ask-user",
+                auto_fixable=False,
+            )
+        )
+    return gaps
 
 
 # ---------------------------------------------------------------------------
@@ -702,8 +784,13 @@ def assess_gaps(state: CrateState) -> GapReport:
     mit_report = assess_mit_coverage(state, graph=metadata_doc)
     fair_gaps, fair_summary = _fair_gaps(state, graph=metadata_doc, mit=mit_report)
     air_gaps, air_summary = _air_gaps(state, graph=metadata_doc)
+    # Reads state, not the assembled document: the question is whether two
+    # entities name one thing, which the crate answers identically either way.
+    identity_gaps = _identity_gaps(state)
 
-    gaps = sorted([*shacl_gaps, *mit_gaps, *fair_gaps, *air_gaps], key=_sort_key)
+    gaps = sorted(
+        [*shacl_gaps, *mit_gaps, *fair_gaps, *air_gaps, *identity_gaps], key=_sort_key
+    )
 
     counts = {
         "must_open": sum(1 for g in gaps if g.tier == "MUST"),
