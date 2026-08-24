@@ -709,22 +709,49 @@ class TestTheCultureRecordsEveryCellLine:
         )
         return state
 
-    def test_every_named_cell_line_reaches_the_process(self, tmp_path):
+    def test_every_named_cell_line_is_cultured(self, tmp_path):
+        """#650's guarantee, under #678's shape.
+
+        The line must not be dropped — that was the defect. It no longer reaches
+        *one* process, because a culture of two lines is now two culturing
+        activities; it reaches one of them.
+        """
         state = self._culture_state(["cell_a", "cell_b"])
-        _, by_id = _build(state, tmp_path)
-        consumed = _ids(by_id["#LabProcess_proc_1"].get("input"))
+        graph, _ = _build(state, tmp_path)
+        consumed = {
+            cid
+            for n in graph
+            if n.get("additionalType") == "CellCulture"
+            for cid in _ids(n.get("input"))
+        }
         assert "#CellLineSample_cell_a" in consumed, consumed
         assert "#CellLineSample_cell_b" in consumed, (
             f"the second cell line was dropped: {consumed}"
         )
 
-    def test_the_cultured_sample_derives_from_every_line(self, tmp_path):
+    def test_no_cultured_sample_derives_from_more_than_one_line(self, tmp_path):
+        """Reversed by #678, deliberately.
+
+        This test used to assert the opposite — that one cultured Sample derived
+        from *both* lines. That is a co-culture claim, and S-VHPS22's cells were
+        cultured separately: the deposit ships one culture protocol per line. The
+        lineage is still complete, but it is spread over one sample per line
+        rather than concentrated in a mixture.
+        """
         state = self._culture_state(["cell_a", "cell_b"])
-        _, by_id = _build(state, tmp_path)
-        out = _ids(by_id["#LabProcess_proc_1"].get("output"))
-        derived = _ids(by_id[out[0]].get("derivesFrom"))
-        assert {"#CellLineSample_cell_a", "#CellLineSample_cell_b"} <= set(derived), (
-            f"the cultured sample must derive from both lines: {derived}"
+        graph, by_id = _build(state, tmp_path)
+        lineage = set()
+        for n in graph:
+            if n.get("additionalType") != "CellCulture":
+                continue
+            for out_id in _ids(n.get("output")):
+                derived = _ids(by_id[out_id].get("derivesFrom"))
+                assert len(derived) <= 1, (
+                    f"{out_id} derives from {derived} — that asserts a co-culture"
+                )
+                lineage.update(derived)
+        assert {"#CellLineSample_cell_a", "#CellLineSample_cell_b"} <= lineage, (
+            f"both lines must still be accounted for across the cultures: {lineage}"
         )
 
     def test_a_single_cell_line_still_works(self, tmp_path):
@@ -901,18 +928,37 @@ class TestTheCultureProtocolIsStudyLevel:
 
     def test_a_culture_of_two_lines_executes_one_protocol_per_line(self, tmp_path):
         """One document per cell line, never a composite: the deposit holds no
-        document for any combination of lines."""
+        document for any combination of lines.
+
+        Since #678 the two lines are two cultures, so "one protocol per line"
+        means each part executes its own single document rather than one part
+        executing two. The document itself is still shared by identity — a
+        protocol is study-level, and the same SK-N-AS procedure serves every
+        assay that grows SK-N-AS.
+        """
         state = self._two_assays()
         state.list_entities("LabProcess")[0].set_fields_from_dict(
             {"cell_line": ["cell_a", "cell_b"]}, source="llm"
         )
-        _, by_id = _build(state, tmp_path)
-        mixed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
-        single = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+        graph, by_id = _build(state, tmp_path)
+        parts = [
+            n
+            for n in graph
+            if n.get("additionalType") == "CellCulture"
+            and str(n["@id"]).startswith("#LabProcess_proc_1")
+        ]
+        assert len(parts) == 2, f"a culture of two lines is two cultures: {parts}"
+        for part in parts:
+            executed = _ids(part.get("executesLabProtocol"))
+            assert len(executed) == 1, (
+                f"{part['@id']} follows {executed} — one line, one document"
+            )
+        mixed = {e for part in parts for e in _ids(part.get("executesLabProtocol"))}
         assert len(mixed) == 2, (
-            f"a culture of two lines follows two documents, not a composite: {mixed}"
+            f"two lines follow two distinct documents, not a composite: {mixed}"
         )
-        assert set(single) <= set(mixed), (
+        single = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+        assert set(single) <= mixed, (
             f"the SK-N-AS document must be the SAME entity in both: {mixed} / {single}"
         )
 

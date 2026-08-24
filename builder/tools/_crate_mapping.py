@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import urllib.parse
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from functools import lru_cache
@@ -2273,6 +2274,44 @@ def _protocol_document_for(
     return found[0] if len(found) == 1 else None
 
 
+def _node_label(node: Any) -> str:
+    """A node's own name, falling back to the tail of its ``@id``.
+
+    Used where a label has to be built from an entity rather than read from the
+    draft — a split culture is named for the line it grows, and the line is the
+    only thing that tells the parts apart (#678).
+    """
+    if node is None:
+        return ""
+    name = ""
+    try:
+        name = str(node.get("name") or "")
+    except AttributeError:
+        name = ""
+    if name:
+        return name
+    nid = str(getattr(node, "id", "") or "")
+    return urllib.parse.unquote(nid.rsplit("/", 1)[-1]).lstrip("#")
+
+
+def _cultured_line_label(crate: ROCrate, sample: Any) -> str:
+    """What to call the material an exposed Sample came from.
+
+    The cell line's own name where the cultured sample derives from exactly one —
+    "Exposed (SK-N-AS)" is how the lab says it, where the line's ``@id`` would say
+    ``CVCL_1700``. Falls back to the sample's name when the lineage names none or
+    several, which is honest rather than a guess.
+    """
+    lineage = _child_ids(sample, "derivesFrom") if sample is not None else []
+    if len(lineage) == 1:
+        line = crate.dereference(str(lineage[0]))
+        if line is not None:
+            label = _node_label(line)
+            if label:
+                return label
+    return _node_label(sample)
+
+
 def _mark_as_cultured(crate: ROCrate, sample: Any, lines: list[Any]) -> None:
     """Give a drafted cultured sample the type and lineage it arrived without.
 
@@ -2965,7 +3004,19 @@ def _add_processes(
     # built in isolation — it cannot see its neighbours — so making each step
     # consume what the previous one produced has to happen once every step exists.
     built: list[tuple[Any, str, Any]] = []
-    for proc in state.list_entities("LabProcess"):
+    # What each assay grew, filled as the cultures are built and read when its
+    # exposure is (#678). An exposure consumes every cultured Sample of its own
+    # assay, and after the per-line split there is one per line where the draft
+    # named only one — so the cultures have to exist first. Ordering the pass is
+    # enough; nothing else here depends on the draft's own order.
+    cultured_by_assay: dict[Any, list[Any]] = {}
+    ordered = sorted(
+        state.list_entities("LabProcess"),
+        key=lambda p: 0
+        if (p.fields.get("process_type") or p.fields.get("additionalType")) == "CellCulture"
+        else 1,
+    )
+    for proc in ordered:
         f = proc.fields
         ptype = f.get("process_type") or f.get("additionalType") or ""
         pid = _mint_id(proc)
@@ -3014,17 +3065,94 @@ def _add_processes(
             )
             if assay_protocols:
                 protocol = assay_protocols
-        node = _build_process(
-            crate,
-            ptype,
-            pid,
-            name,
-            f,
-            protocol,
-            idx,
-            output_dir,
-            materialize_payload=materialize_payload,
-        )
+        assay_key = f.get("assay_id")
+        lines = _culture_cell_lines(f, idx, name) if ptype == "CellCulture" else []
+        if ptype == "CellCulture" and len(lines) > 1 and not f.get("co_culture"):
+            # ONE CellCulture per cell line (#678). A draft naming several lines
+            # is several culturing activities: the deposit ships one culture
+            # protocol PER LINE, and a single step emitting one Sample from N
+            # lines asserts a co-culture that never happened. Only an explicit
+            # `co_culture` keeps them together — N lines in one draft is the
+            # ambiguity being removed, not evidence of a mixture.
+            nodes = []
+            for index, line in enumerate(lines):
+                label = _node_label(line) or f"line {index + 1}"
+                sub_pid = f"{pid}_{_slug(label)}"
+                per_line = _culture_protocols(
+                    state, crate, [line], idx, materialize_payload=materialize_payload
+                )
+                if per_line:
+                    study = _study_of(state, idx, assay_key)
+                    for one in per_line:
+                        _link_to_study(study, one)
+                nodes.append(
+                    _build_process(
+                        crate,
+                        ptype,
+                        sub_pid,
+                        f"Culture {label}",
+                        f,
+                        per_line or protocol,
+                        idx,
+                        output_dir,
+                        materialize_payload=materialize_payload,
+                        cell_lines=[line],
+                        # Only the first part may claim the drafter's output
+                        # Sample; the rest synthesize their own, so nothing
+                        # drafted is discarded and nothing is claimed twice.
+                        keep_drafted_result=(index == 0),
+                    )
+                )
+        else:
+            nodes = [
+                _build_process(
+                    crate,
+                    ptype,
+                    pid,
+                    name,
+                    f,
+                    protocol,
+                    idx,
+                    output_dir,
+                    materialize_payload=materialize_payload,
+                    consumed_cells=(
+                        cultured_by_assay.get(assay_key) if ptype == "Exposure" else None
+                    ),
+                )
+            ]
+        if ptype == "CellCulture":
+            cultured_by_assay.setdefault(assay_key, []).extend(
+                n for node in nodes for n in _linked_nodes(node, "output", "result")
+            )
+        for node in nodes:
+            _wire_process_node(
+                state, crate, idx, proc, node, f, ptype, built, first=(node is nodes[0])
+            )
+
+    _chain_processes(built)
+
+
+def _wire_process_node(
+    state: CrateState,
+    crate: ROCrate,
+    idx: dict[str, Any],
+    proc: Entity,
+    node: Any,
+    f: dict[str, Any],
+    ptype: str,
+    built: list[tuple[Any, str, Any]],
+    *,
+    first: bool,
+) -> None:
+    """Register one built process and hang its files and protocols off its Assay.
+
+    Split out of :func:`_add_processes` because a culture of several lines builds
+    several nodes and each needs the same wiring (#678). Only the ``first`` is
+    registered in ``idx`` under the draft's id: a reference to the draft has to
+    resolve to something, and the parts are otherwise indistinguishable to it —
+    the chaining pass reaches the rest through what they produced.
+    """
+    if first:
         _idx_add(idx, proc, node)
         # Wire any additionalProperty references onto the process (gold
         # #report_analysis -> [#pv_repro_score]). Mirrors the root/assay reference
@@ -3032,29 +3160,32 @@ def _add_processes(
         # referenced; an unresolvable, non-IRI value is dropped, never fabricated
         # (D5 — the score itself is computed elsewhere, not here).
         _wire_references(node, "additionalProperty", f.get("additionalProperty"), idx)
-        assay = _resolve_one(idx, f.get("assay_id"))
-        built.append((assay, ptype, node))
-        if assay is not None:
-            assay.append_to("about", node)
-            # Result Files are the data of this assay → attach them to the Assay's
-            # hasPart (ISA), de-duped, while KEEPING the root's reference (#532).
-            # "Reachable transitively via File → Assay → Study → ./" was the
-            # premise for dropping it, and it is false: the file tree runs
-            # through directory Datasets, and an Assay is a contextual node.
-            for file_node in _result_file_nodes(node):
-                _append_unique(assay, "hasPart", file_node)
-            # ...and so is the protocol it followed. A protocol entity IS its
-            # file (D17), so the same #532 reachability rule applies: nest it
-            # under the Assay, keep the root's reference. Skipped for a
-            # study-level protocol — one shared across assays is already hung
-            # off the Study, and re-parenting it per assay is the duplication
-            # that made it study-level in the first place.
-            study = _study_of(state, idx, f.get("assay_id"))
-            study_parts = set(_child_ids(study)) if study is not None else set()
-            for protocol_node in _protocol_file_nodes(node):
-                if getattr(protocol_node, "id", None) in study_parts:
-                    continue
-                _append_unique(assay, "hasPart", protocol_node)
+    # Everything below runs for EVERY part of a split: each is a process of its
+    # assay, and each produced its own material.
+    assay = _resolve_one(idx, f.get("assay_id"))
+    built.append((assay, ptype, node))
+    if assay is None:
+        return
+    assay.append_to("about", node)
+    # Result Files are the data of this assay → attach them to the Assay's
+    # hasPart (ISA), de-duped, while KEEPING the root's reference (#532).
+    # "Reachable transitively via File → Assay → Study → ./" was the
+    # premise for dropping it, and it is false: the file tree runs
+    # through directory Datasets, and an Assay is a contextual node.
+    for file_node in _result_file_nodes(node):
+        _append_unique(assay, "hasPart", file_node)
+    # ...and so is the protocol it followed. A protocol entity IS its
+    # file (D17), so the same #532 reachability rule applies: nest it
+    # under the Assay, keep the root's reference. Skipped for a
+    # study-level protocol — one shared across assays is already hung
+    # off the Study, and re-parenting it per assay is the duplication
+    # that made it study-level in the first place.
+    study = _study_of(state, idx, f.get("assay_id"))
+    study_parts = set(_child_ids(study)) if study is not None else set()
+    for protocol_node in _protocol_file_nodes(node):
+        if getattr(protocol_node, "id", None) in study_parts:
+            continue
+        _append_unique(assay, "hasPart", protocol_node)
 
     _chain_processes(built)
 
@@ -3070,7 +3201,26 @@ def _build_process(
     output_dir: Path | None,
     *,
     materialize_payload: bool = True,
+    cell_lines: list[Any] | None = None,
+    keep_drafted_result: bool = True,
+    consumed_cells: list[Any] | None = None,
 ) -> Any:
+    """Build ONE process node.
+
+    Three keyword arguments exist so :func:`_add_processes` can split a culture
+    without this function having to see its neighbours (#678):
+
+    ``cell_lines``
+        The line(s) this CellCulture grows, overriding what the draft names. A
+        culture of several lines is built once per line, each call receiving one.
+    ``keep_drafted_result``
+        Whether the drafter's output Sample is this node's cultured sample. Only
+        the first of a split may claim it; the rest synthesize their own, so no
+        drafted entity is discarded and none is claimed twice.
+    ``consumed_cells``
+        The cultured Samples an Exposure consumes, resolved across its assay
+        rather than from the draft, which names only one of several.
+    """
     # input/object/samples are interchangeable aliases for the consumed inputs,
     # result/output for the produced outputs (see PROVENANCE_RELATIONS and the
     # link tool). Read both so a process round-tripped through the crate (which
@@ -3088,11 +3238,17 @@ def _build_process(
         # uptake — and reading it with `_resolve_one` dropped the rest, leaving H4
         # cultured by nothing in the whole crate despite having its own entity and
         # its own study-level culture protocol.
-        cell_lines = _culture_cell_lines(f, idx, name) or [
-            _synth_sample(crate, pid + "_input", f"Input ({name})")
-        ]
+        # A culture of several lines is SPLIT by `_add_processes` and each part
+        # arrives here with its own single line (#678). Multiple lines still
+        # reaching this branch mean the caller asked for a co-culture, which is a
+        # positive assertion rather than the default: N lines in one draft is the
+        # ambiguity the split removes, not evidence that the cells were mixed.
+        split = cell_lines is not None
+        cell_lines = (
+            list(cell_lines) if split else _culture_cell_lines(f, idx, name)
+        ) or [_synth_sample(crate, pid + "_input", f"Input ({name})")]
         cell_line = cell_lines if len(cell_lines) > 1 else cell_lines[0]
-        if result:
+        if result and keep_drafted_result:
             # The drafter supplied the cultured sample, which is what happens on
             # every real crate — `draft_process_chain` always does. It arrives as a
             # bare Sample, so it said neither what it is nor where it came from,
@@ -3101,7 +3257,12 @@ def _build_process(
             out = result[0]
             _mark_as_cultured(crate, out, cell_lines)
         else:
-            label = f"Cultured ({name})"
+            # A split part is already named for its line, so naming its material
+            # after the process would read "Cultured (Culture SK-N-AS)". Name it
+            # for the line instead. An unsplit culture keeps the process name,
+            # which is the only thing distinguishing it.
+            line_label = _node_label(cell_lines[0]) if split else ""
+            label = f"Cultured ({line_label})" if line_label else f"Cultured ({name})"
             out = _synth_sample(
                 crate,
                 pid + "_cultured",
@@ -3128,7 +3289,9 @@ def _build_process(
         # glance, on the Study via schema:mentions. Per-well CSVW population
         # (tableSchema columns + CSV intake) is planned — see the wizard's
         # intake/condition_table.py.
-        cells = samples or obj
+        # The draft names one cultured sample; after the split its assay has one
+        # per cell line, and the exposure consumed all of them (#678).
+        cells = consumed_cells if consumed_cells else (samples or obj)
         chems = _resolve_many(idx, f.get("chemicals"))
         # APPENDED, never substituted (#531). The table is
         # the compound's only route to the process (a MolecularEntity cannot be
@@ -3150,18 +3313,34 @@ def _build_process(
         # sample instead — the graph drew a star with the culture at its centre.
         # A drafter-supplied Sample is the exposed sample and is kept; anything
         # else it declared is kept alongside, never substituted.
-        exposed = next((r for r in result if _is_sample_node(r)), None)
-        if exposed is None:
-            exposed = _synth_sample(
-                crate,
-                pid + "_exposed",
-                f"Exposed ({name})",
-                cells[0] if cells else None,
-                sample_type=_cell_culture_term(crate),
+        # ONE exposed Sample per cultured Sample consumed (#678). Emitting a
+        # single one for an exposure that took several materials would move the
+        # co-culture merge down a hop rather than remove it: the reader would see
+        # two lines go in and one material come out.
+        drafted = [r for r in result if _is_sample_node(r)]
+        rest = [r for r in result if not _is_sample_node(r)]
+        exposed_samples: list[Any] = []
+        for index, cell in enumerate(cells or [None]):
+            if index < len(drafted):
+                # A drafter-supplied Sample is the exposed sample and is kept;
+                # its lineage is filled only where it arrived empty.
+                sample = drafted[index]
+                if cell is not None and not _child_ids(sample, "derivesFrom"):
+                    _append_unique(sample, "derivesFrom", cell)
+                exposed_samples.append(sample)
+                continue
+            label = (
+                f"Exposed ({name})"
+                if len(cells or [None]) == 1
+                else f"Exposed ({_cultured_line_label(crate, cell)})"
             )
-            out = list(result) + [exposed]
-        else:
-            out = list(result)
+            sid = pid + "_exposed" if index == 0 else f"{pid}_exposed_{index}"
+            exposed_samples.append(
+                _synth_sample(
+                    crate, sid, label, cell, sample_type=_cell_culture_term(crate)
+                )
+            )
+        out = rest + exposed_samples + drafted[len(exposed_samples) :]
         # Both protocols: the real SOP (or the drafter's) states the procedure,
         # the generated table supplies the per-well layout it leaves out.
         existing = (

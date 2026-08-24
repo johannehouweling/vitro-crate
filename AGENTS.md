@@ -1252,8 +1252,15 @@ Violation severity, and Bioschemas `LabProcess` has no other input slot.
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a
 CellCulture's output `Sample`; the Exposure's output is the build's exposed
-`Sample`. **Skips (and reports under `skipped`):** a data producer nothing in the
-deposit evidences. **Reports rather than fills:** a data producer that IS
+`Sample`. A CellCulture grows **one** cell line: a step naming several is built as
+one culture per line, each executing that line's own protocol and producing its
+own cultured `Sample`, so no `Sample` derives from more than one line and none
+stands for a mixture the lab never made. The Exposure consumes every cultured
+`Sample` of its assay and emits **one exposed `Sample` per cultured one**, so the
+split is not undone a hop later. A co-culture is the explicit exception — asserted
+by the step, typed `NCIT:C93168` on the material it yields, and never inferred
+from a step that merely names several lines. **Skips (and reports under
+`skipped`):** a data producer nothing in the deposit evidences. **Reports rather than fills:** a data producer that IS
 evidenced but whose output the deposit lacks keeps no `result`, and the tox
 Violation carries that to the report.
 **Respects:** any explicit `object`/`result` you pass — those win over both.
