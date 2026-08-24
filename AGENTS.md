@@ -2404,6 +2404,21 @@ prefix would be short and a lie. Labels carry no background box — the text tak
 a surface-coloured `paint-order` halo knocks the line out from behind it, so a label reads as part of
 its edge. Clicking the selected node clears the selection, and the labels with it.
 
+**What the page carries is not the model (`payload_codec.js`, #694).** `build_explorer_payload` is the
+readable model — ids everywhere, one dict per edge — and stays that way, because it is what every
+Python consumer and test reads. The **data island** carries a compacted encoding of the same thing:
+an edge becomes `[src_index, dst_index, label]`, a view's members become indices, and a node's `name`
+is omitted where it equals its `label`. A mean `@id` in a real crate is 53 characters and the model
+repeats one per edge endpoint and one per view membership — some 1,800 copies of strings already in
+`nodes` — and the report ships *inside* the crate and is opened from disk, so no transfer encoding
+ever squeezes them. On S-VHPS22 that is 301 KB → 182 KB, a 15% cut to the whole section. A category's
+`glyph` is not shipped at all: nothing has drawn one since #688. `expand` runs on the app's first
+line, so no other line knows the wire format exists; the two halves are inverses and the round trip is
+tested by running the **shipped JavaScript** over what Python produced, rather than each against its
+own mirror. Deriving `nodes`/`edges` in the browser from `document` would save more and is
+deliberately not done: it would be a second implementation of `build_crate_graph`, and the two would
+drift.
+
 **The inspector's Overview (#688).** The first tab listed an entity's raw JSON keys, which are the
 serializer's shorthand: `input` and `object` are one predicate, `studies` and `assays` and `hasPart`
 are another, and a reader had to know the `@context` to see it. The Overview names each property as
@@ -2620,6 +2635,7 @@ vitro-crate/
 │   │   ├── entity_explorer.js   …its browser half (no build step)
 │   │   ├── entity_explorer_layout.js  …where its nodes go (#619)
 │   │   ├── assay_lane_layout.js  …where one assay's nodes go (#686)
+│   │   ├── payload_codec.js  …the wire format its data island carries (#694)
 │   │   └── vendor/              Pinned UMD builds inlined into the report
 │   └── agents/                  Orchestration + LLM config
 │       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
