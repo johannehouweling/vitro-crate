@@ -695,6 +695,20 @@ def condition_table_fit(rows: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
     # not penalised.
     if wells > 1 and len({str(k) for k in keys}) == 1:
         return (0, 0)
+    # A key on its own describes nothing either (#669). `mapped_columns` counts
+    # `well_id` among them, so any table carrying a well-ish header qualified: on
+    # S-VHPS22 a qPCR protocol sheet keyed on `Well Position` and a gamma-counter
+    # export keyed on `Run ID` both did, giving three candidates where there is
+    # one design table — and the spine refuses when several qualify, so the crate
+    # shipped four header-only tables while 1048 rows of real design sat in the
+    # deposit. Knowing WHICH WELLS EXIST says nothing about WHAT WAS DONE to
+    # them, which is the same rule already stated for the other side of the pair.
+    #
+    # The threshold is "more than the key", not "most of the schema": a one-factor
+    # design is still a design, and demanding more would refuse real deposits to
+    # keep this one tidy.
+    if not (set(projection["mapped_columns"]) - {"well_id"}):
+        return (0, 0)
     return (wells, mapped) if wells and mapped else (0, 0)
 
 

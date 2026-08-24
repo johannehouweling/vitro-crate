@@ -1194,3 +1194,71 @@ class TestAWorkbookThatIsSimplyNotTheDesignTable:
 
         assert error is None
         assert wells == 1 and mapped >= 3
+
+
+class TestAKeyOnItsOwnDescribesNothing:
+    """#669 — a well key and no condition column is a list of wells, not a design.
+
+    ``condition_table_fit`` counted ``well_id`` among the columns it mapped, so
+    any table carrying a well-ish header qualified. On S-VHPS22 that admitted two
+    files that describe no conditions at all — a qPCR protocol sheet whose first
+    column is ``Well Position``, and a gamma-counter export keyed on ``Run ID`` —
+    giving three candidates where there is one design table. The pipeline refuses
+    when several qualify, so **the crate shipped four header-only tables while
+    1048 rows of real design sat in the deposit**.
+
+    The rule already stated for the other side of the pair — "a table with wells
+    but no mapped column describes nothing" — is simply applied to the key too:
+    knowing *which wells exist* says nothing about *what was done to them*.
+    """
+
+    def test_a_key_alone_does_not_qualify(self):
+        rows = [{"well_id": f"A{n}"} for n in range(1, 13)]
+        assert condition_table_fit(rows) == (0, 0), (
+            "twelve well names describe twelve wells and no experiment"
+        )
+
+    def test_the_qpcr_protocol_sheet_does_not_qualify(self):
+        """`5.3 cDNA and qPCR protocol.xlsx`, which became a candidate on the
+        real deposit: 100 distinct well positions, zero conditions."""
+        rows = [
+            {"Well Position": f"{row}{col}", "CT": 22.4}
+            for row in "ABCDEFGHIJ"
+            for col in range(1, 11)
+        ]
+        assert len(rows) == 100
+        assert condition_table_fit(rows) == (0, 0)
+
+    def test_a_measurement_export_keyed_by_position_does_not_qualify(self):
+        """A varying key gets past #656's gate and still describes nothing."""
+        rows = [
+            {"Run ID": n, "I-125 CPM": 100.0 + n, "Measurement date & time": "2023-03-01"}
+            for n in range(1, 26)
+        ]
+        assert condition_table_fit(rows) == (0, 0)
+
+    def test_one_condition_column_beside_the_key_is_enough(self):
+        """The threshold is 'more than the key', not 'most of the schema'. A
+        one-factor design is still a design, and demanding more would refuse
+        real deposits to keep this one tidy."""
+        rows = [{"well_id": f"A{n}", "compound": "Amiodarone"} for n in range(1, 13)]
+        wells, mapped = condition_table_fit(rows)
+        assert wells == 12 and mapped == 2, (wells, mapped)
+
+    def test_the_real_design_table_still_qualifies(self):
+        """The 1048-row tidy export this whole fix exists to let through."""
+        rows = [
+            {
+                "run_id": f"Amiodarone_H4_T3_10.0uM_n{n}",
+                "biosample_type": "H4",
+                "test_substance_id": "Amiodarone",
+                "exposure_concentration_value": 10.0,
+                "exposure_concentration_unit": "uM",
+                "assay_endpoint": "T3",
+                "replicate_id": f"n{n}",
+            }
+            for n in range(1, 20)
+        ]
+        wells, mapped = condition_table_fit(rows)
+        assert wells == 19, wells
+        assert mapped >= 6, mapped
