@@ -38,3 +38,7 @@ ab_comparison/
 mutants/
 .mutmut-cache/
 Maturity report UI mockups.zip
+
+# Build context bundle — regenerated, not source (#678 housekeeping)
+context/vitro_crate.zip
+context/*copy*.zip
