@@ -908,9 +908,12 @@ def _fair_shares(needs: list[int], budget: int) -> list[int]:
 # (#587).
 _MAX_SHAPE_FOLDERS = 10
 
-# What the files sitting at the branch point itself are called in the listing.
-# A deposit keeps its descriptor and READMEs there, beside the folders.
-_AT_THIS_LEVEL = "(here)"
+# What everything OUTSIDE the listed folders is called. That is the files at the
+# branch point and the files above it — a deposit keeps its descriptor at the
+# root, which is above the trunk the listing descends to, and dropping it lost
+# the one file that states the study's own identity. The rows must sum to the
+# total, or the shape is a picture of a different deposit.
+_OUTSIDE_THE_FOLDERS = "(top level)"
 
 # A tree needs at least this many branches to say anything the class census has
 # not. The trimmed fixtures are a single chain of directories, and #599 is
@@ -976,15 +979,17 @@ def summarise_deposit(
         return ""
     relatives = [_relative(f.path, input_root).replace("\\", "/") for f in files]
     by_relative = dict(zip(relatives, files))
-    header = f"Deposit: {len(files)} files — {_class_tally(files)}."
+    header = f"Deposit: {len(files)} file{'s' if len(files) != 1 else ''} — {_class_tally(files)}."
 
     prefix = _branch_point(relatives)
     groups: dict[str, list[FileClassification]] = {}
     for relative in relatives:
         rest = _below(prefix, relative)
-        if rest is None:
-            continue
-        key = rest.parts[0] + "/" if len(rest.parts) > 1 else _AT_THIS_LEVEL
+        key = (
+            rest.parts[0] + "/"
+            if rest is not None and len(rest.parts) > 1
+            else _OUTSIDE_THE_FOLDERS
+        )
         groups.setdefault(key, []).append(by_relative[relative])
     if len(groups) < _MIN_SHAPE_BRANCHES:
         return header
