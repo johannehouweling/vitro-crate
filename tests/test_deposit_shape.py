@@ -109,6 +109,61 @@ class TestTheCensusEarnsItsSpace:
         assert "more" in census.lower(), census
 
 
+class TestADepositWithoutFoldersIsStillDescribed:
+    """Not every submission is a tree, and the degenerate shapes must not lie."""
+
+    def _census(self, tmp_path: Path, layout: list[str]) -> str:
+        files = []
+        for relative in layout:
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("well_id,value\nA1,1\n", encoding="utf-8")
+            files.append(
+                FileClassification(
+                    path=str(path), filename=path.name, size=20, mime_type="text/csv"
+                )
+            )
+        classify_scanned_files(
+            files, input_root=str(tmp_path), approved_roots={str(tmp_path.resolve())}
+        )
+        return summarise_deposit(files, input_root=str(tmp_path))
+
+    def test_a_flat_deposit_gets_the_tally_and_no_tree(self, tmp_path) -> None:
+        """Nothing branches, so there is no shape to draw — and a one-row "tree"
+        saying "12 files are in no folder" repeats the line above it."""
+        census = self._census(tmp_path, [f"file_{i}.csv" for i in range(12)])
+
+        assert census.startswith("Deposit: 12 files")
+        assert "Shape" not in census, census
+
+    def test_a_single_deep_chain_gets_no_tree_either(self, tmp_path) -> None:
+        census = self._census(tmp_path, [f"a/b/c/d/file_{i}.csv" for i in range(6)])
+
+        assert "Shape" not in census, census
+
+    def test_one_file_is_not_one_files(self, tmp_path) -> None:
+        assert self._census(tmp_path, ["only.csv"]).startswith("Deposit: 1 file —")
+
+    def test_the_folder_rows_sum_to_the_total(self, deposit) -> None:
+        """The descent walks past folders holding a single child, and files ABOVE
+        the trunk were dropped on the way — including svhps22's own descriptor,
+        the one file that states the study's identity. 1467 of 1468 were shown
+        and nothing said so. A shape whose rows do not add up is a picture of a
+        different deposit.
+        """
+        import re
+
+        files, census = deposit
+
+        stated = re.search(r"Deposit: (\d+)", census)
+        assert stated, census
+        total = int(stated.group(1))
+        rows = [int(n) for n in re.findall(r"^ {2}\S.*?\s(\d+) —", census, re.M)]
+
+        assert total == len(files)
+        assert sum(rows) == total, f"{total - sum(rows)} files missing from:\n{census}"
+
+
 class TestTheContextLeadsWithTheShape:
     def test_the_hidden_tail_is_broken_down_by_class(self, deposit) -> None:
         """"1428 not surfaced" tells the agent nothing about whether the tail is

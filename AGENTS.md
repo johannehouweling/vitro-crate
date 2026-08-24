@@ -418,8 +418,12 @@ broken down the same way.
 The folder listing starts at `_branch_point` rather than the top: a submission is routinely one
 folder deep before anything differs (svhps22 puts all 1468 files under
 `study_01_TH-DNT_Tier1_NeuralCellLines/`), so listing the root reports one folder holding everything.
-Descend while there is exactly one child DIRECTORY, whatever files sit beside it — a deposit keeps
-its descriptor at the root. The tree is bounded to `_MAX_SHAPE_FOLDERS` with the remainder stated,
+Descend while there is exactly one child DIRECTORY, whatever files sit beside it. Everything not
+inside a listed folder — at the trunk and *above* it — is counted under `(top level)`, because the
+descent otherwise walks straight past the root descriptor, the one file that states the study's own
+identity: svhps22 showed 1467 of its 1468 files and said nothing about the one it dropped. The rows
+sum to the total, or the shape is a picture of a different deposit. A deposit that does not branch
+at all — flat, or a single deep chain — gets the tally and no tree. The tree is bounded to `_MAX_SHAPE_FOLDERS` with the remainder stated,
 and is omitted entirely below `_MIN_SHAPE_BRANCHES`: a tree of one limb repeats the tally above it,
 and a census must never be longer than the file list it summarises. It is charged to the same
 character budget, taken off the top, and bounded by construction so it cannot crowd out the
