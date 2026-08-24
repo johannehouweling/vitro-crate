@@ -2393,6 +2393,26 @@ does. This does not make every view framable — a crate with 80 non-leaf entiti
 some 3,400 px tall whatever is done with its leaves, and "all entities" stays a view to navigate
 rather than to take in at once.
 
+**What a node and an edge encode (#688).** Selecting an entity lights its edges and names each one
+in **the vocabulary the crate is serialized with** — `schema:object`, `bioschemas:executesLabProtocol`
+— never the model's internal words (`input`, `executes`), which name nothing a reader can look up.
+`relation_terms()` derives the mapping from the relation tables and the `@context` and ships it in the
+payload, so the browser holds no second copy: a hand-kept list beside them is a second vocabulary, and
+the moment a relation changes predicate the two disagree with nothing to catch it. A relation whose
+namespace has no declared prefix falls back to its full IRI, which is long and true; an invented
+prefix would be short and a lie. Labels carry no background box — the text takes the edge's colour and
+a surface-coloured `paint-order` halo knocks the line out from behind it, so a label reads as part of
+its edge. Clicking the selected node clears the selection, and the labels with it.
+
+A node encodes two orthogonal facts: **the border is its category, the fill is its residence.** A
+tinted fill means the bytes are in the crate directory (#687) — the one thing a reader can act on,
+since it separates a record from a file they can open. Category glyphs are **dropped; colour only.**
+Shape was the redundant channel that survived greyscale, print and colour vision deficiency, and
+dropping it leaves eleven categories on a colour ring `CATEGORY_STYLES` itself calls full at ten. The
+cost is knowingly taken, with the inspector naming the type in words and the legend stating the
+mapping as its mitigations; the glyph data and its uniqueness rule are kept so restoring the channel
+is a one-line change rather than a re-derivation.
+
 **Where an assay's nodes go (`assay_lane_layout.js`, #686).** Ranking by dependency puts a protocol
 in a rank to the *right* of the step that executes it, so the material chain a reader is following is
 interrupted by what is not material. A lane splits the two directions instead: **horizontal is the

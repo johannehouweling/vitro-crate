@@ -54,6 +54,7 @@ from builder.writers.provenance_dag import (
     build_crate_graph,
     build_isa_inventory,
     build_people_inventory,
+    relation_terms,
 )
 
 PAYLOAD_VERSION = 3
@@ -826,6 +827,10 @@ def build_explorer_payload(
         "root": crate.root,
         "layers": {str(level): name for level, name in _LAYER_NAMES.items()},
         "categories": _categories(nodes),
+        # What each edge label stands for, in the vocabulary the crate is
+        # serialized with. Generated here for the same reason the palette is: the
+        # browser must not hold a second copy of it (#688).
+        "relations": relation_terms(),
         "nodes": nodes,
         "edges": [{"src": e["src"], "dst": e["dst"], "label": e["label"]} for e in model["edges"]],
         "views": views,

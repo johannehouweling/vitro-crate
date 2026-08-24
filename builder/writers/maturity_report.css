@@ -468,7 +468,10 @@ __CATEGORY_STYLES__
   border-radius:3px;}
 .mat .ex-swatch-orphan{border-style:dashed;}
 .mat .ex-swatch-outside{border-style:dotted;}
-.mat .ex-glyph{flex:none;}
+/* A category is colour and nothing else now (#688): the per-category shape was
+   dropped, so this is a plain chip of the category's own hue. */
+.mat .ex-swatch{flex:none; display:inline-block; width:.55rem; height:.55rem;
+  border-radius:2px; background:var(--ex-c); vertical-align:-1px;}
 
 /* canvas */
 .mat .ex-main{display:flex; flex:1; min-height:0;}
@@ -476,7 +479,12 @@ __CATEGORY_STYLES__
 .mat .ex-node{width:200px; height:44px; display:flex; align-items:center; gap:.4rem;
   padding:.2rem .45rem; font-size:.68rem; line-height:1.2; color:var(--ink);
   border:1.5px solid var(--ex-c); border-radius:7px;
-  background:color-mix(in srgb,var(--ex-c) 9%,var(--surface)); transition:opacity .15s;}
+  background:var(--surface); transition:opacity .15s;}
+/* A tinted fill means the BYTES ARE IN THE CRATE — the one thing a reader can
+   act on, since it is the difference between a record and a file they can open.
+   Every node keeps its category on the border, so the fill is free to carry a
+   second, orthogonal fact rather than repeating the first (#687). */
+.mat .ex-node.ex-carried{background:color-mix(in srgb,var(--ex-c) 12%,var(--surface));}
 /* Dashed and dotted carry the same two meanings they carry in the static views:
    nothing in the crate points at this, and this is described somewhere else. */
 .mat .ex-node.ex-orphan{border-style:dashed;}
@@ -488,6 +496,12 @@ __CATEGORY_STYLES__
 .mat .ex-node-name{font-weight:640; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .mat .ex-node-tag{font-size:.58rem; letter-spacing:.04em; text-transform:uppercase;
   color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* An edge label integrates into its edge instead of sitting in a box on it: the
+   text takes the edge's own colour (set inline, from the payload's palette) and
+   `paint-order` lays a surface-coloured halo down first, knocking the line out
+   from behind the glyphs so both stay readable where they cross. */
+.mat .ex-canvas .react-flow__edge-text{paint-order:stroke; stroke:var(--surface);
+  stroke-width:3px; stroke-linejoin:round; font-weight:600;}
 .mat .ex-canvas .react-flow__handle{opacity:0; width:6px; height:6px; pointer-events:none;}
 .mat .ex-canvas .react-flow__attribution{display:none;}
 

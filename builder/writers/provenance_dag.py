@@ -28,6 +28,7 @@ import html
 import logging
 import re
 import urllib.parse
+from functools import lru_cache
 from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
@@ -330,12 +331,21 @@ class CategoryStyle(NamedTuple):
     """Legend wording. One phrase, reused by every legend that shows it."""
 
     glyph: str
-    """SVG path data for the category's 14x14 glyph, drawn on the explorer's node.
+    """SVG path data for the category's 14x14 glyph. **Nothing draws it (#688).**
 
     Shape is the channel that survives greyscale, print and colour vision
-    deficiency, so no two categories may share one. The explorer's node is a
-    ~200px HTML box, so the shape cannot *be* the node the way it was in the
-    inline-SVG diagrams this replaced (#618); it rides along as a badge instead.
+    deficiency, so no two categories may share one, and the invariants below are
+    still enforced. The explorer drew it as a badge on its node and no longer
+    does: the reviewed decision is colour only, which leaves eleven categories on
+    a colour ring this registry itself calls full at ten. That cost is knowingly
+    taken, with the inspector naming the type in words and the legend stating the
+    mapping as the mitigations.
+
+    The data is kept rather than deleted precisely because the cost is knowingly
+    taken: if print or CVD legibility proves to matter more than the space on a
+    ~200px node, restoring the channel is a one-line change here rather than a
+    re-derivation of eleven shapes.
+
     Arc flags are written spaced (``a4 4 0 0 1``), not run together
     (``a4 4 0 01``) — both are legal SVG, but only the spaced form lets a reader
     (or a test) tell a coordinate from a flag.
@@ -782,6 +792,84 @@ _SECONDARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_CONTACT_KEYS, "contactPoint", False),
     (_PROPERTYURL_KEYS, "propertyUrl", False),
 )
+
+
+# Namespaces the crate is serialized with but does not declare a prefix for.
+# Naming them is not inventing vocabulary — the IRIs are already in the relation
+# tables above, and these are the prefixes the wider world writes them with. A
+# namespace absent from here falls back to its full IRI, which is long and true.
+_EXTRA_NAMESPACES: dict[str, str] = {
+    "dcterms": "http://purl.org/dc/terms/",
+}
+
+
+def _namespaces() -> dict[str, str]:
+    """Prefix → namespace, taken from the crate's own ``@context``.
+
+    Whatever the crate is serialized with is what a reader can look up, so the
+    display vocabulary is read from the same place rather than kept beside it.
+    Bioschemas needs the one special case: its PROPERTIES live under
+    ``/properties/`` while its TYPES sit at the bare namespace, and a property is
+    written ``bioschemas:reagent`` — so the longer namespace is registered under
+    the same prefix and, being longer, wins the match below.
+    """
+    from profiles.context import BIOSCHEMAS_PROP, ISA_TOX_CONTEXT
+
+    declared = ISA_TOX_CONTEXT[0]
+    spaces = {
+        term: value
+        for term, value in declared.items()
+        if not term.startswith("@")
+        and isinstance(value, str)
+        and (value.endswith("/") or value.endswith("#"))
+    }
+    return {**spaces, **_EXTRA_NAMESPACES, "bioschemas": BIOSCHEMAS_PROP}
+
+
+def _qualify(url: str, spaces: dict[str, str]) -> str:
+    """``http://schema.org/object`` → ``schema:object``; unknown → unchanged."""
+    best = None
+    for prefix, base in spaces.items():
+        if url.startswith(base) and (best is None or len(base) > len(spaces[best])):
+            best = prefix
+    return f"{best}:{url[len(spaces[best]) :]}" if best else url
+
+
+@lru_cache(maxsize=1)
+def relation_terms() -> dict[str, str]:
+    """Edge label → the property it stands for, qualified (#688).
+
+    The model's labels are this codebase's own words: an edge is ``input``
+    because that reads well next to ``result``, but the predicate in the crate is
+    ``schema:object``. A reader who copies a name out of the report has to be
+    able to find it in the JSON-LD, so the report shows the crate's name.
+
+    Derived from the relation tables and the ``@context``, never written out
+    again: a hand-kept list beside them is a second vocabulary, and the moment a
+    relation changes predicate the two disagree with nothing to catch it.
+
+    Each relation is resolved by its first absolute-IRI key, or failing that by
+    the first of its keys the context maps to one.
+    """
+    from profiles.context import ISA_TOX_CONTEXT
+
+    declared = ISA_TOX_CONTEXT[0]
+    spaces = _namespaces()
+    terms: dict[str, str] = {}
+    for keys, label, _reversed in _PRIMARY_RELATIONS + _SECONDARY_RELATIONS:
+        url = next((k for k in keys if "://" in k), None)
+        if url is None:
+            url = next(
+                (
+                    declared[k]
+                    for k in keys
+                    if isinstance(declared.get(k), str) and "://" in declared[k]
+                ),
+                None,
+            )
+        if url is not None:
+            terms[label] = _qualify(url, spaces)
+    return terms
 
 
 def _entity_layer(node: dict[str, Any]) -> int:
