@@ -189,8 +189,7 @@ def wide_fanout_graph(files: int = 60) -> dict[str, Any]:
             "@id": "./",
             "@type": "Dataset",
             "name": "A deposit with a long file list",
-            "hasPart": [{"@id": f"data/f{i}.csv"} for i in range(files)]
-            + [{"@id": "#assay"}],
+            "hasPart": [{"@id": f"data/f{i}.csv"} for i in range(files)] + [{"@id": "#assay"}],
             "mentions": [{"@id": "#process"}],
         },
         {
@@ -372,5 +371,217 @@ def aop_linked_graph() -> dict[str, Any]:
                 "downstream_event": {"@id": "https://aopwiki.org/events/9999"},
             },
             {"@id": "#build", "@type": "CreateAction", "name": "vitro-crate build"},
+        ]
+    }
+
+
+def assay_lane_graph() -> dict[str, Any]:
+    """Two assays, each a full material chain, sharing nothing (#686).
+
+    The shape the lane view draws: cell line -> culture -> cultured sample ->
+    exposure -> exposed sample -> readout -> raw files -> analysis -> processed
+    file, with a protocol under each step and the exposure's compounds hanging
+    off its condition table by ``reagent``.
+
+    Two assays rather than one, because a lane must exclude the *other* assay's
+    steps, and a fixture with a single assay cannot tell "scoped to this assay"
+    apart from "everything on a chain". Since #678 each assay cultures its own
+    line, so the two chains are genuinely disjoint.
+
+    Carries the exclusions each rule needs to be tested rather than assumed:
+
+    * ``#spare-protocol`` executes nothing, and its ``#spare-compound`` is a
+      reagent of it alone. A compound hop that swept every ``reagent`` edge in
+      the crate would draw that compound with no edge to any work.
+    * The Study and Investigation are real and populated, so a lane that leaves
+      them out is doing so by rule rather than because the crate has none.
+    """
+    return {
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {
+                "@id": "./",
+                "@type": "Dataset",
+                "additionalType": "Investigation",
+                "name": "An investigation",
+                "hasPart": [{"@id": "#study"}],
+            },
+            {
+                "@id": "#study",
+                "@type": "Dataset",
+                "additionalType": "Study",
+                "name": "A study",
+                "hasPart": [{"@id": "#assay-a"}, {"@id": "#assay-b"}],
+            },
+            # --- assay A: the lane under test ---------------------------------
+            {
+                "@id": "#assay-a",
+                "@type": "Dataset",
+                "additionalType": "Assay",
+                "name": "Deiodinase assay",
+                "about": [
+                    {"@id": "#culture-a"},
+                    {"@id": "#exposure-a"},
+                    {"@id": "#readout-a"},
+                    {"@id": "#analysis-a"},
+                ],
+            },
+            {
+                "@id": "#cellline-a",
+                "@type": "Sample",
+                "additionalType": "CellLineSample",
+                "name": "SK-N-AS",
+            },
+            {
+                "@id": "#culture-a",
+                "@type": "LabProcess",
+                "additionalType": "CellCulture",
+                "name": "Culture SK-N-AS",
+                "object": {"@id": "#cellline-a"},
+                "result": {"@id": "#cultured-a"},
+                "executesLabProtocol": {"@id": "#culture-protocol-a"},
+            },
+            {
+                "@id": "#culture-protocol-a",
+                "@type": "LabProtocol",
+                "name": "Cell culture protocol SK-N-AS",
+            },
+            {"@id": "#cultured-a", "@type": "Sample", "name": "Cultured (SK-N-AS)"},
+            {
+                "@id": "#exposure-a",
+                "@type": "LabProcess",
+                "additionalType": "Exposure",
+                "name": "Exposure",
+                "object": {"@id": "#cultured-a"},
+                "result": {"@id": "#exposed-a"},
+                "executesLabProtocol": {"@id": "#conditions-a"},
+            },
+            {
+                "@id": "#conditions-a",
+                "@type": "LabProtocol",
+                "name": "Condition table",
+                "reagent": [{"@id": "#compound-a1"}, {"@id": "#compound-a2"}],
+            },
+            {
+                "@id": "#compound-a1",
+                "@type": "MolecularEntity",
+                "name": "Amiodarone",
+                "inChIKey": "IYIKLHRQXLHMJQ-UHFFFAOYSA-N",
+            },
+            {
+                "@id": "#compound-a2",
+                "@type": "MolecularEntity",
+                "name": "Cisplatin",
+                "inChIKey": "LXZZYRPGZAFOLE-UHFFFAOYSA-L",
+            },
+            {"@id": "#exposed-a", "@type": "Sample", "name": "Exposed (SK-N-AS)"},
+            {
+                "@id": "#readout-a",
+                "@type": "LabProcess",
+                "additionalType": "EndpointReadout",
+                "name": "Deiodinase readout",
+                "object": {"@id": "#exposed-a"},
+                "result": [{"@id": "raw/a1.csv"}, {"@id": "raw/a2.csv"}],
+                "executesLabProtocol": {"@id": "#readout-protocol-a"},
+            },
+            {
+                "@id": "#readout-protocol-a",
+                "@type": "LabProtocol",
+                "name": "Deiodinase readout protocol",
+            },
+            {
+                "@id": "raw/a1.csv",
+                "@type": "File",
+                "name": "a1.csv",
+                "encodingFormat": "text/csv",
+            },
+            {
+                "@id": "raw/a2.csv",
+                "@type": "File",
+                "name": "a2.csv",
+                "encodingFormat": "text/csv",
+            },
+            {
+                "@id": "#analysis-a",
+                "@type": "LabProcess",
+                "additionalType": "DataAnalysis",
+                "name": "Deiodinase analysis",
+                "object": [{"@id": "raw/a1.csv"}, {"@id": "raw/a2.csv"}],
+                "result": {"@id": "processed/a.csv"},
+                "executesLabProtocol": {"@id": "#analysis-protocol-a"},
+            },
+            {
+                "@id": "#analysis-protocol-a",
+                "@type": "LabProtocol",
+                "name": "Deiodinase analysis script",
+            },
+            {
+                "@id": "processed/a.csv",
+                "@type": "File",
+                "name": "a.csv",
+                "encodingFormat": "text/csv",
+            },
+            # --- assay B: the lane that must NOT bleed in ---------------------
+            {
+                "@id": "#assay-b",
+                "@type": "Dataset",
+                "additionalType": "Assay",
+                "name": "TH transport assay",
+                "about": [{"@id": "#culture-b"}, {"@id": "#exposure-b"}],
+            },
+            {
+                "@id": "#cellline-b",
+                "@type": "Sample",
+                "additionalType": "CellLineSample",
+                "name": "MO3.13",
+            },
+            {
+                "@id": "#culture-b",
+                "@type": "LabProcess",
+                "additionalType": "CellCulture",
+                "name": "Culture MO3.13",
+                "object": {"@id": "#cellline-b"},
+                "result": {"@id": "#cultured-b"},
+                "executesLabProtocol": {"@id": "#culture-protocol-b"},
+            },
+            {
+                "@id": "#culture-protocol-b",
+                "@type": "LabProtocol",
+                "name": "Cell culture protocol MO3.13",
+            },
+            {"@id": "#cultured-b", "@type": "Sample", "name": "Cultured (MO3.13)"},
+            {
+                "@id": "#exposure-b",
+                "@type": "LabProcess",
+                "additionalType": "Exposure",
+                "name": "Exposure",
+                "object": {"@id": "#cultured-b"},
+                "result": {"@id": "#exposed-b"},
+                "executesLabProtocol": {"@id": "#conditions-b"},
+            },
+            {
+                "@id": "#conditions-b",
+                "@type": "LabProtocol",
+                "name": "Condition table",
+                "reagent": [{"@id": "#compound-b1"}],
+            },
+            {
+                "@id": "#compound-b1",
+                "@type": "MolecularEntity",
+                "name": "Thyroxine",
+            },
+            {"@id": "#exposed-b", "@type": "Sample", "name": "Exposed (MO3.13)"},
+            # --- what no rule may sweep up ------------------------------------
+            {
+                "@id": "#spare-protocol",
+                "@type": "LabProtocol",
+                "name": "A protocol no step executes",
+                "reagent": [{"@id": "#spare-compound"}],
+            },
+            {
+                "@id": "#spare-compound",
+                "@type": "MolecularEntity",
+                "name": "A compound no step uses",
+            },
         ]
     }
