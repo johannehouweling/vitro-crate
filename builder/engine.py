@@ -304,7 +304,6 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     from builder.tools.document_discovery import (
         classify_scanned_files,
         discover_documents,
-        format_document_context,
     )
 
     approved = list(engine.state.approved_scan_roots)
@@ -332,7 +331,6 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     # Pass the scan size so the context can say what it left out: the ranking
     # decides what the agent sees at all, and a silent cap reads as "this is
     # everything" (#587).
-    context = format_document_context(candidates, total_scanned=len(engine.state.scanned_files))
     engine.state.documents = [
         {
             "kind": c.kind,
@@ -345,12 +343,8 @@ def _run_document_discovery(engine: AgentEngine) -> None:
         }
         for c in candidates
     ]
-    if context and engine.state.metadata:
-        logger.info(
-            "Document discovery: %d candidates, ~%d chars of context",
-            len(candidates),
-            len(context),
-        )
+    if candidates and engine.state.metadata:
+        logger.info("Document discovery: %d candidates", len(candidates))
 
 
 # Formats that carry a NAMED licence field, and the filenames whose whole

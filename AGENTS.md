@@ -407,6 +407,18 @@ cannot read. A share too small to carry even the entry's `[kind/class] path` hea
 buys nothing, so that entry is dropped and its share returned rather than emitted as
 a fragment.
 
+**Both arms render through `format_document_context`, and the cap has one home (#675).**
+None of the above reached a model for a while: the engine built the bounded context and
+used the string for its LENGTH in a log line, while each arm re-rolled its own from
+`state.documents` and sliced it to a hardcoded `[:20]`. Measured on S-VHPS22, discovery
+produced 40 candidates balanced 13 metadata / 13 processed / 12 protocol / 2 raw and the
+pipeline sent 26 587 characters — against an 18 000 budget — carrying 4 / 13 / **1** / 2.
+The budget, the header guard and #595's allocation all stopped at the engine. So
+`MAX_DOCUMENT_CANDIDATES` is the only cap, `DocumentationCandidate.from_dict` turns the
+stored dicts back into candidates, and a renderer that wants a different PRESENTATION
+(the ReAct arm's numbered markdown list, which is also the user-facing reply) still takes
+its membership from the same ranking rather than re-deciding what fits.
+
 **The slots are allocated the same way, over the classification (#595).** The cap is
 the agent's whole view of the submission, and it used to be spent on one axis — "how
 document-like is this?" — over a population #591 can classify into four, so whole
