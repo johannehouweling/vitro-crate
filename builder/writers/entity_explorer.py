@@ -54,7 +54,9 @@ from builder.writers.provenance_dag import (
     build_crate_graph,
     build_isa_inventory,
     build_people_inventory,
+    property_terms,
     relation_terms,
+    vocab_prefix,
 )
 
 PAYLOAD_VERSION = 3
@@ -831,6 +833,11 @@ def build_explorer_payload(
         # serialized with. Generated here for the same reason the palette is: the
         # browser must not hold a second copy of it (#688).
         "relations": relation_terms(),
+        # And what each entity KEY expands to. `input` and `object` are one
+        # predicate; a reader had to know the context to see that (#688).
+        "properties": property_terms(),
+        # A key the context does not name expands under the crate's own @vocab.
+        "vocab_prefix": vocab_prefix(),
         "nodes": nodes,
         "edges": [{"src": e["src"], "dst": e["dst"], "label": e["label"]} for e in model["edges"]],
         "views": views,

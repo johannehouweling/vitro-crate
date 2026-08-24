@@ -2404,6 +2404,22 @@ prefix would be short and a lie. Labels carry no background box — the text tak
 a surface-coloured `paint-order` halo knocks the line out from behind it, so a label reads as part of
 its edge. Clicking the selected node clears the selection, and the labels with it.
 
+**The inspector's Overview (#688).** The first tab listed an entity's raw JSON keys, which are the
+serializer's shorthand: `input` and `object` are one predicate, `studies` and `assays` and `hasPart`
+are another, and a reader had to know the `@context` to see it. The Overview names each property as
+the crate expands it (`property_terms()`, derived from that context; a key the context does not name
+expands under its `@vocab`, which is the crate's own rule rather than a guess) and shows **one row per
+predicate, not one per spelling** — the crate's own keys are on the row's tooltip. The Links tab names
+relations from the same table the edges do, so a relation is not one word on the canvas and another in
+the panel. `parameter` and `parameterValue` stay two rows: they are two predicates, emitted
+deliberately because the two profiles the crate claims ask for parameters under different ones.
+
+A URL is offered **for copying, never as a link**. The payload carries the crate verbatim,
+`javascript:` URLs and all, so the explorer writes no anchor and no link target — that absence is
+load-bearing and pinned by a test that greps the app for the attribute names. A clipboard write
+navigates nowhere and executes nothing, so the reader gets the URL without the crate getting a way to
+run anything.
+
 A node encodes two orthogonal facts: **the border is its category, the fill is its residence.** A
 tinted fill means the bytes are in the crate directory (#687) — the one thing a reader can act on,
 since it separates a record from a file they can open. Category glyphs are **dropped; colour only.**

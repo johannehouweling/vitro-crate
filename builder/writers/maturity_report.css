@@ -559,6 +559,16 @@ __CATEGORY_STYLES__
 .mat .ex-json-entity{margin:.15rem 0; padding:.2rem .35rem; border:1px solid transparent;
   border-radius:6px;}
 .mat .ex-json-current{background:var(--accent-soft); border-color:var(--accent);}
+/* A URL the crate carries. Deliberately NOT styled as a link, because it is not
+   one: the explorer writes no anchors (#169), so this offers the URL for copying
+   and says so on hover. Underlined on hover only, so it does not promise
+   navigation at rest. */
+.mat .ex-url{font:inherit; font-size:.72rem; text-align:left; padding:0; border:0;
+  background:none; color:var(--accent); cursor:copy; word-break:break-all;}
+.mat .ex-url:hover{text-decoration:underline;}
+.mat .ex-url-copied{color:var(--ok,var(--accent)); text-decoration:none;}
+.mat .ex-url-copied::after{content:" copied"; font-size:.62rem; color:var(--muted);
+  letter-spacing:.04em; text-transform:uppercase;}
 .mat .ex-json-entity-head{display:flex; align-items:center; gap:.3rem; margin-bottom:.1rem;
   font-family:inherit; font-size:.74rem;}
 .mat .ex-side-document .ex-json{padding:.5rem .7rem;}

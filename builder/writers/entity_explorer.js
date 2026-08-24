@@ -57,6 +57,15 @@
    * up rather than keeping a second copy of the vocabulary here.
    */
   function term(label) { return (D.relations && D.relations[label]) || label; }
+  /* What an entity KEY expands to. `input` and `object` are one predicate;
+   * `studies`, `assays` and `hasPart` are another. A key the context does not
+   * name expands under the crate's own @vocab, which is the crate's rule rather
+   * than a guess made here. */
+  function prop(key) {
+    if (key.charAt(0) === '@') return key;
+    return (D.properties && D.properties[key]) || (D.vocab_prefix + ':' + key);
+  }
+  function isUrl(v) { return typeof v === 'string' && /^https?:\/\//.test(v); }
   // Everything some view can put on the canvas. Not `D.nodes.length`: that also
   // counts bare references the crate never describes, which no view offers, so
   // a denominator taken from it would be one the numerator can never reach.
@@ -276,6 +285,50 @@
     return html`<span class="ex-json-number">${String(v)}</span>`;
   }
 
+  /* A URL the crate carries, offered as something to take away.
+   *
+   * NOT a link. The payload holds the crate verbatim, `javascript:` URLs and
+   * all, so the explorer writes no anchor and no link target of any kind — that
+   * absence is load-bearing and pinned by a test that greps this file for the
+   * attribute names, which is why they are not written out even here (#169).
+   * Copying navigates nowhere and executes nothing, so the reader gets the URL
+   * without the crate getting a way to run anything.
+   */
+  function Url(props) {
+    var v = props.v;
+    var copied = useState(false), was = copied[0], setWas = copied[1];
+    return html`<button type="button" class=${'ex-url ex-mono' + (was ? ' ex-url-copied' : '')}
+      title=${'Copy ' + v}
+      onClick=${function () {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(v);
+          setWas(true);
+          setTimeout(function () { setWas(false); }, 1200);
+        }
+      }}>${v}</button>`;
+  }
+
+  /* One row per predicate, not one per spelling. */
+  function overviewRows(entity) {
+    var byTerm = new Map();
+    Object.keys(entity).forEach(function (key) {
+      if (key === '@id') return;
+      var name = prop(key);
+      if (!byTerm.has(name)) byTerm.set(name, { name: name, keys: [], values: [], seen: new Set() });
+      var row = byTerm.get(name);
+      if (row.keys.indexOf(key) < 0) row.keys.push(key);
+      (Array.isArray(entity[key]) ? entity[key] : [entity[key]]).forEach(function (v) {
+        // Two aliases of one predicate carry the same values; showing them
+        // twice is what naming the predicate was meant to stop.
+        var seal = JSON.stringify(v);
+        if (row.seen.has(seal)) return;
+        row.seen.add(seal);
+        row.values.push(v);
+      });
+    });
+    return Array.from(byTerm.values());
+  }
+
   /* ---- side panel ---------------------------------------------------------- */
   function Panel(props) {
     var sel = props.selected, goTo = props.goTo;
@@ -340,7 +393,8 @@
       });
       return Array.from(byRelation.entries()).map(function (pair) {
         return html`<div key=${direction + pair[0]} class="ex-link-group">
-          <div class="ex-relation ex-mono">${(direction === 'out' ? '→ ' : '← ') + pair[0]}
+          <div class="ex-relation ex-mono"
+            title=${pair[0]}>${(direction === 'out' ? '→ ' : '← ') + term(pair[0])}
             <span class="ex-muted">${'(' + pair[1].length + ')'}</span></div>
           ${pair[1].map(function (id) {
             var t = NODE.get(id);
@@ -353,7 +407,7 @@
     }
 
     var tabs = [
-      ['properties', 'Properties'],
+      ['properties', 'Overview'],
       ['links', 'Links (' + (outgoing.length + incoming.length) + ')'],
       ['json', 'JSON-LD']
     ];
@@ -377,11 +431,14 @@
       </div>
       <div class="ex-side-body">
         ${tab === 'properties' ? (entity
-          ? html`<dl class="ex-props">${Object.keys(entity).filter(function (k) { return k !== '@id'; })
-              .map(function (k) {
-                return html`<div key=${k} class="ex-prop">
-                  <dt class="ex-mono">${k}</dt>
-                  <dd><${JsonValue} v=${entity[k]} goTo=${goTo} /></dd></div>`;
+          ? html`<dl class="ex-props">${overviewRows(entity).map(function (row) {
+                return html`<div key=${row.name} class="ex-prop">
+                  <dt class="ex-mono" title=${'in the crate as: ' + row.keys.join(', ')}>${row.name}</dt>
+                  <dd>${row.values.map(function (v, i) {
+                    return html`<div key=${i}>${isUrl(v)
+                      ? html`<${Url} v=${v} />`
+                      : html`<${JsonValue} v=${v} goTo=${goTo} />`}</div>`;
+                  })}</dd></div>`;
               })}</dl>`
           : html`<p class="ex-hint">This entity is described outside the crate; the crate
               carries the reference only.</p>`) : null}
