@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import re
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
@@ -116,8 +117,7 @@ def _select_researcher(crate: _Crate) -> set[str]:
     return {
         n["id"]
         for n in crate.model["nodes"]
-        if n["status"] == "in_crate"
-        and (n["category"] != "annotation" or n["id"] == crate.root)
+        if n["status"] == "in_crate" and (n["category"] != "annotation" or n["id"] == crate.root)
     }
 
 
@@ -249,10 +249,86 @@ def _select_processes(crate: _Crate, flavour: str | None = None) -> set[str]:
         edge["dst"] if outgoing else edge["src"]
         for edge in crate.model["edges"]
         for label, outgoing in _PROCESS_CONTEXT
-        if edge["label"] == label
-        and (edge["src"] if outgoing else edge["dst"]) in processes
+        if edge["label"] == label and (edge["src"] if outgoing else edge["dst"]) in processes
     }
-    return chain | context
+    return chain | context | _reagents_of(crate, processes)
+
+
+def _reagents_of(crate: _Crate, processes: set[str]) -> set[str]:
+    """The substances the drawn steps used, one hop past their protocols (#686).
+
+    An exposure's compounds are the substances under test, and the view about
+    what the steps did drew none of them. They were missing by a hop, not by a
+    modelling gap: ISA restricts ``schema:object`` to File/Sample/BioSample at
+    Violation severity, so a ``MolecularEntity`` can never be a process input
+    directly, and ``reagent`` is a LabProtocol property ranging over it. The
+    crate's route — exposure executes a condition table, the table lists its
+    reagents — is the correct representation, so the selection follows it (#650).
+
+    Anchored on the protocols *these* steps execute, never on every ``reagent``
+    edge in the crate: a compound with no edge to any drawn work is the opposite
+    of what the view is for.
+
+    Note the model draws ``reagent`` REVERSED (``src`` is the compound, ``dst``
+    the protocol) so the arrow points at the step that consumes the material.
+    """
+    protocols = {
+        edge["dst"]
+        for edge in crate.model["edges"]
+        if edge["label"] == "executes" and edge["src"] in processes
+    }
+    return {
+        edge["src"]
+        for edge in crate.model["edges"]
+        if edge["label"] == "reagent" and edge["dst"] in protocols
+    }
+
+
+def _assay_processes(crate: _Crate, assay_id: str) -> list[str]:
+    """The steps an assay is ``about``, or nothing if *assay_id* names no assay."""
+    for node in crate.inventory("isa")["nodes"]:
+        if node["level"] == "Assay" and node["id"] == assay_id:
+            return list(node.get("processes") or [])
+    return []
+
+
+def _select_assay_lane(crate: _Crate, assay_id: str) -> set[str]:
+    """One assay's chain, and nothing that belongs to another (#686).
+
+    An assay is what produces a research object, so it is what the lane draws.
+    Scoped this way the closure is small, and since #678 gave each assay its own
+    culture, no node on the lane belongs to a neighbour.
+
+    What it draws: the assay's steps, the materials those steps consumed and
+    produced, the protocol under each step, and the compounds one hop past the
+    protocols (:func:`_reagents_of`).
+
+    What it does not: the Study, the Investigation, and **the assay itself**.
+    Drawn, the assay would connect to every step and reproduce the star this
+    change exists to remove — so it frames the view rather than appearing in it.
+    That falls out of walking only material and protocol edges, and is pinned by
+    a test so a later switch to :data:`_PROCESS_CONTEXT` cannot quietly undo it.
+
+    The material walk is **one hop** from the steps, not a transitive closure:
+    every material on a spine is adjacent to the step that handled it, so a hop
+    reaches all of them, while a closure would follow a shared file out of the
+    assay and undo the scoping.
+    """
+    processes = set(_assay_processes(crate, assay_id))
+    if not processes:
+        return set()
+    lane = set(processes)
+    for src, dst, _kind in _derivation_edges(crate.nodes):
+        if src in processes:
+            lane.add(dst)
+        if dst in processes:
+            lane.add(src)
+    protocols = {
+        edge["dst"]
+        for edge in crate.model["edges"]
+        if edge["label"] == "executes" and edge["src"] in processes
+    }
+    return lane | protocols | _reagents_of(crate, processes)
 
 
 def _routed(crate: _Crate, inventory: str, members: str) -> set[str]:
@@ -322,9 +398,7 @@ def _of_inventory(
     def subject(crate: _Crate) -> set[str]:
         inv = crate.inventory(name)
         return {
-            member["id"]
-            for member in inv[members]
-            if level is None or member.get("level") == level
+            member["id"] for member in inv[members] if level is None or member.get("level") == level
         }
 
     return subject
@@ -388,6 +462,89 @@ class ExplorerView(NamedTuple):
     """
 
 
+ASSAY_LANE_PREFIX = "assay-"
+"""Namespace for the per-assay sub-row keys, which are minted per crate.
+
+Every other view key is a constant in :data:`EXPLORER_VIEWS`, because every
+other view is a question about the crate rather than about one of its entities.
+An assay lane is named for an assay that only this crate has, so its key is
+derived from that assay's ``@id`` — see :func:`_lane_key`.
+"""
+
+
+def _lane_slug(name: str, assay_id: str) -> str:
+    """The readable half of a lane key: the assay's name, hyphenated.
+
+    Falls back to the ``@id`` only when an assay has no name, which the ISA
+    shapes already treat as a violation.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    if slug:
+        return slug
+    return re.sub(r"[^a-z0-9]+", "-", assay_id.lower()).strip("-") or "lane"
+
+
+def _lane_key(slug: str, assay_id: str, ambiguous: bool) -> str:
+    """A hash-safe view key for one assay's lane.
+
+    View keys are joined with commas into the location hash, so a key carrying
+    one would split into two views that answer to nothing; the slug is
+    ``[a-z0-9-]`` by construction.
+
+    Built from the **name** because the key is what a shared link carries, and
+    real assay ids repeat their own kind — ``#Assay_assay_deiodinase_assay``
+    slugs to ``assay-assay-assay-deiodinase-assay``, which is unique and
+    unreadable. Names are not guaranteed unique, so when two assays share one,
+    the ``@id`` settles it.
+
+    *ambiguous* is decided across all the crate's assays before any key is
+    minted, so **every** lane sharing a slug is suffixed rather than the first
+    one winning the bare key. Otherwise the keys would depend on which assay the
+    graph happened to list first, and two builds of one deposit must produce
+    reports that diff to nothing.
+    """
+    key = ASSAY_LANE_PREFIX + slug
+    if ambiguous:
+        key += "-" + hashlib.sha1(assay_id.encode("utf-8")).hexdigest()[:6]
+    return key
+
+
+def _assay_lane_views(crate: _Crate) -> list[ExplorerView]:
+    """One sub-row per assay, in the crate's own order.
+
+    A child view narrows its parent (#624), so choosing one assay replaces the
+    Assays selection and the containers drop out with it — which is what makes
+    this a lane rather than another top-level chip.
+
+    ``subject`` is left unset: the view is named for an assay and everything it
+    draws belongs to that assay, so the count is the membership (#625).
+    """
+    assays = [n for n in crate.inventory("isa")["nodes"] if n["level"] == "Assay"]
+    named = []
+    for node in assays:
+        assay_id = str(node["id"])
+        raw_name = str(node.get("name") or "")
+        named.append(
+            (
+                assay_id,
+                html.unescape(raw_name or assay_id),
+                _lane_slug(raw_name, assay_id),
+            )
+        )
+    shared = {slug for slug, count in Counter(s for _i, _n, s in named).items() if count > 1}
+    return [
+        ExplorerView(
+            _lane_key(slug, assay_id, slug in shared),
+            name,
+            "This assay end to end — its materials, steps, protocols and compounds",
+            False,
+            (lambda i: lambda c: _select_assay_lane(c, i))(assay_id),
+            parent="assays",
+        )
+        for assay_id, name, slug in named
+    ]
+
+
 # Order matters: "Researcher" opens the section, and the rest follow the tabbed
 # section's reviewed order so a reader who learned it there is not retrained.
 EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
@@ -398,9 +555,7 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         True,
         _select_researcher,
     ),
-    ExplorerView(
-        "all", "All entities", "Everything the crate describes", False, _select_all
-    ),
+    ExplorerView("all", "All entities", "Everything the crate describes", False, _select_all),
     ExplorerView(
         "files",
         "Files",
@@ -560,7 +715,10 @@ def _categories(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     # so this key keeps its wording: it names a provenance status, not a
     # category, and is the one label the census cannot supply.
     out[_CTX_CATEGORY] = {
-        "colour": _CTX_COLOUR, "label": _CTX_LABEL, "glyph": _CTX_GLYPH, "types": [],
+        "colour": _CTX_COLOUR,
+        "label": _CTX_LABEL,
+        "glyph": _CTX_GLYPH,
+        "types": [],
     }
     return out
 
@@ -600,9 +758,7 @@ def build_explorer_payload(
     # because the model yields them from a set and a report must not depend on
     # which way that fell today.
     described = [n for n in model["nodes"] if n["layer"] is not None]
-    stubs = sorted(
-        (n for n in model["nodes"] if n["layer"] is None), key=lambda n: str(n["id"])
-    )
+    stubs = sorted((n for n in model["nodes"] if n["layer"] is None), key=lambda n: str(n["id"]))
     nodes = [
         {
             "id": n["id"],
@@ -625,7 +781,10 @@ def build_explorer_payload(
     ]
 
     views = []
-    for view in EXPLORER_VIEWS:
+    # The lanes are minted from this crate's assays, so they are appended
+    # rather than declared. They carry `parent`, and the app draws children
+    # from that alone, so position among them is the crate's order.
+    for view in (*EXPLORER_VIEWS, *_assay_lane_views(crate)):
         members = view.select(crate) & crate.known
         if not members:
             continue
@@ -654,9 +813,7 @@ def build_explorer_payload(
         "layers": {str(level): name for level, name in _LAYER_NAMES.items()},
         "categories": _categories(nodes),
         "nodes": nodes,
-        "edges": [
-            {"src": e["src"], "dst": e["dst"], "label": e["label"]} for e in model["edges"]
-        ],
+        "edges": [{"src": e["src"], "dst": e["dst"], "label": e["label"]} for e in model["edges"]],
         "views": views,
         "counts": {**model["counts"], "nodes": len(nodes), "edges": len(model["edges"])},
         "document": crate.document,
@@ -765,9 +922,7 @@ def explorer_css() -> str:
     the page; this is only the library's, kept unmodified so it can be re-vendored
     without a merge.
     """
-    return "\n" + _banner("xyflow-react.style.css") + "\n" + _vendor_text(
-        "xyflow-react.style.css"
-    )
+    return "\n" + _banner("xyflow-react.style.css") + "\n" + _vendor_text("xyflow-react.style.css")
 
 
 def _data_island(payload: dict[str, Any]) -> str:
@@ -779,9 +934,7 @@ def _data_island(payload: dict[str, Any]) -> str:
     ``</script>`` can arrive from.
     """
     text = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
-    return (
-        text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    )
+    return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
 def render_explorer_section(
