@@ -1376,6 +1376,77 @@ def _populate_condition_tables(engine: AgentEngine) -> dict[str, Any]:
     return aggregate
 
 
+def _apply_layout_conditions(engine: AgentEngine) -> dict[str, Any]:
+    """Put each Exposure's shared run conditions on it as parameters (#697).
+
+    Three of the four assays ship a header-only condition table because no file
+    in them carries per-well rows. But every experiment workbook in this lab's
+    deposits opens its ``layout`` sheet with a block stating what the whole run
+    shared — incubation volume, buffer, substrate, dose, duration — and those are
+    exactly the columns the table is empty in. They describe the run rather than
+    a well, so they belong on the Exposure as parameters, not as table rows.
+
+    Scoped and filtered the same way the condition table is (#669): an Exposure
+    sees only the workbooks its own Assay holds, and only what EVERY run of that
+    assay states identically survives — one metabolism run used ``H4 + SKNAS``
+    and another ``MO3.13``, and neither is a property of the assay. The rest is
+    per-run and belongs with #654.
+
+    Idempotent: the PropertyValue id is derived from name and value, and the
+    reference is appended only when absent, so the spine re-running mints
+    nothing new.
+
+    Never raises: a condition that cannot be written is logged, because a
+    workbook must not break a build whose metadata is fine.
+    """
+    from pathlib import PurePath
+
+    from builder.tools.file_readers import shared_layout_conditions
+
+    exposures = [
+        e
+        for e in engine.state.list_entities("LabProcess")
+        if str(e.fields.get("process_type") or "") == "Exposure"
+    ]
+    applied = 0
+    touched = 0
+    for exposure in exposures:
+        paths = [
+            path
+            for path in _assay_table_paths(engine, exposure.entity_id)
+            if PurePath(path).suffix.lower() in (".xlsx", ".xlsm")
+        ]
+        shared = shared_layout_conditions(paths) if paths else {}
+        if not shared:
+            continue
+        touched += 1
+        existing = exposure.fields.get("additionalProperty") or []
+        if not isinstance(existing, list):
+            existing = [existing]
+        wanted = list(existing)
+        for label, value in shared.items():
+            try:
+                entity = engine.run_tool("draft_property_value", name=label, hints={"value": value})
+            except Exception as exc:  # noqa: BLE001 — one condition must not break a build
+                logger.warning("Could not record layout condition %r: %s", label, exc)
+                continue
+            # `draft_property_value` hands back the Entity itself; older tool
+            # wrappers hand back a dict. Take the id from either, never the
+            # object — a reference field stores ids, and passing anything else
+            # resolves to nothing and is refused.
+            pv_id = (
+                entity.get("entity_id")
+                if isinstance(entity, dict)
+                else getattr(entity, "entity_id", None)
+            )
+            if pv_id and pv_id not in wanted:
+                wanted.append(pv_id)
+                applied += 1
+        if wanted != existing:
+            _set_ref_field(engine, exposure.entity_id, "additionalProperty", wanted)
+    return {"exposures": touched, "conditions": applied}
+
+
 def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
     """Path of the scanned PDF a plan publication *title* refers to, or ``None``.
 
@@ -1977,6 +2048,10 @@ def _materialize_plan(
     # dict by process type, so four exposures collapsed to one and the last won:
     # three of the four tables could not be populated even in principle.
     result["condition_table"] = _populate_condition_tables(engine)
+    # The conditions a run shared, from the worksheet that states them (#697).
+    # Independent of the table above: an assay with no per-well rows can still
+    # say what its exposure did.
+    result["layout_conditions"] = _apply_layout_conditions(engine)
     if cell_line_ids:
         culture_step = chain_by_type.get("CellCulture")
         culture_id = culture_step.get("process_id") if culture_step else None
