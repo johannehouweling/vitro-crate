@@ -642,10 +642,17 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
     place.
     """
     for entity in state.list_entities():
+        # A field a process constructor consumes is NOT unowned: the constructor
+        # mints the parameter. Scoped to LabProcess, because the same name on
+        # another entity really is unowned — `detection_instrument` on a File is
+        # consumed by nothing and must still be kept (#677).
+        consumed = _process_constructor_fields() if entity.type == "LabProcess" else frozenset()
         leftovers = {
             key: value
             for key, value in entity.fields.items()
-            if field_would_be_dropped(key) and value not in (None, "", [], {})
+            if field_would_be_dropped(key)
+            and key not in consumed
+            and value not in (None, "", [], {})
         }
         if not leftovers:
             continue
@@ -674,6 +681,51 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
                 key,
                 entity.entity_id,
             )
+
+
+# Spellings ``_build_process`` reads from state and maps onto a constructor's own
+# parameter name, so they are consumed without appearing in any signature. The
+# tool spec advertises these, and the tox profile's violation message names them.
+_PROCESS_FIELD_ALIASES = frozenset({"data_calculation_and_statistics", "computational_tool"})
+
+
+@lru_cache(maxsize=1)
+def _process_constructor_fields() -> frozenset[str]:
+    """State fields a typed LabProcess constructor consumes into a parameter.
+
+    Derived from the constructors rather than listed, because a list drifts: the
+    dropped-field set names ``units``, ``assay_kit`` and ``substrate`` as "kwargs
+    threaded into the typed subtype constructors" and never gained
+    ``detection_instrument``, ``instrument_manufacturer``, ``measured_entity`` or
+    ``technical_replicate``. Those four went on looking unowned, so
+    :func:`_preserve_unowned_fields` "kept" each one as a second PropertyValue
+    beside the parameter the constructor had already minted from it — 18 of the
+    reference crate's 99 PropertyValue nodes, carrying no information (#677).
+
+    ``properties`` and ``add`` are ``ContextEntity``'s own construction
+    arguments, not crate fields, and are excluded.
+    """
+    import inspect
+
+    from profiles.models import tox
+
+    fields: set[str] = set()
+    for attribute in dir(tox):
+        if not attribute.startswith("LabProcess"):
+            continue
+        model = getattr(tox, attribute)
+        if not isinstance(model, type):
+            continue
+        try:
+            signature = inspect.signature(model.__init__)
+        except (TypeError, ValueError):  # pragma: no cover — a C-level __init__
+            continue
+        fields.update(
+            name
+            for name in signature.parameters
+            if name not in ("self", "crate", "properties", "add")
+        )
+    return frozenset(fields | _PROCESS_FIELD_ALIASES)
 
 
 def field_would_be_dropped(field: str) -> bool:
@@ -1849,8 +1901,7 @@ def _is_sample_node(node: Any) -> bool:
         return False
     types = t if isinstance(t, list) else [t]
     return any(
-        str(x).rsplit("/", 1)[-1].rsplit("#", 1)[-1] in ("Sample", "BioSample")
-        for x in types
+        str(x).rsplit("/", 1)[-1].rsplit("#", 1)[-1] in ("Sample", "BioSample") for x in types
     )
 
 
@@ -2252,8 +2303,7 @@ def _protocol_document_for(
     if not labels:
         return None
     wanted = [
-        re.compile(r"(?<![0-9a-z])" + re.escape(lbl.casefold()) + r"(?![0-9a-z])")
-        for lbl in labels
+        re.compile(r"(?<![0-9a-z])" + re.escape(lbl.casefold()) + r"(?![0-9a-z])") for lbl in labels
     ]
     found: list[Any] = []
     seen: set[Any] = set()
@@ -2984,9 +3034,7 @@ def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
             _set_refs(readout, "input", exposed)
 
         readout_files = [
-            n
-            for proc in by_type.get("EndpointReadout", [])
-            for n in _result_file_nodes(proc)
+            n for proc in by_type.get("EndpointReadout", []) for n in _result_file_nodes(proc)
         ]
         for analysis in by_type.get("DataAnalysis", []):
             consumed = _linked_nodes(analysis, "input", "object")
@@ -3026,9 +3074,11 @@ def _add_processes(
     protocol_use: dict[Any, list[tuple[Any, Any, Any]]] = {}
     ordered = sorted(
         state.list_entities("LabProcess"),
-        key=lambda p: 0
-        if (p.fields.get("process_type") or p.fields.get("additionalType")) == "CellCulture"
-        else 1,
+        key=lambda p: (
+            0
+            if (p.fields.get("process_type") or p.fields.get("additionalType")) == "CellCulture"
+            else 1
+        ),
     )
     for proc in ordered:
         f = proc.fields
@@ -3071,9 +3121,7 @@ def _add_processes(
             # SOP describes. DataAnalysis legitimately comes up empty on the real
             # deposit — no document there covers that step — and an empty result
             # is the honest one (D17).
-            assay_protocols = _assay_protocol_documents(
-                state, f.get("assay_id"), idx, ptype
-            )
+            assay_protocols = _assay_protocol_documents(state, f.get("assay_id"), idx, ptype)
             if assay_protocols:
                 protocol = assay_protocols
         assay_key = f.get("assay_id")
@@ -3287,9 +3335,9 @@ def _build_process(
         # positive assertion rather than the default: N lines in one draft is the
         # ambiguity the split removes, not evidence that the cells were mixed.
         split = cell_lines is not None
-        cell_lines = (
-            list(cell_lines) if split else _culture_cell_lines(f, idx, name)
-        ) or [_synth_sample(crate, pid + "_input", f"Input ({name})")]
+        cell_lines = (list(cell_lines) if split else _culture_cell_lines(f, idx, name)) or [
+            _synth_sample(crate, pid + "_input", f"Input ({name})")
+        ]
         cell_line = cell_lines if len(cell_lines) > 1 else cell_lines[0]
         if result and keep_drafted_result:
             # The drafter supplied the cultured sample, which is what happens on
@@ -3379,9 +3427,7 @@ def _build_process(
             )
             sid = pid + "_exposed" if index == 0 else f"{pid}_exposed_{index}"
             exposed_samples.append(
-                _synth_sample(
-                    crate, sid, label, cell, sample_type=_cell_culture_term(crate)
-                )
+                _synth_sample(crate, sid, label, cell, sample_type=_cell_culture_term(crate))
             )
         out = rest + exposed_samples + drafted[len(exposed_samples) :]
         # Both protocols: the real SOP (or the drafter's) states the procedure,
