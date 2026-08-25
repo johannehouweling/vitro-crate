@@ -982,9 +982,7 @@ def _merge_plan_chain_names(
         kept = {
             key: value.strip()
             for key, value in raw.items()
-            if key in LABPROCESS_PARAMETER_FIELDS
-            and isinstance(value, str)
-            and value.strip()
+            if key in LABPROCESS_PARAMETER_FIELDS and isinstance(value, str) and value.strip()
         }
         if kept:
             plan_parameters[ptype] = kept
@@ -1201,8 +1199,71 @@ def _scanned_path_for_name(
 _DESIGN_TABLE_SUFFIXES = frozenset({".csv", ".tsv", ".tab", ".xlsx", ".xlsm"})
 
 
+def _assay_table_paths(engine: AgentEngine, exposure_id: str) -> set[str]:
+    """Scanned paths of the files the Exposure's own Assay holds (#669).
+
+    A design table belongs to ONE assay, and the search for it is crate-wide. On
+    S-VHPS22 the only qualifying table is assay 1's tidy export, and nothing
+    stopped its 1048 rows being written into the deiodinase exposure instead — a
+    table that looks populated and attributes the wrong experiment is worse than
+    the empty one it replaces.
+
+    The crate already says which files belong where: an Assay ``hasPart`` its own
+    files and a process carries the ``assay_id`` it serves. That is read here
+    rather than a folder-naming convention, which only this deposit has.
+
+    The bridge is ``dest_path``, not the on-disk source. ``attach_files`` appends
+    a File ENTITY id to ``hasPart``, and that entity records where the file will
+    land in the crate — it does not necessarily carry where it came from, so
+    resolving a source finds nothing for most of them. ``_scanned_dest`` is the
+    same derivation the attachment used, so what an assay holds and what the scan
+    offers cannot disagree about which file they mean.
+
+    Returns the empty set when the exposure names no assay, the assay is missing,
+    or it holds no files. The caller treats that as "no scope", not as "no
+    candidates" — see :func:`_design_table_candidates`.
+    """
+    from pathlib import PurePath
+
+    from builder.tools.provenance import _scanned_dest
+
+    state = engine.state
+    exposure = next(
+        (e for e in state.list_entities("LabProcess") if e.entity_id == exposure_id), None
+    )
+    if exposure is None:
+        return set()
+    assay_id = str(exposure.fields.get("assay_id") or "")
+    if not assay_id:
+        return set()
+    assay = next((e for e in state.list_entities("Assay") if e.entity_id == assay_id), None)
+    if assay is None:
+        return set()
+    members = assay.fields.get("hasPart") or assay.fields.get("has_part") or []
+    if not isinstance(members, list):
+        members = [members]
+    files = {e.entity_id: e for e in state.list_entities("File")}
+    wanted: set[str] = set()
+    for member in members:
+        ref = member.get("@id") if isinstance(member, dict) else member
+        entity = files.get(str(ref))
+        if entity is None:
+            continue
+        dest = str(entity.fields.get("dest_path") or "").strip()
+        if dest:
+            wanted.add(dest)
+    if not wanted:
+        return set()
+    input_path = state.metadata.input_path
+    return {
+        f.path
+        for f in state.scanned_files
+        if _scanned_dest(f.path, f.filename or PurePath(f.path).name, input_path) in wanted
+    }
+
+
 def _design_table_candidates(
-    engine: AgentEngine,
+    engine: AgentEngine, *, allowed: set[str] | None = None
 ) -> tuple[list[tuple[int, int, str]], list[tuple[str, str]]]:
     """Scanned tables that read as a per-condition design table, best first (#594).
 
@@ -1244,6 +1305,10 @@ def _design_table_candidates(
         if _contain(f.path, roots) is None:
             logger.debug("Scanned file %s is outside approved scan roots — refusing.", f.path)
             continue
+        # Scoped to one assay's own files when the caller says so (#669), so a
+        # design table can never be written to an exposure it does not describe.
+        if allowed and f.path not in allowed:
+            continue
         wells, mapped, error = condition_table_fit_of(Path(f.path))
         if wells:
             found.append((wells, mapped, f.path))
@@ -1251,6 +1316,64 @@ def _design_table_candidates(
             unreadable.append((f.path, error))
     found.sort(reverse=True)
     return found, unreadable
+
+
+def _populate_condition_tables(engine: AgentEngine) -> dict[str, Any]:
+    """Populate EVERY Exposure's condition table, each from its own assay (#669).
+
+    This used to run once, for a single exposure taken from ``chain_by_type`` — a
+    dict keyed by process type, so a crate with four exposures collapsed to one
+    and the last won. Three of the four tables could not be populated even in
+    principle, and the one that could had no guarantee of being the assay the
+    design table belonged to.
+
+    Returns the aggregate the build summary already reads — ``populated`` /
+    ``reason`` / ``rows`` / ``proposed`` — with ``per_exposure`` carrying one
+    outcome per exposure for anything that needs the detail. The summary shape is
+    kept so ``builder/agents/build.py``'s condition-table line and #422's posture
+    reporting go on working unchanged.
+    """
+    exposures = [
+        e
+        for e in engine.state.list_entities("LabProcess")
+        if str(e.fields.get("process_type") or "") == "Exposure"
+    ]
+    if not exposures:
+        return {
+            "populated": False,
+            "reason": "no Exposure in the process chain to attach a condition table to",
+            "per_exposure": [],
+        }
+    per: list[dict[str, Any]] = []
+    for exposure in exposures:
+        outcome = _populate_condition_table_from_deposit(engine, exposure.entity_id)
+        per.append({"exposure_id": exposure.entity_id, **outcome})
+
+    if len(per) == 1:
+        # With one exposure the aggregate IS the outcome. Carried through whole
+        # rather than rebuilt, so every key the single-table case has always
+        # reported — `fallback_from`, `proposal_reason`, `path`, `reason` — keeps
+        # reaching the build summary and #422's posture reporting untouched.
+        return {**per[0], "per_exposure": per}
+
+    written = [e for e in per if e.get("populated")]
+    rows = sum(_as_int(e.get("rows")) for e in written)
+    aggregate: dict[str, Any] = {
+        "populated": bool(written),
+        "rows": rows,
+        "per_exposure": per,
+        # `proposed` is a posture, not a count: it is true when every table that
+        # WAS written came from the #438 proposal rather than the deposit, which
+        # is what the build summary tells the depositor to confirm.
+        "proposed": bool(written) and all(e.get("proposed") for e in written),
+    }
+    if len(written) == 1:
+        # One table, one path — what the CSVW validation pass expects.
+        aggregate["path"] = written[0].get("path")
+    if not written:
+        reasons = sorted({str(e.get("reason") or "") for e in per if e.get("reason")})
+        aggregate["reason"] = "; ".join(reasons) or "no reason recorded"
+    return aggregate
 
 
 def _pdf_path_for_publication(engine: AgentEngine, title: str) -> str | None:
@@ -1328,9 +1451,7 @@ def _fall_back_to_proposal(
     return primary
 
 
-def _populate_condition_table_from_deposit(
-    engine: AgentEngine, exposure_id: str
-) -> dict[str, Any]:
+def _populate_condition_table_from_deposit(engine: AgentEngine, exposure_id: str) -> dict[str, Any]:
     """Write the deposit's design table into the Exposure's CSV (#408, #594).
 
     Which file is the design table is a question its ROWS answer. It used to be
@@ -1379,7 +1500,13 @@ def _populate_condition_table_from_deposit(
     """
     from pathlib import PurePath
 
-    candidates, unreadable = _design_table_candidates(engine)
+    # Scoped to the exposure's own assay (#669): the search is crate-wide, and
+    # writing one assay's design into another's table is worse than leaving it
+    # empty. Scoping also dissolves most of the ambiguity below, because the
+    # tables that collide are usually siblings from different assays.
+    candidates, unreadable = _design_table_candidates(
+        engine, allowed=_assay_table_paths(engine, exposure_id)
+    )
     if not candidates:
         # No table in the deposit carries per-condition rows. This is the ORDINARY
         # case, not the edge — two of the three real deposits are like this — so
@@ -1479,9 +1606,7 @@ def _populate_condition_table_from_deposit(
             },
         )
 
-    logger.info(
-        "Populated condition table from %s: %s row(s) (#408).", named, outcome.get("rows")
-    )
+    logger.info("Populated condition table from %s: %s row(s) (#408).", named, outcome.get("rows"))
     return {
         "populated": True,
         "reason": "",
@@ -1848,16 +1973,10 @@ def _materialize_plan(
     # than leaving the header-only placeholder beside an untyped payload File.
     # Runs regardless of `compound_ids` — a plate map is worth populating even when
     # no compound resolved. ---
-    exposure_for_table = (chain_by_type.get("Exposure") or {}).get("process_id")
-    if exposure_for_table:
-        result["condition_table"] = _populate_condition_table_from_deposit(
-            engine, str(exposure_for_table)
-        )
-    else:
-        result["condition_table"] = {
-            "populated": False,
-            "reason": "no Exposure in the process chain to attach a condition table to",
-        }
+    # Every exposure, each scoped to its own assay (#669). `chain_by_type` keys a
+    # dict by process type, so four exposures collapsed to one and the last won:
+    # three of the four tables could not be populated even in principle.
+    result["condition_table"] = _populate_condition_tables(engine)
     if cell_line_ids:
         culture_step = chain_by_type.get("CellCulture")
         culture_id = culture_step.get("process_id") if culture_step else None
@@ -2131,10 +2250,29 @@ def _validate_populated_tables(
         return []
     if _as_int(table.get("rows")) <= 0:
         return []
-    path = str(table.get("path") or "").strip()
-    if not path:
+    # Every populated table, not just one: since #669 an exposure gets its own,
+    # each from its own assay, and validating the first would leave the rest
+    # unchecked while the summary read clean.
+    paths = [
+        str(entry.get("path") or "").strip()
+        for entry in (table.get("per_exposure") or [])
+        if entry.get("populated") and _as_int(entry.get("rows")) > 0
+    ]
+    paths = [p for p in paths if p] or [str(table.get("path") or "").strip()]
+    paths = [p for p in paths if p]
+    if not paths:
         return []
+    return [issue for path in paths for issue in _validate_one_table(engine, path)]
 
+
+def _validate_one_table(engine: AgentEngine, path: str) -> list[dict[str, Any]]:
+    """Frictionless issues for one populated condition table, or ``[]``.
+
+    Split out of the pass above so several tables are each checked the same way.
+    Never raises, for the reason that pass records: the payload layer is
+    additive, and a missing optional dependency must not fail a build whose
+    metadata is fine.
+    """
     try:
         from builder.tools._crate_mapping import (
             _CONDITION_TABLE_COLUMNS,
