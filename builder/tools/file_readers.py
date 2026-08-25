@@ -1017,7 +1017,7 @@ def _licence_candidates(value: Any) -> list[str]:
         return [found for item in value for found in _licence_candidates(item)]
     if isinstance(value, dict):
         for key in _LICENCE_VALUE_KEYS:
-            if (found := str(value.get(key) or "").strip()):
+            if found := str(value.get(key) or "").strip():
                 return [found]
     return []
 
@@ -1260,6 +1260,124 @@ TOOL_REGISTRY.register(
     read_docx,
     description="Read a Word .docx file and return its text content",
 )
+# A worksheet whose name marks it as the run's plan. Observed as `layout 27-03`,
+# `layout 01-03` and `Layout` across this lab's deposits — the date suffix varies
+# per run, so the match is a prefix-free substring on the case-folded name.
+_LAYOUT_SHEET = "layout"
+
+
+def read_layout_conditions(path: Any) -> dict[str, str]:
+    """Conditions a run's ``layout`` sheet states for the whole run (#697).
+
+    Every experiment workbook in this lab's deposits opens its layout sheet with
+    a block of label/value pairs — incubation volume, buffer, substrate, dose,
+    duration — which are exactly the columns an empty condition table is missing.
+    They describe the run as a whole rather than a well, so they belong on the
+    Exposure as parameters rather than as table rows.
+
+    **Bounded to the leading block.** Below it sits the design matrix, whose
+    cells are adjacent pairs too, so a scan of the whole sheet turns ``D | D``
+    into a condition named "D". The block is the contiguous run of pairs from the
+    top, ending at the first blank row after it starts; a leading blank row is
+    skipped, because every real sheet has one. That bound is the sheet's own
+    structure rather than a list of labels to expect, so a run stating something
+    new is read rather than filtered.
+
+    Only the values are taken. Nothing here parses ``1 nM T3 or T4`` into a
+    quantity or resolves ``Xn`` to a compound: those are the depositor's words,
+    carried verbatim, and inventing structure for them would be a guess.
+
+    Never raises — a deposit holds workbooks no reader can open, and one of them
+    must not stop a build.
+
+    Args:
+        path: The workbook to read.
+
+    Returns:
+        ``{label: value}`` in sheet order, or ``{}`` when the workbook has no
+        layout sheet, no block, or cannot be opened.
+    """
+    from pathlib import Path as _Path
+
+    try:
+        import openpyxl
+    except ImportError:  # pragma: no cover — openpyxl is a hard dependency
+        return {}
+    _silence_openpyxl_extension_warnings()
+    try:
+        workbook = openpyxl.load_workbook(_Path(path), data_only=True, read_only=True)
+    except Exception as exc:  # noqa: BLE001 — an unreadable workbook is not an error
+        logger.debug("No layout conditions from %s: %s", path, exc)
+        return {}
+    try:
+        sheets = [n for n in workbook.sheetnames if _LAYOUT_SHEET in n.casefold()]
+        if not sheets:
+            return {}
+        return _leading_pairs(workbook[sheets[0]])
+    except Exception as exc:  # noqa: BLE001 — same reason
+        logger.debug("No layout conditions from %s: %s", path, exc)
+        return {}
+    finally:
+        workbook.close()
+
+
+def _leading_pairs(worksheet: Any) -> dict[str, str]:
+    """The contiguous label/value block at the top of *worksheet*."""
+    found: dict[str, str] = {}
+    started = False
+    for row in worksheet.iter_rows(values_only=True):
+        pair = None
+        cells = list(row[:4])
+        for left, right in zip(cells, cells[1:]):
+            if not isinstance(left, str) or not left.strip():
+                continue
+            if right is None or not str(right).strip():
+                continue
+            pair = (left.strip(), str(right).strip())
+            break
+        if pair is None:
+            # A blank row before anything has been read is the sheet's own
+            # leading gap; one after the block has started is its end.
+            if started:
+                break
+            continue
+        started = True
+        found.setdefault(pair[0], pair[1])
+    return found
+
+
+def shared_layout_conditions(paths: Any) -> dict[str, str]:
+    """What EVERY run in *paths* states identically (#697).
+
+    An assay holds several experiment workbooks and their blocks disagree: one
+    run of the metabolism assay used ``H4 + SKNAS`` and another ``MO3.13``, one
+    uptake run inhibited with ``Xn`` and another with ``none``. Only what every
+    run agrees on is a property of the assay; the rest is per-run and belongs
+    with the work that gives each run its own exposed samples (#654).
+
+    Agreement is exact on the stated text. ``24hour`` and ``24 hours`` mean the
+    same thing and do not say so — normalising them would be a guess about units
+    and format, so they are dropped rather than reconciled. A label only some
+    runs state is dropped for the same reason: silence is not agreement.
+
+    Args:
+        paths: Workbooks belonging to one assay.
+
+    Returns:
+        ``{label: value}`` every run stated identically, or ``{}``.
+    """
+    blocks = [read_layout_conditions(path) for path in paths]
+    blocks = [b for b in blocks if b]
+    if not blocks:
+        return {}
+    first, rest = blocks[0], blocks[1:]
+    return {
+        label: value
+        for label, value in first.items()
+        if all(other.get(label) == value for other in rest)
+    }
+
+
 TOOL_REGISTRY.register(
     "read_file",
     read_file,
