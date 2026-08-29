@@ -3373,7 +3373,9 @@ def _build_process(
 
     if ptype == "Exposure":
         # The Exposure takes the cultured cell Sample(s) as object and emits the
-        # CSVW condition table as its result. ISA forbids a MolecularEntity as a
+        # EXPOSED Sample as its result; the condition table is what the run
+        # FOLLOWS, attached via executesLabProtocol, not what it produces (#650,
+        # 113ea1c). ISA forbids a MolecularEntity as a
         # process object (objects MUST be File/Sample/BioSample — bundled
         # isa-ro-crate shape), so the compound is NOT in `object`; it is connected
         # THROUGH the condition table (table --about--> MolecularEntity) and, at a
@@ -3398,6 +3400,21 @@ def _build_process(
             chems,
             materialize_payload=materialize_payload,
         )
+        # A named placeholder when nothing resolved, so the exposure still says
+        # what it exposed. The tox shape makes schema:object a Violation
+        # (3_lab_process_exposure.ttl:37-43) where the bundled ISA shape rates
+        # the same minCount a Warning, so an exposure whose assay has no culture
+        # and no resolvable sample fails the profile the build asserts. "Cells
+        # were exposed, and we do not know which" is the honest claim; naming a
+        # line, or typing the placeholder as cultured material, would fabricate
+        # an identity nobody stated (D5).
+        #
+        # AFTER the table, never before it: `_synth_condition_table` maps `cells`
+        # onto the CSVW `cell_line` column's valueUrl, so flooring earlier would
+        # assert column-wide that every well held the placeholder — exactly the
+        # unverified mapping `_build_condition_table_schema` warns against. The
+        # table keeps an empty cell_line, which is the honest state.
+        cells = cells or [_synth_sample(crate, pid + "_input", f"Input ({name})")]
         # The Exposure PRODUCES the exposed cells (#650). Before this, its only
         # result was the condition table, no exposed-sample entity existed
         # anywhere in the crate, and every downstream step consumed the cultured
