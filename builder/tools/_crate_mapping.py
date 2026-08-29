@@ -3051,6 +3051,61 @@ def _set_refs(node: Any, prop: str, entities: list[Any]) -> None:
     node[prop] = [{"@id": getattr(e, "id", e)} for e in entities]
 
 
+def _floor_readout_objects(crate: ROCrate, built: list[tuple[Any, str, Any]]) -> None:
+    """A readout names what it measured, even with nothing upstream to name.
+
+    ``tox:EndpointReadoutConsumesExposedMaterial``
+    (profiles/shapes/tox/4_lab_process_endpoint_readout.ttl, added 282de2d)
+    makes ``schema:object`` a Violation. :func:`_chain_processes` wires a readout
+    only where its own assay has an Exposure that emitted a Sample, so the
+    characterisation run that shape's own comment calls legitimate reaches the
+    crate with ``"input": null`` and fails the profile the build asserts.
+
+    The culture comes first and a placeholder only where there is none: a
+    characterisation run measures the cultured material, which
+    :func:`_chain_processes` already calls the truth rather than the defect.
+    Minting a stand-in beside real material would state an input nobody has.
+
+    Runs AFTER the chaining pass, never at construction time. A placeholder
+    minted while the process is built makes the readout's consumed set non-empty
+    and not a subset of the cultured samples -- exactly the condition
+    :func:`_chain_processes` reads as "this readout knows better than we do". So
+    an early floor DISPLACES the exposed Sample it exists to stand in for, brings
+    back the star graph #650 removed, and leaves that sample consumed by nothing
+    (#678). The existing suite cannot see it: ``draft_process_chain`` always
+    supplies an object, so the floor never fires there.
+
+    No ``sampleType`` on the placeholder -- it stands for an input nobody stated,
+    and typing it as cultured material would assert a lineage never established
+    (D5).
+    """
+    groups: dict[Any, dict[str, list[Any]]] = {}
+    for assay, ptype, node in built:
+        key = getattr(assay, "id", None)
+        groups.setdefault(key, {}).setdefault(ptype, []).append(node)
+
+    for by_type in groups.values():
+        cultured = [
+            n
+            for proc in by_type.get("CellCulture", [])
+            for n in _linked_nodes(proc, "output", "result")
+            if _is_sample_node(n)
+        ]
+        for readout in by_type.get("EndpointReadout", []):
+            if _linked_nodes(readout, "input", "object"):
+                continue
+            if cultured:
+                _set_refs(readout, "input", cultured)
+                continue
+            fragment = str(getattr(readout, "id", "")).rsplit("#", 1)[-1]
+            label = readout.properties().get("name")
+            _set_refs(
+                readout,
+                "input",
+                [_synth_sample(crate, f"#{fragment}_input", f"Measured ({label})")],
+            )
+
+
 def _add_processes(
     state: CrateState,
     crate: ROCrate,
@@ -3195,6 +3250,7 @@ def _add_processes(
 
     _place_protocols(state, idx, protocol_use)
     _chain_processes(built)
+    _floor_readout_objects(crate, built)
 
 
 def _place_protocols(
