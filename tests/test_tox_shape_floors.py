@@ -187,3 +187,80 @@ class TestEndpointReadoutInputFloor:
             "the floor displaced the exposed sample; the readout consumes "
             f"{consumed} while the exposure produced {exposed}"
         )
+
+
+class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
+    """`_INPUT_REQUIRED_TYPES` excludes three types the shapes DO constrain.
+
+    Its comment claimed only DataAnalysis declares a REQUIRED `schema:object`.
+    Four shapes declare it. The exclusion is correct anyway, because the build
+    floors the other three — this pins that reason so the set cannot be narrowed
+    back on the false premise.
+    """
+
+    _SHAPES_DECLARING_REQUIRED_OBJECT = {
+        "CellCulture": ("2_lab_process_cell_culture.ttl", "LabProcessCellCulture"),
+        "Exposure": ("3_lab_process_exposure.ttl", "LabProcessExposure"),
+        "EndpointReadout": (
+            "4_lab_process_endpoint_readout.ttl",
+            "LabProcessEndpointReadout",
+        ),
+        "DataAnalysis": ("5_lab_process_data_analysis.ttl", "LabProcessDataAnalysis"),
+    }
+
+    def test_every_named_shape_declares_a_required_object_at_violation_severity(self):
+        """Read the shapes as RDF, not as text — including this one.
+
+        Asserting that "schema:object", "sh:minCount 1" and "sh:Violation" each
+        appear SOMEWHERE in a file passes on a file where they sit in three
+        unrelated property shapes, which is most of them. The claim being pinned
+        is that ONE property shape on the process's own target class carries all
+        three, so that is what is queried.
+        """
+        from pathlib import Path
+
+        from rdflib import Graph, Namespace
+        from rdflib.namespace import SH
+
+        schema = Namespace("http://schema.org/")
+        tox = Namespace("https://w3id.org/ro/crate/isa-tox/1.0/")
+        shapes_dir = Path("profiles/shapes/tox")
+
+        unconstrained = {}
+        for ptype, (filename, target) in self._SHAPES_DECLARING_REQUIRED_OBJECT.items():
+            graph = Graph().parse(shapes_dir / filename, format="turtle")
+            floors = [
+                prop
+                for shape in graph.subjects(SH.targetClass, tox[target])
+                for prop in graph.objects(shape, SH.property)
+                if (prop, SH.path, schema.object) in graph
+                and (prop, SH.minCount, None) in graph
+                and (prop, SH.severity, SH.Violation) in graph
+            ]
+            if not floors:
+                unconstrained[ptype] = filename
+
+        assert not unconstrained, (
+            "these shapes no longer declare a REQUIRED schema:object at Violation "
+            f"severity on their own target class: {unconstrained}"
+        )
+
+    def test_the_three_excluded_types_are_floored_by_the_build(self):
+        """The actual justification for excluding them from repair.
+
+        Each builds an object with no state to link to, so the REQUIRED
+        violation the repair rule exists to fix cannot occur for them. Collected
+        rather than asserted per type: the loop used to abort at the first
+        failure, so a red run could only ever name one of the three.
+        """
+        from builder.tools.repair import _INPUT_REQUIRED_TYPES
+
+        unfloored = {}
+        for ptype in ("CellCulture", "Exposure", "EndpointReadout"):
+            assert ptype not in _INPUT_REQUIRED_TYPES
+            state = _state_with("proc", {"process_type": ptype, "name": f"{ptype} step"})
+            issues = _tox_issues(state, "http://schema.org/object")
+            if issues:
+                unfloored[ptype] = [i["message"] for i in issues]
+
+        assert not unfloored, f"unfloored by the build: {unfloored}"
