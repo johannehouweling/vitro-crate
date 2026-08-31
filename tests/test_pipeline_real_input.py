@@ -491,17 +491,23 @@ class TestRealInputPipeline:
         2,000-char slice that tier receives — so the value never reaches the
         extraction leaf, and `_pv` will not invent one (D5).
 
-        TWO issue classes are outstanding, and both are honest reports rather
+        THREE issue classes are outstanding, and all are honest reports rather
         than regressions:
 
         * that DataAnalysis `additionalProperty`, as above;
+        * the CellCulture `additionalProperty`. Same shape of gap: the SOP names
+          the medium ("DMEM: F12 media") only past offset ~12,800, so it never
+          reaches the extraction leaf either. The shape reports the missing
+          medium rather than the build inventing one — a fabricated default here
+          would publish an ontology-typed BAO_0000114 assertion about data
+          nobody supplied (D5);
         * `schema:result` on the data-producing steps. This deposit DOES ship its
           measurements, but it files both tiers in one
           `raw data+individual processed data/` directory, so nothing can yet say
           which step produced which file (#591). Rather than invent an empty CSV
           to satisfy the shape, the steps keep no result and the Violation says
           so (#592). When #591 lands and the files classify, these clear and the
-          only remaining issue is the DataAnalysis one.
+          only remaining issues are the two parameter ones.
 
         Any OTHER issue here is a real regression.
         """
@@ -516,7 +522,10 @@ class TestRealInputPipeline:
         assert all(
             (
                 str(i.get("property", "")).endswith("additionalProperty")
-                and "DataAnalysis" in str(i.get("message", ""))
+                and (
+                    "DataAnalysis" in str(i.get("message", ""))
+                    or "CellCulture" in str(i.get("message", ""))
+                )
             )
             or str(i.get("property", "")).endswith("result")
             for i in outstanding

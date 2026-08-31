@@ -160,7 +160,16 @@ _PLAN: dict[str, Any] = {
         }
     ],
     "process_chain": [
-        {"process_type": "CellCulture", "name": "FRTL-5 cell culture"},
+        {
+            "process_type": "CellCulture",
+            "name": "FRTL-5 cell culture",
+            "parameters": {
+                "culture_medium": (
+                    "Coon's modified Ham's F-12 with 5% calf serum and 6H hormone "
+                    "supplement"
+                )
+            },
+        },
         {
             "process_type": "Exposure",
             "name": "Methimazole exposure",

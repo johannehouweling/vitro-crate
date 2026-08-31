@@ -92,11 +92,15 @@ def _scaffold() -> tuple[CrateState, str]:
 
 
 _FULL_CHAIN = [
-    # Exposure / EndpointReadout / DataAnalysis each MUST carry at least one
-    # schema:additionalProperty under the tox profile, and `_pv` no longer
-    # publishes a placeholder like "unknown" as if it were a measurement — so a
-    # chain that is expected to VALIDATE has to state a real parameter per step.
-    {"process_type": "CellCulture", "hints": {"name": "Seed"}},
+    # CellCulture / Exposure / EndpointReadout / DataAnalysis each MUST carry at
+    # least one schema:additionalProperty under the tox profile, and `_pv` no
+    # longer publishes a placeholder like "unknown" (or a fabricated default
+    # medium) as if it were a measurement — so a chain that is expected to
+    # VALIDATE has to state a real parameter per step.
+    {
+        "process_type": "CellCulture",
+        "hints": {"name": "Seed", "culture_medium": "DMEM + 10% FBS"},
+    },
     {"process_type": "Exposure", "hints": {"name": "Dose", "duration": "24 hours"}},
     {
         "process_type": "EndpointReadout",

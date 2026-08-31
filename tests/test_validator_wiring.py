@@ -72,6 +72,7 @@ def _representative_state() -> CrateState:
             process_type="CellCulture",
             assay_id="assay_1",
             cell_line="cell_1",
+            culture_medium="DMEM + 10% FBS",
         )
     )
     state.add_entity(
