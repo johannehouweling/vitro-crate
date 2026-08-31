@@ -104,11 +104,20 @@ def _resolve_state_entity(state: CrateState, focus_id: str | None) -> Entity | N
 # TOX REQUIRED violation, not a benign gap the build would synthesize.
 _OUTPUT_REQUIRED_TYPES = frozenset({"EndpointReadout", "DataAnalysis"})
 
-# Domain process types whose TOX shape REQUIRES a schema:object (input). Only
-# DataAnalysis declares the missing-input Violation (profiles/shapes/tox/
-# 5_lab_process_data_analysis.ttl: schema:object sh:minCount 1); EndpointReadout
-# requires only a result. A missing object on a DataAnalysis is therefore the
-# symmetric counterpart of the missing-output Violation.
+# Domain process types a REPAIR must wire an input for. NOT the same set as the
+# types whose shape requires one: four shapes declare `schema:object` minCount 1
+# at Violation severity — tox:CellCultureRequirements, tox:ExposureRequirements,
+# tox:EndpointReadoutConsumesExposedMaterial and tox:DataAnalysisRequirements.
+#
+# The other three are excluded because the BUILD already floors them: each
+# supplies a named input when nothing resolves — the CellCulture and Exposure
+# branches of `_build_process`, and `_floor_readout_objects` after the chaining
+# pass — so the violation this rule repairs cannot reach validation for them.
+#
+# DataAnalysis has no such floor, and should not: its object is the data
+# analysed, and synthesizing a stand-in File would assert a measurement that does
+# not exist (D5). It is the one type where a post-validation repair, which links
+# something already in the crate, is the right layer.
 _INPUT_REQUIRED_TYPES = frozenset({"DataAnalysis"})
 
 
