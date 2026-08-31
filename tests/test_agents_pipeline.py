@@ -757,11 +757,17 @@ class TestMaterializePlan:
             }
         ],
         "process_chain": [
-            # Exposure / EndpointReadout / DataAnalysis each MUST carry at least
-            # one schema:additionalProperty under the tox profile, and `_pv` no
-            # longer publishes "unknown" to satisfy it — so a plan whose crate is
-            # expected to CONFORM has to supply a real parameter per step.
-            {"process_type": "CellCulture", "name": "Seed cells"},
+            # EVERY typed step MUST carry at least one schema:additionalProperty
+            # under the tox profile, and `_pv` no longer publishes "unknown" to
+            # satisfy it — so a plan whose crate is expected to CONFORM has to
+            # supply a real parameter per step. CellCulture used to be the
+            # exception only because the mapper defaulted a missing medium to
+            # "Standard medium"; that fabrication is gone, so it states one.
+            {
+                "process_type": "CellCulture",
+                "name": "Seed cells",
+                "parameters": {"culture_medium": "DMEM + 10% FBS"},
+            },
             {
                 "process_type": "Exposure",
                 "name": "Dose",

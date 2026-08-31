@@ -244,7 +244,7 @@ class LabProcessCellCulture(LabProcess):
         identifier: str,
         name: str,
         cell_line: Sample | list[Sample],
-        culture_medium: str,
+        culture_medium: str | None,
         result: Sample,
         labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
         properties: dict | None = None,
@@ -252,14 +252,14 @@ class LabProcessCellCulture(LabProcess):
     ):
         merged_properties = {
             "additionalType": "CellCulture",
-            "parameter": [
+            "parameter": _pvs(
                 _pv(
                     crate,
                     "Culture Medium",
                     culture_medium,
                     iri("BAO:0000114"),
                 ),
-            ],
+            ),
             "input": cell_line,
             "output": result,
             "name": name,
