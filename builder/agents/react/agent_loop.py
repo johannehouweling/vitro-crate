@@ -551,9 +551,10 @@ _LOOKUP_TOOLS = frozenset(
 # subject — keeping them apart matters: they are stored on the same engine object.
 _LOOKUP_ANSWER_FLAG = "_lookup_seen_answers"
 
-# Repeats of one query against one unchanged state before the turn ends. Two
-# warnings, then hand control back — the same escalation the other guards use,
-# because a corrective the model can bounce off is not a stop.
+# Repeats of one query against one unchanged state before the guard stops
+# answering and only logs. It does NOT end the turn — the idle ladder is what
+# cancels an invocation, and it sees every suppressed call through
+# `_track_progress`.
 _STATE_QUERY_ABORT = 3
 
 # --- consecutive calls that change nothing ----------------------------------
@@ -640,10 +641,10 @@ _IDLE_STREAK_WARN = 3
 _IDLE_NUDGE_LIMIT = 3
 _IDLE_STREAK_ABORT = _IDLE_STREAK_WARN + _IDLE_NUDGE_LIMIT
 
-# Bounces off the suppression guard (same scope, same state) that end the turn.
+# Bounces off the suppression guard (same scope, same state) before it logs.
 # Suppression alone does not stop the loop — the model reads the corrective and
-# calls straight back, so every bounce still costs a full model turn. Two
-# warnings, then hand control to the user.
+# calls straight back, so every bounce still costs a full model turn. Steering,
+# not stopping: ending the turn is the idle ladder's job.
 _VALIDATE_SUPPRESS_ABORT = 3
 
 
@@ -1601,8 +1602,10 @@ def _guard_state_query(
 
     Returns a corrective to hand back instead of running the query, or ``None``
     when the query is new (or the state has moved on) and should run normally.
-    Raises :class:`_InvocationCancelled` once the same question has been asked
-    :data:`_STATE_QUERY_ABORT` times of one unchanged crate.
+    Never ends the turn: past :data:`_STATE_QUERY_ABORT` repeats of one question
+    against one unchanged crate it only logs. Cancelling an invocation is the idle
+    ladder's job, and every corrective returned here is routed through
+    :func:`_track_progress` so the ladder counts it.
 
     Keyed on (query, state fingerprint) rather than on consecutive repeats,
     because the observed loop rotated between three entity types and so never
@@ -2260,10 +2263,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         # Suppressing the SHACL pass saves seconds but NOT tokens:
                         # the model reads the corrective and immediately calls
                         # again, so a bounce still costs a full model turn (~12.5k
-                        # input tokens; 17 bounces in 90s were observed). After a
-                        # couple of strikes, end the turn instead of answering —
-                        # handing control back to the user is the only thing that
-                        # reliably stops it.
+                        # input tokens; 17 bounces in 90s were observed).
                         # Steer, don't stop — same reasoning as the state-query
                         # guard: the idle ladder ends turns, and it does so after
                         # three escalating nudges that name what to do instead.

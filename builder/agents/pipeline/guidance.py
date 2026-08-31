@@ -19,8 +19,10 @@ deterministic.
 
 The loop (:func:`run_guidance`) per round:
 
-1. ``report = assess_gaps(engine.state)`` — re-assess from scratch each round so
-   resolved gaps disappear and newly-surfaced ones appear.
+1. ``report = assess_gaps(engine.state)`` — assessed once before the loop, and
+   again after any round that commits something, so resolved gaps disappear and
+   newly-surfaced ones appear. A round that cannot progress reuses the report it
+   already has and only grows the skip-set.
 2. **Terminate** when no MUST gaps remain AND (the user signalled done OR there
    are no actionable SHOULD/MAY gaps left).
 3. Otherwise take the **highest-priority actionable gap** (the report is already
@@ -165,9 +167,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["run_guidance"]
 
-# Default upper bound on rounds. Each round runs the SHACL-heavy gap engine once,
-# so this caps the worst-case work and guarantees termination even if a resolved
-# gap never clears (e.g. a user value the validator still rejects).
+# Default upper bound on rounds. A round that commits something runs the
+# SHACL-heavy gap engine again; a round that cannot progress reuses the report it
+# already has. The cap bounds the worst case and guarantees termination even if a
+# resolved gap never clears (e.g. a user value the validator still rejects).
 _DEFAULT_MAX_ROUNDS = 20
 
 # (#257, fix C) Max characters of a pointed-at file's text fed to the extraction

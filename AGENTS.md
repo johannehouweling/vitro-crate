@@ -285,18 +285,22 @@ perfectly detailed crate that doesn't build at all.
 
 ### 4.1 Validation Gate Ordering
 
-The three-pass validation in `profiles/validator.py` has a strict dependency:
-- **Base RO-Crate 1.2** must pass before ISA validation is meaningful
-- **ISA Profile** must pass before ISA-Tox validation is meaningful
-- **ISA-Tox Profile** depends on both lower layers
+The three profile passes in `profiles/validator.py` are **independent**: a
+`profile="all"` sweep always runs base, ISA and ISA-Tox, fanned out to a process
+pool unless `VITRO_VALIDATE_SERIAL=1` forces the serial path. The ordering below
+is a **fix priority for the agent**, not a gate in the validator:
+- **Base RO-Crate 1.2** issues are structural — clearing them is what makes the
+  ISA and ISA-Tox findings meaningful
+- **ISA Profile** issues come next
+- **ISA-Tox Profile** rests on both lower layers being sound
 
 If the agent tries to validate and gets `base_passed: false`, there is no point
 fixing ISA-Tox issues until the crate builds. The agent should:
 
 1. Call `build_and_validate` early, even with minimal entities — it assembles
    and validates **in memory** and writes nothing, so it is safe every iteration
-   (`export_crate`/`build_crate` is the only disk-writing step and is called
-   **once**, when the crate is finished)
+   (`export_crate`/`build_crate` is the only disk-writing step; see §5 for how
+   often each arm calls it)
 2. Fix base RO-Crate issues first (structural integrity)
 3. Then iterate on ISA issues
 4. Then iterate on ISA-Tox issues
@@ -1442,7 +1446,10 @@ entity by inverting `_crate_mapping._mint_id`. Each `fixed` item carries
 `{issue, rule, action}`; each `remaining` item `{issue, reason}`.
 
 `export_crate` is the **only** tool that materialises the on-disk RO-Crate
-directory (payload included) — call it once the crate is conformant. It is not
+directory (payload included). The deterministic pipeline calls it **once**, after
+guidance; the ReAct arm calls it **repeatedly** — automatically after every
+base-passing build, and again from the exit backstop — and
+`state.export_fingerprint()` is what keeps the repeat idempotent. It is not
 the only tool that writes at all: `populate_condition_table` writes the condition
 table's CSV, `unzip_file` extracts an archive, and `save_session` persists the
 session.
@@ -2694,13 +2701,15 @@ in-repo A/B; see **D15** for the evidence and the levers.
 INPUT (dir / zip / conversation)
    │
    ▼  DETERMINISTIC PIPELINE (code, not model-driven)
- scan ─ scaffold ISA backbone ─ materialize ─ draft entities ─ build_and_validate ─ fix loop ─ enrich ─ export
-                                                   │  (bounded LLM leaf: extract→entity)     │ (deterministic
-                                                   ▼                                          │  dispatch over
-                                            cheap drafter model                               │  routed issues;
-                                                                                              ▼  LLM only for
-   small TAIL AGENT (strong model) ── only for: no-metadata conversational build,                 content repairs)
+ scan ─ scaffold ISA backbone ─ materialize ─ draft entities ─ retry compounds ─ fix loop ─ data-content pass
+                                     │  (bounded LLM leaf: extract→entity)   │      │ (deterministic
+                                     ▼                                       │      │  dispatch over
+                              cheap drafter model            provider-gated ─┘      ▼  routed issues;
+                                                                                       LLM only for
+   small TAIL AGENT (strong model) ── only for: no-metadata conversational build,       content repairs)
                                        genuine ambiguity, HITL
+   │
+   ▼ export — NOT a spine step: `_run_build_body` calls it after the guidance tail
    │
    ▼ OUTPUT: RO-Crate dir + payload + embedded graph/maturity/preview
 ```
