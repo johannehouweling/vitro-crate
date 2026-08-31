@@ -351,3 +351,86 @@ class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
             if e.properties().get("@type") == "PropertyValue"
         ]
         assert "not recorded" not in values
+
+
+class TestCultureMediumIsNotFabricated:
+    """An unstated culture medium is unstated, not "Standard medium".
+
+    `_build_process` defaulted a missing `culture_medium` to a literal, which
+    `_pv` then published with propertyID BAO_0000114 - a real ontology term
+    attached to a value nobody supplied, which the tox pass called conformant.
+    tests/agents/test_leaves.py names this defect: "fabricated experimental
+    conditions with real BAO propertyIDs attached". #379 fixed the plan side, so
+    the extraction leaf has somewhere to put a real value; the mapper still
+    injected the fabrication when the leaf found nothing.
+
+    With the default gone `_pv` receives None and declines, which makes the
+    missing `_pvs` wrap on LabProcessCellCulture load-bearing: it is the one
+    subtype that built its parameter list as a bare list, so the declined
+    parameter survived as a literal null.
+    """
+
+    @staticmethod
+    def _culture_state(fields: dict) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "Fabrication probe"
+        state.add_entity(
+            Entity(
+                entity_id="proc_cc",
+                type="LabProcess",
+                fields={"process_type": "CellCulture", "name": "Culture", **fields},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        return state
+
+    def _build(self, fields: dict):
+        from builder.tools.builder import assemble_crate
+
+        return assemble_crate(
+            self._culture_state(fields), output_dir=None, materialize_payload=False
+        )
+
+    def test_a_missing_medium_is_not_invented(self):
+        """The crate states no medium rather than a plausible-looking one."""
+        values = [
+            e.properties().get("value")
+            for e in self._build({}).get_entities()
+            if e.properties().get("@type") == "PropertyValue"
+        ]
+
+        assert "Standard medium" not in values
+
+    def test_a_missing_medium_leaves_the_shape_free_to_fire(self):
+        """The point of not fabricating: the gap becomes visible to the agent."""
+        issues = _tox_issues(
+            self._culture_state({}), "http://schema.org/additionalProperty"
+        )
+
+        assert issues, "A CellCulture stating no parameter at all passed the MUST"
+
+    def test_a_stated_medium_is_published_with_its_ontology_term(self):
+        """Guards the over-correction: a real value keeps its BAO term."""
+        media = [
+            e.properties()
+            for e in self._build({"culture_medium": "DMEM + 10% FBS"}).get_entities()
+            if e.properties().get("name") == "Culture Medium"
+        ]
+
+        assert media, "a stated medium stopped being published"
+        assert media[0]["value"] == "DMEM + 10% FBS"
+        assert "BAO_0000114" in str(media[0].get("propertyID"))
+
+    def test_the_parameter_list_never_contains_a_null(self):
+        """LabProcessCellCulture is the one subtype that skipped `_pvs`.
+
+        Cosmetic while the fabricated default masked it - JSON-LD drops nulls -
+        and reachable on the ordinary no-medium path once the default is gone.
+        """
+        node = next(
+            e
+            for e in self._build({}).get_entities()
+            if e.properties().get("additionalType") == "CellCulture"
+        )
+
+        assert None not in (node.properties().get("parameter") or [])
