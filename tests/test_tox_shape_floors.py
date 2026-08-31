@@ -264,3 +264,89 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
                 unfloored[ptype] = [i["message"] for i in issues]
 
         assert not unfloored, f"unfloored by the build: {unfloored}"
+
+
+class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
+    """A value `_pv` refused must not reappear under the same predicate.
+
+    `_pv` drops a placeholder so the shape's "MUST have at least one
+    additionalProperty" fires as the prompt to go and fill it in.
+    `_preserve_unowned_fields` filtered only empties, so a field it rescued
+    re-attached a placeholder under schema:additionalProperty — the predicate the
+    shape counts, since `profiles/context.py` maps `parameter` there too. A
+    CellCulture whose only stated parameter was "not recorded" satisfied the MUST.
+
+    #677 closed this for fields a process constructor consumes, `culture_medium`
+    among them, which is why the medium case below passes unaided and stands as a
+    regression guard rather than a red test. Every other dropped field still
+    reached the graph.
+    """
+
+    @staticmethod
+    def _culture_state(medium: str) -> CrateState:
+        state = CrateState()
+        state.metadata.title = "Placeholder probe"
+        state.add_entity(
+            Entity(
+                entity_id="proc_cc",
+                type="LabProcess",
+                fields={
+                    "process_type": "CellCulture",
+                    "name": "Culture step",
+                    "culture_medium": medium,
+                },
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        return state
+
+    def test_a_placeholder_medium_leaves_the_shape_free_to_fire(self):
+        """The whole point: an unstated medium must be VISIBLE as unstated."""
+        state = self._culture_state("unknown")
+
+        issues = _tox_issues(state, "http://schema.org/additionalProperty")
+
+        assert issues, (
+            "A CellCulture whose only parameter is 'unknown' passed the "
+            "additionalProperty MUST — the placeholder was re-published"
+        )
+
+    def test_a_real_medium_still_satisfies_the_shape(self):
+        """Guards the over-correction: only placeholders are suppressed."""
+        state = self._culture_state("DMEM + 10% FBS")
+
+        assert _tox_issues(state, "http://schema.org/additionalProperty") == []
+
+    def test_an_unmodelled_field_is_still_rescued_when_it_says_something(self):
+        """The rescue's actual purpose survives: keep a real unmodelled value.
+
+        `work_package` is the field the rescue was written for — a WP number
+        somebody typed deliberately, deleted for being unmodelled.
+        """
+        from builder.tools.builder import assemble_crate
+
+        state = self._culture_state("DMEM + 10% FBS")
+        state.get_entity("proc_cc").fields["work_package"] = "WP4"
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+
+        values = [
+            e.properties().get("value")
+            for e in crate.get_entities()
+            if e.properties().get("@type") == "PropertyValue"
+        ]
+        assert "WP4" in values
+
+    def test_an_unmodelled_field_holding_a_placeholder_is_not_rescued(self):
+        """Same rule, applied to the rescue's own kind of field."""
+        from builder.tools.builder import assemble_crate
+
+        state = self._culture_state("DMEM + 10% FBS")
+        state.get_entity("proc_cc").fields["work_package"] = "not recorded"
+        crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+
+        values = [
+            e.properties().get("value")
+            for e in crate.get_entities()
+            if e.properties().get("@type") == "PropertyValue"
+        ]
+        assert "not recorded" not in values
