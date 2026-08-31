@@ -35,6 +35,7 @@ from builder.tools.document_discovery import CLASS_PROTOCOL
 from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, Sample, param_id
 from profiles.models.tox import (
+    _PLACEHOLDER_VALUES,
     CellLineSample,
     LabProcessCellCulture,
     LabProcessDataAnalysis,
@@ -616,6 +617,31 @@ def _preserved_name(field: str) -> str:
     return field.replace("_", " ").strip() or field
 
 
+def _says_nothing(value: Any) -> bool:
+    """Whether *value* is empty, or a placeholder standing in for an answer.
+
+    The emitters' own placeholder set, imported rather than copied so the two
+    cannot drift (the single-source rule eval/scorers.py already follows).
+
+    Without this the rescue undid `_pv`: a value `_pv` refuses for saying nothing
+    was re-attached here under schema:additionalProperty — the predicate
+    `profiles/context.py` also maps `parameter` onto, and the one
+    tox:CellCultureRequirements counts — so a process whose only stated parameter
+    was "not recorded" satisfied a MUST that exists to prompt someone to go and
+    fill it in (D5). #677 closed the route through constructor-consumed fields;
+    `work_package` on a process, and any dropped field on a File, still carried
+    placeholders into the graph.
+
+    This does not, on its own, make that MUST falsifiable: any unowned field
+    holding a REAL value still satisfies it, which matters more once the
+    fabricated culture-medium default is gone. It stops the crate asserting a
+    value nobody supplied, which is the narrower and checkable claim.
+    """
+    if value in (None, "", [], {}):
+        return True
+    return isinstance(value, str) and value.strip().casefold() in _PLACEHOLDER_VALUES
+
+
 def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
     """Keep a field the build cannot emit, as a ``PropertyValue``, instead of deleting it.
 
@@ -652,7 +678,7 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
             for key, value in entity.fields.items()
             if field_would_be_dropped(key)
             and key not in consumed
-            and value not in (None, "", [], {})
+            and not _says_nothing(value)
         }
         if not leftovers:
             continue
