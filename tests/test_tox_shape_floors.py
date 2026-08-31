@@ -283,18 +283,21 @@ class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
     """
 
     @staticmethod
-    def _culture_state(medium: str) -> CrateState:
+    def _culture_state(medium: str, work_package: str | None = None) -> CrateState:
         state = CrateState()
         state.metadata.title = "Placeholder probe"
+        fields = {
+            "process_type": "CellCulture",
+            "name": "Culture step",
+            "culture_medium": medium,
+        }
+        if work_package is not None:
+            fields["work_package"] = work_package
         state.add_entity(
             Entity(
                 entity_id="proc_cc",
                 type="LabProcess",
-                fields={
-                    "process_type": "CellCulture",
-                    "name": "Culture step",
-                    "culture_medium": medium,
-                },
+                fields=fields,
                 _provenance=EntityProvenance(created_by="llm"),
             )
         )
@@ -325,8 +328,7 @@ class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
         """
         from builder.tools.builder import assemble_crate
 
-        state = self._culture_state("DMEM + 10% FBS")
-        state.get_entity("proc_cc").fields["work_package"] = "WP4"
+        state = self._culture_state("DMEM + 10% FBS", work_package="WP4")
         crate = assemble_crate(state, output_dir=None, materialize_payload=False)
 
         values = [
@@ -340,8 +342,7 @@ class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
         """Same rule, applied to the rescue's own kind of field."""
         from builder.tools.builder import assemble_crate
 
-        state = self._culture_state("DMEM + 10% FBS")
-        state.get_entity("proc_cc").fields["work_package"] = "not recorded"
+        state = self._culture_state("DMEM + 10% FBS", work_package="not recorded")
         crate = assemble_crate(state, output_dir=None, materialize_payload=False)
 
         values = [
