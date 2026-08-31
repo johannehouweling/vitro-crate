@@ -3448,7 +3448,13 @@ def _build_process(
             identifier=pid,
             name=name,
             cell_line=cell_line,
-            culture_medium=f.get("culture_medium", "Standard medium"),
+            # No default. "Standard medium" was published with propertyID
+            # BAO_0000114 for data nobody supplied - a real ontology term on a
+            # fabricated value, which the tox pass then called conformant. An
+            # unstated medium is passed through as None so `_pv` drops it and
+            # the shape's additionalProperty MUST fires as the prompt to go and
+            # ask (D5 - never fabricate).
+            culture_medium=f.get("culture_medium"),
             result=out,
             labprotocol=protocol,
         )
