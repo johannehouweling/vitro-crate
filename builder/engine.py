@@ -534,7 +534,34 @@ class AgentEngine:
             f"Scanned {len(self.state.scanned_files)} files",
         )
         self.state.checkpoint.completed_checkpoints.append("files_scanned")
+        self._capture_pre_assessment()
         return self.state
+
+    def _capture_pre_assessment(self) -> None:
+        """Score the deposit as it arrived, before anything is drafted.
+
+        This is the only moment the state holds nothing but what the input literally
+        stated — an inventory, a content-derived classification of it, and any licence
+        the deposit declared. The next thing to run is the pipeline's backbone scaffold
+        or the ReAct loop's first tool call, and the session file is overwritten on
+        every save, so a baseline not taken here cannot be recovered later.
+
+        Best-effort, like its two neighbours: a maturity baseline is worth having and
+        never worth failing a build over.
+        """
+        if not self.state.scanned_files or self.state.pre_assessment:
+            return
+        try:
+            from builder.tools.assessment_graph import as_received_graph
+            from builder.tools.fair_assessment import dsm_verdicts
+
+            verdicts = dsm_verdicts(self.state, None, as_received_graph(self.state))
+            self.state.pre_assessment = {
+                ident: {"value": verdict.value, "evidence": verdict.evidence}
+                for ident, verdict in verdicts.items()
+            }
+        except Exception as exc:  # noqa: BLE001 — a baseline must never sink a build
+            logger.warning("Pre-FAIRification baseline not captured (continuing): %s", exc)
 
     # ------------------------------------------------------------------
     # Tool registry
