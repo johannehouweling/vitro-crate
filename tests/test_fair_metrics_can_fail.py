@@ -1051,15 +1051,17 @@ class TestTheReportShowsBothColumns:
         engine._capture_pre_assessment()
         return state
 
-    def test_a_baseline_renders_beside_every_cell(self) -> None:
+    def test_the_baseline_is_reported_once_not_per_cell(self) -> None:
+        """Two percentages in every cell buried the one the grid exists to show, so the
+        comparison is made once, on the tile, and the grid stays a single reading."""
         from builder.writers.maturity_report import build_maturity_html
 
         state = self._state_with_baseline()
         assert state.pre_assessment
         page = build_maturity_html(state)
-        assert "Pre-FAIRification" in page, "the page must say what the baseline is"
-        assert page.count("was ") >= 12, "every scored cell carries its intake number"
         assert "at intake:" in page, "the tile states where the deposit started"
+        grid = page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
+        assert "was " not in grid, "the intake number does not belong in every cell"
 
     def test_without_a_baseline_the_page_is_exactly_as_before(self) -> None:
         from builder.writers.maturity_report import build_maturity_html

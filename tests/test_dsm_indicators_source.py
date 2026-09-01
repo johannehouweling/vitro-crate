@@ -325,13 +325,15 @@ class TestTheModelsOwnPercentCompleteGrid:
         from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert "DSM &mdash; % complete by level and category" in page
+        assert "FAIRplus Dataset Maturity Model</h2>" in page
         # Every published level name is a row label.
         for name in _yaml()["levels"].values():
             assert name in page
-        # A cell states how much of it was actually assessed, so a percentage the
-        # sheet computed over blanks cannot read as a measurement.
-        assert "0 of 4 assessed" in page
+        # A cell nothing was measured for says so, rather than publishing the number
+        # the sheet computes over blanks — at Level 0, which counts zeros, that number
+        # is 100%.
+        assert "0 of 4 assessable" in page
+        assert "100%" not in page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
         # The two properties a reader needs to interpret the numbers are stated.
         assert "not assessed" in page and "a blank scores 0" in page
         assert "counts its zeros" in page
