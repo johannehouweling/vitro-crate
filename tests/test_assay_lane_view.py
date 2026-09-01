@@ -8,8 +8,7 @@ Neither shape was ever laid out in CI.
 
 These tests drive ``assay_lane_real_shapes_graph`` instead, and they run the
 SHIPPED JavaScript over it rather than a Python restatement of the geometry —
-the same rule ``test_assay_lane_layout`` follows, for the same reason: the
-report carries the module, so the module is what has to be measured.
+the report carries the module, so the module is what has to be measured.
 
 The lane is its own view rather than a re-ranking of the generic canvas
 (``assay_lane_view.js``). A step's place comes from what it IS in the ISA-Tox
@@ -48,16 +47,14 @@ def _node_exe() -> str:
 def _lanes() -> dict[str, dict[str, Any]]:
     """Every lane the fixture mints, drawn by the shipped module.
 
-    One payload build and one node process per lane, keyed by view — the tests
+    One payload build and one node process per lane, keyed by lane — the tests
     below each ask a different question of the same drawing.
     """
     payload = build_explorer_payload(assay_lane_real_shapes_graph())
     by_id = {n["id"]: n for n in payload["nodes"]}
     out: dict[str, dict[str, Any]] = {}
-    for view in payload["views"]:
-        if not view.get("lane"):
-            continue
-        members = set(view["members"])
+    for lane in payload["lanes"]:
+        members = set(lane["members"])
         merged: dict[tuple[str, str], dict[str, Any]] = {}
         for edge in payload["edges"]:
             if edge["src"] in members and edge["dst"] in members:
@@ -83,13 +80,25 @@ def _lanes() -> dict[str, dict[str, Any]]:
             text=True,
             check=True,
         )
-        out[view["key"]] = json.loads(result.stdout)
+        out[lane["key"]] = json.loads(result.stdout)
     return out
 
 
 @pytest.fixture(scope="module")
 def lanes() -> dict[str, dict[str, Any]]:
     return _lanes()
+
+
+def _row_pitch(drawing: dict[str, Any]) -> float:
+    """How far apart two boxes stacked in one column sit — box plus gap.
+
+    Measured on the drawing rather than restated from the module's constants: a
+    test that repeats them passes when they change and proves nothing about the
+    rule they serve.
+    """
+    column = next(r["members"] for r in drawing["ranks"] if len(r["members"]) > 1)
+    tops = sorted(drawing["positions"][i]["y"] for i in column)
+    return tops[1] - tops[0]
 
 
 def _boxes(drawing: dict[str, Any]) -> dict[str, tuple[float, float, float, float]]:
@@ -268,4 +277,6 @@ class TestTheLaneEarnsItsPlace:
         three = lanes["assay-transport-assay"]["bandTop"]
         two = lanes["assay-characterisation-assay"]["bandTop"]
         # One extra line is one extra row, not a re-ranking of the whole graph.
-        assert three - two == 56, (three, two)
+        # The row pitch is read off the drawing rather than written here, so the
+        # claim survives a change of node size and fails on a change of rule.
+        assert three - two == _row_pitch(lanes["assay-transport-assay"]), (three, two)

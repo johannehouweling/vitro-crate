@@ -289,11 +289,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         # and stay accepted: renaming a CLI value silently breaks every script
         # that passes it.
         choices=["researcher", "crate", "labprocesses", "provenance"],
-        default="researcher",
-        help="--graph: which view the explorer opens on — 'researcher' (the "
-        "experiment, without the packaging; default), 'crate' (every entity), "
-        "or 'labprocesses' (the derivation chain; 'provenance' is the same view "
-        "under its old name). Every view is a toggle in the page itself.",
+        default="crate",
+        help="--graph: which view the explorer opens on — 'crate' (every "
+        "entity; default) or 'labprocesses' (the derivation chain). "
+        "'provenance' is the same view under its old name, and 'researcher' "
+        "names a view the explorer no longer has and opens on the whole crate. "
+        "Every view is a toggle in the page itself.",
     )
     parser.add_argument(
         "--graph-out",
@@ -375,10 +376,14 @@ def _ensure_configured() -> bool:
     return False
 
 
-# The `--view` vocabulary, mapped onto the explorer's own view keys. "crate" and
-# "provenance" are the names the flag shipped under; they still resolve.
+# The `--view` vocabulary, mapped onto the explorer's own view keys. "crate",
+# "provenance" and "researcher" are names the flag shipped under; they still
+# resolve, because renaming a CLI value silently breaks every script that passes
+# it. "researcher" named a view that no longer exists — it drew the science and
+# hid the packaging, and the reader it was for is better served by the assay
+# lanes — so it opens on the whole crate.
 _EXPLORER_VIEW_BY_FLAG = {
-    "researcher": "researcher",
+    "researcher": "all",
     "crate": "all",
     "labprocesses": "processes",
     "provenance": "processes",

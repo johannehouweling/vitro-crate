@@ -10,8 +10,9 @@ Two changes, tested here against the same crate:
   than by a modelling gap;
 * an assay becomes a selectable unit, drawing its own chain and nothing else.
 
-Layout is a separate module and is tested in ``test_assay_lane_layout.py``
-against the shipped JavaScript.
+Layout is a separate module (``assay_lane_view.js``) and is tested against the
+shipped JavaScript in ``test_assay_lane_view.py``; the section that draws it is
+tested in ``test_assay_lane_section.py``.
 """
 
 from __future__ import annotations
@@ -19,12 +20,14 @@ from __future__ import annotations
 import pytest
 
 from builder.writers.entity_explorer import (
+    _compact,
     _Crate,
     _select_assay_lane,
     _select_processes,
+    build_assay_lanes,
     build_explorer_payload,
 )
-from tests.fixtures.crate_graphs import assay_lane_graph
+from tests.fixtures.crate_graphs import assay_lane_graph, tabbed_views_graph
 
 pytestmark = pytest.mark.timeout(180)
 
@@ -37,6 +40,11 @@ def crate() -> _Crate:
 @pytest.fixture(scope="module")
 def payload() -> dict:
     return build_explorer_payload(assay_lane_graph())
+
+
+@pytest.fixture(scope="module")
+def lanes() -> list[dict]:
+    return build_assay_lanes(assay_lane_graph())
 
 
 class TestCompoundsReachTheProcessViews:
@@ -148,46 +156,61 @@ class TestTheLaneDrawsOneAssay:
         assert _select_assay_lane(crate, "#nope") == set()
 
 
-class TestTheLaneIsOfferedAsASubRow:
-    """One sub-row per assay under the Assays chip — the pattern LabProcesses
-    already uses for its four kinds. A child view narrows its parent (#624), so
-    choosing one assay replaces the Assays selection and the containers drop out
-    with it.
+class TestTheLanesAreMintedFromTheCrate:
+    """As many lanes as the crate has assays — one, four, or none.
+
+    They are not declared anywhere: a deposit's assays are its own, and a lane
+    with nothing to draw is dropped for the same reason a view with no members
+    is, because an empty chip is a promise the canvas cannot keep.
     """
 
-    def _lanes(self, payload):
-        return [v for v in payload["views"] if v.get("parent") == "assays"]
+    def test_there_is_one_lane_per_assay(self, lanes):
+        assert len(lanes) == 2, [lane["key"] for lane in lanes]
 
-    def test_there_is_one_sub_row_per_assay(self, payload):
-        lanes = self._lanes(payload)
-        assert len(lanes) == 2, [v["key"] for v in lanes]
-
-    def test_each_is_labelled_with_the_assay_name(self, payload):
-        labels = {v["label"] for v in self._lanes(payload)}
+    def test_each_is_labelled_with_the_assay_name(self, lanes):
+        labels = {lane["label"] for lane in lanes}
         assert labels == {"Deiodinase assay", "TH transport assay"}
 
-    def test_the_keys_survive_a_url_hash(self, payload):
-        """View keys are joined with commas into the location hash, so a key
-        carrying one would split into two views that do not exist."""
-        for view in self._lanes(payload):
-            assert "," not in view["key"]
-            assert view["key"] == view["key"].strip()
+    def test_a_lane_names_the_assay_it_was_minted_from(self, lanes):
+        assert {lane["assay"] for lane in lanes} == {"#assay-a", "#assay-b"}
 
-    def test_the_keys_are_distinct(self, payload):
-        keys = [v["key"] for v in self._lanes(payload)]
+    def test_the_keys_carry_no_comma(self, lanes):
+        """The key is what a shared link would carry, and a comma is the
+        separator the explorer's own hash uses."""
+        for lane in lanes:
+            assert "," not in lane["key"]
+            assert lane["key"] == lane["key"].strip()
+
+    def test_the_keys_are_distinct(self, lanes):
+        keys = [lane["key"] for lane in lanes]
         assert len(keys) == len(set(keys)), keys
 
-    def test_the_count_is_what_the_lane_draws(self, payload):
-        """The view's name covers everything it draws, so `subject` is unset and
-        the count is the membership (#625)."""
-        for view in self._lanes(payload):
-            assert view["count"] == len(view["members"])
+    def test_the_members_are_sorted_and_known_to_the_model(self, lanes, crate):
+        for lane in lanes:
+            assert lane["members"] == sorted(lane["members"])
+            assert set(lane["members"]) <= crate.known
 
-    def test_a_lane_is_not_on_by_default(self, payload):
-        assert not any(v["default"] for v in self._lanes(payload))
+    def test_a_crate_with_no_assay_mints_no_lane(self):
+        assert build_assay_lanes(tabbed_views_graph()) == []
 
-    def test_the_parent_chip_still_counts_only_assays(self, payload):
-        """Adding children must not change what the parent is named for."""
+    def test_an_assay_whose_steps_the_crate_never_states_is_dropped(self):
+        """The lane would be a heading over an empty drawing, which says less
+        than leaving it out and is easy to read as a rendering failure."""
+        graph = assay_lane_graph()
+        for entity in graph["@graph"]:
+            if entity.get("@id") == "#assay-a":
+                entity.pop("about", None)
+        keys = [lane["key"] for lane in build_assay_lanes(graph)]
+        assert keys == ["assay-th-transport-assay"], keys
+
+    def test_the_lane_is_not_a_view_of_the_entity_explorer(self, payload):
+        """It was a sub-row under the Assays chip, and combining it with any
+        other view handed the lane's geometry a graph it had no place for. The
+        two are separate sections now, and the explorer offers no lane."""
+        assert not any(view.get("parent") == "assays" for view in payload["views"])
+        assert all("lane" not in view for view in payload["views"])
+
+    def test_the_assays_chip_still_counts_only_assays(self, payload):
         assays = next(v for v in payload["views"] if v["key"] == "assays")
         assert assays["count"] == 2
 
@@ -201,12 +224,8 @@ class TestTheLaneKeyIsReadableAndUnique:
     name makes the key and the id settles ties.
     """
 
-    def _views(self, graph):
-        return [v for v in build_explorer_payload(graph)["views"] if v.get("parent") == "assays"]
-
     def test_the_key_comes_from_the_name(self):
-        graph = assay_lane_graph()
-        keys = {v["label"]: v["key"] for v in self._views(graph)}
+        keys = {lane["label"]: lane["key"] for lane in build_assay_lanes(assay_lane_graph())}
         assert keys["Deiodinase assay"] == "assay-deiodinase-assay"
         assert keys["TH transport assay"] == "assay-th-transport-assay"
 
@@ -222,7 +241,7 @@ class TestTheLaneKeyIsReadableAndUnique:
                     for ref in refs:
                         if ref.get("@id") == "#assay-a":
                             ref["@id"] = "#Assay_assay_deiodinase_assay"
-        keys = [v["key"] for v in self._views(graph)]
+        keys = [lane["key"] for lane in build_assay_lanes(graph)]
         assert "assay-deiodinase-assay" in keys, keys
 
     def test_two_assays_of_one_name_still_get_one_key_each(self):
@@ -232,8 +251,7 @@ class TestTheLaneKeyIsReadableAndUnique:
         for entity in graph["@graph"]:
             if entity.get("@id") == "#assay-b":
                 entity["name"] = "Deiodinase assay"
-        views = self._views(graph)
-        keys = [v["key"] for v in views]
+        keys = [lane["key"] for lane in build_assay_lanes(graph)]
         assert len(keys) == len(set(keys)) == 2, keys
         assert all(k.startswith("assay-deiodinase-assay") for k in keys), keys
 
@@ -245,48 +263,28 @@ class TestTheLaneKeyIsReadableAndUnique:
         for entity in graph["@graph"]:
             if entity.get("@id") == "#assay-b":
                 entity["name"] = "Deiodinase assay"
-        forward = {v["label"] + v["key"] for v in self._views(graph)}
+        forward = {lane["label"] + lane["key"] for lane in build_assay_lanes(graph)}
 
         reversed_graph = dict(graph)
         reversed_graph["@graph"] = list(reversed(graph["@graph"]))
-        backward = {v["label"] + v["key"] for v in self._views(reversed_graph)}
+        backward = {lane["label"] + lane["key"] for lane in build_assay_lanes(reversed_graph)}
         assert forward == backward, (sorted(forward), sorted(backward))
 
 
-class TestThePageCarriesTheLane:
-    """The lane is a second layout module, so the page has to ship it and the
-    app has to know which views it applies to."""
+class TestThePayloadCarriesTheLanes:
+    """The lane section draws from the explorer's island, so the lanes ride in
+    it — one crate document on a page that ships inside the crate is already the
+    accepted cost, and a second copy for a second section would be another."""
 
-    def test_a_lane_view_says_it_is_one(self, payload):
-        lanes = [v for v in payload["views"] if v.get("parent") == "assays"]
-        assert lanes and all(v["lane"] for v in lanes)
+    def test_the_island_carries_them(self, payload, lanes):
+        assert payload["lanes"] == lanes
 
-    def test_no_other_view_claims_to_be_one(self, payload):
-        """The app picks the layout off this flag, so a view that wrongly
-        carried it would be drawn as a chain it is not."""
-        others = [v for v in payload["views"] if v.get("parent") != "assays"]
-        assert others and not any(v["lane"] for v in others)
-
-    def test_the_page_ships_the_lane_module(self):
-        from builder.writers.entity_explorer import render_explorer_section
-
-        section = render_explorer_section(assay_lane_graph())
-        assert "AssayLaneView" in section
-
-    def test_the_lane_module_loads_after_the_layout_it_reads(self):
-        """It takes NODE_W/NODE_H from `ExplorerLayout` at factory time, so a
-        page that loaded it first would define the lane against `undefined`."""
-        from builder.writers.entity_explorer import render_explorer_section
-
-        section = render_explorer_section(assay_lane_graph())
-        assert section.index("root.ExplorerLayout = factory") < section.index(
-            "root.AssayLaneView = factory"
-        )
-
-    def test_the_lane_module_loads_before_the_app_that_calls_it(self):
-        from builder.writers.entity_explorer import render_explorer_section
-
-        section = render_explorer_section(assay_lane_graph())
-        assert section.index("root.AssayLaneView = factory") < section.index(
-            "window.AssayLaneView"
-        )
+    def test_the_wire_format_indexes_a_lane_s_members_like_a_view_s(self, payload):
+        """Encoded, not restated: the readable model is what Python consumers
+        read, and the page carries the same thing small (#694)."""
+        compact = _compact(payload)
+        assert [lane["key"] for lane in compact["lanes"]] == [
+            lane["key"] for lane in payload["lanes"]
+        ]
+        for lane in compact["lanes"]:
+            assert all(isinstance(member, int) for member in lane["members"])

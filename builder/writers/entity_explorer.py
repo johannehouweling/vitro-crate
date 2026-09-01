@@ -59,7 +59,7 @@ from builder.writers.provenance_dag import (
     vocab_prefix,
 )
 
-PAYLOAD_VERSION = 4
+PAYLOAD_VERSION = 5
 """Bumped when the payload's shape changes, so a stale cached script is loud."""
 
 _CTX_LABEL = "Referenced outside the crate"
@@ -100,28 +100,6 @@ def _select_all(crate: _Crate) -> set[str]:
     belongs to no view of its own.
     """
     return {n["id"] for n in crate.model["nodes"] if n["layer"] is not None}
-
-
-def _select_researcher(crate: _Crate) -> set[str]:
-    """The experiment as a scientist reads it.
-
-    Everything the crate describes except the machinery that describes it:
-    measured parameters, column definitions, ontology terms, the licence, the
-    profiles it conforms to, the build's own action and software. Those all land
-    in the ``annotation`` bucket — the category for an entity that qualifies
-    another rather than taking part in the work.
-
-    The rule is by **category, never by layer**: Persons, Organisations and
-    articles sit in the base packaging layer along with the plumbing, so a
-    layer-based rule would drop exactly the credit a reader looks for. The root
-    is kept whatever its category, since a crate whose root is untyped would
-    otherwise lose the entity everything else hangs from.
-    """
-    return {
-        n["id"]
-        for n in crate.model["nodes"]
-        if n["status"] == "described" and (n["category"] != "annotation" or n["id"] == crate.root)
-    }
 
 
 def _select_files(crate: _Crate) -> set[str]:
@@ -454,14 +432,6 @@ class ExplorerView(NamedTuple):
     default: bool
     select: Callable[[_Crate], set[str]]
     subject: Callable[[_Crate], set[str]] | None = None
-    lane: bool = False
-    """Whether this view draws one assay's chain, and so wants the lane layout.
-
-    The app reads this to pick a layout rather than matching on a key or on a
-    parent: which views are lanes is a fact about the selection, and the browser
-    should not have to re-derive it from a naming convention.
-    """
-
     parent: str | None = None
     """The view this one refines, if any.
 
@@ -520,19 +490,30 @@ def _lane_key(slug: str, assay_id: str, ambiguous: bool) -> str:
     return key
 
 
-def _assay_lane_views(crate: _Crate) -> list[ExplorerView]:
-    """One sub-row per assay, in the crate's own order.
+def build_assay_lanes(
+    metadata: dict[str, Any] | list[dict[str, Any]] | _Crate,
+) -> list[dict[str, Any]]:
+    """One lane per assay the crate declares, in the crate's own order.
 
-    A child view narrows its parent (#624), so choosing one assay replaces the
-    Assays selection and the containers drop out with it — which is what makes
-    this a lane rather than another top-level chip.
+    A deposit has as many assays as it has — one, four, none — so the lanes are
+    minted from the ISA inventory rather than declared. A crate with no assay
+    yields no lane, and the section that draws them is left out of the report
+    entirely rather than rendered empty.
 
-    ``subject`` is left unset: the view is named for an assay and everything it
-    draws belongs to that assay, so the count is the membership (#625).
+    An assay whose steps the crate never states selects nothing
+    (:func:`_select_assay_lane`) and is dropped for the same reason a view with
+    no members is: an empty chip is a promise the canvas cannot keep.
+
+    Returns:
+        ``[{"key", "label", "assay", "members"}]`` — ``key`` is hash-safe and
+        stable across builds (:func:`_lane_key`), ``assay`` is the ``@id`` the
+        lane is named for, and ``members`` are the ids it draws, sorted.
     """
-    assays = [n for n in crate.inventory("isa")["nodes"] if n["level"] == "Assay"]
+    crate = metadata if isinstance(metadata, _Crate) else _Crate(metadata)
     named = []
-    for node in assays:
+    for node in crate.inventory("isa")["nodes"]:
+        if node["level"] != "Assay":
+            continue
         assay_id = str(node["id"])
         raw_name = str(node.get("name") or "")
         named.append(
@@ -543,31 +524,27 @@ def _assay_lane_views(crate: _Crate) -> list[ExplorerView]:
             )
         )
     shared = {slug for slug, count in Counter(s for _i, _n, s in named).items() if count > 1}
-    return [
-        ExplorerView(
-            _lane_key(slug, assay_id, slug in shared),
-            name,
-            "This assay end to end — its materials, steps, protocols and compounds",
-            False,
-            (lambda i: lambda c: _select_assay_lane(c, i))(assay_id),
-            lane=True,
-            parent="assays",
+    lanes = []
+    for assay_id, name, slug in named:
+        members = _select_assay_lane(crate, assay_id) & crate.known
+        if not members:
+            continue
+        lanes.append(
+            {
+                "key": _lane_key(slug, assay_id, slug in shared),
+                "label": name,
+                "assay": assay_id,
+                "members": sorted(members),
+            }
         )
-        for assay_id, name, slug in named
-    ]
+    return lanes
 
 
-# Order matters: "Researcher" opens the section, and the rest follow the tabbed
-# section's reviewed order so a reader who learned it there is not retrained.
+# Order matters: "All entities" opens the section, and the rest follow the
+# tabbed section's reviewed order so a reader who learned it there is not
+# retrained.
 EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
-    ExplorerView(
-        "researcher",
-        "Researcher",
-        "The experiment as a scientist reads it — no packaging or parameters",
-        True,
-        _select_researcher,
-    ),
-    ExplorerView("all", "All entities", "Everything the crate describes", False, _select_all),
+    ExplorerView("all", "All entities", "Everything the crate describes", True, _select_all),
     ExplorerView(
         "files",
         "Files",
@@ -719,6 +696,7 @@ def _categories(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "colour": style.colour,
             "label": style.label,
             "types": types_for(key),
+            **_legend_wording(style.type, style.label, types_for(key)),
         }
         for key, style in CATEGORY_STYLES.items()
     }
@@ -729,8 +707,33 @@ def _categories(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "colour": _CTX_COLOUR,
         "label": _CTX_LABEL,
         "types": [],
+        **_legend_wording("", _CTX_LABEL, []),
     }
     return out
+
+
+def _legend_wording(class_name: str, label: str, types: list[str]) -> dict[str, str]:
+    """What a legend key reads as, and what its tooltip says.
+
+    The key is the **class** that puts an entity in the category — the profile's
+    own word, from :data:`CATEGORY_STYLES`. It used to be a census of the type
+    tags this crate's nodes happened to carry, and on a real deposit that made
+    the protocol key read ``File, HowTo +1``: true of the entities, and not a
+    word the profile, the shapes or the crate's ``@type`` use. A category no
+    single class defines keeps its prose instead.
+
+    The census is not lost — it rides on the tooltip, which is where "and what
+    does this crate actually put in that bucket" belongs.
+
+    Decided here, once, for the same reason the palette is (:func:`_categories`):
+    the entity explorer and the assay lanes draw one legend with two different
+    renderers, and a second copy of the rule in a second browser app is how two
+    legends over one crate come to disagree.
+    """
+    key = class_name or label
+    if not types:
+        return {"legend": key, "legend_title": label}
+    return {"legend": key, "legend_title": f"{label} — {', '.join(types)}"}
 
 
 def build_explorer_payload(
@@ -795,10 +798,7 @@ def build_explorer_payload(
     ]
 
     views = []
-    # The lanes are minted from this crate's assays, so they are appended
-    # rather than declared. They carry `parent`, and the app draws children
-    # from that alone, so position among them is the crate's order.
-    for view in (*EXPLORER_VIEWS, *_assay_lane_views(crate)):
+    for view in EXPLORER_VIEWS:
         members = view.select(crate) & crate.known
         if not members:
             continue
@@ -812,7 +812,6 @@ def build_explorer_payload(
                 "hint": view.hint,
                 "default": view.default,
                 "parent": view.parent,
-                "lane": view.lane,
                 "count": len(counted),
                 "members": sorted(members),
             }
@@ -844,6 +843,10 @@ def build_explorer_payload(
         "nodes": nodes,
         "edges": [{"src": e["src"], "dst": e["dst"], "label": e["label"]} for e in model["edges"]],
         "views": views,
+        # The assay lanes are drawn by their own section, from this same island:
+        # one crate document on a page that ships inside the crate is already the
+        # accepted cost, and a second copy of it would be a second one.
+        "lanes": build_assay_lanes(crate),
         "counts": {**model["counts"], "nodes": len(nodes), "edges": len(model["edges"])},
         "document": crate.document,
     }
@@ -859,7 +862,7 @@ _ASSET_DIR = Path(__file__).resolve().parent
 _VENDOR_DIR = _ASSET_DIR / "vendor"
 _APP_PATH = _ASSET_DIR / "entity_explorer.js"
 _LAYOUT_PATH = _ASSET_DIR / "entity_explorer_layout.js"
-_LANE_PATH = _ASSET_DIR / "assay_lane_view.js"
+_INSPECTOR_PATH = _ASSET_DIR / "explorer_inspector.js"
 _CODEC_PATH = _ASSET_DIR / "payload_codec.js"
 _MANIFEST_PATH = _VENDOR_DIR / "manifest.json"
 
@@ -872,7 +875,7 @@ VENDOR_MANIFEST: tuple[dict[str, Any], ...] = tuple(
 """Every third-party file the page inlines: name, version, licence, origin, digest."""
 
 # react, react-dom, the jsx-runtime shim, React Flow, dagre, htm, the layout
-# module, the assay lane's layout, the payload codec, the data island, the app.
+# module, the shared inspector, the payload codec, the data island, the app.
 # Named so a test can state the count without recounting the implementation, and
 # so an accidental extra <script> is a failure, not a habit.
 EXPLORER_SCRIPT_COUNT = 11
@@ -946,14 +949,15 @@ def _layout_js() -> str:
 
 
 @lru_cache(maxsize=1)
-def _lane_js() -> str:
-    """The drawing an assay lane takes its ranks, boxes and edges from.
+def _inspector_js() -> str:
+    """The panel both viewers mount, and the vocabulary both read the crate in.
 
-    Loaded after :func:`_layout_js` and before the app: it reads that module's
-    node size at factory time, so the order is a requirement rather than a
-    convention.
+    Shipped by this section because it is the one the report emits first; the
+    assay lanes use the same ``window.ExplorerInspector``, for the same reason
+    they read the same data island. Two copies of a panel is two panels that
+    drift, and two copies of the vocabulary is one page saying two things.
     """
-    return _LANE_PATH.read_text(encoding="utf-8")
+    return _INSPECTOR_PATH.read_text(encoding="utf-8")
 
 
 @lru_cache(maxsize=1)
@@ -992,7 +996,7 @@ def _compact(payload: dict[str, Any]) -> dict[str, Any]:
     ``payload_codec.js``:
 
     * an edge becomes ``[src_index, dst_index, label]``;
-    * a view's members become indices;
+    * a view's — and a lane's — members become indices;
     * a node's ``name`` is omitted where it equals its ``label``, which is true
       of 249 of 254 nodes on the reference crate.
 
@@ -1010,6 +1014,9 @@ def _compact(payload: dict[str, Any]) -> dict[str, Any]:
         "edges": [[index[e["src"]], index[e["dst"]], e["label"]] for e in payload["edges"]],
         "views": [
             {**view, "members": [index[m] for m in view["members"]]} for view in payload["views"]
+        ],
+        "lanes": [
+            {**lane, "members": [index[m] for m in lane["members"]]} for lane in payload["lanes"]
         ],
     }
 
@@ -1030,6 +1037,7 @@ def render_explorer_section(
     metadata: dict[str, Any] | list[dict[str, Any]],
     *,
     default_views: tuple[str, ...] | list[str] | None = None,
+    coverage: str = "",
 ) -> str:
     """The interactive entity explorer, as a self-contained report section.
 
@@ -1042,6 +1050,11 @@ def render_explorer_section(
     Args:
         metadata: The crate document, as :func:`build_explorer_payload` takes it.
         default_views: Which view keys open; see :func:`build_explorer_payload`.
+        coverage: The entity-coverage fold, if the caller has one. It belongs
+            under the canvas rather than in a section of its own: it inventories
+            the same entities the explorer draws and answers the same question
+            about them from the other side, so a reader who has one has both.
+            The standalone page passes none.
 
     Returns:
         The ``<section>…</section>`` markup.
@@ -1053,7 +1066,7 @@ def render_explorer_section(
             continue
         scripts.append(f"<script>{_banner(filename)}\n{_vendor_text(filename)}</script>")
     scripts.append(f"<script>{_layout_js()}</script>")
-    scripts.append(f"<script>{_lane_js()}</script>")
+    scripts.append(f"<script>{_inspector_js()}</script>")
     scripts.append(f"<script>{_codec_js()}</script>")
     scripts.append(
         f'<script id="{_DATA_ID}" type="application/json">'
@@ -1072,6 +1085,7 @@ def render_explorer_section(
         '  <noscript><p class="ex-noscript">The entity explorer needs JavaScript. '
         "The same entities and links are in the crate&rsquo;s "
         "<code>ro-crate-metadata.json</code>.</p></noscript>\n"
+        f"  {coverage}\n"
         f"  {''.join(scripts)}\n"
         "</section>\n"
     )

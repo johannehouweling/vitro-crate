@@ -28,12 +28,17 @@ _PROBE = _REPO / "tests" / "fixtures" / "js_names_probe.js"
 # vendored bundles and the two DOM globals it reads. A name resolved here is
 # resolved because the page really provides it — the list is the contract, so
 # adding to it is a deliberate act and not a way to quiet the check.
-_PAGE_GLOBALS = ("React", "ReactDOM", "htm", "dagre", "window", "document", "console")
+_PAGE_GLOBALS = (
+    "React", "ReactDOM", "htm", "dagre", "window", "document", "console",
+    "navigator", "history", "location",
+)
 
 _SCRIPTS = (
     "entity_explorer.js",
     "entity_explorer_layout.js",
+    "explorer_inspector.js",
     "assay_lane_view.js",
+    "assay_lane_app.js",
     "payload_codec.js",
 )
 
@@ -84,12 +89,12 @@ def test_the_check_can_fail(tmp_path: Path) -> None:
     check works, not merely that node rejects broken syntax.
     """
     source = (_REPO / "builder" / "writers" / "entity_explorer.js").read_text(encoding="utf-8")
-    start = source.index("  function layerName(n) {")
+    start = source.index("  function summary(graph, hits) {")
     end = source.index("\n  }\n", start) + len("\n  }\n")
     wounded = tmp_path / "entity_explorer.js"
     wounded.write_text(source[:start] + source[end:], encoding="utf-8")
 
-    assert _free_names(wounded) == ["layerName"]
+    assert _free_names(wounded) == ["summary"]
 
 
 class TestThePageLoadsInABrowser:
@@ -114,29 +119,60 @@ class TestThePageLoadsInABrowser:
         )
         return json.loads(result.stdout)
 
-    def _geometry_scripts(self) -> list[str]:
-        """dagre and the two layout modules, in the order the page emits them."""
+    def _bodies(self, section: str) -> list[str]:
         import re
 
+        return re.findall(r"<script[^>]*>(.*?)</script>", section, re.S)
+
+    def _explorer_scripts(self) -> list[str]:
+        """dagre and the canvas's layout module, in the order the page emits."""
         from builder.writers.entity_explorer import render_explorer_section
         from tests.fixtures.crate_graphs import assay_lane_graph
 
-        section = render_explorer_section(assay_lane_graph())
-        bodies = re.findall(r"<script[^>]*>(.*?)</script>", section, re.S)
-        wanted = ("dagre", "root.ExplorerLayout = factory", "root.AssayLaneView = factory")
+        wanted = ("dagre", "root.ExplorerLayout = factory")
         return [
             body
-            for body in bodies
+            for body in self._bodies(render_explorer_section(assay_lane_graph()))
             if any(marker in (body if marker != "dagre" else body[:2000]) for marker in wanted)
         ]
 
-    def test_both_layout_modules_attach_themselves_to_the_window(self):
-        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneView"])
-        assert out["defined"] == {"ExplorerLayout": True, "AssayLaneView": True}
+    def _lane_scripts(self) -> list[str]:
+        """The lane's geometry module alone. Its app is left out on purpose: the
+        probe gives a script `window` but no `document`, which is the right
+        contract for a module that must be pure geometry and would be the wrong
+        one for the drawing."""
+        return [
+            body for body in self._bodies(_lane_section())
+            if "root.AssayLaneView = factory" in body
+        ]
 
-    def test_the_lane_takes_its_node_size_from_the_layout_beside_it(self):
-        """One component, one set of constants: a lane node and a canvas node
-        are the same node, so the two must not be able to drift apart."""
-        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneView"])
-        assert out["sizes"]["AssayLaneView"] == out["sizes"]["ExplorerLayout"]
+    def test_the_canvas_layout_module_attaches_itself_to_the_window(self):
+        out = self._run(self._explorer_scripts(), ["ExplorerLayout"])
+        assert out["defined"] == {"ExplorerLayout": True}
         assert out["sizes"]["ExplorerLayout"] == {"NODE_W": 200, "NODE_H": 44}
+
+    def test_the_lane_geometry_module_attaches_itself_to_the_window(self):
+        """The lane section is loaded on its own, so its geometry module must
+        attach without the explorer's — it no longer reads that one's sizes."""
+        out = self._run(self._lane_scripts(), ["AssayLaneView"])
+        assert out["defined"] == {"AssayLaneView": True}
+
+    def test_the_lane_sizes_its_own_boxes(self):
+        """It used to take them from the canvas beside it. The lane is its own
+        section now, drawn flat at a scale chosen for a nine-column chain, and a
+        dagre canvas's 200x44 box would make that chain too wide to read."""
+        out = self._run(self._lane_scripts(), ["AssayLaneView"])
+        assert out["sizes"]["AssayLaneView"] == {"NODE_W": 152, "NODE_H": 34}
+
+    def test_the_lane_module_loads_before_the_app_that_calls_it(self):
+        section = _lane_section()
+        assert section.index("root.AssayLaneView = factory") < section.index(
+            "window.AssayLaneView"
+        )
+
+
+def _lane_section() -> str:
+    from builder.writers.assay_lane import render_assay_lane_section
+    from tests.fixtures.crate_graphs import assay_lane_graph
+
+    return render_assay_lane_section(assay_lane_graph())
