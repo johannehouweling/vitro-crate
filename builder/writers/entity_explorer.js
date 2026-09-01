@@ -398,7 +398,16 @@
     }, [hits]);
 
     var present = new Set();
-    graph.visible.forEach(function (id) { present.add(NODE.get(id).category); });
+    var orphaned = false, outside = false;
+    graph.visible.forEach(function (id) {
+      var n = NODE.get(id);
+      present.add(n.category);
+      if (n.orphan) orphaned = true;
+      if (n.status !== 'described') outside = true;
+    });
+    var styles = [];
+    if (orphaned) styles.push(['orphan', 'dashed: unreachable from the root']);
+    if (outside) styles.push(['outside', 'dotted: described outside the crate']);
 
     // The whole-crate view leads and is fenced off from the rest: it is the way
     // back, not a peer of "Chemicals". The others are questions about parts of
@@ -473,8 +482,15 @@
               return html`<span key=${k} class="ex-key" title=${legendTitle(c)}>
                 <${Swatch} k=${k} />${legendLabel(c)}</span>`;
             })}
-          <span class="ex-key"><span class="ex-swatch ex-swatch-orphan"></span>unreachable from the root</span>
-          <span class="ex-key"><span class="ex-swatch ex-swatch-outside"></span>outside the crate</span>
+          ${/* Colour is the category; a BORDER STYLE is something else, so the
+               two do not run together in one strip — and a style key shows only
+               when the canvas holds a node drawn that way, the rule the colour
+               keys already follow. */ null}
+          ${styles.length ? html`<span class="ex-sep" aria-hidden="true"></span>` : null}
+          ${styles.map(function (s) {
+            return html`<span key=${s[0]} class="ex-key"><span
+              class=${'ex-swatch ex-swatch-' + s[0]}></span>${s[1]}</span>`;
+          })}
         </div>
         <span class="ex-count">${summary(graph, hits)}</span>
       </div>

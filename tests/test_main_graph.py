@@ -29,15 +29,16 @@ def test_parse_args_graph_flag() -> None:
     assert parse_args([]).graph is False
 
 
-def test_parse_args_graph_view_defaults_to_researcher() -> None:
-    """The explorer's own opening view: the experiment, without the packaging."""
-    assert parse_args(["--graph"]).view == "researcher"
+def test_parse_args_graph_view_defaults_to_the_whole_crate() -> None:
+    """The explorer's own opening view: everything the crate describes."""
+    assert parse_args(["--graph"]).view == "crate"
 
 
 def test_parse_args_keeps_the_view_names_it_shipped_with() -> None:
     """`provenance` was renamed `labprocesses` and both stayed accepted; `crate`
-    named the whole-graph view. Renaming a CLI value silently breaks every
-    script that passes it, so all three still resolve."""
+    names the whole-graph view; `researcher` named a view the explorer no longer
+    has. Renaming a CLI value silently breaks every script that passes it, so all
+    four still resolve."""
     for view in ("crate", "labprocesses", "provenance", "researcher"):
         assert parse_args(["--graph", "--view", view]).view == view
 
@@ -111,7 +112,9 @@ def test_the_view_flag_chooses_which_toggle_opens(tmp_path) -> None:
     the one it opens on rather than a different renderer."""
     opening = {}
     for flag, key in (
-        ("researcher", "researcher"),
+        # `researcher` drew the science and hid the packaging; the assay lanes
+        # serve that reader better, so the flag opens on the whole crate.
+        ("researcher", "all"),
         ("crate", "all"),
         ("labprocesses", "processes"),
         ("provenance", "processes"),

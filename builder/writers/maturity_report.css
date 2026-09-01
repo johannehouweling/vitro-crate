@@ -492,12 +492,17 @@ __CATEGORY_STYLES__
 .mat .ex-key{display:inline-flex; align-items:center; gap:.25rem;}
 .mat .ex-swatch{display:inline-block; width:15px; height:9px; border:1.4px solid var(--muted);
   border-radius:3px;}
-.mat .ex-swatch-orphan{border-style:dashed;}
-.mat .ex-swatch-outside{border-style:dotted;}
 /* A category is colour and nothing else now (#688): the per-category shape was
    dropped, so this is a plain chip of the category's own hue. */
 .mat .ex-swatch{flex:none; display:inline-block; width:.55rem; height:.55rem;
   border-radius:2px; background:var(--ex-c); vertical-align:-1px;}
+/* A style key shows the style rather than a colour, so it is drawn as one: a
+   hollow box with the border the canvas uses, wide enough for the pattern to
+   read — dashed and dotted are the same smudge across .55rem. */
+.mat .ex-swatch-orphan,.mat .ex-swatch-outside{width:1.15rem; height:.6rem;
+  background:none; border:1.4px solid var(--muted);}
+.mat .ex-swatch-orphan{border-style:dashed;}
+.mat .ex-swatch-outside{border-style:dotted;}
 
 /* canvas */
 .mat .ex-main{display:flex; flex:1; min-height:0;}

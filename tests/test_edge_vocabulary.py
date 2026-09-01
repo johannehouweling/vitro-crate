@@ -84,19 +84,24 @@ class TestThePayloadCarriesTheVocabulary:
         assert drawn <= set(relations), sorted(drawn - set(relations))
 
     def test_the_app_reads_the_vocabulary_rather_than_restating_it(self):
-        """A second copy in JavaScript is a second thing to drift."""
+        """A second copy in JavaScript is a second thing to drift.
+
+        The vocabulary lives in the shared inspector, which both viewers read
+        it through; neither may spell a term out for itself.
+        """
         import re
 
-        from builder.writers.entity_explorer import _app_js
+        from builder.writers.assay_lane import _app_js as lane_app
+        from builder.writers.entity_explorer import _app_js, _inspector_js
 
-        app = _app_js()
-        assert "D.relations" in app
+        assert "D.relations" in _inspector_js()
         # Comments are where the reasoning lives and may name a term freely; the
         # check is about the code, so they are stripped rather than counted.
-        code = re.sub(r"/\*.*?\*/", "", app, flags=re.S)
-        code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
-        for term in ("schema:object", "schema:result", "bioschemas:reagent"):
-            assert term not in code, f"the app is spelling out {term}"
+        for source in (_app_js(), lane_app(), _inspector_js()):
+            code = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+            code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+            for term in ("schema:object", "schema:result", "bioschemas:reagent"):
+                assert term not in code, f"spelling out {term}"
 
 
 class TestWhatANodeEncodes:
