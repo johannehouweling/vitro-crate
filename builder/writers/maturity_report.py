@@ -257,6 +257,17 @@ def _load_shell() -> str:
     return _SHELL_PATH.read_text(encoding="utf-8")
 
 
+# Every indicator the model publishes has its own entry on the FAIRplus documentation
+# site, anchored by the lowercased identifier. Naming an indicator without a route to
+# its definition asks a reader to take our paraphrase of it on trust.
+_DSM_DOCS = "https://fairplus.github.io/Data-Maturity/docs/Indicators/#"
+
+
+def _dsm_lk(ident: str) -> str:
+    """The indicator id, linked to the model's own definition of it."""
+    return _lk(_DSM_DOCS + html.escape(ident.lower()), ident)
+
+
 def _lk(url: str, text: str) -> str:
     """An accent link with the report's card-link styling; crate text escaped.
 
@@ -1639,7 +1650,14 @@ def _render_recommendations(
         chip = ""
         if action.message:
             source = source_labels.get(action.source, action.source)
-            prefix = f"{esc(source)} &middot; " if source else ""
+            # A DSM row names the indicator itself, linked to the model's own entry for
+            # it: the chip carries the published wording, and the id is how a reader
+            # checks that wording against the source.
+            prefix = (
+                f"{_dsm_lk(action.subject)} &middot; "
+                if action.source == "dsm"
+                else (f"{esc(source)} &middot; " if source else "")
+            )
             chip = f'<code class="rec-chip">{prefix}{esc(action.message)}</code>'
         badge_class = {"REQUIRED": "req", "MATURITY": "lvl", "RECOMMENDED": "rec"}.get(
             action.tier, "opt"
@@ -1709,7 +1727,7 @@ def _render_references() -> str:
         '<div class="refs">\n'
         '  <span class="refs-h">References</span>\n'
         '  <p id="fn-dsm"><span class="ref-n">1</span> FAIRplus Dataset Maturity (DSM) level, '
-        "0&ndash;5 &mdash; a <b>derived</b> number: the published model computes a percentage "
+        "1&ndash;5 &mdash; a <b>derived</b> number: the published model computes a percentage "
         "grid (below) and no single level. Levels are gated here: every indicator of a level "
         "must pass before the next is reached, so a crate can meet most indicators and still "
         "sit at level 0, and the ladder tops out at 4 because Level 5 is scored entirely on "
@@ -1761,11 +1779,18 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
     if not grid:
         return ""
     esc = html.escape
-    cats = (("C", "Content &amp; context"), ("R", "Representation &amp; format"),
-            ("H", "Hosting environment"), ("TOTAL", "All"))
+    # The published tool's own columns, in its own order and wording.
+    cats = (("R", "Representation &amp; Format"), ("C", "Content &amp; Context"),
+            ("H", "Hosting Environment Capabilities"), ("TOTAL", "Overall Level % Completion"))
     head = "".join(f"<th>{label}</th>" for _code, label in cats)
     rows = ""
     for level in sorted(grid):
+        # Level 0 is not a rung and the published tool does not report it: its
+        # statements are the pre-FAIRification condition in the negative, scored by
+        # counting zeros, so an unanswered row reads 100% — "fully escaped", on the
+        # strength of nobody having looked. The tool's own grid runs 1 to 5.
+        if level < 1:
+            continue
         cells = ""
         for code, _label in cats:
             cell = grid[level].get(code)
@@ -1777,18 +1802,13 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
                 cells += '<td class="dsm-na">—</td>'
                 continue
             assessed, total = cell["assessed"], cell["total"]
-            if not assessed:
-                # The sheet has an answer here — a blank validates to 0, and Level 0
-                # counts zeros, so its arithmetic reads 100%. Printing that would tell
-                # a reader the deposit fully escaped the pre-FAIRification state on the
-                # strength of nobody having looked. A percentage nothing was measured
-                # for is not a score, so the cell says what it actually knows.
-                cells += (
-                    '<td class="dsm-na"><span class="dsm-pct">not assessed</span>'
-                    f'<span class="dsm-den">0 of {total} assessable</span></td>'
-                )
-                continue
+            # The sheet's own number, unconditionally: an unanswered indicator
+            # validates to 0 there, so it lowers the percentage rather than leaving it.
+            # The coverage line beside it is what stops a low number reading as a
+            # measured failure when nobody was asked.
             state = "full" if pct >= 100 else ("part" if pct > 0 else "none")
+            if not assessed:
+                state = "na"
             cells += (
                 f'<td class="dsm-{state}"><span class="dsm-pct">{pct:g}%</span>'
                 f'<span class="dsm-den">{assessed} of {total} assessed</span></td>'
@@ -1813,10 +1833,91 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
         "indicators were actually assessed, and why a cell with none says so rather "
         "than publishing the number the sheet would compute over blanks. A cell&rsquo;s "
         "membership is the "
-        "sheet&rsquo;s: higher levels carry lower ones forward. Level&nbsp;0 states the "
-        "pre-FAIRification condition in the negative, so the sheet counts its zeros. "
-        "Hosting-environment indicators describe the environment serving the dataset, so "
-        "a crate cannot evidence them.</p>\n"
+        "sheet&rsquo;s: higher levels carry lower ones forward, so a statement can be "
+        "counted at more than one level. Hosting-environment indicators describe the "
+        "environment serving the dataset, so a crate cannot evidence them &mdash; the "
+        "published tool asks a person, and so does the checklist below.</p>\n"
+        "</section>\n"
+    )
+
+
+def _render_dsm_levels(
+    dsm_data: dict[str, Any], answers: dict[str, Any], levels: dict[int, str]
+) -> str:
+    """What each maturity level still needs, the way the published tool reports it.
+
+    The FAIRplus tool's own output is a per-level checklist: *"Based on this assessment,
+    9 indicators still need to be satisfied for your Datasets to reach Maturity Level
+    1"*, followed by every indicator that level counts — the lower-level ones it carries
+    forward included — each ticked or not, and each labelled with its identifier. That
+    is the actionable half of the instrument, and reproducing it is what lets a reader
+    check this report against a run of the tool itself.
+
+    Two departures, both deliberate. The styling is ours. And the tool has two states
+    because a person answers every question, while this one has three: an indicator no
+    crate can evidence and nobody has answered is **not assessed**, which is neither met
+    nor failed. Collapsing it into "still to satisfy" would assert a failure nothing
+    measured; it is counted and named separately instead.
+
+    A member listed twice is printed twice: the model's Level-4 hosting question carries
+    ``DSM-4-H2`` on two rows and divides by three, and the published tool prints it twice
+    as well. Silently deduplicating here would disagree with both.
+    """
+    spec = (dsm_data.get("scoring") or {}).get("grid") or []
+    grid = {(c["level"], c["category"]): c for c in spec}
+    text = {str(i.get("id")): str(i.get("text") or "") for i in dsm_data.get("indicators", [])}
+    esc = html.escape
+
+    blocks = ""
+    for level in sorted({lvl for lvl, cat in grid if cat == "TOTAL" and lvl >= 1}):
+        members = grid[(level, "TOTAL")]["members"]
+        if not members:
+            continue
+        rows, todo, unknown = "", 0, 0
+        for ident in members:
+            verdict = answers.get(ident)
+            value = None if verdict is None else verdict.value
+            if value is True:
+                state, mark = "met", "&#10003;"
+            elif value is False:
+                state, mark = "unmet", "&times;"
+                todo += 1
+            else:
+                state, mark = "unknown", "?"
+                todo += 1
+                unknown += 1
+            rows += (
+                f'<li class="lvl-{state}"><span class="lvl-mark" aria-hidden="true">{mark}</span>'
+                f'<code class="q-id">{_dsm_lk(ident)}</code>'
+                f'<span class="q-txt">{esc(text.get(ident, ""))}</span></li>'
+            )
+        name = esc(levels.get(level, ""))
+        tail = (
+            f' <span class="lvl-note">{unknown} of them not yet assessed</span>'
+            if unknown
+            else ""
+        )
+        blocks += (
+            f'<div class="lvlblock"><h3><b>{todo}</b> indicator{"s" if todo != 1 else ""} '
+            f"still to satisfy for Maturity Level {level} "
+            f'<span class="lvl-name">{name}</span>{tail}</h3>'
+            f'<ul class="lvllist">{rows}</ul></div>'
+        )
+
+    if not blocks:
+        return ""
+    return (
+        '<section id="ladder">\n'
+        '  <div class="sec-h"><h2>What each level still needs</h2>'
+        '<span class="sec-meta">the assessment tool&rsquo;s own checklist</span></div>\n'
+        '  <p class="lead">Each level counts the indicators below it as well as its own, '
+        "so a statement can appear at more than one level. Every identifier links to the "
+        "model&rsquo;s definition of it. A <b>?</b> marks an indicator no crate can "
+        "evidence &mdash; the hosting environment and enterprise-governance statements the "
+        "published tool puts to a person; answer those in a YAML file "
+        "(<code>DSM-1-H1: true</code>, one per line) and pass it as "
+        "<code>--dsm-answers</code>.</p>\n"
+        f"  {blocks}\n"
         "</section>\n"
     )
 
@@ -2828,6 +2929,7 @@ def build_maturity_html(
         else None
     )
     dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {})
+    dsm_section += _render_dsm_levels(dsm_data, dsm_answers, dsm_data.get("levels") or {})
     # The indicators standing before the next level, worded as instructions and ranked
     # against the conformance findings in one list — see _render_recommendations.
     dsm_recommendations = dsm_indicator_actions(dsm_reach["blocked_by"], dsm_data)

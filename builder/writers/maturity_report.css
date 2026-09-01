@@ -379,6 +379,36 @@ __CATEGORY_STYLES__
   border:1px solid color-mix(in srgb,var(--low) 40%,transparent); }
 .mat .rec-badge.rec { color:var(--warn-ink); background:color-mix(in srgb,var(--warn) 15%,transparent);
   border:1px solid color-mix(in srgb,var(--warn) 45%,transparent); }
+/* The questions only a person can answer: the model's own wording, each option
+   labelled with the indicator it scores. */
+.mat .qblock { margin-top:.9rem; }
+.mat .qblock h3 { font-size:.86rem; font-weight:650; margin:0; text-wrap:balance; }
+.mat .q-how { font-size:.72rem; color:var(--muted); margin:.15rem 0 .4rem; }
+.mat .qlist { list-style:none; margin:0; padding:0; display:grid; gap:.3rem; }
+.mat .qlist li { display:grid; grid-template-columns:auto 1fr auto; gap:.5rem;
+  align-items:baseline; font-size:.8rem; padding:.3rem .45rem; border-radius:6px;
+  background:var(--surface-2); }
+.mat .q-id { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.68rem;
+  color:var(--ink-2); }
+.mat .q-txt { color:var(--ink); }
+.mat .q-open { font-size:.64rem; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--muted); white-space:nowrap; }
+.mat .q-said { font-size:.64rem; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--accent); white-space:nowrap; }
+/* The per-level checklist, in the shape the published tool reports it. */
+.mat .lvlblock { margin-top:1rem; }
+.mat .lvlblock h3 { font-size:.84rem; font-weight:600; margin:0 0 .35rem; text-wrap:balance; }
+.mat .lvl-name { color:var(--muted); font-weight:400; }
+.mat .lvl-note { color:var(--warn-ink); font-weight:400; font-size:.76rem; }
+.mat .lvllist { list-style:none; margin:0; padding:0; display:grid; gap:.22rem; }
+.mat .lvllist li { display:grid; grid-template-columns:1rem auto 1fr; gap:.45rem;
+  align-items:baseline; font-size:.79rem; padding:.26rem .4rem; border-radius:6px;
+  background:var(--surface-2); }
+.mat .lvl-mark { font-weight:700; text-align:center; }
+.mat li.lvl-met .lvl-mark { color:var(--good-ink); }
+.mat li.lvl-met .q-txt { color:var(--muted); }
+.mat li.lvl-unmet .lvl-mark { color:var(--low-ink); }
+.mat li.lvl-unknown .lvl-mark { color:var(--warn-ink); }
 .mat .rec-badge.lvl { color:var(--accent); background:color-mix(in srgb,var(--accent) 13%,transparent);
   border:1px solid color-mix(in srgb,var(--accent) 28%,transparent); }
 .mat .rec-badge.opt { color:var(--muted); background:var(--surface-2);
