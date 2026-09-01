@@ -54,19 +54,638 @@ level_scope:
   3: Community level
   4: Cross-community level
   5: Enterprise level
+scoring:
+  sheet: FAIR-DSM Assessment Sheet v1.2
+  column: J
+  note: 'Column J is entirely formulas, so a blank H is a NUMERIC 0, not a blank. COUNT() counts it: this
+    instrument has no ''not assessed'' state, and every denominator equals its member count.'
+  promotion:
+  - cell: J4
+    then: DSM-2-R2
+    when: DSM-3-R2
+  - cell: J10
+    then: DSM-1-R3
+    when: DSM-2-R3
+  - cell: J11
+    then: DSM-2-R3
+    when: DSM-3-R3
+  - cell: J16
+    then: DSM-1-R1
+    when: DSM-2-R1
+  - cell: J17
+    then: DSM-2-R1
+    when: DSM-3-R1
+  - cell: J22
+    then: DSM-1-R4
+    when: DSM-3-R4
+  - cell: J24
+    then: DSM-3-R4
+    when: DSM-4-R4
+  - cell: J27
+    then: DSM-1-R5
+    when: DSM-3-R5
+  - cell: J28
+    then: DSM-3-R5
+    when: DSM-4-R5
+  grid:
+  - cell: P6
+    level: 0
+    category: C
+    counts: 0
+    rows:
+    - 31
+    - 44
+    - 49
+    members:
+    - DSM-0-C0
+    - DSM-0-C1
+    - DSM-0-C2
+    denominator:
+      kind: count
+      n: 3
+  - cell: P7
+    level: 0
+    category: R
+    counts: 0
+    rows:
+    - 2
+    - 8
+    - 15
+    - 21
+    - 26
+    members:
+    - DSM-0-R2
+    - DSM-0-R3
+    - DSM-0-R1
+    - DSM-0-R4
+    - DSM-0-R5
+    denominator:
+      kind: count
+      n: 5
+  - cell: P8
+    level: 0
+    category: H
+    counts: 0
+    rows:
+    - 59
+    - 64
+    - 71
+    members:
+    - DSM-0-H1
+    - DSM-0-H2
+    - DSM-0-H3
+    denominator:
+      kind: count
+      n: 3
+  - cell: P9
+    level: 0
+    category: TOTAL
+    counts: 0
+    rows:
+    - 2
+    - 8
+    - 15
+    - 21
+    - 26
+    - 31
+    - 44
+    - 49
+    - 59
+    - 64
+    - 71
+    members:
+    - DSM-0-R2
+    - DSM-0-R3
+    - DSM-0-R1
+    - DSM-0-R4
+    - DSM-0-R5
+    - DSM-0-C0
+    - DSM-0-C1
+    - DSM-0-C2
+    - DSM-0-H1
+    - DSM-0-H2
+    - DSM-0-H3
+    denominator:
+      kind: literal
+      n: 11
+  - cell: P10
+    level: 1
+    category: C
+    counts: 1
+    rows:
+    - 32
+    - 45
+    - 50
+    - 51
+    members:
+    - DSM-1-C0
+    - DSM-1-C1
+    - DSM-1-C2
+    - DSM-1-C3
+    denominator:
+      kind: count
+      n: 4
+  - cell: P11
+    level: 1
+    category: R
+    counts: 1
+    rows:
+    - 3
+    - 9
+    - 10
+    - 16
+    - 22
+    - 27
+    members:
+    - DSM-1-R2
+    - DSM-1-R0
+    - DSM-1-R3
+    - DSM-1-R1
+    - DSM-1-R4
+    - DSM-1-R5
+    denominator:
+      kind: count
+      n: 6
+  - cell: P12
+    level: 1
+    category: H
+    counts: 1
+    rows:
+    - 60
+    - 65
+    - 66
+    - 72
+    members:
+    - DSM-1-H1
+    - DSM-1-H2
+    - DSM-1-H3
+    - DSM-1-H4
+    denominator:
+      kind: count
+      n: 4
+  - cell: P13
+    level: 1
+    category: TOTAL
+    counts: 1
+    rows:
+    - 3
+    - 9
+    - 10
+    - 16
+    - 22
+    - 27
+    - 32
+    - 45
+    - 50
+    - 51
+    - 60
+    - 65
+    - 66
+    - 72
+    members:
+    - DSM-1-R2
+    - DSM-1-R0
+    - DSM-1-R3
+    - DSM-1-R1
+    - DSM-1-R4
+    - DSM-1-R5
+    - DSM-1-C0
+    - DSM-1-C1
+    - DSM-1-C2
+    - DSM-1-C3
+    - DSM-1-H1
+    - DSM-1-H2
+    - DSM-1-H3
+    - DSM-1-H4
+    denominator:
+      kind: literal
+      n: 14
+  - cell: P14
+    level: 2
+    category: C
+    counts: 1
+    rows:
+    - 33
+    - 36
+    - 40
+    - 46
+    - 52
+    - 54
+    - 57
+    - 50
+    - 51
+    members:
+    - DSM-2-C2
+    - DSM-2-C3
+    - DSM-2-C4
+    - DSM-2-C1
+    - DSM-2-C5
+    - DSM-2-C6
+    - DSM-2-C7
+    - DSM-1-C2
+    - DSM-1-C3
+    denominator:
+      kind: count
+      n: 9
+  - cell: P15
+    level: 2
+    category: R
+    counts: 1
+    rows:
+    - 4
+    - 11
+    - 17
+    - 23
+    - 3
+    - 27
+    - 9
+    - 22
+    members:
+    - DSM-2-R2
+    - DSM-2-R3
+    - DSM-2-R1
+    - DSM-2-R4
+    - DSM-1-R2
+    - DSM-1-R5
+    - DSM-1-R0
+    - DSM-1-R4
+    denominator:
+      kind: count
+      n: 8
+  - cell: P16
+    level: 2
+    category: H
+    counts: 1
+    rows:
+    - 61
+    - 67
+    - 73
+    - 66
+    members:
+    - DSM-2-H1
+    - DSM-2-H2
+    - DSM-2-H3
+    - DSM-1-H3
+    denominator:
+      kind: literal
+      n: 4
+  - cell: P17
+    level: 2
+    category: TOTAL
+    counts: 1
+    rows:
+    - 4
+    - 11
+    - 17
+    - 23
+    - 33
+    - 36
+    - 40
+    - 46
+    - 52
+    - 54
+    - 57
+    - 61
+    - 67
+    - 73
+    - 3
+    - 27
+    - 9
+    - 22
+    - 50
+    - 51
+    - 66
+    members:
+    - DSM-2-R2
+    - DSM-2-R3
+    - DSM-2-R1
+    - DSM-2-R4
+    - DSM-2-C2
+    - DSM-2-C3
+    - DSM-2-C4
+    - DSM-2-C1
+    - DSM-2-C5
+    - DSM-2-C6
+    - DSM-2-C7
+    - DSM-2-H1
+    - DSM-2-H2
+    - DSM-2-H3
+    - DSM-1-R2
+    - DSM-1-R5
+    - DSM-1-R0
+    - DSM-1-R4
+    - DSM-1-C2
+    - DSM-1-C3
+    - DSM-1-H3
+    denominator:
+      kind: literal
+      n: 21
+  - cell: P18
+    level: 3
+    category: C
+    counts: 1
+    rows:
+    - 34
+    - 37
+    - 41
+    - 47
+    - 53
+    - 55
+    - 58
+    - 33
+    - 57
+    members:
+    - DSM-3-C2
+    - DSM-3-C3
+    - DSM-3-C4
+    - DSM-3-C1
+    - DSM-3-C7
+    - DSM-3-C6
+    - DSM-3-C5
+    - DSM-2-C2
+    - DSM-2-C7
+    denominator:
+      kind: count
+      n: 9
+  - cell: P19
+    level: 3
+    category: R
+    counts: 1
+    rows:
+    - 5
+    - 12
+    - 18
+    - 24
+    - 28
+    - 3
+    - 9
+    - 23
+    members:
+    - DSM-3-R2
+    - DSM-3-R3
+    - DSM-3-R1
+    - DSM-3-R4
+    - DSM-3-R5
+    - DSM-1-R2
+    - DSM-1-R0
+    - DSM-2-R4
+    denominator:
+      kind: count
+      n: 8
+  - cell: P20
+    level: 3
+    category: H
+    counts: 1
+    rows:
+    - 62
+    - 68
+    - 69
+    - 74
+    - 66
+    members:
+    - DSM-3-H1
+    - DSM-3-H2
+    - DSM-3-H4
+    - DSM-3-H3
+    - DSM-1-H3
+    denominator:
+      kind: count
+      n: 5
+  - cell: P21
+    level: 3
+    category: TOTAL
+    counts: 1
+    rows:
+    - 5
+    - 12
+    - 18
+    - 24
+    - 28
+    - 34
+    - 37
+    - 41
+    - 47
+    - 53
+    - 55
+    - 58
+    - 62
+    - 68
+    - 69
+    - 74
+    - 3
+    - 9
+    - 23
+    - 33
+    - 57
+    - 66
+    members:
+    - DSM-3-R2
+    - DSM-3-R3
+    - DSM-3-R1
+    - DSM-3-R4
+    - DSM-3-R5
+    - DSM-3-C2
+    - DSM-3-C3
+    - DSM-3-C4
+    - DSM-3-C1
+    - DSM-3-C7
+    - DSM-3-C6
+    - DSM-3-C5
+    - DSM-3-H1
+    - DSM-3-H2
+    - DSM-3-H4
+    - DSM-3-H3
+    - DSM-1-R2
+    - DSM-1-R0
+    - DSM-2-R4
+    - DSM-2-C2
+    - DSM-2-C7
+    - DSM-1-H3
+    denominator:
+      kind: literal
+      n: 22
+  - cell: P22
+    level: 4
+    category: C
+    counts: 1
+    rows:
+    - 35
+    - 38
+    - 42
+    - 48
+    - 56
+    members:
+    - DSM-4-C2
+    - DSM-4-C3
+    - DSM-4-C4
+    - DSM-4-C1
+    - DSM-4-C5
+    denominator:
+      kind: count
+      n: 5
+  - cell: P23
+    level: 4
+    category: R
+    counts: 1
+    rows:
+    - 6
+    - 13
+    - 19
+    - 25
+    - 29
+    - 30
+    - 3
+    members:
+    - DSM-4-R2
+    - DSM-4-R3
+    - DSM-4-R1
+    - DSM-4-R4
+    - DSM-4-R5
+    - DSM-4-R6
+    - DSM-1-R2
+    denominator:
+      kind: count
+      n: 7
+  - cell: P24
+    level: 4
+    category: H
+    counts: 1
+    rows:
+    - 63
+    - 70
+    - 75
+    members:
+    - DSM-4-H1
+    - DSM-4-H2
+    - DSM-4-H2
+    denominator:
+      kind: count
+      n: 3
+  - cell: P25
+    level: 4
+    category: TOTAL
+    counts: 1
+    rows:
+    - 6
+    - 13
+    - 19
+    - 25
+    - 29
+    - 30
+    - 35
+    - 38
+    - 42
+    - 48
+    - 56
+    - 63
+    - 70
+    - 75
+    - 3
+    members:
+    - DSM-4-R2
+    - DSM-4-R3
+    - DSM-4-R1
+    - DSM-4-R4
+    - DSM-4-R5
+    - DSM-4-R6
+    - DSM-4-C2
+    - DSM-4-C3
+    - DSM-4-C4
+    - DSM-4-C1
+    - DSM-4-C5
+    - DSM-4-H1
+    - DSM-4-H2
+    - DSM-4-H2
+    - DSM-1-R2
+    denominator:
+      kind: literal
+      n: 15
+  - cell: P26
+    level: 5
+    category: C
+    counts: 1
+    rows:
+    - 39
+    - 43
+    members:
+    - DSM-5-C3
+    - DSM-5-C4
+    denominator:
+      kind: count
+      n: 2
+  - cell: P27
+    level: 5
+    category: R
+    counts: 1
+    rows:
+    - 7
+    - 14
+    - 20
+    members:
+    - DSM-5-R2
+    - DSM-5-R3
+    - DSM-5-R1
+    denominator:
+      kind: count
+      n: 3
+  - cell: P28
+    level: 5
+    category: H
+    constant: 0.0
+    rows: []
+    members: []
+  - cell: P29
+    level: 5
+    category: TOTAL
+    counts: 1
+    rows:
+    - 7
+    - 14
+    - 20
+    - 39
+    - 43
+    members:
+    - DSM-5-R2
+    - DSM-5-R3
+    - DSM-5-R1
+    - DSM-5-C3
+    - DSM-5-C4
+    denominator:
+      kind: literal
+      n: 5
+  off_sheet:
+  - DSM-2-R5
+  - DSM-4-H3
+  - DSM-5-C1
+  - DSM-5-C2
+  - DSM-5-C5
+  - DSM-5-H1
+  - DSM-5-H2
+  - DSM-5-H3
+  - DSM-5-R4
+  - DSM-5-R5
 questions:
-- question: Which of the following statements best describes the current state of Data to be shared and
+- number: 1
+  question: Which of the following statements best describes the current state of Data to be shared and
     re-used?
   multi_select: false
   has_none_of_the_above: false
   options:
   - id: DSM-0-R2
     level: 0
+    skip_questions:
+    - 2
+    - 3
+    - 8
+    - 9
+    - 10
   - id: DSM-1-R2
     level: 1
-- question: Which of the following statements best describe the state of your shareable Datasets?
+- number: 2
+  question: Which of the following statements best describe the state of your shareable Datasets?
   multi_select: true
   has_none_of_the_above: true
+  depends_on: DSM-1-R2
   options:
   - id: DSM-2-R2
     level: 2
@@ -76,9 +695,11 @@ questions:
     level: 4
   - id: DSM-5-R2
     level: 5
-- question: Which of the following statements best describes the Dataset's current format ?
+- number: 3
+  question: Which of the following statements best describes the Dataset's current format ?
   multi_select: false
   has_none_of_the_above: false
+  depends_on: DSM-1-R2
   options:
   - id: DSM-0-R5
     level: 0
@@ -88,18 +709,26 @@ questions:
     level: 3
   - id: DSM-4-R5
     level: 4
-- question: Which of the following statements best describes the current state of the Dataset's Metadata?
+- number: 4
+  question: Which of the following statements best describes the current state of the Dataset's Metadata?
   multi_select: false
   has_none_of_the_above: false
   options:
   - id: DSM-0-R3
     level: 0
+    skip_questions:
+    - 5
+    - 12
+    - 13
+    - 14
   - id: DSM-1-R0
     level: 1
-- question: Which of the following statements best describes how the Dataset's metadata is modeled and
+- number: 5
+  question: Which of the following statements best describes how the Dataset's metadata is modeled and
     represented?
   multi_select: true
   has_none_of_the_above: true
+  depends_on: DSM-1-R0
   options:
   - id: DSM-1-R3
     level: 1
@@ -111,7 +740,8 @@ questions:
     level: 4
   - id: DSM-5-R3
     level: 5
-- question: Which of the following statements best describes the current format of the Dataset Metadata?
+- number: 6
+  question: Which of the following statements best describes the current format of the Dataset Metadata?
   multi_select: true
   has_none_of_the_above: false
   options:
@@ -125,13 +755,16 @@ questions:
     level: 3
   - id: DSM-4-R4
     level: 4
-- question: Which of the following statements best describes how information describing the context of
+- number: 7
+  question: Which of the following statements best describes how information describing the context of
     the dataset(s) is represented?
   multi_select: false
   has_none_of_the_above: false
   options:
   - id: DSM-0-R1
     level: 0
+    skip_questions:
+    - 11
   - id: DSM-1-R1
     level: 1
   - id: DSM-2-R1
@@ -142,9 +775,11 @@ questions:
     level: 4
   - id: DSM-5-R1
     level: 5
-- question: The following statements refer to Dataset-Level content. Select all that apply.
+- number: 8
+  question: The following statements refer to Dataset-Level content. Select all that apply.
   multi_select: true
   has_none_of_the_above: false
+  depends_on: DSM-1-R2
   options:
   - id: DSM-0-C0
     level: 0
@@ -156,10 +791,12 @@ questions:
     level: 3
   - id: DSM-4-C2
     level: 4
-- question: The following statements refer to Field-Level content reported in a Dataset. Select all that
+- number: 9
+  question: The following statements refer to Field-Level content reported in a Dataset. Select all that
     apply.
   multi_select: true
   has_none_of_the_above: true
+  depends_on: DSM-1-R2
   options:
   - id: DSM-2-C3
     level: 2
@@ -169,10 +806,12 @@ questions:
     level: 4
   - id: DSM-5-C3
     level: 5
-- question: The following statements refer to Value-Level (measurements) content reported in a Dataset
+- number: 10
+  question: The following statements refer to Value-Level (measurements) content reported in a Dataset
     Field. Select all that apply.
   multi_select: true
   has_none_of_the_above: true
+  depends_on: DSM-1-R2
   options:
   - id: DSM-2-C4
     level: 2
@@ -182,10 +821,12 @@ questions:
     level: 4
   - id: DSM-5-C4
     level: 5
-- question: The following statements refer to Study/Project Level metadata that provides context for the
+- number: 11
+  question: The following statements refer to Study/Project Level metadata that provides context for the
     datasets interpretation. Select all that apply.
   multi_select: true
   has_none_of_the_above: false
+  depends_on: DSM-x-R1
   options:
   - id: DSM-0-C1
     level: 0
@@ -197,10 +838,12 @@ questions:
     level: 3
   - id: DSM-4-C1
     level: 4
-- question: The following statements refer to Dataset-Level metadata reported in a Dataset's Descriptor.
+- number: 12
+  question: The following statements refer to Dataset-Level metadata reported in a Dataset's Descriptor.
     Select all that apply.
   multi_select: true
   has_none_of_the_above: true
+  depends_on: DSM-1-R0
   options:
   - id: DSM-0-C2
     level: 0
@@ -212,9 +855,11 @@ questions:
     level: 2
   - id: DSM-3-C7
     level: 3
-- question: The following statements refer to Field-level metadata. Select all that apply.
+- number: 13
+  question: The following statements refer to Field-level metadata. Select all that apply.
   multi_select: true
   has_none_of_the_above: true
+  depends_on: DSM-1-R0
   options:
   - id: DSM-2-C6
     level: 2
@@ -222,15 +867,18 @@ questions:
     level: 3
   - id: DSM-4-C5
     level: 4
-- question: The following statements refer to value-level metadata. Select all that apply.
+- number: 14
+  question: The following statements refer to value-level metadata. Select all that apply.
   multi_select: true
   has_none_of_the_above: true
+  depends_on: DSM-1-R0
   options:
   - id: DSM-2-C7
     level: 2
   - id: DSM-3-C5
     level: 3
-- question: The following statements refer to the Storage Capabilities of the Data and Metadata Hosting
+- number: 15
+  question: The following statements refer to the Storage Capabilities of the Data and Metadata Hosting
     Environments. Select all that apply.
   multi_select: true
   has_none_of_the_above: true
@@ -243,13 +891,10 @@ questions:
     level: 2
   - id: DSM-3-H1
     level: 3
-- question: Which of the following statements best describe the hosting capabilities of the dataset(s)?
-  multi_select: true
-  has_none_of_the_above: true
-  options:
   - id: DSM-4-H1
     level: 4
-- question: The following statements refer to the Retrieval Capabilities of the Data and Metadata Hosting
+- number: 16
+  question: The following statements refer to the Retrieval Capabilities of the Data and Metadata Hosting
     Environments. Select all that apply.
   multi_select: true
   has_none_of_the_above: true
@@ -268,7 +913,8 @@ questions:
     level: 3
   - id: DSM-4-H2
     level: 4
-- question: The following statements refer to the Search Capabilities of the Data and Metadata Hosting
+- number: 17
+  question: The following statements refer to the Search Capabilities of the Data and Metadata Hosting
     Environments. Select all that apply.
   multi_select: true
   has_none_of_the_above: false

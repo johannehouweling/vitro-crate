@@ -37,6 +37,7 @@ generator's output and that every indicator matches its row in the workbook.
 from __future__ import annotations
 
 import pathlib
+import re
 from typing import Any
 
 import openpyxl
@@ -50,6 +51,23 @@ OUT = REPO / "fair" / "dsm_indicators.yaml"
 # ID(2), v1 Identifier(3), Indicator Description(4), REF RDA indicator(s)(5),
 # REF FAIRsFAIR indicator(s)(6), Granurality(7)  [sic — the sheet's own spelling].
 _SHEET = "MASTER (Levels View)"
+
+# The scoring sheet. Column H is the pre-FAIRification assessment, I the post; J and K
+# are the "Validation" columns that turn those answers into the published % grid. J is
+# ENTIRELY formulas (`=H{row}`, or `=IF(J{src}=1,1,H{row})` where a higher rung
+# satisfies a lower one), so a blank H evaluates to numeric 0 and COUNT() counts it:
+# this instrument has no "not assessed" state, and every denominator equals its member
+# count. Columns N/O/P hold the % grid — level, category, formula.
+_ASSESSMENT_SHEET = "FAIR-DSM Assessment Sheet v1.2"
+
+# The grid's own category labels -> the codes the indicator ids use. "ant" is the
+# sheet's own typo and is matched verbatim; TOTAL is a fourth column, not a category.
+_GRID_CATEGORY_CODE: dict[str, str] = {
+    "Content ant context": "C",
+    "Representation and format": "R",
+    "Hosting environment capabilities": "H",
+    "Total": "TOTAL",
+}
 
 # The workbook's category names -> the single-letter codes the indicator ids use.
 _CATEGORY_CODE: dict[str, str] = {
@@ -244,14 +262,18 @@ _QUESTION_SHEET = "Assessment Tool Data v1.2 "
 
 
 def _load_questions(levels_by_id: dict[str, int]) -> list[dict[str, Any]]:
-    """The assessment questionnaire: 18 questions, each a ladder of indicator options.
+    """The assessment questionnaire: 17 questions, each a ladder of indicator options.
 
-    This is what makes the ladder constraint expressible. Within one question the
-    options are nested by level — "standardised to a *community* model" sits above
-    "standardised to a *local* model" — so an option cannot honestly be true while a
-    lower one on the same ladder is false. Scoring indicators independently, as this
-    tool does, can produce exactly that incoherence; carrying the question structure
-    is what lets the scorer refuse it.
+    Grouped by the tool's own ``QUESTION_NUM``, not by question text — one number
+    carries two wordings (a stale "hosting capabilities" phrasing beside the current
+    "Storage Capabilities" one) and grouping by text splits it into two questions the
+    instrument does not have.
+
+    ``depends_on`` and ``skip_questions`` are the online tool's ELICITATION rules —
+    which question to put in front of a person next. They are carried as documentation
+    of the published instrument and are not arithmetic: a machine assessor evaluates
+    every indicator regardless, and a question the tool would have skipped is one the
+    respondent leaves unticked, which the sheet already scores as 0.
     """
     wb = openpyxl.load_workbook(DSM_XLSX, read_only=True, data_only=True)
     ws = wb[_QUESTION_SHEET]
@@ -259,34 +281,240 @@ def _load_questions(levels_by_id: dict[str, int]) -> list[dict[str, Any]]:
     header = [str(c).strip() if c else "" for c in rows[0]]
     col = {name: i for i, name in enumerate(header) if name}
 
-    grouped: dict[str, dict[str, Any]] = {}
+    grouped: dict[int, dict[str, Any]] = {}
     for row in rows[1:]:
         question = str(row[col["QUESTION"]]).strip() if row[col["QUESTION"]] else ""
         ident = str(row[col["INDICATORID"]]).strip() if row[col["INDICATORID"]] else ""
-        if not question or not ident.startswith("DSM-"):
+        number = row[col["QUESTION_NUM"]]
+        if not question or not ident.startswith("DSM-") or number is None:
             continue
         # The questionnaire's own LEVEL cell is multi-valued ("Level 1, Level 2" —
         # an option that satisfies several rungs), so it cannot order a ladder.
         # The MASTER sheet is the authoritative statement of an indicator's level.
         level = levels_by_id.get(ident)
         entry = grouped.setdefault(
-            question,
+            int(float(number)),
             {
+                "number": int(float(number)),
                 "question": question,
                 "multi_select": bool(row[col["ISMULTI"]]),
                 "has_none_of_the_above": bool(row[col["HAS_NOA"]]),
                 "options": [],
             },
         )
+        if depends := row[col["DEPENDS_ON"]]:
+            entry.setdefault("depends_on", str(depends).strip())
+        option: dict[str, Any] = {"id": ident, "level": level}
+        if skips := row[col["SkipQuestionIDs"]]:
+            option["skip_questions"] = [
+                int(float(part)) for part in str(skips).split(",") if part.strip()
+            ]
         if ident not in [o["id"] for o in entry["options"]]:
-            entry["options"].append({"id": ident, "level": level})
+            entry["options"].append(option)
 
     questions = list(grouped.values())
     for entry in questions:
+        # `depends_on` is set as rows arrive, so pull it back beside the flags it
+        # belongs with rather than leaving it after `options`.
+        if "depends_on" in entry:
+            entry["depends_on"] = entry.pop("depends_on")
+            entry["options"] = entry.pop("options")
         # Ladder order is by level; an option with no level sorts first (it is the
         # "none of the above" / level-0 state).
         entry["options"].sort(key=lambda o: (o["level"] is None, o["level"] or 0))
     return questions
+
+
+def _assessment_rows(ws: Any) -> dict[int, str]:
+    """Sheet row number -> indicator id, for the rows the scoring formulas reference."""
+    rows: dict[int, str] = {}
+    for row in range(2, ws.max_row + 1):
+        ident = ws.cell(row=row, column=5).value  # E: "Indicator Identifier v1"
+        ident = str(ident).strip() if ident else ""
+        if ident.startswith("DSM-"):
+            rows[row] = ident
+    return rows
+
+
+def _promotion_rules(ws: Any, rows: dict[int, str]) -> list[dict[str, str]]:
+    """The sheet's own ladder, read off the J column.
+
+    ``=IF(J5=1,1,H4)`` says: if the rung recorded on row 5 is met, row 4 counts as met
+    too. The model's statements nest — "standardised to a *community* model" implies
+    "standardised to a *local* model" — and the sheet resolves that by PROMOTING the
+    lower rung, never by demoting the higher one. Anything else in the column is a
+    layout change we must not paper over, so it raises.
+    """
+    plain = re.compile(r"^=H(\d+)$")
+    promote = re.compile(r"^=IF\(J(\d+)=1,1,H(\d+)\)$")
+    out: list[dict[str, str]] = []
+    for row, ident in rows.items():
+        formula = str(ws.cell(row=row, column=10).value or "").replace(" ", "")
+        mirror = str(ws.cell(row=row, column=11).value or "").replace(" ", "")
+        if mirror != formula.replace("J", "K").replace("H", "I"):
+            raise ValueError(
+                f"row {row} ({ident}): the pre column J and the post column K disagree "
+                f"({formula!r} vs {mirror!r}) — the workbook changed shape"
+            )
+        if plain.match(formula):
+            if int(plain.match(formula).group(1)) != row:
+                raise ValueError(f"row {row} ({ident}): {formula!r} reads another row")
+            continue
+        match = promote.match(formula)
+        if not match:
+            raise ValueError(f"row {row} ({ident}): unrecognised validation formula {formula!r}")
+        source, own = int(match.group(1)), int(match.group(2))
+        if own != row:
+            raise ValueError(f"row {row} ({ident}): {formula!r} falls back to another row")
+        out.append({"cell": f"J{row}", "then": ident, "when": rows[source]})
+    return out
+
+
+def _grid_cells(ws: Any, rows: dict[int, str]) -> list[dict[str, Any]]:
+    """The published "% Complete" grid: level x {C, R, H, Total}, from the P column.
+
+    Membership is the sheet's, not ours: a level's cell carries lower-level indicators
+    forward (``P14`` counts DSM-1-C2 and DSM-1-C3 alongside the Level-2 rows), and it
+    is a MULTISET — ``P24`` names DSM-4-H2 on two rows and divides by 3, so deduping
+    would change the denominator. Level 0 counts zeros, because its statements are the
+    pre-FAIRification condition stated in the negative.
+    """
+    counts = re.compile(r"COUNTIFS\(J(\d+),(\d)\)")
+    denom_count = re.compile(r"COUNT\(([^)]*)\)")
+    denom_literal = re.compile(r"/(\d+)\)\*100")
+    cells: list[dict[str, Any]] = []
+    level: int | None = None
+    for row in range(2, ws.max_row + 1):
+        label = ws.cell(row=row, column=14).value  # N: "Level 3"
+        if label and str(label).strip().startswith("Level"):
+            level = int(str(label).strip().split()[-1])
+        category = str(ws.cell(row=row, column=15).value or "").strip()  # O
+        if not category:
+            continue
+        if category not in _GRID_CATEGORY_CODE:
+            raise KeyError(f"P{row}: unknown grid category {category!r}")
+        if level is None:
+            raise ValueError(f"P{row}: no level in scope — the sheet layout changed")
+        cell: dict[str, Any] = {
+            "cell": f"P{row}",
+            "level": level,
+            "category": _GRID_CATEGORY_CODE[category],
+        }
+        formula = ws.cell(row=row, column=16).value
+        if isinstance(formula, (int, float)):
+            # The sheet hardcodes P28 to 0: there is no Level-5 hosting row to count.
+            cell["constant"] = float(formula)
+            cell["rows"] = []
+            cell["members"] = []
+            cells.append(cell)
+            continue
+        text = str(formula).replace(" ", "").replace("++", "+")
+        members = counts.findall(text)
+        if not members:
+            raise ValueError(f"P{row}: no COUNTIFS terms in {text!r}")
+        criteria = {digit for _, digit in members}
+        if len(criteria) != 1:
+            raise ValueError(f"P{row}: mixed COUNTIFS criteria {criteria}")
+        cell["counts"] = int(criteria.pop())
+        cell["rows"] = [int(r) for r, _ in members]
+        cell["members"] = [rows[int(r)] for r, _ in members]
+        if match := denom_count.search(text):
+            cell["denominator"] = {"kind": "count", "n": len(match.group(1).split(","))}
+        elif match := denom_literal.search(text):
+            cell["denominator"] = {"kind": "literal", "n": int(match.group(1))}
+        else:
+            raise ValueError(f"P{row}: no denominator in {text!r}")
+        if len(cell["members"]) != cell["denominator"]["n"]:
+            raise ValueError(
+                f"P{row}: {len(cell['members'])} members but denominator "
+                f"{cell['denominator']['n']} — the two arithmetic paths have diverged"
+            )
+        cells.append(cell)
+    return cells
+
+
+def _load_scoring(known: set[str]) -> dict[str, Any]:
+    """The workbook's own arithmetic: the ladder, the grid, and what it leaves out.
+
+    Carrying this means the scorer reproduces the published instrument instead of
+    hand-coding an approximation of it. The cross-checks below are the parity proof:
+    the transitive closure of the sheet's IF-chain must equal the ONLINE tool's
+    ``SUPERSEDED_BY`` column, two independently maintained authorities agreeing.
+    """
+    wb = openpyxl.load_workbook(DSM_XLSX, data_only=False)
+    ws = wb[_ASSESSMENT_SHEET]
+    rows = _assessment_rows(ws)
+    promotion = _promotion_rules(ws, rows)
+    grid = _grid_cells(ws, rows)
+
+    direct: dict[str, set[str]] = {}
+    for rule in promotion:
+        direct.setdefault(rule["then"], set()).add(rule["when"])
+
+    def closure(ident: str) -> set[str]:
+        seen: set[str] = set()
+        stack = list(direct.get(ident, ()))
+        while stack:
+            node = stack.pop()
+            if node not in seen:
+                seen.add(node)
+                stack.extend(direct.get(node, ()))
+        return seen
+
+    published = _superseded_by()
+    derived = {ident: closure(ident) for ident in direct}
+    if derived != published:
+        raise ValueError(
+            "the sheet's promotion chain and the online tool's SUPERSEDED_BY column "
+            f"disagree: {derived} vs {published}"
+        )
+
+    for level in {cell["level"] for cell in grid}:
+        at = {cell["category"]: set(cell["members"]) for cell in grid if cell["level"] == level}
+        union = at.get("C", set()) | at.get("R", set()) | at.get("H", set())
+        if union != at.get("TOTAL", set()):
+            raise ValueError(f"level {level}: the Total cell is not the union of C/R/H")
+
+    in_a_cell = {member for cell in grid for member in cell["members"]}
+    off_sheet = sorted(known - in_a_cell)
+    scored_off_sheet = sorted(set(LOCAL_SCOPE) - in_a_cell)
+    if scored_off_sheet != ["DSM-2-R5"]:
+        raise ValueError(
+            "indicators we score that no published cell counts changed: "
+            f"{scored_off_sheet} (expected only DSM-2-R5)"
+        )
+    return {
+        "sheet": _ASSESSMENT_SHEET,
+        "column": "J",
+        "note": (
+            "Column J is entirely formulas, so a blank H is a NUMERIC 0, not a blank. "
+            "COUNT() counts it: this instrument has no 'not assessed' state, and every "
+            "denominator equals its member count."
+        ),
+        "promotion": promotion,
+        "grid": grid,
+        "off_sheet": off_sheet,
+    }
+
+
+def _superseded_by() -> dict[str, set[str]]:
+    """The questionnaire sheet's own statement of which rung supersedes which.
+
+    Read with ``data_only=True``: the INDICATORID column is a cross-sheet formula, so
+    the formula view yields ``='MASTER (Levels View)'!C6`` rather than the id.
+    """
+    wb = openpyxl.load_workbook(DSM_XLSX, read_only=True, data_only=True)
+    ws = wb[_QUESTION_SHEET]
+    rows = list(ws.iter_rows(values_only=True))
+    header = [str(c).strip() if c else "" for c in rows[0]]
+    col = {name: i for i, name in enumerate(header) if name}
+    out: dict[str, set[str]] = {}
+    for row in rows[1:]:
+        ident = str(row[col["INDICATORID"]]).strip() if row[col["INDICATORID"]] else ""
+        value = row[col["SUPERSEDED_BY"]]
+        if ident.startswith("DSM-") and value:
+            out[ident] = {part.strip() for part in str(value).split(",") if part.strip()}
+    return out
 
 
 def build_data() -> dict[str, Any]:
@@ -324,6 +552,7 @@ def build_data() -> dict[str, Any]:
         "license": SOURCE["license"],
         "levels": {lvl: meta["name"] for lvl, meta in _LEVELS.items()},
         "level_scope": {lvl: meta["scope"] for lvl, meta in _LEVELS.items()},
+        "scoring": _load_scoring(known),
         "questions": _load_questions({r["id"]: r["level"] for r in rows}),
         "indicators": indicators,
     }
