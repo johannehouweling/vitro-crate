@@ -387,3 +387,42 @@ class TestDsmBlockers:
             assert ind["scope"] != "na"
             assert text == ind["text"]
             assert DSM_CHECKS[ind["check"]](state, None) is False
+
+
+class TestTheAgentAndTheReportScoreTheSameCrate:
+    """One crate, one FAIR number — whoever asks.
+
+    The tool spec exposes no parameters, so a model reaches ``assess_fair_maturity``
+    with nothing but the state; ``_assess_fair_maturity_tool`` assembles the crate at
+    that boundary so the graph-aware indicators can answer. That fixed the graph and
+    left the second argument: the report also computes MIT against the same graph and
+    feeds it back in, because ``state.mit_assessment`` is never populated on either
+    path. Miss it and RDA-R1.3-01D is False for the agent and True on the page, for the
+    same bytes (#713).
+
+    Asserting the whole result rather than that one indicator is the point: the two
+    call sites drifted because nothing compared them, and a third argument would drift
+    the same way.
+    """
+
+    def _both_paths(self) -> tuple[FAIRReport, FAIRReport]:
+        from builder.tools.fair_assessment import _assess_fair_maturity_tool
+        from builder.tools.mit_assessment import assess_mit_coverage, scoring_graph
+
+        state = vhps_fixture_state("S-VHPS21")
+        graph = scoring_graph(state)
+        # What build_maturity_html does (maturity_report.py), spelled out.
+        report = assess_fair_maturity(
+            state, mit=assess_mit_coverage(state, graph=graph), graph=graph
+        )
+        return _assess_fair_maturity_tool(state), report
+
+    def test_every_indicator_agrees(self) -> None:
+        agent, report = self._both_paths()
+        assert {i["id"]: i["passed"] for i in agent.indicator_results} == {
+            i["id"]: i["passed"] for i in report.indicator_results
+        }
+
+    def test_the_dsm_level_agrees(self) -> None:
+        agent, report = self._both_paths()
+        assert agent.dsm_level == report.dsm_level
