@@ -509,9 +509,13 @@
     var legend = document.getElementById('lane-legend');
     clear(legend);
     var present = new Set();
+    var orphaned = false, outside = false;
     state.drawing.positions.forEach(function (_box, id) {
       var node = state.nodes.get(id);
-      if (node) present.add(node.category);
+      if (!node) return;
+      present.add(node.category);
+      if (node.orphan) orphaned = true;
+      if (node.status !== 'described') outside = true;
     });
     Object.keys(D.categories).forEach(function (key) {
       if (!present.has(key)) return;
@@ -523,6 +527,23 @@
       swatch.style.setProperty('--ex-c', c.colour);
       span.appendChild(swatch);
       span.appendChild(document.createTextNode(c.legend || c.label));
+      legend.appendChild(span);
+    });
+    // Colour is the category; a BORDER STYLE is something else, so the two do
+    // not run together in one strip — and a style key shows only when the lane
+    // holds a box drawn that way.
+    var styles = [];
+    if (orphaned) styles.push(['orphan', 'dashed: unreachable from the root']);
+    if (outside) styles.push(['outside', 'dotted: described outside the crate']);
+    if (styles.length) {
+      var sep = tag('span', 'ex-sep');
+      sep.setAttribute('aria-hidden', 'true');
+      legend.appendChild(sep);
+    }
+    styles.forEach(function (style) {
+      var span = tag('span', 'ex-key');
+      span.appendChild(tag('span', 'ex-swatch ex-swatch-' + style[0]));
+      span.appendChild(document.createTextNode(style[1]));
       legend.appendChild(span);
     });
   }

@@ -69,20 +69,24 @@ class TestThePayloadCarriesThem:
     def test_the_app_does_not_restate_the_vocabulary(self):
         import re
 
-        from builder.writers.entity_explorer import _app_js
+        from builder.writers.entity_explorer import _app_js, _inspector_js
 
-        code = re.sub(r"/\*.*?\*/", "", _app_js(), flags=re.S)
-        code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
-        assert "D.properties" in _app_js()
-        for term in ("schema:hasPart", "bioschemas:executesLabProtocol"):
-            assert term not in code, term
+        assert "D.properties" in _inspector_js()
+        for source in (_app_js(), _inspector_js()):
+            code = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+            code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+            for term in ("schema:hasPart", "bioschemas:executesLabProtocol"):
+                assert term not in code, term
 
 
 class TestTheTabIsTheOverview:
-    def _app(self) -> str:
-        from builder.writers.entity_explorer import _app_js
+    """The panel is the shared inspector's, mounted by both viewers, so these
+    are asserted where it is written rather than where it is shown."""
 
-        return _app_js()
+    def _app(self) -> str:
+        from builder.writers.entity_explorer import _inspector_js
+
+        return _inspector_js()
 
     def test_it_is_called_the_overview(self):
         app = self._app()
@@ -93,7 +97,7 @@ class TestTheTabIsTheOverview:
         """A relation shown in the panel and the same relation shown on an edge
         must not be two different words for one predicate."""
         app = self._app()
-        assert "term(pair[0])" in app
+        assert "term(label)" in app
 
     def test_the_json_and_links_tabs_are_still_offered(self):
         app = self._app()
@@ -109,13 +113,14 @@ class TestTheUntrustedTextRuleStillHolds:
     """
 
     def test_the_app_still_writes_no_navigation_sink(self):
-        from builder.writers.entity_explorer import _app_js
+        from builder.writers.assay_lane import _app_js as lane_app
+        from builder.writers.entity_explorer import _app_js, _inspector_js
 
-        source = _app_js()
-        for sink in ("href", "src=", "window.open", "location.assign", "innerHTML", "<a "):
-            assert sink not in source, sink
+        for source in (_app_js(), lane_app(), _inspector_js()):
+            for sink in ("href", "src=", "window.open", "location.assign", "innerHTML", "<a "):
+                assert sink not in source, sink
 
     def test_a_url_value_is_offered_for_copying(self):
-        from builder.writers.entity_explorer import _app_js
+        from builder.writers.entity_explorer import _inspector_js
 
-        assert "clipboard" in _app_js()
+        assert "clipboard" in _inspector_js()
