@@ -1113,7 +1113,9 @@ class TestTheDepositorCanAnswerWhatTheCrateCannot:
     def test_a_non_boolean_answer_is_dropped_not_coerced(self) -> None:
         """"yes" is not True. A hand-edited file must not smuggle a pass in."""
         state = _as_received_state()
-        state.dsm_answers = {"DSM-1-H1": "yes"}
+        # setattr, because the whole point is a value the type does not permit —
+        # a hand-edited answers file is not bound by the annotation.
+        setattr(state, "dsm_answers", {"DSM-1-H1": "yes"})  # noqa: B010
         assert "DSM-1-H1" not in self._verdicts(state)
 
     def test_the_loader_keeps_only_real_indicators_answered_with_a_boolean(
