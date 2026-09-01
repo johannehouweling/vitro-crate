@@ -187,7 +187,11 @@ uv run python -m main --graph --view labprocesses -i /path/to/crate/
 **What ships inside the crate.** Alongside the metadata and your payload, every
 build embeds a **maturity report** (`ro-crate-metadata-maturity.html`): profile
 conformance, FAIR maturity, OECD MIT coverage, reproducibility readiness — and an
-**interactive entity explorer**. The explorer draws the crate's whole entity graph,
+**interactive entity explorer**. The FAIRplus DSM section reproduces the published
+assessment sheet's own percentage grid, and scores it twice: against the deposit as
+you handed it over, and against the crate it became. That is the sheet's own design —
+its answer columns are "Pre-FAIRification" and "Post-FAIRification" — so the numbers
+are ones an outside assessor can reach by filling the same sheet in by hand. The explorer draws the crate's whole entity graph,
 with views you turn on and off and combine (Researcher, Files, Assays,
 LabProcesses, Chemicals, Biological models, Persons & Organisations,
 Citations), a search box, and a panel that shows any entity's properties, its
@@ -309,6 +313,14 @@ Options:
                          stripped — versioned _v2/_v3… so a rebuild never
                          overwrites a previous export. With no --input it is the
                          session working_crate/
+      --dsm-answers PATH
+                         YAML answering the FAIRplus DSM indicators no crate can
+                         evidence — hosting environment and enterprise
+                         governance — as `DSM-1-H1: true`, one per line. They
+                         describe your repository rather than one build, so the
+                         same file serves every deposit; omit an indicator to
+                         leave it unassessed. Kept with the session, so a
+                         --resume needs no flag
   -r, --resume SESSION   Resume a previous session by ID (--session is an
                          accepted alias)
   -I, --interactive      Run in interactive build mode: deterministic pipeline +

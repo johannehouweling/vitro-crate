@@ -182,6 +182,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path for the output RO-Crate directory",
     )
     parser.add_argument(
+        "--dsm-answers",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "YAML file answering the FAIRplus DSM indicators no crate can evidence "
+            "(hosting environment, enterprise governance): `DSM-1-H1: true`, one per "
+            "line. Omit an indicator to leave it unassessed."
+        ),
+    )
+    parser.add_argument(
         "--resume",
         "--session",
         "-r",
@@ -621,6 +632,16 @@ def main(argv: list[str] | None = None) -> int:
     #      tree (the old <input>-ro-crate sibling polluted input/raw/).
     #   3. No --input (conversation mode) => leave output_path unset so
     #      export_crate falls back to the session working_crate/ directory.
+    # The answers describe the depositor's repository, not one build, so they are read
+    # from wherever they keep them and then ride in the session — a resumed run needs
+    # no flag. Loading after `initialize` deliberately leaves the intake baseline
+    # unanswered: the deposit had no hosting environment of ours to describe.
+    if args.dsm_answers:
+        from builder.tools.fair_assessment import load_dsm_answers
+
+        engine.state.dsm_answers = load_dsm_answers(args.dsm_answers)
+        logger.info("Read %d DSM answers from %s", len(engine.state.dsm_answers), args.dsm_answers)
+
     if args.output:
         engine.state.metadata.output_path = args.output
     elif args.input:

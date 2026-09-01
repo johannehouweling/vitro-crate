@@ -61,6 +61,8 @@ class TestStateSerializerOutput:
             "checkpoint",
             "validation_preferences",
             "user_answers",
+            "pre_assessment",
+            "dsm_answers",
             "generator",
             "iteration_count",
             "max_iterations",

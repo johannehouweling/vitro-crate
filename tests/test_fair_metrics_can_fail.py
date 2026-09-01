@@ -802,7 +802,7 @@ class TestInflationCannotHideBehindAFailingLevelOne:
         assert data is not None
         answers = dsm_verdicts(state, data, graph)
         level_one = {
-            str(ind.get("id")) for ind, _ in _assessable_indicators(data, 1)
+            str(ind.get("id")) for ind in _assessable_indicators(data, 1)
         }
         granted = {
             k: (Verdict(True, "granted") if k in level_one else v)
@@ -820,7 +820,7 @@ class TestInflationCannotHideBehindAFailingLevelOne:
         for level in levels:
             answered = [
                 v.value
-                for ind, _ in _assessable_indicators(data, level)
+                for ind in _assessable_indicators(data, level)
                 if (v := granted.get(str(ind.get("id")))) is not None
                 and v.value is not None
             ]
@@ -1067,3 +1067,68 @@ class TestTheReportShowsBothColumns:
         page = build_maturity_html(_as_received_state())
         assert "Pre-FAIRification" not in page
         assert "at intake:" not in page
+
+
+class TestTheDepositorCanAnswerWhatTheCrateCannot:
+    """Twenty hosting and thirteen enterprise indicators describe the environment
+    serving the dataset, not the dataset. The online tool asks a person; so do we.
+    An answer must never be able to overrule a measurement, or to arrive by default.
+    """
+
+    def _verdicts(self, state):
+        from builder.tools.fair_assessment import dsm_verdicts
+
+        return dsm_verdicts(state, None, None)
+
+    def test_no_answers_changes_no_verdict(self) -> None:
+        state = _as_received_state()
+        assert state.dsm_answers == {}
+        baseline = self._verdicts(state)
+        state.dsm_answers = {}
+        assert self._verdicts(state) == baseline
+
+    def test_an_answer_reaches_the_grid(self) -> None:
+        from builder.tools.fair_assessment import dsm_grid
+
+        state = _as_received_state()
+        state.dsm_answers = {"DSM-1-H1": True, "DSM-1-H2": True}
+        verdicts = self._verdicts(state)
+        assert verdicts["DSM-1-H1"].value is True
+        assert "depositor" in verdicts["DSM-1-H1"].evidence, "the source must be auditable"
+        cell = dsm_grid(state, None, None)[1]["H"]
+        assert cell["assessed"] == 2, "an answered indicator is assessed"
+
+    def test_the_crate_wins_over_the_depositor(self) -> None:
+        """A depositor cannot tick an indicator the crate itself answers."""
+        state = _as_received_state()
+        measured = self._verdicts(state)["DSM-1-C0"]
+        state.dsm_answers = {"DSM-1-C0": True}
+        assert self._verdicts(state)["DSM-1-C0"] == measured
+
+    def test_an_unanswered_indicator_stays_not_assessed(self) -> None:
+        state = _as_received_state()
+        state.dsm_answers = {"DSM-1-H1": True}
+        assert "DSM-3-H2" not in self._verdicts(state)
+
+    def test_a_non_boolean_answer_is_dropped_not_coerced(self) -> None:
+        """"yes" is not True. A hand-edited file must not smuggle a pass in."""
+        state = _as_received_state()
+        state.dsm_answers = {"DSM-1-H1": "yes"}
+        assert "DSM-1-H1" not in self._verdicts(state)
+
+    def test_the_loader_keeps_only_real_indicators_answered_with_a_boolean(
+        self, tmp_path
+    ) -> None:
+        from builder.tools.fair_assessment import load_dsm_answers
+
+        path = tmp_path / "answers.yaml"
+        path.write_text(
+            "DSM-1-H1: true\nDSM-1-H2: false\nDSM-9-Z9: true\nDSM-1-H3: maybe\n"
+        )
+        assert load_dsm_answers(path) == {"DSM-1-H1": True, "DSM-1-H2": False}
+        assert load_dsm_answers(tmp_path / "absent.yaml") == {}
+
+    def test_answers_survive_a_session_round_trip(self) -> None:
+        state = _as_received_state()
+        state.dsm_answers = {"DSM-1-H1": True, "DSM-2-H2": False}
+        assert CrateState.from_json(state.to_json()).dsm_answers == state.dsm_answers

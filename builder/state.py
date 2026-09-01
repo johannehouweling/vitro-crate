@@ -1255,6 +1255,12 @@ class CrateState:
     # all pure functions of the verdict map.
     pre_assessment: dict[str, dict[str, Any]] = field(default_factory=dict)
 
+    # The depositor's answers to the DSM indicators no crate can evidence — the twenty
+    # hosting-environment ones and the Level-5 enterprise-governance ones, which the
+    # published tool puts to a person. `{indicator id: bool}`; an id left out stays
+    # "not assessed" rather than defaulting either way.
+    dsm_answers: dict[str, bool] = field(default_factory=dict)
+
     # ------------------------------------------------------------------
     # Entity management
     # ------------------------------------------------------------------
@@ -1616,6 +1622,7 @@ class StateSerializer:
             "validation_preferences": dict(state.validation_preferences),
             "user_answers": [dict(a) for a in state.user_answers],
             "pre_assessment": {k: dict(v) for k, v in state.pre_assessment.items()},
+            "dsm_answers": dict(state.dsm_answers),
             "iteration_count": state.iteration_count,
             "max_iterations": state.max_iterations,
             "stuck": state.stuck,
@@ -1679,6 +1686,12 @@ class StateSerializer:
                 str(k): {"value": v.get("value"), "evidence": str(v.get("evidence", ""))}
                 for k, v in (data.get("pre_assessment") or {}).items()
                 if isinstance(v, dict)
+            },
+            # bool only: a hand-edited session must not smuggle "yes" in as a pass.
+            dsm_answers={
+                str(k): v
+                for k, v in (data.get("dsm_answers") or {}).items()
+                if isinstance(v, bool)
             },
         )
 
