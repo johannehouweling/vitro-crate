@@ -2109,7 +2109,8 @@ maturity report as a `File` + `CreativeWork` `about` `./`. It is rendered by
 dashboard and covers four axes: profile adherence (rendered from the crate's existing
 `state.validation` — it does **not** re-run the SHACL validator, so the embed adds no validation
 cost to export — validation stays a separate step), FAIR indicators + DSM level
-(`assess_fair_maturity`, with `dsm_blockers` naming what stands before the next level), OECD MIT
+(`assess_fair_maturity`, with `dsm_ceiling`'s `blocked_by` naming what stands before the next
+level), OECD MIT
 coverage (`assess_mit_coverage`), and AI-readiness (`assess_air_readiness`).
 
 The page follows the maturity-report design handoff (PR #607 records it): a header whose headline is the **accession** (subhead: the
@@ -2156,30 +2157,49 @@ profile-adherence breakdown, **the DSM "% complete" grid**, MIT
 coverage and the AI-readiness profile keep their sections between the KPI grid and
 Recommendations.
 
-**The DSM axis reports the published model's own two views, not one.** The gated level
-answers "how far up the ladder" and is deliberately harsh — one failing level-1
-indicator hides everything achieved above it — so alongside it the report renders the
-6x3 **"% complete" grid** (level x category) that the FAIRplus assessment sheet itself
-computes (`fair_assessment.dsm_grid`). Both follow the sheet exactly: the denominator is
-its Excel `COUNT`, so an indicator this tool cannot assess is an *unanswered cell* and
-leaves the percentage rather than counting against it (`pct=None`, "not assessed", never
-0); Level 0 is scored **inverted** because its indicators state the pre-FAIRification
-condition in the negative, and it is not a rung on the ladder. The indicator definitions
-are generated from the vendored workbook (see below), never hand-written.
+**The DSM's published output is the "% complete" grid, and nothing else.** No formula in
+any sheet of the assessment workbook computes an achieved maturity level. The report
+therefore leads with the grid the sheet computes — level x {content, representation,
+hosting, total} (`fair_assessment.dsm_grid`) — and carries the gated level beside it
+labelled **derived**, because "how far up the ladder" is the question depositors ask and
+it is deliberately harsh: one failing level-1 indicator hides everything above it.
+
+**The grid is the sheet's arithmetic, read from the sheet.** `scripts/gen_dsm_indicators.py`
+carries the workbook's own scoring into `fair/dsm_indicators.yaml` under `scoring` —
+which indicators each cell counts, each cell's denominator, and the nine promotion rules
+— so the scorer reproduces the instrument instead of hand-coding an approximation of it.
+Three of its properties are load-bearing and none is obvious:
+
+* **A blank scores 0.** The sheet's validation column is entirely formulas (`=H{row}`),
+  so an unanswered indicator evaluates to numeric 0 and `COUNT` counts it. The published
+  instrument has no "not assessed" state.
+* **Cell membership is not "the indicators at this level".** Higher levels carry lower
+  ones forward, and it is a multiset: `DSM-4-H2` sits on two rows of the Level-4 hosting
+  cell, which divides by three.
+* **Level 0 counts zeros**, because its statements are the pre-FAIRification condition
+  in the negative.
+
+Because this tool *can* say "not assessed" and the sheet cannot, every cell publishes
+both numbers: `published_pct` is the sheet's, and is what an external assessor
+reproduces; `pct` divides by what was actually assessed and is `None` when nothing was.
+Reporting only the first would publish a Level-0 row of 100% on the strength of never
+having looked; reporting only the second would publish a number nobody can check.
+`tests/test_dsm_sheet_parity.py` holds the two together by interpreting the sheet's
+formula text and driving the engine over the same answer vectors.
 
 **Three properties keep a DSM verdict honest.** (i) It is **tri-state**: an indicator
-with nothing to read answers `None` — the sheet's blank cell — and leaves the
-denominator rather than counting as a failure (`Verdict.__bool__` raises, so a caller
-cannot silently collapse `None` to `False`). (ii) Every verdict carries **evidence**
-stating what was measured (`"28 of 59 files are in an open format; proprietary present:
-…"`), because the published model is a human assessment instrument and "why did it say
-no?" must be answerable without reading the source. (iii) The instrument is a
-questionnaire of 18 multiple-choice questions whose options **nest by level**, so
-`dsm_verdicts` walks each question's ladder and **demotes** any option standing above a
-failed rung, recording the reason. Demoting (rather than promoting the lower rung) never
-credits maturity the crate has not evidenced at every step below. `dsm_verdicts` is the
-single evaluation pass — the level, the grid, the ceiling and the blockers all read it,
-so they cannot disagree. The MIT axis keeps the
+with nothing to read answers `None`, which leaves `pct`'s denominator rather than
+counting as a failure (`Verdict.__bool__` raises, so a caller cannot silently collapse
+`None` to `False`). (ii) Every verdict carries **evidence** stating what was measured
+(`"28 of 59 files are in an open format; proprietary present: …"`), because the published
+model is a human assessment instrument and "why did it say no?" must be answerable
+without reading the source. (iii) The model's statements **nest**, and the sheet resolves
+that by **promoting**: `J4` is `=IF(J5=1,1,H4)`, so meeting the higher rung satisfies the
+lower one. `_apply_promotion` reproduces those nine rules to a fixed point and records
+which cell licensed each one. Promotion is monotone upward but can never manufacture a
+pass, because every rule's source is itself a check that can fail. `dsm_verdicts` is the
+single evaluation pass — the level, the grid and the ceiling all read it, so they cannot
+disagree, and the report evaluates it once per render. The MIT axis keeps the
 aggregate score as the headline and additionally breaks coverage out per guidance document (#491):
 each checklist parameter's `standards` map buckets it under the documents that require it
 (`MITReport.standard_scores`, labels from `MIT_STANDARD_LABELS`); documents overlap, so the

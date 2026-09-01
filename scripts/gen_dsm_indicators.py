@@ -356,8 +356,8 @@ def _promotion_rules(ws: Any, rows: dict[int, str]) -> list[dict[str, str]]:
                 f"row {row} ({ident}): the pre column J and the post column K disagree "
                 f"({formula!r} vs {mirror!r}) — the workbook changed shape"
             )
-        if plain.match(formula):
-            if int(plain.match(formula).group(1)) != row:
+        if direct := plain.match(formula):
+            if int(direct.group(1)) != row:
                 raise ValueError(f"row {row} ({ident}): {formula!r} reads another row")
             continue
         match = promote.match(formula)

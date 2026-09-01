@@ -1441,11 +1441,6 @@ def _check_cross_dataset_refs(state: CrateState, graph: Graph = None) -> Verdict
     in-crate entity is a declared join, and a declared join that dangles is worse than no
     join. Nothing dangles on this corpus, so the limb only ever reports "n of n" today.
 
-    **Knock-on, measured.** DSM-2-C5 and DSM-3-C7 ("Dataset Descriptor references a
-    standard license") sit in one ladder question, so :func:`dsm_verdicts`' monotonicity
-    walk demotes C7 wherever C5 fails: 12 crates that do reference a standard licence now
-    publish "demoted: DSM-2-C5 (level 2) is not met" in the licence cell of the grid. The
-    gated level does not move; the published grid does.
     """
     if _needs_graph(graph):
         return None
@@ -2460,7 +2455,16 @@ def _check_machine_interpretable_graph(state: CrateState, graph: Graph) -> Verdi
 def _check_min_info_guidelines(state: CrateState, graph: Graph) -> bool:
     """DSM-3-C1 — study-level metadata reported per Minimum Information Reporting
     Guidelines. The model itself cross-references RDA-R1.3-01M, which this tool
-    operationalises as OECD MIT coverage (see mit_assessment)."""
+    operationalises as OECD MIT coverage (see mit_assessment).
+
+    ``state.mit_assessment`` is a field nothing ever assigns, so this answers False on
+    every build however much of the checklist the crate covers. Scoring MIT from the
+    graph here instead is not the fix on its own: ``_mit_has_coverage`` is "any coverage
+    at all", which an empty assembled crate already meets (measured: 1%), so the
+    indicator would swap a constant False for a constant True. "In compliance with"
+    needs a bar anchored to what the guidelines require, not to what this corpus
+    happens to score.
+    """
     return _mit_has_coverage(state.mit_assessment)
 
 
@@ -2668,9 +2672,9 @@ def _assessable_indicators(
 ) -> list[tuple[dict[str, Any], DsmCheck]]:
     """The indicators at *level* this tool can actually evaluate, with their checks.
 
-    One definition, used by both :func:`_compute_dsm_level` and :func:`dsm_blockers`,
-    so "what counts as assessable" cannot drift between the level a crate is awarded
-    and the blockers reported for the level above it.
+    One definition, used by both :func:`_compute_dsm_level` and :func:`dsm_ceiling`, so
+    "what counts as assessable" cannot drift between the level a crate is awarded and
+    the blockers reported for the level above it.
 
     An indicator scoped ``na`` is not assessable by construction — the published model
     carries all 83 indicators and most describe a hosting environment, a Level-0
@@ -2781,7 +2785,11 @@ def _apply_promotion(verdicts: dict[str, Verdict], rules: list[dict[str, str]]) 
                 True,
                 f"promoted by {rule['when']}: the published sheet's {rule['cell']} reads "
                 f"=IF({rule['when']}=1,1,...), so the higher rung satisfies this one"
-                + (f" — measured: {target.evidence}" if target is not None and target.evidence else ""),
+                + (
+                    f" — measured: {target.evidence}"
+                    if target is not None and target.evidence
+                    else ""
+                ),
             )
             changed = True
         if not changed:
@@ -2789,7 +2797,10 @@ def _apply_promotion(verdicts: dict[str, Verdict], rules: list[dict[str, str]]) 
 
 
 def _compute_dsm_level(
-    state: CrateState, dsm_data: dict[str, Any] | None, graph: Graph = None
+    state: CrateState,
+    dsm_data: dict[str, Any] | None,
+    graph: Graph = None,
+    answers: dict[str, Verdict] | None = None,
 ) -> int:
     """Compute the FAIRplus Dataset Maturity level.
 
@@ -2804,9 +2815,16 @@ def _compute_dsm_level(
       pre-FAIRification state ("Dataset(s) are NOT Identifiable…"); failing them is the
       desired outcome, so scoring them would invert the scale.
 
+    This number is **ours, not the model's**: no formula anywhere in the published
+    workbook computes an achieved level. It is a gate over the model's indicators, kept
+    because "how far up the ladder" is the question depositors ask, and labelled
+    *derived* wherever it is shown so it is never mistaken for the published score —
+    which is the percentage grid (:func:`dsm_grid`).
+
     Args:
         state: The CrateState to assess.
         dsm_data: Parsed DSM indicators YAML data, or None.
+        answers: an already-computed verdict map, to avoid re-running every check.
 
     Returns:
         The highest DSM level achieved (0-5); 0 means "level 1 not reached".
@@ -2822,7 +2840,8 @@ def _compute_dsm_level(
         }
     )
 
-    answers = dsm_verdicts(state, dsm_data, graph)
+    if answers is None:
+        answers = dsm_verdicts(state, dsm_data, graph)
     max_level = 0
     for level in levels:
         answered = [
@@ -2841,31 +2860,37 @@ def _compute_dsm_level(
 
 
 def dsm_ceiling(
-    state: CrateState, dsm_data: dict[str, Any] | None = None, graph: Graph = None
+    state: CrateState,
+    dsm_data: dict[str, Any] | None = None,
+    graph: Graph = None,
+    answers: dict[str, Verdict] | None = None,
 ) -> dict[str, Any]:
-    """What DSM level this crate could **realistically** reach, and what caps it.
+    """Where this crate stands on the derived ladder, and what caps it.
 
-    The gated level says where a crate *is*; on its own it is not actionable, because a
-    reader cannot tell whether the next rung is one fixable gap away or unreachable by
-    any crate that will ever exist. Three quantities separate those cases:
-
-    * ``attained`` — the gated level now (:func:`_compute_dsm_level`).
-    * ``attainable`` — the level this crate would reach if every assessed indicator
-      currently failing were satisfied. The distance ``attainable - attained`` is the
-      part that is genuinely the depositor's to close.
+    * ``attained`` — the derived level now (:func:`_compute_dsm_level`).
     * ``ceiling`` — the highest level *any* crate can reach with this tool, because
       above it no indicator is assessable from a crate at all. Level 5 is entirely
       hosting and enterprise data-governance, so no RO-Crate can evidence it: reporting
       a level "out of 5" implies a rung that is not on the board.
+    * ``blocked_by`` — the assessed indicators failing at ``attained + 1``, the concrete
+      next step.
 
-    ``blocked_by`` names the assessed indicators failing at ``attained + 1`` — the
-    concrete next step — and ``ceiling_reason`` says why the ladder stops where it does,
-    so "you cannot go higher" is never an unexplained verdict.
+    Why the ladder stops where it does is a constant of the model rather than of a
+    crate, so it is stated in the report's own footnote instead of being recomputed
+    into a string here that nothing read.
+
+    There was a fourth, ``attainable``, and it was a fiction: it was assigned inside the
+    same loop as ``ceiling``, from the YAML alone, so it equalled the ceiling for every
+    crate that has ever been scored while the report rendered it as a claim about *this*
+    crate ("reachable: 4 once the indicators below are met").
     """
+    empty: dict[str, Any] = {"attained": 0, "ceiling": 0, "blocked_by": []}
     if dsm_data is None:
         dsm_data = _load_yaml(DSM_INDICATORS_PATH)
     if dsm_data is None:
-        return {}
+        # The shape is constant so a caller never has to guard a key: with no model
+        # to read, nothing is attained and nothing blocks.
+        return empty
 
     levels = sorted(
         {
@@ -2875,41 +2900,18 @@ def dsm_ceiling(
         }
     )
 
-    attained = _compute_dsm_level(state, dsm_data, graph)
+    if answers is None:
+        answers = dsm_verdicts(state, dsm_data, graph)
+    attained = _compute_dsm_level(state, dsm_data, graph, answers)
     ceiling = 0
-    attainable = 0
     for level in levels:
-        assessable = _assessable_indicators(dsm_data, level)
-        if not assessable:
+        if not _assessable_indicators(dsm_data, level):
             break
         ceiling = level
-        attainable = level  # every indicator here *could* be satisfied
 
-    answers = dsm_verdicts(state, dsm_data, graph)
     failing = _failing_at(dsm_data, answers, attained + 1)
 
-    unreachable = sorted(
-        {lvl for lvl in levels if lvl > ceiling},
-    )
-    if unreachable:
-        names = dsm_data.get("levels") or {}
-        listed = ", ".join(f"{lvl} ({names.get(lvl, '')})".strip() for lvl in unreachable)
-        reason = (
-            f"Level {listed} has no crate-assessable indicator: it is scored entirely on "
-            "hosting-environment and enterprise data-governance capability, which a crate "
-            "cannot evidence about the environment that serves it."
-        )
-    else:
-        reason = ""
-
-    return {
-        "attained": attained,
-        "attainable": attainable,
-        "ceiling": ceiling,
-        "ceiling_reason": reason,
-        "blocked_by": failing,
-        "levels_out_of_reach": unreachable,
-    }
+    return {"attained": attained, "ceiling": ceiling, "blocked_by": failing}
 
 
 def dsm_grid(
@@ -3000,28 +3002,26 @@ def dsm_grid(
     return grid
 
 
-def dsm_blockers(state: CrateState, graph: Graph = None) -> list[tuple[str, str, str]]:
-    """``(id, text)`` of the assessable DSM indicators failing at the *next*
-    level — what stands between the crate and DSM ``level + 1``.
-
-    Nothing new is measured: :func:`_compute_dsm_level` already evaluates these
-    checks and discards which ones failed; this re-walks the same YAML with the
-    same ``DSM_CHECKS`` so the report can name what "2 indicators to level 1"
-    actually are instead of a bare gated zero. Empty at level 5 (nothing above
-    to block) and when the DSM YAML cannot be read (no level was computed, so
-    nothing blocks).
-    """
-    dsm_data = _load_yaml(DSM_INDICATORS_PATH)
-    if dsm_data is None:
-        return []
-    level = _compute_dsm_level(state, dsm_data, graph)
-    answers = dsm_verdicts(state, dsm_data, graph)
-    return _failing_at(dsm_data, answers, level + 1)
-
-
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
-TOOL_REGISTRY.register("assess_fair_maturity", assess_fair_maturity, takes_state=True)
+
+def _assess_fair_maturity_tool(state: CrateState) -> FAIRReport:
+    """The agent-facing tool, which assembles the crate it is asked to score.
+
+    The tool spec exposes no parameters, so a model calling this reaches
+    :func:`assess_fair_maturity` with no graph — and every graph-aware indicator then
+    answers "not assessed", handing the agent a different number than the report
+    publishes for the same crate. Assembling here fixes that at the boundary where it
+    is wrong, and leaves the assessor's own contract alone: given no graph it still
+    declines to guess, which is what the #670 floor tests hold it to.
+    """
+    from builder.tools.mit_assessment import scoring_graph
+
+    graph = scoring_graph(state)
+    return assess_fair_maturity(state, graph=graph)
+
+
+TOOL_REGISTRY.register("assess_fair_maturity", _assess_fair_maturity_tool, takes_state=True)

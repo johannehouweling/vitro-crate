@@ -327,7 +327,7 @@ class TestDsmBlockers:
         fa = self._patched(monkeypatch)
         state = CrateState()
         assert fa._compute_dsm_level(state, dict(self._TABLE)) == 1
-        assert fa.dsm_blockers(state) == [
+        assert fa.dsm_ceiling(state)["blocked_by"] == [
             ("L2-FAIL-A", "level 2, fails A", ""),
             ("L2-FAIL-B", "level 2, fails B", ""),
         ], "na scope excluded, level 3 not yet in play, ids paired with their text"
@@ -347,13 +347,13 @@ class TestDsmBlockers:
         )
         monkeypatch.setitem(fa.DSM_CHECKS, "ok", lambda state, graph=None: True)
         state = CrateState()
-        assert fa.dsm_blockers(state) == []
+        assert fa.dsm_ceiling(state)["blocked_by"] == []
 
     def test_an_unreadable_table_blocks_nothing(self, monkeypatch):
         import builder.tools.fair_assessment as fa
 
         monkeypatch.setattr(fa, "_load_yaml", lambda path: None)
-        assert fa.dsm_blockers(CrateState()) == []
+        assert fa.dsm_ceiling(CrateState())["blocked_by"] == []
 
     def test_the_shipped_table_blocks_what_the_level_computation_uses(self):
         """Against the real YAML: every blocker is a level+1 indicator whose
@@ -363,7 +363,7 @@ class TestDsmBlockers:
             DSM_INDICATORS_PATH,
             _compute_dsm_level,
             _load_yaml,
-            dsm_blockers,
+            dsm_ceiling,
         )
 
         state = vhps_fixture_state("S-VHPS21")
@@ -371,7 +371,7 @@ class TestDsmBlockers:
         assert data is not None
         level = _compute_dsm_level(state, data)
         by_id = {i["id"]: i for i in data["indicators"]}
-        blockers = dsm_blockers(state)
+        blockers = dsm_ceiling(state)["blocked_by"]
         assert blockers, "the fixture must have blockers for this to test anything"
         for bid, text, _why in blockers:
             ind = by_id[bid]

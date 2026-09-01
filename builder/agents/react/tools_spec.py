@@ -828,7 +828,13 @@ TOOL_SPECS = [
     },
     {
         "name": "assess_fair_maturity",
-        "description": "Score FAIR maturity from metadata",
+        "description": (
+            "Score the crate against the RDA FAIR Data Maturity Model indicators and "
+            "the FAIRplus DSM. Scores the ASSEMBLED crate, which it builds in memory "
+            "when you do not hand it one, so it reports the same numbers the maturity "
+            "report publishes. The DSM level is a DERIVED gate over the model's "
+            "indicators; the model's own output is a percentage grid."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     {
