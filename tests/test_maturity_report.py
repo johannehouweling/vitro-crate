@@ -842,21 +842,26 @@ class TestProfileConformanceMatrix:
 class TestFairTileAndRose:
     """The FAIR ladder's partial next rung + blockers line, and the MIT rose."""
 
-    def test_the_next_rung_is_filled_to_the_indicator_ratio(self) -> None:
-        from builder.tools.fair_assessment import assess_fair_maturity, dsm_blockers
+    def test_the_next_rung_is_filled_to_that_levels_own_completeness(self) -> None:
+        """The bar under a DSM-labelled ladder must be a DSM number.
+
+        It used to be filled from the RDA indicator set, so an empty crate showed a
+        12%-filled rung captioned "1 of 8 FAIR indicators met" beneath a DSM level.
+        """
+        from builder.tools.fair_assessment import assess_fair_maturity, dsm_ceiling, dsm_grid
         from builder.tools.mit_assessment import assess_mit_coverage
 
         state = vhps_fixture_state("S-VHPS21")
         mit = assess_mit_coverage(state)
         fair = assess_fair_maturity(state, mit=mit)
-        met = sum(1 for i in fair.indicator_results if i.get("passed") is True)
-        assessed = sum(1 for i in fair.indicator_results if i.get("passed") is not None)
+        nxt = dsm_grid(state)[fair.dsm_level + 1]["TOTAL"]
         page = build_maturity_html(state)
         assert f"<b>{fair.dsm_level}</b>" in page
         assert page.count('<span class="rung2 done"></span>') == fair.dsm_level
         next_rung = re.search(r'<span class="rung2 next"[^>]*><i style="width:(\d+)%">', page)
-        assert next_rung and int(next_rung.group(1)) == round(met / assessed * 100)
-        blockers = dsm_blockers(state)
+        assert next_rung and int(next_rung.group(1)) == round(nxt["published_pct"])
+        assert f'title="{nxt["met"]} of {nxt["total"]} indicators at that level"' in page
+        blockers = dsm_ceiling(state)["blocked_by"]
         assert blockers, "fixture has no DSM blockers; the assertion below is inert"
         assert (
             f"<b>{len(blockers)} indicator{'s' if len(blockers) != 1 else ''}</b> "

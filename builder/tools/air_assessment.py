@@ -18,9 +18,10 @@ Three properties of the instrument are load-bearing and are reproduced exactly:
   the authors' design, not an artefact.
 * **Their denominator has no "not assessed".** ``COUNTIF`` counts label cells, which
   are always present, so a criterion a crate cannot evidence scores zero and drags
-  the dimension down. Excluding it — as the DSM's ``COUNT``-not-``COUNTA`` rule does —
-  is a **local deviation**, so :func:`air_profile` reports both: ``published_pct`` is
-  theirs, ``pct`` is ours.
+  the dimension down. The FAIRplus DSM sheet behaves the same way for the same reason,
+  so excluding it is a **local deviation** on both axes: :func:`air_profile` and
+  ``fair_assessment.dsm_grid`` each report both numbers, ``published_pct`` theirs and
+  ``pct`` ours.
 
 Ethics, governance and hosting criteria are ``na``: a crate on disk cannot evidence
 IRB approval, a data-access committee, a retention policy or an API. They are
@@ -777,4 +778,18 @@ def air_blockers(state: CrateState, graph: Graph = None) -> list[tuple[str, str,
 # ---------------------------------------------------------------------------
 from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 
-TOOL_REGISTRY.register("assess_air_readiness", assess_air_readiness, takes_state=True)
+
+def _assess_air_readiness_tool(state: CrateState) -> AIRReport:
+    """The agent-facing tool, which assembles the crate it is asked to score.
+
+    The tool spec exposes no parameters, so a model calling this would otherwise reach
+    :func:`assess_air_readiness` with no graph and be told every criterion is "not
+    assessed" — a different answer than the report gives for the same crate. The
+    assessor's own contract is unchanged: with no graph it still declines to guess.
+    """
+    from builder.tools.mit_assessment import scoring_graph
+
+    return assess_air_readiness(state, graph=scoring_graph(state))
+
+
+TOOL_REGISTRY.register("assess_air_readiness", _assess_air_readiness_tool, takes_state=True)
