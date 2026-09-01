@@ -416,6 +416,54 @@ def _read_declared_licence(engine: AgentEngine) -> None:
     logger.info("Read the licence the deposit declares from %s: %s", path, licence)
 
 
+def _read_declared_doi(engine: AgentEngine) -> None:
+    """Read the DOI the deposit declares, before anyone mints an identifier (#682).
+
+    Exactly the shape of :func:`_read_declared_licence`, reading the sibling attribute
+    in the same list of the same file — and for the same reason. Nothing read it, so
+    the crate's own `identifier` was a slug minted from the title, which identifies the
+    deposit to nobody: `RDA-F1-01M`, `RDA-F1-02D` and `DSM-1-C0` were all False on
+    every crate this tool has ever built, and DSM-1-C0 gates Level 1 of the ladder.
+
+    Measured on the deposits on hand: 3 of 3 declare one, in the same attribute shape
+    the licence reader already walks.
+
+    The shallowest declaration wins, as with the licence: a file at the deposit root
+    describes the deposit, while a bundled record four directories down describes
+    itself. A DOI already set — by a resumed session, or by the model — is left alone.
+    """
+    from builder.tools.file_readers import extract_deposit_doi, read_file
+
+    metadata = engine.state.metadata
+    if metadata.doi:
+        return
+
+    root = metadata.input_path or ""
+    found: list[tuple[int, str, str]] = []
+    for candidate in engine.state.scanned_files:
+        path = str(getattr(candidate, "path", "") or "")
+        if not _may_declare_a_licence(path):
+            continue
+        try:
+            text = read_file(path)
+        except Exception:  # noqa: BLE001 — an unreadable file is simply not the one
+            continue
+        doi = extract_deposit_doi(text or "")
+        if not doi:
+            continue
+        try:
+            depth = len(Path(path).resolve().relative_to(Path(root).resolve()).parts)
+        except (ValueError, OSError):
+            depth = len(Path(path).parts)
+        found.append((depth, path, doi))
+
+    if not found:
+        return
+    _depth, path, doi = min(found)
+    metadata.doi = doi
+    logger.info("Read the DOI the deposit declares from %s: %s", path, doi)
+
+
 class AgentEngine:
     """Orchestrator for the LLM agent toolbox loop.
 
@@ -514,6 +562,10 @@ class AgentEngine:
                         _read_declared_licence(self)
                     except Exception as exc:  # noqa: BLE001 — best-effort, like discovery
                         logger.warning("Reading the declared licence failed: %s", exc)
+                    try:
+                        _read_declared_doi(self)
+                    except Exception as exc:  # noqa: BLE001 — best-effort, like the licence
+                        logger.warning("Reading the declared DOI failed: %s", exc)
             else:
                 logger.warning(
                     "Refusing to initialize scan on forbidden input path: %s", input_path

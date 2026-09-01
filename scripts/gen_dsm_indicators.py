@@ -94,6 +94,17 @@ _LEVELS: dict[int, dict[str, str]] = {
 # verified against the workbook at generation time, so a typo or an indicator the
 # model drops fails loudly rather than silently scoring nothing.
 #
+# DSM-3-C1 ("study-level metadata is reported in compliance with relevant Minimum
+# Information Reporting Guidelines") is NOT here, and that is a measurement rather than
+# an oversight. Compliance means a guideline's required items are all reported, and the
+# OECD MIT checklist this tool scores carries no such threshold: every parameter a
+# document flags is flagged equally, and 7 to 24 parameters per document have no crate
+# slot at all, so 100% is unreachable by construction — the best-reported crate on the
+# corpus tops out at 29 of 48 on OHT 201 and 4 of 7 on Nature. Every predicate that
+# separates a real crate from an empty one is a shape-of-coverage claim ("no document is
+# at zero"), which is not the published question. So the crate does not answer this one;
+# the depositor does, like every other indicator a crate cannot evidence (#705).
+#
 # `scope: full`    — directly decidable from the assembled @graph.
 # `scope: partial` — a presence/structure heuristic; true semantic compliance would
 #                    need content or external checks we do not perform.
@@ -124,7 +135,7 @@ LOCAL_SCOPE: dict[str, tuple[str, str]] = {
     "DSM-2-R4": ("partial", "model_documentation_human"),
     "DSM-2-R5": ("full", "data_structured"),
     # ---- Level 3 — community standards, controlled terms, standard licence -------
-    "DSM-3-C1": ("full", "min_info_guidelines"),
+    # DSM-3-C1 is deliberately absent: see the note above LOCAL_SCOPE.
     "DSM-3-C2": ("partial", "community_domain_model"),
     "DSM-3-C3": ("full", "standard_field_names"),
     "DSM-3-C4": ("partial", "controlled_values"),
@@ -261,13 +272,6 @@ REMEDIES: dict[str, tuple[str, str]] = {
         "a machine cannot tell how to open the file, and a promised dataset turns out empty",
     ),
     # ---- Level 3 ----------------------------------------------------------------
-    # The one remedy that is not a deposit gap but a defect in this tool (#705). Saying
-    # so is better than publishing an instruction that provably does not work.
-    "DSM-3-C1": (
-        "Nothing in the crate clears this one: the check reads a MIT report the build never "
-        "populates, so it fails however much of the checklist is filled.",
-        "the minimum-information items are reported unmet without ever being scored",
-    ),
     "DSM-3-C2": (
         "Declare the community profile the datasets follow in the root's `conformsTo`.",
         "a reader cannot tell which community guideline the datasets were reported under",

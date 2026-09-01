@@ -194,7 +194,9 @@ class TestSharedQuestionsShareTheirImplementation:
 
         state = CrateState()
         state.metadata.accession = "S-VHPS26"
-        assert _check_access_info(state) is True, "the DSM check passes on identity alone"
+        assert _check_access_info(state, None) is None, (
+            "the DSM check reads the crate, and answers nothing without one"
+        )
         assert air_verdicts(state, None, _graph())["4.d"].value is False
 
     def test_a_stated_access_condition_satisfies_it(self):

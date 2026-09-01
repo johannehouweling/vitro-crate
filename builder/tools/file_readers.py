@@ -1128,6 +1128,66 @@ def _licence_from_xml(text: str) -> str | None:
     return _prefer_iri(found)
 
 
+_DOI_NAMES = {"doi"}
+_DOI_KEYS = {"doi", "dois", "doi_url", "identifier_doi"}
+# A DOI is `10.<registrant>/<suffix>`; the registrant is numeric and at least four
+# digits. Deliberately narrow: this must not match a version string or a date.
+_DOI_PATTERN = re.compile(r"\b(10\.\d{4,9}/[-._;()/:a-z0-9A-Z]+)")
+
+
+def extract_deposit_doi(text: str) -> str | None:
+    """The DOI a structured metadata document declares (#682).
+
+    The counterpart to :func:`extract_deposit_licence`, reading the sibling attribute
+    in the very same list. A BioStudies descriptor states it as
+
+    .. code-block:: json
+
+        {"name": "DOI", "value": "10.6019/S-VHPS22"}
+
+    while an RO-Crate, CodeMeta or DataCite record states it as a field. Reading it is
+    not guessing — the depositor named it — and it is the one thing in these deposits
+    that identifies them once they leave the repository they came from: an accession
+    like ``S-VHPS22`` is unique inside BioStudies and ambiguous outside it.
+
+    **It does not infer a repository.** Nothing here maps an accession pattern onto
+    ebi.ac.uk or anywhere else; a detector of that kind was deliberately removed from
+    ``document_discovery`` for special-casing one repository's dialect. A DOI needs no
+    such inference, which is exactly why it is the fact worth reading.
+
+    Returned in resolvable form (``https://doi.org/…``). That is not the D5 invention
+    the licence reader guards against: doi.org is the registered resolution service for
+    the identifier the depositor wrote, not a claim about what the deposit contains.
+    """
+    parsed = _parse_structured(text)
+    if parsed is None:
+        return None
+
+    found: list[str] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            # The attribute convention: a node NAMING the DOI field.
+            if str(node.get("name") or "").strip().casefold() in _DOI_NAMES:
+                if value := str(node.get("value") or "").strip():
+                    found.append(value)
+                return
+            for key, child in node.items():
+                if str(key).strip().casefold() in _DOI_KEYS and isinstance(child, str):
+                    found.append(child.strip())
+                else:
+                    _walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                _walk(child)
+
+    _walk(parsed)
+    for candidate in found:
+        if match := _DOI_PATTERN.search(candidate):
+            return "https://doi.org/" + match.group(1)
+    return None
+
+
 def extract_deposit_licence(text: str, *, filename: str = "") -> str | None:
     """The licence a structured metadata document declares (#535).
 

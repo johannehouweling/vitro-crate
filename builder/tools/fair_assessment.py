@@ -1085,23 +1085,46 @@ def _check_dataset_metadata(state: CrateState, graph: Graph = None) -> Verdict |
     )
 
 
-def _check_access_info(state: CrateState) -> bool:
-    """Dataset Descriptor contains access information.
+def _check_access_info(state: CrateState, graph: Graph = None) -> Verdict | None:
+    """DSM-1-C3 — the descriptor states how the dataset is reached.
 
-    A self-contained RO-Crate carries its access information intrinsically: the
-    data is reached through the crate, and the descriptor states how — a resolvable
-    identity, explicit reuse terms, included data files, or a known location.
-    Reading *only* the incidental build-time ``output_path`` / ``input_path`` (unset
-    on the report and fixture paths) collapsed the whole DSM ladder at L1 even for
-    complete crates (#311). Credit crate content instead; a crate with none of these
-    genuinely lacks access information and still fails.
+    A self-contained RO-Crate carries its access information intrinsically, and the
+    descriptor states it three ways: a resolvable identity for the deposit, explicit
+    terms on which it may be reused, or the data itself, present and listed.
+
+    **What this no longer credits (#706).** It used to pass on ``state.session_id`` — a
+    timestamp this tool mints for its own bookkeeping, present on every run that has
+    ever happened, absent from the crate a reader receives. It also read the build-time
+    ``output_path`` / ``input_path``, which name directories on the machine that built
+    the crate and appear nowhere in it. Both made the indicator true before the crate
+    contained anything at all, and both were session facts standing in for crate ones.
+
+    Deliberately NOT the AIR access-conditions criterion: :func:`air_assessment.
+    _check_access_conditions` asks whether security requirements are *specified*, which
+    is a different question, and its own docstring records why the two must not share a
+    predicate.
     """
-    md = state.metadata
-    has_location = bool(md.output_path or md.input_path)
-    has_identity = bool(md.accession or state.session_id)
-    has_license = any(e.fields.get("license") for e in state.list_entities())
-    has_data = bool(state.list_entities("File"))
-    return has_location or has_identity or has_license or has_data
+    if _needs_graph(graph):
+        return None
+    root = _root_node(graph)
+    deposited, _minted = _deposited_files(graph)
+    stated: list[str] = []
+    if pid := _root_pid(graph):
+        stated.append(f"a resolvable identifier ({pid})")
+    if _effective_license(state, graph):
+        stated.append("stated reuse terms")
+    for key in ("conditionsOfAccess", "usageInfo", "isAccessibleForFree"):
+        if root.get(key):
+            stated.append(f"{key} on the root")
+    if deposited:
+        stated.append(f"{len(deposited)} deposited files listed in the descriptor")
+    if stated:
+        return Verdict(True, "the descriptor states " + "; ".join(stated))
+    return Verdict(
+        False,
+        "the descriptor states no way to reach the data: no resolvable identifier, no "
+        "reuse terms, no access conditions, and no deposited file",
+    )
 
 
 def _check_has_descriptor(state: CrateState) -> bool:
@@ -2452,23 +2475,6 @@ def _check_machine_interpretable_graph(state: CrateState, graph: Graph) -> Verdi
     )
 
 
-def _check_min_info_guidelines(state: CrateState, graph: Graph) -> bool:
-    """DSM-3-C1 — study-level metadata reported per Minimum Information Reporting
-    Guidelines. The model itself cross-references RDA-R1.3-01M, which this tool
-    operationalises as OECD MIT coverage (see mit_assessment).
-
-    ``state.mit_assessment`` is a field nothing ever assigns, so this answers False on
-    every build however much of the checklist the crate covers. Scoring MIT from the
-    graph here instead is not the fix on its own: ``_mit_has_coverage`` is "any coverage
-    at all", which an empty assembled crate already meets (measured: 1%), so the
-    indicator would swap a constant False for a constant True. "In compliance with"
-    needs a bar anchored to what the guidelines require, not to what this corpus
-    happens to score. Tracked as #705; the report says as much in the indicator's own
-    remedy rather than publishing an instruction that cannot work.
-    """
-    return _mit_has_coverage(state.mit_assessment)
-
-
 def _state_check(fn: Callable[[CrateState], bool]) -> DsmCheck:
     """Adapt a CrateState-only check to the shared ``(state, graph)`` shape.
 
@@ -2556,7 +2562,7 @@ DSM_CHECKS: dict[str, DsmCheck] = {
     # information: deleting a declaration, retyping a node, or truncating an IRI raised
     # the score. ``test_every_dsm_check_reads_the_crate`` pins the list with the reason
     # for each; it is a burn-down, so the number may only go down.
-    "access_info": _state_check(_check_access_info),
+    "access_info": _check_access_info,
     "has_descriptor": _state_check(_check_has_descriptor),
     "context_fields": _state_check(_check_context_fields),
     "value_level_metadata": _state_check(_check_value_level_metadata),
@@ -2586,7 +2592,6 @@ DSM_CHECKS: dict[str, DsmCheck] = {
     "cde_relationships": _check_cde_relationships,
     "semantic_contextual_metadata": _check_semantic_contextual_metadata,
     "machine_interpretable_graph": _check_machine_interpretable_graph,
-    "min_info_guidelines": _check_min_info_guidelines,
 }
 
 

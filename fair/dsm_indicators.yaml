@@ -1303,12 +1303,7 @@ indicators:
 - id: DSM-3-C1
   level: 3
   category: C
-  scope: full
-  check: min_info_guidelines
-  remedy:
-    do: 'Nothing in the crate clears this one: the check reads a MIT report the build never populates,
-      so it fails however much of the checklist is filled.'
-    why: the minimum-information items are reported unmet without ever being scored
+  scope: na
   granularity: Project
   rda_ref: RDA-R1.3-01M
   fairsfair_ref: FsF-R1.3-01M
