@@ -3077,6 +3077,45 @@ def _set_refs(node: Any, prop: str, entities: list[Any]) -> None:
     node[prop] = [{"@id": getattr(e, "id", e)} for e in entities]
 
 
+def _widen_to_every_cultured_line(
+    readout: Any,
+    consumed: list[Any],
+    cultured: list[Any],
+    cultured_ids: set[Any],
+    *,
+    exposed: bool,
+) -> None:
+    """Let a characterisation readout measure every line its assay cultured.
+
+    With no Exposure in the assay, :func:`_chain_processes` returns before its
+    own "hanging off the culture" rule can fire, and the caller skips any readout
+    that already names AN input. Since #678 cultured each line separately, that
+    leaves the other lines' samples produced and consumed by nothing — in the
+    reference deposit's Deiodinase assay, MO3.13's cultured sample appears in
+    ``ro-crate-metadata.json`` exactly twice: as its own node, and as its
+    culture's ``output``.
+
+    This asserts nothing the caller does not already assert. Its empty-input
+    branch states that a characterisation run measures the cultured material;
+    #678 only made "the cultured material" plural, and a line an assay cultured
+    but measured with nothing would have no reason to be in the assay at all.
+
+    Bounded by the same subset test :func:`_chain_processes` uses: a readout
+    naming anything that is NOT cultured material of this assay is stating
+    something the build did not derive, and knows better than we do (D5). An
+    assay that exposed material is left alone entirely — there the cultured
+    samples are the exposure's to consume.
+    """
+    if exposed or not cultured:
+        return
+    consumed_ids = {getattr(n, "id", None) for n in consumed}
+    if not consumed_ids <= cultured_ids:
+        return
+    missing = [n for n in cultured if getattr(n, "id", None) not in consumed_ids]
+    if missing:
+        _set_refs(readout, "input", consumed + missing)
+
+
 def _floor_readout_objects(crate: ROCrate, built: list[tuple[Any, str, Any]]) -> None:
     """A readout names what it measured, even with nothing upstream to name.
 
@@ -3117,8 +3156,21 @@ def _floor_readout_objects(crate: ROCrate, built: list[tuple[Any, str, Any]]) ->
             for n in _linked_nodes(proc, "output", "result")
             if _is_sample_node(n)
         ]
+        cultured_ids = {getattr(n, "id", None) for n in cultured}
+        # Whether anything in this assay exposed material. Where something did,
+        # the readout consumes what the exposure produced and the cultured
+        # samples are the exposure's to consume, so nothing below applies.
+        exposed = any(
+            _is_sample_node(n)
+            for proc in by_type.get("Exposure", [])
+            for n in _linked_nodes(proc, "output", "result")
+        )
         for readout in by_type.get("EndpointReadout", []):
-            if _linked_nodes(readout, "input", "object"):
+            consumed = _linked_nodes(readout, "input", "object")
+            if consumed:
+                _widen_to_every_cultured_line(
+                    readout, consumed, cultured, cultured_ids, exposed=exposed
+                )
                 continue
             if cultured:
                 _set_refs(readout, "input", cultured)
