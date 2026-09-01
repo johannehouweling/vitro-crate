@@ -871,9 +871,12 @@ class TestFairTileAndRose:
         )
         # The count is drillable, and what it drills into is an instruction rather
         # than a restatement of the model's question.
-        for _bid, text, _why in blockers:
+        for bid, text, _why in blockers:
             assert text in page, text
-            assert f"DSM &middot; {html.escape(text)}" in page, "chipped like a finding"
+            # The chip names the indicator, linked to the model's own entry for it,
+            # beside the published wording — chipped like a validator finding.
+            assert f"#{bid.lower()}" in page, bid
+            assert f"{bid}</a> &middot; {html.escape(text)}" in page, "chipped like a finding"
 
     def test_the_rose_draws_every_module_to_the_scorers_numbers(self) -> None:
         import math
@@ -3191,7 +3194,7 @@ class TestTheRecommendationsCloseTheReport:
         )
         page = _render_recommendations(None, None, dsm=[action], dsm_level=1)
         assert 'id="next"' in page
-        assert "DSM &middot; Each Dataset" in page, "the chip carries the model's own words"
+        assert "DSM-1-C0</a> &middot; Each Dataset" in page, "the chip names and links it"
         assert '<span class="rec-badge lvl">Level 1</span>' in page
         assert "Mint a DOI" in page and "a reader cannot cite the deposit" in page
 

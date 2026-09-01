@@ -13,7 +13,9 @@ invented id (``DSM-5``), paraphrased text, and level names found nowhere in the 
 
 from __future__ import annotations
 
+import html
 import importlib.util
+import re
 import pathlib
 
 import openpyxl
@@ -326,17 +328,21 @@ class TestTheModelsOwnPercentCompleteGrid:
 
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
         assert "FAIRplus Dataset Maturity Model</h2>" in page
-        # Every published level name is a row label.
-        for name in _yaml()["levels"].values():
-            assert name in page
-        # A cell nothing was measured for says so, rather than publishing the number
-        # the sheet computes over blanks — at Level 0, which counts zeros, that number
-        # is 100%.
-        assert "0 of 4 assessable" in page
-        assert "100%" not in page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
+        # Every level the tool reports is a row label. Level 0 is not one of them.
+        for level, name in _yaml()["levels"].items():
+            assert (name in page) is (level >= 1), name
+        # The tool's own column headings, in its own order.
+        assert page.index("Representation &amp; Format") < page.index("Content &amp; Context")
+        assert "Overall Level % Completion" in page
+        # The sheet's own number in every cell — an unanswered indicator validates to 0
+        # there, so it lowers the percentage rather than leaving it — with the coverage
+        # beside it, so a low number is not mistaken for a measured failure.
+        assert "0 of 4 assessed" in page
+        assert "not assessed" not in page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
         # The two properties a reader needs to interpret the numbers are stated.
-        assert "not assessed" in page and "a blank scores 0" in page
-        assert "counts its zeros" in page
+        # The two properties a reader needs to interpret the numbers.
+        assert "a blank scores 0" in page
+        assert "higher levels carry lower ones forward" in page
 
 
 class TestNoGraphMeansUnanswered:
@@ -689,3 +695,64 @@ class TestTheSheetsOwnScoringIsCarried:
         assert len(questions) == 17
         assert {q["number"] for q in questions} == {q["number"] for q in questions}
         assert sum(len(q["options"]) for q in questions) == 73
+
+
+class TestTheLadderIsReportedAsTheToolReportsIt:
+    """The published tool prints a per-level checklist — "N indicators still need to be
+    satisfied for your Datasets to reach Maturity Level X" — listing every indicator
+    that level counts, the lower ones it carries forward included, each identified.
+    Reproducing that is what lets a reader check this report against a run of the tool.
+    """
+
+    def _page(self):
+        from builder.writers.maturity_report import build_maturity_html
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        return build_maturity_html(vhps_fixture_state("S-VHPS21"))
+
+    def test_level_zero_is_reported_nowhere(self):
+        """The tool's own output runs Level 1 to 5. Level 0 states the pre-FAIRification
+        condition in the negative and is scored by counting zeros, so an unanswered row
+        reads 100% — "fully escaped", on the strength of nobody having looked."""
+        page = self._page()
+        assert "Single-use data" not in page, "the Level-0 row must not be rendered"
+        for level in range(1, 6):
+            assert f"Maturity Level {level}" in page
+
+    def test_each_level_lists_exactly_what_the_sheet_counts(self):
+        """Including the lower levels it carries forward, and including a member the
+        sheet lists twice — the tool prints DSM-4-H2 twice at Level 4 and divides by 3."""
+        data = _yaml()
+        cells = {(c["level"], c["category"]): c for c in data["scoring"]["grid"]}
+        page = self._page()
+        section = page[page.index('id="ladder"') :].split("</section>", 1)[0]
+        blocks = re.findall(r'<div class="lvlblock">.*?</ul>', section, re.S)
+        assert len(blocks) == 5, "one block per level, 1 to 5"
+        for level, block in zip(range(1, 6), blocks, strict=True):
+            members = cells[(level, "TOTAL")]["members"]
+            ids = re.findall(r"#(dsm-[0-9]-[a-z][0-9])", block)
+            assert [i.upper() for i in ids] == [m.upper() for m in members], level
+
+    def test_an_indicator_nothing_measured_is_neither_met_nor_failed(self):
+        """The tool has two states because a person answers everything; this has three.
+        Counting an unassessed hosting indicator as failed asserts a verdict nothing
+        reached."""
+        page = self._page()
+        section = page[page.index('id="ladder"') :].split("</section>", 1)[0]
+        assert 'class="lvl-unknown"' in section, "no unassessed state rendered"
+        assert "not yet assessed" in section, "the count must name them"
+        # every hosting indicator is unassessable from a crate, so none may read as met
+        for block in re.findall(r'<li class="lvl-(\w+)">.*?#(dsm-[0-9]-h[0-9])', section):
+            assert block[0] != "met", block[1]
+
+    def test_every_indicator_links_to_the_models_own_definition(self):
+        page = self._page()
+        found = set(
+            re.findall(
+                r"https://fairplus\.github\.io/Data-Maturity/docs/Indicators/#([a-z0-9-]+)",
+                page,
+            )
+        )
+        known = {i["id"].lower() for i in _yaml()["indicators"]}
+        assert found and found <= known, f"unknown ids linked: {found - known}"
+        assert "dsm-1-h1" in found, "the hosting statements must link out too"
