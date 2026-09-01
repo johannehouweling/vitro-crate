@@ -1704,24 +1704,25 @@ def _render_references() -> str:
 
 
 def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, str]) -> str:
-    """The DSM's own **"% Complete" grid** — level × category, as the published sheet scores it.
+    """The DSM's own **"% Complete" grid** — the published instrument's only output.
 
-    The gated level answers "how far up the ladder", which is one number and a harsh
-    one: a single failing indicator at level 1 hides everything achieved at level 4.
-    The assessment sheet itself reports a 6x3 grid of percentages, so the report shows
-    that too — it is the model's own view of a dataset, and it is what makes progress
-    legible.
+    No formula in the assessment workbook computes an achieved maturity level; what it
+    computes is this grid, six levels x {content, representation, hosting} plus a total.
+    So this is the section a depositor can check: fill the sheet in by hand, or answer
+    the online tool, and these percentages are the ones that come back.
 
-    A cell we cannot assess reads "not assessed" rather than 0%: the sheet's denominator
-    is Excel ``COUNT``, which omits unanswered cells, so a percentage never counts an
-    unanswered indicator against the dataset. Every cell shows its denominator so the
-    coverage behind each number is visible rather than implied.
+    **The headline number is the sheet's.** Its validation column is entirely formulas,
+    so an unanswered indicator evaluates to 0 and counts against the score — the
+    instrument has no "not assessed" state. Publishing only that number would report
+    Level 0 as fully escaped on the strength of never having looked, so every cell also
+    states how much of it we actually assessed. Where that reads ``0 of 4``, the
+    percentage beside it is the sheet's arithmetic over four blanks, not a measurement.
     """
     if not grid:
         return ""
     esc = html.escape
     cats = (("C", "Content &amp; context"), ("R", "Representation &amp; format"),
-            ("H", "Hosting environment"))
+            ("H", "Hosting environment"), ("TOTAL", "All"))
     head = "".join(f"<th>{label}</th>" for _code, label in cats)
     rows = ""
     for level in sorted(grid):
@@ -1731,19 +1732,18 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
             if not cell or not cell.get("total"):
                 cells += '<td class="dsm-na">—</td>'
                 continue
-            total = cell["total"]
-            if cell.get("pct") is None:
-                cells += (
-                    '<td class="dsm-na"><span class="dsm-pct">not assessed</span>'
-                    f'<span class="dsm-den">0 of {total} assessable</span></td>'
-                )
+            pct = cell.get("published_pct")
+            if pct is None:
+                cells += '<td class="dsm-na">—</td>'
                 continue
-            pct = cell["pct"]
+            assessed, total = cell["assessed"], cell["total"]
             state = "full" if pct >= 100 else ("part" if pct > 0 else "none")
+            if not assessed:
+                state = "na"
             cells += (
                 f'<td class="dsm-{state}"><span class="dsm-pct">{pct:g}%</span>'
-                f'<span class="dsm-den">{cell["passed"]}/{cell["assessed"]} '
-                f'of {total}</span></td>'
+                f'<span class="dsm-den">{cell["met"]}/{total} &middot; '
+                f"{assessed} of {total} assessed</span></td>"
             )
         rows += (
             f'<tr><th scope="row"><b>{level}</b> '
@@ -1757,12 +1757,15 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
         f"    <thead><tr><th>Level</th>{head}</tr></thead>\n"
         f"    <tbody>{rows}</tbody>\n"
         "  </table></div>\n"
-        '  <p class="dsm-note">Percentages follow the published sheet: satisfied &divide; '
-        "assessed &times; 100, with unassessed indicators excluded from the denominator "
-        "(Excel <code>COUNT</code>). Level&nbsp;0 states the pre-FAIRification condition "
-        "in the negative, so it is scored inverted &mdash; and it is not a rung on the "
-        "ladder. Hosting-environment indicators describe the environment serving the "
-        "dataset, so a crate cannot evidence them.</p>\n"
+        '  <p class="dsm-note">Percentages are the published sheet&rsquo;s own: satisfied '
+        "&divide; the cell&rsquo;s denominator &times; 100. The sheet has no "
+        "&ldquo;not assessed&rdquo; state &mdash; its validation column is all formulas, "
+        "so a blank scores 0 &mdash; which is why each cell also states how many of its "
+        "indicators were actually assessed. A cell&rsquo;s membership is the "
+        "sheet&rsquo;s: higher levels carry lower ones forward. Level&nbsp;0 states the "
+        "pre-FAIRification condition in the negative, so the sheet counts its zeros. "
+        "Hosting-environment indicators describe the environment serving the dataset, so "
+        "a crate cannot evidence them.</p>\n"
         "</section>\n"
     )
 

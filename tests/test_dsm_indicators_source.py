@@ -29,6 +29,11 @@ PUBLISHED_TOTAL = 83
 PUBLISHED_PER_LEVEL = {0: 11, 1: 14, 2: 15, 3: 16, 4: 14, 5: 13}
 PUBLISHED_PER_CATEGORY = {"C": 31, "R": 32, "H": 20}
 
+# The assessment sheet's own "% Complete" cells. Larger than the level's indicator
+# count wherever the sheet carries lower levels forward, and smaller at Level 5, whose
+# enterprise-governance rows mostly appear on no assessment row at all.
+SHEET_CELL_TOTALS = {0: 11, 1: 14, 2: 21, 3: 22, 4: 15, 5: 5}
+
 
 def _load_generator():
     spec = importlib.util.spec_from_file_location("gen_dsm_indicators", GEN)
@@ -234,30 +239,39 @@ class TestTheModelsOwnPercentCompleteGrid:
 
         return dsm_grid(vhps_fixture_state("S-VHPS21"))
 
-    def test_the_grid_covers_every_published_level_and_category(self):
+    def test_the_grid_covers_every_published_cell(self):
+        """Cell membership is the sheet's, not "the indicators at this level".
+
+        A level's cell carries lower levels forward, so its size is not the MASTER
+        census (``PUBLISHED_PER_LEVEL``) — the Level-2 cells hold 21 slots, six more
+        than Level 2 has indicators.
+        """
         grid = self._grid()
         assert set(grid) == set(PUBLISHED_PER_LEVEL)
         for level, by_cat in grid.items():
-            assert set(by_cat) <= {"C", "R", "H"}, level
-            assert sum(c["total"] for c in by_cat.values()) == PUBLISHED_PER_LEVEL[level]
+            assert set(by_cat) == {"C", "R", "H", "TOTAL"}, level
+            assert by_cat["TOTAL"]["total"] == SHEET_CELL_TOTALS[level]
 
-    def test_percentage_is_over_what_was_assessed_not_what_exists(self):
-        """The sheet's denominator is Excel COUNT, which omits unanswered cells.
+    def test_every_cell_states_both_numbers(self):
+        """``published_pct`` is the sheet's arithmetic; ``pct`` is over what we assessed.
 
-        An indicator we cannot assess is an unanswered cell: it must not count
-        against the dataset, or every percentage would be diluted by the 20
-        hosting indicators no crate can ever evidence.
+        The sheet cannot say "not assessed" — its validation column is all formulas, so
+        a blank scores 0 — but this tool can, and publishing only the sheet's number
+        would report a Level-0 row of 100% on the strength of never having looked.
+        Both are carried so the coverage behind each percentage is visible.
         """
         for by_cat in self._grid().values():
             for cell in by_cat.values():
                 assert cell["assessed"] <= cell["total"]
+                assert isinstance(cell["published_pct"], float), cell["cell"]
                 if cell["assessed"]:
-                    expected = round(cell["passed"] / cell["assessed"] * 100, 1)
-                    assert cell["pct"] == expected
+                    assert cell["pct"] == round(cell["passed"] / cell["assessed"] * 100, 1)
                     assert cell["passed"] <= cell["assessed"]
+                else:
+                    assert cell["pct"] is None, cell["cell"]
 
     def test_an_unassessable_cell_is_none_never_zero(self):
-        """`#DIV/0!` in the sheet — "not assessed" is not the same claim as 0%."""
+        """"Not assessed" is not the same claim as 0%, so ``pct`` says so."""
         grid = self._grid()
         for level in (0, 5):
             for cell in grid[level].values():
@@ -290,7 +304,15 @@ class TestTheModelsOwnPercentCompleteGrid:
                  "scope": "full", "check": "has_descriptor"},
                 {"id": "DSM-1-C0", "level": 1, "category": "C",
                  "scope": "full", "check": "has_descriptor"},
-            ]
+            ],
+            "scoring": {
+                "grid": [
+                    {"cell": "P6", "level": 0, "category": "C", "counts": 0,
+                     "members": ["DSM-0-C0"], "denominator": {"kind": "count", "n": 1}},
+                    {"cell": "P10", "level": 1, "category": "C", "counts": 1,
+                     "members": ["DSM-1-C0"], "denominator": {"kind": "count", "n": 1}},
+                ]
+            },
         }
         state = vhps_fixture_state("S-VHPS21")
         assert fa.DSM_CHECKS["has_descriptor"](state, None) is True
@@ -307,11 +329,12 @@ class TestTheModelsOwnPercentCompleteGrid:
         # Every published level name is a row label.
         for name in _yaml()["levels"].values():
             assert name in page
-        # An unassessable cell says so rather than showing a zero.
-        assert "not assessed" in page
-        # The deviation from the sheet is stated, not implied.
-        assert "excluded from the denominator" in page
-        assert "scored inverted" in page
+        # A cell states how much of it was actually assessed, so a percentage the
+        # sheet computed over blanks cannot read as a measurement.
+        assert "0 of 4 assessed" in page
+        # The two properties a reader needs to interpret the numbers are stated.
+        assert "not assessed" in page and "a blank scores 0" in page
+        assert "counts its zeros" in page
 
 
 class TestNoGraphMeansUnanswered:
@@ -363,8 +386,9 @@ class TestTheQuestionnaireLadder:
     Within one question the statements form a ladder — "standardised to a *community*
     Standard Dataset Model" (L3) sits above "...to a *locally defined* Dataset Model"
     (L2) — so an option cannot honestly be true while a lower rung of the same
-    question is false. Scoring indicators independently can produce exactly that
-    incoherence, so the scorer demotes rather than publishing it.
+    question is false. The published sheet resolves that by PROMOTING the lower rung
+    (``J4`` is ``=IF(J5=1,1,H4)``), and the scorer reproduces those nine rules rather
+    than inventing a constraint of its own.
     """
 
     def test_the_questionnaire_is_carried(self):
@@ -385,68 +409,110 @@ class TestTheQuestionnaireLadder:
             for option in question["options"]:
                 assert option["level"] == levels[option["id"]], option["id"]
 
-    def test_a_failed_rung_demotes_the_rungs_above_it(self):
+    def _promoted(self, rules, checks, indicators):
+        """Run the real scorer over a stub model and return its verdict map."""
+        import unittest.mock as m
+
         from builder.tools import fair_assessment as fa
 
-        data = {
-            "indicators": [
+        data = {"indicators": indicators, "scoring": {"promotion": rules}}
+        with m.patch.dict(fa.DSM_CHECKS, checks):
+            return fa.dsm_verdicts(CrateStateStub(), data, None)
+
+    def test_a_met_rung_promotes_the_one_below_it(self):
+        """`J4` is `=IF(J5=1,1,H4)`: meeting DSM-3-R2 satisfies DSM-2-R2."""
+        verdicts = self._promoted(
+            [{"cell": "J4", "then": "A", "when": "B"}],
+            {"no": lambda _s, _g=None: False, "yes": lambda _s, _g=None: True},
+            [
                 {"id": "A", "level": 2, "category": "C", "scope": "full", "check": "no"},
                 {"id": "B", "level": 3, "category": "C", "scope": "full", "check": "yes"},
             ],
-            "questions": [
-                {"question": "q", "options": [{"id": "A", "level": 2}, {"id": "B", "level": 3}]}
-            ],
-        }
-        checks = {"no": lambda _s, _g=None: False, "yes": lambda _s, _g=None: True}
-        import unittest.mock as m
-
-        with m.patch.dict(fa.DSM_CHECKS, checks):
-            verdicts = fa.dsm_verdicts(CrateStateStub(), data, None)
-        assert verdicts["A"].value is False
-        assert verdicts["B"].value is False, "a higher rung must not stand on a failed one"
-        assert "demoted" in verdicts["B"].evidence
-        assert "A" in verdicts["B"].evidence, "the evidence must name what blocked it"
-
-    def test_siblings_at_the_same_level_do_not_demote_each_other(self):
-        """The ladder runs ACROSS levels. Two options at the same level are
-        independent statements, so one failing must not drag the other down."""
-        from builder.tools import fair_assessment as fa
-
-        data = {
-            "indicators": [
-                {"id": "A", "level": 1, "category": "C", "scope": "full", "check": "no"},
-                {"id": "B", "level": 1, "category": "C", "scope": "full", "check": "yes"},
-            ],
-            "questions": [
-                {"question": "q", "options": [{"id": "A", "level": 1}, {"id": "B", "level": 1}]}
-            ],
-        }
-        checks = {"no": lambda _s, _g=None: False, "yes": lambda _s, _g=None: True}
-        import unittest.mock as m
-
-        with m.patch.dict(fa.DSM_CHECKS, checks):
-            verdicts = fa.dsm_verdicts(CrateStateStub(), data, None)
+        )
+        assert verdicts["A"].value is True, "the sheet promotes the lower rung"
         assert verdicts["B"].value is True
+        assert "promoted by B" in verdicts["A"].evidence
+        assert "J4" in verdicts["A"].evidence, "the evidence must name the sheet cell"
 
-    def test_an_unanswered_rung_neither_blocks_nor_is_blocked(self):
-        from builder.tools import fair_assessment as fa
+    def test_an_indicator_the_sheet_leaves_plain_is_never_rewritten(self):
+        """Only nine pairs are linked. Every other J cell is a plain `=H{row}`, so two
+        statements the sheet leaves independent must stay independent."""
+        verdicts = self._promoted(
+            [],
+            {"no": lambda _s, _g=None: False, "yes": lambda _s, _g=None: True},
+            [
+                {"id": "A", "level": 2, "category": "C", "scope": "full", "check": "no"},
+                {"id": "B", "level": 3, "category": "C", "scope": "full", "check": "yes"},
+            ],
+        )
+        assert verdicts["A"].value is False
+        assert verdicts["A"].evidence == ""
 
-        data = {
-            "indicators": [
+    def test_an_unanswered_source_does_not_promote(self):
+        """`IF(blank=1,...)` is false — nothing is claimed on the strength of nothing."""
+        verdicts = self._promoted(
+            [{"cell": "J4", "then": "A", "when": "B"}],
+            {"no": lambda _s, _g=None: False, "none": lambda _s, _g=None: None},
+            [
+                {"id": "A", "level": 2, "category": "C", "scope": "full", "check": "no"},
+                {"id": "B", "level": 3, "category": "C", "scope": "full", "check": "none"},
+            ],
+        )
+        assert verdicts["A"].value is False
+        assert verdicts["B"].value is None
+
+    def test_an_unanswered_target_is_promoted(self):
+        """`IF(J5=1,1,H4)` returns 1 whatever H4 holds, including nothing at all.
+
+        This is the behaviour that most distinguishes the sheet from a conservative
+        reading: an indicator we never measured is satisfied by the rung above it.
+        """
+        verdicts = self._promoted(
+            [{"cell": "J4", "then": "A", "when": "B"}],
+            {"none": lambda _s, _g=None: None, "yes": lambda _s, _g=None: True},
+            [
                 {"id": "A", "level": 2, "category": "C", "scope": "full", "check": "none"},
                 {"id": "B", "level": 3, "category": "C", "scope": "full", "check": "yes"},
             ],
-            "questions": [
-                {"question": "q", "options": [{"id": "A", "level": 2}, {"id": "B", "level": 3}]}
-            ],
-        }
-        checks = {"none": lambda _s, _g=None: None, "yes": lambda _s, _g=None: True}
-        import unittest.mock as m
+        )
+        assert verdicts["A"].value is True
 
-        with m.patch.dict(fa.DSM_CHECKS, checks):
-            verdicts = fa.dsm_verdicts(CrateStateStub(), data, None)
-        assert verdicts["A"].value is None
-        assert verdicts["B"].value is True, "absent evidence is not a failed rung"
+    def test_promotion_chains_to_a_fixed_point(self):
+        """`J10` reads `J11`, which reads `J12` — one sweep would stop halfway."""
+        verdicts = self._promoted(
+            [
+                {"cell": "J10", "then": "A", "when": "B"},
+                {"cell": "J11", "then": "B", "when": "C"},
+            ],
+            {"no": lambda _s, _g=None: False, "yes": lambda _s, _g=None: True},
+            [
+                {"id": "A", "level": 1, "category": "R", "scope": "full", "check": "no"},
+                {"id": "B", "level": 2, "category": "R", "scope": "full", "check": "no"},
+                {"id": "C", "level": 3, "category": "R", "scope": "full", "check": "yes"},
+            ],
+        )
+        assert verdicts["A"].value is True, "the chain must run to a fixed point"
+        assert verdicts["B"].value is True
+
+    def test_promotion_never_manufactures_a_pass(self):
+        """Every `True` traces to a check that answered True somewhere in its chain.
+
+        This is what replaces the guarantee the old demotion pass was reaching for:
+        promotion is monotone upward, so it can lift a verdict — but only ever on the
+        evidence of a real check, never out of nothing.
+        """
+        for rule in _yaml()["scoring"]["promotion"]:
+            verdicts = self._promoted(
+                [rule],
+                {"no": lambda _s, _g=None: False},
+                [
+                    {"id": rule["then"], "level": 1, "category": "R",
+                     "scope": "full", "check": "no"},
+                    {"id": rule["when"], "level": 2, "category": "R",
+                     "scope": "full", "check": "no"},
+                ],
+            )
+            assert verdicts[rule["then"]].value is False, rule["cell"]
 
 
 class TestEveryVerdictCarriesItsEvidence:
