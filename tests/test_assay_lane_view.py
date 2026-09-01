@@ -70,7 +70,15 @@ def _lanes() -> dict[str, dict[str, Any]]:
         ]
         result = subprocess.run(
             [_node_exe(), str(_PROBE), str(_MODULE)],
-            input=json.dumps({"nodes": nodes, "edges": list(merged.values())}),
+            input=json.dumps(
+                {
+                    "nodes": nodes,
+                    "edges": list(merged.values()),
+                    # Which way each relation is really stated — from the crate's
+                    # own relation tables, never a literal in the browser.
+                    "reversed": payload["relations_reversed"],
+                }
+            ),
             capture_output=True,
             text=True,
             check=True,

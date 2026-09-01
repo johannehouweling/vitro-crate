@@ -62,6 +62,16 @@
    * up rather than keeping a second copy of the vocabulary here.
    */
   function term(label) { return (D.relations && D.relations[label]) || label; }
+  /* The same, said in the direction the ARROW runs.
+   *
+   * `input` and `reagent` are drawn against their own predicate so the arrow
+   * points the way material moves (#650). Printing the bare term on such an
+   * arrow claims the inverse of what the crate holds — a third of a lane's
+   * edges did. `←` marks the ones whose predicate runs back the other way. */
+  function edgeTerm(label) {
+    var back = (D.relations_reversed || []).indexOf(label) >= 0;
+    return (back ? '\u2190 ' : '') + term(label);
+  }
   /* What an entity KEY expands to. `input` and `object` are one predicate;
    * `studies`, `assays` and `hasPart` are another. A key the context does not
    * name expands under the crate's own @vocab, which is the crate's rule rather
@@ -93,7 +103,7 @@
   // hairball on paper.
   var DERIVATION = new Set(['input', 'object', 'result', 'output']);
   var layout = window.ExplorerLayout.layout;
-  var laneLayout = window.AssayLaneLayout ? window.AssayLaneLayout.layout : null;
+  var laneView = window.AssayLaneView ? window.AssayLaneView.build : null;
   var NODE_W = window.ExplorerLayout.NODE_W, NODE_H = window.ExplorerLayout.NODE_H;
   // How far the opening view is allowed to pull back. A crate's whole graph is
   // thousands of pixels tall — the researcher view of a real deposit lays out
@@ -251,7 +261,29 @@
       <${Handle} type="source" position=${Position.Right} />
     </div>`;
   }
-  var nodeTypes = { entity: EntityNode };
+  /* The column headings a lane reads under, and the rule that separates the
+   * chain from the band.
+   *
+   * Not entities: they carry no id and cannot be selected. They exist because a
+   * fixed-rank lane means a column ALWAYS stands for the same step, so naming
+   * the columns once turns nine positions into nine words — and an empty column
+   * then says, in the place the reader is already looking, that the deposit
+   * recorded no such step. That is the finding a maturity report is for, and
+   * the old layout hid it by declining the whole graph.
+   */
+  function RankLabel(props) {
+    var cls = 'ex-rank' + (props.data.empty ? ' ex-rank-empty' : '');
+    return html`<div class=${cls}>
+      <div class="ex-rank-name">${props.data.label}</div>
+      ${props.data.empty
+        ? html`<div class="ex-rank-none">not recorded</div>`
+        : null}
+    </div>`;
+  }
+  function BandRule(props) {
+    return html`<div class="ex-band-rule"><span>${props.data.label}</span></div>`;
+  }
+  var nodeTypes = { entity: EntityNode, rank: RankLabel, band: BandRule };
 
   /* ---- JSON-LD, with every reference walkable ------------------------------ */
   function Ref(props) {
@@ -487,14 +519,17 @@
      * assay carrying AOP entities). It returns null and the fallback is the same
      * canvas, same styling, no visible seam.
      */
-    var positions = useMemo(function () {
+    var drawing = useMemo(function () {
       var lanes = Array.from(views).filter(function (k) { return LANE.has(k); });
-      if (lanes.length === 1 && laneLayout) {
-        var laid = laneLayout(graph.visible, graph.edges, NODE);
+      if (lanes.length === 1 && laneView) {
+        var laid = laneView(graph.visible, graph.edges, NODE, D.relations_reversed);
         if (laid) return laid;
       }
-      return layout(graph.visible, graph.edges);
+      return null;
     }, [graph, views]);
+    var positions = useMemo(function () {
+      return drawing ? drawing.positions : layout(graph.visible, graph.edges);
+    }, [drawing, graph]);
 
     var needle = query.trim().toLowerCase();
     var hits = useMemo(function () {
@@ -522,7 +557,12 @@
       return Array.from(graph.visible).map(function (id) {
         return {
           id: id, type: 'entity', position: positions.get(id),
-          width: NODE_W, height: NODE_H, selected: id === selected,
+          // A lane sizes its own boxes: a protocol is shorter than a step and a
+          // compound is smaller again, so the band reads as annotation rather
+          // than as more chain. The generic canvas has one size for everything.
+          width: (positions.get(id) || {}).w || NODE_W,
+          height: (positions.get(id) || {}).h || NODE_H,
+          selected: id === selected,
           data: {
             n: NODE.get(id),
             hit: hits ? hits.has(id) : false,
@@ -531,6 +571,34 @@
         };
       });
     }, [graph, positions, selected, hits]);
+
+    /* Headings and the band rule, added only when a lane is what is drawn.
+     *
+     * Ids are namespaced so they cannot collide with a crate `@id`, and these
+     * nodes never enter `graph.visible` — search, selection and the coverage
+     * counts are about entities, and a heading is not one.
+     */
+    var furniture = useMemo(function () {
+      if (!drawing) return [];
+      var out = drawing.ranks.map(function (r) {
+        return {
+          id: '\u0000rank:' + r.key, type: 'rank',
+          position: { x: r.x, y: 0 },
+          width: NODE_W, height: 22, draggable: false, selectable: false,
+          data: { label: r.label, empty: !r.members.length }
+        };
+      });
+      if (drawing.bandTop) {
+        out.push({
+          id: '\u0000band', type: 'band',
+          position: { x: drawing.ranks[0].x, y: drawing.bandTop - 22 },
+          width: drawing.width - drawing.ranks[0].x, height: 20,
+          draggable: false, selectable: false,
+          data: { label: 'LABPROTOCOL' }
+        });
+      }
+      return out;
+    }, [drawing]);
 
     var edges = useMemo(function () {
       return graph.edges.map(function (e) {
@@ -543,7 +611,11 @@
           // knocks the line out from behind the text (see `.ex-canvas
           // .react-flow__edge-text` in the stylesheet), so it reads as part of
           // the edge rather than as a card sitting on top of one.
-          label: lit ? e.labels.map(term).join(', ') : undefined,
+          // A relation the model draws reversed keeps the crate's predicate but
+          // runs the other way along this arrow, so the term alone would assert
+          // the inverse triple. The glyph is the one the side panel already
+          // uses for an incoming property, so the two read alike.
+          label: lit ? e.labels.map(edgeTerm).join(', ') : undefined,
           labelShowBg: false,
           labelStyle: { fontSize: 10, fill: colour },
           style: { stroke: colour, strokeWidth: lit ? 2 : 1, opacity: hits && !lit ? 0.25 : 1 },
@@ -666,7 +738,7 @@
       </div>
       <div class="ex-main">
         <div class="ex-canvas">
-          <${ReactFlowCanvas} nodes=${nodes} edges=${edges} nodeTypes=${nodeTypes}
+          <${ReactFlowCanvas} nodes=${nodes.concat(furniture)} edges=${edges} nodeTypes=${nodeTypes}
             onNodeClick=${function (_e, n) {
               // Click again to clear, taking the edge labels with it. Selection
               // used to change only by choosing something else, so a reader who

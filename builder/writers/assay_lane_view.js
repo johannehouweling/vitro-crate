@@ -30,11 +30,13 @@
  * and the canvas beside it cannot drift apart (the rule `assay_lane_layout.js`
  * set and this keeps).
  *
- * Edges carry `reversed` and `subject`. The model draws `input` and `reagent`
- * against the predicate so the arrow points the way material moves — deliberate
- * — but a renderer that labels such an arrow with the bare term asserts the
- * inverse of the triple the crate holds. Saying which end the crate states it
- * from is this module's job, because it is the module that knows.
+ * Edges carry `reversed` and `subject`. The model draws some relations against
+ * the predicate so the arrow points the way material moves — deliberate — but a
+ * renderer that labels such an arrow with the bare term asserts the inverse of
+ * the triple the crate holds. WHICH relations those are is the payload's answer
+ * (`relations_reversed`, derived from the relation tables), passed in rather
+ * than restated here: a second copy in the browser is the drift this codebase
+ * already refuses for the vocabulary itself.
  *
  * Same contract as its predecessor: `null` means "not a lane", and the caller
  * draws the graph on the generic canvas.
@@ -75,10 +77,6 @@
     { key: 'processed', label: 'PROCESSED', kind: 'material', from: 'DataAnalysis' }
   ];
 
-  // Drawn against the predicate: the arrow runs dst -> src in the crate. Kept
-  // here rather than read from the payload because it is a property of how this
-  // module draws, and a renderer must not have to infer it.
-  var REVERSED = { input: 1, reagent: 1 };
 
   function has(edge, label) {
     return (edge.labels || []).indexOf(label) >= 0;
@@ -178,12 +176,15 @@
    * @param {Set<string>} visible ids to place.
    * @param {Array<{src: string, dst: string, labels: Array<string>}>} edges
    * @param {Map<string, {category: string, type: string}>} nodes what each id is.
+   * @param {Array<string>|Set<string>} reversed labels the model draws against
+   *   their own predicate; the payload's `relations_reversed`.
    * @returns {{ranks: Array, positions: Map, edges: Array, width: number,
    *   height: number}|null} the drawing, or null when this is not a chain.
    */
-  function build(visible, edges, nodes) {
+  function build(visible, edges, nodes, reversed) {
     if (!visible || !visible.size) return null;
     edges = edges || [];
+    var against = new Set(reversed || []);
 
     var placed = assign(visible, edges, nodes);
     if (!placed) return null;
@@ -260,7 +261,7 @@
     edges.forEach(function (e) {
       if (!positions.has(e.src) || !positions.has(e.dst)) return;
       (e.labels || []).forEach(function (label) {
-        var back = REVERSED[label] === 1;
+        var back = against.has(label);
         drawn.push({
           src: e.src, dst: e.dst, label: label, reversed: back,
           subject: back ? e.dst : e.src

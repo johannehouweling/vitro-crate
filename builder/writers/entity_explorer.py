@@ -55,6 +55,7 @@ from builder.writers.provenance_dag import (
     build_people_inventory,
     property_terms,
     relation_terms,
+    reversed_relations,
     vocab_prefix,
 )
 
@@ -830,6 +831,11 @@ def build_explorer_payload(
         # serialized with. Generated here for the same reason the palette is: the
         # browser must not hold a second copy of it (#688).
         "relations": relation_terms(),
+        # And which of them the model draws against their own predicate, so a
+        # renderer can say `schema:object` on an arrow that runs the other way
+        # without asserting the inverse triple. The flag lives in the relation
+        # tables; the browser reads it rather than keeping a second copy.
+        "relations_reversed": sorted(reversed_relations()),
         # And what each entity KEY expands to. `input` and `object` are one
         # predicate; a reader had to know the context to see that (#688).
         "properties": property_terms(),
@@ -853,7 +859,7 @@ _ASSET_DIR = Path(__file__).resolve().parent
 _VENDOR_DIR = _ASSET_DIR / "vendor"
 _APP_PATH = _ASSET_DIR / "entity_explorer.js"
 _LAYOUT_PATH = _ASSET_DIR / "entity_explorer_layout.js"
-_LANE_PATH = _ASSET_DIR / "assay_lane_layout.js"
+_LANE_PATH = _ASSET_DIR / "assay_lane_view.js"
 _CODEC_PATH = _ASSET_DIR / "payload_codec.js"
 _MANIFEST_PATH = _VENDOR_DIR / "manifest.json"
 
@@ -941,7 +947,7 @@ def _layout_js() -> str:
 
 @lru_cache(maxsize=1)
 def _lane_js() -> str:
-    """The layout an assay lane takes its node positions from.
+    """The drawing an assay lane takes its ranks, boxes and edges from.
 
     Loaded after :func:`_layout_js` and before the app: it reads that module's
     node size at factory time, so the order is a requirement rather than a

@@ -496,6 +496,22 @@ __CATEGORY_STYLES__
 .mat .ex-node-name{font-weight:640; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .mat .ex-node-tag{font-size:.58rem; letter-spacing:.04em; text-transform:uppercase;
   color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* A lane's column headings and the rule under its chain (#686).
+   Furniture, not entities: no border, no hit area, and muted enough that the
+   chain stays the figure. An empty column keeps its heading and says so — the
+   deposit recorded no such step, and that gap is the finding. */
+.mat .ex-rank{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.55rem; letter-spacing:.09em;
+  color:var(--muted); text-transform:uppercase; pointer-events:none;
+  white-space:nowrap;}
+.mat .ex-rank-name{overflow:hidden; text-overflow:ellipsis;}
+.mat .ex-rank-empty{opacity:.72;}
+.mat .ex-rank-none{font-size:.52rem; letter-spacing:.02em; text-transform:none;
+  color:var(--warn); font-style:italic;}
+.mat .ex-band-rule{display:flex; align-items:center; gap:.5rem; pointer-events:none;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.55rem; letter-spacing:.09em;
+  color:var(--muted); text-transform:uppercase; white-space:nowrap;}
+.mat .ex-band-rule::after{content:""; flex:1; border-top:1px dashed var(--border);}
+
 /* An edge label integrates into its edge instead of sitting in a box on it: the
    text takes the edge's own colour (set inline, from the payload's palette) and
    `paint-order` lays a surface-coloured halo down first, knocking the line out

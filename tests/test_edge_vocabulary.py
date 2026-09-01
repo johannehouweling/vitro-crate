@@ -168,3 +168,54 @@ class TestSelectionBehaviour:
         assert "react-flow__edge-text" in css
         block = css.split("react-flow__edge-text{", 1)[1].split("}", 1)[0]
         assert "paint-order:stroke" in block and "stroke:var(--surface)" in block
+
+
+class TestAnEdgeSaysWhichEndTheCrateStatesItFrom:
+    """Two relations are drawn against the predicate, and the payload says so.
+
+    ``_extract_edges`` flips the endpoints of a ``reverse=True`` relation so the
+    arrow points the way material moves — a cell line into the step that
+    consumed it — and then keeps the label. A renderer that prints the bare term
+    on that arrow says ``schema:object`` from the cell line TO the process,
+    which is the inverse of the triple the crate holds. Measured on the
+    reference deposit: 163 of 495 drawn lane edges, a third of them.
+
+    The flag already exists in ``_PRIMARY_RELATIONS``; ``relation_terms`` threw
+    it away. Derived here for the same reason the terms are — a hand-kept list
+    would be a second copy to drift from the first.
+    """
+
+    def test_the_reversed_relations_are_named(self):
+        from builder.writers.provenance_dag import reversed_relations
+
+        assert reversed_relations() == {"input", "reagent"}
+
+    def test_it_is_derived_from_the_relation_tables(self):
+        """Not a literal: adding a reversed relation must not need a second edit."""
+        from builder.writers.provenance_dag import (
+            _SECONDARY_RELATIONS,
+            reversed_relations,
+        )
+
+        expected = {
+            label
+            for _keys, label, is_reversed in _PRIMARY_RELATIONS + _SECONDARY_RELATIONS
+            if is_reversed
+        }
+        assert reversed_relations() == expected
+
+    def test_every_reversed_relation_still_names_a_property(self):
+        from builder.writers.provenance_dag import reversed_relations
+
+        terms = relation_terms()
+        for label in reversed_relations():
+            assert ":" in terms[label], label
+
+    def test_the_payload_carries_it(self):
+        """The browser must not keep its own copy of which way an edge runs."""
+        from builder.writers.entity_explorer import build_explorer_payload
+        from builder.writers.provenance_dag import reversed_relations
+        from tests.fixtures.crate_graphs import assay_lane_real_shapes_graph
+
+        payload = build_explorer_payload(assay_lane_real_shapes_graph())
+        assert set(payload["relations_reversed"]) == reversed_relations()
