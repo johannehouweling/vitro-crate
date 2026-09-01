@@ -2716,26 +2716,19 @@ def _failing_at(
 def dsm_verdicts(
     state: CrateState, dsm_data: dict[str, Any] | None = None, graph: Graph = None
 ) -> dict[str, Verdict]:
-    """Every assessable indicator's verdict, with the questionnaire's ladder enforced.
+    """Every assessable indicator's verdict, with the published sheet's ladder applied.
 
     The single evaluation pass. The level, the grid, the ceiling and the blockers all
     read this map, so the four can never disagree about what an indicator answered.
 
-    **The ladder constraint.** The published instrument is a questionnaire of 18
-    multiple-choice questions whose options are nested by maturity level — within one
-    question, "Dataset(s) are standardised to a *community* Standard Dataset Model"
-    (L3) sits above "...to a *locally defined* Dataset Model" (L2). A respondent
-    cannot truthfully tick the higher statement while leaving the lower one unticked.
-
-    This tool evaluates indicators independently, which *can* produce that incoherence:
-    measured on a real crate, 5 of the 18 questions came back non-monotone. So after
-    evaluation, each question's ladder is walked upward and any option above a
-    **False** is demoted to False, with the reason recorded in its evidence. Demoting
-    (rather than promoting the lower one) is the conservative direction: it never
-    credits a maturity the crate has not evidenced at every step below.
-
-    Unanswered options (``value is None``) neither block nor are blocked — an absent
-    measurement is not a failure, so the ladder walks past them untouched.
+    **The ladder is the sheet's, and it promotes.** The model's statements nest — within
+    one question, "Dataset(s) are standardised to a *community* Standard Dataset Model"
+    (L3) sits above "...to a *locally defined* Dataset Model" (L2) — and the published
+    workbook resolves that in its validation column: ``J4`` is ``=IF(J5=1,1,H4)``, so
+    meeting the higher rung satisfies the lower one. Nine such rules exist, all in the
+    Representation block, and each names one source; the sheet leaves every other pair
+    independent. :func:`_apply_promotion` reproduces them, so a crate scores what a
+    depositor filling in the sheet by hand would score.
     """
     if dsm_data is None:
         dsm_data = _load_yaml(DSM_INDICATORS_PATH)
@@ -2756,29 +2749,43 @@ def dsm_verdicts(
             )
         verdicts[ident] = _as_verdict(check(state, graph))
 
-    for question in dsm_data.get("questions", []) or []:
-        # The ladder runs ACROSS levels, not within one. Two options at the same
-        # level are siblings — independent statements — so a failure at level N must
-        # only demote options ABOVE N, never the ones beside it.
-        failed_at: int | None = None
-        blocked_by = ""
-        for option in question.get("options", []) or []:
-            ident = str(option.get("id") or "")
-            level = option.get("level")
-            current = verdicts.get(ident)
-            if current is None or current.value is None or not isinstance(level, int):
-                continue
-            if failed_at is not None and level > failed_at and current.value is True:
-                verdicts[ident] = Verdict(
-                    False,
-                    f"demoted: {blocked_by} (level {failed_at}) is not met, and this "
-                    f"question's statements form a ladder"
-                    + (f" — measured: {current.evidence}" if current.evidence else ""),
-                )
-            elif current.value is False and failed_at is None:
-                failed_at, blocked_by = level, ident
-
+    _apply_promotion(verdicts, (dsm_data.get("scoring") or {}).get("promotion") or [])
     return verdicts
+
+
+def _apply_promotion(verdicts: dict[str, Verdict], rules: list[dict[str, str]]) -> None:
+    """Apply the sheet's ``=IF(J{source}=1,1,H{own})`` rules to *verdicts*, in place.
+
+    Two properties come straight from the formula and are easy to get wrong:
+
+    * It fires over an **unanswered** target as well as a failed one. ``IF(J5=1,1,H4)``
+      returns 1 whatever ``H4`` holds, so an indicator nothing measured is satisfied by
+      the rung above it.
+    * It does **not** fire from an unanswered source: ``IF(blank=1)`` is false.
+
+    Promotion is monotone upward and can never manufacture a pass — every rule's source
+    is itself a check that can fail, so a ``True`` here always traces back to a ``True``
+    somewhere in its chain. The rules chain (``J10`` reads ``J11``, which reads ``J12``),
+    so this runs to a fixed point rather than in one sweep.
+    """
+    for _ in range(len(rules)):
+        changed = False
+        for rule in rules:
+            source = verdicts.get(rule["when"])
+            target = verdicts.get(rule["then"])
+            if source is None or source.value is not True:
+                continue
+            if target is not None and target.value is True:
+                continue
+            verdicts[rule["then"]] = Verdict(
+                True,
+                f"promoted by {rule['when']}: the published sheet's {rule['cell']} reads "
+                f"=IF({rule['when']}=1,1,...), so the higher rung satisfies this one"
+                + (f" — measured: {target.evidence}" if target is not None and target.evidence else ""),
+            )
+            changed = True
+        if not changed:
+            return
 
 
 def _compute_dsm_level(
@@ -2906,74 +2913,89 @@ def dsm_ceiling(
 
 
 def dsm_grid(
-    state: CrateState, dsm_data: dict[str, Any] | None = None, graph: Graph = None
+    state: CrateState,
+    dsm_data: dict[str, Any] | None = None,
+    graph: Graph = None,
+    *,
+    answers: dict[str, Verdict] | None = None,
 ) -> dict[int, dict[str, dict[str, Any]]]:
-    """The DSM's own **"% Complete" grid** — every level × every category.
+    """The DSM's own **"% Complete" grid** — every level x every category, plus Total.
 
-    This reproduces the scoring the published assessment sheet performs, rather than
-    only the single gated level. The workbook's formula, verbatim from
-    ``FAIR-DSM Assessment Sheet v1.2`` cell ``P10`` (Level 1, Content and context)::
+    This is the published instrument's *only* output: no formula anywhere in the
+    workbook computes an achieved maturity level. Each cell is reproduced from the
+    sheet's own definition, carried in ``fair/dsm_indicators.yaml`` under ``scoring``
+    and read here rather than re-derived, so a depositor filling the sheet in by hand
+    reaches the same numbers.
 
-        =(((COUNTIFS(J32,1))+(COUNTIFS(J45,1))+(COUNTIFS(J50,1))+(COUNTIFS(J51,1)))
-          /(COUNT(J32,J45,J50,J51))*100)
+    Three properties of the sheet are load-bearing:
 
-    Two properties of that formula are load-bearing and are reproduced exactly:
+    * **Membership is the sheet's, not the indicator's level.** A level's cell carries
+      lower levels forward — the Level-2 Content cell counts DSM-1-C2 and DSM-1-C3
+      beside the Level-2 rows — and it is a *multiset*: DSM-4-H2 appears on two rows of
+      the Level-4 Hosting cell, which divides by 3.
+    * **A blank scores 0.** The sheet's validation column is entirely formulas
+      (``=H{row}``), so an unanswered indicator evaluates to numeric 0 and ``COUNT``
+      counts it. The instrument has no "not assessed" state.
+    * **Level 0 counts zeros** (``P6`` is ``COUNTIFS(J31,0)``). Its statements describe
+      the pre-FAIRification condition in the negative, so failing them is the good
+      outcome.
 
-    * **The denominator is ``COUNT``, not ``COUNTA``.** Excel's ``COUNT`` tallies
-      *numeric* cells, so an indicator left unanswered drops out of the denominator
-      instead of counting against the score. An indicator this tool cannot assess from
-      a crate is precisely an unanswered cell, so it is excluded the same way — the
-      percentage says "of what was assessed", exactly as the sheet does.
-    * **Level 0 counts zeros, not ones** (cell ``P6``: ``COUNTIFS(J31,0)``). Its
-      indicators state the pre-FAIRification condition in the negative, so *not*
-      satisfying one is the good outcome. Scoring it like any other level would invert
-      the scale.
+    Because the sheet cannot say "not assessed" and this tool can, every cell carries
+    two numbers: ``published_pct`` is the sheet's arithmetic and is what an external
+    assessor reproduces, while ``pct`` divides by what was actually assessed and is
+    ``None`` when nothing was. Reporting only the first would publish a Level-0 row
+    reading 100% "escaped the pre-FAIRification state" on the strength of never having
+    looked; reporting only the second would publish a number no one else can check.
 
-    A cell whose indicators are all unassessable has an empty denominator — ``#DIV/0!``
-    in the sheet — and is reported as ``pct=None`` ("not assessed"), never 0.
+    Args:
+        answers: an already-computed verdict map, to avoid re-running every check.
 
     Returns:
-        ``{level: {category: {"pct", "passed", "assessed", "total"}}}`` where
-        *category* is ``C``/``R``/``H``, ``assessed`` is the denominator actually used,
-        and ``total`` is how many the published model defines there — so a reader can
-        see the coverage behind every percentage.
+        ``{level: {category: cell}}`` where *category* is ``C``/``R``/``H``/``TOTAL``
+        and each cell states ``cell``, ``published_pct``, ``pct``, ``passed``,
+        ``assessed`` and ``total``.
     """
     if dsm_data is None:
         dsm_data = _load_yaml(DSM_INDICATORS_PATH)
     if dsm_data is None:
         return {}
+    if answers is None:
+        answers = dsm_verdicts(state, dsm_data, graph)
 
-    indicators = dsm_data.get("indicators", [])
-    answers = dsm_verdicts(state, dsm_data, graph)
     grid: dict[int, dict[str, dict[str, Any]]] = {}
-
-    for ind in indicators:
-        level, category = ind.get("level"), str(ind.get("category") or "")
-        if not isinstance(level, int) or not category:
-            continue
-        cell = grid.setdefault(level, {}).setdefault(
-            category, {"pct": None, "passed": 0, "assessed": 0, "total": 0}
-        )
-        cell["total"] += 1
-
-        if ind.get("scope", "na") == "na":
-            continue  # an unanswered cell: outside COUNT(), so outside the denominator
-        check = DSM_CHECKS.get(str(ind.get("check") or ""))
-        if check is None:  # guarded by _assessable_indicators; belt and braces
-            continue
-        verdict = answers.get(str(ind.get("id")))
-        satisfied = verdict.value if verdict is not None else None
-        if satisfied is None:
-            continue  # answered by nothing: an unanswered cell, outside COUNT()
-        cell["assessed"] += 1
-        # Level 0 is scored inverted — see the docstring.
-        if satisfied != (level == 0):
-            cell["passed"] += 1
-
-    for by_category in grid.values():
-        for cell in by_category.values():
-            if cell["assessed"]:
-                cell["pct"] = round(cell["passed"] / cell["assessed"] * 100, 1)
+    for spec in (dsm_data.get("scoring") or {}).get("grid") or []:
+        members = spec.get("members") or []
+        cell: dict[str, Any] = {
+            "cell": spec["cell"],
+            "published_pct": spec.get("constant"),
+            "pct": None,
+            "met": 0,
+            "passed": 0,
+            "assessed": 0,
+            "total": len(members),
+        }
+        # The sheet's own criterion: 1 everywhere but Level 0, which counts zeros.
+        wanted = spec.get("counts", 1) == 1
+        for ident in members:  # iterated, not de-duplicated: see the docstring
+            verdict = answers.get(ident)
+            value = None if verdict is None else verdict.value
+            # An unanswered indicator validates to 0 on the sheet, so it satisfies a
+            # cell that counts zeros and fails one that counts ones. That is why the
+            # Level-0 row can read 100% off nothing but blanks, and why `assessed`
+            # rides alongside every percentage.
+            if (False if value is None else value) is wanted:
+                cell["met"] += 1
+            if value is None:
+                continue
+            cell["assessed"] += 1
+            if value is wanted:
+                cell["passed"] += 1
+        denominator = (spec.get("denominator") or {}).get("n")
+        if denominator:
+            cell["published_pct"] = round(cell["met"] / denominator * 100, 1)
+        if cell["assessed"]:
+            cell["pct"] = round(cell["passed"] / cell["assessed"] * 100, 1)
+        grid.setdefault(spec["level"], {})[spec["category"]] = cell
 
     return grid
 

@@ -89,18 +89,20 @@ class TestTheLicenceIndicatorsGradeTheCrate:
             "license_standard"
         ](CrateState(), graph)
 
-    def test_the_ladder_can_still_demote_a_licence_that_is_really_there(self):
-        """A thin crate fails DSM-1-C2, and the ladder demotes DSM-3-C7 above it.
+    def test_a_licence_that_is_really_there_is_reported_as_there(self):
+        """DSM-3-C7 is in none of the sheet's nine linked pairs, so nothing rewrites it.
 
-        Pinned because it looks like a licence bug and is not: the statements form a
-        ladder, and a level-3 claim cannot stand on an unmet level-1 one.
+        Pinned as the inverse of what it used to assert. The scorer once demoted this
+        to False because a thin crate fails DSM-1-C2 a level below — a constraint the
+        published sheet does not impose, and one that reported a declared licence as
+        missing.
         """
         from builder.tools.fair_assessment import dsm_verdicts
 
         graph = self._graph("https://creativecommons.org/licenses/by/4.0/")
         verdict = dsm_verdicts(CrateState(), None, graph)["DSM-3-C7"]
-        assert verdict.value is False
-        assert "demoted" in verdict.evidence and "DSM-1-C2" in verdict.evidence
+        assert verdict.value is True
+        assert verdict.evidence == "", "nothing rewrote it, so it carries no ladder note"
 
     def test_state_and_graph_give_the_same_answer(self):
         """`#535` writes the licence to `state.metadata.license`; assembly copies it to
