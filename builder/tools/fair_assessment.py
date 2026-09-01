@@ -2463,7 +2463,8 @@ def _check_min_info_guidelines(state: CrateState, graph: Graph) -> bool:
     at all", which an empty assembled crate already meets (measured: 1%), so the
     indicator would swap a constant False for a constant True. "In compliance with"
     needs a bar anchored to what the guidelines require, not to what this corpus
-    happens to score.
+    happens to score. Tracked as #705; the report says as much in the indicator's own
+    remedy rather than publishing an instruction that cannot work.
     """
     return _mit_has_coverage(state.mit_assessment)
 

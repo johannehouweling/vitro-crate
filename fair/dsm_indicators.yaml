@@ -1002,6 +1002,9 @@ indicators:
   category: C
   scope: full
   check: unique_id
+  remedy:
+    do: Mint a DOI for the deposit and record it on the root as `identifier`.
+    why: a reader cannot cite the deposit or fetch it again once it leaves this crate
   granularity: Dataset
   rda_ref: RDA-F1-02D
   fairsfair_ref: FsF-F1-01D
@@ -1011,6 +1014,9 @@ indicators:
   category: C
   scope: full
   check: study_summary
+  remedy:
+    do: Write the root a `description` that says more than its name, and describe every Study Dataset.
+    why: a reuser meets a named study with nothing said about what was done
   granularity: Project
   fairsfair_ref: FsF-F2-01M
   text: Dataset Descriptor(s) includes Descriptive Study/Project-Level summary information
@@ -1019,6 +1025,9 @@ indicators:
   category: C
   scope: full
   check: dataset_metadata
+  remedy:
+    do: Give every Dataset the root gathers, the root included, its own name and description.
+    why: a reuser opening a Dataset finds no statement of what it holds
   granularity: Dataset
   fairsfair_ref: FsF-F2-01M
   text: Dataset Descriptor(s) includes Identifying & Descriptive Dataset-Level metadata
@@ -1027,6 +1036,10 @@ indicators:
   category: C
   scope: full
   check: access_info
+  remedy:
+    do: Record the repository accession for the deposit, so the descriptor says where the data can be
+      got.
+    why: a reuser holds the data with no handle for going back to the original deposit
   granularity: Dataset
   rda_ref: RDA-A1-01M
   fairsfair_ref: FsF-A1-01M
@@ -1036,6 +1049,9 @@ indicators:
   category: R
   scope: full
   check: has_descriptor
+  remedy:
+    do: Name the deposit — set the crate's title, which is what the descriptor identifies it by.
+    why: a reuser cannot tell one deposit's descriptor from another's
   granularity: Dataset
   text: Dataset Metadata is formally represented in the form of an Identifiable Dataset Descriptor
 - id: DSM-1-R1
@@ -1043,6 +1059,9 @@ indicators:
   category: R
   scope: full
   check: context_fields
+  remedy:
+    do: Draft the study's subjects into the crate — the cell lines, the test chemicals, the protocols.
+    why: a reuser opens a container that records nothing but its own packaging
   granularity: ''
   text: Contextual Metadata is represented at summary level and reported in the Dataset Descriptor
 - id: DSM-1-R2
@@ -1050,6 +1069,9 @@ indicators:
   category: R
   scope: full
   check: dataset_hierarchy
+  remedy:
+    do: File each deposited file under an Assay or Study Dataset below the root, not on the root itself.
+    why: a reuser cannot tell which study or assay a file belongs to
   granularity: Dataset
   text: Data intended for sharing and reuse have a purposely defined representation as Datasets
 - id: DSM-1-R3
@@ -1057,6 +1079,9 @@ indicators:
   category: R
   scope: full
   check: general_schema
+  remedy:
+    do: Fill `name`, `description`, `datePublished` and `license` on the Root Data Entity.
+    why: a generic schema.org reader finds no title, terms or date for the deposit
   granularity: Dataset
   text: A representation of the Dataset Descriptor conforming to a relevant General Purpose Metadata Schema
     is available
@@ -1065,6 +1090,9 @@ indicators:
   category: R
   scope: full
   check: descriptor_machine_readable
+  remedy:
+    do: Declare the RO-Crate profile IRI as `conformsTo` on `ro-crate-metadata.json`.
+    why: a machine reading the file cannot tell which specification it follows
   granularity: Dataset
   rda_ref: RDA-I1-02M
   fairsfair_ref: FsF-F4-01M
@@ -1074,6 +1102,9 @@ indicators:
   category: R
   scope: full
   check: data_machine_readable
+  remedy:
+    do: Deposit the tables as CSV, TSV or XLSX and declare each file's `encodingFormat`.
+    why: software cannot read the numbers out of a PDF or an undeclared blob
   granularity: Dataset
   rda_ref: RDA-I1-02D
   text: Dataset(s) available in Machine Readable Format
@@ -1114,6 +1145,9 @@ indicators:
   category: C
   scope: partial
   check: domain_model
+  remedy:
+    do: Write the study design, and how its datasets relate, into the root's `description`.
+    why: a reuser cannot tell what the study did or how its files fit together
   granularity: Project
   rda_ref: RDA-R1-01M
   fairsfair_ref: FsF-R1-01MD
@@ -1125,6 +1159,9 @@ indicators:
   category: C
   scope: partial
   check: tidy_dataset
+  remedy:
+    do: Declare a `datatype` on every `csvw:Column`, and describe at least two columns in all.
+    why: an untyped column is an undifferentiated string to every tool that reads it
   granularity: Dataset
   rda_ref: RDA-F1-02D
   fairsfair_ref: FsF-F1-01D
@@ -1134,6 +1171,9 @@ indicators:
   category: C
   scope: full
   check: reference_fields
+  remedy:
+    do: Give at least one column a `valueUrl` pointing at the Sample or MolecularEntity its values name.
+    why: a reuser cannot join the table's rows to the samples and compounds measured
   granularity: Dataset Fields
   text: Dataset(s) include Reference Fields that enable joining related datasets
 - id: DSM-2-C4
@@ -1141,6 +1181,9 @@ indicators:
   category: C
   scope: partial
   check: local_data_dictionary
+  remedy:
+    do: Give at least one column both a `datatype` and a `valueUrl` or `propertyUrl` naming its vocabulary.
+    why: a reuser has to guess what the codes in a column stand for
   granularity: Dataset Field Values
   text: Where applicable, Dataset Field Values are standardized against a locally defined Data Dictionary
     within and across related Datasets
@@ -1149,6 +1192,9 @@ indicators:
   category: C
   scope: full
   check: cross_dataset_refs
+  remedy:
+    do: Hang the depositor's own files directly under at least two Datasets the root relates to.
+    why: a reuser cannot see which datasets the deposit holds, or how they join
   granularity: ''
   text: Dataset Descriptor includes reference to related Datasets and if applicable the relevant joining
     Dataset Fields
@@ -1157,6 +1203,10 @@ indicators:
   category: C
   scope: full
   check: field_level_metadata
+  remedy:
+    do: Point every deposited table at a `tableSchema` listing one column per field, each with `titles`
+      and a `datatype`.
+    why: the deposit's tables arrive as bare headers a reader has to decode by hand
   granularity: Dataset Fields
   rda_ref: RDA-F2-01M
   fairsfair_ref: FsF-R1-01MD
@@ -1166,6 +1216,9 @@ indicators:
   category: C
   scope: full
   check: value_level_metadata
+  remedy:
+    do: Record at least two property values on at least one entity in the crate.
+    why: an entity carrying a single value states nothing a reuser can interpret
   granularity: Dataset Field Values
   text: Dataset Descriptor includes Value-level Metadata or if applicable includes a reference to a locally
     defined Data Dictionary
@@ -1174,6 +1227,9 @@ indicators:
   category: R
   scope: partial
   check: domain_model
+  remedy:
+    do: 'Fill the root''s `description` with the project''s contextual model: design, arms, endpoints.'
+    why: the context that makes the numbers mean anything is nowhere in the crate
   granularity: Project
   text: Contextual Metadata is formally represented and reported in the form of a locally defined Domain
     Model
@@ -1182,6 +1238,9 @@ indicators:
   category: R
   scope: full
   check: local_dataset_model
+  remedy:
+    do: Declare a `tableSchema` on at least one data table in the crate.
+    why: a reuser opening the CSV has no column list to read the numbers against
   granularity: Dataset
   text: Dataset(s) are standardised to a locally defined Dataset Model suitable for data sharing and re-use
 - id: DSM-2-R3
@@ -1189,6 +1248,9 @@ indicators:
   category: R
   scope: full
   check: generic_model
+  remedy:
+    do: Record at least one entity — a sample, a compound, an assay — before exporting.
+    why: an empty descriptor models no data at all
   granularity: Dataset
   rda_ref: RDA-R1.3-02M
   text: Dataset Descriptor(s) adopt a Metadata Schema representation that describes the locally defined
@@ -1198,6 +1260,9 @@ indicators:
   category: R
   scope: partial
   check: model_documentation_human
+  remedy:
+    do: Write a `description` on at least one LabProtocol, not just its name.
+    why: a reuser gets a protocol title and no account of what was done
   granularity: Dataset
   text: A formal documentation of the locally defined Domain Model is available in a Human Readable Format
 - id: DSM-2-R5
@@ -1205,6 +1270,10 @@ indicators:
   category: R
   scope: full
   check: data_structured
+  remedy:
+    do: Give every deposited file a specific `encodingFormat` rather than none or `application/octet-stream`,
+      and leave no Dataset with an empty `hasPart`.
+    why: a machine cannot tell how to open the file, and a promised dataset turns out empty
   granularity: Dataset
   rda_ref: RDA-I1-02D
   text: Dataset(s) available in Machine Readable Format
@@ -1236,6 +1305,10 @@ indicators:
   category: C
   scope: full
   check: min_info_guidelines
+  remedy:
+    do: 'Nothing in the crate clears this one: the check reads a MIT report the build never populates,
+      so it fails however much of the checklist is filled.'
+    why: the minimum-information items are reported unmet without ever being scored
   granularity: Project
   rda_ref: RDA-R1.3-01M
   fairsfair_ref: FsF-R1.3-01M
@@ -1246,6 +1319,9 @@ indicators:
   category: C
   scope: partial
   check: community_domain_model
+  remedy:
+    do: Declare the community profile the datasets follow in the root's `conformsTo`.
+    why: a reader cannot tell which community guideline the datasets were reported under
   granularity: Dataset
   rda_ref: RDA-R1.3-01D
   text: Where applicable, Dataset(s) definition and content are reported in compliance with relevant community-defined
@@ -1255,6 +1331,9 @@ indicators:
   category: C
   scope: full
   check: standard_field_names
+  remedy:
+    do: Give each column a `propertyUrl` that is an absolute ontology IRI, not a local name.
+    why: a reuser cannot tell what a column heading means across datasets
   granularity: ''
   text: Where applicable, Dataset Field Names use standard controlled terms as recommended by the adopted
     Standard
@@ -1263,6 +1342,10 @@ indicators:
   category: C
   scope: partial
   check: controlled_values
+  remedy:
+    do: Bind every MolecularEntity and cell-line Sample to a registry IRI via `@id`, `identifier`, `sameAs`
+      or `url`.
+    why: a reuser cannot tell which cell line or compound was actually used
   granularity: Dataset Field Values
   rda_ref: RDA-I2-01D
   text: Where applicable, Dataset Field Values are standardised against domain-specific Controlled Terminologies
@@ -1272,6 +1355,10 @@ indicators:
   category: C
   scope: full
   check: resolvable_terms
+  remedy:
+    do: Give a reported term — cell line, compound, AOP — a `url` or `sameAs` holding the full registry
+      link, not a bare accession.
+    why: a reuser cannot look up the term behind a bare label
   granularity: ''
   rda_ref: RDA-I2-01D
   text: Value Level Metadata includes Resolvable Identifiers for Controlled and/or Standard Terms reported
@@ -1281,6 +1368,10 @@ indicators:
   category: C
   scope: partial
   check: standard_field_metadata
+  remedy:
+    do: Write the per-well design rows into the condition table, so the CSV carries records and not only
+      a header.
+    why: a schema over an empty table tells a reuser nothing about the data
   granularity: ''
   text: Dataset Descriptor includes standard-compliant Field-level Metadata as prescribed by the adopted
     standard Dataset Model.
@@ -1289,6 +1380,9 @@ indicators:
   category: C
   scope: full
   check: standard_license
+  remedy:
+    do: Set the root's `license` to a standard licence URL — a Creative Commons, SPDX or OSI IRI.
+    why: nobody may legally reuse the data without one
   granularity: ''
   text: Dataset Descriptor references a standard license under which the dataset can be re-used.
 - id: DSM-3-R1
@@ -1296,6 +1390,9 @@ indicators:
   category: R
   scope: partial
   check: community_domain_model
+  remedy:
+    do: Declare in the root's `conformsTo` the community standard the contextual metadata follows.
+    why: a reuser cannot tell which standard the context was modelled against
   granularity: Project
   rda_ref: RDA-R1.3-01M
   fairsfair_ref: FsF-R1.3-01M
@@ -1306,6 +1403,9 @@ indicators:
   category: R
   scope: full
   check: local_dataset_model
+  remedy:
+    do: Attach a `csvw:tableSchema` to the crate's tabular data files.
+    why: a reuser cannot parse the columns without a declared schema
   granularity: Dataset
   rda_ref: RDA-R1.3-01D
   text: Dataset(s) are standardised to relevant Domain or Community Standard Dataset Model(s) suitable
@@ -1315,6 +1415,9 @@ indicators:
   category: R
   scope: full
   check: domain_standard
+  remedy:
+    do: Declare a domain profile IRI in the root's `conformsTo` alongside the RO-Crate one.
+    why: a reader sees packaging conventions but no domain standard to read against
   granularity: Dataset
   rda_ref: RDA-R1.3-01M
   fairsfair_ref: FsF-R1.3-01M
@@ -1324,6 +1427,9 @@ indicators:
   category: R
   scope: full
   check: community_domain_model
+  remedy:
+    do: Publish the adopted model as a resolvable profile IRI and declare it in `conformsTo`.
+    why: a machine has no address to fetch the model the crate claims to follow
   granularity: ''
   text: A formal documentation of the adopted Standard Dataset Model is available in a Machine Readable
     Format
@@ -1332,6 +1438,9 @@ indicators:
   category: R
   scope: full
   check: non_proprietary_format
+  remedy:
+    do: Deposit the data as CSV, TSV, JSON, XML, HDF5 or NetCDF and state that `encodingFormat`.
+    why: a reuser needs licensed software to open .xlsx or .prism data
   granularity: Dataset
   rda_ref: RDA-I1-01D
   fairsfair_ref: FsF-R1.3-02D
@@ -1373,6 +1482,9 @@ indicators:
   category: C
   scope: partial
   check: semantic_study_design
+  remedy:
+    do: Wire each LabProcess to its object and its result, not only to input and output.
+    why: a reuser cannot see which material a step consumed or what it produced
   granularity: Dataset
   text: The adopted Semantic Data Model includes study design Data Elements and the relationships between
     them
@@ -1381,6 +1493,9 @@ indicators:
   category: C
   scope: partial
   check: common_data_elements
+  remedy:
+    do: Give most of the crate's columns a `propertyUrl` naming an ontology term, and at least two.
+    why: an unmapped column leaves a reuser guessing what the field records
   granularity: ''
   text: Dataset(s) content is harmonised against a designed-for-purpose Semantic Data Model
 - id: DSM-4-C3
@@ -1388,6 +1503,10 @@ indicators:
   category: C
   scope: full
   check: common_data_elements
+  remedy:
+    do: Map the majority of columns to ontology terms via `propertyUrl`, not only the ones you consider
+      key.
+    why: a column no shared term names cannot be joined to anyone else's table
   granularity: Dataset Fields
   rda_ref: RDA-I2-01D
   text: Key Dataset Fields are mapped to Common Data Elements as defined by the Semantic Data Model
@@ -1396,6 +1515,10 @@ indicators:
   category: C
   scope: partial
   check: standard_identifiers
+  remedy:
+    do: Carry the Cellosaurus or DTXSID identifier onto every node the tables point at, the minted output
+      Sample of each culture step included.
+    why: a reuser cannot tell which cells the measured wells actually held
   granularity: Dataset Field Values
   text: Values for key Domain Entities reported in the Dataset(s) are standardised and assigned unique
     Standard Identifiers
@@ -1404,6 +1527,10 @@ indicators:
   category: C
   scope: partial
   check: cde_relationships
+  remedy:
+    do: Declare the study's controlled terms as DefinedTerm entities and reference them from the entities
+      that use them.
+    why: loose terms leave a reuser unable to tell which concept a value names
   granularity: Dataset Field Values
   rda_ref: RDA-R1-01M
   text: The Semantic Data Model includes a pre-defined set of Common Data Elements reported within the
@@ -1413,6 +1540,9 @@ indicators:
   category: R
   scope: full
   check: semantic_contextual_metadata
+  remedy:
+    do: Give every PropertyValue a `propertyID` that is a resolvable ontology IRI.
+    why: a bare label tells a machine nothing about which property was recorded
   granularity: Dataset
   text: Contextual Metadata is formally represented by a set of semantically defined Common Data Elements
 - id: DSM-4-R2
@@ -1420,6 +1550,9 @@ indicators:
   category: R
   scope: partial
   check: linked_data
+  remedy:
+    do: Attach a `tableSchema` to every deposited CSV and set `propertyUrl` on each of its columns.
+    why: an undescribed table cannot be queried or joined alongside other data
   granularity: Dataset
   text: Dataset(s) are standardised to a defined Semantic Data Model and represented using Linked Data
     Represetations suitable for data sharing and re-use
@@ -1428,6 +1561,10 @@ indicators:
   category: R
   scope: partial
   check: semantic_model
+  remedy:
+    do: Describe at least one study entity — a sample, a protocol, an assay process — so the crate holds
+      more than a file listing.
+    why: a crate of packaging metadata alone tells a reuser nothing about the study
   granularity: Dataset
   text: A Semantic Data Model (Metadata) used for data harmonisation across Datasets is formally defined
     and represented using Linked Data Representations
@@ -1436,6 +1573,10 @@ indicators:
   category: R
   scope: partial
   check: machine_interpretable
+  remedy:
+    do: Declare a `datatype` on every column, and give each one either a `valueUrl` or a non-string datatype
+      such as `xsd:double`.
+    why: a bare string column tells a machine nothing about what its values denote
   granularity: Dataset Field Values
   text: A Semantic Data Model (Metadata) describing the data is represented in a Machine Readable and
     Machine Interptretable format
@@ -1444,6 +1585,9 @@ indicators:
   category: R
   scope: partial
   check: machine_interpretable_graph
+  remedy:
+    do: Bind each column's `propertyUrl` to an external ontology IRI.
+    why: a reuser's software cannot tell what any column measures
   granularity: ''
   text: Datasets are available in a Machine Readable and Machine Interpretable format
 - id: DSM-4-R6
@@ -1451,6 +1595,9 @@ indicators:
   category: R
   scope: full
   check: license_machine
+  remedy:
+    do: Set the root's `license` to the licence URL itself, not a label like "CC-BY".
+    why: a bare label does not say which version governs reuse
   granularity: Dataset Fields
   text: If applicable, license information and/or permitted use and accessability to parts of the dataset
     is formally represented and encoded in a Machine Readable Format

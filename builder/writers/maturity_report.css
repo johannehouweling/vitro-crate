@@ -373,6 +373,8 @@ __CATEGORY_STYLES__
   border:1px solid color-mix(in srgb,var(--low) 40%,transparent); }
 .mat .rec-badge.rec { color:var(--warn-ink); background:color-mix(in srgb,var(--warn) 15%,transparent);
   border:1px solid color-mix(in srgb,var(--warn) 45%,transparent); }
+.mat .rec-badge.lvl { color:var(--accent); background:color-mix(in srgb,var(--accent) 13%,transparent);
+  border:1px solid color-mix(in srgb,var(--accent) 28%,transparent); }
 .mat .rec-badge.opt { color:var(--muted); background:var(--surface-2);
   border:1px solid var(--border); }
 .mat .rec-body { display:block; margin-top:.3rem; }

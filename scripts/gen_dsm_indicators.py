@@ -150,6 +150,227 @@ LOCAL_SCOPE: dict[str, tuple[str, str]] = {
     "DSM-4-R6": ("full", "license_machine"),
 }
 
+# The action that clears each assessable indicator, and the one consequence a reuser
+# feels while it is open. Repo-authored like LOCAL_SCOPE — the workbook states the
+# question, never the fix — and written against WHAT THE CHECK MEASURES, so a depositor
+# who does this sees the indicator turn.
+#
+# `do` is an imperative naming the property or entity; `why` is a consequence for a
+# reuser, never a restatement ("so the indicator passes" says nothing). Both are drawn
+# in the report exactly where a validator finding draws its instruction and its reason,
+# so the two instruments give one kind of advice.
+REMEDIES: dict[str, tuple[str, str]] = {
+    # ---- Level 1 ----------------------------------------------------------------
+    "DSM-1-C0": (
+        "Mint a DOI for the deposit and record it on the root as `identifier`.",
+        "a reader cannot cite the deposit or fetch it again once it leaves this crate",
+    ),
+    "DSM-1-C1": (
+        "Write the root a `description` that says more than its name, and describe every "
+        "Study Dataset.",
+        "a reuser meets a named study with nothing said about what was done",
+    ),
+    "DSM-1-C2": (
+        "Give every Dataset the root gathers, the root included, its own name and description.",
+        "a reuser opening a Dataset finds no statement of what it holds",
+    ),
+    "DSM-1-C3": (
+        "Record the repository accession for the deposit, so the descriptor says where the "
+        "data can be got.",
+        "a reuser holds the data with no handle for going back to the original deposit",
+    ),
+    "DSM-1-R0": (
+        "Name the deposit — set the crate's title, which is what the descriptor identifies "
+        "it by.",
+        "a reuser cannot tell one deposit's descriptor from another's",
+    ),
+    "DSM-1-R1": (
+        "Draft the study's subjects into the crate — the cell lines, the test chemicals, the "
+        "protocols.",
+        "a reuser opens a container that records nothing but its own packaging",
+    ),
+    "DSM-1-R2": (
+        "File each deposited file under an Assay or Study Dataset below the root, not on the "
+        "root itself.",
+        "a reuser cannot tell which study or assay a file belongs to",
+    ),
+    "DSM-1-R3": (
+        "Fill `name`, `description`, `datePublished` and `license` on the Root Data Entity.",
+        "a generic schema.org reader finds no title, terms or date for the deposit",
+    ),
+    "DSM-1-R4": (
+        "Declare the RO-Crate profile IRI as `conformsTo` on `ro-crate-metadata.json`.",
+        "a machine reading the file cannot tell which specification it follows",
+    ),
+    "DSM-1-R5": (
+        "Deposit the tables as CSV, TSV or XLSX and declare each file's `encodingFormat`.",
+        "software cannot read the numbers out of a PDF or an undeclared blob",
+    ),
+    # ---- Level 2 ----------------------------------------------------------------
+    "DSM-2-C1": (
+        "Write the study design, and how its datasets relate, into the root's `description`.",
+        "a reuser cannot tell what the study did or how its files fit together",
+    ),
+    "DSM-2-C2": (
+        "Declare a `datatype` on every `csvw:Column`, and describe at least two columns in all.",
+        "an untyped column is an undifferentiated string to every tool that reads it",
+    ),
+    "DSM-2-C3": (
+        "Give at least one column a `valueUrl` pointing at the Sample or MolecularEntity its "
+        "values name.",
+        "a reuser cannot join the table's rows to the samples and compounds measured",
+    ),
+    "DSM-2-C4": (
+        "Give at least one column both a `datatype` and a `valueUrl` or `propertyUrl` naming "
+        "its vocabulary.",
+        "a reuser has to guess what the codes in a column stand for",
+    ),
+    "DSM-2-C5": (
+        "Hang the depositor's own files directly under at least two Datasets the root relates to.",
+        "a reuser cannot see which datasets the deposit holds, or how they join",
+    ),
+    "DSM-2-C6": (
+        "Point every deposited table at a `tableSchema` listing one column per field, each with "
+        "`titles` and a `datatype`.",
+        "the deposit's tables arrive as bare headers a reader has to decode by hand",
+    ),
+    "DSM-2-C7": (
+        "Record at least two property values on at least one entity in the crate.",
+        "an entity carrying a single value states nothing a reuser can interpret",
+    ),
+    "DSM-2-R1": (
+        "Fill the root's `description` with the project's contextual model: design, arms, "
+        "endpoints.",
+        "the context that makes the numbers mean anything is nowhere in the crate",
+    ),
+    "DSM-2-R2": (
+        "Declare a `tableSchema` on at least one data table in the crate.",
+        "a reuser opening the CSV has no column list to read the numbers against",
+    ),
+    "DSM-2-R3": (
+        "Record at least one entity — a sample, a compound, an assay — before exporting.",
+        "an empty descriptor models no data at all",
+    ),
+    "DSM-2-R4": (
+        "Write a `description` on at least one LabProtocol, not just its name.",
+        "a reuser gets a protocol title and no account of what was done",
+    ),
+    "DSM-2-R5": (
+        "Give every deposited file a specific `encodingFormat` rather than none or "
+        "`application/octet-stream`, and leave no Dataset with an empty `hasPart`.",
+        "a machine cannot tell how to open the file, and a promised dataset turns out empty",
+    ),
+    # ---- Level 3 ----------------------------------------------------------------
+    # The one remedy that is not a deposit gap but a defect in this tool (#705). Saying
+    # so is better than publishing an instruction that provably does not work.
+    "DSM-3-C1": (
+        "Nothing in the crate clears this one: the check reads a MIT report the build never "
+        "populates, so it fails however much of the checklist is filled.",
+        "the minimum-information items are reported unmet without ever being scored",
+    ),
+    "DSM-3-C2": (
+        "Declare the community profile the datasets follow in the root's `conformsTo`.",
+        "a reader cannot tell which community guideline the datasets were reported under",
+    ),
+    "DSM-3-C3": (
+        "Give each column a `propertyUrl` that is an absolute ontology IRI, not a local name.",
+        "a reuser cannot tell what a column heading means across datasets",
+    ),
+    "DSM-3-C4": (
+        "Bind every MolecularEntity and cell-line Sample to a registry IRI via `@id`, "
+        "`identifier`, `sameAs` or `url`.",
+        "a reuser cannot tell which cell line or compound was actually used",
+    ),
+    "DSM-3-C5": (
+        "Give a reported term — cell line, compound, AOP — a `url` or `sameAs` holding the full "
+        "registry link, not a bare accession.",
+        "a reuser cannot look up the term behind a bare label",
+    ),
+    "DSM-3-C6": (
+        "Write the per-well design rows into the condition table, so the CSV carries records and "
+        "not only a header.",
+        "a schema over an empty table tells a reuser nothing about the data",
+    ),
+    "DSM-3-C7": (
+        "Set the root's `license` to a standard licence URL — a Creative Commons, SPDX or OSI IRI.",
+        "nobody may legally reuse the data without one",
+    ),
+    "DSM-3-R1": (
+        "Declare in the root's `conformsTo` the community standard the contextual metadata "
+        "follows.",
+        "a reuser cannot tell which standard the context was modelled against",
+    ),
+    "DSM-3-R2": (
+        "Attach a `csvw:tableSchema` to the crate's tabular data files.",
+        "a reuser cannot parse the columns without a declared schema",
+    ),
+    "DSM-3-R3": (
+        "Declare a domain profile IRI in the root's `conformsTo` alongside the RO-Crate one.",
+        "a reader sees packaging conventions but no domain standard to read against",
+    ),
+    "DSM-3-R4": (
+        "Publish the adopted model as a resolvable profile IRI and declare it in `conformsTo`.",
+        "a machine has no address to fetch the model the crate claims to follow",
+    ),
+    "DSM-3-R5": (
+        "Deposit the data as CSV, TSV, JSON, XML, HDF5 or NetCDF and state that `encodingFormat`.",
+        "a reuser needs licensed software to open .xlsx or .prism data",
+    ),
+    # ---- Level 4 ----------------------------------------------------------------
+    "DSM-4-C1": (
+        "Wire each LabProcess to its object and its result, not only to input and output.",
+        "a reuser cannot see which material a step consumed or what it produced",
+    ),
+    "DSM-4-C2": (
+        "Give most of the crate's columns a `propertyUrl` naming an ontology term, and at "
+        "least two.",
+        "an unmapped column leaves a reuser guessing what the field records",
+    ),
+    "DSM-4-C3": (
+        "Map the majority of columns to ontology terms via `propertyUrl`, not only the ones you "
+        "consider key.",
+        "a column no shared term names cannot be joined to anyone else's table",
+    ),
+    "DSM-4-C4": (
+        "Carry the Cellosaurus or DTXSID identifier onto every node the tables point at, the "
+        "minted output Sample of each culture step included.",
+        "a reuser cannot tell which cells the measured wells actually held",
+    ),
+    "DSM-4-C5": (
+        "Declare the study's controlled terms as DefinedTerm entities and reference them from the "
+        "entities that use them.",
+        "loose terms leave a reuser unable to tell which concept a value names",
+    ),
+    "DSM-4-R1": (
+        "Give every PropertyValue a `propertyID` that is a resolvable ontology IRI.",
+        "a bare label tells a machine nothing about which property was recorded",
+    ),
+    "DSM-4-R2": (
+        "Attach a `tableSchema` to every deposited CSV and set `propertyUrl` on each of its "
+        "columns.",
+        "an undescribed table cannot be queried or joined alongside other data",
+    ),
+    "DSM-4-R3": (
+        "Describe at least one study entity — a sample, a protocol, an assay process — so the "
+        "crate holds more than a file listing.",
+        "a crate of packaging metadata alone tells a reuser nothing about the study",
+    ),
+    "DSM-4-R4": (
+        "Declare a `datatype` on every column, and give each one either a `valueUrl` or a "
+        "non-string datatype such as `xsd:double`.",
+        "a bare string column tells a machine nothing about what its values denote",
+    ),
+    "DSM-4-R5": (
+        "Bind each column's `propertyUrl` to an external ontology IRI.",
+        "a reuser's software cannot tell what any column measures",
+    ),
+    "DSM-4-R6": (
+        "Set the root's `license` to the licence URL itself, not a label like \"CC-BY\".",
+        "a bare label does not say which version governs reuse",
+    ),
+}
+
+
 SOURCE: dict[str, Any] = {
     "name": "FAIRplus Dataset Maturity Model (DSM)",
     "url": "https://fairplus.github.io/Data-Maturity/",
@@ -528,6 +749,18 @@ def build_data() -> dict[str, Any]:
             "Fix the mapping rather than the workbook."
         )
 
+    # An indicator we assess is an indicator a crate can fail, so it must be able to
+    # say what to do about it. Without this the report names a blocker and leaves the
+    # reader to work the fix out from the model's own question, which is what the
+    # validator findings stopped doing at #607.
+    unremedied = sorted(set(LOCAL_SCOPE) - set(REMEDIES))
+    stray = sorted(set(REMEDIES) - set(LOCAL_SCOPE))
+    if unremedied or stray:
+        raise KeyError(
+            f"REMEDIES must name exactly the assessable indicators. Missing: {unremedied}; "
+            f"naming indicators we do not assess: {stray}."
+        )
+
     indicators: list[dict[str, Any]] = []
     for row in rows:
         scope, check = LOCAL_SCOPE.get(row["id"], ("na", ""))
@@ -539,6 +772,8 @@ def build_data() -> dict[str, Any]:
         }
         if check:
             entry["check"] = check
+        if remedy := REMEDIES.get(row["id"]):
+            entry["remedy"] = {"do": remedy[0], "why": remedy[1]}
         entry["granularity"] = row["granularity"]
         if row["rda_ref"]:
             entry["rda_ref"] = row["rda_ref"]

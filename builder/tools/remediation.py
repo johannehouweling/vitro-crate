@@ -65,12 +65,21 @@ _NOT_ACTIONABLE: tuple[tuple[str, str], ...] = (
 # below any bulk advisory action and could fall past `_NEXT_STEPS_CAP` entirely —
 # the report hiding the work that actually blocks the build, which is the one
 # thing this section exists to surface.
-_TIER_RANK = {"REQUIRED": 0, "RECOMMENDED": 1, "OPTIONAL": 2}
+# MATURITY sits between the two validator tiers on purpose: a required conformance
+# failure means the crate is not a valid RO-Crate at all, which outranks a rung on a
+# maturity ladder — but the rung outranks a recommendation, because it is the thing
+# standing between this deposit and its next level.
+_TIER_RANK = {"REQUIRED": 0, "MATURITY": 1, "RECOMMENDED": 2, "OPTIONAL": 3}
 
 # What each tier is called in the report. The validator's own word, not the
 # SHACL verb: a reader who sees "Required" beside an action can match it to the
 # "Required" count in the conformance table above it.
-TIER_LABEL = {"REQUIRED": "Required", "RECOMMENDED": "Recommended", "OPTIONAL": "Optional"}
+TIER_LABEL = {
+    "REQUIRED": "Required",
+    "MATURITY": "Maturity",
+    "RECOMMENDED": "Recommended",
+    "OPTIONAL": "Optional",
+}
 
 _DEFAULT_TIER = "RECOMMENDED"
 
@@ -182,6 +191,13 @@ class Action:
     # instruction, so both must survive the grouping (#607 design handoff).
     source: str = ""
     message: str = ""
+    # For an action whose wording is not derived from validator findings — a DSM
+    # indicator carries its own instruction and consequence in the published model's
+    # own file, because the fix for "the dataset has no persistent identifier" cannot
+    # be templated out of a shape message. `describe`/`why` return these verbatim, so
+    # a maturity blocker and a conformance finding reach the page the same way.
+    instruction: str = ""
+    consequence: str = ""
 
     @property
     def cleared(self) -> int:
@@ -197,7 +213,7 @@ def _strongest(tiers: list[str]) -> str:
     carries the risk, so it stays "RECOMMENDED" — defaulting an unknown to
     REQUIRED would push unclassified work above real conformance failures.
     """
-    return sorted(tiers, key=lambda t: _TIER_RANK.get(t, 3))[0] if tiers else _DEFAULT_TIER
+    return sorted(tiers, key=lambda t: _TIER_RANK.get(t, 4))[0] if tiers else _DEFAULT_TIER
 
 
 def _not_actionable_note(message: str) -> str | None:
@@ -478,7 +494,7 @@ def group_findings(
 
     actions = _merge_identical(actions)
 
-    actions.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
+    actions.sort(key=lambda a: (_TIER_RANK.get(a.tier, 4), a.impact, -a.cleared, a.subject))
     return actions + list(deferred.values())
 
 
@@ -492,6 +508,8 @@ def describe(action: Action) -> str:
     """
     if not action.actionable:
         return action.note or "Left as-is deliberately."
+    if action.instruction:
+        return action.instruction
     what = _wanted(action.findings)
     subject = action.subject
     n = action.cleared
@@ -529,6 +547,9 @@ def describe_parts(action: Action, subject: str | None = None) -> tuple[str, str
     """
     if not action.actionable:
         return describe(action), ""
+    if action.instruction:
+        # No entity list to break out — the subject is the whole deposit.
+        return action.instruction, ""
     what = _wanted(action.findings)
     # An already-rendered subject (the HTML list marks each entity up) is
     # substituted here rather than assembled by the caller, so this function
@@ -609,6 +630,8 @@ def why(action: Action) -> str:
     """The one-clause consequence for *action*, or ``""`` when nothing honest
     fits. Looked up by the instruction `_wanted` picked for the same findings,
     so the clause and the instruction always describe the same shape."""
+    if action.consequence:
+        return action.consequence
     if action.kind == "orphan":
         them = "it" if action.cleared == 1 else "them"
         return f"A consumer walking the crate from its root never reaches {them}."
@@ -699,8 +722,56 @@ def _merge_identical(actions: list[Action]) -> list[Action]:
                 message=group[0].message,
             )
         )
-    merged.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
+    merged.sort(key=lambda a: (_TIER_RANK.get(a.tier, 4), a.impact, -a.cleared, a.subject))
     return merged
+
+
+def dsm_indicator_actions(
+    blockers: list[tuple[str, str, str]], dsm_data: dict[str, Any] | None
+) -> list[Action]:
+    """The DSM indicators blocking the next level, as actions the page can render.
+
+    The report used to name a blocker with the model's own QUESTION ("Each Dataset
+    purposed for sharing and re-use is assigned a unique identifier") and, where a check
+    had measured something, its evidence. Neither says what to do, so the one section
+    that answers "what do I do" carried conformance findings only and a reader was left
+    to infer the fix for a maturity gap from the question it failed.
+
+    Each blocker becomes an ``Action`` shaped exactly like a validator one: the
+    instrument's own words in the chip, a badge, the instruction, one consequence
+    clause. The instruction and the clause come from the indicator's ``remedy`` in
+    ``fair/dsm_indicators.yaml``, which is repo-authored — the workbook states the
+    question and never the fix.
+
+    An indicator with no remedy is skipped rather than rendered wordless; the generator
+    refuses to emit one, so that can only happen against a hand-edited model file.
+    """
+    remedies = {
+        str(ind.get("id")): ind.get("remedy") or {}
+        for ind in (dsm_data or {}).get("indicators", [])
+    }
+    out: list[Action] = []
+    for ident, text, evidence in blockers:
+        remedy = remedies.get(ident) or {}
+        instruction = str(remedy.get("do") or "")
+        if not instruction:
+            continue
+        out.append(
+            Action(
+                key=f"dsm:{ident}",
+                kind="indicator",
+                subject=ident,
+                # The evidence is what this action clears; where a check measured
+                # nothing there is still exactly one indicator to close.
+                findings=[evidence or text],
+                tier="MATURITY",
+                source="dsm",
+                message=text,
+                instruction=instruction,
+                consequence=str(remedy.get("why") or ""),
+            )
+        )
+    return out
 
 
 def group_orphans(
