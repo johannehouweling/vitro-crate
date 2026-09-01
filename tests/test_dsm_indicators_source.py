@@ -370,7 +370,9 @@ class TestTheQuestionnaireLadder:
     def test_the_questionnaire_is_carried(self):
         data = _yaml()
         questions = data["questions"]
-        assert len(questions) == 18
+        # 17, by the tool's own QUESTION_NUM. Grouping by question TEXT gives 18,
+        # because one number carries a stale second wording of the same question.
+        assert len(questions) == 17
         assert sum(len(q["options"]) for q in questions) == 73
         assert any(q["multi_select"] for q in questions)
 
@@ -482,3 +484,140 @@ def CrateStateStub():
     from builder.state import CrateState
 
     return CrateState()
+
+
+# ---------------------------------------------------------------------------
+# The sheet's own scoring definition
+# ---------------------------------------------------------------------------
+
+# The nine promotion rules, read off the "FAIR-DSM Assessment Sheet v1.2" validation
+# column: J4 is `=IF(J5=1,1,H4)`, i.e. meeting DSM-3-R2 satisfies DSM-2-R2. Every other
+# J cell is a plain `=H{row}`. The sheet promotes; it never demotes.
+PUBLISHED_PROMOTION = {
+    ("DSM-2-R2", "DSM-3-R2"),
+    ("DSM-1-R3", "DSM-2-R3"),
+    ("DSM-2-R3", "DSM-3-R3"),
+    ("DSM-1-R1", "DSM-2-R1"),
+    ("DSM-2-R1", "DSM-3-R1"),
+    ("DSM-1-R4", "DSM-3-R4"),
+    ("DSM-3-R4", "DSM-4-R4"),
+    ("DSM-1-R5", "DSM-3-R5"),
+    ("DSM-3-R5", "DSM-4-R5"),
+}
+
+# The sheet computes a "% Complete" grid of six levels x {C, R, H, Total}.
+SHEET_GRID_CELLS = 24
+
+
+def _superseded_by() -> dict[str, set[str]]:
+    """The online assessment tool's own SUPERSEDED_BY column — a second authority."""
+    wb = openpyxl.load_workbook(DSM_XLSX, read_only=True, data_only=True)
+    ws = wb["Assessment Tool Data v1.2 "]
+    rows = list(ws.iter_rows(values_only=True))
+    header = [str(c).strip() if c else "" for c in rows[0]]
+    col = {name: i for i, name in enumerate(header) if name}
+    out: dict[str, set[str]] = {}
+    for row in rows[1:]:
+        ident = str(row[col["INDICATORID"]]).strip() if row[col["INDICATORID"]] else ""
+        sup = row[col["SUPERSEDED_BY"]]
+        if not ident.startswith("DSM-") or not sup:
+            continue
+        out[ident] = {s.strip() for s in str(sup).split(",") if s.strip()}
+    return out
+
+
+class TestTheSheetsOwnScoringIsCarried:
+    """The YAML carries the workbook's arithmetic, so the scorer never invents its own.
+
+    Without this block the tool has to hand-code the ladder, the grid membership and
+    the denominators — which is how it came to demote where the sheet promotes, and to
+    group each grid cell by the indicator's own level where the sheet carries lower
+    levels forward.
+    """
+
+    def test_the_promotion_rules_are_the_sheets_own_nine(self):
+        rules = _yaml()["scoring"]["promotion"]
+        assert {(r["then"], r["when"]) for r in rules} == PUBLISHED_PROMOTION
+        assert all(r["cell"].startswith("J") for r in rules)
+
+    def test_promotion_agrees_with_the_online_tools_superseded_by(self):
+        """Two authorities, one assertion: the offline sheet and the online tool data.
+
+        The transitive closure of the sheet's IF-chain must equal the questionnaire
+        sheet's own SUPERSEDED_BY column. They are maintained independently, so
+        agreement is the strongest parity evidence the workbook can give.
+        """
+        direct: dict[str, set[str]] = {}
+        for rule in _yaml()["scoring"]["promotion"]:
+            direct.setdefault(rule["then"], set()).add(rule["when"])
+
+        def closure(ident: str) -> set[str]:
+            out: set[str] = set()
+            stack = list(direct.get(ident, ()))
+            while stack:
+                node = stack.pop()
+                if node in out:
+                    continue
+                out.add(node)
+                stack.extend(direct.get(node, ()))
+            return out
+
+        assert {k: closure(k) for k in direct} == _superseded_by()
+
+    def test_every_grid_cell_states_its_members_and_denominator(self):
+        cells = _yaml()["scoring"]["grid"]
+        assert len(cells) == SHEET_GRID_CELLS
+        known = {i["id"] for i in _yaml()["indicators"]}
+        for cell in cells:
+            if "constant" in cell:
+                assert not cell["members"], f"{cell['cell']} is a constant, not a count"
+                continue
+            assert set(cell["members"]) <= known, f"{cell['cell']} names an unknown id"
+            assert len(cell["members"]) == cell["denominator"]["n"], (
+                f"{cell['cell']}: the sheet's denominator must equal its member count — "
+                "column J is all formulas, so a blank scores 0 rather than dropping out"
+            )
+
+    def test_a_level_cell_carries_lower_levels_forward(self):
+        """The sheet's L2 Content cell counts two Level-1 indicators; ours must too."""
+        by_cell = {c["cell"]: c for c in _yaml()["scoring"]["grid"]}
+        assert {"DSM-1-C2", "DSM-1-C3"} <= set(by_cell["P14"]["members"])
+
+    def test_the_total_column_is_the_union_of_the_three_categories(self):
+        grid = _yaml()["scoring"]["grid"]
+        by_level: dict[int, dict[str, list[str]]] = {}
+        for cell in grid:
+            by_level.setdefault(cell["level"], {})[cell["category"]] = cell["members"]
+        for level, cats in by_level.items():
+            union = set(cats.get("C", [])) | set(cats.get("R", [])) | set(cats.get("H", []))
+            assert union == set(cats.get("TOTAL", [])), f"level {level} total drifted"
+
+    def test_only_level_zero_counts_zeros(self):
+        """Level 0 states the pre-FAIRification condition, so the sheet counts its 0s."""
+        for cell in _yaml()["scoring"]["grid"]:
+            if "constant" in cell:
+                continue
+            assert cell["counts"] == (0 if cell["level"] == 0 else 1), cell["cell"]
+
+    def test_a_member_listed_twice_is_counted_twice(self):
+        """P24 names DSM-4-H2 on two rows; deduping would change the denominator."""
+        by_cell = {c["cell"]: c for c in _yaml()["scoring"]["grid"]}
+        assert by_cell["P24"]["members"].count("DSM-4-H2") == 2
+        assert by_cell["P24"]["denominator"]["n"] == 3
+
+    def test_indicators_on_no_assessment_row_are_named_not_dropped(self):
+        """DSM-2-R5 is scored locally but appears in no published cell — say so."""
+        data = _yaml()
+        in_a_cell = {m for c in data["scoring"]["grid"] for m in c["members"]}
+        off_sheet = set(data["scoring"]["off_sheet"])
+        assert "DSM-2-R5" in off_sheet
+        assert not (off_sheet & in_a_cell)
+        scoped = {i["id"] for i in data["indicators"] if i["scope"] != "na"}
+        assert scoped - in_a_cell == {"DSM-2-R5"}
+
+    def test_questions_are_numbered_by_the_tools_own_question_num(self):
+        """17 questions, not the 18 that grouping by question TEXT produces."""
+        questions = _yaml()["questions"]
+        assert len(questions) == 17
+        assert {q["number"] for q in questions} == {q["number"] for q in questions}
+        assert sum(len(q["options"]) for q in questions) == 73
