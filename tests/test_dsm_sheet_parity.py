@@ -13,6 +13,15 @@ trusts. The evaluator below instead interprets the sheet's *formula text* direct
 a generator that drops a repeated member, reads the wrong denominator or mis-parses a
 promotion chain produces a YAML the scorer believes and this evaluator contradicts.
 
+**What an answer vector may hold.** Three values, not two: 1, 0, and *unanswered* —
+the state this tool can report and the sheet cannot. The sheet's position is that there
+is no third state (column J is entirely ``=H{row}``, so a blank is numeric 0), and that
+is a claim about arithmetic, so it is checked against the workbook like every other:
+:class:`TestAnUnansweredIndicatorIsABlank` drives blanks through both sides. Vectors
+that answer every row cannot see the difference — a scorer that drops unanswered rows
+from the denominator agrees with one that counts them as 0 whenever there is nothing to
+drop, which is how that bug survived this file once already (#717).
+
 **Why a hand-rolled evaluator.** openpyxl has no calculation engine. The vendored file
 does carry Excel's cached values, but only for the shipped answer vector, which is
 degenerate (every Level-0 row 1, everything else 0). That one vector is still worth
@@ -100,12 +109,27 @@ def _evaluate(sheet, answers: dict[int, int]) -> dict[str, float]:
     return out
 
 
-def _our_grid(data: dict, rows: dict[int, str], answers: dict[int, int]) -> dict[str, dict]:
-    """Our own arithmetic over the same answer vector, keyed by sheet cell."""
-    verdicts = {ident: Verdict(bool(answers[row]), "") for row, ident in rows.items()}
+def _our_grid(data: dict, rows: dict[int, str], answers: dict[int, int | None]) -> dict[str, dict]:
+    """Our own arithmetic over the same answer vector, keyed by sheet cell.
+
+    ``None`` is the state the sheet cannot hold: an indicator nothing measured. It
+    reaches the scorer as ``Verdict(None)`` and reaches the sheet as the blank it is
+    (:func:`_blank_is_zero`), which is the whole comparison in
+    :class:`TestAnUnansweredIndicatorIsABlank`.
+    """
+    verdicts = {
+        ident: Verdict(None if answers[row] is None else bool(answers[row]), "")
+        for row, ident in rows.items()
+    }
     _apply_promotion(verdicts, data["scoring"]["promotion"])
     grid = dsm_grid(CrateState(), data, None, answers=verdicts)
     return {cell["cell"]: cell for by_cat in grid.values() for cell in by_cat.values()}
+
+
+def _blank_is_zero(answers: dict[int, int | None]) -> dict[int, int]:
+    """The same vector as the workbook holds it: column J is entirely ``=H{row}``, so
+    an empty H evaluates to numeric 0. There is no third value to give the evaluator."""
+    return {row: 0 if value is None else value for row, value in answers.items()}
 
 
 def _vector(rows: dict[int, str], fill) -> dict[int, int]:
@@ -139,7 +163,7 @@ class TestOurGridEqualsTheSheets:
     def test_the_extremes(self, sheet, rows, data, name):
         answers = _vector(rows, lambda _row: 1 if name == "all-yes" else 0)
         ours = _our_grid(data, rows, answers)
-        theirs = _evaluate(sheet, answers)
+        theirs = _evaluate(sheet, _blank_is_zero(answers))
         for cell_name, cell in ours.items():
             assert cell["published_pct"] == pytest.approx(theirs[cell_name], abs=0.05), cell_name
 
@@ -148,23 +172,25 @@ class TestOurGridEqualsTheSheets:
         rng = random.Random(seed)
         answers = _vector(rows, lambda _row: rng.randint(0, 1))
         ours = _our_grid(data, rows, answers)
-        theirs = _evaluate(sheet, answers)
+        theirs = _evaluate(sheet, _blank_is_zero(answers))
         for cell_name, cell in ours.items():
             assert cell["published_pct"] == pytest.approx(theirs[cell_name], abs=0.05), cell_name
 
     def test_each_promotion_rule_is_exercised_on_its_own(self, sheet, rows, data):
-        """One vector per rule: source met, target not, everything else unanswered.
+        """One vector per rule: source met, everything else unanswered.
 
         A scorer that ignores promotion entirely passes every other vector in this file
-        often enough to look healthy; these nine do not let it.
+        often enough to look healthy; these nine do not let it. The rest of the vector is
+        genuinely unanswered rather than failed, which is what ``IF(J5=1,1,H4)`` acts on:
+        the rule fires over a blank target exactly as it fires over a zero.
         """
         by_id = {ident: row for row, ident in rows.items()}
         for rule in data["scoring"]["promotion"]:
-            answers = _vector(rows, lambda _row: 0)
+            answers = _vector(rows, lambda _row: None)
             answers[by_id[rule["when"]]] = 1
             answers[75] = answers[70]
             ours = _our_grid(data, rows, answers)
-            theirs = _evaluate(sheet, answers)
+            theirs = _evaluate(sheet, _blank_is_zero(answers))
             for cell_name, cell in ours.items():
                 assert cell["published_pct"] == pytest.approx(theirs[cell_name], abs=0.05), (
                     f"{rule['cell']} ({rule['when']} promotes {rule['then']}): {cell_name}"
@@ -197,3 +223,65 @@ class TestTheFixturesOwnConstraints:
         grid_with = dsm_grid(CrateState(), data, None, answers=verdicts)
         flat = {c["cell"]: c["published_pct"] for by in grid_with.values() for c in by.values()}
         assert flat == {name: c["published_pct"] for name, c in grid_without.items()}
+
+
+class TestAnUnansweredIndicatorIsABlank:
+    """The state the sheet has no cell for.
+
+    Every vector above answers every row, so none of them can tell a scorer that counts
+    a blank as 0 from one that drops it out of the denominator — the two agree wherever
+    there is nothing to drop. That is the bug #704 fixed, and the shape this file could
+    not see (#717).
+
+    The sheet's position is unambiguous: column J is entirely ``=H{row}`` formulas, so
+    an empty H is numeric 0 and ``COUNT`` counts it. So an unanswered indicator must
+    move ``published_pct`` exactly as a failed one does — and at Level 0, where the
+    statements are negative and ``COUNTIFS(...,0)`` counts zeros, it must count as
+    **satisfied**. Nothing else the tool publishes may follow from not having looked.
+    """
+
+    def test_nothing_answered_reads_as_the_sheet_reads_blanks(self, sheet, rows, data):
+        answers = _vector(rows, lambda _row: None)
+        ours = _our_grid(data, rows, answers)
+        theirs = _evaluate(sheet, _blank_is_zero(answers))
+        for cell_name, cell in ours.items():
+            assert cell["published_pct"] == pytest.approx(theirs[cell_name], abs=0.05), cell_name
+
+    def test_level_zero_reads_100_off_nothing_and_says_so(self, rows, data):
+        """The number that made this worth pinning: a Level-0 cell nobody measured
+        publishes 100% — the sheet's own arithmetic, saying the deposit escaped the
+        pre-FAIRification state on the strength of never having been asked. It is only
+        honest beside ``assessed``, so both are asserted together."""
+        ours = _our_grid(data, rows, _vector(rows, lambda _row: None))
+        zero_row = [cell for name, cell in ours.items() if cell["cell"] in {"P6", "P7", "P8", "P9"}]
+        assert zero_row, "the Level-0 row is P6-P9"
+        for cell in zero_row:
+            assert cell["published_pct"] == 100.0, cell["cell"]
+            assert cell["assessed"] == 0, cell["cell"]
+            assert cell["pct"] is None, cell["cell"]
+
+    def test_an_unanswered_row_scores_like_a_failed_one(self, sheet, rows, data):
+        """Not a claim about our code — a claim about the sheet, checked against it.
+        The same vector with blanks and with zeros must produce the same grid."""
+        blanks = _vector(rows, lambda row: None if row % 3 else 1)
+        zeros = {row: 0 if value is None else value for row, value in blanks.items()}
+        ours_blank = _our_grid(data, rows, blanks)
+        ours_zero = _our_grid(data, rows, zeros)
+        theirs = _evaluate(sheet, zeros)
+        for cell_name, cell in ours_blank.items():
+            assert cell["published_pct"] == ours_zero[cell_name]["published_pct"], cell_name
+            assert cell["published_pct"] == pytest.approx(theirs[cell_name], abs=0.05), cell_name
+
+    @pytest.mark.parametrize("seed", range(3))
+    def test_the_shape_a_real_crate_produces(self, sheet, rows, data, seed):
+        """The production vector: the 39 indicators no crate can evidence are `na` and
+        stay unanswered unless a depositor supplies them, so nearly half of every real
+        assessment is blank. That is the vector parity most needs to hold on."""
+        rng = random.Random(seed)
+        na = {i["id"] for i in data["indicators"] if i.get("scope") == "na"}
+        assert len(na) > 30, "the unanswered half is the point of this test"
+        answers = _vector(rows, lambda row: None if rows[row] in na else rng.randint(0, 1))
+        ours = _our_grid(data, rows, answers)
+        theirs = _evaluate(sheet, _blank_is_zero(answers))
+        for cell_name, cell in ours.items():
+            assert cell["published_pct"] == pytest.approx(theirs[cell_name], abs=0.05), cell_name
