@@ -58,7 +58,6 @@ EntityType = Literal[
 
 CompletionStatus = Literal["missing", "filled", "verified"]
 CompletionSource = Literal["scanner", "llm", "user", "lookup"]
-InputType = Literal["directory", "conversation"]
 
 # Internal @id / @type handles that live on the Entity itself (the ``entity_id``
 # and ``type`` attributes), NOT as schema.org properties. They must never be
@@ -581,7 +580,6 @@ class CrateMetadata:
             ro-crate-py still auto-sets ``datePublished`` independently.
         date_modified: ISO-8601 date/datetime the crate was last modified
             (schema:dateModified on the Root Data Entity). ``None`` when unset.
-        input_type: Whether input was a directory or conversation.
         input_path: Path to the input directory (if applicable).
         output_path: Path where the crate will be written.
     """
@@ -611,7 +609,6 @@ class CrateMetadata:
     # inside that repository and ambiguous outside it — so it, not the accession,
     # becomes the crate's `identifier`.
     doi: str | None = None
-    input_type: InputType = "directory"
     input_path: str | None = None
     output_path: str | None = None
     # When the crate was last written to ``output_path`` (ISO-8601, local tz).
@@ -620,7 +617,7 @@ class CrateMetadata:
     exported_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"input_type": self.input_type}
+        d: dict[str, Any] = {}
         if self.title is not None:
             d["title"] = self.title
         if self.description is not None:
@@ -663,7 +660,6 @@ class CrateMetadata:
             license=data.get("license"),
             license_from_deposit=bool(data.get("license_from_deposit", False)),
             doi=data.get("doi"),
-            input_type=data.get("input_type", "directory"),  # type: ignore[arg-type]
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
             exported_at=data.get("exported_at"),

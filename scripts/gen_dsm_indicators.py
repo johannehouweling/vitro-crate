@@ -77,16 +77,16 @@ _CATEGORY_CODE: dict[str, str] = {
 }
 
 # Level names, verbatim from the workbook's "Levels definition" sheet ("State of
-# Data"), with the scope each level describes. These name the state of the DATA, not
-# an organisation's capability — the FAIR Cookbook is explicit that the model defines
-# "maturity levels which can used to describe a dataset".
-_LEVELS: dict[int, dict[str, str]] = {
-    0: {"name": "Single-use data", "scope": "No re-use beyond the project lifetime"},
-    1: {"name": "Identifiable Data", "scope": "Data Object level"},
-    2: {"name": "Described Data", "scope": "Project level"},
-    3: {"name": "Standardised Data", "scope": "Community level"},
-    4: {"name": "Semantically Typed Data", "scope": "Cross-community level"},
-    5: {"name": "Managed Data Assets", "scope": "Enterprise level"},
+# Data"). These name the state of the DATA, not an organisation's capability — the
+# FAIR Cookbook is explicit that the model defines "maturity levels which can used to
+# describe a dataset".
+_LEVELS: dict[int, str] = {
+    0: "Single-use data",
+    1: "Identifiable Data",
+    2: "Described Data",
+    3: "Standardised Data",
+    4: "Semantically Typed Data",
+    5: "Managed Data Assets",
 }
 
 # The crate-intrinsic subset this tool assesses: published indicator id -> check
@@ -486,70 +486,6 @@ def _load_workbook_rows() -> list[dict[str, Any]]:
 _QUESTION_SHEET = "Assessment Tool Data v1.2 "
 
 
-def _load_questions(levels_by_id: dict[str, int]) -> list[dict[str, Any]]:
-    """The assessment questionnaire: 17 questions, each a ladder of indicator options.
-
-    Grouped by the tool's own ``QUESTION_NUM``, not by question text — one number
-    carries two wordings (a stale "hosting capabilities" phrasing beside the current
-    "Storage Capabilities" one) and grouping by text splits it into two questions the
-    instrument does not have.
-
-    ``depends_on`` and ``skip_questions`` are the online tool's ELICITATION rules —
-    which question to put in front of a person next. They are carried as documentation
-    of the published instrument and are not arithmetic: a machine assessor evaluates
-    every indicator regardless, and a question the tool would have skipped is one the
-    respondent leaves unticked, which the sheet already scores as 0.
-    """
-    wb = openpyxl.load_workbook(DSM_XLSX, read_only=True, data_only=True)
-    ws = wb[_QUESTION_SHEET]
-    rows = list(ws.iter_rows(values_only=True))
-    header = [str(c).strip() if c else "" for c in rows[0]]
-    col = {name: i for i, name in enumerate(header) if name}
-
-    grouped: dict[int, dict[str, Any]] = {}
-    for row in rows[1:]:
-        question = str(row[col["QUESTION"]]).strip() if row[col["QUESTION"]] else ""
-        ident = str(row[col["INDICATORID"]]).strip() if row[col["INDICATORID"]] else ""
-        number = row[col["QUESTION_NUM"]]
-        if not question or not ident.startswith("DSM-") or number is None:
-            continue
-        # The questionnaire's own LEVEL cell is multi-valued ("Level 1, Level 2" —
-        # an option that satisfies several rungs), so it cannot order a ladder.
-        # The MASTER sheet is the authoritative statement of an indicator's level.
-        level = levels_by_id.get(ident)
-        entry = grouped.setdefault(
-            int(float(number)),
-            {
-                "number": int(float(number)),
-                "question": question,
-                "multi_select": bool(row[col["ISMULTI"]]),
-                "has_none_of_the_above": bool(row[col["HAS_NOA"]]),
-                "options": [],
-            },
-        )
-        if depends := row[col["DEPENDS_ON"]]:
-            entry.setdefault("depends_on", str(depends).strip())
-        option: dict[str, Any] = {"id": ident, "level": level}
-        if skips := row[col["SkipQuestionIDs"]]:
-            option["skip_questions"] = [
-                int(float(part)) for part in str(skips).split(",") if part.strip()
-            ]
-        if ident not in [o["id"] for o in entry["options"]]:
-            entry["options"].append(option)
-
-    questions = list(grouped.values())
-    for entry in questions:
-        # `depends_on` is set as rows arrive, so pull it back beside the flags it
-        # belongs with rather than leaving it after `options`.
-        if "depends_on" in entry:
-            entry["depends_on"] = entry.pop("depends_on")
-            entry["options"] = entry.pop("options")
-        # Ladder order is by level; an option with no level sorts first (it is the
-        # "none of the above" / level-0 state).
-        entry["options"].sort(key=lambda o: (o["level"] is None, o["level"] or 0))
-    return questions
-
-
 def _assessment_rows(ws: Any) -> dict[int, str]:
     """Sheet row number -> indicator id, for the rows the scoring formulas reference."""
     rows: dict[int, str] = {}
@@ -789,10 +725,8 @@ def build_data() -> dict[str, Any]:
     return {
         "source": SOURCE,
         "license": SOURCE["license"],
-        "levels": {lvl: meta["name"] for lvl, meta in _LEVELS.items()},
-        "level_scope": {lvl: meta["scope"] for lvl, meta in _LEVELS.items()},
+        "levels": dict(_LEVELS),
         "scoring": _load_scoring(known),
-        "questions": _load_questions({r["id"]: r["level"] for r in rows}),
         "indicators": indicators,
     }
 

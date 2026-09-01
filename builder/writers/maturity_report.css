@@ -87,9 +87,6 @@ __CATEGORY_STYLES__
 .mat .meter { height:8px; border-radius:999px; background:var(--track); overflow:hidden; }
 .mat .meter > i { display:block; height:100%; border-radius:999px; }
 .mat .fill-cov { background:var(--cov); }
-.mat .fill-good { background:var(--good); }
-.mat .fill-warn { background:var(--warn); }
-.mat .fill-low { background:var(--low); }
 .mat .meter.na { background:repeating-linear-gradient(45deg,var(--na-a) 0 5px,var(--na-b) 5px 10px);
   display:flex; align-items:center; justify-content:center; font-size:.62rem; color:var(--na-ink);
   letter-spacing:.03em; }
@@ -168,7 +165,6 @@ __CATEGORY_STYLES__
   margin-bottom:.7rem; padding-bottom:.5rem; border-bottom:1px solid var(--hairline); }
 .mat .sec-meta { font-size:.82rem; color:var(--muted); } .mat .sec-meta b { color:var(--ink-2); }
 .mat .lead,.mat p.lead { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; }
-
 
 .mat .disc { margin-top:.85rem; }
 .mat .disc summary { cursor:pointer; font-size:.82rem; color:var(--ink-2); font-weight:560; }
@@ -253,10 +249,7 @@ __CATEGORY_STYLES__
 
 /* profile adherence — severity tiers (#306) */
 .mat .sev { display:flex; flex-direction:column; gap:.32rem; }
-.mat .sev-row { display:flex; align-items:center; gap:.42rem; font-size:.8rem; }
 .mat .sev .mk { width:1rem; height:1rem; font-size:.6rem; }
-.mat .sev-t { color:var(--ink-2); font-weight:560; }
-.mat .sev-s { color:var(--muted); font-size:.74rem; margin-left:auto; font-variant-numeric:tabular-nums; }
 .mat .sev-detail { margin-top:.9rem; padding-top:.75rem; border-top:1px solid var(--hairline);
   display:grid; gap:.5rem; }
 .mat .sev-detail-label { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em;
@@ -269,7 +262,6 @@ __CATEGORY_STYLES__
 .mat .sev-drow .sn { color:var(--muted); font-size:.78rem; }
 @media (max-width:560px){ .mat .sev-drow{ grid-template-columns:1.3rem 1fr auto; }
   .mat .sev-drow .sn{ grid-column:2 / -1; } }
-
 
 .mat .cov-cap { font-size:.85rem; color:var(--ink-2); margin:0 0 .8rem; max-width:60ch; }
 /* entity coverage — one block per kind of entity, stacked (#618).
@@ -340,25 +332,6 @@ __CATEGORY_STYLES__
 .mat .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
   overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 
-/* all-entities overview: one tile per entity, category = fill, unreachable =
-   alarm outline. Sized to the content, not stretched like the derivation chain. */
-.mat svg.overview { width:auto; min-width:0; max-width:100%; height:auto; }
-.mat .ov-band { fill:var(--ink); font-size:11px; font-weight:660; }
-.mat .ov-cat { fill:var(--muted); font-size:8.5px; font-weight:600;
-  text-transform:uppercase; letter-spacing:.06em; }
-.mat .ov-t { stroke-width:1; }
-.mat .ov-t.orphan, .mat .ov-key.orphan { stroke:var(--low); stroke-width:1.6;
-  stroke-dasharray:2.5 1.5; }
-/* The two unreachable states differ by FILL, not stroke: at a 13px tile a
-   dash pattern is barely a texture, while emptiness reads instantly — and
-   "linked to nothing" is exactly what an empty tile should look like.
-   A stranded tile keeps its category fill because it IS connected; only its
-   route to the root is missing. */
-.mat .ov-t.orphan.isolated { fill:var(--surface); }
-.mat .ov-key.isolated { background:var(--surface) !important; }
-.mat .ov-key { display:inline-block; width:.8rem; height:.8rem; border-radius:2px;
-  border:1px solid; }
-
 /* Recommendations: number column, then the validator's own message in a mono
    chip with its severity badge, then the bold instruction and its muted why. */
 .mat ol.recs { list-style:none; margin:.35rem 0 0; padding:0; }
@@ -379,22 +352,9 @@ __CATEGORY_STYLES__
   border:1px solid color-mix(in srgb,var(--low) 40%,transparent); }
 .mat .rec-badge.rec { color:var(--warn-ink); background:color-mix(in srgb,var(--warn) 15%,transparent);
   border:1px solid color-mix(in srgb,var(--warn) 45%,transparent); }
-/* The questions only a person can answer: the model's own wording, each option
-   labelled with the indicator it scores. */
-.mat .qblock { margin-top:.9rem; }
-.mat .qblock h3 { font-size:.86rem; font-weight:650; margin:0; text-wrap:balance; }
-.mat .q-how { font-size:.72rem; color:var(--muted); margin:.15rem 0 .4rem; }
-.mat .qlist { list-style:none; margin:0; padding:0; display:grid; gap:.3rem; }
-.mat .qlist li { display:grid; grid-template-columns:auto 1fr auto; gap:.5rem;
-  align-items:baseline; font-size:.8rem; padding:.3rem .45rem; border-radius:6px;
-  background:var(--surface-2); }
 .mat .q-id { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.68rem;
   color:var(--ink-2); }
 .mat .q-txt { color:var(--ink); }
-.mat .q-open { font-size:.64rem; text-transform:uppercase; letter-spacing:.06em;
-  color:var(--muted); white-space:nowrap; }
-.mat .q-said { font-size:.64rem; text-transform:uppercase; letter-spacing:.06em;
-  color:var(--accent); white-space:nowrap; }
 /* The per-level checklist, in the shape the published tool reports it. */
 .mat .lvlblock { margin-top:1rem; }
 .mat .lvlblock h3 { font-size:.84rem; font-weight:600; margin:0 0 .35rem; text-wrap:balance; }
@@ -450,7 +410,6 @@ __CATEGORY_STYLES__
 .mat li.more > details.more-fold > ul.sugg,
 .mat li.more > details.more-fold > ul.ind { margin:.35rem 0 0; font-style:normal; }
 
-
 /* ---------------------------------------------------------------------------
    Entity explorer (#615)
 
@@ -477,7 +436,6 @@ __CATEGORY_STYLES__
    them. */
 .mat .ex-views{display:flex; flex-wrap:wrap; align-items:center; gap:.25rem;
   flex:1 1 100%; min-width:0;}
-.mat .ex-tools{display:flex; align-items:center; gap:.4rem; margin-left:auto;}
 /* Controls that act on a drawing sit ON it: the toolbar above is left as one row
    of what the reader is choosing between, and the controls stay within reach of
    the canvas they change. Shared by both viewers, so one page has one of these.
@@ -615,8 +573,6 @@ __CATEGORY_STYLES__
   color:var(--accent); background:none; border:0; text-decoration:underline dotted;}
 .mat .ex-ref-outside{color:var(--muted);}
 .mat .ex-hint{color:var(--muted); font-size:.8rem;}
-.mat .ex-kbd{font:inherit; font-size:.72rem; padding:0 .25rem; background:var(--surface-2);
-  border:1px solid var(--hairline); border-radius:4px;}
 .mat .ex-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.72rem;}
 .mat .ex-muted{color:var(--muted);}
 
@@ -628,9 +584,6 @@ __CATEGORY_STYLES__
 .mat .ex-json-string{color:#1d6f2b;}
 .mat .ex-json-number{color:#8a5a00;}
 .mat .ex-json-null,.mat .ex-json-punct{color:var(--muted);}
-.mat .ex-json-entity{margin:.15rem 0; padding:.2rem .35rem; border:1px solid transparent;
-  border-radius:6px;}
-.mat .ex-json-current{background:var(--accent-soft); border-color:var(--accent);}
 /* A URL the crate carries. Deliberately NOT styled as a link, because it is not
    one: the explorer writes no anchors (#169), so this offers the URL for copying
    and says so on hover. Underlined on hover only, so it does not promise
@@ -641,10 +594,6 @@ __CATEGORY_STYLES__
 .mat .ex-url-copied{color:var(--ok,var(--accent)); text-decoration:none;}
 .mat .ex-url-copied::after{content:" copied"; font-size:.62rem; color:var(--muted);
   letter-spacing:.04em; text-transform:uppercase;}
-.mat .ex-json-entity-head{display:flex; align-items:center; gap:.3rem; margin-bottom:.1rem;
-  font-family:inherit; font-size:.74rem;}
-.mat .ex-side-document .ex-json{padding:.5rem .7rem;}
-
 
 /* --- DSM "% Complete" grid (the assessment sheet's own 6x3 scoring) --------- */
 /* A wide table scrolls inside its own box so the page body never scrolls sideways. */
@@ -666,7 +615,6 @@ __CATEGORY_STYLES__
 .mat .dsm-na  .dsm-pct { color:var(--na-ink); font-weight:500; font-style:italic; }
 .mat .dsm-note { font-size:.72rem; color:var(--muted); margin:.55rem 0 0; line-height:1.5; }
 .mat .blk-why { display:block; font-size:.7rem; color:var(--muted); margin-top:.1rem; }
-
 
 /* AI-readiness: the seven-dimension profile. Bars, not a single number — the
    instrument's authors refuse an aggregate, and a lone percentage here would be
@@ -761,7 +709,6 @@ __CATEGORY_STYLES__
 .mat .lane-edge-label{fill:var(--accent); stroke:var(--surface); stroke-width:3.2px;
   paint-order:stroke; stroke-linejoin:round; font-weight:600;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
-
 
 /* ---- the inspector, docked to the window ---------------------------------
    Both sections carry one, and inside the section it cost the canvas a third

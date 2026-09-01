@@ -389,7 +389,7 @@ class TestNoGraphMeansUnanswered:
 
 
 class TestTheQuestionnaireLadder:
-    """The instrument is 18 multiple-choice questions whose options nest by level.
+    """The instrument's options nest by level, and the sheet resolves that by promoting.
 
     Within one question the statements form a ladder — "standardised to a *community*
     Standard Dataset Model" (L3) sits above "...to a *locally defined* Dataset Model"
@@ -398,24 +398,6 @@ class TestTheQuestionnaireLadder:
     (``J4`` is ``=IF(J5=1,1,H4)``), and the scorer reproduces those nine rules rather
     than inventing a constraint of its own.
     """
-
-    def test_the_questionnaire_is_carried(self):
-        data = _yaml()
-        questions = data["questions"]
-        # 17, by the tool's own QUESTION_NUM. Grouping by question TEXT gives 18,
-        # because one number carries a stale second wording of the same question.
-        assert len(questions) == 17
-        assert sum(len(q["options"]) for q in questions) == 73
-        assert any(q["multi_select"] for q in questions)
-
-    def test_option_levels_agree_with_the_master_sheet(self):
-        """The questionnaire's own LEVEL cell is multi-valued ("Level 1, Level 2"),
-        so it cannot order a ladder; the MASTER sheet is authoritative."""
-        data = _yaml()
-        levels = {i["id"]: i["level"] for i in data["indicators"]}
-        for question in data["questions"]:
-            for option in question["options"]:
-                assert option["level"] == levels[option["id"]], option["id"]
 
     def _promoted(self, rules, checks, indicators):
         """Run the real scorer over a stub model and return its verdict map."""
@@ -688,14 +670,6 @@ class TestTheSheetsOwnScoringIsCarried:
         assert not (off_sheet & in_a_cell)
         scoped = {i["id"] for i in data["indicators"] if i["scope"] != "na"}
         assert scoped - in_a_cell == {"DSM-2-R5"}
-
-    def test_questions_are_numbered_by_the_tools_own_question_num(self):
-        """17 questions, not the 18 that grouping by question TEXT produces."""
-        questions = _yaml()["questions"]
-        assert len(questions) == 17
-        assert {q["number"] for q in questions} == {q["number"] for q in questions}
-        assert sum(len(q["options"]) for q in questions) == 73
-
 
 class TestTheLadderIsReportedAsTheToolReportsIt:
     """The published tool prints a per-level checklist — "N indicators still need to be

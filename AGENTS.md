@@ -194,7 +194,6 @@ CrateState {
         # a depositor's statement is a fact and outranks a drafted guess, so
         # `set_crate_metadata` will not overwrite it
         license_from_deposit: bool,
-        input_type: "directory" | "conversation",
         input_path: str | None, output_path: str | None,
         exported_at: str | None,  # None until the crate has been written
     },
@@ -2079,12 +2078,15 @@ discount the entity by id, so an unstated licence never reads as filled — see 
   `hasPart` — same move as result Files, so the gold-crate JSON keys round-trip (`_wire_dataset_aliases`,
   #180 Lane C).
 
-Round-trip is symmetric: `read_existing_crate` (`builder/readers/existing_crate.py`) recovers the
-**bare** entity_id (stripping the type-qualifier so `#Study_study_1` → `study_1`, not the unbounded
-`#Study_Study_…` double-prefix), reconstructs the `study_id`/`assay_id` linkages the crate encodes
-structurally via `hasPart`/`about`, and folds the root back into an Investigation entity — so
-build → read → build is idempotent and structure-preserving. `_build_process` reads the
-`input`/`output` aliases as well as `object`/`result` so I/O survives the round-trip.
+`read_existing_crate` (`builder/readers/existing_crate.py`) reads a built crate back into a
+`CrateState`: it recovers the **bare** entity_id (stripping the type-qualifier so
+`#Study_study_1` → `study_1`, not the unbounded `#Study_Study_…` double-prefix), reconstructs the
+`study_id`/`assay_id` linkages the crate encodes structurally via `hasPart`/`about`, and folds the
+root back into an Investigation entity. `_build_process` reads the `input`/`output` aliases as well
+as `object`/`result`. It has **no production caller** — no build arm, no CLI flag, no tool — and the
+round trip is **not** idempotent on a real crate: measured on a built S-VHPS22, build → read → build
+recovers 180 of 329 node ids and does not reach a fixed point. Treat it as a test-only helper until
+something wires it up or it goes (#711).
 
 ### D14: Entity-Graph Visualization (`builder/writers/provenance_dag.py`, Issue #130)
 
@@ -2221,7 +2223,10 @@ scanned file and a root carrying `hasPart` and nothing else. It **mints nothing*
 descriptor node, no root identifier, name, description or `conformsTo`, no structure —
 because each of those would score the input for work the FAIRification has not done;
 `tests/test_fair_metrics_can_fail.py` pins both the shape and the exact set of indicators
-a folder of files may honestly meet.
+a folder of files may honestly meet — and that guard, not a rendered figure, is what the
+as-received graph is for: no page shows the intake column. Two limits, both known: `--resume`
+does not run `initialize`, and the capture returns early when `pre_assessment` is already set,
+so a session that started without a baseline can never acquire one.
 
 **The indicators no crate can evidence are answered by the depositor.** Twenty hosting
 and thirteen enterprise-governance indicators describe the environment serving the
