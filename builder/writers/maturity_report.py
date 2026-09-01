@@ -819,7 +819,6 @@ def _fair_tile(
     blockers: list[tuple[str, str, str]],
     ceiling: dict[str, Any] | None = None,
     grid: dict[int, dict[str, Any]] | None = None,
-    intake: tuple[int, int, int] | None = None,
 ) -> str:
     """FAIR maturity: the derived DSM level, a ladder whose *next* rung shows how much
     of that level the sheet already scores as complete (a gated 0 must not read as
@@ -861,13 +860,7 @@ def _fair_tile(
             f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</a>'
         )
     reach = ""
-    if intake is not None:
-        met_then, assessed_then, level_then = intake
-        reach = (
-            f'<div class="kpi-sub">at intake: <b>{met_then}</b> of {assessed_then} '
-            f"indicators &middot; DSM {level_then}</div>"
-        )
-    elif cap and fair.dsm_level >= cap:
+    if cap and fair.dsm_level >= cap:
         reach = '<div class="kpi-sub">at the ceiling for a crate</div>'
     return (
         '<article class="kpi fair-tile">'
@@ -1065,14 +1058,13 @@ def _render_kpis(
     *,
     ceiling: dict[str, Any] | None = None,
     grid: dict[int, dict[str, Any]] | None = None,
-    intake: tuple[int, int, int] | None = None,
     stale: bool = False,
 ) -> str:
     """The KPI grid: the profile × tier conformance matrix, FAIR maturity, the
     domain-coverage rose (spanning both rows), the graph tile (linked / total
     entities, only when a graph was supplied) and the AI-readiness profile."""
     tiles = _profile_matrix_tile(val, tiers, stale)
-    tiles += _fair_tile(fair, blockers, ceiling, grid, intake)
+    tiles += _fair_tile(fair, blockers, ceiling, grid)
     tiles += _mit_rose_tile(mit)
     if graph_counts is not None:
         linked, total = graph_counts
@@ -1772,10 +1764,10 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
     states how much of it we actually assessed. Where that reads ``0 of 4``, the
     percentage beside it is the sheet's arithmetic over four blanks, not a measurement.
    
-    The workbook is a before/after instrument — its columns are "Pre-FAIRification
-    Assessment" and "Post-FAIRification Assessment" — and the baseline captured at
-    intake is reported once, on the FAIR tile, rather than doubled into all 24 cells:
-    two percentages per cell buried the one the grid exists to show.
+    The workbook is a before/after instrument, and the deposit-as-received baseline is
+    still captured at intake and carried in the session — but it is not drawn here. Two
+    percentages per cell buried the one the grid exists to show, and a single summary
+    line was no clearer; what the reader wants from this table is where the crate is.
     """
     if not grid:
         return ""
@@ -2893,12 +2885,10 @@ def build_maturity_html(
     from builder.tools.air_assessment import assess_air_readiness
     from builder.tools.fair_assessment import (
         DSM_INDICATORS_PATH,
-        _compute_dsm_level,
         _load_yaml,
         dsm_ceiling,
         dsm_grid,
         dsm_verdicts,
-        pre_verdicts,
     )
     from builder.tools.remediation import dsm_indicator_actions
 
@@ -2916,19 +2906,6 @@ def build_maturity_html(
     dsm_reach = dsm_ceiling(state, dsm_data, graph, dsm_answers)
     dsm_cells = dsm_grid(state, dsm_data, graph, answers=dsm_answers)
 
-    # The workbook is a before/after instrument. When a baseline was captured at intake
-    # the same cells are scored against it, so the page says what FAIRification moved
-    # rather than only where the crate ended up.
-    pre_answers = pre_verdicts(state)
-    intake = (
-        (
-            sum(1 for v in pre_answers.values() if v.value is True),
-            sum(1 for v in pre_answers.values() if v.value is not None),
-            _compute_dsm_level(state, dsm_data, None, pre_answers),
-        )
-        if pre_answers
-        else None
-    )
     dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {})
     dsm_section += _render_dsm_levels(dsm_data, dsm_answers, dsm_data.get("levels") or {})
     # The indicators standing before the next level, worded as instructions and ranked
@@ -2945,7 +2922,6 @@ def build_maturity_html(
         graph_counts,
         ceiling=dsm_reach,
         grid=dsm_cells,
-        intake=intake,
         stale=stale,
     )
     prof_section = _render_profile_section(val, tiers, stale=stale)

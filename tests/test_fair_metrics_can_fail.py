@@ -429,13 +429,6 @@ _DSM_MUST_FAIL: dict[str, str] = {
 # backs both DSM-2-C1 (``domain_model_content``) and DSM-2-R1
 # (``domain_model_representation``), and both proposals for it were rejected.
 _DSM_STATE_BOUND: dict[str, str] = {
-    "access_info": (
-        "DSM-1-C3 — proposed as `scope: na`. Half the indicator (the access protocol) "
-        "really is a property of the repository, but the other half (FsF-A1-01M, access "
-        "level and conditions) is answerable from the crate today by aliasing "
-        "`air_assessment._check_access_conditions`, so scoping it na would suppress a "
-        "true finding."
-    ),
     "context_fields": (
         "DSM-1-R1 — its only discriminating limb is root-transitive reachability, which "
         "is borrowed from an open `verify_isa_reachability` REQUIRED bug: adding one "
@@ -856,10 +849,10 @@ class TestInflationCannotHideBehindAFailingLevelOne:
 # has started inventing metadata the depositor never wrote.
 _PRE_ALLOWED = {
     "DSM-1-C3": (
-        "access_info is state-bound and passes on `state.session_id` alone. The one "
-        "dishonest pass in this set (#706); it is on the `_DSM_STATE_BOUND` burn-down, "
-        "and narrowing it would move the POST score too, so it is pinned rather than "
-        "fixed here."
+        '"Dataset Descriptor(s) contains access information" — the deposit declares '
+        "CC-BY in its own text and ships 4 files the inventory lists, which is how it "
+        "is reached. It used to pass on `state.session_id` instead, a timestamp this "
+        "tool mints for itself; that limb is gone (#706)."
     ),
     "DSM-1-R5": (
         '"Dataset(s) available in Machine Readable Format" — the deposit really does '
@@ -1051,17 +1044,21 @@ class TestTheReportShowsBothColumns:
         engine._capture_pre_assessment()
         return state
 
-    def test_the_baseline_is_reported_once_not_per_cell(self) -> None:
-        """Two percentages in every cell buried the one the grid exists to show, so the
-        comparison is made once, on the tile, and the grid stays a single reading."""
+    def test_the_baseline_is_captured_but_not_drawn(self) -> None:
+        """The deposit-as-received score is still measured and carried in the session —
+        it is what a paper or an eval reads — but the page does not draw it. Two
+        percentages per cell buried the one the grid exists to show, and a summary line
+        was no clearer; what the reader wants from that table is where the crate is."""
+        from builder.tools.fair_assessment import pre_verdicts
         from builder.writers.maturity_report import build_maturity_html
 
         state = self._state_with_baseline()
-        assert state.pre_assessment
+        assert state.pre_assessment, "the baseline must still be captured"
+        assert pre_verdicts(state), "and still readable"
         page = build_maturity_html(state)
-        assert "at intake:" in page, "the tile states where the deposit started"
+        assert "at intake" not in page
         grid = page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
-        assert "was " not in grid, "the intake number does not belong in every cell"
+        assert "was " not in grid
 
     def test_without_a_baseline_the_page_is_exactly_as_before(self) -> None:
         from builder.writers.maturity_report import build_maturity_html

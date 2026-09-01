@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from builder.state import CrateState, Entity, EntityProvenance, FAIRReport, MITReport
+from builder.tools.assessment_graph import as_verdict
 from builder.tools.fair_assessment import _check_access_info, assess_fair_maturity
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
@@ -239,27 +240,34 @@ class TestDsmLevelNotCollapsed:
         level = assess_fair_maturity(vhps_fixture_state("S-VHPS21")).dsm_level
         assert level >= 2, f"DSM collapsed to {level}; expected >= 2"
 
-    def test_access_info_credits_resolvable_accession(self) -> None:
-        # A dataset with a resolvable accession carries access information even
-        # when the incidental build paths are unset.
+    def test_access_info_reads_the_crate_not_the_session(self) -> None:
+        """It used to pass on `state.session_id` — a timestamp this tool mints for its
+        own bookkeeping, present on every run and absent from the crate (#706)."""
         state = CrateState()
-        state.metadata.accession = "S-VHPS21"
-        assert state.metadata.output_path is None
-        assert state.metadata.input_path is None
-        assert _check_access_info(state) is True
+        state.session_id = "20260101_120000"
+        assert _check_access_info(state, None) is None, "no graph, nothing to read"
+        empty = {"@graph": [{"@id": "./", "@type": "Dataset"}]}
+        assert as_verdict(_check_access_info(state, empty)).value is False
 
-    def test_access_info_still_true_for_known_location(self) -> None:
-        # Back-compat: an output/input path still counts.
-        state = CrateState()
-        state.metadata.output_path = "/tmp/out"
-        assert _check_access_info(state) is True
+    def test_access_info_credits_a_descriptor_that_says_how_to_reach_the_data(self) -> None:
+        for extra, why in (
+            ({"identifier": "https://doi.org/10.6019/S-VHPS22"}, "a resolvable identifier"),
+            ({"license": {"@id": "https://creativecommons.org/licenses/by/4.0/"}}, "reuse terms"),
+            ({"conditionsOfAccess": "public"}, "stated access conditions"),
+        ):
+            graph = {"@graph": [{"@id": "./", "@type": "Dataset", **extra}]}
+            assert as_verdict(_check_access_info(CrateState(), graph)).value is True, why
 
-    def test_access_info_false_without_any_access_signal(self) -> None:
-        # A crate with no identity, no location, no license and no data has no
-        # access information — a real gap, correctly failed (not always-true).
-        state = CrateState()
-        assert not state.session_id
-        assert _check_access_info(state) is False
+    def test_access_info_credits_data_the_descriptor_actually_lists(self) -> None:
+        graph = {
+            "@graph": [
+                {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": "data/plate1.csv"}]},
+                {"@id": "data/plate1.csv", "@type": "File", "encodingFormat": "text/csv"},
+            ]
+        }
+        verdict = as_verdict(_check_access_info(CrateState(), graph))
+        assert verdict.value is True
+        assert "deposited file" in verdict.evidence
 
 
 class TestMitCoverageIndicatorCoupling:

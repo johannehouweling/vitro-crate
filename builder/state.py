@@ -604,6 +604,13 @@ class CrateMetadata:
     # does not get to overwrite it — a wrong licence is wrong in the one
     # direction that suppresses reuse of openly-licensed data.
     license_from_deposit: bool = False
+
+    # The DOI the deposit declares, read from its own descriptor (#682) and held in
+    # resolvable form. It is the one identifier these deposits carry that still means
+    # something once they leave the repository they came from — an accession is unique
+    # inside that repository and ambiguous outside it — so it, not the accession,
+    # becomes the crate's `identifier`.
+    doi: str | None = None
     input_type: InputType = "directory"
     input_path: str | None = None
     output_path: str | None = None
@@ -630,6 +637,8 @@ class CrateMetadata:
                 d[key] = value
         if self.license_from_deposit:
             d["license_from_deposit"] = True
+        if self.doi:
+            d["doi"] = self.doi
         if self.input_path is not None:
             d["input_path"] = self.input_path
         if self.output_path is not None:
@@ -653,6 +662,7 @@ class CrateMetadata:
             contact=data.get("contact"),
             license=data.get("license"),
             license_from_deposit=bool(data.get("license_from_deposit", False)),
+            doi=data.get("doi"),
             input_type=data.get("input_type", "directory"),  # type: ignore[arg-type]
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
