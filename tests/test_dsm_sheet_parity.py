@@ -35,6 +35,7 @@ from __future__ import annotations
 import pathlib
 import random
 import re
+from collections.abc import Mapping
 
 import openpyxl
 import pytest
@@ -109,7 +110,9 @@ def _evaluate(sheet, answers: dict[int, int]) -> dict[str, float]:
     return out
 
 
-def _our_grid(data: dict, rows: dict[int, str], answers: dict[int, int | None]) -> dict[str, dict]:
+def _our_grid(
+    data: dict, rows: dict[int, str], answers: Mapping[int, int | None]
+) -> dict[str, dict]:
     """Our own arithmetic over the same answer vector, keyed by sheet cell.
 
     ``None`` is the state the sheet cannot hold: an indicator nothing measured. It
@@ -126,14 +129,16 @@ def _our_grid(data: dict, rows: dict[int, str], answers: dict[int, int | None]) 
     return {cell["cell"]: cell for by_cat in grid.values() for cell in by_cat.values()}
 
 
-def _blank_is_zero(answers: dict[int, int | None]) -> dict[int, int]:
+def _blank_is_zero(answers: Mapping[int, int | None]) -> dict[int, int]:
     """The same vector as the workbook holds it: column J is entirely ``=H{row}``, so
     an empty H evaluates to numeric 0. There is no third value to give the evaluator."""
     return {row: 0 if value is None else value for row, value in answers.items()}
 
 
-def _vector(rows: dict[int, str], fill) -> dict[int, int]:
-    """An answer per sheet row. Rows 70 and 75 both carry DSM-4-H2 (see the test)."""
+def _vector(rows: dict[int, str], fill) -> dict[int, int | None]:
+    """An answer per sheet row — 1, 0, or ``None`` for unanswered.
+
+    Rows 70 and 75 both carry DSM-4-H2 (see the test), so they answer together."""
     answers = {row: fill(row) for row in rows}
     answers[75] = answers[70]
     return answers
@@ -148,7 +153,9 @@ class TestTheWorkbooksOwnArithmetic:
         scorer that counts 1s rather than 0s reads 100 where the sheet reads 0.
         """
         answers = _vector(rows, lambda row: int(sheet.cell(row=row, column=8).value or 0))
-        assert sum(answers.values()) == 11, "the shipped H column is the Level-0 states"
+        assert sum(_blank_is_zero(answers).values()) == 11, (
+            "the shipped H column is the Level-0 states"
+        )
 
         ours = _our_grid(data, rows, answers)
         for cell_name, cell in ours.items():
