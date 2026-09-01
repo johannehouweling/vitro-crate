@@ -3080,11 +3080,16 @@ def _assess_fair_maturity_tool(state: CrateState) -> FAIRReport:
     publishes for the same crate. Assembling here fixes that at the boundary where it
     is wrong, and leaves the assessor's own contract alone: given no graph it still
     declines to guess, which is what the #670 floor tests hold it to.
+
+    MIT rides along for the same reason. ``state.mit_assessment`` is populated on
+    neither path, so an unscored `mit=` leaves RDA-R1.3-01D False for the agent while
+    the page publishes True for the same bytes (#713). Both are measured against the
+    one graph assembled here, so the two callers cannot disagree about the crate.
     """
-    from builder.tools.mit_assessment import scoring_graph
+    from builder.tools.mit_assessment import assess_mit_coverage, scoring_graph
 
     graph = scoring_graph(state)
-    return assess_fair_maturity(state, graph=graph)
+    return assess_fair_maturity(state, mit=assess_mit_coverage(state, graph=graph), graph=graph)
 
 
 TOOL_REGISTRY.register("assess_fair_maturity", _assess_fair_maturity_tool, takes_state=True)
