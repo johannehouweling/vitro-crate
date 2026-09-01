@@ -2668,34 +2668,38 @@ def assess_fair_maturity(
 
 
 def _assessable_indicators(
-    dsm_data: dict[str, Any], level: int
-) -> list[tuple[dict[str, Any], DsmCheck]]:
-    """The indicators at *level* this tool can actually evaluate, with their checks.
+    dsm_data: dict[str, Any], level: int, answers: dict[str, Verdict] | None = None
+) -> list[dict[str, Any]]:
+    """The indicators at *level* that carry an answer at all.
 
     One definition, used by both :func:`_compute_dsm_level` and :func:`dsm_ceiling`, so
     "what counts as assessable" cannot drift between the level a crate is awarded and
     the blockers reported for the level above it.
 
-    An indicator scoped ``na`` is not assessable by construction — the published model
+    An indicator scoped ``na`` is not assessable *from a crate* — the published model
     carries all 83 indicators and most describe a hosting environment, a Level-0
-    pre-FAIRification state, or content we do not inspect. An indicator that *is*
-    scoped for assessment but names a check nothing registers is a **wiring bug**, not
-    a pass: it raises rather than being silently skipped, which is how DSM-4-R6 went
+    pre-FAIRification state, or content we do not inspect — but the published tool puts
+    those to a person, so one the depositor answered counts here too. An indicator that
+    *is* scoped for assessment but names a check nothing registers is a **wiring bug**,
+    not a pass: it raises rather than being silently skipped, which is how DSM-4-R6 went
     unnoticed while its level was awarded for free.
     """
-    out: list[tuple[dict[str, Any], DsmCheck]] = []
+    out: list[dict[str, Any]] = []
     for ind in dsm_data.get("indicators", []):
-        if ind.get("level") != level or ind.get("scope", "na") == "na":
+        if ind.get("level") != level:
+            continue
+        if ind.get("scope", "na") == "na":
+            if str(ind.get("id")) in (answers or {}):
+                out.append(ind)
             continue
         check_name = str(ind.get("check") or "")
-        check = DSM_CHECKS.get(check_name)
-        if check is None:
+        if check_name not in DSM_CHECKS:
             raise KeyError(
                 f"DSM indicator {ind.get('id')} is scoped {ind.get('scope')!r} but its "
                 f"check {check_name!r} is not registered in DSM_CHECKS. Register it or "
                 f"scope the indicator 'na' in scripts/gen_dsm_indicators.py."
             )
-        out.append((ind, check))
+        out.append(ind)
     return out
 
 
@@ -2708,7 +2712,7 @@ def _failing_at(
     the way" answer cannot differ between the two places the report shows it.
     """
     out: list[tuple[str, str, str]] = []
-    for ind, _check in _assessable_indicators(dsm_data, level):
+    for ind in _assessable_indicators(dsm_data, level, answers):
         verdict = answers.get(str(ind.get("id") or ""))
         if verdict is not None and verdict.value is False:
             out.append(
@@ -2742,7 +2746,17 @@ def dsm_verdicts(
     verdicts: dict[str, Verdict] = {}
     for ind in dsm_data.get("indicators", []):
         ident = str(ind.get("id") or "")
-        if not ident or ind.get("scope", "na") == "na":
+        if not ident:
+            continue
+        if ind.get("scope", "na") == "na":
+            # Not assessable from a crate — but the published tool asks a person, so a
+            # depositor may answer it. The gate is deliberately on `na`: where the crate
+            # can answer, the crate answers, and no answer file can overrule it.
+            answer = (state.dsm_answers or {}).get(ident)
+            if isinstance(answer, bool):
+                verdicts[ident] = Verdict(
+                    answer, "answered by the depositor; not evidenced by the crate"
+                )
             continue
         check = DSM_CHECKS.get(str(ind.get("check") or ""))
         if check is None:
@@ -2755,6 +2769,36 @@ def dsm_verdicts(
 
     _apply_promotion(verdicts, (dsm_data.get("scoring") or {}).get("promotion") or [])
     return verdicts
+
+
+def load_dsm_answers(path: Path | str) -> dict[str, bool]:
+    """Read a depositor's answers to the indicators no crate can evidence.
+
+    A flat ``{indicator id: true/false}`` YAML file, because the depositor is
+    describing their *repository* rather than one build: the same answers hold for
+    every crate they deposit there, so the file lives with them and is passed in with
+    ``--dsm-answers``.
+
+    Anything that is not a published indicator id answered with a boolean is dropped
+    with a warning. "yes" is not ``True``: an assessment a person will publish must not
+    be able to acquire a pass from a typo.
+    """
+    data = _load_yaml(Path(path))
+    if not isinstance(data, dict):
+        return {}
+    model = _load_yaml(DSM_INDICATORS_PATH) or {}
+    known = {str(ind.get("id")) for ind in model.get("indicators", [])}
+    answers: dict[str, bool] = {}
+    for ident, value in data.items():
+        if str(ident) in known and isinstance(value, bool):
+            answers[str(ident)] = value
+        else:
+            logger.warning(
+                "Ignoring DSM answer %r: %r is not a yes/no for a published indicator",
+                ident,
+                value,
+            )
+    return answers
 
 
 def pre_verdicts(state: CrateState) -> dict[str, Verdict]:
@@ -2860,7 +2904,7 @@ def _compute_dsm_level(
     for level in levels:
         answered = [
             verdict.value
-            for ind, _check in _assessable_indicators(dsm_data, level)
+            for ind in _assessable_indicators(dsm_data, level, answers)
             if (verdict := answers.get(str(ind.get("id")))) is not None
             and verdict.value is not None
         ]
@@ -2919,7 +2963,7 @@ def dsm_ceiling(
     attained = _compute_dsm_level(state, dsm_data, graph, answers)
     ceiling = 0
     for level in levels:
-        if not _assessable_indicators(dsm_data, level):
+        if not _assessable_indicators(dsm_data, level, answers):
             break
         ceiling = level
 

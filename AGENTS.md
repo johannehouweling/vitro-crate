@@ -2187,6 +2187,25 @@ having looked; reporting only the second would publish a number nobody can check
 `tests/test_dsm_sheet_parity.py` holds the two together by interpreting the sheet's
 formula text and driving the engine over the same answer vectors.
 
+**The sheet's two answer columns are both filled.** `AgentEngine.initialize` scores the
+deposit as it arrived — the one moment the state holds nothing but a file inventory and
+any licence the deposit declared — and stores the verdicts on `CrateState.pre_assessment`,
+because `crate_state.json` is overwritten on every save and that moment is otherwise
+unrecoverable. `assessment_graph.as_received_graph` is its evidence: one `File` per
+scanned file and a root carrying `hasPart` and nothing else. It **mints nothing** — no
+descriptor node, no root identifier, name, description or `conformsTo`, no structure —
+because each of those would score the input for work the FAIRification has not done;
+`tests/test_fair_metrics_can_fail.py` pins both the shape and the exact set of indicators
+a folder of files may honestly meet.
+
+**The indicators no crate can evidence are answered by the depositor.** Twenty hosting
+and thirteen enterprise-governance indicators describe the environment serving the
+dataset, which the published tool puts to a person. `--dsm-answers` reads a flat
+`{indicator id: bool}` YAML onto `CrateState.dsm_answers`; `dsm_verdicts` merges it
+**only where `scope` is `na`**, so the crate always wins where the crate can answer, and
+an id left out stays unassessed rather than defaulting either way. The verdict names its
+source, so a cell filled by a person is never mistaken for a measurement.
+
 **Three properties keep a DSM verdict honest.** (i) It is **tri-state**: an indicator
 with nothing to read answers `None`, which leaves `pct`'s denominator rather than
 counting as a failure (`Verdict.__bool__` raises, so a caller cannot silently collapse
