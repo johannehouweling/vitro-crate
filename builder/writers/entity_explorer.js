@@ -33,9 +33,6 @@
     (D.document['@graph'] || []).filter(function (e) { return e && e['@id']; })
       .map(function (e) { return [e['@id'], e]; })
   );
-  var GRAPH_ORDER = (D.document['@graph'] || [])
-    .filter(function (e) { return e && e['@id']; })
-    .map(function (e) { return e['@id']; });
   var VIEW = new Map(D.views.map(function (v) { return [v.key, new Set(v.members)]; }));
   // A view that refines another (#624): the LabProcesses sub-row. Children
   // NARROW — a parent with active children draws their union instead of its own
@@ -48,39 +45,6 @@
     if (!CHILDREN.has(v.parent)) CHILDREN.set(v.parent, []);
     CHILDREN.get(v.parent).push(v.key);
   });
-  // The views that draw one assay's chain, and so want the lane layout (#686).
-  // Read off the payload rather than matched on a key: which views are lanes is
-  // a fact about the selection, not a naming convention the browser re-derives.
-  var LANE = new Set(D.views.filter(function (v) { return v.lane; })
-    .map(function (v) { return v.key; }));
-  /* What an edge says it is, in the crate's own vocabulary (#688).
-   *
-   * The model's labels are this codebase's words — an edge is `input` because
-   * that reads well beside `result` — but the predicate the crate is serialized
-   * with is `schema:object`. A reader who copies a name off the canvas has to
-   * find it in the JSON-LD, so the payload carries the mapping and this looks it
-   * up rather than keeping a second copy of the vocabulary here.
-   */
-  function term(label) { return (D.relations && D.relations[label]) || label; }
-  /* The same, said in the direction the ARROW runs.
-   *
-   * `input` and `reagent` are drawn against their own predicate so the arrow
-   * points the way material moves (#650). Printing the bare term on such an
-   * arrow claims the inverse of what the crate holds — a third of a lane's
-   * edges did. `←` marks the ones whose predicate runs back the other way. */
-  function edgeTerm(label) {
-    var back = (D.relations_reversed || []).indexOf(label) >= 0;
-    return (back ? '\u2190 ' : '') + term(label);
-  }
-  /* What an entity KEY expands to. `input` and `object` are one predicate;
-   * `studies`, `assays` and `hasPart` are another. A key the context does not
-   * name expands under the crate's own @vocab, which is the crate's rule rather
-   * than a guess made here. */
-  function prop(key) {
-    if (key.charAt(0) === '@') return key;
-    return (D.properties && D.properties[key]) || (D.vocab_prefix + ':' + key);
-  }
-  function isUrl(v) { return typeof v === 'string' && /^https?:\/\//.test(v); }
   // Everything some view can put on the canvas. Not `D.nodes.length`: that also
   // counts bare references the crate never describes, which no view offers, so
   // a denominator taken from it would be one the numerator can never reach.
@@ -102,16 +66,20 @@
   // those alongside the derivation is what made the whole-crate picture a
   // hairball on paper.
   var DERIVATION = new Set(['input', 'object', 'result', 'output']);
+  // The panel both viewers mount, and the words both read the crate in.
+  var INSPECTOR = window.ExplorerInspector.create(D);
+  var edgeTerm = INSPECTOR.edgeTerm, category = INSPECTOR.category;
   var layout = window.ExplorerLayout.layout;
-  var laneView = window.AssayLaneView ? window.AssayLaneView.build : null;
   var NODE_W = window.ExplorerLayout.NODE_W, NODE_H = window.ExplorerLayout.NODE_H;
   // How far the opening view is allowed to pull back. A crate's whole graph is
-  // thousands of pixels tall — the researcher view of a real deposit lays out
-  // around 2300x4000 — so "fit everything" means a field of 14px slivers with
+  // thousands of pixels tall — the all-entities view of a real deposit lays
+  // out around 2300x4000 — so "fit everything" means a field of 14px slivers with
   // no readable name on it. Better to open on a legible part of the graph and
   // let the reader pan, zoom out or use the minimap, all of which say where
   // they are; an unreadable whole says nothing.
   var FIT_FLOOR = 0.32;
+  // The page-wide channel the two inspectors take turns on; see `Explorer`.
+  var INSPECT = 'vitro:inspect';
 
   // Built in one expression, not across template lines: htm drops the newline
   // and the indentation with it, which is how "entities, 177 links" became
@@ -120,17 +88,6 @@
     var text = graph.visible.size + ' of ' + DRAWABLE.size + ' entities, '
       + graph.edges.length + ' links';
     return hits ? text + ', ' + hits.size + ' matching' : text;
-  }
-
-  function category(n) { return D.categories[n.category] || D.categories.ctx; }
-  function layerName(n) {
-    return n.layer ? D.layers[String(n.layer)] : 'Referenced, outside the crate';
-  }
-  function shortId(id) {
-    try {
-      var u = new URL(id);
-      return u.hostname.replace(/^www\./, '') + u.pathname;
-    } catch (err) { return decodeURIComponent(id); }
   }
 
   /* A category, as colour and nothing else (#688).
@@ -148,20 +105,11 @@
     return html`<span class="ex-swatch" aria-hidden="true"
       style=${{ '--ex-c': c.colour }}></span>`;
   }
-  // How many type names a legend key spells out before it counts the rest. The
-  // legend is one strip across the toolbar, so a bucket holding eight types
-  // would push the rest of the keys off it; the full census rides on `title`.
-  var LEGEND_TYPES = 2;
-  function legendLabel(c) {
-    var types = c.types || [];
-    if (!types.length) return c.label;
-    var shown = types.slice(0, LEGEND_TYPES).join(', ');
-    return types.length > LEGEND_TYPES ? shown + ' +' + (types.length - LEGEND_TYPES) : shown;
-  }
-  function legendTitle(c) {
-    var types = c.types || [];
-    return types.length > LEGEND_TYPES ? c.label + ' — ' + types.join(', ') : c.label;
-  }
+  // The wording is the payload's (`_legend_wording`), not this file's: the assay
+  // lanes draw the same legend with a different renderer, and two copies of the
+  // rule is how two legends over one crate come to disagree.
+  function legendLabel(c) { return c.legend || c.label; }
+  function legendTitle(c) { return c.legend_title || c.label; }
 
   /* ---- the state a reader can link to -------------------------------------- */
   function readHash() {
@@ -179,14 +127,19 @@
     });
     return {
       views: new Set(keys), selected: p.get('select') || null,
-      document: p.get('json') === '1', query: p.get('q') || ''
+      query: p.get('q') || ''
     };
   }
+  /* The hash is the page's, not this section's: the assay lanes link their own
+   * state into it under their own keys, so a write here reads what is there and
+   * replaces only what this section owns. Otherwise the last section a reader
+   * touched would erase the other's link. */
   function writeHash(s) {
-    var p = new URLSearchParams();
+    var p = new URLSearchParams(location.hash.replace(/^#/, ''));
     p.set('views', Array.from(s.views).join(','));
+    p.delete('select');
+    p.delete('q');
     if (s.selected) p.set('select', s.selected);
-    if (s.document) p.set('json', '1');
     if (s.query) p.set('q', s.query);
     history.replaceState(null, '', '#' + p.toString());
   }
@@ -261,231 +214,23 @@
       <${Handle} type="source" position=${Position.Right} />
     </div>`;
   }
-  /* The column headings a lane reads under, and the rule that separates the
-   * chain from the band.
+  var nodeTypes = { entity: EntityNode };
+
+  /* ---- side panel ----------------------------------------------------------
    *
-   * Not entities: they carry no id and cannot be selected. They exist because a
-   * fixed-rank lane means a column ALWAYS stands for the same step, so naming
-   * the columns once turns nine positions into nine words — and an empty column
-   * then says, in the place the reader is already looking, that the deposit
-   * recorded no such step. That is the finding a maturity report is for, and
-   * the old layout hid it by declining the whole graph.
+   * Mounted, not written: `explorer_inspector.js` builds it in plain DOM and the
+   * assay lanes mount the same thing, so a reader who clicks an entity gets one
+   * answer whichever picture they clicked it in.
    */
-  function RankLabel(props) {
-    var cls = 'ex-rank' + (props.data.empty ? ' ex-rank-empty' : '');
-    return html`<div class=${cls}>
-      <div class="ex-rank-name">${props.data.label}</div>
-      ${props.data.empty
-        ? html`<div class="ex-rank-none">not recorded</div>`
-        : null}
-    </div>`;
-  }
-  function BandRule(props) {
-    return html`<div class="ex-band-rule"><span>${props.data.label}</span></div>`;
-  }
-  var nodeTypes = { entity: EntityNode, rank: RankLabel, band: BandRule };
-
-  /* ---- JSON-LD, with every reference walkable ------------------------------ */
-  function Ref(props) {
-    var target = NODE.get(props.id);
-    if (!target) {
-      return html`<span class="ex-mono ex-muted">${shortId(props.id)}</span>`;
-    }
-    var cls = 'ex-ref' + (target.status === 'described' ? '' : ' ex-ref-outside');
-    return html`<button type="button" class=${cls} title=${props.id}
-      onClick=${function () { props.goTo(props.id); }}>${target.label}</button>`;
-  }
-
-  function JsonValue(props) {
-    var v = props.v, goTo = props.goTo;
-    if (v === null || v === undefined) return html`<span class="ex-json-null">null</span>`;
-    if (Array.isArray(v)) {
-      if (!v.length) return html`<span class="ex-json-punct">[]</span>`;
-      return html`<span class="ex-json-punct">[</span><div class="ex-json-indent">
-        ${v.map(function (x, i) {
-          return html`<div key=${i}><${JsonValue} v=${x} goTo=${goTo} />${i < v.length - 1 ? ',' : ''}</div>`;
-        })}</div><span class="ex-json-punct">]</span>`;
-    }
-    if (typeof v === 'object') {
-      var keys = Object.keys(v);
-      if (keys.length === 1 && keys[0] === '@id') {
-        return html`<span class="ex-json-punct">{ </span><span class="ex-json-key">"@id"</span>: <${Ref}
-          id=${v['@id']} goTo=${goTo} /><span class="ex-json-punct"> }</span>`;
-      }
-      return html`<span class="ex-json-punct">{</span><div class="ex-json-indent">
-        ${keys.map(function (k, i) {
-          return html`<div key=${k}><span class="ex-json-key">"${k}"</span>: <${JsonValue}
-            v=${v[k]} goTo=${goTo} />${i < keys.length - 1 ? ',' : ''}</div>`;
-        })}</div><span class="ex-json-punct">}</span>`;
-    }
-    if (typeof v === 'string') return html`<span class="ex-json-string">"${v}"</span>`;
-    return html`<span class="ex-json-number">${String(v)}</span>`;
-  }
-
-  /* A URL the crate carries, offered as something to take away.
-   *
-   * NOT a link. The payload holds the crate verbatim, `javascript:` URLs and
-   * all, so the explorer writes no anchor and no link target of any kind — that
-   * absence is load-bearing and pinned by a test that greps this file for the
-   * attribute names, which is why they are not written out even here (#169).
-   * Copying navigates nowhere and executes nothing, so the reader gets the URL
-   * without the crate getting a way to run anything.
-   */
-  function Url(props) {
-    var v = props.v;
-    var copied = useState(false), was = copied[0], setWas = copied[1];
-    return html`<button type="button" class=${'ex-url ex-mono' + (was ? ' ex-url-copied' : '')}
-      title=${'Copy ' + v}
-      onClick=${function () {
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(v);
-          setWas(true);
-          setTimeout(function () { setWas(false); }, 1200);
-        }
-      }}>${v}</button>`;
-  }
-
-  /* One row per predicate, not one per spelling. */
-  function overviewRows(entity) {
-    var byTerm = new Map();
-    Object.keys(entity).forEach(function (key) {
-      if (key === '@id') return;
-      var name = prop(key);
-      if (!byTerm.has(name)) byTerm.set(name, { name: name, keys: [], values: [], seen: new Set() });
-      var row = byTerm.get(name);
-      if (row.keys.indexOf(key) < 0) row.keys.push(key);
-      (Array.isArray(entity[key]) ? entity[key] : [entity[key]]).forEach(function (v) {
-        // Two aliases of one predicate carry the same values; showing them
-        // twice is what naming the predicate was meant to stop.
-        var seal = JSON.stringify(v);
-        if (row.seen.has(seal)) return;
-        row.seen.add(seal);
-        row.values.push(v);
-      });
-    });
-    return Array.from(byTerm.values());
-  }
-
-  /* ---- side panel ---------------------------------------------------------- */
   function Panel(props) {
-    var sel = props.selected, goTo = props.goTo;
-    var tabState = useState('properties');
-    var tab = tabState[0], setTab = tabState[1];
-    var docRef = useRef(null);
-
+    var host = useRef(null);
     useEffect(function () {
-      if (props.document && sel && docRef.current) {
-        var key = window.CSS && CSS.escape ? CSS.escape(sel) : sel;
-        var el = docRef.current.querySelector('[data-entity="' + key + '"]');
-        if (el) el.scrollIntoView({ block: 'start' });
-      }
-    }, [props.document, sel]);
-
-    if (props.document) {
-      return html`<aside class="ex-side ex-side-document" ref=${docRef}>
-        <div class="ex-side-head"><span class="ex-eyebrow">${
-          'ro-crate-metadata.json, ' + GRAPH_ORDER.length + ' entities'}</span></div>
-        <div class="ex-json">
-          ${GRAPH_ORDER.map(function (id) {
-            var n = NODE.get(id);
-            return html`<div key=${id} data-entity=${id}
-                class=${'ex-json-entity' + (id === sel ? ' ex-json-current' : '')}>
-              <div class="ex-json-entity-head">
-                ${n ? html`<${Swatch} k=${n.category} />` : null}
-                ${n ? html`<${Ref} id=${id} goTo=${goTo} />`
-                    : html`<span class="ex-mono">${shortId(id)}</span>`}
-                <span class="ex-muted">${n ? n.type : 'not drawn'}</span>
-              </div>
-              <${JsonValue} v=${ENTITY.get(id)} goTo=${goTo} />
-            </div>`;
-          })}
-        </div>
-      </aside>`;
-    }
-
-    if (!sel) {
-      return html`<aside class="ex-side ex-side-empty"><p class="ex-hint">
-        Select an entity to read its properties, its links and its JSON-LD.<br />
-        Views combine: turn on as many as you need. Press <kbd class="ex-kbd">/</kbd> to search.
-      </p></aside>`;
-    }
-
-    var n = NODE.get(sel);
-    var entity = ENTITY.get(sel);
-    var outgoing = OUT.get(sel) || [], incoming = IN.get(sel) || [];
-    var flags = [{ text: layerName(n), bad: false }];
-    if (n.orphan) flags.push({ text: 'unreachable from the root', bad: true });
-    if (n.status === 'dangling') flags.push({ text: 'nothing describes this id', bad: true });
-    if (n.status === 'external') flags.push({ text: 'described outside the crate', bad: false });
-    if (n.status === 'described' && !n.identifier_backed) {
-      flags.push({ text: 'no persistent identifier', bad: false });
-    }
-
-    function links(edges, direction) {
-      var byRelation = new Map();
-      edges.forEach(function (e) {
-        var id = direction === 'out' ? e.dst : e.src;
-        if (!byRelation.has(e.label)) byRelation.set(e.label, []);
-        byRelation.get(e.label).push(id);
+      if (!host.current) return;
+      INSPECTOR.render(host.current, {
+        id: props.selected, onSelect: props.goTo, onClose: props.onClose
       });
-      return Array.from(byRelation.entries()).map(function (pair) {
-        return html`<div key=${direction + pair[0]} class="ex-link-group">
-          <div class="ex-relation ex-mono"
-            title=${pair[0]}>${(direction === 'out' ? '→ ' : '← ') + term(pair[0])}
-            <span class="ex-muted">${'(' + pair[1].length + ')'}</span></div>
-          ${pair[1].map(function (id) {
-            var t = NODE.get(id);
-            return html`<div key=${id} class="ex-link">
-              ${t ? html`<${Swatch} k=${t.category} />` : null}
-              <${Ref} id=${id} goTo=${goTo} /></div>`;
-          })}
-        </div>`;
-      });
-    }
-
-    var tabs = [
-      ['properties', 'Overview'],
-      ['links', 'Links (' + (outgoing.length + incoming.length) + ')'],
-      ['json', 'JSON-LD']
-    ];
-    return html`<aside class="ex-side">
-      <div class="ex-side-head">
-        <div class="ex-side-title">
-          <${Swatch} k=${n.category} />
-          <span class="ex-eyebrow">${category(n).label}</span>
-          <button type="button" class="ex-close" title="Clear selection"
-            onClick=${props.onClose}>×</button>
-        </div>
-        <h3 class="ex-side-name">${n.label}</h3>
-        <div class="ex-side-id ex-mono" title=${n.id}>${shortId(n.id)}</div>
-        <div class="ex-flags">${flags.map(function (f) {
-          return html`<span key=${f.text} class=${'ex-tag' + (f.bad ? ' ex-tag-bad' : '')}>${f.text}</span>`;
-        })}</div>
-        <div class="ex-side-tabs" role="tablist">${tabs.map(function (t) {
-          return html`<button key=${t[0]} type="button" role="tab" aria-selected=${tab === t[0]}
-            onClick=${function () { setTab(t[0]); }}>${t[1]}</button>`;
-        })}</div>
-      </div>
-      <div class="ex-side-body">
-        ${tab === 'properties' ? (entity
-          ? html`<dl class="ex-props">${overviewRows(entity).map(function (row) {
-                return html`<div key=${row.name} class="ex-prop">
-                  <dt class="ex-mono" title=${'in the crate as: ' + row.keys.join(', ')}>${row.name}</dt>
-                  <dd>${row.values.map(function (v, i) {
-                    return html`<div key=${i}>${isUrl(v)
-                      ? html`<${Url} v=${v} />`
-                      : html`<${JsonValue} v=${v} goTo=${goTo} />`}</div>`;
-                  })}</dd></div>`;
-              })}</dl>`
-          : html`<p class="ex-hint">This entity is described outside the crate; the crate
-              carries the reference only.</p>`) : null}
-        ${tab === 'links' ? html`${links(outgoing, 'out')}${links(incoming, 'in')}
-          ${!outgoing.length && !incoming.length
-            ? html`<p class="ex-hint">Nothing links to or from this entity.</p>` : null}` : null}
-        ${tab === 'json' ? html`<div class="ex-json"><${JsonValue}
-          v=${entity || { '@id': n.id }} goTo=${goTo} /></div>` : null}
-      </div>
-    </aside>`;
+    }, [props.selected]);
+    return html`<aside class="ex-side" ref=${host}></aside>`;
   }
 
   /* ---- app ----------------------------------------------------------------- */
@@ -493,7 +238,6 @@
     var initial = useMemo(readHash, []);
     var viewState = useState(initial.views); var views = viewState[0], setViews = viewState[1];
     var selState = useState(initial.selected); var selected = selState[0], setSelected = selState[1];
-    var docState = useState(initial.document); var showDoc = docState[0], setShowDoc = docState[1];
     var qState = useState(initial.query); var query = qState[0], setQuery = qState[1];
     var pinnedState = useState(function () {
       return new Set(initial.selected && NODE.has(initial.selected) ? [initial.selected] : []);
@@ -503,33 +247,30 @@
     var searchRef = useRef(null);
 
     useEffect(function () {
-      writeHash({ views: views, selected: selected, document: showDoc, query: query });
-    }, [views, selected, showDoc, query]);
+      writeHash({ views: views, selected: selected, query: query });
+    }, [views, selected, query]);
+
+    /* Both sections dock their inspector to the same edge of the window, so two
+     * open at once would sit on top of each other. Each says when it opens one
+     * and the other puts its own away — a fact about the page, which neither app
+     * can read off the other's state. */
+    useEffect(function () {
+      if (!selected) return;
+      document.dispatchEvent(new CustomEvent(INSPECT, { detail: { owner: 'explorer' } }));
+    }, [selected]);
+    useEffect(function () {
+      function yield_(event) {
+        if (!event.detail || event.detail.owner === 'explorer') return;
+        setSelected(null);
+      }
+      document.addEventListener(INSPECT, yield_);
+      return function () { document.removeEventListener(INSPECT, yield_); };
+    }, []);
 
     var graph = useMemo(function () { return visibleGraph(views, pinned); }, [views, pinned]);
-    /* Where the nodes go.
-     *
-     * One assay on its own is a chain, and a chain reads as a lane: the material
-     * runs left to right and what qualifies a step hangs below it. Anything else
-     * — several assays at once, the whole crate — is not one chain, so it goes
-     * on the generic canvas.
-     *
-     * The lane may still decline a graph that is nominally an assay but does not
-     * fit a spine (a characterisation run with no exposure, two exposures, an
-     * assay carrying AOP entities). It returns null and the fallback is the same
-     * canvas, same styling, no visible seam.
-     */
-    var drawing = useMemo(function () {
-      var lanes = Array.from(views).filter(function (k) { return LANE.has(k); });
-      if (lanes.length === 1 && laneView) {
-        var laid = laneView(graph.visible, graph.edges, NODE, D.relations_reversed);
-        if (laid) return laid;
-      }
-      return null;
-    }, [graph, views]);
     var positions = useMemo(function () {
-      return drawing ? drawing.positions : layout(graph.visible, graph.edges);
-    }, [drawing, graph]);
+      return layout(graph.visible, graph.edges);
+    }, [graph]);
 
     var needle = query.trim().toLowerCase();
     var hits = useMemo(function () {
@@ -557,11 +298,7 @@
       return Array.from(graph.visible).map(function (id) {
         return {
           id: id, type: 'entity', position: positions.get(id),
-          // A lane sizes its own boxes: a protocol is shorter than a step and a
-          // compound is smaller again, so the band reads as annotation rather
-          // than as more chain. The generic canvas has one size for everything.
-          width: (positions.get(id) || {}).w || NODE_W,
-          height: (positions.get(id) || {}).h || NODE_H,
+          width: NODE_W, height: NODE_H,
           selected: id === selected,
           data: {
             n: NODE.get(id),
@@ -571,34 +308,6 @@
         };
       });
     }, [graph, positions, selected, hits]);
-
-    /* Headings and the band rule, added only when a lane is what is drawn.
-     *
-     * Ids are namespaced so they cannot collide with a crate `@id`, and these
-     * nodes never enter `graph.visible` — search, selection and the coverage
-     * counts are about entities, and a heading is not one.
-     */
-    var furniture = useMemo(function () {
-      if (!drawing) return [];
-      var out = drawing.ranks.map(function (r) {
-        return {
-          id: '\u0000rank:' + r.key, type: 'rank',
-          position: { x: r.x, y: 0 },
-          width: NODE_W, height: 22, draggable: false, selectable: false,
-          data: { label: r.label, empty: !r.members.length }
-        };
-      });
-      if (drawing.bandTop) {
-        out.push({
-          id: '\u0000band', type: 'band',
-          position: { x: drawing.ranks[0].x, y: drawing.bandTop - 22 },
-          width: drawing.width - drawing.ranks[0].x, height: 20,
-          draggable: false, selectable: false,
-          data: { label: 'LABPROTOCOL' }
-        });
-      }
-      return out;
-    }, [drawing]);
 
     var edges = useMemo(function () {
       return graph.edges.map(function (e) {
@@ -691,54 +400,49 @@
     var present = new Set();
     graph.visible.forEach(function (id) { present.add(NODE.get(id).category); });
 
+    // The whole-crate view leads and is fenced off from the rest: it is the way
+    // back, not a peer of "Chemicals". The others are questions about parts of
+    // the crate, and reading them as one undifferentiated wall of chips is what
+    // made the toolbar a wall.
+    var tops = D.views.filter(function (v) { return !v.parent; });
+    var whole = tops.slice(0, 1), parts = tops.slice(1);
+    function Chip(props) {
+      var v = props.v;
+      return html`<button key=${v.key} type="button"
+        class=${'ex-chip' + (props.sub ? ' ex-sub' : '')}
+        aria-pressed=${views.has(v.key)} title=${v.hint}
+        onClick=${function () { toggle(v.key); }}>${v.label}
+        <span class="ex-chip-count">${v.count}</span></button>`;
+    }
+
     return html`<div class="ex-shell">
       <div class="ex-toolbar">
         <div class="ex-views" role="group" aria-label="Views">
-          ${D.views.filter(function (v) { return !v.parent; }).map(function (v) {
-            return html`<button key=${v.key} type="button" class="ex-chip"
-              aria-pressed=${views.has(v.key)} title=${v.hint}
-              onClick=${function () { toggle(v.key); }}>${v.label}
-              <span class="ex-chip-count">${v.count}</span></button>`;
-          })}
-        </div>
-        <div class="ex-tools">
-          <input ref=${searchRef} type="search" class="ex-search" value=${query}
-            placeholder="Search name, @id or type  ( / )"
-            onInput=${function (e) { setQuery(e.target.value); }} />
-          <button type="button" class="ex-chip" aria-pressed=${showDoc}
-            title="Show the crate's whole ro-crate-metadata.json in the side panel, instead of the selected entity"
-            onClick=${function () { setShowDoc(!showDoc); }}>JSON</button>
-          <button type="button" class="ex-chip"
-            title="Zoom out until everything currently on the canvas fits on screen"
-            onClick=${function () { flow.fitView({ padding: 0.08, duration: 300 }); }}>Fit</button>
-          <span class="ex-count">${summary(graph, hits)}</span>
+          ${whole.map(function (v) { return html`<${Chip} key=${v.key} v=${v} />`; })}
+          ${parts.length ? html`<span class="ex-sep" aria-hidden="true"></span>` : null}
+          ${parts.map(function (v) { return html`<${Chip} key=${v.key} v=${v} />`; })}
         </div>
       </div>
       ${D.views.some(function (v) { return v.parent && views.has(v.parent); })
         ? html`<div class="ex-flavours" role="group" aria-label="Kinds of step">
             <span class="ex-sub-h">Only</span>
             ${D.views.filter(function (v) { return v.parent && views.has(v.parent); })
-              .map(function (v) {
-                return html`<button key=${v.key} type="button" class="ex-chip ex-sub"
-                  aria-pressed=${views.has(v.key)} title=${v.hint}
-                  onClick=${function () { toggle(v.key); }}>${v.label}
-                  <span class="ex-chip-count">${v.count}</span></button>`;
-              })}
+              .map(function (v) { return html`<${Chip} key=${v.key} v=${v} sub />`; })}
           </div>`
         : null}
-      <div class="ex-legend">
-        ${Object.keys(D.categories).filter(function (k) { return present.has(k); })
-          .map(function (k) {
-            var c = D.categories[k];
-            return html`<span key=${k} class="ex-key" title=${legendTitle(c)}>
-              <${Swatch} k=${k} />${legendLabel(c)}</span>`;
-          })}
-        <span class="ex-key"><span class="ex-swatch ex-swatch-orphan"></span>unreachable from the root</span>
-        <span class="ex-key"><span class="ex-swatch ex-swatch-outside"></span>outside the crate</span>
-      </div>
       <div class="ex-main">
         <div class="ex-canvas">
-          <${ReactFlowCanvas} nodes=${nodes.concat(furniture)} edges=${edges} nodeTypes=${nodeTypes}
+          ${/* Over the canvas, not above it: searching acts on the drawing, so
+               it sits on it, and the toolbar is left as one row of what the
+               reader is choosing between. Framing is not here — React Flow's
+               own Controls already carry a fit button, and two of them teach
+               that one of them does something else. */ null}
+          <div class="ex-overlay">
+            <input ref=${searchRef} type="search" class="ex-search" value=${query}
+              placeholder="Search name, @id or type  ( / )"
+              onInput=${function (e) { setQuery(e.target.value); }} />
+          </div>
+          <${ReactFlowCanvas} nodes=${nodes} edges=${edges} nodeTypes=${nodeTypes}
             onNodeClick=${function (_e, n) {
               // Click again to clear, taking the edge labels with it. Selection
               // used to change only by choosing something else, so a reader who
@@ -755,8 +459,24 @@
             <${Controls} showInteractive=${false} />
           </${ReactFlowCanvas}>
         </div>
-        <${Panel} selected=${selected} document=${showDoc} goTo=${goTo}
+        <${Panel} selected=${selected} goTo=${goTo}
           onClose=${function () { setSelected(null); }} />
+      </div>
+      ${/* Under the drawing, not over it: a colour key explains what is on the
+           canvas, and the count says how much of the crate that is. Above, they
+           were two more strips between the reader and the graph. */ null}
+      <div class="ex-footer">
+        <div class="ex-legend">
+          ${Object.keys(D.categories).filter(function (k) { return present.has(k); })
+            .map(function (k) {
+              var c = D.categories[k];
+              return html`<span key=${k} class="ex-key" title=${legendTitle(c)}>
+                <${Swatch} k=${k} />${legendLabel(c)}</span>`;
+            })}
+          <span class="ex-key"><span class="ex-swatch ex-swatch-orphan"></span>unreachable from the root</span>
+          <span class="ex-key"><span class="ex-swatch ex-swatch-outside"></span>outside the crate</span>
+        </div>
+        <span class="ex-count">${summary(graph, hits)}</span>
       </div>
     </div>`;
   }

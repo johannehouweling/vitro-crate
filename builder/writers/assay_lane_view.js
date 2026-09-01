@@ -26,9 +26,11 @@
  *     no exposure still draws, and the gap is visible in the place the reader
  *     is already looking — which is the whole point of a maturity report.
  *
- * Node size and the rank gap come from the shipped generic module, so a lane
- * and the canvas beside it cannot drift apart (the rule `assay_lane_layout.js`
- * set and this keeps).
+ * Geometry is this module's own. It used to be the generic canvas's, so that a
+ * lane and the graph beside it could not drift apart; the lane is now a section
+ * of its own, drawn as flat SVG at a scale chosen for a nine-column chain, and
+ * borrowing a dagre canvas's 200x44 box would only make the chain too wide to
+ * read across.
  *
  * Edges carry `reversed` and `subject`. The model draws some relations against
  * the predicate so the arrow points the way material moves — deliberate — but a
@@ -43,20 +45,26 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./entity_explorer_layout.js'));
+    module.exports = factory();
   } else {
-    root.AssayLaneView = factory(root.ExplorerLayout);
+    root.AssayLaneView = factory();
   }
-}(typeof self !== 'undefined' ? self : this, function (ExplorerLayout) {
+}(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var NODE_W = ExplorerLayout.NODE_W, NODE_H = ExplorerLayout.NODE_H;
-  var GAP_X = 58, GAP_Y = 12, MARGIN = 16, TOP = 28;
+  // Two lines: the entity's name and, under it, the type the explorer's own
+  // nodes are captioned with.
+  var NODE_W = 152, NODE_H = 34;
+  var GAP_X = 58, GAP_Y = 11, MARGIN = 16, TOP = 28;
   // The drop from the spine's floor to the band. Wider than the gap inside the
   // band, so "below the chain" and "below a protocol" read as two relations
   // rather than one column of four things.
-  var BAND_DROP = 48;
-  var PROTO_H = 26, COMP_W = 100, COMP_H = 20;
+  var BAND_DROP = 42;
+  // A protocol is a filename and runs long, so its box is wider than a chain
+  // box and sits a little left of it; a compound is one word and three fit
+  // across the space one chain box leaves.
+  var PROTO_W = 164, PROTO_H = 26, PROTO_DX = -7;
+  var COMP_W = 100, COMP_H = 19, COMP_COLS = 3, COMP_DX = -16, COMP_DROP = 34;
 
   /* The chain, in the order ISA-Tox states it.
    *
@@ -170,6 +178,56 @@
     return out;
   }
 
+  /* Which row of its column each node takes.
+   *
+   * A rank sorted by id is a rank sorted by nothing a reader can see: an assay
+   * that cultures three lines draws three parallel tracks, and ids that happen
+   * to sort in a different order from their cultures' braid them together. Every
+   * crossing then says "these two are related" and none of them are.
+   *
+   * So a rank takes its order from the rank before it — each node sits opposite
+   * whatever it came from, ties broken by id so two builds of one deposit draw
+   * alike. Where the chain genuinely fans (three samples into one exposure and
+   * out again) nothing determines the order and the id decides; that crossing is
+   * the deposit's, not the drawing's.
+   */
+  function rows(members, edges) {
+    var beside = new Map();
+    edges.forEach(function (e) {
+      if (!beside.has(e.src)) beside.set(e.src, []);
+      if (!beside.has(e.dst)) beside.set(e.dst, []);
+      beside.get(e.src).push(e.dst);
+      beside.get(e.dst).push(e.src);
+    });
+    var row = new Map();
+    var previous = null;
+    return members.map(function (ids) {
+      var ordered = ids.slice().sort();
+      if (previous) {
+        var anchor = new Map();
+        var left = new Set(previous);
+        ordered.forEach(function (id) {
+          var seen = (beside.get(id) || []).filter(function (n) { return left.has(n); });
+          if (!seen.length) return;
+          var total = 0;
+          seen.forEach(function (n) { total += row.get(n); });
+          anchor.set(id, total / seen.length);
+        });
+        ordered.sort(function (a, b) {
+          var x = anchor.has(a) ? anchor.get(a) : Infinity;
+          var y = anchor.has(b) ? anchor.get(b) : Infinity;
+          if (x !== y) return x - y;
+          return a < b ? -1 : (a > b ? 1 : 0);
+        });
+      }
+      ordered.forEach(function (id, i) { row.set(id, i); });
+      // The last NON-EMPTY rank, so a deposit that ran no exposure still has its
+      // exposed-sample column ordered against the samples it actually follows.
+      if (ordered.length) previous = ordered;
+      return ordered;
+    });
+  }
+
   /**
    * Draw one assay as a lane, or decline the graph.
    *
@@ -178,8 +236,9 @@
    * @param {Map<string, {category: string, type: string}>} nodes what each id is.
    * @param {Array<string>|Set<string>} reversed labels the model draws against
    *   their own predicate; the payload's `relations_reversed`.
-   * @returns {{ranks: Array, positions: Map, edges: Array, width: number,
-   *   height: number}|null} the drawing, or null when this is not a chain.
+   * @returns {{ranks: Array, positions: Map, edges: Array, band: Object,
+   *   bandTop: number, width: number, height: number}|null} the drawing, or
+   *   null when this is not a chain.
    */
   function build(visible, edges, nodes, reversed) {
     if (!visible || !visible.size) return null;
@@ -190,11 +249,12 @@
     if (!placed) return null;
     var band = bandOf(visible, edges, placed.rank);
 
-    var members = RANKS.map(function () { return []; });
+    var unordered = RANKS.map(function () { return []; });
     Array.from(placed.rank.keys()).sort().forEach(function (id) {
       if (band.protocols.has(id) || band.compounds.has(id)) return;
-      members[placed.rank.get(id)].push(id);
+      unordered[placed.rank.get(id)].push(id);
     });
+    var members = rows(unordered, edges);
 
     // Every rank is a column at a fixed x; the tallest decides the spine's
     // height and the shorter ones centre against it, so the chain reads as one
@@ -218,40 +278,72 @@
       });
     });
 
-    // Tier one: a protocol under the step that executes it, in that step's own
-    // column. Several protocols under one step stack down the column; several
-    // steps in one rank each keep their own row, because the rows are dealt per
-    // column rather than per anchor.
+    /* Tier one: a protocol under the step that executes it, in that step's own
+     * column and in that step's own ROW of the band.
+     *
+     * Steps that share a rank share a column, so their protocols do too, and
+     * the nth protocol down belongs to the nth step from the top.
+     */
     var bandTop = TOP + tallest + BAND_DROP;
     var floor = bandTop;
     var rowOf = new Map();
-    group(band.protocols).forEach(function (ids, step) {
+    var hangs = [];
+    var byStep = group(band.protocols);
+    var steps = [];
+    members.forEach(function (ids, rank) {
+      ids.forEach(function (id) { if (byStep.has(id)) steps.push(id); });
+    });
+    steps.forEach(function (step) {
       var at = positions.get(step);
-      if (!at) return;
       var y = rowOf.has(at.x) ? rowOf.get(at.x) : bandTop;
-      ids.forEach(function (id) {
-        positions.set(id, { x: at.x, y: y, w: NODE_W, h: PROTO_H });
+      byStep.get(step).forEach(function (id) {
+        positions.set(id, { x: at.x + PROTO_DX, y: y, w: PROTO_W, h: PROTO_H });
+        hangs.push({ id: id, anchor: step, label: 'executes', tier: 1, column: at.x });
         y += PROTO_H + GAP_Y;
       });
       rowOf.set(at.x, y);
       floor = Math.max(floor, y);
     });
 
-    // Tier two: the substances a protocol lists, under that protocol, dealt
-    // into the width of one column so the lane stays as wide as its chain.
-    var cols = Math.max(1, Math.floor((NODE_W + GAP_X) / (COMP_W + GAP_Y)));
+    // Tier two: the substances a protocol lists, under that protocol, three
+    // across — a compound is one word, and a single file down a column would
+    // make the band taller than the chain it annotates.
     group(band.compounds).forEach(function (ids, protocol) {
       var at = positions.get(protocol);
       if (!at) return;
-      var base = Math.max(floor, at.y + at.h) + GAP_Y;
+      var base = Math.max(floor, at.y + at.h + COMP_DROP);
       ids.forEach(function (id, i) {
         positions.set(id, {
-          x: at.x + (i % cols) * (COMP_W + GAP_Y),
-          y: base + Math.floor(i / cols) * (COMP_H + GAP_Y),
+          x: at.x + COMP_DX + (i % COMP_COLS) * (COMP_W + 7),
+          y: base + Math.floor(i / COMP_COLS) * (COMP_H + 6),
           w: COMP_W, h: COMP_H
         });
+        hangs.push({
+          id: id, anchor: protocol, label: 'reagent', tier: 2, column: at.x - PROTO_DX
+        });
       });
-      floor = Math.max(floor, base + Math.ceil(ids.length / cols) * (COMP_H + GAP_Y));
+      floor = Math.max(floor, base + Math.ceil(ids.length / COMP_COLS) * (COMP_H + 6));
+    });
+
+    /* Where each connector runs down.
+     *
+     * NOT down the anchor's own box: a step in the top row of a three-row rank
+     * would have its line pass straight through the two steps below it, and a
+     * line crossing a box reads as an edge to that box. It runs down the gap to
+     * the LEFT of the column instead, where nothing is drawn — one vertical per
+     * anchor, spread across the gap so anchors sharing a column stay apart, and
+     * the renderer brackets it into both boxes' sides.
+     */
+    var perColumn = new Map();
+    hangs.forEach(function (hang) {
+      if (!perColumn.has(hang.column)) perColumn.set(hang.column, []);
+      var seen = perColumn.get(hang.column);
+      if (seen.indexOf(hang.anchor) < 0) seen.push(hang.anchor);
+    });
+    hangs.forEach(function (hang) {
+      var seen = perColumn.get(hang.column);
+      var slot = seen.indexOf(hang.anchor) + 1;
+      hang.x = hang.column - GAP_X + (GAP_X * slot) / (seen.length + 1);
     });
 
     // Only edges between two drawn nodes, each said in the direction the crate
@@ -277,10 +369,18 @@
 
     return {
       ranks: RANKS.map(function (r, i) {
-        return { key: r.key, label: r.label, x: columnX[i], members: members[i] };
+        return {
+          key: r.key, label: r.label, kind: r.kind, x: columnX[i], members: members[i]
+        };
       }),
       positions: positions,
       edges: drawn,
+      // What hangs BELOW the chain, and off what — named rather than inferred
+      // from a y coordinate, because the section lets a reader put the band
+      // away and "everything under `bandTop`" stops being true the moment the
+      // drawing changes shape. Each entry carries the relation that puts it
+      // there, so the connector can be labelled without re-deriving it.
+      band: hangs,
       // Where the chain ends and the band begins. The chain is what the generic
       // canvas draws too, so it is the half the two layouts can be compared on;
       // the band is information the canvas scatters into ranks instead.

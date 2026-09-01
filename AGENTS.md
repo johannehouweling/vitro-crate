@@ -1,3 +1,17 @@
+**The legend names the class, not the category and not a census (#623).** A colour key labelled in
+category prose — "Sample / material", "Term / parameter" — explains the canvas in a vocabulary the
+reader can see nowhere else. Each key is therefore the **class that puts an entity in that
+category**, which is `_entity_category`'s own rule and the word the profile, the shapes and the
+crate's `@type` all use: `LabProcess`, `LabProtocol`, `Sample`, `MolecularEntity`, `File`. It was a
+census of the type tags a crate's own nodes carried, and on a real deposit that made the protocol key
+read `File, HowTo +1` — true of the entities, and not a word anything else in the system says. The
+census is not lost: it rides on the `title`, which is where "what does this crate actually put in
+that bucket" belongs. A category no single class defines — the fallback bucket, and the off-crate
+reference, which names a provenance status rather than a type — keeps its prose. The wording is
+decided **once in Python** (`_legend_wording`) because two sections draw this legend with two
+different renderers, and a second copy of the rule in a second browser app is how two legends over
+one crate come to disagree.
+
 # ISA-Tox RO-Crate Builder — System Design
 
 > **Purpose:** This document describes the architecture, component design, and design rationale for the LLM-assisted RO-Crate builder backend. It serves as both a developer guide and an orientation document for AI coding agents working on this codebase.
@@ -2095,7 +2109,7 @@ generated-file badge (`_display_name`), since a label is ellipsised long before 
 room for it. Every view of a crate reads this one model.
 
 It is drawn by the **entity explorer** (see below), and by nothing else:
-`python -m main --graph [--view researcher|crate|labprocesses]` writes the explorer as a standalone
+`python -m main --graph [--view crate|labprocesses]` writes the explorer as a standalone
 page and opens it. The five **inventories** — `build_chemical_inventory`, `build_cellline_inventory`,
 `build_people_inventory`, `build_isa_inventory`, `build_citation_inventory` — feed the report's
 coverage matrices and the explorer's view membership from one place. Crates built before #618 carry a
@@ -2362,12 +2376,8 @@ vendored bundles.
 
 Views are **toggles, not tabs**: what is drawn is the union of the views that are on, with the edges
 induced between whatever that leaves visible, so "the compounds AND the samples" needs no view of
-its own. **Researcher** is the one that opens — everything the crate describes except the machinery
-that describes it, which is the `annotation` category (parameters, csvw columns and schemas,
-ontology terms, licences, profiles, the build's own action and software) plus every off-crate stub.
-The rule is by category and never by layer: Persons, Organisations and articles sit in the base
-packaging layer beside the plumbing, so a layer-based rule would drop exactly the credit a reader
-looks for; the root is kept whatever its category. **Assays** draws the ISA backbone plus what its assays are *for*: the adverse outcome pathway a
+its own. **All entities** is the one that opens — everything the crate describes, which is every
+node the model gives a layer. **Assays** draws the ISA backbone plus what its assays are *for*: the adverse outcome pathway a
 study serves and the key events an assay measures, which the ISA-Tox profile hangs off
 `schema:mentions` (`7_assay_key_event.ttl`, `6_study_aop.ttl`). Followed from the backbone rather
 than swept from the crate, and filtered by type — `mentions` is general enough to carry the
@@ -2406,25 +2416,77 @@ files a step touched, the process and table that link a compound to the work —
 members made every chip overstate its own label, LabProcesses by threefold. The subject comes from
 the same source the matching coverage block counts, and a test pins the two numbers to each other
 rather than each to a literal; it is counted *as drawn*, so a subject the view cannot show is never
-a number the reader has no way to look at. A view whose name covers everything it draws — `Researcher`, `All entities` — declares no subject and counts its members. Selecting an entity opens a side
+a number the reader has no way to look at. A view whose name covers everything it draws — `All entities` — declares no subject and counts its members. Selecting an entity opens a side
 panel with its properties, its links in and out grouped by relation, and its JSON-LD; a toolbar
 toggle swaps that for the whole `ro-crate-metadata.json`. Every `@id` in either is a button that
 moves the selection — **never a link**: the payload carries the crate verbatim, `javascript:` URLs
 and all, so the absence of anchors is load-bearing and pinned by test.
 
-**An assay is a selectable lane (#686).** One sub-row per assay sits under the Assays chip, minted
-from the crate rather than declared: every other view is a question about the crate, an assay lane is
-named for an entity only this crate has. A lane draws that assay's steps, the materials **one hop**
-out from them, the protocol under each step, and the compounds one hop past those protocols. It
-draws neither the Study, the Investigation, nor the assay itself — drawn, the assay would connect to
-every step and rebuild the star #678 took apart, so it frames the view instead. The material walk is
-a hop and not a closure, or a shared file would lead out of the assay and undo the scoping. Children
-narrow their parent (#624), so choosing an assay replaces the Assays selection and the containers
-drop with it. The key is built from the assay's **name**, because the key is what a shared link
-carries and real ids repeat their own kind; names are not unique, so where two assays share one,
-every lane with that slug takes an id-derived suffix — decided across all assays before any key is
-minted, so keys never depend on the order the graph listed them in. A lane declares `lane` in the
-payload, and the browser picks its layout off that rather than off a naming convention.
+**The navigation is one row, and the inspector is not in the section.** The chips are the whole of
+the toolbar — the whole-crate view first, fenced from the questions about parts of it — and search
+sits *on* the canvas, because it acts on the drawing. Framing is React Flow's own control and is not
+offered twice. The colour key and the count sit **under** the canvas, with the drawing they describe,
+and the **entity-coverage inventory folds there too**: it inventories the same entities from the
+other side, and as a section of its own it put a six-block contents list between the reader and the
+rest of the report. The inspector is a **drawer docked to the window's right edge**, present only
+once an entity is chosen — inside the section it cost the canvas a third of its width for a panel
+that says nothing until then. Both sections dock to the same edge, so each announces when it opens
+one and the other puts its own away; below the breakpoint there is no window to hang off and the
+panel stays beside the canvas.
+
+**The assay lanes are a section of their own (#686).** One assay drawn as the chain it is — cell
+line, culture, cultured sample, exposure, exposed sample, readout, raw files, analysis, processed
+files — one lane at a time, chosen from a chip per assay. As many chips as the crate has assays;
+they are minted from the ISA inventory rather than declared, because every other view is a question
+about the crate and an assay lane is named for an entity only this crate has. A crate with no assay
+gets no section rather than an empty heading. No lede: the drawing is captioned by its own column
+headings, and prose explaining a picture is the first thing a reader skips.
+
+It is a section rather than a view of the explorer because the two answer different questions with
+different instruments: a lane has a fixed left-to-right order and nine named columns, so it wants a
+flat drawing a reader scans, not a pan-and-zoom viewport that has to be framed first. Combining a
+lane with any other view also handed the lane's geometry a graph it had no place for, and every node
+it could not place reached the canvas without a position.
+
+A lane draws that assay's steps, the materials **one hop** out from them, the protocol under each
+step, and the compounds one hop past those protocols. It draws neither the Study, the Investigation,
+nor the assay itself — drawn, the assay would connect to every step and rebuild the star #678 took
+apart, so it frames the view instead. The material walk is a hop and not a closure, or a shared file
+would lead out of the assay and undo the scoping. The key is built from the assay's **name**, because
+the key is what a shared link carries and real ids repeat their own kind; names are not unique, so
+where two assays share one, every lane with that slug takes an id-derived suffix — decided across all
+assays before any key is minted, so keys never depend on the order the graph listed them in.
+
+The section carries **no data island of its own**: it reads the explorer's, which already holds the
+nodes, the edges, the vocabulary, the palette and the crate document. One copy of a crate on a page
+that ships inside that crate is the accepted cost of self-containment; a second would not be. The
+report therefore emits the explorer first.
+
+Two folds and a framing, all the reader's, and all **on the viewer rather than in the bar above it**:
+the chips pick *which* assay, these change how that assay is drawn, and a row of identical pills said
+the two were the same kind of choice. **Protocols** puts the band away. **Unfold files** opens a
+column of files that is otherwise drawn as one stack — a readout that wrote forty files is ordinary,
+and forty boxes down one column is a lane no one can read across; a column of anything but files
+never folds, because the other columns are the chain and hiding a step would hide the finding. Both
+folds are applied by handing the geometry a smaller graph and asking again rather than by editing its
+answer, since a fold changes which column is tallest and the chain is centred on that. **Fit** scales
+the drawing to the viewer; at rest the boxes are drawn at reading size and the viewer scrolls, since
+a nine-column chain of a real deposit is 1,800px wide and neither answer is right for every reader.
+
+The section draws **plain SVG, built by hand** — no React, no React Flow, no layout library. That is
+the point of it being a section: the explorer's canvas is a pan-and-zoom viewport with a dagre pass
+behind it, and a lane needs neither.
+
+**Two pictures, one of everything else.** The two viewers share the data island, the palette, the
+legend, the chips, the footer strip, the overlay controls and the drawer — and, in code, one module:
+`explorer_inspector.js` builds the inspector in plain DOM and each viewer mounts it into its own
+`<aside>`. DOM rather than either app's framework, because the one thing React and hand-built SVG
+both have is an element to fill. The module also owns the **vocabulary** — `term`, `edgeTerm`,
+`prop` — for the reason the legend's wording lives in Python: a second copy is how one page comes to
+say two things. A box is captioned the same in both, name over the crate's own type, and a lane is
+**something to link to**: the chosen assay, the folds and the selection ride in the page's one hash
+under this section's keys (`lane`, `fold`, `pick`), each side replacing only what it owns so neither
+erases the other's link.
 
 **Compounds are one hop past a protocol.** ISA restricts `schema:object` to File/Sample/BioSample at
 Violation severity, so a `MolecularEntity` is never a process input directly; `reagent` is a
@@ -2501,21 +2563,33 @@ cost is knowingly taken, with the inspector naming the type in words and the leg
 mapping as its mitigations; the glyph data and its uniqueness rule are kept so restoring the channel
 is a one-line change rather than a re-derivation.
 
-**Where an assay's nodes go (`assay_lane_layout.js`, #686).** Ranking by dependency puts a protocol
-in a rank to the *right* of the step that executes it, so the material chain a reader is following is
+**Where an assay's nodes go (`assay_lane_view.js`, #686).** Ranking by dependency puts a protocol in
+a rank to the *right* of the step that executes it, so the material chain a reader is following is
 interrupted by what is not material. A lane splits the two directions instead: **horizontal is the
-material chain, vertical is what qualifies a step.** The spine is laid out by the module above rather
-than by geometry of its own — node size, rank gaps and the grid a wide rank packs into are one answer
-given once, so a lane node and a canvas node cannot drift apart — and what is left here is the band:
-a protocol under the step that executes it, a protocol's reagents under the protocol. Both tiers are
-*dealt* into a grid, because a step may execute several protocols and a table may list a dozen
-reagents, and each block is bounded by the spine's own width, so substances cost height and never
-width. `derivesFrom` is excluded from the ranking edges though it is material: a cultured sample
-derives from the line its culture consumed, so the edge points back up the chain. The module returns
-`null` for a graph that is not one chain and the caller falls back to the generic canvas, same
-styling, no seam — declining is the module's job, so the app never has to know which shapes are
-spines. The page loads both modules as plain `<script>` tags, which is the UMD branch `require()`
-never exercises, so a test evaluates the page's own script bodies with no `module` in scope.
+material chain, vertical is what qualifies a step.** Rank is decided by what a node **is** in the
+ISA-Tox chain, never by a layered pass: a step by its `additionalType`, a material by the step whose
+`result` produced it, and a material nothing produced by the step that consumes it. So a rank is a
+COLUMN — two CellCultures stack and cannot coincide — and a missing step is an **empty column**, not
+a declined graph, which is the finding a maturity report exists to show. `derivesFrom` is excluded
+from the ranking edges though it is material: a cultured sample derives from the line its culture
+consumed, so the edge points back up the chain.
+
+**Rows follow the chain, and connectors run beside the column.** A rank ordered by id is a rank
+ordered by nothing a reader can see: an assay culturing three lines draws three parallel tracks, and
+ids sorting differently from their cultures braid them together so that every crossing claims a
+relationship none of them have. Each rank therefore takes its order from the rank before it, ties by
+id so two builds of one deposit draw alike. Where the chain genuinely fans — three samples into one
+exposure and out again — nothing in the crate says which came from which, and the crossing that
+remains is the deposit's rather than the drawing's. Band connectors run down the gap to the **left**
+of the column and bracket into both boxes' sides, one vertical per anchor: dropped from the anchor's
+own box, a step in the top row of a three-row rank would draw its line straight through the two
+steps below it, and a line crossing a box reads as an edge to that box.
+
+Both tiers of the band are *dealt* into a grid, because a step may execute several protocols and a
+table may list a dozen reagents, so substances cost height and never width. The module returns `null`
+for a graph with no step it recognises, and the section says so where the drawing would have been.
+The page loads it as a plain `<script>` tag, which is the UMD branch `require()` never exercises, so
+a test evaluates the page's own script bodies with no `module` in scope.
 
 **The legend names types, not categories (#623).** A colour key labelled in category prose — "Sample
 / material", "Term / parameter" — explains the canvas in a vocabulary the reader can see nowhere
@@ -2691,7 +2765,10 @@ vitro-crate/
 │   │   ├── entity_explorer.py   Interactive React Flow entity graph (#615)
 │   │   ├── entity_explorer.js   …its browser half (no build step)
 │   │   ├── entity_explorer_layout.js  …where its nodes go (#619)
-│   │   ├── assay_lane_layout.js  …where one assay's nodes go (#686)
+│   │   ├── explorer_inspector.js  …the panel and vocabulary both viewers share
+│   │   ├── assay_lane.py        Assay-lane section (#686)
+│   │   ├── assay_lane_view.js   …where one assay's nodes go
+│   │   ├── assay_lane_app.js    …its browser half: SVG, chips, folds, inspector
 │   │   ├── payload_codec.js  …the wire format its data island carries (#694)
 │   │   └── vendor/              Pinned UMD builds inlined into the report
 │   └── agents/                  Orchestration + LLM config

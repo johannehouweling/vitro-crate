@@ -328,7 +328,19 @@ class CategoryStyle(NamedTuple):
     """The category's hue: SVG stroke, overview tile outline, Mermaid stroke."""
 
     label: str
-    """Legend wording. One phrase, reused by every legend that shows it."""
+    """Prose for the category, where a class name would not carry it."""
+
+    type: str
+    """The class that puts an entity in this category — what every legend says.
+
+    The rule is `_entity_category`'s own: a `LabProtocol` is the protocol
+    category, a `MolecularEntity` is the chemical one. Legends used to read a
+    census of the type tags a crate's own nodes carried, and on a real deposit
+    that made the protocol key read "File, HowTo +1" — true of the entities, and
+    not the word the profile, the shapes or the crate's `@type` use. Empty for a
+    category no single class defines: the fallback bucket, which is what is left
+    over, and `ctx`, which names a provenance status rather than a type.
+    """
 
     glyph: str
     """SVG path data for the category's 14x14 glyph. **Nothing draws it (#688).**
@@ -359,51 +371,61 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
     "container": CategoryStyle(
         "#667fd6",
         "Investigation / Study / Assay",
+        "Dataset",
         "M2 3h10v8H2z M4 3v8 M10 3v8",
     ),
     "process": CategoryStyle(
         "#0066a0",
         "Process",
+        "LabProcess",
         "M4 2h6l3 5-3 5H4L1 7z",
     ),
     "protocol": CategoryStyle(
         "#00809a",
         "Protocol",
+        "LabProtocol",
         "M4 3h9l-3 8H1z",
     ),
     "material": CategoryStyle(
         "#387e42",
         "Sample / material",
+        "Sample",
         "M5 3h4a4 4 0 0 1 0 8H5a4 4 0 0 1 0-8z",
     ),
     "chemical": CategoryStyle(
         "#966527",
         "Compound",
+        "MolecularEntity",
         "M7 2.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z",
     ),
     "data": CategoryStyle(
         "#b14e71",
         "File / table",
+        "File",
         "M2 4c0-1.1 2.2-2 5-2s5 .9 5 2v6c0 1.1-2.2 2-5 2s-5-.9-5-2z M2 4c0 1.1 2.2 2 5 2s5-.9 5-2",
     ),
     "agent": CategoryStyle(
         "#95599b",
+        "Person",
         "Person",
         "M7 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z M7 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6z",
     ),
     "org": CategoryStyle(
         "#00816e",
         "Organisation",
+        "Organization",
         "M2 3h10v8H2z",
     ),
     "publication": CategoryStyle(
         "#af5546",
         "Publication",
+        "ScholarlyArticle",
         "M1 3h12l-2 8H3z",
     ),
     "pathway": CategoryStyle(
         "#6e7424",
         "Pathway / key event",
+        "AdverseOutcomePathway",
         "M1 3l4 4-4 4z M7 3l4 4-4 4z",
     ),
     # The one category off the ring, muted on purpose: what *qualifies* the work
@@ -414,6 +436,7 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
     "annotation": CategoryStyle(
         "#846050",
         "Term / parameter",
+        "",
         "M1 3h9l3 4-3 4H1z",
     ),
 }

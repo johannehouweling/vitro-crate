@@ -5,7 +5,7 @@
  * edge — and that is what every Python consumer reads. What the PAGE carries is
  * a compacted encoding of the same thing, because a mean `@id` in a real crate
  * is 53 characters and the model repeats each one once per edge endpoint and
- * once per view membership: some 1,800 copies of strings already sitting in
+ * once per view or lane membership: some 1,800 copies of strings already sitting in
  * `nodes`, on a report that ships inside the crate and is opened from disk, so
  * no transfer encoding ever squeezes them.
  *
@@ -41,8 +41,10 @@
     d.edges = d.edges.map(function (e) {
       return { src: ids[e[0]], dst: ids[e[1]], label: e[2] };
     });
-    d.views.forEach(function (v) {
-      v.members = v.members.map(function (i) { return ids[i]; });
+    [d.views, d.lanes || []].forEach(function (group) {
+      group.forEach(function (v) {
+        v.members = v.members.map(function (i) { return ids[i]; });
+      });
     });
     return d;
   }

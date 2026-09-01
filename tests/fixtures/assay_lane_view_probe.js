@@ -4,8 +4,8 @@
  * for the same graph, so a test can compare the two without a second opinion
  * about geometry.
  *
- * As with `assay_lane_probe.js`, the point is that the tests measure the real
- * module the report carries rather than a Python restatement of it.
+ * The point is that the tests measure the real module the report carries rather
+ * than a Python restatement of it.
  *
  * argv[2]: path to builder/writers/assay_lane_view.js
  * stdin:   {"nodes": [{"id":…, "category":…, "type":…}, …],
@@ -14,6 +14,7 @@
  * stdout:  {"ranks": [{key, label, members}],
  *           "positions": {id: {x, y, w, h}},
  *           "edges": [{src, dst, label, reversed, subject}],
+ *           "band": [{id, anchor, label, tier}],
  *           "bandTop", "width", "height", "crossings",
  *           "generic": {"width", "height", "crossings"}}
  */
@@ -72,6 +73,7 @@ gpos.forEach(function (p, id) {
 
 process.stdout.write(JSON.stringify({
   ranks: drawing ? drawing.ranks : null,
+  band: drawing ? drawing.band : null,
   positions: positions,
   edges: drawing ? drawing.edges : null,
   bandTop: drawing ? drawing.bandTop : null,

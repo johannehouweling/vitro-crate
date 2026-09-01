@@ -48,15 +48,28 @@ def _markup(page: str) -> str:
     return re.sub(r"<script.*?</script>", "", _body(page), flags=re.S)
 
 
+def _coverage(page: str) -> str:
+    """The coverage inventory, which folds under the entity explorer's canvas.
+
+    Not a section of its own: it inventories the same entities the explorer
+    draws, and as a section it put a six-block contents list between the reader
+    and the rest of the report.
+    """
+    # Up to the section's scripts, not to the fold's own closing tag: the Files
+    # block nests one `<details>` per Dataset, so the first `</details>` inside
+    # the body is a Dataset's and not the inventory's.
+    return page.split('<div class="cov-all-body">', 1)[1].split("<script", 1)[0]
+
+
 def _block(page: str, block_id: str) -> str:
     """One coverage block's markup, from its own div to the next block's.
 
-    The blocks are siblings under one section (#618), so "up to the next
+    The blocks are siblings inside one fold (#618), so "up to the next
     ``</div>``" would stop inside the first table it meets; the boundary is the
-    next block, or the end of the section.
+    next block, or the end of the fold.
     """
-    after = page.split(f'id="{block_id}"', 1)[1]
-    return re.split(r'<details class="cov" id=|</section>', after, maxsplit=1)[0]
+    after = _coverage(page).split(f'id="{block_id}"', 1)[1]
+    return re.split(r'<details class="cov" id=', after, maxsplit=1)[0]
 
 
 def _mit_pct(page: str) -> int:
@@ -1989,15 +2002,24 @@ class TestTheCoverageBlocksFoldDown:
         )
 
     def _blocks(self, page: str) -> list[str]:
-        section = page.split('<section class="coverage">', 1)[1].split("</section>", 1)[0]
-        return re.findall(r"<details class=\"cov\"[^>]*>.*?</details>", section, re.S)
+        return re.findall(r"<details class=\"cov\"[^>]*>.*?</details>", _coverage(page), re.S)
 
     def test_every_block_is_a_fold(self) -> None:
         page = self._page()
-        section = page.split('<section class="coverage">', 1)[1].split("</section>", 1)[0]
 
         assert self._blocks(page), "no block folded"
-        assert '<div class="cov" id=' not in section, "a block stayed open by construction"
+        assert '<div class="cov" id=' not in _coverage(page), "a block stayed open by construction"
+
+    def test_the_inventory_itself_folds_under_the_explorer(self) -> None:
+        """It inventories the entities the canvas above draws, so it belongs to
+        that section rather than standing between the reader and the rest of the
+        report."""
+        page = self._page()
+
+        assert '<section class="coverage">' not in page
+        assert '<details class="cov-all">' in page
+        explorer = page.split('<section class="explorer"', 1)[1].split("</section>", 1)[0]
+        assert '<details class="cov-all">' in explorer
 
     def test_the_summary_carries_the_name_and_the_count(self) -> None:
         """A closed block shows only its summary, so the count has to be in it —

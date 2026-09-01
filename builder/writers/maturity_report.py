@@ -2120,6 +2120,11 @@ def _render_entity_coverage_section(
 ) -> str:
     """How completely the crate identifies the things it describes.
 
+    A fold under the entity explorer rather than a section of its own: it is an
+    inventory of the same entities the explorer draws, it answers the same
+    question about them from the other side, and as a section it put a
+    six-block contents list between the reader and the rest of the report.
+
     One block per kind of entity, each asking the question that kind fails at:
     can this compound be *obtained* (CAS / PubChem CID / DTXSID plus structure),
     is this cell line *pinned down* (a Cellosaurus RRID names one stock where a
@@ -2171,11 +2176,11 @@ def _render_entity_coverage_section(
         + f'</summary><div class="cov-body">{blocks[bid][0]}</div></details>'
         for bid, label in live
     )
+    total = sum(int(blocks[bid][1] or 0) for bid, _label in live)
     return (
-        '<section class="coverage">\n'
-        '  <div class="sec-h"><h2>Entity coverage</h2></div>\n'
-        f"  {bodies}\n"
-        "</section>\n"
+        '<details class="cov-all"><summary class="cov-h cov-all-h">Entity coverage'
+        f'<span class="cov-n">{total}</span></summary>'
+        f'<div class="cov-all-body">{bodies}</div></details>'
     )
 
 
@@ -2862,21 +2867,28 @@ def build_maturity_html(
     # The chemicals inventory is shared between the Chemicals graph view and the
     # Graph tile's source model — one cheap pass over the graph each.
     chem_inv: dict[str, Any] | None = None
-    coverage_section = ""
     explorer_section = ""
+    lane_section = ""
     explorer_style = ""
     graph_counts: tuple[int, int] | None = None
     if graph is not None:
+        from builder.writers.assay_lane import render_assay_lane_section
         from builder.writers.entity_explorer import explorer_css, render_explorer_section
         from builder.writers.provenance_dag import build_chemical_inventory, build_crate_graph
 
         chem_inv = build_chemical_inventory(graph)
-        coverage_section = _render_entity_coverage_section(graph, chem_inv)
         # The interactive counterpart to those views (#615). It carries script,
         # which the rest of the page does not — but nothing it loads comes from
         # off the page, so the report is still the self-contained artifact it
-        # has to be to travel inside a crate.
-        explorer_section = render_explorer_section(graph)
+        # has to be to travel inside a crate. The coverage inventory folds into
+        # it: same entities, asked about from the other side.
+        explorer_section = render_explorer_section(
+            graph, coverage=_render_entity_coverage_section(graph, chem_inv)
+        )
+        # And one lane per assay (#686), which reads the island the explorer
+        # writes — so it follows the explorer here, and a crate with no assay
+        # to draw returns nothing rather than an empty heading.
+        lane_section = render_assay_lane_section(graph)
         explorer_style = explorer_css()
         nodes = build_crate_graph(graph).get("nodes", [])
         total = len(nodes)
@@ -2937,7 +2949,7 @@ def build_maturity_html(
         f'<div class="masthead">{header}{study_card}</div>\n'
         + kpis
         + explorer_section
-        + coverage_section
+        + lane_section
         + prof_section
         + dsm_section
         + mit_section

@@ -471,10 +471,29 @@ __CATEGORY_STYLES__
 /* toolbar */
 .mat .ex-toolbar{display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center;
   padding:.5rem .6rem; border-bottom:1px solid var(--hairline); background:var(--surface-2);}
-.mat .ex-views{display:flex; flex-wrap:wrap; gap:.3rem;}
+/* One row wherever the crate's own view names will fit: "Adverse outcome
+   pathway" and "Persons & Organisations" are the profile's words and are not
+   shortened to make a toolbar tidy, so the room comes out of the chrome around
+   them. */
+.mat .ex-views{display:flex; flex-wrap:wrap; align-items:center; gap:.25rem;
+  flex:1 1 100%; min-width:0;}
 .mat .ex-tools{display:flex; align-items:center; gap:.4rem; margin-left:auto;}
-.mat .ex-chip{display:inline-flex; align-items:center; gap:.35rem; font:inherit;
-  font-size:.78rem; line-height:1.5; padding:.15rem .55rem; cursor:pointer;
+/* Controls that act on a drawing sit ON it: the toolbar above is left as one row
+   of what the reader is choosing between, and the controls stay within reach of
+   the canvas they change. Shared by both viewers, so one page has one of these.
+   Framing is not offered in the explorer's — React Flow's own Controls already
+   carry a fit button, and two of them teach that one does something else. */
+.mat .ex-overlay,.mat .lane-overlay{position:absolute; top:.5rem; right:.5rem; z-index:5;
+  display:flex; align-items:center; gap:.35rem;}
+.mat .ex-icon{display:inline-flex; align-items:center; justify-content:center;
+  width:1.7rem; height:1.7rem; padding:0; cursor:pointer; color:var(--ink-2);
+  background:var(--surface); border:1px solid var(--hairline); border-radius:999px;}
+.mat .ex-icon:hover{border-color:var(--accent); color:var(--accent);}
+.mat .ex-icon[aria-pressed="true"]{background:var(--accent); border-color:var(--accent);
+  color:var(--accent-ink);}
+.mat .ex-icon:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+.mat .ex-chip{display:inline-flex; align-items:center; gap:.28rem; font:inherit;
+  font-size:.78rem; line-height:1.5; padding:.15rem .45rem; cursor:pointer;
   color:var(--ink); background:var(--surface); border:1px solid var(--hairline);
   border-radius:999px;}
 .mat .ex-chip:hover{border-color:var(--accent);}
@@ -490,7 +509,7 @@ __CATEGORY_STYLES__
   text-transform:uppercase; color:var(--muted); margin-right:.15rem;}
 .mat .ex-chip.ex-sub{font-size:.74rem; padding:.1rem .45rem;}
 .mat .ex-chip-count{font-size:.72rem; color:var(--muted); background:var(--surface-2);
-  border-radius:999px; padding:0 .3rem;}
+  border-radius:999px; padding:0 .26rem;}
 .mat .ex-chip[aria-pressed="true"] .ex-chip-count{background:rgba(255,255,255,.22);
   color:var(--accent-ink);}
 .mat .ex-search{font:inherit; font-size:.78rem; padding:.18rem .6rem; width:15rem;
@@ -499,6 +518,13 @@ __CATEGORY_STYLES__
 .mat .ex-count{font-size:.74rem; color:var(--muted); white-space:nowrap;}
 
 /* legend — the same wording the static legends use, drawn from the registry */
+/* The whole-crate view is the way back, not a peer of "Chemicals". */
+.mat .ex-sep{align-self:stretch; width:1px; background:var(--hairline); margin:.1rem .18rem;}
+/* Legend and count sit UNDER the canvas, with the drawing they describe. */
+.mat .ex-footer{display:flex; flex-wrap:wrap; align-items:baseline; gap:.2rem .8rem;
+  padding:.35rem .6rem; border-top:1px solid var(--hairline); background:var(--surface-2);}
+.mat .ex-footer .ex-legend{flex:1; min-width:0; padding:0; border:0; background:none;}
+.mat .ex-footer .ex-count{margin-left:auto;}
 .mat .ex-legend{display:flex; flex-wrap:wrap; gap:.2rem .8rem; padding:.3rem .6rem;
   font-size:.72rem; color:var(--muted); border-bottom:1px solid var(--hairline);}
 .mat .ex-key{display:inline-flex; align-items:center; gap:.25rem;}
@@ -534,21 +560,6 @@ __CATEGORY_STYLES__
 .mat .ex-node-name{font-weight:640; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .mat .ex-node-tag{font-size:.58rem; letter-spacing:.04em; text-transform:uppercase;
   color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-/* A lane's column headings and the rule under its chain (#686).
-   Furniture, not entities: no border, no hit area, and muted enough that the
-   chain stays the figure. An empty column keeps its heading and says so — the
-   deposit recorded no such step, and that gap is the finding. */
-.mat .ex-rank{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.55rem; letter-spacing:.09em;
-  color:var(--muted); text-transform:uppercase; pointer-events:none;
-  white-space:nowrap;}
-.mat .ex-rank-name{overflow:hidden; text-overflow:ellipsis;}
-.mat .ex-rank-empty{opacity:.72;}
-.mat .ex-rank-none{font-size:.52rem; letter-spacing:.02em; text-transform:none;
-  color:var(--warn); font-style:italic;}
-.mat .ex-band-rule{display:flex; align-items:center; gap:.5rem; pointer-events:none;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.55rem; letter-spacing:.09em;
-  color:var(--muted); text-transform:uppercase; white-space:nowrap;}
-.mat .ex-band-rule::after{content:""; flex:1; border-top:1px dashed var(--border);}
 
 /* An edge label integrates into its edge instead of sitting in a box on it: the
    text takes the edge's own colour (set inline, from the payload's palette) and
@@ -585,10 +596,12 @@ __CATEGORY_STYLES__
   border-bottom-color:var(--accent);}
 .mat .ex-side-body{padding:.55rem .7rem 1.2rem;}
 .mat .ex-props{margin:0;}
-.mat .ex-prop{display:grid; grid-template-columns:minmax(5.5rem,max-content) 1fr;
-  gap:.2rem .6rem; margin-bottom:.35rem;}
-.mat .ex-prop dt{color:var(--muted); font-size:.7rem; padding-top:.1rem;}
-.mat .ex-prop dd{margin:0; min-width:0; word-break:break-word;}
+/* Label above value, never a two-column grid: an `@id` and a description are
+   both long, and a fixed label column squeezes the half a reader came for. */
+.mat .ex-prop{display:block; margin-bottom:.55rem;}
+.mat .ex-prop dt{color:var(--muted); font-size:.66rem; letter-spacing:.03em; line-height:1.5;}
+.mat .ex-prop dd{margin:.1rem 0 0; min-width:0; font-size:.8rem; line-height:1.45;
+  word-break:break-word;}
 .mat .ex-link-group{margin-bottom:.5rem;}
 .mat .ex-relation{display:flex; gap:.3rem; margin:.35rem 0 .1rem; font-size:.7rem;
   color:var(--muted);}
@@ -666,6 +679,121 @@ __CATEGORY_STYLES__
 .mat .air-theirs { color:var(--muted); font-weight:550; }
 .mat .air-na { color:var(--na-ink); font-weight:500; font-style:italic; }
 
+/* ---- assay lanes (#686) --------------------------------------------------
+   Its own section, and its own drawing: flat SVG a reader scans, not a viewport
+   they have to frame. Every colour here is the entity explorer's — the two
+   sections colour one crate, and the palette is generated once from
+   `CATEGORY_STYLES` above. The lane declares none of its own. */
+.mat section.lanes{overflow:hidden;}
+.mat .lane-app{display:flex; flex-direction:column; gap:.65rem;}
+.mat .lane-bar{display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center;
+  padding:.45rem .55rem; background:var(--surface-2); border:1px solid var(--hairline);
+  border-radius:9px;}
+
+/* The two folds are switches, and they live in the viewer rather than the bar:
+   the chips above pick WHICH assay, these change how that assay is drawn, and a
+   row of identical pills said the two were the same kind of choice. A switch
+   reads as on/off at rest, which a pressed pill only does by colour. */
+.mat .lane-sw{display:inline-flex; align-items:center; gap:.38rem; font:inherit;
+  font-size:.74rem; line-height:1.5; padding:.14rem .55rem .14rem .3rem; cursor:pointer;
+  color:var(--ink-2); background:var(--surface); border:1px solid var(--hairline);
+  border-radius:999px;}
+.mat .lane-sw:hover{border-color:var(--accent);}
+.mat .lane-sw:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+.mat .lane-sw:disabled{opacity:.45; cursor:default;}
+.mat .lane-sw:disabled:hover{border-color:var(--hairline);}
+.mat .lane-tr{position:relative; flex:none; width:1.5rem; height:.86rem; border-radius:999px;
+  background:var(--track); border:1px solid var(--hairline);}
+.mat .lane-kn{position:absolute; top:.09rem; left:.11rem; width:.54rem; height:.54rem;
+  border-radius:50%; background:var(--muted);}
+.mat .lane-sw[aria-pressed="true"]{color:var(--accent); border-color:var(--accent);
+  background:var(--accent-soft);}
+.mat .lane-sw[aria-pressed="true"] .lane-tr{background:var(--accent); border-color:var(--accent);}
+.mat .lane-sw[aria-pressed="true"] .lane-kn{left:.74rem; background:var(--accent-ink);}
+/* The viewer holds the drawing and the controls on it; the canvas inside it is
+   what scrolls, so the controls do not scroll away with the chain. */
+.mat .lane-viewer{position:relative;}
+
+.mat .lane-stage{display:grid; grid-template-columns:minmax(0,1fr) 21rem; gap:.8rem;
+  align-items:start;}
+@media(max-width:62rem){.mat .lane-stage{grid-template-columns:1fr;}}
+/* One card, the shape the explorer's app has: the drawing, then the strip that
+   says what its colours mean and how much of the crate is on it. */
+.mat .lane-left{min-width:0; display:flex; flex-direction:column;
+  background:var(--surface); border:1px solid var(--hairline); border-radius:10px;
+  overflow:hidden;}
+/* The chain is as wide as the crate makes it, so the viewer scrolls rather than
+   the page: a nine-column lane is wider than a report, and shrinking it to fit
+   puts the names below reading size — which is why fitting is a control the
+   reader reaches for rather than the default. */
+/* Headroom for the controls above: they float over the viewer, and fitted the
+   chain fills its width, so without it they would sit on the drawing. */
+.mat .lane-canvas{overflow-x:auto; padding:2.4rem .5rem .5rem;}
+.mat .lane-canvas svg{display:block; height:auto; color:var(--ink-2);}
+.mat .lane-note{margin:.5rem;}
+.mat .lane-node{cursor:pointer;}
+.mat .lane-node:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+.mat .lane-node.is-sel .lane-box{stroke-width:2.6;}
+.mat .lane-name{fill:currentColor; font-family:inherit; color:var(--ink);}
+.mat .lane-name.is-step{font-weight:640;}
+.mat .lane-tag{fill:var(--muted); letter-spacing:.05px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+.mat .lane-rank{fill:currentColor; opacity:.42; letter-spacing:.9px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:uppercase;}
+.mat .lane-rank-btn{cursor:pointer;}
+.mat .lane-rank-btn .lane-rank{opacity:.62;}
+/* An empty column keeps its heading and says so: the deposit recorded no such
+   step, and in a maturity report that gap IS the finding. */
+.mat .lane-rank.is-empty{opacity:.62;}
+.mat .lane-rank-none{fill:var(--warn-ink); font-style:italic;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+.mat .lane-band-rule{stroke:currentColor; opacity:.12; stroke-dasharray:3 4;}
+.mat .lane-band-label{fill:currentColor; opacity:.4; letter-spacing:.9px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+.mat .lane-hang{stroke-dasharray:2.5 3;}
+/* Same treatment the explorer gives an edge label: no box, a surface-coloured
+   halo laid down first so the line is knocked out from behind the glyphs. */
+.mat .lane-edge-label{fill:var(--accent); stroke:var(--surface); stroke-width:3.2px;
+  paint-order:stroke; stroke-linejoin:round; font-weight:600;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+
+
+/* ---- the inspector, docked to the window ---------------------------------
+   Both sections carry one, and inside the section it cost the canvas a third
+   of its width for a panel that says nothing until something is selected. So
+   it leaves the flow entirely: a drawer against the window's right edge, only
+   there once a reader has chosen an entity, and the canvas keeps the whole
+   section either way. `position:fixed` takes its containing block from the
+   viewport, so the sections' own `overflow:hidden` does not clip it.
+
+   Below the breakpoint there is no window to hang off — the drawer would cover
+   the drawing it explains — so the panel stays where it was, beside the canvas
+   or under it. */
+@media (min-width:60rem){
+  .mat .ex-side{
+    position:fixed; top:0; right:0; height:100vh; width:min(24rem,42vw);
+    max-width:none; z-index:40; overflow:auto; border-radius:0;
+    background:var(--surface); border-left:1px solid var(--hairline);
+    box-shadow:-10px 0 28px rgba(17,26,28,.10);}
+  /* Nothing selected is not a state worth a drawer: the explorer's own hint
+     lives in the panel, and a panel with only a hint in it is the width this
+     change is spending. */
+  .mat .ex-side-empty{display:none;}
+  .mat .lane-stage{grid-template-columns:1fr;}
+}
+
+/* The coverage inventory, folded under the explorer's canvas. A section of its
+   own put a six-block contents list between the reader and the rest of the
+   report; a fold keeps the inventory and gives back the page. */
+.mat .cov-all{margin:.9rem 0 0; border-top:1px solid var(--hairline); padding-top:.7rem;}
+.mat details.cov-all > summary.cov-all-h{cursor:pointer; list-style:none; font-weight:660;}
+.mat details.cov-all > summary.cov-all-h::-webkit-details-marker{display:none;}
+.mat details.cov-all > summary.cov-all-h::after{content:"+"; color:var(--muted); margin-left:auto;
+  font-weight:400;}
+.mat details.cov-all[open] > summary.cov-all-h::after{content:"\2212";}
+.mat details.cov-all > summary.cov-all-h:hover{color:var(--accent);}
+.mat .cov-all-body{display:block; padding-top:.4rem;}
+
 /* Print rules come LAST on purpose. They are plain declarations inside a media
    query, so a screen rule of equal specificity written later in the file beats
    them — which is how the explorer's print note came to be hidden on paper by
@@ -684,16 +812,18 @@ __CATEGORY_STYLES__
   /* A coverage block is a fold on screen (#629); on paper it is opened, or the
      printed copy loses the inventory it exists to carry. */
   .mat details.cov > .cov-body{display:block !important;}
-  .mat details.cov > summary.cov-h::after{display:none;}
+  .mat details.cov-all > .cov-all-body{display:block !important;}
+  .mat details.cov > summary.cov-h::after,
+  .mat details.cov-all > summary.cov-all-h::after{display:none;}
   /* The coverage section is longer than a page — every block is shown at
      once (#618) — so it breaks, while a single block stays whole. */
-  .mat section.coverage,.mat section.explorer{break-inside:auto;}
+  .mat section.explorer,.mat section.lanes{break-inside:auto;}
   .mat .cov{break-inside:avoid;}
   /* The explorer is a canvas the reader pans, filters and interrogates. Paper
      can hold none of that, and printing whichever corner the viewport happened
      to show would claim to be the graph while being a crop of it — so print
      says where the interactive version is instead. The coverage matrices below
      print in full, and they are the part of this report paper can carry. */
-  .mat .ex-app{display:none;}
+  .mat .ex-app,.mat .lane-app,.mat .ex-side{display:none;}
   .mat .ex-print-note{display:block;}
 }

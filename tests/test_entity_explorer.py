@@ -265,56 +265,6 @@ class TestViewMembership:
 
         assert {n["id"] for n in payload["nodes"] if n["status"] == "described"} <= shown
 
-    def test_researcher_hides_the_machinery(self) -> None:
-        """Parameters, column definitions, ontology terms, the licence, the
-        profile, the build action and its software are how the crate is made,
-        not what was done at the bench."""
-        graph = plumbing_heavy_graph()
-
-        views = _views(build_explorer_payload(graph))
-
-        for hidden in (
-            "#param_dose",
-            "#col_dose",
-            "http://purl.obolibrary.org/obo/NCIT_C25488",
-            "#schema",
-            "https://creativecommons.org/licenses/by/4.0/",
-            "https://w3id.org/ro/crate/isa-tox/1.0",
-            "#run",
-            "#tool",
-            "#missing-instrument",
-        ):
-            assert hidden not in views["researcher"], hidden
-
-    def test_researcher_keeps_the_experiment(self) -> None:
-        graph = plumbing_heavy_graph()
-
-        views = _views(build_explorer_payload(graph))
-
-        for kept in ("./", "#step", "#sample", "assay.csv", "readme.txt"):
-            assert kept in views["researcher"], kept
-
-    def test_researcher_keeps_people_and_papers_though_they_sit_in_the_base_layer(
-        self,
-    ) -> None:
-        """Persons, Organisations and articles are layer 1, the same layer as the
-        packaging, so a layer-based rule would drop exactly the credit a reader
-        looks for."""
-        views = _views(build_explorer_payload(tabbed_views_graph()))
-
-        assert "https://orcid.org/0000-0002-1825-0097" in views["researcher"]
-        assert "https://ror.org/05gq02987" in views["researcher"]
-        assert "https://doi.org/10.1007/s00204-024-03787-2" in views["researcher"]
-
-    def test_researcher_keeps_a_root_the_crate_never_typed(self) -> None:
-        """An untyped root falls to the catch-all category, and dropping it would
-        leave the whole crate with nothing to hang from."""
-        graph = {"@graph": [{"@id": "./", "name": "Untyped"}, {"@id": "#s", "@type": "Sample"}]}
-
-        views = _views(build_explorer_payload(graph))
-
-        assert "./" in views["researcher"]
-
     def test_files_holds_every_file_and_every_dataset(self) -> None:
         graph = plumbing_heavy_graph()
 
@@ -575,11 +525,13 @@ class TestViewMembership:
             assert view["members"] == sorted(view["members"]), view["key"]
             assert set(view["members"]) <= known, view["key"]
 
-    def test_researcher_is_the_view_that_opens(self) -> None:
+    def test_all_entities_is_the_view_that_opens(self) -> None:
+        """Exactly one, and it is the whole crate: a section that opened on
+        nothing would read as a section that failed to draw."""
         payload = build_explorer_payload(tabbed_views_graph())
 
         defaults = [v["key"] for v in payload["views"] if v["default"]]
-        assert defaults == ["researcher"]
+        assert defaults == ["all"]
 
     def test_the_views_are_offered_in_the_report_s_own_order(self) -> None:
         """The coverage section and the explorer describe one crate; a reader who
@@ -589,8 +541,7 @@ class TestViewMembership:
         payload = build_explorer_payload(tabbed_views_graph())
         offered = [v["label"] for v in payload["views"]]
 
-        assert offered[0] == "Researcher"
-        assert offered[1] == "All entities"  # the whole crate, before its parts
+        assert offered[0] == "All entities"  # the whole crate, before its parts
         # The explorer has a view for the derivation chain, which the coverage
         # section has no matrix for; where the two do overlap, the order agrees.
         blocks = [label.replace("&amp;", "&") for _bid, label in _COVERAGE_BLOCKS]
@@ -645,7 +596,7 @@ class TestProcessFlavours:
 
         assert [by_key[k].parent for k in self._KEYS] == ["processes"] * 4
         assert by_key["processes"].parent is None
-        assert by_key["researcher"].parent is None
+        assert by_key["all"].parent is None
 
     def test_the_payload_says_which_view_a_flavour_belongs_to(self) -> None:
         """The browser builds the sub-row from this; without it the flavours
@@ -686,8 +637,8 @@ class TestProcessFlavours:
 
         assert "#orphan-step" not in views["processes"]
         assert "dataanalysis" not in views
-        # No flavour draws it either. (Other views legitimately do — `researcher`
-        # shows the experiment whether or not a step sits on the material chain.)
+        # No flavour draws it either. (Other views legitimately do — `all`
+        # shows the crate whether or not a step sits on the material chain.)
         assert not any(k in views and "#orphan-step" in views[k] for k in self._KEYS)
 
     def test_the_flavours_between_them_cover_every_step_the_parent_draws(self) -> None:
@@ -826,14 +777,13 @@ class TestAChipCountsWhatItIsNamedFor:
             assert counts[key] <= members[key], key
 
     def test_a_view_that_is_its_own_subject_counts_everything(self) -> None:
-        """ "All entities" and "Researcher" name no narrower thing than what they
-        draw, so for them the two numbers are the same — and that is a fact
-        about the view, not a special case to exempt."""
+        """ "All entities" names no narrower thing than what it draws, so for it
+        the two numbers are the same — and that is a fact about the view, not a
+        special case to exempt."""
         payload = build_explorer_payload(plumbing_heavy_graph())
         counts, members = self._counts(payload), self._members(payload)
 
-        for key in ("all", "researcher"):
-            assert counts[key] == members[key], key
+        assert counts["all"] == members["all"]
 
 
 class TestTheChipAndTheCoverageBlockAgree:
@@ -994,7 +944,9 @@ class TestExplorerSection:
         assert len(tags) == EXPLORER_SCRIPT_COUNT
         assert not any("src" in tag for tag in tags)
         assert "@import" not in section
-        ours = re.sub(r"<script.*?</script>", "", section, flags=re.S) + _app_js()
+        from builder.writers.entity_explorer import _inspector_js
+
+        ours = re.sub(r"<script.*?</script>", "", section, flags=re.S) + _app_js() + _inspector_js()
         for scheme in ("http://", "https://", "//cdn", "fetch(", "XMLHttpRequest", "WebSocket"):
             assert scheme not in ours, scheme
 
@@ -1088,7 +1040,7 @@ class TestEmbeddedInTheReport:
 
         css = _load_css().replace("\n", "")
 
-        assert ".mat .ex-app{display:none" in css
+        assert ".mat .ex-app,.mat .lane-app,.mat .ex-side{display:none" in css
         assert ".mat .ex-print-note{display:block" in css
 
     def test_the_print_rules_are_the_last_word(self) -> None:
@@ -1136,21 +1088,24 @@ class TestTheExplorerBuildsNoLinks:
         assert "href" not in markup
 
     def test_the_app_never_writes_an_href_or_a_src(self) -> None:
-        source = _app_js()
+        """Held over the shared inspector too, which is where the anchors would
+        now be: it is the one place either viewer renders a crate value."""
+        from builder.writers.entity_explorer import _inspector_js
 
         # `src` on its own would match every edge's source field; these are the
         # forms that actually put a URL somewhere the browser follows or parses.
-        for sink in (
-            "href",
-            "src=",
-            "window.open",
-            "location.assign",
-            "innerHTML",
-            "outerHTML",
-            "dangerouslySetInnerHTML",
-            "<a ",
-        ):
-            assert sink not in source, sink
+        for source in (_app_js(), _inspector_js()):
+            for sink in (
+                "href",
+                "src=",
+                "window.open",
+                "location.assign",
+                "innerHTML",
+                "outerHTML",
+                "dangerouslySetInnerHTML",
+                "<a ",
+            ):
+                assert sink not in source, sink
 
 
 class TestStandalonePage:
