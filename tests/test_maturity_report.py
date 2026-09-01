@@ -865,7 +865,7 @@ class TestFairTileAndRose:
         blockers = dsm_ceiling(state)["blocked_by"]
         assert blockers, "fixture has no DSM blockers; the assertion below is inert"
         assert (
-            f'<a href="#next"><b>{len(blockers)} '
+            f'<a class="blockers" href="#next"><b>{len(blockers)} '
             f"indicator{'s' if len(blockers) != 1 else ''}</b> "
             f"to level {fair.dsm_level + 1}</a>" in page
         )
