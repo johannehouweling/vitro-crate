@@ -35,9 +35,11 @@ class Verdict(NamedTuple):
     whose whole point is that an assessor can say *why*. ``evidence`` records what was
     looked for and what was found, so every cell in the report is inspectable.
 
-    ``value`` is tri-state: ``True`` / ``False`` / ``None`` for "not assessed" — the
-    workbook's blank cell, which leaves the denominator rather than counting against
-    the dataset.
+    ``value`` is tri-state: ``True`` / ``False`` / ``None``. ``None`` says the check
+    could not answer — which is not the same statement as ``False``, and keeping the
+    two apart is the whole reason this is not a ``bool``. What an instrument then
+    *does* with an unanswered indicator is that instrument's own arithmetic, and they
+    do not agree; each scorer states its own.
     """
 
     value: bool | None
@@ -87,8 +89,8 @@ def needs_graph(graph: Graph) -> bool:
 
     Returning ``False`` in that case would be a lie of exactly the kind this module
     exists to prevent: it reads as "the crate fails this indicator" when the truth is
-    "nothing was assessed". Callers turn ``None`` into an *unanswered cell* — excluded
-    from the denominator, never counted against the dataset.
+    "nothing was assessed". Callers record ``None`` as unanswered and let their own
+    instrument decide what that is worth.
     """
     return not nodes(graph)
 
