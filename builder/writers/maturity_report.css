@@ -108,6 +108,12 @@ __CATEGORY_STYLES__
   background:color-mix(in srgb,var(--low) 42%,transparent); }
 .mat .blockers { margin-top:auto; font-size:.78rem; color:var(--low-ink); }
 .mat .blockers b { font-weight:700; }
+/* The count is a link into Recommendations, where each blocker is a row with an
+   instruction. It keeps the blocker colour rather than the accent: what it says is
+   what is unmet, and only where it goes is a link. */
+.mat a.blockers { text-decoration:none; border-bottom:1px solid transparent; }
+.mat a.blockers:hover, .mat a.blockers:focus-visible {
+  border-bottom-color:color-mix(in srgb,var(--low-ink) 45%,transparent); }
 .mat details.blockers > summary { cursor:pointer; list-style:none; }
 .mat details.blockers > summary::-webkit-details-marker { display:none; }
 .mat details.blockers > summary::after { content:" +"; color:var(--muted); }

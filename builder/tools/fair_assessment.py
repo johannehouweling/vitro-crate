@@ -2876,8 +2876,8 @@ def _compute_dsm_level(
 
     This number is **ours, not the model's**: no formula anywhere in the published
     workbook computes an achieved level. It is a gate over the model's indicators, kept
-    because "how far up the ladder" is the question depositors ask, and labelled
-    *derived* wherever it is shown so it is never mistaken for the published score —
+    because "how far up the ladder" is the question depositors ask, and the report's
+    footnote says so in as many words, so it is never mistaken for the published score —
     which is the percentage grid (:func:`dsm_grid`).
 
     Args:

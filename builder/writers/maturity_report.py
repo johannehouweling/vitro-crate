@@ -844,8 +844,8 @@ def _fair_tile(
         # maturity gap read differently from a conformance finding.
         n = len(blockers)
         blocked = (
-            f'<div class="kpi-sub"><a href="#next"><b>{n} '
-            f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</a></div>'
+            f'<a class="blockers" href="#next"><b>{n} '
+            f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</a>'
         )
     reach = ""
     if intake is not None:
@@ -860,8 +860,7 @@ def _fair_tile(
         '<article class="kpi fair-tile">'
         '<div class="kpi-h"><span class="eyebrow">FAIR maturity</span></div>'
         f'<div class="kpi-v"><b>{fair.dsm_level}</b><span class="den">/ {cap}</span> '
-        '<span class="tag-inline">DSM level (derived)'
-        '<a class="fn" href="#fn-dsm">1</a></span></div>'
+        '<span class="tag-inline">DSM level<a class="fn" href="#fn-dsm">1</a></span></div>'
         f'<div class="ladder2" role="img" aria-label="DSM level {fair.dsm_level} of {cap}; '
         f'level {fair.dsm_level + 1} is {pct}% complete">{rungs}</div>'
         f"{reach}{blocked}"
