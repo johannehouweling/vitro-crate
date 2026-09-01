@@ -806,6 +806,7 @@ def _fair_tile(
     blockers: list[tuple[str, str, str]],
     ceiling: dict[str, Any] | None = None,
     grid: dict[int, dict[str, Any]] | None = None,
+    intake: tuple[int, int, int] | None = None,
 ) -> str:
     """FAIR maturity: the derived DSM level, a ladder whose *next* rung shows how much
     of that level the sheet already scores as complete (a gated 0 must not read as
@@ -855,7 +856,13 @@ def _fair_tile(
             f'<ul class="blk">{items}</ul></details>'
         )
     reach = ""
-    if cap and fair.dsm_level >= cap:
+    if intake is not None:
+        met_then, assessed_then, level_then = intake
+        reach = (
+            f'<div class="kpi-sub">at intake: <b>{met_then}</b> of {assessed_then} '
+            f"indicators &middot; DSM {level_then}</div>"
+        )
+    elif cap and fair.dsm_level >= cap:
         reach = '<div class="kpi-sub">at the ceiling for a crate</div>'
     return (
         '<article class="kpi fair-tile">'
@@ -1054,13 +1061,14 @@ def _render_kpis(
     *,
     ceiling: dict[str, Any] | None = None,
     grid: dict[int, dict[str, Any]] | None = None,
+    intake: tuple[int, int, int] | None = None,
     stale: bool = False,
 ) -> str:
     """The KPI grid: the profile × tier conformance matrix, FAIR maturity, the
     domain-coverage rose (spanning both rows), the graph tile (linked / total
     entities, only when a graph was supplied) and the AI-readiness profile."""
     tiles = _profile_matrix_tile(val, tiers, stale)
-    tiles += _fair_tile(fair, blockers, ceiling, grid)
+    tiles += _fair_tile(fair, blockers, ceiling, grid, intake)
     tiles += _mit_rose_tile(mit)
     if graph_counts is not None:
         linked, total = graph_counts
@@ -1704,7 +1712,11 @@ def _render_references() -> str:
     )
 
 
-def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, str]) -> str:
+def _render_dsm_grid_section(
+    grid: dict[int, dict[str, Any]],
+    levels: dict[int, str],
+    pre: dict[int, dict[str, Any]] | None = None,
+) -> str:
     """The DSM's own **"% Complete" grid** — the published instrument's only output.
 
     No formula in the assessment workbook computes an achieved maturity level; what it
@@ -1718,6 +1730,12 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
     Level 0 as fully escaped on the strength of never having looked, so every cell also
     states how much of it we actually assessed. Where that reads ``0 of 4``, the
     percentage beside it is the sheet's arithmetic over four blanks, not a measurement.
+   
+    **Both of the sheet's answer columns.** The workbook is a before/after instrument —
+    its columns are "Pre-FAIRification Assessment" and "Post-FAIRification Assessment" —
+    so where a baseline was captured at intake each cell carries it too. That is the
+    number this tool exists to move, and a percentage with nothing to compare it against
+    cannot show whether the crate improved the deposit or merely described it.
     """
     if not grid:
         return ""
@@ -1741,10 +1759,15 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
             state = "full" if pct >= 100 else ("part" if pct > 0 else "none")
             if not assessed:
                 state = "na"
+            was = ((pre or {}).get(level, {}) or {}).get(code) or {}
+            intake = (
+                f'was {was["published_pct"]:g}% &middot; '
+                if was.get("published_pct") is not None
+                else ""
+            )
             cells += (
                 f'<td class="dsm-{state}"><span class="dsm-pct">{pct:g}%</span>'
-                f'<span class="dsm-den">{cell["met"]}/{total} &middot; '
-                f"{assessed} of {total} assessed</span></td>"
+                f'<span class="dsm-den">{intake}{assessed} of {total} assessed</span></td>'
             )
         rows += (
             f'<tr><th scope="row"><b>{level}</b> '
@@ -1758,7 +1781,15 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
         f"    <thead><tr><th>Level</th>{head}</tr></thead>\n"
         f"    <tbody>{rows}</tbody>\n"
         "  </table></div>\n"
-        '  <p class="dsm-note">Percentages are the published sheet&rsquo;s own: satisfied '
+        '  <p class="dsm-note">'
+        + (
+            "Where a cell says <b>was</b>, that is the same sheet scored against the "
+            "deposit as it arrived &mdash; the workbook&rsquo;s own "
+            "&ldquo;Pre-FAIRification&rdquo; column, taken before anything was drafted. "
+            if pre
+            else ""
+        )
+        + "Percentages are the published sheet&rsquo;s own: satisfied "
         "&divide; the cell&rsquo;s denominator &times; 100. The sheet has no "
         "&ldquo;not assessed&rdquo; state &mdash; its validation column is all formulas, "
         "so a blank scores 0 &mdash; which is why each cell also states how many of its "
@@ -2741,10 +2772,12 @@ def build_maturity_html(
     from builder.tools.air_assessment import assess_air_readiness
     from builder.tools.fair_assessment import (
         DSM_INDICATORS_PATH,
+        _compute_dsm_level,
         _load_yaml,
         dsm_ceiling,
         dsm_grid,
         dsm_verdicts,
+        pre_verdicts,
     )
 
     # Every axis reads the SAME assembled graph. AI-readiness asks about entities and
@@ -2760,7 +2793,22 @@ def build_maturity_html(
     dsm_answers = dsm_verdicts(state, dsm_data, graph)
     dsm_reach = dsm_ceiling(state, dsm_data, graph, dsm_answers)
     dsm_cells = dsm_grid(state, dsm_data, graph, answers=dsm_answers)
-    dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {})
+
+    # The workbook is a before/after instrument. When a baseline was captured at intake
+    # the same cells are scored against it, so the page says what FAIRification moved
+    # rather than only where the crate ended up.
+    pre_answers = pre_verdicts(state)
+    pre_cells = dsm_grid(state, dsm_data, None, answers=pre_answers) if pre_answers else None
+    intake = (
+        (
+            sum(1 for v in pre_answers.values() if v.value is True),
+            sum(1 for v in pre_answers.values() if v.value is not None),
+            _compute_dsm_level(state, dsm_data, None, pre_answers),
+        )
+        if pre_answers
+        else None
+    )
+    dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {}, pre_cells)
 
     kpis = _render_kpis(
         tiers,
@@ -2772,6 +2820,7 @@ def build_maturity_html(
         graph_counts,
         ceiling=dsm_reach,
         grid=dsm_cells,
+        intake=intake,
         stale=stale,
     )
     prof_section = _render_profile_section(val, tiers, stale=stale)

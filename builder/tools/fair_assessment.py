@@ -2757,6 +2757,20 @@ def dsm_verdicts(
     return verdicts
 
 
+def pre_verdicts(state: CrateState) -> dict[str, Verdict]:
+    """The stored as-received verdicts — the sheet's "Pre-FAIRification" column.
+
+    Captured once by ``AgentEngine.initialize`` and carried in the session, so a report
+    rendered days later still states what the deposit looked like on arrival. Empty for
+    a session written before the baseline existed, and for a run given no input to scan;
+    callers render the post column alone rather than inventing a baseline.
+    """
+    return {
+        ident: Verdict(stored.get("value"), str(stored.get("evidence", "")))
+        for ident, stored in (state.pre_assessment or {}).items()
+    }
+
+
 def _apply_promotion(verdicts: dict[str, Verdict], rules: list[dict[str, str]]) -> None:
     """Apply the sheet's ``=IF(J{source}=1,1,H{own})`` rules to *verdicts*, in place.
 

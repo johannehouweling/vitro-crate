@@ -56,7 +56,7 @@ import copy
 
 import pytest
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import CrateState, Entity, EntityProvenance, FileClassification
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import _assemble_graph
 
@@ -844,3 +844,226 @@ class TestInflationCannotHideBehindAFailingLevelOne:
             "Level-2+ indicator is satisfied by the builder's scaffolding rather than "
             "by data."
         )
+
+
+# ---------------------------------------------------------------------------
+# The deposit as it arrived — the DSM sheet's "Pre-FAIRification" column
+# ---------------------------------------------------------------------------
+
+# What a folder of files can honestly evidence about itself, and why. Exact set
+# equality, like `_DSM_ALLOWED` above: a new pass here means either a check that reads
+# the input more generously than the deposit warrants, or an `as_received_graph` that
+# has started inventing metadata the depositor never wrote.
+_PRE_ALLOWED = {
+    "DSM-1-C3": (
+        "access_info is state-bound and passes on `state.session_id` alone. The one "
+        "dishonest pass in this set; it is on the `_DSM_STATE_BOUND` burn-down, and "
+        "narrowing it would move the POST score too, so it is pinned rather than fixed "
+        "here."
+    ),
+    "DSM-1-R5": (
+        '"Dataset(s) available in Machine Readable Format" — the deposit really does '
+        "ship CSVs."
+    ),
+    "DSM-3-C7": (
+        '"Dataset Descriptor references a standard license" — the deposit declares '
+        "CC-BY in its own text, which `_read_declared_licence` (#535) reads before any "
+        "FAIRification happens."
+    ),
+    "DSM-3-R5": (
+        '"available in non-proprietary Machine Readable Format" — the CSVs are '
+        "open-format data."
+    ),
+    "DSM-4-R6": "the licence the deposit itself declares is already a machine-readable IRI.",
+}
+
+
+def _as_received_state() -> CrateState:
+    """What ``AgentEngine.initialize`` leaves behind: an inventory and a licence.
+
+    No entities, no minted identifiers, no LLM inference, no lookups — the state at the
+    one moment it holds nothing but what the input literally stated. The paths need not
+    exist: nothing here reads bytes.
+    """
+    state = CrateState()
+    state.metadata.input_path = "/deposit"
+    state.metadata.license = "https://creativecommons.org/licenses/by/4.0/"
+    state.metadata.license_from_deposit = True
+    state.scanned_files = [
+        FileClassification(
+            path="/deposit/data/plate1.csv", filename="plate1.csv",
+            size=2048, mime_type="text/csv",
+        ),
+        FileClassification(
+            path="/deposit/data/plate2.csv", filename="plate2.csv",
+            size=4096, mime_type="text/csv",
+        ),
+        FileClassification(
+            path="/deposit/protocol.pdf", filename="protocol.pdf",
+            size=90210, mime_type="application/pdf",
+        ),
+        FileClassification(
+            path="/deposit/metadata.xlsx", filename="metadata.xlsx", size=33376,
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+        FileClassification(
+            path="/deposit/ro-crate-metadata.json", filename="ro-crate-metadata.json",
+            size=120, mime_type="application/json",
+        ),
+    ]
+    return state
+
+
+class TestTheInputIsScoredWithoutBeingFlattered:
+    """The pre-FAIRification column must measure the deposit, not the tool's optimism.
+
+    Every field ``as_received_graph`` invents is a point the input scores for work the
+    FAIRification has not done, which is the one way a before/after comparison can lie.
+    """
+
+    def _pre(self):
+        from builder.tools.assessment_graph import as_received_graph
+
+        state = _as_received_state()
+        return state, as_received_graph(state)
+
+    def test_it_mints_nothing(self) -> None:
+        state, graph = self._pre()
+        root = next(n for n in graph if n["@id"] == "./")
+        for invented in ("identifier", "name", "description", "datePublished", "conformsTo"):
+            assert invented not in root, f"the input did not state a {invented}"
+        assert not [n for n in graph if n["@id"] == "ro-crate-metadata.json"]
+        assert not [n for n in graph if str(n["@id"]).startswith("#")], "no minted ids"
+        for node in graph[1:]:
+            assert node["@type"] == "File", f"{node['@id']} is not a file the deposit sent"
+
+    def test_it_carries_only_what_the_deposit_stated(self) -> None:
+        state, graph = self._pre()
+        root = next(n for n in graph if n["@id"] == "./")
+        assert root["license"] == state.metadata.license, "the deposit declared this"
+        state.metadata.license_from_deposit = False
+        from builder.tools.assessment_graph import as_received_graph
+
+        assert "license" not in as_received_graph(state)[0], (
+            "a licence this tool chose is not a licence the input had"
+        )
+
+    def test_a_reserved_crate_file_is_not_packaged_as_data(self) -> None:
+        _state, graph = self._pre()
+        assert not [n for n in graph if n["@id"] == "ro-crate-metadata.json"]
+        assert len(graph) == 5, "root plus the four files the depositor actually sent"
+
+    def test_nothing_outside_the_as_received_allowlist_passes(self) -> None:
+        from builder.tools.fair_assessment import dsm_verdicts
+
+        state, graph = self._pre()
+        passing = {k for k, v in dsm_verdicts(state, None, graph).items() if v.value is True}
+        assert passing == set(_PRE_ALLOWED), (
+            "a folder of files met an indicator nothing has written down a reason for: "
+            f"{sorted(passing - set(_PRE_ALLOWED))}"
+        )
+
+    def test_synthesising_a_descriptor_lifts_the_pre_score(self) -> None:
+        """The adversarial case, kept as the written record of why the rule exists."""
+        from builder.tools.fair_assessment import dsm_verdicts
+
+        state, graph = self._pre()
+        honest = {k for k, v in dsm_verdicts(state, None, graph).items() if v.value is True}
+        graph[0].update(
+            {
+                "identifier": "https://doi.org/10.5281/zenodo.1",
+                "name": "A deposit",
+                "description": "Some data.",
+                "datePublished": "2026-01-01",
+            }
+        )
+        graph.append(
+            {
+                "@id": "ro-crate-metadata.json",
+                "@type": "CreativeWork",
+                "about": {"@id": "./"},
+                "conformsTo": {"@id": "https://w3id.org/ro/crate/1.2"},
+            }
+        )
+        flattered = {k for k, v in dsm_verdicts(state, None, graph).items() if v.value is True}
+        assert flattered > honest, (
+            "inventing a descriptor and an identified, named root must visibly inflate "
+            "the input's score — that is why as_received_graph emits neither"
+        )
+
+
+class TestTheBaselineIsTakenBeforeAnythingIsBuilt:
+    """A baseline captured late is a baseline of the tool's own work."""
+
+    def _engine(self, tmp_path):
+        from builder.engine import AgentEngine
+
+        deposit = tmp_path / "deposit"
+        (deposit / "data").mkdir(parents=True)
+        (deposit / "data" / "plate1.csv").write_text("well,value\nA1,0.5\n")
+        (deposit / "protocol.txt").write_text("Cells were exposed for 24h.\n")
+        engine = AgentEngine()
+        engine.initialize(str(deposit))
+        return engine
+
+    def test_it_is_captured_with_no_entity_in_existence(self, tmp_path) -> None:
+        engine = self._engine(tmp_path)
+        assert engine.state.pre_assessment, "the deposit was scanned but never scored"
+        assert engine.state.list_entities() == [], (
+            "the baseline must be taken before the first entity is drafted, or it "
+            "measures the builder rather than the deposit"
+        )
+
+    def test_a_second_initialize_does_not_overwrite_it(self, tmp_path) -> None:
+        engine = self._engine(tmp_path)
+        first = dict(engine.state.pre_assessment)
+        engine.state.add_entity(
+            Entity(entity_id="e1", type="Study", fields={"name": "later"},
+                   _provenance=EntityProvenance(created_by="llm"))
+        )
+        engine._capture_pre_assessment()
+        assert engine.state.pre_assessment == first
+
+    def test_it_survives_a_session_round_trip(self, tmp_path) -> None:
+        from builder.tools.fair_assessment import pre_verdicts
+
+        engine = self._engine(tmp_path)
+        restored = CrateState.from_json(engine.state.to_json())
+        assert restored.pre_assessment == engine.state.pre_assessment
+        assert pre_verdicts(restored) == pre_verdicts(engine.state)
+
+    def test_a_session_from_before_the_baseline_renders_without_one(self) -> None:
+        from builder.tools.fair_assessment import pre_verdicts
+
+        assert CrateState.from_dict({}).pre_assessment == {}
+        assert pre_verdicts(CrateState()) == {}
+
+
+class TestTheReportShowsBothColumns:
+    """The number this tool exists to move is only legible next to where it started."""
+
+    def _state_with_baseline(self):
+        from builder.engine import AgentEngine
+
+        state = _as_received_state()
+        engine = AgentEngine()
+        engine.state = state
+        engine._capture_pre_assessment()
+        return state
+
+    def test_a_baseline_renders_beside_every_cell(self) -> None:
+        from builder.writers.maturity_report import build_maturity_html
+
+        state = self._state_with_baseline()
+        assert state.pre_assessment
+        page = build_maturity_html(state)
+        assert "Pre-FAIRification" in page, "the page must say what the baseline is"
+        assert page.count("was ") >= 12, "every scored cell carries its intake number"
+        assert "at intake:" in page, "the tile states where the deposit started"
+
+    def test_without_a_baseline_the_page_is_exactly_as_before(self) -> None:
+        from builder.writers.maturity_report import build_maturity_html
+
+        page = build_maturity_html(_as_received_state())
+        assert "Pre-FAIRification" not in page
+        assert "at intake:" not in page

@@ -15,7 +15,11 @@ exactly how the axes come to disagree with each other about one crate.
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from builder.state import CrateState
 
 # Either an assembled ``@graph`` list or the whole crate document that wraps one —
 # callers hold whichever they were given, and normalising here beats making every
@@ -110,3 +114,74 @@ def columns(graph: Graph) -> list[dict[str, Any]]:
 def is_external_iri(value: Any) -> bool:
     """An absolute http(s) IRI — a *shared* term, not a crate-local anchor."""
     return ref_id(value).startswith(("http://", "https://"))
+
+
+def as_received_graph(state: CrateState) -> list[dict[str, Any]]:
+    """The deposit as it was handed to the tool: a folder listing, not a crate.
+
+    Scoring the input with the same instrument that scores the output is the only way
+    to say what FAIRification actually changed, and the published DSM sheet is built
+    for exactly that — its answer columns are "Pre-FAIRification" and
+    "Post-FAIRification". This is the pre column's evidence.
+
+    **What it emits, and nothing more.** One ``File`` per scanned file, carrying the
+    path, name, media type and size the scan already measured; and one root ``Dataset``
+    carrying ``hasPart`` and — only when the deposit itself declared one — a ``license``.
+    Node shapes and path derivation mirror ``_crate_mapping._add_scanned_leaves``, so a
+    file is described here the same way it will be described in the built crate.
+
+    **What it must never emit**, because inventing any of it would let the input score
+    for work the FAIRification has not done yet: a ``ro-crate-metadata.json`` descriptor
+    node, a root ``identifier``, ``name``, ``description``, ``datePublished`` or
+    ``conformsTo``, any minted ``#`` id, any Study/Assay structure, or any schema,
+    column or property-value entity. Measured on a real deposit, adding a descriptor and
+    a named, identified root doubles the number of indicators the input appears to meet.
+
+    The root exists at all only because every check walks from it: with no anchor the
+    data-format indicators fail for the wrong reason, reporting "no data" about a folder
+    that visibly holds 54 files. A root carrying nothing but ``hasPart`` still fails
+    every descriptor and identifier indicator, with the right evidence.
+    """
+    from builder.tools._crate_mapping import _RESERVED_CRATE_FILES
+
+    input_path = state.metadata.input_path
+    root_dir = Path(input_path).resolve() if input_path else None
+
+    files: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for scanned in state.scanned_files:
+        if scanned.filename in _RESERVED_CRATE_FILES:
+            continue
+        abspath = Path(scanned.path)
+        if not abspath.is_absolute() and input_path:
+            abspath = Path(input_path) / scanned.path
+        try:
+            abspath = abspath.resolve()
+        except OSError:
+            continue
+        dest: str | None = None
+        if root_dir is not None:
+            try:
+                dest = abspath.relative_to(root_dir).as_posix()
+            except ValueError:
+                dest = None
+        dest = dest or f"data/{scanned.filename}"
+        if dest in _RESERVED_CRATE_FILES or dest in seen:
+            continue
+        seen.add(dest)
+        node: dict[str, Any] = {"@id": dest, "@type": "File", "name": scanned.filename}
+        if scanned.mime_type:
+            node["encodingFormat"] = scanned.mime_type
+        if scanned.size:
+            node["contentSize"] = str(scanned.size)
+        files.append(node)
+
+    root: dict[str, Any] = {
+        "@id": "./",
+        "@type": "Dataset",
+        "hasPart": [{"@id": node["@id"]} for node in files],
+    }
+    # The one fact the deposit states about itself that a folder listing can carry.
+    if state.metadata.license and state.metadata.license_from_deposit:
+        root["license"] = state.metadata.license
+    return [root, *files]
