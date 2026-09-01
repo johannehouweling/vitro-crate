@@ -163,12 +163,14 @@ def _severity_tiers(val: ValidationReport) -> list[dict[str, str]]:
             "tier": "Required",
             "state": "ok" if req_ok else "no",
             "summary": f"{n_pass} / 3 profiles",
-            "note": "Blocking — every layer must pass to build.",
+            "note": "",
         }
     ]
+    # A note that only restates the tier's own name is noise beside it; the one state
+    # a label cannot explain — "not assessed" — keeps its sentence below.
     for label, issues, note in (
-        ("Recommended", val.should_issues, "SHOULD-level quality checks."),
-        ("Optional", val.may_issues, "MAY-level informational checks."),
+        ("Recommended", val.should_issues, ""),
+        ("Optional", val.may_issues, ""),
     ):
         key = label.casefold()
         if issues:
@@ -1381,8 +1383,7 @@ def _render_profile_section(
 
     return (
         '<section id="adherence">\n'
-        '  <div class="sec-h"><h2>Profile adherence</h2>'
-        '<span class="sec-meta">3 layers · 3 severity tiers</span></div>\n'
+        '  <div class="sec-h"><h2>Profile adherence</h2></div>\n'
         f'  <div class="prof-grid">{cards}</div>\n'
         f"  {severity_detail}\n"
         f"  {sugg}\n"
@@ -1820,7 +1821,7 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
     return (
         "<section>\n"
         '  <div class="sec-h"><h2>FAIRplus Dataset Maturity Model</h2>'
-        '<span class="sec-meta">the assessment sheet&rsquo;s own scoring</span></div>\n'
+        '</div>\n'
         '  <div class="tbl-scroll"><table class="dsm-grid">\n'
         f"    <thead><tr><th>Level</th>{head}</tr></thead>\n"
         f"    <tbody>{rows}</tbody>\n"
