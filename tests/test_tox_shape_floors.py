@@ -189,6 +189,192 @@ class TestEndpointReadoutInputFloor:
         )
 
 
+
+    def test_a_characterisation_readout_measures_every_line_it_cultured(self):
+        """The cultured sample nothing consumes (#678 + this floor).
+
+        With no Exposure in the assay, `_chain_processes` returns before its own
+        "hanging off the culture" rule can fire, and this floor skips any readout
+        that already names AN input. Since #678 cultured each line separately
+        that leaves the others produced and consumed by nothing: in the reference
+        deposit's Deiodinase assay,
+        `#LabProcess_proc_culture_deiodinase_assay_cells_MO3.13_cultured`
+        appears exactly twice in `ro-crate-metadata.json` — as its own node, and
+        as its culture's `output`.
+
+        The claim the floor already makes when the input is EMPTY — "a
+        characterisation run measures the cultured material" — is the same claim
+        here; #678 simply made "the cultured material" plural. Widening it is
+        therefore not a new assertion, and it is bounded by the subset test
+        `_chain_processes` uses: a readout naming anything that is NOT cultured
+        material still knows better than we do.
+        """
+        from builder.tools.builder import assemble_crate
+        from builder.tools.composites import scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "Characterisation probe"
+        ids = scaffold_isa_backbone(
+            state,
+            investigation={"name": "Inv", "description": "d", "identifier": "INV-1"},
+            study={"name": "Study", "description": "d"},
+            assay={"name": "Characterisation assay", "description": "d"},
+        )
+        for slug, name in (("a", "SK-N-AS"), ("b", "MO3.13")):
+            state.add_entity(
+                Entity(
+                    entity_id=f"cell_{slug}",
+                    type="CellLineSample",
+                    fields={"name": name},
+                    _provenance=EntityProvenance(created_by="llm"),
+                )
+            )
+        # The deposit's own shape: one culture names a Sample the state already
+        # holds, the readout names THAT, and the other line's sample is minted.
+        state.add_entity(
+            Entity(
+                entity_id="sample_out",
+                type="Sample",
+                fields={"name": "Cultured cells"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        state.add_entity(
+            Entity(
+                entity_id="proc_culture",
+                type="LabProcess",
+                fields={
+                    "process_type": "CellCulture",
+                    "name": "Culture cells",
+                    "cell_line": ["cell_a", "cell_b"],
+                    "culture_medium": "DMEM + 10% FBS",
+                    "output": "sample_out",
+                    "assay": ids["assay_id"],
+                },
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        state.add_entity(
+            Entity(
+                entity_id="proc_readout",
+                type="LabProcess",
+                fields={
+                    "process_type": "EndpointReadout",
+                    "name": "Characterisation readout",
+                    "endpoint": "Deiodinase activity",
+                    "measured_entity": "T3",
+                    "object": "sample_out",
+                    "assay": ids["assay_id"],
+                },
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+
+        graph = assemble_crate(
+            state, output_dir=None, materialize_payload=False, include_all_scanned=False
+        ).metadata.generate()["@graph"]
+
+        def _ids(value):
+            items = value if isinstance(value, list) else [value]
+            return {i.get("@id") for i in items if isinstance(i, dict)}
+
+        cultures = [n for n in graph if n.get("additionalType") == "CellCulture"]
+        assert len(cultures) == 2, "the per-line split (#678) did not fire"
+        produced = set()
+        for culture in cultures:
+            produced |= _ids(culture.get("output")) | _ids(culture.get("result"))
+
+        # Consumed by anything OTHER than the step that produced it.
+        producers = {c["@id"] for c in cultures}
+        consumed = set()
+        for node in graph:
+            if node["@id"] in producers:
+                continue
+            for key, value in node.items():
+                if not key.startswith("@"):
+                    consumed |= _ids(value)
+
+        assert produced - consumed == set(), (
+            "a cultured sample is produced and consumed by nothing: "
+            f"{sorted(produced - consumed)}"
+        )
+
+    def test_a_readout_naming_material_of_its_own_is_left_alone(self):
+        """The bound on the rule above.
+
+        Widening applies only where the readout is already measuring cultured
+        material. One that names a File — a run whose measurements are the
+        input — is stating something the build did not derive, and the floor
+        must not add samples beside it.
+        """
+        from builder.tools.builder import assemble_crate
+        from builder.tools.composites import scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "Knows better probe"
+        ids = scaffold_isa_backbone(
+            state,
+            investigation={"name": "Inv", "description": "d", "identifier": "INV-1"},
+            study={"name": "Study", "description": "d"},
+            assay={"name": "Characterisation assay", "description": "d"},
+        )
+        state.add_entity(
+            Entity(
+                entity_id="cell_a",
+                type="CellLineSample",
+                fields={"name": "SK-N-AS"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        state.add_entity(
+            Entity(
+                entity_id="own_material",
+                type="Sample",
+                fields={"name": "Material the readout brought itself"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        state.add_entity(
+            Entity(
+                entity_id="proc_culture",
+                type="LabProcess",
+                fields={
+                    "process_type": "CellCulture",
+                    "name": "Culture cells",
+                    "cell_line": ["cell_a"],
+                    "culture_medium": "DMEM + 10% FBS",
+                    "assay": ids["assay_id"],
+                },
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        state.add_entity(
+            Entity(
+                entity_id="proc_readout",
+                type="LabProcess",
+                fields={
+                    "process_type": "EndpointReadout",
+                    "name": "Characterisation readout",
+                    "endpoint": "Deiodinase activity",
+                    "object": "own_material",
+                    "assay": ids["assay_id"],
+                },
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+
+        graph = assemble_crate(
+            state, output_dir=None, materialize_payload=False, include_all_scanned=False
+        ).metadata.generate()["@graph"]
+
+        def _ids(value):
+            items = value if isinstance(value, list) else [value]
+            return {i.get("@id") for i in items if isinstance(i, dict)}
+
+        readout = next(n for n in graph if n.get("additionalType") == "EndpointReadout")
+        consumed = _ids(readout.get("input")) | _ids(readout.get("object"))
+        assert consumed == {"#Sample_own_material"}, consumed
+
 class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
     """`_INPUT_REQUIRED_TYPES` excludes three types the shapes DO constrain.
 
