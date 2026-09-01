@@ -2942,3 +2942,64 @@ class TestHeadlessSessions:
             interactive=False,
         )
         assert h.run() == {"stop_reason": "completed", "error": None}
+
+
+class TestTheBoxSaysWhatItIsWaitingFor:
+    """#596: a stop never leaves the user guessing between "confirm" and "continue".
+
+    One dim line is printed above the ❯ box after the agent stops, naming what
+    the box is for: an answer to the question above, a next step (or
+    ``continue``) while work is open, or a change once nothing is left.
+    """
+
+    def _transcript(self, monkeypatch, *, replies, stdin_lines, **kw) -> str:
+        import io
+
+        from rich.console import Console
+
+        h = _LoopHarness(monkeypatch, replies=replies, stdin_lines=stdin_lines, **kw)
+        buf = io.StringIO()
+        monkeypatch.setattr(
+            h.agent_loop.ui,
+            "get_console",
+            lambda: Console(file=buf, width=200, force_terminal=False, color_system=None),
+        )
+        h.run()
+        return buf.getvalue()
+
+    def test_a_prose_question_asks_for_an_answer(self, monkeypatch):
+        out = self._transcript(
+            monkeypatch,
+            replies=["Which cell line did you use?"],
+            stdin_lines=["start", "quit"],
+        )
+        assert "Answer the question above" in out
+
+    def test_a_stop_with_open_work_offers_continue(self, monkeypatch):
+        from builder.agents.react import agent_loop
+
+        monkeypatch.setattr(
+            agent_loop, "open_items", lambda state, **kw: ["Study needs a description"]
+        )
+        out = self._transcript(
+            monkeypatch,
+            replies=["Working."] * (agent_loop._MAX_AUTONOMOUS_TURNS + 1),
+            stdin_lines=["start", "quit"],
+        )
+        assert "or 'continue'" in out
+
+    def test_a_finished_crate_says_so(self, monkeypatch):
+        out = self._transcript(
+            monkeypatch,
+            replies=["All done."],
+            stdin_lines=["start", "quit"],
+            complete_after=1,
+        )
+        assert "Nothing left to do" in out
+
+    def test_the_first_prompt_carries_no_hint(self, monkeypatch):
+        """Before any turn there is nothing to answer or continue."""
+        out = self._transcript(monkeypatch, replies=[], stdin_lines=["quit"])
+        assert "Answer the question above" not in out
+        assert "or 'continue'" not in out
+        assert "Nothing left to do" not in out

@@ -96,8 +96,8 @@ Session & human-in-the-loop:
 - load_session: Load a previously saved session by ID
 - get_status: Get current session status
 - get_hint: Get a hint for next action
-- present_to_human: Present information to the user and get their response
-- request_input: Ask the user for a specific input value (e.g. a CAS number)
+- present_to_human: Ask the user to decide — options they confirm with one key; several open items at once via questions, each with its own options
+- request_input: Ask the user for one free-text value (e.g. a CAS number)
 
 ## Build Strategy: Get a Validatable Crate Fast
 
@@ -170,10 +170,12 @@ as soon as the backbone exists — do **not** leave it to the end:
    These take an entity id or a verified ORCID/ROR IRI and are REJECTED if they
    do not resolve — a bare name is not attribution.
 4. **Confirm with the user.** State what you found and ask them to confirm or
-   correct it: "The metadata names Dr. X (ORCID …, Universiteit Utrecht) as the
-   corresponding person — should they be the crate's contact and publisher?"
-   The corresponding person of an assay is evidence, not proof, of who publishes
-   the dataset. If nothing names them, ASK rather than guess.
+   correct it, through `present_to_human` with the decision as options:
+   context "The metadata names Dr. X (ORCID …, Universiteit Utrecht) as the
+   corresponding person", options "Yes, record Dr. X as the crate's contact and
+   publisher" / "No". The corresponding person of an assay is evidence, not
+   proof, of who publishes the dataset. If nothing names them, ASK rather than
+   guess.
 
 The publication's authors are NOT this. They describe the paper; publisher /
 creator / contact describe the dataset. A crate can list six authors and still
@@ -223,7 +225,7 @@ The key insight: **draft a minimal Investigation, Study, Assay, run `build_and_v
 2. Use `list_entities` only when you need to search for an entity that the preceding tool did not return. Do not repeat identical list queries without an intervening mutation or a changed search.
 3. NEVER fabricate identifiers. Every identifier must be verified against its source.
 4. First, scan the input directory to build your file inventory.
-5. Draft entities conversationally — ask the user for information you need.
+5. Ask through `present_to_human` / `request_input`, never by ending a reply with a question: a tool question gives the user rows to confirm with one key, a prose question leaves them a blank box. One decision per prompt; several open items go in questions, each with its own options; never add an 'Other' option — the user can always type their own answer.
 6. Use lookups to enrich entity metadata whenever possible.
 7. Validate continuously — REQUIRED issues block, SHOULD/MAY are recommendations.
 8. Present entities to the human for review before committing.

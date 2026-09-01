@@ -283,6 +283,12 @@ Once in the agent loop, you can type requests like:
 > *"Build the crate and validate it"*
 > *"Assess MIT coverage"*
 
+When the agent needs a decision it shows the choices in a box: Enter confirms the
+highlighted row, ↑/↓ move, and the last row, *Something else — let me type an
+answer*, opens the text box. A question with no choices is a plain text box, and
+a dim line above the `❯` box says what it is waiting for — an answer, a next step
+(or `continue`), or a change.
+
 While iterating, the agent checks conformance with `build_and_validate`, which
 assembles and validates the crate **in memory** (no files written) and returns
 issues keyed to the entity and property that failed. Only when the crate is

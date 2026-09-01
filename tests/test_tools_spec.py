@@ -547,3 +547,22 @@ class TestExportIsDescribedAsAFinalStep:
     def test_it_says_conformance_is_not_completion(self):
         text = self._description().casefold()
         assert "required" in text and "not completion" in text
+
+
+def test_present_to_human_can_carry_several_questions_each_with_its_own_options():
+    """#596: the schema must not invite bundling three questions into one
+    context with one catch-all option — it offers a per-question form instead."""
+    from typing import Any, cast
+
+    spec = next(s for s in TOOL_SPECS if s["name"] == "present_to_human")
+    params = cast(dict[str, Any], spec["parameters"])
+
+    questions = params["properties"]["questions"]
+    assert questions["type"] == "array"
+    entry = questions["items"]
+    assert entry["type"] == "object"
+    assert entry["required"] == ["question"]
+    assert entry["properties"]["question"]["type"] == "string"
+    assert entry["properties"]["options"] == {"type": "array", "items": {"type": "string"}}
+    # A prompt without `questions` is still the single decision it always was.
+    assert params["required"] == ["context"]
