@@ -330,7 +330,10 @@ class TestTheTierVocabularyMatchesTheValidator:
         from builder.tools.remediation import _TIER_RANK, _strongest
 
         assert _strongest(["SOMETHING_NEW", "OPTIONAL"]) == "OPTIONAL"
-        assert _TIER_RANK.get("SOMETHING_NEW", 3) == 3
+        # Four ranks now: REQUIRED, MATURITY (a DSM rung), RECOMMENDED, OPTIONAL. An
+        # unknown severity must fall BELOW the lowest of them, not tie with it.
+        assert _TIER_RANK.get("SOMETHING_NEW", 4) == 4
+        assert max(_TIER_RANK.values()) < 4
 
 
 class TestTheDateInstructionNamesTheRightDate:

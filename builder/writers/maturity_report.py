@@ -837,23 +837,15 @@ def _fair_tile(
             rungs += '<span class="rung2 off"></span>'
     blocked = ""
     if blockers:
-        # The count is a claim a reader must be able to drill into — the FAIR
-        # detail section is gone, so the blocking indicators are named right
-        # here, one fold away, in the YAML's own words.
+        # The count is a claim a reader must be able to drill into, and it now drills
+        # into the one place the page answers "what do I do": Recommendations, where
+        # each of these is a row carrying an instruction. Restating the list here as
+        # bare indicator text — the model's question, with no fix — is what made a
+        # maturity gap read differently from a conformance finding.
         n = len(blockers)
-        # The evidence is what makes a verdict auditable — the published model is a
-        # human assessment instrument, so "why did it say no?" must be answerable
-        # without reading the source.
-        items = "".join(
-            f"<li><code>{html.escape(bid)}</code> {html.escape(text)}"
-            + (f'<span class="blk-why">{html.escape(why)}</span>' if why else "")
-            + "</li>"
-            for bid, text, why in blockers
-        )
         blocked = (
-            f'<details class="blockers"><summary><b>{n} '
-            f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</summary>'
-            f'<ul class="blk">{items}</ul></details>'
+            f'<div class="kpi-sub"><a href="#next"><b>{n} '
+            f'indicator{"s" if n != 1 else ""}</b> to level {fair.dsm_level + 1}</a></div>'
         )
     reach = ""
     if intake is not None:
@@ -1544,16 +1536,28 @@ def _render_recommendations(
     val: ValidationReport | None,
     graph: dict[str, Any] | list[dict[str, Any]] | None,
     *,
+    dsm: list[Any] | None = None,
+    dsm_level: int = 0,
     stale: bool = False,
 ) -> str:
     """Recommendations: the findings collapsed into the actions that clear them.
 
-    Each row is three parts, in reading order: the validator's own shape
-    message, verbatim, in a mono chip prefixed by its source layer; the
-    severity badge; then the plain-language instruction in bold with one muted
-    clause on why it matters (``remediation.why``). The rest of the report
-    answers "what is wrong" one finding at a time — this section answers "what
-    do I do", and says how many findings each action closes.
+    Each row is three parts, in reading order: the instrument's own words,
+    verbatim, in a mono chip prefixed by the layer they came from; a badge; then
+    the plain-language instruction in bold with one muted clause on why it
+    matters (``remediation.why``). The rest of the report answers "what is
+    wrong" one finding at a time — this section answers "what do I do", and says
+    how many findings each action closes.
+
+    **One shape for both instruments.** A DSM indicator blocking the next level
+    arrives here as an ``Action`` like any other, so "the crate is not valid
+    until you do X" and "the crate does not reach Level 2 until you do Y" are
+    read the same way and ranked against each other. Its chip carries the
+    published indicator text, its badge names the rung rather than borrowing a
+    validator severity, and its instruction comes from the indicator's
+    ``remedy`` in ``fair/dsm_indicators.yaml``. The section therefore renders
+    for a crate with a clean validation run and an open maturity gap, which it
+    previously declined to do.
 
     Deterministic and cheap like everything else here: the grouping is pure and
     the phrasing falls back to a template, so embedding the report in an export
@@ -1570,11 +1574,19 @@ def _render_recommendations(
     )
     from builder.writers.provenance_dag import build_crate_graph
 
-    if val is None or not _validation_has_signal(val):
+    dsm_actions = list(dsm or [])
+    if (val is None or not _validation_has_signal(val)) and not dsm_actions:
         return ""
-    if stale:
-        # The findings were recorded against a different crate; prescribing
-        # them here would assert a diagnosis the page's own matrix refuses.
+    # A stale verdict was recorded against a different crate, so prescribing its
+    # findings would assert a diagnosis the page's own matrix refuses. The DSM rows are
+    # not stale — they were measured from the graph in hand a moment ago — so they still
+    # stand, and the notice says which half is missing.
+    stale_note = (
+        '  <p class="lead">The last recorded validation verdict was computed against an '
+        "earlier version of this crate, so its findings are held back &mdash; re-run "
+        "validation for those. The maturity rows below are current.</p>\n"
+    )
+    if stale and not dsm_actions:
         return (
             '<section id="next">\n'
             '  <div class="sec-h"><h2>Recommendations</h2></div>\n'
@@ -1584,6 +1596,8 @@ def _render_recommendations(
             "</section>\n"
         )
     issues = [dict(r) for r in (getattr(val, "issue_records", None) or [])]
+    if val is None or stale:
+        issues = []
     raw_nodes = graph.get("@graph", []) if isinstance(graph, dict) else (graph or [])
     labels = {
         str(n.get("@id")): str(n.get("name"))
@@ -1596,10 +1610,11 @@ def _render_recommendations(
         if isinstance(n, dict) and n.get("@type") is not None
     }
     actions = group_findings(issues, labels=labels, types=types)
-    if graph is not None:
+    if graph is not None and not stale:
         model = build_crate_graph(graph)
         orphans = [str(n["id"]) for n in model.get("nodes", []) if n.get("orphan")]
         actions += group_orphans(orphans, labels=labels, types=types)
+    actions += dsm_actions
     live = [a for a in actions if a.actionable and a.cleared]
     if not live:
         return ""
@@ -1608,13 +1623,14 @@ def _render_recommendations(
     # people" clears more findings than "say which measurement technique was
     # used", and ranking by count put the first above the second — which is
     # backwards for anyone who has to reuse the data.
-    live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 3), a.impact, -a.cleared, a.subject))
+    live.sort(key=lambda a: (_TIER_RANK.get(a.tier, 4), a.impact, -a.cleared, a.subject))
     esc = html.escape
 
     # The source layer the chip names, in the crate's own vocabulary.
     source_labels = {
         **dict(_PROFILE_LAYERS),
         "fair": "FAIR",
+        "dsm": "DSM",
         "mit": "MIT",
         "air": "AI-readiness",
         "graph": "Graph",
@@ -1626,11 +1642,19 @@ def _render_recommendations(
             source = source_labels.get(action.source, action.source)
             prefix = f"{esc(source)} &middot; " if source else ""
             chip = f'<code class="rec-chip">{prefix}{esc(action.message)}</code>'
-        badge_class = {"REQUIRED": "req", "RECOMMENDED": "rec"}.get(action.tier, "opt")
-        badge = (
-            f'<span class="rec-badge {badge_class}">'
-            f"{esc(TIER_LABEL.get(action.tier, action.tier.title()))}</span>"
+        badge_class = {"REQUIRED": "req", "MATURITY": "lvl", "RECOMMENDED": "rec"}.get(
+            action.tier, "opt"
         )
+        # A maturity row names the rung it unblocks rather than a validator severity:
+        # nothing in the DSM makes a crate invalid, and borrowing "Required" would say
+        # it does.
+        label = (
+            f"Level {dsm_level}"
+            if action.tier == "MATURITY" and dsm_level
+            else TIER_LABEL.get(action.tier, action.tier.title())
+        )
+        badge = f'<span class="rec-badge {badge_class}">{esc(label)}</span>'
+
         reason = why(action)
         clause = f' <span class="rec-why">{esc(reason)}</span>' if reason else ""
         return (
@@ -1656,8 +1680,11 @@ def _render_recommendations(
     return (
         '<section id="next">\n'
         '  <div class="sec-h"><h2>Recommendations</h2></div>\n'
-        '  <p class="lead">Each row is the validator&rsquo;s own shape message, its severity, '
-        "then a plain-language instruction.</p>\n"
+        + (stale_note if stale else "")
+        + '  <p class="lead">Each row is the instrument&rsquo;s own wording, what it counts '
+        "against, then a plain-language instruction. A <b>Level</b> badge marks a FAIRplus "
+        "DSM indicator standing between this crate and its next maturity level; the rest "
+        "are profile conformance findings.</p>\n"
         f'  <ol class="recs">{rows}</ol>\n'
         "</section>\n"
     )
@@ -2779,6 +2806,7 @@ def build_maturity_html(
         dsm_verdicts,
         pre_verdicts,
     )
+    from builder.tools.remediation import dsm_indicator_actions
 
     # Every axis reads the SAME assembled graph. AI-readiness asks about entities and
     # the links between them, which exist only once the crate is assembled — with no
@@ -2809,6 +2837,9 @@ def build_maturity_html(
         else None
     )
     dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {}, pre_cells)
+    # The indicators standing before the next level, worded as instructions and ranked
+    # against the conformance findings in one list — see _render_recommendations.
+    dsm_recommendations = dsm_indicator_actions(dsm_reach["blocked_by"], dsm_data)
 
     kpis = _render_kpis(
         tiers,
@@ -2841,7 +2872,13 @@ def build_maturity_html(
         + dsm_section
         + mit_section
         + air_section
-        + _render_recommendations(val, graph, stale=stale)
+        + _render_recommendations(
+            val,
+            graph,
+            dsm=dsm_recommendations,
+            dsm_level=dsm_reach["attained"] + 1,
+            stale=stale,
+        )
         + crate_card
         + _render_references()
     )

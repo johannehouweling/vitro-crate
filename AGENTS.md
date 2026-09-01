@@ -2147,9 +2147,20 @@ Files block alone lists 59 on a real deposit — so left open it sits between th
 everything below it, and closed it reads as a contents list. The count rides in the summary
 because that number is the whole value of a block nobody opens, and `@media print` forces every
 fold open so a printed copy keeps the inventory it exists to carry. The Files block's own
-per-Dataset folds nest inside unchanged. Findings collapse into **Recommendations** rows — the validator's own message verbatim in a mono
-chip prefixed by its source layer, the severity badge, then `remediation.describe`'s bold
-instruction with `remediation.why`'s one muted consequence clause — and numbered **References**
+per-Dataset folds nest inside unchanged. Findings collapse into **Recommendations** rows — the instrument's own words verbatim in a mono
+chip prefixed by its source layer, a badge, then `remediation.describe`'s bold instruction with
+`remediation.why`'s one muted consequence clause. **Both instruments use that one shape.** A DSM
+indicator blocking the next level arrives as an `Action` like any other
+(`remediation.dsm_indicator_actions`), so "this crate is not valid until you do X" and "this crate
+does not reach Level 2 until you do Y" are read the same way and ranked against each other — the
+`MATURITY` tier sits between `REQUIRED` and `RECOMMENDED`, because a conformance failure means the
+crate is not a valid RO-Crate at all while a rung is only the next thing to reach. Its badge names
+the rung rather than borrowing a validator severity, and its instruction is the indicator's
+`remedy` in `fair/dsm_indicators.yaml` — repo-authored beside `LOCAL_SCOPE`, because the workbook
+states the question and never the fix, and the generator refuses to emit an assessable indicator
+that has no remedy. The section therefore renders for a crate whose validation is clean and whose
+ladder is not, and the FAIR tile's blocker count links into it rather than restating the list.
+Numbered **References**
 close the page (1: FAIRplus DSM / RDA FDMM; 2: tox-maturity-indicators; 3: the Bridge2AI
 AI-readiness criteria, named as a preprint and as quoted verbatim under CC BY-ND). There is no FAIR
 pillar detail section and no header verdict pill; the entity explorer, entity coverage, the

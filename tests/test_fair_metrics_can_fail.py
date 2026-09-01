@@ -857,9 +857,9 @@ class TestInflationCannotHideBehindAFailingLevelOne:
 _PRE_ALLOWED = {
     "DSM-1-C3": (
         "access_info is state-bound and passes on `state.session_id` alone. The one "
-        "dishonest pass in this set; it is on the `_DSM_STATE_BOUND` burn-down, and "
-        "narrowing it would move the POST score too, so it is pinned rather than fixed "
-        "here."
+        "dishonest pass in this set (#706); it is on the `_DSM_STATE_BOUND` burn-down, "
+        "and narrowing it would move the POST score too, so it is pinned rather than "
+        "fixed here."
     ),
     "DSM-1-R5": (
         '"Dataset(s) available in Machine Readable Format" — the deposit really does '

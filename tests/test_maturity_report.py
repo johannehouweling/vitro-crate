@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 
 import json
@@ -864,12 +865,15 @@ class TestFairTileAndRose:
         blockers = dsm_ceiling(state)["blocked_by"]
         assert blockers, "fixture has no DSM blockers; the assertion below is inert"
         assert (
-            f"<b>{len(blockers)} indicator{'s' if len(blockers) != 1 else ''}</b> "
-            f"to level {fair.dsm_level + 1}" in page
+            f'<a href="#next"><b>{len(blockers)} '
+            f"indicator{'s' if len(blockers) != 1 else ''}</b> "
+            f"to level {fair.dsm_level + 1}</a>" in page
         )
-        # The count is drillable: the fold names every blocking indicator.
-        for bid, text, _why in blockers:
-            assert f"<code>{bid}</code>" in page and text in page, bid
+        # The count is drillable, and what it drills into is an instruction rather
+        # than a restatement of the model's question.
+        for _bid, text, _why in blockers:
+            assert text in page, text
+            assert f"DSM &middot; {html.escape(text)}" in page, "chipped like a finding"
 
     def test_the_rose_draws_every_module_to_the_scorers_numbers(self) -> None:
         import math
@@ -3158,8 +3162,37 @@ class TestTheRecommendationsCloseTheReport:
         assert 'class="jump"' not in page.split("</style>", 1)[-1]
 
     def test_no_section_when_there_is_nothing_to_do(self) -> None:
-        """An empty exhortation is worse than silence."""
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert 'id="next"' not in page.split("</style>", 1)[-1]
+        """An empty exhortation is worse than silence.
+
+        Asserted against the renderer rather than a fixture crate: every crate on hand
+        has a DSM indicator open, and those are now rows in this section, so "nothing
+        to do" is a state the corpus no longer reaches.
+        """
+        from builder.writers.maturity_report import _render_recommendations
+
+        assert _render_recommendations(None, None, dsm=[], dsm_level=0) == ""
+
+    def test_a_maturity_gap_alone_still_earns_the_section(self) -> None:
+        """A crate that validates cleanly can still be one indicator off the next level,
+        and that is exactly the reader who needs to be told what to do."""
+        from builder.tools.remediation import Action
+        from builder.writers.maturity_report import _render_recommendations
+
+        action = Action(
+            key="dsm:DSM-1-C0",
+            kind="indicator",
+            subject="DSM-1-C0",
+            findings=["no persistent identifier"],
+            tier="MATURITY",
+            source="dsm",
+            message="Each Dataset purposed for sharing and re-use is assigned a unique identifier",
+            instruction="Mint a DOI for the deposit and record it on the root as `identifier`.",
+            consequence="a reader cannot cite the deposit",
+        )
+        page = _render_recommendations(None, None, dsm=[action], dsm_level=1)
+        assert 'id="next"' in page
+        assert "DSM &middot; Each Dataset" in page, "the chip carries the model's own words"
+        assert '<span class="rec-badge lvl">Level 1</span>' in page
+        assert "Mint a DOI" in page and "a reader cannot cite the deposit" in page
 
 
