@@ -112,6 +112,19 @@ PIPELINE_UNREACHED: Mapping[str, str] = {
         "ParameterValue lane, which is exactly where units are needed."
     ),
     # --- honestly ReAct-only or superseded ------------------------------------
+    "assess_fair_maturity": (
+        "ReAct-only AS A TOOL. The deterministic arm scores FAIR maturity twice, but "
+        "as a library call with the assembled graph in hand — gap_analysis._fair_gaps "
+        "for the guidance tail, and maturity_report.build_maturity_html for the page. "
+        "The registered callable assembles a graph first, which those two already "
+        "have, so wiring it into the arm would score the same crate a third time."
+    ),
+    "assess_air_readiness": (
+        "Same shape as assess_fair_maturity: the arm reaches the assessor as a library "
+        "call from gap_analysis._air_gaps and the report writer, never as a tool. This "
+        "waiver used to be unnecessary only because the registry pointed at the bare "
+        "assessor, so the guard counted a library call on the arm as a tool call."
+    ),
     "lookup_ontology_term": (
         "Generic OLS escape hatch across EFO/OBI/NCIT/UBERON. No deterministic "
         "field needs an arbitrary ontology term; this is LLM-discretionary."

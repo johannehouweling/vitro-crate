@@ -329,9 +329,32 @@ class TestScoreFloors:
         assert general.get("completed", 0) >= 2, report.module_scores
 
     def test_fair_maturity_floor(self, scripted_run):
+        """Indicators pass, and where the ladder stops it stops for a NAMED reason.
+
+        This used to assert ``dsm_level >= 1``, which held only because the tool ran
+        with no graph: every indicator that reads the crate answered "not assessed",
+        and the gate awarded Level 1 on the state-only checks that were left. Scoring
+        the assembled crate, the scripted deposit fails Level 1 for the same reason
+        every real one does — no persistent identifier (#682) — so the honest floor is
+        not a number but the demand that the cap be explained.
+        """
+        from builder.tools.fair_assessment import dsm_ceiling
+        from builder.tools.mit_assessment import scoring_graph
+
+        state = scripted_run.engine.state
         report = scripted_run.engine.run_tool("assess_fair_maturity")
         passed = [r for r in report.indicator_results if r.get("passed") is True]
         assert passed, "no FAIR indicators passed"
-        # DSM level is cumulative; the scripted crate has title+description+
-        # entities+ids, clearing the lowest tiers.
-        assert report.dsm_level >= 1, report.dsm_level
+
+        # The SAME assembled crate the tool scored. Reading the ladder off a graph-free
+        # call would compare two different crates and report 2 against the tool's 0.
+        reach = dsm_ceiling(state, None, scoring_graph(state))
+        assert reach["attained"] == report.dsm_level, "the two must not disagree"
+        if report.dsm_level < reach["ceiling"]:
+            assert reach["blocked_by"], (
+                f"DSM {report.dsm_level} of {reach['ceiling']} with nothing named as "
+                "blocking it — a capped level with no stated reason is not a score"
+            )
+            for ident, text, _why in reach["blocked_by"]:
+                assert ident.startswith("DSM-"), ident
+                assert text, f"{ident} blocks the ladder but states no question"
