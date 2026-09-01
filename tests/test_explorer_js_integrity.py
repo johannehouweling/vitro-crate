@@ -33,7 +33,7 @@ _PAGE_GLOBALS = ("React", "ReactDOM", "htm", "dagre", "window", "document", "con
 _SCRIPTS = (
     "entity_explorer.js",
     "entity_explorer_layout.js",
-    "assay_lane_layout.js",
+    "assay_lane_view.js",
     "payload_codec.js",
 )
 
@@ -123,7 +123,7 @@ class TestThePageLoadsInABrowser:
 
         section = render_explorer_section(assay_lane_graph())
         bodies = re.findall(r"<script[^>]*>(.*?)</script>", section, re.S)
-        wanted = ("dagre", "root.ExplorerLayout = factory", "root.AssayLaneLayout = factory")
+        wanted = ("dagre", "root.ExplorerLayout = factory", "root.AssayLaneView = factory")
         return [
             body
             for body in bodies
@@ -131,12 +131,12 @@ class TestThePageLoadsInABrowser:
         ]
 
     def test_both_layout_modules_attach_themselves_to_the_window(self):
-        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneLayout"])
-        assert out["defined"] == {"ExplorerLayout": True, "AssayLaneLayout": True}
+        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneView"])
+        assert out["defined"] == {"ExplorerLayout": True, "AssayLaneView": True}
 
     def test_the_lane_takes_its_node_size_from_the_layout_beside_it(self):
         """One component, one set of constants: a lane node and a canvas node
         are the same node, so the two must not be able to drift apart."""
-        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneLayout"])
-        assert out["sizes"]["AssayLaneLayout"] == out["sizes"]["ExplorerLayout"]
+        out = self._run(self._geometry_scripts(), ["ExplorerLayout", "AssayLaneView"])
+        assert out["sizes"]["AssayLaneView"] == out["sizes"]["ExplorerLayout"]
         assert out["sizes"]["ExplorerLayout"] == {"NODE_W": 200, "NODE_H": 44}

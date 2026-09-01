@@ -912,6 +912,27 @@ def relation_terms() -> dict[str, str]:
     return terms
 
 
+def reversed_relations() -> set[str]:
+    """The labels whose edge is drawn against the predicate that names it.
+
+    ``_extract_edges`` flips ``src`` and ``dst`` for a ``reverse=True`` relation
+    so the arrow points the way material moves — the cell line INTO the step
+    that consumed it, the compound INTO the protocol that lists it — which is
+    what lets a chain be read left to right. The label it keeps is still the
+    crate's predicate, and that predicate runs the other way.
+
+    A renderer therefore cannot print the bare term on such an arrow without
+    asserting the inverse triple, and it needs this set to know which. Derived
+    from the relation tables rather than restated, for the reason
+    :func:`relation_terms` is: the tables are where the flag already lives.
+    """
+    return {
+        label
+        for _keys, label, is_reversed in _PRIMARY_RELATIONS + _SECONDARY_RELATIONS
+        if is_reversed
+    }
+
+
 def _entity_layer(node: dict[str, Any]) -> int:
     """Classify a node into a paper layer (1 packaging / 2 ISA / 3 ISA-Tox).
 

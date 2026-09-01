@@ -271,7 +271,7 @@ class TestThePageCarriesTheLane:
         from builder.writers.entity_explorer import render_explorer_section
 
         section = render_explorer_section(assay_lane_graph())
-        assert "AssayLaneLayout" in section
+        assert "AssayLaneView" in section
 
     def test_the_lane_module_loads_after_the_layout_it_reads(self):
         """It takes NODE_W/NODE_H from `ExplorerLayout` at factory time, so a
@@ -280,13 +280,13 @@ class TestThePageCarriesTheLane:
 
         section = render_explorer_section(assay_lane_graph())
         assert section.index("root.ExplorerLayout = factory") < section.index(
-            "root.AssayLaneLayout = factory"
+            "root.AssayLaneView = factory"
         )
 
     def test_the_lane_module_loads_before_the_app_that_calls_it(self):
         from builder.writers.entity_explorer import render_explorer_section
 
         section = render_explorer_section(assay_lane_graph())
-        assert section.index("root.AssayLaneLayout = factory") < section.index(
-            "window.AssayLaneLayout"
+        assert section.index("root.AssayLaneView = factory") < section.index(
+            "window.AssayLaneView"
         )

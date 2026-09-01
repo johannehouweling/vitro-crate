@@ -9,7 +9,8 @@
  *
  * argv[2]: path to builder/writers/assay_lane_view.js
  * stdin:   {"nodes": [{"id":…, "category":…, "type":…}, …],
- *           "edges": [{"src":…, "dst":…, "labels":[…]}, …]}
+ *           "edges": [{"src":…, "dst":…, "labels":[…]}, …],
+ *           "reversed": [label, …]}   the payload's relations_reversed
  * stdout:  {"ranks": [{key, label, members}],
  *           "positions": {id: {x, y, w, h}},
  *           "edges": [{src, dst, label, reversed, subject}],
@@ -22,7 +23,7 @@ var G = require(require('path').join(require('path').dirname(process.argv[2]),
 var input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 var nodes = new Map(input.nodes.map(function (n) { return [n.id, n]; }));
 
-var drawing = V.build(new Set(nodes.keys()), input.edges, nodes);
+var drawing = V.build(new Set(nodes.keys()), input.edges, nodes, input.reversed);
 
 /* Segments that cross, counted the same way for both layouts so the comparison
  * is about the drawing and not about how each one is measured. */
