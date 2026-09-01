@@ -1738,11 +1738,7 @@ def _render_references() -> str:
     )
 
 
-def _render_dsm_grid_section(
-    grid: dict[int, dict[str, Any]],
-    levels: dict[int, str],
-    pre: dict[int, dict[str, Any]] | None = None,
-) -> str:
+def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, str]) -> str:
     """The DSM's own **"% Complete" grid** — the published instrument's only output.
 
     No formula in the assessment workbook computes an achieved maturity level; what it
@@ -1757,11 +1753,10 @@ def _render_dsm_grid_section(
     states how much of it we actually assessed. Where that reads ``0 of 4``, the
     percentage beside it is the sheet's arithmetic over four blanks, not a measurement.
    
-    **Both of the sheet's answer columns.** The workbook is a before/after instrument —
-    its columns are "Pre-FAIRification Assessment" and "Post-FAIRification Assessment" —
-    so where a baseline was captured at intake each cell carries it too. That is the
-    number this tool exists to move, and a percentage with nothing to compare it against
-    cannot show whether the crate improved the deposit or merely described it.
+    The workbook is a before/after instrument — its columns are "Pre-FAIRification
+    Assessment" and "Post-FAIRification Assessment" — and the baseline captured at
+    intake is reported once, on the FAIR tile, rather than doubled into all 24 cells:
+    two percentages per cell buried the one the grid exists to show.
     """
     if not grid:
         return ""
@@ -1782,18 +1777,21 @@ def _render_dsm_grid_section(
                 cells += '<td class="dsm-na">—</td>'
                 continue
             assessed, total = cell["assessed"], cell["total"]
-            state = "full" if pct >= 100 else ("part" if pct > 0 else "none")
             if not assessed:
-                state = "na"
-            was = ((pre or {}).get(level, {}) or {}).get(code) or {}
-            intake = (
-                f'was {was["published_pct"]:g}% &middot; '
-                if was.get("published_pct") is not None
-                else ""
-            )
+                # The sheet has an answer here — a blank validates to 0, and Level 0
+                # counts zeros, so its arithmetic reads 100%. Printing that would tell
+                # a reader the deposit fully escaped the pre-FAIRification state on the
+                # strength of nobody having looked. A percentage nothing was measured
+                # for is not a score, so the cell says what it actually knows.
+                cells += (
+                    '<td class="dsm-na"><span class="dsm-pct">not assessed</span>'
+                    f'<span class="dsm-den">0 of {total} assessable</span></td>'
+                )
+                continue
+            state = "full" if pct >= 100 else ("part" if pct > 0 else "none")
             cells += (
                 f'<td class="dsm-{state}"><span class="dsm-pct">{pct:g}%</span>'
-                f'<span class="dsm-den">{intake}{assessed} of {total} assessed</span></td>'
+                f'<span class="dsm-den">{assessed} of {total} assessed</span></td>'
             )
         rows += (
             f'<tr><th scope="row"><b>{level}</b> '
@@ -1801,25 +1799,20 @@ def _render_dsm_grid_section(
         )
     return (
         "<section>\n"
-        '  <div class="sec-h"><h2>DSM &mdash; % complete by level and category</h2>'
+        '  <div class="sec-h"><h2>FAIRplus Dataset Maturity Model</h2>'
         '<span class="sec-meta">the assessment sheet&rsquo;s own scoring</span></div>\n'
         '  <div class="tbl-scroll"><table class="dsm-grid">\n'
         f"    <thead><tr><th>Level</th>{head}</tr></thead>\n"
         f"    <tbody>{rows}</tbody>\n"
         "  </table></div>\n"
         '  <p class="dsm-note">'
-        + (
-            "Where a cell says <b>was</b>, that is the same sheet scored against the "
-            "deposit as it arrived &mdash; the workbook&rsquo;s own "
-            "&ldquo;Pre-FAIRification&rdquo; column, taken before anything was drafted. "
-            if pre
-            else ""
-        )
-        + "Percentages are the published sheet&rsquo;s own: satisfied "
+        "Percentages are the published sheet&rsquo;s own: satisfied "
         "&divide; the cell&rsquo;s denominator &times; 100. The sheet has no "
         "&ldquo;not assessed&rdquo; state &mdash; its validation column is all formulas, "
-        "so a blank scores 0 &mdash; which is why each cell also states how many of its "
-        "indicators were actually assessed. A cell&rsquo;s membership is the "
+        "so a blank scores 0 &mdash; which is why each cell states how many of its "
+        "indicators were actually assessed, and why a cell with none says so rather "
+        "than publishing the number the sheet would compute over blanks. A cell&rsquo;s "
+        "membership is the "
         "sheet&rsquo;s: higher levels carry lower ones forward. Level&nbsp;0 states the "
         "pre-FAIRification condition in the negative, so the sheet counts its zeros. "
         "Hosting-environment indicators describe the environment serving the dataset, so "
@@ -2825,7 +2818,6 @@ def build_maturity_html(
     # the same cells are scored against it, so the page says what FAIRification moved
     # rather than only where the crate ended up.
     pre_answers = pre_verdicts(state)
-    pre_cells = dsm_grid(state, dsm_data, None, answers=pre_answers) if pre_answers else None
     intake = (
         (
             sum(1 for v in pre_answers.values() if v.value is True),
@@ -2835,7 +2827,7 @@ def build_maturity_html(
         if pre_answers
         else None
     )
-    dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {}, pre_cells)
+    dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {})
     # The indicators standing before the next level, worded as instructions and ranked
     # against the conformance findings in one list — see _render_recommendations.
     dsm_recommendations = dsm_indicator_actions(dsm_reach["blocked_by"], dsm_data)
