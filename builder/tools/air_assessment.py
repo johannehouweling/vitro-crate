@@ -755,24 +755,6 @@ def assess_air_readiness(state: CrateState, *, graph: Graph = None) -> AIRReport
     )
 
 
-def air_blockers(state: CrateState, graph: Graph = None) -> list[tuple[str, str, str]]:
-    """``(id, published practice text, evidence)`` for every criterion that failed.
-
-    Only genuine failures — a criterion that was never assessed is absent, so the list
-    reads as a fix list rather than as a list of things the instrument cannot see.
-    """
-    air_data = _load_yaml(AIR_CRITERIA_PATH)
-    if air_data is None:
-        return []
-    answers = air_verdicts(state, air_data, graph)
-    return [
-        (str(c.get("id")), str(c.get("text", "")), answers[str(c.get("id"))].evidence)
-        for c in air_data.get("criteria", [])
-        if answers.get(str(c.get("id"))) is not None
-        and answers[str(c.get("id"))].value is False
-    ]
-
-
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------

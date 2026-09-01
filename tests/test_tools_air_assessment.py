@@ -19,7 +19,6 @@ import pytest
 from builder.state import AIRReport, CrateState, Entity, EntityProvenance
 from builder.tools.air_assessment import (
     AIR_CHECKS,
-    air_blockers,
     air_profile,
     air_verdicts,
     assess_air_readiness,
@@ -105,14 +104,6 @@ class TestEveryVerdictCarriesItsEvidence:
         assert measured, "no verdict carried evidence"
         joined = " ".join(v.evidence for v in measured)
         assert any(ch.isdigit() for ch in joined), "evidence should quantify, not restate"
-
-    def test_blockers_name_the_criterion_and_why(self):
-        blockers = air_blockers(CrateState(), _graph())
-        assert blockers, "an empty crate fails something"
-        ident, text, evidence = blockers[0]
-        assert "." in ident, "a criterion id, e.g. 1.b"
-        assert text, "the published practice sentence"
-        assert isinstance(evidence, str)
 
     def test_verdict_refuses_truthiness(self):
         with pytest.raises(TypeError, match="tri-state"):

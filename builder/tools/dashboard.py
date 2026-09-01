@@ -661,46 +661,6 @@ def _build_token_summary(
     return totals, last
 
 
-def _build_token_table(
-    totals: dict[str, int | str | None],
-    last_request: dict[str, int | str | None] | None,
-) -> Any:
-    """Build a token usage table showing totals and last request."""
-    from rich.table import Table
-
-    table = Table(title="Token Usage", header_style=HEADER_STYLE)
-    table.add_column("Scope")
-    table.add_column("Input")
-    table.add_column("Output")
-    table.add_column("Total")
-
-    total_in = totals.get("input_tokens", 0) or 0
-    total_out = totals.get("output_tokens", 0) or 0
-    table.add_row(
-        f"[{LABEL_STYLE}]Cumulative[/{LABEL_STYLE}]",
-        str(total_in),
-        str(total_out),
-        str(int(total_in) + int(total_out)),
-    )
-
-    if last_request:
-        li = last_request.get("input_tokens")
-        lo = last_request.get("output_tokens")
-        li_str = str(li) if li is not None else "—"
-        lo_str = str(lo) if lo is not None else "—"
-        lt = last_request.get("total_tokens")
-        lt_str = str(lt) if lt is not None else "—"
-        mn = last_request.get("model_name") or "—"
-        table.add_row(
-            f"[{LABEL_STYLE}]Last request[/{LABEL_STYLE}]  [{ACCENT_STYLE}]{mn}[/{ACCENT_STYLE}]",
-            li_str,
-            lo_str,
-            lt_str,
-        )
-
-    return table
-
-
 def _get_last_response(records: list[dict[str, Any]]) -> str | None:
     """Return the response_text from the most recent model node_end event."""
     for r in reversed(records):
@@ -709,84 +669,6 @@ def _get_last_response(records: list[dict[str, Any]]) -> str | None:
             if text:
                 return text
     return None
-
-
-def _build_live_events(records: list[dict[str, Any]], max_lines: int = 25) -> list[str]:
-    """Build a list of formatted event lines for the live tail.
-
-    Enhanced to show tool arguments and results alongside timing.
-    """
-    recent = records[-max_lines:] if len(records) > max_lines else records
-    lines = []
-    for r in recent:
-        ts = r.get("timestamp", "")
-        evt = r.get("event", "")
-        if evt == "tool_call":
-            tool = r.get("tool", "?")
-            dur = r.get("duration_ms")
-            dur_str = f" {dur:.1f}ms" if dur is not None else ""
-
-            # Show tool arguments (truncated from front so filename is visible)
-            args_raw = r.get("args")
-            args_str = ""
-            if args_raw:
-                preview = args_raw[-40:] if len(args_raw) > 40 else args_raw
-                if len(args_raw) > 40:
-                    preview = "…" + preview
-                args_str = f"  [{LABEL_STYLE}]args: {preview}[/{LABEL_STYLE}]"
-
-            # Show tool result (truncated from front so filename is visible)
-            res_raw = r.get("result")
-            res_str = ""
-            if res_raw:
-                res_str_val = str(res_raw)
-                preview = res_str_val[-50:] if len(res_str_val) > 50 else res_str_val
-                if len(res_str_val) > 50:
-                    preview = "…" + preview
-                res_str = f"  [{ACCENT_STYLE}]→ {preview}[/{ACCENT_STYLE}]"
-
-            extra = args_str + res_str
-            if extra:
-                lines.append(f"{ts[11:19]}  tool_call   {tool}{dur_str}{extra}")
-            else:
-                lines.append(f"{ts[11:19]}  tool_call   {tool}{dur_str}")
-
-        elif evt == "node_start":
-            node = r.get("node", "?")
-            lines.append(f"{ts[11:19]}  node_start  {node}")
-        elif evt == "node_end":
-            node = r.get("node", "?")
-            dur = r.get("duration_ms")
-            dur_str = f" {dur:.1f}ms" if dur is not None else ""
-            # Append token info when available for model nodes
-            inp = r.get("input_tokens")
-            out = r.get("output_tokens")
-            tok_str = ""
-            if inp is not None and out is not None:
-                tok_str = f"  [{LABEL_STYLE}]Δ{inp}→{out}[/{LABEL_STYLE}]"
-            elif inp is not None:
-                tok_str = f"  [{LABEL_STYLE}]Δ{inp} in[/{LABEL_STYLE}]"
-            elif out is not None:
-                tok_str = f"  [{LABEL_STYLE}]Δ{out} out[/{LABEL_STYLE}]"
-
-            # Append response preview for model nodes
-            resp = r.get("response_text")
-            resp_str = ""
-            if resp:
-                # Show first line (or truncated first ~60 chars)
-                preview = resp.split("\n")[0][:60]
-                if len(resp) > 60 or "\n" in resp:
-                    preview += "…"
-                resp_str = f'  [{ACCENT_STYLE}]"{preview}"[/{ACCENT_STYLE}]'
-
-            extra = tok_str + resp_str
-            if extra:
-                lines.append(f"{ts[11:19]}  node_end    {node}{dur_str}{extra}")
-            else:
-                lines.append(f"{ts[11:19]}  node_end    {node}{dur_str}")
-        else:
-            lines.append(f"{ts[11:19]}  {evt}")
-    return lines
 
 
 def _build_conversation_flow(records: list[dict[str, Any]], max_steps: int = 8) -> list[str]:

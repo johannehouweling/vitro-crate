@@ -841,20 +841,21 @@ def _check_conforms_to_profile(state: CrateState, graph: Graph = None) -> Verdic
     )
 
 
+def _check_mit_coverage_indicator(state: CrateState) -> bool:
+    """RDA-R1.3-01D: is MIT coverage tracked at all?
+
+    The back-compat path, and the only one that runs this function: a caller that
+    computed MIT against the assembled ``@graph`` passes the report to
+    :func:`assess_fair_maturity` as ``mit=`` and that report is scored directly,
+    because ``state.mit_assessment`` is never populated on the report/export path
+    (#311). With no report passed, the state's own (usually empty) one is all there is.
+    """
+    return _mit_has_coverage(state.mit_assessment)
+
+
 def _mit_has_coverage(report: MITReport) -> bool:
     """True when a MIT report records actual (non-empty, non-zero) coverage."""
     return report.module_scores != {} and report.overall_score > 0
-
-
-def _check_mit_coverage_indicator(state: CrateState) -> bool:
-    """Check that MIT coverage is tracked (report present).
-
-    Reads ``state.mit_assessment`` — the back-compat path. On the report/export
-    path that field is never populated, so callers pass the freshly-computed report
-    to :func:`assess_fair_maturity` instead (``mit=``), which is scored against the
-    assembled ``@graph`` (#311).
-    """
-    return _mit_has_coverage(state.mit_assessment)
 
 
 # DSM indicator checks
@@ -1368,8 +1369,8 @@ def _check_data_machine_readable(state: CrateState, graph: Graph = None) -> Verd
     :func:`_check_non_proprietary_format`), terms that resolve (L4). So Level 1 asks
     *machine readable*, which an ``.xlsx`` satisfies and a ``.docx`` does not, and
     deliberately does not ask "open" — that is L3's job. DSM-2-R5
-    (:func:`_check_data_structured`) is told apart by its level's own ``level_scope``:
-    Data Object level here, Project level there.
+    (:func:`_check_data_structured`) is told apart by the scope its level carries in
+    the model: Data Object level here, Project level there.
 
     The scaffolding trap: the builder writes header-only ``text/csv`` templates into
     ``data/`` on every build, so "the crate contains a CSV" is a fact about
@@ -1597,10 +1598,10 @@ def _check_data_structured(state: CrateState, graph: Graph = None) -> Verdict | 
     """DSM-2-R5 — Dataset(s) available in Machine Readable Format.
 
     Word for word DSM-1-R5, and the workbook leaves DSM-2-R5 out of the question ladder
-    the other four options of that sentence form (``fair/dsm_indicators.yaml``: that
-    single-select question lists DSM-0/1/3/4-R5 only). The two rows are told apart by
-    their level's own ``level_scope``: Level 1 is "Data Object level", Level 2 "Project
-    level". That is the whole difference and it is what this reads. DSM-1-R5 asks whether
+    the other four options of that sentence form (its "Assessment Tool Data" sheet lists
+    DSM-0/1/3/4-R5 only). The two rows are told apart by the scope their levels carry in
+    the model: Level 1 is "Data Object level", Level 2 "Project level". That is the
+    whole difference and it is what this reads. DSM-1-R5 asks whether
     *a* data object is machine readable; this asks it of the project — **every** Dataset
     the local model defines must be backed by data, and **no deposited file may leave a
     machine guessing what it is**.
@@ -2617,10 +2618,6 @@ def assess_fair_maturity(
     indicators_data = _load_yaml(FAIR_INDICATORS_PATH)
     dsm_data = _load_yaml(DSM_INDICATORS_PATH)
 
-    # The mit_coverage indicator is scored from the caller-supplied report when
-    # given (graph-based), else from the state's own (possibly empty) assessment.
-    mit_report = mit if mit is not None else state.mit_assessment
-
     indicator_results: list[dict[str, Any]] = []
 
     # Run RDA indicator checks
@@ -2642,10 +2639,12 @@ def assess_fair_maturity(
                     }
                 )
             elif check_name in FAIR_CHECKS:
-                # mit_coverage is scored from the (graph-based) report, not the
-                # never-populated state.mit_assessment (#311).
-                if check_name == "mit_coverage":
-                    passed = _mit_has_coverage(mit_report)
+                # A caller that computed MIT against the assembled ``@graph`` passes it
+                # in; that report is scored directly, because state.mit_assessment is
+                # never populated on the report/export path (#311). With none passed,
+                # the registered check reads the state like every other check does.
+                if check_name == "mit_coverage" and mit is not None:
+                    passed = _mit_has_coverage(mit)
                 elif check_name in _GRAPH_AWARE_FAIR_CHECKS:
                     # The licence lives on the assembled root, not on CrateState —
                     # see _effective_license. Passing the graph is what makes this

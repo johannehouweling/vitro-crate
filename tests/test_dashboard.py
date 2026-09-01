@@ -8,7 +8,6 @@ from pathlib import Path
 
 from builder.tools.dashboard import (
     _build_token_summary,
-    _build_token_table,
     format_session_summary,
     list_sessions_available,
     read_profile,
@@ -194,7 +193,7 @@ class TestFormatSessionSummary:
 
 
 class TestTokenSummary:
-    """_build_token_summary() and _build_token_table()."""
+    """_build_token_summary()."""
 
     def test_build_token_summary_empty(self) -> None:
         """No model_end events yields zeros and no last_request."""
@@ -242,53 +241,6 @@ class TestTokenSummary:
         assert totals["input_tokens"] == 100
         assert totals["output_tokens"] == 30
         assert totals["total_tokens"] == 130
-
-    def test_build_token_table_renders(self) -> None:
-        """_build_token_table produces a Rich Table with correct rows."""
-        totals: dict[str, int | str | None] = {
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "total_tokens": 150,
-            "model_name": "gpt-4o",
-        }
-        last_request: dict[str, int | str | None] = {
-            "input_tokens": 30,
-            "output_tokens": 20,
-            "total_tokens": 50,
-            "model_name": "gpt-4o",
-        }
-        table = _build_token_table(totals, last_request)
-        from rich.console import Console
-
-        console = Console(width=60)
-        with console.capture() as capture:
-            console.print(table)
-        output = capture.get()
-        assert "Token Usage" in output
-        assert "Cumulative" in output
-        assert "Last request" in output
-        assert "100" in output
-        assert "50" in output
-        assert "gpt-4o" in output
-
-    def test_build_token_table_no_last_request(self) -> None:
-        """Token table handles missing last request gracefully."""
-        totals: dict[str, int | str | None] = {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0,
-            "model_name": None,
-        }
-        table = _build_token_table(totals, None)
-        from rich.console import Console
-
-        console = Console(width=40)
-        with console.capture() as capture:
-            console.print(table)
-        output = capture.get()
-        assert "Cumulative" in output
-        assert "0" in output
-
 
 class _DummyLive:
     """A stand-in for ``rich.live.Live`` that records every ``update()`` call."""

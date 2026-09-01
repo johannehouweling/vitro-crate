@@ -21,7 +21,6 @@ from builder.state import (
     FAIRReport,
     FieldCompletion,
     FileClassification,
-    InputType,
     MITReport,
     ReasoningLog,
     ReasoningStep,
@@ -49,5 +48,4 @@ __all__ = [
     "EntityType",
     "CompletionStatus",
     "CompletionSource",
-    "InputType",
 ]
