@@ -1033,6 +1033,44 @@ class AgentEngine:
                 exc_info=True,
             )
 
+    def _ask_each(self, context: str, questions: list[Any]) -> dict[str, Any]:
+        """Ask ``questions`` one at a time through the HITL door (#596).
+
+        The ``questions`` form of ``present_to_human``: an entry with ``options``
+        is a choice prompt, one without is a free-text field, and *context* is
+        shown once, ahead of the first question. Every exchange is recorded with
+        :meth:`CrateState.record_user_answer` the way the single-prompt form
+        records its one answer — a choice as the row picked (or the decision
+        word for a plain yes/no), a free-text field only when it was answered.
+        The result carries each question with its answer, ``"skipped"`` for a
+        free-text field left empty, so the model sees what it did and did not
+        get.
+        """
+        answers: list[dict[str, Any]] = []
+        preamble = str(context or "").strip()
+        for entry in questions:
+            if not isinstance(entry, dict):
+                continue
+            question = str(entry.get("question") or "").strip()
+            if not question:
+                continue
+            shown = f"{preamble}\n\n{question}" if preamble else question
+            preamble = ""
+            options = [str(o).strip() for o in (entry.get("options") or []) if str(o).strip()]
+            if options:
+                decision = self.human_interface.present(shown, options)
+                answer = str(decision.get("comments") or decision.get("action") or "")
+                self.state.record_user_answer(question, answer)
+            else:
+                response = self.human_interface.request_input(shown, "text")
+                if response.get("skipped"):
+                    answer = "skipped"
+                else:
+                    answer = str(response.get("value") or "")
+                    self.state.record_user_answer(question, answer)
+            answers.append({"question": question, "answer": answer})
+        return {"action": "answered", "answers": answers}
+
     def run_tool(self, tool_name: str, **kwargs) -> Any:
         """Execute a tool by name with kwargs.
 
@@ -1178,12 +1216,18 @@ class AgentEngine:
             # invisible to the dashboard's ▶/⏸ status inference.
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)
-            result = self.human_interface.present(kwargs.get("context", ""), kwargs.get("options"))
-            # Persist the answer: it is otherwise only a tool result inside the
-            # graph checkpoint, which a rotated thread discards (#user_answers).
-            if isinstance(result, dict):
-                spoken = result.get("comments") or result.get("action") or ""
-                self.state.record_user_answer(kwargs.get("context", ""), str(spoken))
+            questions = kwargs.get("questions") or []
+            if questions:
+                result = self._ask_each(kwargs.get("context", ""), questions)
+            else:
+                result = self.human_interface.present(
+                    kwargs.get("context", ""), kwargs.get("options")
+                )
+                # Persist the answer: it is otherwise only a tool result inside
+                # the graph checkpoint, which a rotated thread discards.
+                if isinstance(result, dict):
+                    spoken = result.get("comments") or result.get("action") or ""
+                    self.state.record_user_answer(kwargs.get("context", ""), str(spoken))
         elif tool_name == "request_input":
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)

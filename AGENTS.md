@@ -1517,19 +1517,27 @@ substituting ours silently would misstate the instrument.
 
 ### Session & HITL Tools
 ```
-present_to_human(context: str, options: [str]) → HumanResponse
-request_input(prompt: str, field_type: str | None = None) → HumanResponse
+present_to_human(context: str, options: [str], questions: [{question: str, options: [str]}]) → HumanResponse
+request_input(prompt: str, field_type: str | None = None) → InputResponse
 save_session(label: str) → SessionInfo
 list_sessions() → [SessionInfo]
 load_session(session_id: str) → SessionStatus
 get_status() → SessionStatus
 get_hint() → str
 ```
-`present_to_human` offers a choice between `options`; `request_input` asks the
-human for a single free-form value (e.g. a compound name, CAS number, or cell
-line accession) when a lookup needs a missing identifier. `list_sessions` and
-`load_session` drive the resume flow (§7); `present_to_human`/`request_input`
-are engine-routed HITL tools (not in `TOOL_REGISTRY`), the rest are specced.
+`present_to_human` asks one decision: `context` says what was found and
+`options` are the rows the user picks between, the first pre-selected. The
+console appends a final "Something else — let me type an answer" row to every
+prompt except a scan-root escalation, so an answer the caller did not foresee is
+still possible; it comes back as `action: "edited"` with the text in `comments`
+and `edits.value`. With `questions` the tool asks several in turn — each with its
+own `options`, or as a free-text field when it has none — records every exchange
+in `state.user_answers`, and returns `{action: "answered", answers: [{question,
+answer}]}`. `request_input` asks the human for a single free-form value (e.g. a
+compound name, CAS number, or cell line accession) when a lookup needs a missing
+identifier. `list_sessions` and `load_session` drive the resume flow (§7);
+`present_to_human`/`request_input` are engine-routed HITL tools (not in
+`TOOL_REGISTRY`), the rest are specced.
 
 ### Profiling
 Every tool call and graph node execution is automatically timed and recorded by `ProfilingLogger` (see [docs/profiling.md](docs/profiling.md)). Profile data is written to `sessions/<session_id>/profile.ndjson` as newline-delimited JSON with event types including `tool_call`, `node_start`, `node_end`, and `hitl_wait`. This file is the primary input for timing analysis, debugging, and live status in future web UIs.
@@ -1680,7 +1688,10 @@ nothing is reconstructed from a crate's `ro-crate-metadata.json`.
 
 ### Interaction Model
 1. Agent presents content and a question
-2. User can: **Approve**, **Edit**, **Reject with explanation**, or **Skip**
+2. User can: **Approve**, **Edit**, **Reject with explanation**, or **Skip**. On
+   the console, **Edit** is the last row of every choice prompt ("Something else
+   — let me type an answer"), which opens the free-text box; a scan-root
+   escalation has no such row (#197)
 3. Agent incorporates feedback and continues
 4. Feedback is applied to the entity in place; a standing answer to a validation
    escalation is recorded on `state.validation_preferences` and asked at most once

@@ -355,3 +355,214 @@ class TestConsoleAnimationSuspension:
             unregister_console_animation(anim)
 
         assert events == ["pause", "body", "resume"]
+
+
+class TestPresentLetsTheUserTypeTheirOwnAnswer:
+    """#596: a choice prompt can always be answered with words of the user's own.
+
+    The console appends one row to every prompt except a scan-root escalation;
+    picking it reads the shared ❯ box and the text comes back as an *edit*, so
+    a caller that only understands the offered rows sees neither an approval
+    nor a rejection it did not get.
+    """
+
+    def test_the_row_comes_after_the_callers_choices_and_the_default_stays(self):
+        from builder.tools.hitl import OWN_ANSWER_CHOICE
+
+        seen: dict[str, object] = {}
+
+        def fake_select(choices: list[str], default: int) -> int:
+            seen["choices"] = list(choices)
+            seen["default"] = default
+            return 0
+
+        resp = ConsoleHumanInterface(select_func=fake_select).present(
+            "Proceed?", options=["Yes, go ahead", "No, don't do that"]
+        )
+
+        assert seen["choices"] == ["Yes, go ahead", "No, don't do that", OWN_ANSWER_CHOICE]
+        assert seen["default"] == 0
+        assert resp["action"] == "approved"
+
+    def test_picking_the_row_reads_the_box_and_returns_the_text_as_an_edit(self):
+        shown: list[str] = []
+        human = ConsoleHumanInterface(
+            show_func=shown.append,
+            select_func=lambda choices, _default: len(choices) - 1,
+            prompt_func=lambda _ft: "  The corresponding author, not the PI  ",
+        )
+
+        resp = human.present("Who publishes the crate?", options=["Dr X", "RIVM"])
+
+        assert resp == {
+            "action": "edited",
+            "comments": "The corresponding author, not the PI",
+            "edits": {"value": "The corresponding author, not the PI"},
+        }
+        # The question is shown once, ahead of the choices — not again for the box.
+        assert shown == ["Who publishes the crate?"]
+
+    def test_the_row_is_there_when_the_caller_offered_no_choices(self):
+        from builder.tools.hitl import OWN_ANSWER_CHOICE
+
+        seen: dict[str, list[str]] = {}
+
+        def fake_select(choices: list[str], default: int) -> int:
+            seen["choices"] = list(choices)
+            return len(choices) - 1
+
+        resp = ConsoleHumanInterface(
+            select_func=fake_select, prompt_func=lambda _ft: "neither"
+        ).present("Review entity")
+
+        assert seen["choices"][-1] == OWN_ANSWER_CHOICE
+        assert len(seen["choices"]) == 3
+        assert resp["action"] == "edited" and resp["comments"] == "neither"
+
+    def test_an_empty_typed_answer_is_a_skip(self):
+        human = ConsoleHumanInterface(
+            select_func=lambda choices, _default: len(choices) - 1,
+            prompt_func=lambda _ft: "   ",
+        )
+        assert human.present("Proceed?") == {"action": "skipped", "comments": None, "edits": None}
+
+    def test_eof_in_the_box_is_a_skip_that_ends_guidance(self):
+        def _raise(_ft: str) -> str:
+            raise EOFError
+
+        human = ConsoleHumanInterface(
+            select_func=lambda choices, _default: len(choices) - 1, prompt_func=_raise
+        )
+        assert human.present("Proceed?")["action"] == "skipped"
+        assert human.is_done()
+
+    def test_a_typed_stop_word_ends_guidance(self):
+        human = ConsoleHumanInterface(
+            select_func=lambda choices, _default: len(choices) - 1,
+            prompt_func=lambda _ft: "build",
+        )
+        assert human.present("Proceed?")["action"] == "skipped"
+        assert human.is_done()
+
+    def test_a_scan_root_escalation_stays_a_plain_allow_or_deny(self):
+        """Widening filesystem access is one fail-closed decision, never prose (#197)."""
+        from builder.tools.hitl import OWN_ANSWER_CHOICE, SCAN_ROOT_PURPOSE
+
+        seen: dict[str, list[str]] = {}
+
+        def fake_select(choices: list[str], default: int) -> int:
+            seen["choices"] = list(choices)
+            return default
+
+        resp = ConsoleHumanInterface(select_func=fake_select).present(
+            "Approve /etc?", purpose=SCAN_ROOT_PURPOSE
+        )
+
+        assert OWN_ANSWER_CHOICE not in seen["choices"]
+        assert len(seen["choices"]) == 2
+        assert resp["action"] == "rejected"
+
+    def test_a_typed_answer_at_the_plain_terminal_fallback(self, monkeypatch):
+        """No injected box: the numbered chooser still offers the row, and the
+        value is read with a second ``input()``."""
+        answers = iter(["3", "my own words"])
+        monkeypatch.setattr("builtins.input", lambda *_a: next(answers))
+
+        resp = ConsoleHumanInterface().present("Proceed?")
+
+        assert resp["action"] == "edited"
+        assert resp["edits"] == {"value": "my own words"}
+
+
+class TestPresentToHumanAsksSeveralQuestionsInTurn:
+    """#596: a model with three open items asks three questions, not one bundle.
+
+    ``questions`` is asked one entry at a time through the same HITL door: an
+    entry with ``options`` is a choice prompt, one without is a free-text field.
+    Every exchange lands in ``user_answers`` and the tool result carries them all.
+    """
+
+    def test_each_question_is_asked_through_its_own_channel(self):
+        mock = MockHumanInterface()
+        engine = AgentEngine(human_interface=mock)
+
+        result = engine.run_tool(
+            "present_to_human",
+            context="The workbook names Dr X at RIVM.",
+            questions=[
+                {"question": "Record Dr X as publisher?", "options": ["Yes", "No"]},
+                {"question": "Culture medium for the uptake culture?"},
+            ],
+        )
+
+        # The shared context is shown once, ahead of the first question only.
+        assert mock.present_calls == [
+            ("The workbook names Dr X at RIVM.\n\nRecord Dr X as publisher?", ["Yes", "No"])
+        ]
+        assert mock.input_calls == [("Culture medium for the uptake culture?", "text")]
+        assert result == {
+            "action": "answered",
+            "answers": [
+                {"question": "Record Dr X as publisher?", "answer": "fix it"},
+                {"question": "Culture medium for the uptake culture?", "answer": "42"},
+            ],
+        }
+
+    def test_every_exchange_is_remembered(self):
+        engine = AgentEngine(human_interface=MockHumanInterface())
+
+        engine.run_tool(
+            "present_to_human",
+            context="Two things.",
+            questions=[
+                {"question": "Publisher?", "options": ["Dr X", "RIVM"]},
+                {"question": "Medium?"},
+            ],
+        )
+
+        assert engine.state.user_answers == [
+            {"question": "Publisher?", "answer": "fix it"},
+            {"question": "Medium?", "answer": "42"},
+        ]
+
+    def test_a_skipped_free_text_question_says_so_and_is_not_remembered(self):
+        engine = AgentEngine()  # the simulated interface skips every input
+
+        result = engine.run_tool(
+            "present_to_human", context="One thing.", questions=[{"question": "Medium?"}]
+        )
+
+        assert result == {
+            "action": "answered",
+            "answers": [{"question": "Medium?", "answer": "skipped"}],
+        }
+        assert engine.state.user_answers == []
+
+    def test_a_yes_no_question_with_no_comment_reports_the_decision(self):
+        engine = AgentEngine()  # the simulated interface approves every choice
+
+        result = engine.run_tool(
+            "present_to_human",
+            context="One thing.",
+            questions=[{"question": "Record Dr X?", "options": ["Yes", "No"]}],
+        )
+
+        assert result["answers"] == [{"question": "Record Dr X?", "answer": "approved"}]
+
+    def test_blank_entries_are_dropped_and_an_empty_list_is_the_single_prompt(self):
+        mock = MockHumanInterface()
+        engine = AgentEngine(human_interface=mock)
+
+        engine.run_tool(
+            "present_to_human",
+            context="Ctx",
+            questions=[{"question": "   "}, {"question": "Real one?", "options": ["A"]}],
+        )
+        assert mock.present_calls == [("Ctx\n\nReal one?", ["A"])]
+
+        mock.present_calls.clear()
+        result = engine.run_tool(
+            "present_to_human", context="Ctx", options=["A", "B"], questions=[]
+        )
+        assert mock.present_calls == [("Ctx", ["A", "B"])]
+        assert result["action"] == "edited"

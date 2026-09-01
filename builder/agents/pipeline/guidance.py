@@ -1749,8 +1749,9 @@ def _resolve_gap(
     Dispatches on ``auto_fixable`` / ``fix_hint``:
 
     * **auto_fixable** -> the deterministic repair, no prompt.
-    * **draft** -> draft a value, show it, require confirmation (D5); on reject,
-      fall through to ask-user.
+    * **draft** -> draft a value, show it, require confirmation (D5); a typed
+      answer commits the user's own value instead; on reject, fall through to
+      ask-user.
     * **ask-user** (or any non-auto fallback) -> prompt and apply the answer.
 
     Records the action in ``resolved`` (committed) or ``asked`` (surfaced to the
@@ -1778,12 +1779,15 @@ def _resolve_gap(
                 ),
                 options=["approve", "reject"],
             )
-            if decision.get("action") == "approved":
-                # An edited confirmation may carry the user's own value.
+            action = decision.get("action")
+            if action in ("approved", "edited"):
+                # The user's own value (the console's "let me type an answer"
+                # row, #596) rides in `edits`; a plain approval takes the draft.
                 edits = decision.get("edits") or {}
                 value = str(edits.get("value")) if edits.get("value") else candidate
                 if _apply_value(engine, gap, value, human):
-                    resolved.append({**record, "via": "draft-confirmed"})
+                    via = "draft-edited" if action == "edited" else "draft-confirmed"
+                    resolved.append({**record, "via": via})
                     return True
                 return False
         # No usable draft, or the user rejected it -> fall through to ask-user.

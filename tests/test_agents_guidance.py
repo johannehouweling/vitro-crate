@@ -424,6 +424,50 @@ class TestDraftable:
             == "The user's own description."
         )
 
+    def test_a_typed_answer_at_the_draft_dialog_is_committed_instead(self, monkeypatch):
+        """#596: the console's "let me type an answer" row comes back as an
+        *edit*; the dialog commits that value, with no second prompt."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        draft_gap = Gap(
+            tier="SHOULD",
+            source="mit",
+            entity_id="st1",
+            entity_type="Study",
+            property="description",
+            message="Draftable description.",
+            suggestion="hint",
+            fix_hint="draft",
+            auto_fixable=False,
+        )
+        reports = iter(
+            [
+                GapReport(
+                    gaps=[draft_gap],
+                    counts={"must_open": 0, "should_open": 1, "may_open": 0},
+                ),
+                GapReport(gaps=[], counts={"must_open": 0, "should_open": 0, "may_open": 0}),
+            ]
+        )
+        monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
+        monkeypatch.setattr(
+            guidance,
+            "draft_entity_fields",
+            lambda *_a, **_k: {"description": "A drafted value."},
+        )
+
+        typed = "The study's own words."
+        human = ScriptedHuman(
+            present_answers=[{"action": "edited", "comments": typed, "edits": {"value": typed}}]
+        )
+        summary = run_guidance(engine, human, max_rounds=5)
+
+        assert _get(engine, "st1").fields.get("description") == typed
+        assert human.inputs == [], "a typed answer must not fall through to ask-user"
+        assert any(r.get("via") == "draft-edited" for r in summary["resolved"])
+
 
 # ---------------------------------------------------------------------------
 # (d) termination: max_rounds + no-progress guards; MUST before SHOULD/MAY

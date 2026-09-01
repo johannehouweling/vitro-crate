@@ -812,6 +812,22 @@ def _reply_is_question(reply: str | None) -> bool:
     return any(lowered.startswith(opener) for opener in _INTERROGATIVE_OPENERS)
 
 
+# What the ❯ box is waiting for, printed above it once the agent has stopped
+# (#596). A reply that ends in a question and a reply that ran to the turn cap
+# put the same empty box in front of the user, who then has to guess whether
+# "yes" or "continue" is the answer — so the box says which.
+_HINT_ANSWER = "Answer the question above."
+_HINT_OPEN = "Type what to do next, or 'continue' to let me carry on."
+_HINT_DONE = "Nothing left to do — type a change, or 'quit'."
+
+
+def _prompt_hint(reply: str | None, *, open_work: bool) -> str:
+    """The line above the ❯ box after a stop: answer, steer or continue, or done."""
+    if _reply_is_question(reply):
+        return _HINT_ANSWER
+    return _HINT_OPEN if open_work else _HINT_DONE
+
+
 def _crate_is_complete(engine: AgentEngine) -> bool:
     """Return True when the crate passes REQUIRED and has nothing left to do.
 
@@ -4765,6 +4781,8 @@ def run_interactive_agent(
     # A caller-supplied kickoff drives the first turn in place of the first stdin
     # read (#412); everything after it is an ordinary typed turn. Blank is absent.
     pending_input: str | None = (initial_prompt or "").strip() or None
+    # What the next ❯ box is waiting for (#596); nothing before the first turn.
+    prompt_hint: str | None = None
 
     # The status footer is pinned to the bottom rows for the whole session so
     # entities, validation dots, tokens and cost keep advancing while the agent
@@ -4816,6 +4834,8 @@ def run_interactive_agent(
                     # crate lands (#609).
                     raise EOFError
                 else:
+                    if prompt_hint:
+                        console.print(f"[dim]{prompt_hint}[/dim]")
                     # Rounded input box (Claude Code style); falls back to a plain
                     # prompt when not a TTY. Raises KeyboardInterrupt / EOFError.
                     # prompt_toolkit erases to the end of the screen on every
@@ -4831,6 +4851,7 @@ def run_interactive_agent(
                 _finalize_on_exit()
                 ui.print_goodbye(engine)
                 break
+            prompt_hint = None
 
             if user_input.lower() in ("quit", "exit", "q"):
                 _finalize_on_exit()
@@ -4851,6 +4872,7 @@ def run_interactive_agent(
             # an exception can never escape this loop body.
             try:
                 message = user_input
+                reply = ""
                 empty_streak = 0
                 self_continues = 0
                 # A new user turn gets a fresh strike budget. The counters live on
@@ -4933,11 +4955,13 @@ def run_interactive_agent(
                         "Reached max autonomous turns (%d) — checking in with the user",
                         _MAX_AUTONOMOUS_TURNS,
                     )
-                    console.print(
-                        "[dim]I've worked autonomously for a while — let me know how "
-                        "you'd like to proceed.[/dim]"
-                    )
+                    console.print("[dim]I've worked autonomously for a while.[/dim]")
                     console.print()
+                # The box that follows says what it is for (#596): the reply above
+                # is either a question to answer or work that stopped.
+                prompt_hint = _prompt_hint(
+                    reply, open_work=bool(open_items(engine.state, actionable_only=True))
+                )
             except KeyboardInterrupt:
                 # Ctrl+C during a turn / the autonomous run: stop working and return
                 # to the prompt so the user can interject (preserve interruptibility).

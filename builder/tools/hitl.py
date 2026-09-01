@@ -258,6 +258,11 @@ _APPROVE_CHOICES = ["Yes, go ahead", "No, don't do that"]
 # lists the refusal FIRST so the pre-selected answer denies (#197 fail-closed).
 _DENY_ALLOW_CHOICES = ["No, keep the current access", "Yes, allow this folder"]
 
+# The row the console appends to every choice prompt (#596), so an answer the
+# caller did not foresee can still be given, in the user's own words. Last, so
+# the pre-selected row and the number keys of the offered choices are unchanged.
+OWN_ANSWER_CHOICE = "Something else — let me type an answer"
+
 _AFFIRMATIVE = {"y", "yes", "approve", "approved", "ok", "okay", "confirm", "continue"}
 _NEGATIVE = {"n", "no", "reject", "rejected", "deny", "decline", "cancel"}
 
@@ -488,10 +493,17 @@ class ConsoleHumanInterface:
         question: the expected answer starts selected and the user arrows to
         another, so the decision is unambiguous both ways.
 
+        Every prompt but a scan-root escalation ends with :data:`OWN_ANSWER_CHOICE`
+        (#596): picking it reads the free-text box, and the text comes back as an
+        ``edited`` decision — in ``comments`` and in ``edits["value"]`` — so a
+        caller that only knows its offered rows sees neither an approval nor a
+        rejection it was not given. An empty line there is a skip.
+
         Fail-closed is preserved for a scan-root escalation: its default lands on
         the denying choice, so an accidental Enter never widens filesystem
         access. It is also the one prompt whose choices are stated as an explicit
-        allow/deny rather than a yes/no.
+        allow/deny rather than a yes/no — and the one with no free-text row,
+        because widening access is a decision, not prose (#197).
         """
         deny_by_default = purpose == SCAN_ROOT_PURPOSE
         choices = list(options or [])
@@ -500,12 +512,20 @@ class ConsoleHumanInterface:
         # The safe answer is first except when denying by default, where it is
         # the refusal — whatever it is, it must be the pre-selected row.
         default_index = _default_choice_index(choices, deny_by_default=deny_by_default)
+        own_answer = not deny_by_default
+        if own_answer:
+            choices = [*choices, OWN_ANSWER_CHOICE]
 
         # Suspend any active terminal spinner so the prompt is readable and stdin
         # is not fighting a Rich Live repaint (ReAct loop scan-root approval).
         with suspend_console_animation():
             self._show(context)
             chosen = self._select(choices, default_index)
+            if own_answer and chosen == len(choices) - 1:
+                typed = self._read_answer("text")
+                if typed is None:
+                    return {"action": "skipped", "comments": None, "edits": None}
+                return {"action": "edited", "comments": typed, "edits": {"value": typed}}
 
         if chosen is None:
             # Cancelled / EOF: decline without ending guidance, and fail closed.
@@ -554,17 +574,26 @@ class ConsoleHumanInterface:
         """
         with suspend_console_animation():
             self._show(prompt)
-            try:
-                value = self._read(field_type).strip()
-            except EOFError:
-                self._done = True
-                value = ""
-        if self._is_stop_command(value):
-            self._done = True
-            return {"value": None, "skipped": True}
-        if not value:
+            value = self._read_answer(field_type)
+        if value is None:
             return {"value": None, "skipped": True}
         return {"value": value, "skipped": False}
+
+    def _read_answer(self, field_type: str) -> str | None:
+        """One line from the box; ``None`` is a skip — empty, EOF, or a stop word.
+
+        EOF and a stop word also end guidance (:meth:`is_done`): a closed stdin
+        will never answer anything else, and "build" means build.
+        """
+        try:
+            value = self._read(field_type).strip()
+        except EOFError:
+            self._done = True
+            return None
+        if self._is_stop_command(value):
+            self._done = True
+            return None
+        return value or None
 
 
 # The single literal every open field gets in smoke-test mode. It is affirmative
@@ -918,6 +947,7 @@ def request_input(
 
 __all__ = [
     "CONVERSATION_FIELD_TYPE",
+    "OWN_ANSWER_CHOICE",
     "SCAN_ROOT_PURPOSE",
     "SMOKE_TEST_ANSWER",
     "SMOKE_TEST_CONVERSATION_TURNS",
