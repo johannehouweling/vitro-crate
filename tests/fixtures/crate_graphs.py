@@ -585,3 +585,156 @@ def assay_lane_graph() -> dict[str, Any]:
             },
         ]
     }
+
+
+def assay_lane_real_shapes_graph() -> dict[str, Any]:
+    """The two shapes a real deposit has and ``assay_lane_graph`` does not.
+
+    ``assay_lane_graph`` predates #678 and gives every assay exactly one cell
+    line, so two things the RIVM deposit does on every build are untested:
+
+    * **Assay C — several lines, one exposure.** Since #678 an assay cultures
+      each line separately, so three CellCulture steps share a rank and each
+      executes its own protocol. A layout that gives a step's satellites the
+      step's own x draws all three protocols at one point, and two of the three
+      are invisible. One line cannot show that; three can.
+    * **Assay D — no exposure at all.** A characterisation run measures the
+      cultured material directly. Nothing fans the cultured samples together,
+      so a spine that requires one component sees two stories and declines the
+      whole lane. The gap is real and belongs on the diagram; declining hides
+      both the work and the gap.
+
+    Deliberately NOT a copy of the deposit: the shapes are what matters, and a
+    fixture that reproduced one crate's coincidences would only prove that crate
+    (see the repo's rule against overfitting the example crate).
+    """
+    lines_c = [("h4", "H4"), ("mo313", "MO3.13"), ("skn", "SK-N-AS")]
+    lines_d = [("hepg2", "HepG2"), ("caco2", "Caco-2")]
+    graph: list[dict[str, Any]] = [
+        {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+        {
+            "@id": "./",
+            "@type": "Dataset",
+            "additionalType": "Investigation",
+            "name": "An investigation",
+            "hasPart": [{"@id": "#study"}],
+        },
+        {
+            "@id": "#study",
+            "@type": "Dataset",
+            "additionalType": "Study",
+            "name": "A study",
+            "hasPart": [{"@id": "#assay-c"}, {"@id": "#assay-d"}],
+        },
+        # --- assay C: three lines into one exposure -------------------------
+        {
+            "@id": "#assay-c",
+            "@type": "Dataset",
+            "additionalType": "Assay",
+            "name": "Transport assay",
+            "about": [{"@id": f"#culture-c-{k}"} for k, _ in lines_c]
+            + [
+                {"@id": "#exposure-c"},
+                {"@id": "#readout-c"},
+                {"@id": "#analysis-c"},
+            ],
+        },
+        {
+            "@id": "#exposure-c",
+            "@type": "LabProcess",
+            "additionalType": "Exposure",
+            "name": "Transport exposure",
+            "object": [{"@id": f"#cultured-c-{k}"} for k, _ in lines_c],
+            "result": [{"@id": f"#exposed-c-{k}"} for k, _ in lines_c],
+            "executesLabProtocol": {"@id": "#conditions-c"},
+        },
+        {
+            "@id": "#conditions-c",
+            "@type": "LabProtocol",
+            "name": "Condition table",
+            "reagent": [{"@id": "#compound-c1"}, {"@id": "#compound-c2"}],
+        },
+        {"@id": "#compound-c1", "@type": "MolecularEntity", "name": "Amiodarone"},
+        {"@id": "#compound-c2", "@type": "MolecularEntity", "name": "TBBPA"},
+        {
+            "@id": "#readout-c",
+            "@type": "LabProcess",
+            "additionalType": "EndpointReadout",
+            "name": "Uptake readout",
+            "object": [{"@id": f"#exposed-c-{k}"} for k, _ in lines_c],
+            "result": [{"@id": "raw/c1.csv"}],
+            "executesLabProtocol": {"@id": "#readout-protocol-c"},
+        },
+        {"@id": "#readout-protocol-c", "@type": "LabProtocol", "name": "Uptake protocol"},
+        {"@id": "raw/c1.csv", "@type": "File", "name": "c1.csv", "encodingFormat": "text/csv"},
+        {
+            "@id": "#analysis-c",
+            "@type": "LabProcess",
+            "additionalType": "DataAnalysis",
+            "name": "Uptake analysis",
+            "object": [{"@id": "raw/c1.csv"}],
+            "result": [{"@id": "processed/c.csv"}],
+            "executesLabProtocol": {"@id": "#analysis-protocol-c"},
+        },
+        {"@id": "#analysis-protocol-c", "@type": "LabProtocol", "name": "Uptake analysis script"},
+        {"@id": "processed/c.csv", "@type": "File", "name": "c.csv", "encodingFormat": "text/csv"},
+        # --- assay D: no exposure -------------------------------------------
+        {
+            "@id": "#assay-d",
+            "@type": "Dataset",
+            "additionalType": "Assay",
+            "name": "Characterisation assay",
+            "about": [{"@id": f"#culture-d-{k}"} for k, _ in lines_d]
+            + [{"@id": "#readout-d"}],
+        },
+        {
+            "@id": "#readout-d",
+            "@type": "LabProcess",
+            "additionalType": "EndpointReadout",
+            "name": "Characterisation readout",
+            "object": [{"@id": f"#cultured-d-{k}"} for k, _ in lines_d],
+            "result": [{"@id": "raw/d1.csv"}],
+            "executesLabProtocol": {"@id": "#readout-protocol-d"},
+        },
+        {"@id": "#readout-protocol-d", "@type": "LabProtocol", "name": "Characterisation protocol"},
+        {"@id": "raw/d1.csv", "@type": "File", "name": "d1.csv", "encodingFormat": "text/csv"},
+    ]
+    for assay, lines in (("c", lines_c), ("d", lines_d)):
+        for key, name in lines:
+            graph += [
+                {
+                    "@id": f"#cellline-{assay}-{key}",
+                    "@type": "Sample",
+                    "additionalType": "CellLineSample",
+                    "name": name,
+                },
+                {
+                    "@id": f"#culture-{assay}-{key}",
+                    "@type": "LabProcess",
+                    "additionalType": "CellCulture",
+                    "name": f"Culture {name}",
+                    "object": {"@id": f"#cellline-{assay}-{key}"},
+                    "result": {"@id": f"#cultured-{assay}-{key}"},
+                    "executesLabProtocol": {"@id": f"#culture-protocol-{assay}-{key}"},
+                },
+                {
+                    "@id": f"#culture-protocol-{assay}-{key}",
+                    "@type": "LabProtocol",
+                    "name": f"Cell culture protocol {name}",
+                },
+                {
+                    "@id": f"#cultured-{assay}-{key}",
+                    "@type": "Sample",
+                    "name": f"Cultured ({name})",
+                },
+            ]
+        if assay == "c":
+            for key, name in lines:
+                graph.append(
+                    {
+                        "@id": f"#exposed-{assay}-{key}",
+                        "@type": "Sample",
+                        "name": f"Exposed ({name})",
+                    }
+                )
+    return {"@graph": graph}
