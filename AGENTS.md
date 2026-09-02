@@ -2264,8 +2264,10 @@ single evaluation pass — the level, the grid and the ceiling all read it, so t
 disagree, and the report evaluates it once per render. The MIT axis keeps the
 aggregate score as the headline and additionally breaks coverage out per guidance document (#491):
 each checklist parameter's `standards` map buckets it under the documents that require it
-(`MITReport.standard_scores`, labels from `MIT_STANDARD_LABELS`); documents overlap, so the
-per-document rows deliberately do not sum to the checklist total. The section says what it scores:
+(`MITReport.standard_scores`, labels from `MIT_STANDARD_LABELS`, each row's name linked to the
+document it scores against by `MIT_STANDARD_SOURCES` — a column with no registered source stays
+plain text); documents overlap, so the per-document rows deliberately do not sum to the checklist
+total. The section says what it scores:
 every checklist item is a FAIR maturity indicator as defined in tox-maturity-indicators
 (`MIT_INDICATORS_URL`), which the lead links.
 

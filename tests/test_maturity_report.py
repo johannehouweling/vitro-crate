@@ -175,7 +175,7 @@ class TestBuildMaturityHtml:
         for key, bucket in mit.standard_scores.items():
             label = MIT_STANDARD_LABELS[key]
             m = re.search(
-                re.escape(label) + r'</div>.*?(\d+)<span class="den">/(\d+)</span>',
+                re.escape(label) + r'(?:</a>)?</div>.*?(\d+)<span class="den">/(\d+)</span>',
                 page,
                 re.S,
             )
@@ -1239,9 +1239,11 @@ class TestMitModuleColours:
 
     @staticmethod
     def _row(section: str, label: str) -> str:
-        """The ``mrow`` whose name cell is *label* (exactly)."""
+        """The ``mrow`` whose name cell is *label* (exactly), linked or not."""
         m = re.search(
-            r'<div class="mrow"[^>]*>\s*<div class="mname">' + re.escape(label) + r"</div>.*?"
+            r'<div class="mrow"[^>]*>\s*<div class="mname">(?:<a class="lk" href="[^"]*">)?'
+            + re.escape(label)
+            + r"(?:</a>)?</div>.*?"
             r'<div class="mfrac">.*?</div>\s*</div>',
             section,
             re.S,
@@ -1577,6 +1579,36 @@ class TestMitModuleColours:
         doc = self._row(_render_mit_section(report), "OECD GD 211")
         assert '<i class="fill-cov" style="width:25%"></i>' in doc
         assert 'class="mod"' not in doc
+
+    def test_each_guidance_document_row_links_its_source(self, tmp_path: Path) -> None:
+        """A document row's name is a link to the document it scores against
+        (#729); a column with no registered source keeps the plain label, and
+        the module rows above link nothing."""
+        from builder.tools.mit_assessment import MIT_STANDARD_LABELS, MIT_STANDARD_SOURCES
+
+        mit, page = self._scored(tmp_path)
+        docs = self._docs_section(page)
+        assert set(MIT_STANDARD_SOURCES) & set(mit.standard_scores)
+        for key, label in MIT_STANDARD_LABELS.items():
+            assert key in mit.standard_scores, key
+            url = MIT_STANDARD_SOURCES.get(key)
+            cell = (
+                f'<div class="mname"><a class="lk" href="{url}">{label}</a></div>'
+                if url
+                else f'<div class="mname">{label}</div>'
+            )
+            assert cell in docs, label
+        modules = self._mit_section(page)
+        for name in mit.module_scores:
+            assert "<a" not in self._row(modules, name), name
+
+    def test_every_source_names_a_labelled_column_over_https(self) -> None:
+        """Drift guard: a source is keyed by a checklist column the label map
+        knows, and is a web URL — anything else ``_lk`` renders as text."""
+        from builder.tools.mit_assessment import MIT_STANDARD_LABELS, MIT_STANDARD_SOURCES
+
+        assert set(MIT_STANDARD_SOURCES) <= set(MIT_STANDARD_LABELS)
+        assert all(url.startswith("https://") for url in MIT_STANDARD_SOURCES.values())
 
 
 class TestUnassessedMITIsNotRenderedAsZero:
