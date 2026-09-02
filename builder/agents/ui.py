@@ -1236,6 +1236,24 @@ class TransientReplies:
             except Exception:  # noqa: BLE001 — fall back to leaving it on screen
                 logger.debug("transient reply height failed", exc_info=True)
 
+    def note(self, text: str) -> None:
+        """Print a dim one-liner under the last reply, erased along with it.
+
+        For the loop's own asides ("continuing on my own", #758): printed
+        through the console directly it would either pin a transient reply to
+        the transcript (:meth:`invalidate`) or be cut out from under the next
+        reply. Here it joins the erasable region instead, so a transient reply
+        and its note go together, and after a permanent reply the note alone
+        makes way for what comes next.
+        """
+        renderable = Text(text, style="dim")
+        self._console.print(renderable)
+        if bool(getattr(self._console, "is_terminal", False)):
+            try:
+                self._height += len(self._console.render_lines(renderable, pad=False))
+            except Exception:  # noqa: BLE001 — fall back to leaving it on screen
+                logger.debug("transient note height failed", exc_info=True)
+
 
 def make_status_footer(engine: AgentEngine, console: Console | None = None) -> PinnedFooter:
     """A :class:`PinnedFooter` showing *engine*'s live status line (both arms).

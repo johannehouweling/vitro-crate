@@ -424,3 +424,55 @@ def test_print_goodbye_prints_for_engine(monkeypatch) -> None:
 def test_get_console_is_memoized() -> None:
     assert ui.get_console() is ui.get_console()
     assert isinstance(ui.get_console(), Console)
+
+
+# ---------------------------------------------------------------------------
+# TransientReplies.note — the loop's aside joins the erasable region (#758)
+# ---------------------------------------------------------------------------
+
+_ERASE_ONE_LINE = "\x1b[1A\x1b[2K"
+
+
+def _terminal() -> tuple[Console, io.StringIO]:
+    """A console that believes it is a terminal, so erasing is exercised."""
+    raw = io.StringIO()
+    return Console(width=100, file=raw, force_terminal=True, color_system=None), raw
+
+
+def _reply_height(console: Console, text: str) -> int:
+    return len(console.render_lines(ui.render_reply(text), pad=False))
+
+
+def test_a_transient_reply_and_its_note_are_erased_together() -> None:
+    console, raw = _terminal()
+    replies = ui.TransientReplies(console)
+    replies.print("Let me draft the study.", transient=True)
+    replies.note("· Continuing on my own — 2 item(s) still open · Ctrl+C to step in")
+
+    replies.print("Drafted the study.")
+
+    erased = raw.getvalue().count(_ERASE_ONE_LINE)
+    assert erased == _reply_height(console, "Let me draft the study.") + 1
+
+
+def test_a_note_after_a_permanent_reply_makes_way_alone() -> None:
+    console, raw = _terminal()
+    replies = ui.TransientReplies(console)
+    replies.print("Confirmed. The crate is saved.", transient=False)
+    replies.note("· Continuing on my own — 2 item(s) still open · Ctrl+C to step in")
+
+    replies.print("Next step.")
+
+    assert raw.getvalue().count(_ERASE_ONE_LINE) == 1
+
+
+def test_off_a_terminal_a_note_is_plain_text() -> None:
+    rec = _rec()
+    replies = ui.TransientReplies(rec)
+    replies.print("Working.", transient=True)
+    replies.note("· Continuing on my own — validation not yet passing · Ctrl+C to step in")
+    replies.print("Done.")
+
+    out = rec.export_text()
+    assert "Continuing on my own" in out
+    assert _ERASE_ONE_LINE not in out

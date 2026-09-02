@@ -860,6 +860,19 @@ def _prompt_hint(reply: str | None, *, open_work: bool) -> str:
     return _HINT_OPEN if open_work else _HINT_DONE
 
 
+def _continuing_line(engine: AgentEngine) -> str:
+    """The line printed when the loop goes on without the user (#758).
+
+    A reply can sound final ("the crate is saved") while the loop has judged
+    the crate unfinished; said nowhere, the continuation left the user unsure
+    whether to type, wait, or quit. Names what is still open — or the failing
+    gates when the actionable checklist is empty — and the way to step in.
+    """
+    outstanding = open_items(engine.state, actionable_only=True)
+    why = f"{len(outstanding)} item(s) still open" if outstanding else "validation not yet passing"
+    return f"· Continuing on my own — {why} · Ctrl+C to step in"
+
+
 def _crate_is_complete(engine: AgentEngine) -> bool:
     """Return True when the crate passes REQUIRED and has nothing left to do.
 
@@ -4980,6 +4993,8 @@ def run_interactive_agent(
                     # Otherwise the agent just narrated/worked → AUTO-CONTINUE with
                     # an internal directive, WITHOUT reading stdin. The cap on the
                     # enclosing range bounds this so it can never spin forever.
+                    # Said, not silent (#758) — under the reply, erased with it.
+                    replies.note(_continuing_line(engine))
                     message = _AUTO_CONTINUE_DIRECTIVE
                 else:
                     # The for-loop exhausted the cap without breaking → check in.

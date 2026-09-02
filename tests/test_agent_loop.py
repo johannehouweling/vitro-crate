@@ -3034,6 +3034,44 @@ class TestTheBoxSaysWhatItIsWaitingFor:
         assert "or 'continue'" not in out
         assert "Nothing left to do" not in out
 
+    # -- #758: going on without the user is said, not silent --------------------
+
+    def test_a_continuation_says_so_with_the_open_count(self, monkeypatch):
+        """A reply can sound final while the loop has judged the crate unfinished;
+        the continuation is announced before the next turn, not discovered."""
+        from builder.agents.react import agent_loop
+
+        monkeypatch.setattr(agent_loop, "open_items", lambda state, **kw: ["a", "b", "c"])
+        out = self._transcript(
+            monkeypatch,
+            replies=["Confirmed. The final session has been saved.", "Which cell line?"],
+            stdin_lines=["start", "quit"],
+        )
+        line = "· Continuing on my own — 3 item(s) still open · Ctrl+C to step in"
+        assert line in out
+        assert out.index(line) < out.index("Answer the question above")
+
+    def test_a_continuation_with_failing_gates_says_that_instead(self, monkeypatch):
+        from builder.agents.react import agent_loop
+
+        monkeypatch.setattr(agent_loop, "open_items", lambda state, **kw: [])
+        out = self._transcript(
+            monkeypatch,
+            replies=["Working.", "Which cell line?"],
+            stdin_lines=["start", "quit"],
+        )
+        assert "· Continuing on my own — validation not yet passing · Ctrl+C to step in" in out
+
+    def test_completion_and_a_question_continue_nothing(self, monkeypatch):
+        done = self._transcript(
+            monkeypatch, replies=["All done."], stdin_lines=["start", "quit"], complete_after=1
+        )
+        asked = self._transcript(
+            monkeypatch, replies=["Which cell line?"], stdin_lines=["start", "quit"]
+        )
+        assert "Continuing on my own" not in done
+        assert "Continuing on my own" not in asked
+
 
 class TestArgsSchemaAdvertisesArrayItems:
     """#596: the shape of a list parameter's entries reaches the model.
