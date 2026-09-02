@@ -383,6 +383,11 @@ SOURCE: dict[str, Any] = {
         "docs/assessment/FAIR-DSM-Assessment-Sheet-v1.2.xlsx "
         "(sheet 'MASTER (Levels View)') — vendored as fair/fairplus_dsm_v1.2.xlsx"
     ),
+    # The report's reference 1 links the workbook here (#732).
+    "distribution_url": (
+        "https://github.com/FAIRplus/Data-Maturity/blob/master/docs/assessment/"
+        "FAIR-DSM-Assessment-Sheet-v1.2.xlsx"
+    ),
     "version": "1.2",
     # The MODEL TEXT is CC BY 4.0 and requires attribution. The repository's
     # LICENSE.txt is only the MIT licence of its Just-the-Docs Jekyll theme

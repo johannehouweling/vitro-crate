@@ -1,4 +1,4 @@
-"""The vendored OECD MIT checklist is pinned, and what it drops is counted.
+"""The vendored MIT checklist is pinned, and what it drops is counted.
 
 `mit/invitro_tox.yaml` is the only one of the four vendored instruments with no
 generator: it is a hand-placed copy of `tox-maturity-indicators`' own

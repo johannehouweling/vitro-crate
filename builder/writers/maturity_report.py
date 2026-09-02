@@ -1798,17 +1798,35 @@ def _render_recommendations(
 _RECOMMENDATION_CAP = 8
 
 
-def _render_references() -> str:
+def _render_references(dsm_data: dict[str, Any]) -> str:
     """The numbered notes the page's superscripts point at.
 
     Note 1 names what the DSM ladder is scored against — the FAIRplus Dataset
     Maturity model's crate-assessable indicators (``fair/dsm_indicators.yaml``
-    implements them), itself derived from the RDA FAIR Data Maturity Model.
-    Note 2 names what the domain checklist is: the tox-maturity-indicators
-    FAIR maturity indicators under principle R1.3. Note 3 names the AI-readiness
-    instrument and, deliberately, that it is still a preprint and that its criterion
-    text is quoted verbatim under a no-derivatives licence.
+    implements them), itself derived from the RDA FAIR Data Maturity Model — and
+    cites the workbook the grid reproduces: name, version, sheet and the cells
+    that define its arithmetic, the deliverable and its licence, the paper and
+    the online tool, all read from the YAML's ``source`` and ``scoring`` blocks so
+    bumping the workbook re-cites it. Note 2 names what the domain checklist is:
+    the tox-maturity-indicators FAIR maturity indicators under principle R1.3.
+    Note 3 names the AI-readiness instrument and, deliberately, that it is still
+    a preprint and that its criterion text is quoted verbatim under a
+    no-derivatives licence.
     """
+    src = dsm_data.get("source") or {}
+    spec = src.get("specification") or {}
+    paper = src.get("peer_reviewed") or {}
+    scoring = dsm_data.get("scoring") or {}
+    grid = scoring.get("grid") or [{}]
+    sheet_url = str(src.get("distribution_url") or "")
+
+    def _t(value: object) -> str:
+        return html.escape(str(value or ""))
+
+    def _cite(url: object) -> str:
+        """A link whose text is the bare URL — a citation, not a caption."""
+        return _lk(str(url or ""), str(url or "").split("//", 1)[-1].rstrip("/"))
+
     return (
         '<div class="refs">\n'
         '  <span class="refs-h">References</span>\n'
@@ -1820,9 +1838,20 @@ def _render_references() -> str:
         "hosting-environment and enterprise data-governance capability, which a crate cannot "
         "evidence about the environment that serves it. Scored against "
         "the crate-assessable indicators of the FAIRplus Dataset Maturity (DSM) model &mdash; "
-        + _lk("https://fairplus.github.io/Data-Maturity/", "fairplus.github.io/Data-Maturity")
+        + _cite(src.get("url"))
         + " &mdash; itself derived from the RDA FAIR Data Maturity Model, "
-        + _lk("https://doi.org/10.15497/rda00050", "doi.org/10.15497/rda00050")
+        + _cite((src.get("derived_from") or {}).get("url"))
+        + ". Instrument: "
+        + _lk(sheet_url, sheet_url.rsplit("/", 1)[-1])
+        + f" v{_t(src.get('version'))}, sheet &ldquo;{_t(scoring.get('sheet'))}&rdquo; "
+        f"(validation column {_t(scoring.get('column'))}; grid "
+        f"{_t(grid[0].get('cell'))}&ndash;{_t(grid[-1].get('cell'))}); "
+        f"{_t(spec.get('name'))} ({_t(spec.get('year'))}), "
+        + _cite(spec.get("url"))
+        + f", {_t(src.get('license'))}; {_t(paper.get('citation'))}, "
+        + _cite(f"https://doi.org/{paper.get('doi', '')}")
+        + "; online tool "
+        + _cite(src.get("assessment_tool"))
         + ".</p>\n"
         '  <p id="fn-mit"><span class="ref-n">2</span> The in-vitro toxicology Minimal '
         "Information Table (MIT): every item is a FAIR maturity indicator under principle "
@@ -1909,24 +1938,17 @@ def _render_dsm_grid_section(
         )
     return (
         "<section>\n"
-        '  <div class="sec-h"><h2>FAIRplus Dataset Maturity Model</h2>'
+        '  <div class="sec-h"><h2>FAIRplus Dataset Maturity Model'
+        '<a class="fn" href="#fn-dsm">1</a></h2>'
         f"{meta}</div>\n"
         '  <div class="tbl-scroll"><table class="dsm-grid">\n'
         f"    <thead><tr><th>Level</th>{head}</tr></thead>\n"
         f"    <tbody>{rows}</tbody>\n"
         "  </table></div>\n"
-        '  <p class="dsm-note">'
-        "Percentages are the published sheet&rsquo;s own: satisfied "
-        "&divide; the cell&rsquo;s denominator &times; 100. The sheet has no "
-        "&ldquo;not assessed&rdquo; state &mdash; its validation column is all formulas, "
-        "so a blank scores 0 &mdash; which is why each cell states how many of its "
-        "indicators were actually assessed, and why a cell with none says so rather "
-        "than publishing the number the sheet would compute over blanks. A cell&rsquo;s "
-        "membership is the "
-        "sheet&rsquo;s: higher levels carry lower ones forward, so a statement can be "
-        "counted at more than one level. Hosting-environment indicators describe the "
-        "environment serving the dataset, so a crate cannot evidence them &mdash; the "
-        "published tool asks a person, and so does the checklist below.</p>\n"
+        '  <p class="dsm-note">Percentages are the sheet&rsquo;s own'
+        '<a class="fn" href="#fn-dsm">1</a>: satisfied &divide; members &times; 100; '
+        "an unanswered indicator validates to 0 there, so each cell also states how many "
+        "were assessed.</p>\n"
         "</section>\n"
     )
 
@@ -3068,7 +3090,7 @@ def build_maturity_html(
             stale=stale,
         )
         + crate_card
-        + _render_references()
+        + _render_references(dsm_data)
     )
 
     # ONE pass over the shell, so nothing a substitution inserts is ever scanned

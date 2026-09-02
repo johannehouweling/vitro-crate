@@ -1081,7 +1081,7 @@ class TestFairTileAndRose:
         — a `kpi-sub` line in the grid's own shape, summed from the scores —
         in place of the unsourced scope fragment the note used to open with
         (#735). The two numbers are the section header's own, so the tile and
-        the OECD MIT coverage `sec-meta` cannot disagree."""
+        the MIT coverage `sec-meta` cannot disagree."""
         from builder.state import MITReport
         from builder.writers.maturity_report import _mit_rose_tile
 
@@ -1113,8 +1113,12 @@ class TestFairTileAndRose:
         """The handoff flagged this citation as the thing to confirm: the DSM
         note must name the model ``fair/dsm_indicators.yaml`` implements (the
         FAIRplus DSM, derived from the RDA FDMM), and the MIT note the
-        indicator package the checklist comes from."""
-        from builder.tools.fair_assessment import DSM_INDICATORS_PATH
+        indicator package the checklist comes from. Reference 1 also cites the
+        workbook the grid reproduces — version, sheet, the cells that define
+        the arithmetic, the deliverable, the paper and the tool — read from the
+        YAML's own ``source``/``scoring`` blocks, so a reader can check the
+        grid's note and the note itself has nothing left to explain (#732)."""
+        from builder.tools.fair_assessment import DSM_INDICATORS_PATH, _load_yaml
         from builder.tools.mit_assessment import MIT_INDICATORS_URL
 
         yaml_text = DSM_INDICATORS_PATH.read_text(encoding="utf-8")
@@ -1126,6 +1130,31 @@ class TestFairTileAndRose:
                 f"{url} is not the source the YAML cites"
             )
         assert "Levels are gated" in refs
+        dsm = _load_yaml(DSM_INDICATORS_PATH) or {}
+        src, scoring = dsm["source"], dsm["scoring"]
+        for url in (
+            src["distribution_url"],
+            src["specification"]["url"],
+            f"https://doi.org/{src['peer_reviewed']['doi']}",
+            src["assessment_tool"],
+        ):
+            assert url.startswith("https://") and f'href="{url}"' in refs, url
+        assert src["version"] == "1.2" and " v1.2" in refs
+        assert scoring["sheet"] == "FAIR-DSM Assessment Sheet v1.2" and scoring["sheet"] in refs
+        assert scoring["column"] == "J" and "column J" in refs
+        assert scoring["grid"][0]["cell"] == "P6" and "P6&ndash;P29" in refs
+        # The grid's heading wears the same superscript the KPI tile does, and
+        # its note is one sentence that points at it: the two sentences it lost
+        # were already the lead of the next section.
+        dsm_sec = page[page.index("<h2>FAIRplus Dataset Maturity Model") :]
+        dsm_sec = dsm_sec[: dsm_sec.index("</section>")]
+        assert 'href="#fn-dsm"' in dsm_sec.split("</h2>", 1)[0]
+        note = re.search(r'<p class="dsm-note">(.*?)</p>', dsm_sec, re.S)
+        assert note is not None
+        assert 'href="#fn-dsm"' in note.group(1)
+        text = re.sub(r"<[^>]+>", "", note.group(1))
+        assert text.count(".") == 1 and text.endswith("."), text
+        assert "carry lower ones forward" not in text and "asks a person" not in text
         # The note must NAME both models, not merely link them: the link text
         # is a DOI, and a reader cannot tell which maturity model was scored.
         assert "FAIRplus Dataset Maturity (DSM) model" in refs
@@ -1150,8 +1179,8 @@ class TestFairTileAndRose:
         tool = (_load_yaml(DSM_INDICATORS_PATH) or {})["source"]["assessment_tool"]
         assert tool == "https://fairdsm.biospeak.solutions/assess"
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert "FAIRplus Dataset Maturity Model</h2>" in page
-        sec_h = page[page.index("FAIRplus Dataset Maturity Model</h2>") :].split("</div>", 1)[0]
+        assert "<h2>FAIRplus Dataset Maturity Model" in page
+        sec_h = page[page.index("<h2>FAIRplus Dataset Maturity Model") :].split("</div>", 1)[0]
         assert f'<a class="lk" href="{tool}">' in sec_h
         assert "<h2><a" not in sec_h
 
@@ -3063,6 +3092,7 @@ class TestEveryClassTheReportEmitsIsStyled:
         class NAME, and the page INLINES the stylesheet, so every class matched
         itself in the `<style>` block whether or not the markup used it.
         """
+        from builder.tools.fair_assessment import DSM_INDICATORS_PATH, _load_yaml
         from builder.tools.validation import ValidationReport
         from builder.writers.maturity_report import (
             _render_recommendations,
@@ -3083,7 +3113,9 @@ class TestEveryClassTheReportEmitsIsStyled:
         # Recommendations AND the references block its footnote links point at —
         # both carry classes of their own, so covering only the section would
         # leave exactly the gap this test exists to close.
-        html_out = _render_recommendations(val, None) + _render_references()
+        html_out = _render_recommendations(val, None) + _render_references(
+            _load_yaml(DSM_INDICATORS_PATH) or {}
+        )
         assert 'class="rec-n"' in html_out, "the section did not render; this test is inert"
         assert 'class="refs"' in html_out, "the references did not render; this test is inert"
         return html_out
