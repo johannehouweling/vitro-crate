@@ -3240,10 +3240,11 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   process step's **descriptive experimental parameters** (exposure duration,
   detection instrument, endpoint …), drawn from the shared LabProcess hint
   vocabulary (`_crate_mapping.LABPROCESS_PARAMETER_FIELDS`) so both arms offer the
-  same keys; without that channel the crate publishes ontology-typed
-  ParameterValues asserting `"unknown"` that nobody stated (#379). Identifiers
-  remain excluded, and the parameter sub-object is closed so an unrecognised key
-  cannot reach LabProcess state.
+  same keys; without that channel a step states no descriptive parameter at all,
+  and nothing is invented in its place — not a placeholder, not an empty list
+  (D5) — so the tox "MUST have at least one additionalProperty" fires on it
+  (#379). Identifiers remain excluded, and the parameter sub-object is closed so
+  an unrecognised key cannot reach LabProcess state.
 - **Materialize** (`_materialize_plan` via the idempotent composites #217, §14.5)
   — deterministically turns each plan section into linked ISA-Tox entities through
   `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /

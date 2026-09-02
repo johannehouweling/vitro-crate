@@ -234,8 +234,8 @@ for this step:
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
 ([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent exposing the cell-based test system to
 the chemical(s). It captures the experimental design: it takes the cultured cell [Sample](isa.md#sample)
-as its `object`, and emits a normalised condition table (CSVW) as its `result` in which each row records a single
-well (cell line, compound, concentration, exposure duration).
+as its `object`, emits the exposed Sample(s) as its `result`, and follows — via `executesLabProtocol` — a normalised
+condition table (CSVW) in which each row records a single well (cell line, compound, concentration, exposure duration).
 
 > **Where the compound goes.** The [MolecularEntity](#molecularentity---chemical) compound is **not** a process
 > `object`: the inherited ISA [LabProcess](isa.md#labprocess) shape restricts `schema:object` (and `schema:result`)
