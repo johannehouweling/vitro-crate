@@ -909,9 +909,18 @@ def _mit_totals(mit: MITReport) -> tuple[int, int]:
 
 def _mit_rose_svg(mit: MITReport) -> str:
     """The MIT coverage rose: one wedge per module, angle = the module's share
-    of the checklist, radius = how much of that module is filled. A faint
-    full-radius wedge behind each carries the share, so an empty module still
-    shows the ground it owes. Pure trigonometry over the scorer's own buckets.
+    of the parameters this tool can score, radius = how much of that module is
+    filled. A faint full-radius wedge behind each carries the share, so an empty
+    module still shows the ground it owes. Pure trigonometry over the scorer's
+    own buckets.
+
+    **Not the module's share of the checklist**, which is a different picture: the
+    checklist defines 220 parameters and 176 carry a ``crate_slot``, unevenly — 41
+    of Analysis and Statistics' parameters against the 7 this wedge is sized by, so
+    that module's true share is over five times its wedge. Sizing wedges by the
+    published share would make the drawing honest about weight and dishonest about
+    fill in the same stroke (a 100%-radius wedge over 7 of 41), so the drawing keeps
+    what it can measure and the section below states the shortfall per module.
 
     Each module is one ``<g>`` holding its pale share wedge, its filled wedge,
     a ``<title>`` (the native tooltip, and what a screen reader reads) and a
@@ -1537,11 +1546,21 @@ def _render_mit_section(mit: MITReport) -> str:
         )
 
     def document_row(
-        label: str, sc: dict[str, int], by_module: dict[str, dict[str, int]], url: str = ""
+        label: str,
+        key: str,
+        sc: dict[str, int],
+        by_module: dict[str, dict[str, int]],
+        url: str = "",
     ) -> str:
         doc_total = sc.get("total", 0)
+        # The bar is drawn over the parameters this document flags THAT WE CURATED a
+        # slot for. Every document but LINCS flags more, by 7 to 24 — Nature flags 14
+        # and 7 reach the page — so the shortfall rides on the bar's accessible name,
+        # the same way each module's does. Silent, the bar reads as the document.
+        published = mit.published_total_for_standard(key)
+        scoped = f"; {doc_total} of the {published} it flags" if published > doc_total else ""
         if not by_module or not doc_total:
-            return mrow(label, plain_bar(sc, "meter", "fill-cov"), sc, url=url)
+            return mrow(label, plain_bar(sc, "meter", "fill-cov", extra=scoped), sc, url=url)
         # The scorer's module order (the checklist's), then anything the split
         # names that the module rows do not — kept, not dropped. A bucket with
         # nothing in it draws nothing and is not described either.
@@ -1555,7 +1574,8 @@ def _render_mit_section(mit: MITReport) -> str:
         )
         bar = (
             f'<div class="meter stack" role="img" '
-            f'aria-label="{sc.get("completed", 0)} of {doc_total}: {esc(described)}">'
+            f'aria-label="{sc.get("completed", 0)} of {doc_total}: {esc(described)}'
+            f'{esc(scoped)}">'
             f"{spans}</div>"
         )
         return mrow(label, bar, sc, url=url)
@@ -1581,6 +1601,7 @@ def _render_mit_section(mit: MITReport) -> str:
         srows = "".join(
             document_row(
                 MIT_STANDARD_LABELS.get(k, k),
+                k,
                 mit.standard_scores[k],
                 mit.standard_module_scores.get(k) or {},
                 url=MIT_STANDARD_SOURCES.get(k, ""),
@@ -1588,9 +1609,11 @@ def _render_mit_section(mit: MITReport) -> str:
             for k in ordered
         )
         # No lead and no header aggregate: the bars explain themselves (the
-        # module card directly above is the key), and rows overlap by design —
-        # a document's numbers are its own, never a share of the checklist
-        # total, so any sum in the header would double-count.
+        # module card directly above is the key), and rows overlap by design — one
+        # parameter can be flagged by several documents, so any sum in the header
+        # would double-count. A row is that document's own parameters MINUS the ones
+        # no crate slot reaches; "its own numbers" defended that silently until #714,
+        # and each bar's accessible name now carries the shortfall.
         section += (
             "<section>\n"
             '  <div class="sec-h"><h2>Per guidance document</h2></div>\n'

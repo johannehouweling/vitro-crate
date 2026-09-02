@@ -1561,10 +1561,20 @@ class TestMitModuleColours:
             described = ", ".join(
                 f"{m} {by_module[m]['completed']} of {by_module[m]['total']}" for m in order
             )
+            # The shortfall clause is present exactly where the document flags more
+            # parameters than carry a crate slot — every document but LINCS (#714).
+            published = mit.published_total_for_standard(key)
+            scoped = (
+                f"; {doc['total']} of the {published} it flags"
+                if published > doc["total"]
+                else ""
+            )
             assert (
                 f'<div class="meter stack" role="img" '
-                f'aria-label="{doc["completed"]} of {doc["total"]}: {_html.escape(described)}">'
+                f'aria-label="{doc["completed"]} of {doc["total"]}: '
+                f'{_html.escape(described)}{_html.escape(scoped)}">'
             ) in row, label
+            assert bool(scoped) == (published > doc["total"]), label
             spans = span_re.findall(row)
             assert [c for c, _w, _i in spans] == [MIT_MODULE_STYLES[m] for m in order], label
             # The shares are the field counts themselves, so the pills sum to

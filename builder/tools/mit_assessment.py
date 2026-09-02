@@ -413,6 +413,16 @@ def _score_modules(
         for module in mit_data.get("modules", [])
         if (name := module.get("name", module.get("id", "unknown"))) in module_scores
     }
+    # And per guidance document. A document's bar is its own parameter list
+    # intersected with the ones we curated a slot for, so without this the page
+    # prints our subset under the document's name — 7 of Nature's 14, and it read
+    # as 7 of 7.
+    published_standard_totals: dict[str, int] = {}
+    for module in mit_data.get("modules", []):
+        for param in unique_module_params(module):
+            for key, flagged in (param.get("standards") or {}).items():
+                if flagged is True:
+                    published_standard_totals[key] = published_standard_totals.get(key, 0) + 1
     return MITReport(
         module_scores=module_scores,
         overall_score=overall_score,
@@ -422,6 +432,7 @@ def _score_modules(
             len(unique_module_params(module)) for module in mit_data.get("modules", [])
         ),
         published_module_totals=published_module_totals,
+        published_standard_totals=published_standard_totals,
     )
 
 

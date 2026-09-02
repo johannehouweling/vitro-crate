@@ -1567,7 +1567,7 @@ The dashboard derives a live **▶ / ⏸ / ⏹** agent-status badge from these e
 | ISA-Tox Profile | SHOULD | Recommended tox fields | Fix if data available |
 | ISA-Tox Profile | MAY | Optional tox fields | Note for user |
 | Data content (Frictionless) | REQUIRED | Payload conformance (CSV rows vs CSVW/Frictionless `tableSchema`) | MUST fix offending cell |
-| MIT Coverage | Score | % of recommended fields | Improvement suggestions |
+| MIT Coverage | Score | % of the checklist parameters that carry a crate slot | Improvement suggestions |
 | FAIR Indicators | Score | FAIR maturity | Guidance for improvement |
 
 ### Data-Content Layer (Frictionless, Issue #95)
@@ -2183,7 +2183,7 @@ read from the validator's own requirement registry (`profiles.validator.tiers_de
 from a list kept by hand, so only a tier that could have failed is allowed to pass. A finding
 outranks that state: one filed at a tier the profile defines no check at still reads ✗, the FAIR ladder (the *next* rung dashed red
 and filled to the ratio of indicators met, so a gated 0 never reads as "nothing done"), the **FAIR
-principle 1.3** rose (one wedge per MIT module: angle = share of the checklist, radius = fill;
+principle 1.3** rose (one wedge per MIT module: angle = share of the parameters this tool can score, radius = fill;
 faint full wedges carry the share), a graph tile (where the entities live: the explorer payload's
 own residence tally, `carried` / `record` / `elsewhere` / `named`, pinned to it by test) and the AI-readiness
 profile (met of assessed, with the seven dimensions as bars; a dimension nothing could be assessed
