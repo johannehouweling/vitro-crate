@@ -56,7 +56,6 @@ from builder.state import (
     FAIRReport,
     MITReport,
     ValidationReport,
-    looks_like_identifier,
 )
 from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import (
@@ -289,21 +288,18 @@ def _lk(url: str, text: str) -> str:
 _NOT_STATED = '<span class="not-stated">not stated</span>'
 
 
-def _render_header(title: str, accession: str, subhead: str) -> str:
-    """The page header: eyebrow, the accession as the headline, and a subhead —
-    the publication's name when the crate has one, else the study title.
+def _render_header(title: str, subhead: str) -> str:
+    """The page header: eyebrow, the study name as the headline, and a subhead —
+    the publication's name when the crate cites one.
 
-    The accession leads because it is what a reader cites — but only while it
-    reads as one (:func:`state.looks_like_identifier`). A crate reached this
-    report headlined a filename slug sitting where a registry accession belongs
-    (#628); the title leads instead, and the study card reports the identifier
-    either way, since a reader who cannot see it cannot question it.
+    The name leads (#719); the identifier, whatever its shape, is the study
+    card's to state, since a reader who cannot see it cannot question it.
 
     No verdict pill, no chips, no scope caveats: conformance lives in the
     Profile conformance tile and the caveats with the findings they qualify
     (the #607 design handoff)."""
     esc = html.escape
-    h1 = accession if looks_like_identifier(accession) else (title or accession)
+    h1 = title
     sub = f'<p class="subhead">{esc(subhead)}</p>\n' if subhead and subhead != h1 else ""
     return (
         "<header>\n"
@@ -369,7 +365,6 @@ def _study_facts(
         "publication": None,  # (doi url|None, display text, article name)
         "dataset_doi": None,
         "description": state.metadata.description or "",
-        # Reported whether or not it headlines the page (see `leads_the_page`).
         "accession": (state.metadata.accession or "").strip(),
     }
     if graph is None:
@@ -452,6 +447,8 @@ def _study_facts(
         if doi:
             facts["dataset_doi"] = doi
             break
+        if raw:  # not a DOI: the accession the crate states (#719)
+            facts["accession"] = raw
 
     articles = build_citation_inventory(graph)["articles"]
     cited = [a for a in articles if a["state"] == "cited"] or articles
@@ -2868,11 +2865,15 @@ def build_maturity_html(
             leaves). What it is never again is 0% for a crate nobody scored.
     """
     esc = html.escape
-    title = state.metadata.title or "RO-Crate"
-    accession = state.metadata.accession or ""
-    # The tab is the same claim in a smaller place, so it follows the same rule.
-    headline = accession if looks_like_identifier(accession) else (title or accession)
-    page_title = f"{headline} — vitro-crate maturity report"
+    # The crate's own name: the root Dataset of the graph the writer is handed.
+    # The session's metadata is what a state-only render has (#719).
+    root_name = _root_of(_raw_nodes(graph)).get("name")
+    title = (
+        (root_name.strip() if isinstance(root_name, str) else "")
+        or state.metadata.title
+        or "RO-Crate"
+    )
+    page_title = f"{title} — vitro-crate maturity report"
     # MIT is scored against the assembled @graph — the crate_slot vocabulary
     # describes the serialized crate, not CrateState (#311). The export path
     # passes the graph it already built; without one the assessor assembles its
@@ -2903,7 +2904,7 @@ def build_maturity_html(
     study = _study_facts(state, graph)
     publication = study.get("publication")
     subhead = (publication[2] if publication and publication[2] else "") or title
-    header = _render_header(title, accession, subhead)
+    header = _render_header(title, subhead)
     study_card = _render_study_card(study)
     crate_card = _render_crate_card(
         state,
