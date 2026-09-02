@@ -696,10 +696,16 @@ instrument's grid outright and needs none.
 **A check reads the crate, not the session.** An indicator is scored against the
 assembled `@graph` — the bytes a reader receives — so a third party scoring the
 published crate reaches our published number. Given no graph a check answers *not
-assessed* (`None`), which leaves the denominator, rather than guessing from
-`CrateState`; `_GRAPH_AWARE_FAIR_CHECKS` names the RDA checks that hold to this,
-every DSM check registered unwrapped in `DSM_CHECKS` holds to it too, and
-`assessment_graph.needs_graph` states why the alternative is a lie. `_state_check`
+assessed* (`None`) rather than guessing from `CrateState`, and where that answer lands is
+the instrument's own arithmetic: the RDA count carries not-assessed as a bucket beside met
+and failed, while a DSM cell drops it from `pct` and scores it 0 in `published_pct`, because
+the published sheet has no such state; `_GRAPH_AWARE_FAIR_CHECKS` names the RDA checks that read the graph, and
+every DSM check registered unwrapped in `DSM_CHECKS` reads it too;
+`assessment_graph.needs_graph` states why the alternative is a lie. The licence predicates
+are the one deliberate exception: `_effective_license` falls back to
+`state.metadata.license`, because a licence the deposit itself declared (#535) is a crate
+fact wherever it is read from, so the three of them — five registry entries, the DSM reusing
+two — answer a bool with no graph rather than `None`. `_state_check`
 marks what is left — a **burn-down**, enumerated with the reason each rewrite was
 refuted in `tests/test_fair_metrics_can_fail.py`, which may shrink and may not grow.
 Two indicators asking one question share one function, so the axes cannot disagree
@@ -1506,7 +1512,10 @@ All three score published instruments and share one shape: a tri-state verdict p
 item carrying the evidence behind it (`builder/tools/assessment_graph.Verdict`), read
 from the assembled `@graph` rather than from `CrateState` — the domain content exists
 only after assembly. An item the tool cannot assess from a crate is reported *not
-assessed*, never failed, and leaves the denominator.
+assessed*, never failed, and leaves the denominator of what was assessed — never the
+instrument's own. Where a published formula has no *not assessed* state, the report carries
+both numbers: `pct` over the criteria assessed, `published_pct` over every criterion
+(`AIRReport`, `fair_assessment.dsm_grid`).
 
 `AIRReport` carries **no aggregate score**. The Bridge2AI authors state that
 AI-readiness is not scored pass/fail overall, so the axis is seven per-dimension
@@ -2171,9 +2180,11 @@ requirement-level conformance **matrix** (rows the three layers linked to their 
 to `_crate_mapping`'s `conformsTo` constants by test — cells ✓/✗/– with counts on `title`; the
 Required column is the report's one headline verdict). A `–` carries two different sentences:
 *not assessed* where the sweep did not reach that tier, and *no checks defined at this level*
-where the profile has no rule there at all — the ISA and ISA-Tox profiles declare no `sh:Info`
-shape, so their Optional column can only ever come back empty, and an empty result is the
-profile's silence rather than the crate's cleanliness. Which tiers a layer can report at is
+where nothing in the row's layer chain declares a rule there at all, because an empty result
+then is the profiles' silence rather than the crate's cleanliness. ISA and ISA-Tox declare no
+`sh:Info` shape of their own, but each row is cumulative over `PROFILE_LAYER_CHAIN` and they
+extend a profile that declares twelve, so their Optional column is answerable and a clean
+crate reads a tick there. Which tiers a layer can report at is
 read from the validator's own requirement registry (`profiles.validator.tiers_defined`), never
 from a list kept by hand, so only a tier that could have failed is allowed to pass. A finding
 outranks that state: one filed at a tier the profile defines no check at still reads ✗, the FAIR ladder (the *next* rung dashed red
@@ -2243,7 +2254,8 @@ deposit as it arrived — the one moment the state holds nothing but a file inve
 any licence the deposit declared — and stores the verdicts on `CrateState.pre_assessment`,
 because `crate_state.json` is overwritten on every save and that moment is otherwise
 unrecoverable. `assessment_graph.as_received_graph` is its evidence: one `File` per
-scanned file and a root carrying `hasPart` and nothing else. It **mints nothing** — no
+scanned file and a root carrying `hasPart` and, only where the deposit declared one, a
+`license`. It **mints nothing** — no
 descriptor node, no root identifier, name, description or `conformsTo`, no structure —
 because each of those would score the input for work the FAIRification has not done;
 `tests/test_fair_metrics_can_fail.py` pins both the shape and the exact set of indicators

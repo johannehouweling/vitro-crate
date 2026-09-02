@@ -156,9 +156,11 @@ class Action:
         subject: What the action is about — an entity label, or a property name.
         entity_ids: Every entity the action touches.
         findings: The finding messages this action would clear.
-        tier: The strongest tier among those findings
-            (REQUIRED > RECOMMENDED > OPTIONAL — the validator's own
-            vocabulary, so it lines up with the conformance table).
+        tier: The strongest tier among those findings — REQUIRED > MATURITY >
+            RECOMMENDED > OPTIONAL. Three are the validator's own vocabulary, so
+            they line up with the conformance table; MATURITY is this module's,
+            carried by the DSM blockers :func:`group_dsm_blockers` mints, and it
+            outranks a recommendation while yielding to a conformance failure.
         actionable: False for a finding that is deliberately left open.
         note: Why it is not actionable, when it is not.
     """
@@ -206,7 +208,7 @@ class Action:
 
 
 def _strongest(tiers: list[str]) -> str:
-    """The most severe tier in *tiers* — REQUIRED beats RECOMMENDED beats OPTIONAL.
+    """The most severe tier in *tiers*, ranked by ``_TIER_RANK``.
 
     An unrecognised tier sorts last rather than raising: a new validator severity
     should make an action rank low, not crash the report. It is the DEFAULT that
@@ -389,7 +391,8 @@ def group_findings(
             "Zhongli Chen" rather than "#CitationAuthor_Zhongli_Chen".
 
     Returns:
-        Actions sorted by tier, then by how many findings each clears.
+        Actions sorted by tier, then by reuse impact (``Action.impact``), then by
+        how many findings each clears, with the subject as a stable tiebreak.
         Deliberately-open findings are returned too, flagged ``actionable=False``
         so a caller can show them as answered rather than outstanding.
     """
