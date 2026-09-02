@@ -1275,14 +1275,6 @@ class CrateState:
     user_answers: list[dict[str, str]] = field(default_factory=list)
 
     # The DSM verdicts for the deposit AS RECEIVED — the published sheet's
-    # "Pre-FAIRification" column, captured once at the end of `initialize` and never
-    # recomputed. It has to be stored rather than derived later: a session file is
-    # overwritten on every save, so the moment the state held nothing but a file
-    # inventory is gone as soon as the first entity is drafted. `{id: {value, evidence}}`
-    # rather than a second CrateState, because the grid, the level and the blockers are
-    # all pure functions of the verdict map.
-    pre_assessment: dict[str, dict[str, Any]] = field(default_factory=dict)
-
     # The depositor's answers to the DSM indicators no crate can evidence — the twenty
     # hosting-environment ones and the Level-5 enterprise-governance ones, which the
     # published tool puts to a person. `{indicator id: bool}`; an id left out stays
@@ -1649,7 +1641,6 @@ class StateSerializer:
             "checkpoint": cls._encode(state.checkpoint),
             "validation_preferences": dict(state.validation_preferences),
             "user_answers": [dict(a) for a in state.user_answers],
-            "pre_assessment": {k: dict(v) for k, v in state.pre_assessment.items()},
             "dsm_answers": dict(state.dsm_answers),
             "iteration_count": state.iteration_count,
             "max_iterations": state.max_iterations,
@@ -1708,13 +1699,6 @@ class StateSerializer:
                 for a in (data.get("user_answers") or [])
                 if isinstance(a, dict)
             ],
-            # A session written before the pre-column existed loads with none, and the
-            # report renders the post column alone rather than inventing a baseline.
-            pre_assessment={
-                str(k): {"value": v.get("value"), "evidence": str(v.get("evidence", ""))}
-                for k, v in (data.get("pre_assessment") or {}).items()
-                if isinstance(v, dict)
-            },
             # bool only: a hand-edited session must not smuggle "yes" in as a pass.
             dsm_answers={
                 str(k): v

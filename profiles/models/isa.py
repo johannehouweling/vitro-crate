@@ -40,7 +40,7 @@ def reader_compatible(cls):
     Merely IMPORTING ``profiles.models`` arms this — no registration call is
     involved — so any crate carrying a ``Sample``, a ``LabProcess`` or a
     ``ParameterValue`` was unreadable inside this repo's own process, including
-    ``read_existing_crate`` and every build→read→build round trip. External
+    any code that opens one with ro-crate-py inside this process. External
     consumers were never affected: without these imports ``pick_type`` falls back
     to plain ``ContextEntity`` (#544).
 
