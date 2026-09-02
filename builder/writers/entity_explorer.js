@@ -406,8 +406,8 @@
       if (n.status !== 'described') outside = true;
     });
     var styles = [];
-    if (orphaned) styles.push(['orphan', 'dashed: unreachable from the root']);
-    if (outside) styles.push(['outside', 'dotted: described outside the crate']);
+    if (orphaned) styles.push(['orphan', 'unreachable from the root']);
+    if (outside) styles.push(['outside', 'described outside the crate']);
 
     // The whole-crate view leads and is fenced off from the rest: it is the way
     // back, not a peer of "Chemicals". The others are questions about parts of
