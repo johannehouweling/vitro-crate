@@ -71,12 +71,16 @@ class LabProcessExposure(LabProcess):
     """Exposure step (additionalType "Exposure").
 
     object  = the cultured cell ``Sample``(s) being exposed.
-    result  = the CSVW condition table (a ``File`` that is also a ``csvw:Table``),
-              recording per well the cell line / compound / concentration /
-              duration. The exposed compound is NOT a process object — the base
-              ISA shape allows only File/Sample/BioSample, so the compound is
-              connected THROUGH the condition table (and shown at a glance on the
-              Study via schema:mentions), never via schema:object.
+    result  = the exposed ``Sample``(s) the step produces.
+    executesLabProtocol
+            = the procedural SOP and the CSVW condition table (a ``File`` that
+              is also a ``csvw:Table``) recording per well the cell line /
+              compound / concentration / duration — the layout the run FOLLOWS,
+              not what it emits (profiles/shapes/tox/8_condition_table_csvw.ttl).
+              The exposed compound is NOT a process object — the base ISA shape
+              allows only File/Sample/BioSample, so the compound is connected
+              THROUGH the condition table (and shown at a glance on the Study
+              via schema:mentions), never via schema:object.
     """
 
     def __init__(
@@ -94,9 +98,9 @@ class LabProcessExposure(LabProcess):
         properties: dict | None = None,
         add: bool = True,
     ):
-        # ISA-Tox requires an Exposure to emit a schema:result (the CSVW condition
-        # table), so `result` is a first-class parameter here — symmetric with the
-        # other LabProcess subtypes — rather than only reachable through
+        # ISA-Tox requires an Exposure to emit a schema:result (the exposed
+        # Sample), so `result` is a first-class parameter here — symmetric with
+        # the other LabProcess subtypes — rather than only reachable through
         # `properties`.
         u = units or {}
         base_properties: dict = {
@@ -125,9 +129,8 @@ class LabProcessExposure(LabProcess):
                 ),
             ),
             "input": samples,
+            "output": result,
         }
-        if result is not None:
-            base_properties["output"] = result
         merged_properties = base_properties | (properties or {})
         super().__init__(
             crate=crate,
@@ -283,7 +286,11 @@ class LabProcessDataAnalysis(LabProcess):
     Part of the Tox ISA RO-Crate Profile extension (the 4th LabProcess
     discriminator, alongside CellCulture, Exposure, and EndpointReadout).
     Parameter keys for which no authoritative ontology IRI is asserted are
-    emitted without a propertyID rather than carrying a fabricated one.
+    emitted without a propertyID rather than carrying a fabricated one. A
+    parameter that was not stated is not published at all — no placeholder,
+    and no empty ``parameter`` list (see :class:`LabProcess`) — so the tox
+    "MUST have at least one additionalProperty" fires as the prompt to fill it
+    in (D5).
     """
 
     def __init__(
@@ -293,8 +300,8 @@ class LabProcessDataAnalysis(LabProcess):
         object: list[File],  # raw-data inputs being analysed
         result: list[File],  # processed-data outputs
         labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
-        data_processing: str = "",
-        software: str = "",
+        data_processing: str | None = None,
+        software: str | None = None,
         acceptance_criteria: str | None = None,
         evaluation_criteria: str | None = None,
         name: str = "Data Analysis",
@@ -303,28 +310,24 @@ class LabProcessDataAnalysis(LabProcess):
         add: bool = True,
     ):
         u = units or {}
-        parameter_values = [
-            _pv(
-                crate,
-                "Data Calculation and Statistics",
-                data_processing or "unknown",
-                unit=u.get("Data Calculation and Statistics"),
-            ),
-            _pv(
-                crate,
-                "Computational Tool",
-                software or "unknown",
-                unit=u.get("Computational Tool"),
-            ),
-        ]
-        if acceptance_criteria is not None:
-            parameter_values.append(_pv(crate, "Acceptance Criteria", acceptance_criteria))
-        if evaluation_criteria is not None:
-            parameter_values.append(_pv(crate, "Evaluation Criteria", evaluation_criteria))
-
         merged_properties = {
             "additionalType": "DataAnalysis",
-            "parameter": _pvs(*parameter_values),
+            "parameter": _pvs(
+                _pv(
+                    crate,
+                    "Data Calculation and Statistics",
+                    data_processing,
+                    unit=u.get("Data Calculation and Statistics"),
+                ),
+                _pv(
+                    crate,
+                    "Computational Tool",
+                    software,
+                    unit=u.get("Computational Tool"),
+                ),
+                _pv(crate, "Acceptance Criteria", acceptance_criteria),
+                _pv(crate, "Evaluation Criteria", evaluation_criteria),
+            ),
             "input": object,
             "output": result,
             "name": name,

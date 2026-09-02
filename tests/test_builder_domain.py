@@ -1195,3 +1195,62 @@ class TestSynthesizedSamplesCarryTheirType:
         assert "#CellLineSample_other_line" in derived, (
             f"a lineage the drafter stated must survive: {derived}"
         )
+
+
+class TestADataAnalysisStatesOnlyWhatItWasTold:
+    """A parameter nobody stated is absent — not ``"unknown"``, not ``[]`` (#740).
+
+    ``_pv`` refuses a placeholder, so ``data_processing or "unknown"`` could never
+    publish one; what it left behind was ``"parameter": []``, a second spelling
+    of "absent" that every reader then has to know. The node states no
+    parameter at all, and the tox REQUIRED shape fires on it, which is the
+    prompt to go and fill it in (D5).
+    """
+
+    def _state(self, **hints):
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("file_raw", "File", name="raw.csv", dest_path="raw.csv"))
+        state.add_entity(_ent("file_proc", "File", name="out.csv", dest_path="out.csv"))
+        state.add_entity(
+            _ent(
+                "proc_1",
+                "LabProcess",
+                name="Data Analysis",
+                process_type="DataAnalysis",
+                assay_id="assay_1",
+                object="file_raw",
+                result="file_proc",
+                **hints,
+            )
+        )
+        return state
+
+    @staticmethod
+    def _tox_required_on(tmp_path, prop):
+        from profiles.validator import validate_crate_dict
+
+        with open(tmp_path / "crate" / "ro-crate-metadata.json") as f:
+            doc = json.load(f)
+        results = validate_crate_dict(doc, profile="tox")
+        assert results, "no ISA-Tox pass ran"
+        return [i for i in results[0].issues if i.property == prop]
+
+    def test_stating_nothing_publishes_no_parameter(self, tmp_path):
+        graph, by_id = _build(self._state(), tmp_path)
+        proc = by_id["#LabProcess_proc_1"]
+        assert "parameter" not in proc and "parameterValue" not in proc, proc
+        assert not [
+            e
+            for e in graph
+            if "PropertyValue" in str(e.get("@type")) and e.get("value") == "unknown"
+        ]
+        assert self._tox_required_on(tmp_path, "http://schema.org/additionalProperty"), (
+            "a DataAnalysis stating no parameter passed the additionalProperty MUST"
+        )
+
+    def test_stating_a_tool_publishes_exactly_that(self, tmp_path):
+        _, by_id = _build(self._state(software="Prism 9"), tmp_path)
+        params = [by_id[i] for i in _ids(by_id["#LabProcess_proc_1"].get("parameter"))]
+        assert [(p["name"], p["value"]) for p in params] == [("Computational Tool", "Prism 9")]
+        assert self._tox_required_on(tmp_path, "http://schema.org/additionalProperty") == []

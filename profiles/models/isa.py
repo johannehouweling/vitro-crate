@@ -179,21 +179,26 @@ class LabProcess(AutoAddContextEntity):
         properties: dict | None = None,
         add: bool = True,
     ):
-        # Define default properties for this LabProcess
-        default_properties: dict = {"@type": "LabProcess"}
-        # Omitted rather than emitted as null when absent. A protocol is a SHOULD,
-        # not a MUST, and a step with no deposited document has none — the crate
-        # says nothing rather than saying "null" or naming a stub (#650).
-        if labprotocol is not None:
-            default_properties["executesLabProtocol"] = labprotocol
-        if name is not None:
-            default_properties["name"] = name
-        if object is not None:
-            default_properties["object"] = object
-        if result is not None:
-            default_properties["result"] = result
-        # Merge default properties with user-provided properties (user properties override defaults)
-        merged_properties = default_properties | (properties or {})
+        default_properties: dict = {
+            "@type": "LabProcess",
+            "executesLabProtocol": labprotocol,
+            "name": name,
+            "object": object,
+            "result": result,
+        }
+        # User properties override defaults; then whatever is absent is OMITTED,
+        # never emitted as null or []. A protocol is a SHOULD, not a MUST, and a
+        # step with no deposited document has none — the crate says nothing
+        # rather than saying "null" or naming a stub (#650). A subtype whose every
+        # parameter was declined (:func:`profiles.models.tox._pv`) states no
+        # parameter rather than an empty list: the shape's "MUST have at least
+        # one additionalProperty" fires on the missing key just the same, and a
+        # reader meets one spelling of "absent", not two (#740).
+        merged_properties = {
+            k: v
+            for k, v in (default_properties | (properties or {})).items()
+            if v is not None and v != []
+        }
 
         super().__init__(
             crate,
