@@ -20,6 +20,7 @@ import hashlib
 import importlib.util
 import pathlib
 
+import openpyxl
 import pytest
 import yaml
 
@@ -185,7 +186,28 @@ class TestTheScoringModelIsTheAuthors:
     """Seven percentages, no aggregate — the authors refuse one and so do we."""
 
     def test_the_worksheet_formula_is_recorded(self, data):
+        """It is recorded *and* checked against the cell it was copied from.
+
+        The name promised parity and the body asserted only our own paraphrase, so the
+        literal in the generator had never been compared with the workbook (#715). It
+        matches — this is a guard, not a repair — but nothing was holding it there, and
+        the md5 pin below only catches a change to the vendored bytes, not a
+        re-vendoring that bumps the pin and leaves the literal behind.
+        """
         assert data["scoring"]["per_dimension"] == "met / total * 100"
+        sheet = openpyxl.load_workbook(WORKSHEET, data_only=False)["Blank"]
+        assert data["scoring"]["formula"] == sheet["E4"].value
+        assert data["scoring"]["input"] == sheet["D3"].value
+
+    def test_the_recorded_formula_is_one_dimension_of_seven(self, data):
+        """`formula` is dimension 0's cell, and the seven are NOT interchangeable —
+        the same block's note says the denominators are deliberately unequal. E4 spans
+        four criteria, E12 spans five. Pinned so the singular key cannot be read as the
+        instrument's one formula."""
+        sheet = openpyxl.load_workbook(WORKSHEET, data_only=False)["Blank"]
+        assert "D4:D7" in data["scoring"]["formula"], "dimension 0, four criteria"
+        assert "D12:D16" in sheet["E12"].value, "Characterization, five"
+        assert "deliberately unequal" in data["scoring"]["note"]
 
     def test_there_is_no_aggregate_score(self, data):
         """Verbatim: "We do not score it pass/fail overall"."""
