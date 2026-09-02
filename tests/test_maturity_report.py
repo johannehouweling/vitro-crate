@@ -3147,6 +3147,47 @@ class TestAnUnreadableInstrumentIsSaidNotHidden:
         assert _render_air_section(AIRReport()) == ""
 
 
+class TestTheAIReadinessHeaderCarriesNoCaption:
+    """The seven rows and the note already say "seven dimensions, no overall score";
+    a caption beside the heading said it a third time (#728). The header holds the
+    `<h2>` alone, as every other section's does."""
+
+    def _air(self) -> Any:
+        from builder.state import AIRReport
+
+        return AIRReport(
+            criterion_results=[
+                {"id": "D1.1", "dimension": "D1", "text": "a criterion", "passed": True}
+            ],
+            dimensions=[
+                {
+                    "dimension": f"D{i}",
+                    "name": f"Dimension {i}",
+                    "met": 1,
+                    "assessed": 1,
+                    "total": 2,
+                    "pct": 100.0,
+                    "published_pct": 50.0,
+                }
+                for i in range(1, 8)
+            ],
+        )
+
+    def test_the_header_is_the_heading_alone(self) -> None:
+        from builder.writers.maturity_report import _render_air_section
+
+        section = _render_air_section(self._air())
+        assert "the Bridge2AI profile</h2></div>" in section
+        assert 'class="sec-meta"' not in section
+
+    def test_the_rows_and_the_note_still_stand(self) -> None:
+        from builder.writers.maturity_report import _render_air_section
+
+        section = _render_air_section(self._air())
+        assert section.count('<th scope="row">') == 7
+        assert 'class="dsm-note"' in section
+
+
 class TestTheRecommendationsCloseTheReport:
     """Assessment first, then what to do about it: Recommendations follows the
     evidence sections and only References stands after it. The jump link that
