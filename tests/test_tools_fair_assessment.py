@@ -426,3 +426,80 @@ class TestTheAgentAndTheReportScoreTheSameCrate:
     def test_the_dsm_level_agrees(self) -> None:
         agent, report = self._both_paths()
         assert agent.dsm_level == report.dsm_level
+
+
+class TestTheTwoF1IndicatorsAskTwoQuestions:
+    """RDA-F1-01M and RDA-F1-02M are different questions about different actors.
+
+    The published model (10.15497/rda00050 §4.2) separates them: *persistent* is a
+    promise by the issuing organisation that the identifier will keep resolving;
+    *globally unique* is a structural property of the namespace it was minted in, so
+    no other issuer could ever produce the same string. Neither implies the other — a
+    UUID is globally unique and nobody has promised anything about it — and the model
+    scores both Essential.
+
+    The old `root_global_id` check was `bool(state.metadata.accession or
+    state.session_id)`, true after every run that got as far as being scored (#712).
+    The obvious repair — point it at `_root_pid` like RDA-F1-01M — would answer the
+    persistence question twice under two published ids, which is why the two
+    predicates are pinned here by the case that separates them.
+    """
+
+    @staticmethod
+    def _graph(identifier: str | None) -> dict:
+        root: dict = {"@id": "./", "@type": "Dataset", "name": "A crate"}
+        if identifier is not None:
+            root["identifier"] = identifier
+        return {
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork",
+                 "about": {"@id": "./"}},
+                root,
+            ]
+        }
+
+    def _f1(self, identifier: str | None) -> tuple:
+        """(persistent, globally unique) for a root carrying *identifier*."""
+        state = CrateState()
+        state.session_id = "20260101_000000"  # the handle the old check passed on
+        rep = assess_fair_maturity(state, graph=self._graph(identifier))
+        got = {r["id"]: r["passed"] for r in rep.indicator_results}
+        return got["RDA-F1-01M"], got["RDA-F1-02M"]
+
+    def test_a_repository_url_is_unique_without_being_persistent(self) -> None:
+        """The case that keeps the two indicators from collapsing into one, and the
+        crate the tool's own remedy proposes: a landing page in a DNS-partitioned
+        namespace, issued by a body that has promised nothing about keeping it."""
+        assert self._f1("https://www.ebi.ac.uk/biostudies/studies/S-VHPS22") == (False, True)
+
+    def test_a_doi_is_both(self) -> None:
+        assert self._f1("https://doi.org/10.6019/S-VHPS22") == (True, True)
+
+    def test_a_bare_accession_is_neither(self) -> None:
+        """Unique inside BioStudies, ambiguous outside it."""
+        assert self._f1("S-VHPS22") == (False, False)
+
+    def test_a_uuid_is_unique_with_no_promise_attached(self) -> None:
+        assert self._f1("urn:uuid:8f1e2a3b-4c5d-6e7f-8091-a2b3c4d5e6f7") == (False, True)
+
+    def test_a_national_library_urn_is_persistent(self) -> None:
+        assert self._f1("urn:nbn:nl:ui:13-abcdef") == (True, True)
+
+    def test_the_substring_doi_is_not_a_scheme(self) -> None:
+        """Measured false positives of the old `_root_pid`: it accepted anything
+        containing "doi" and anything starting "10.", so a note to self scored as a
+        persistent identifier."""
+        assert self._f1("my_doi_notes") == (False, False)
+        assert self._f1("10.happy") == (False, False)
+
+    def test_a_session_handle_carries_neither(self) -> None:
+        """No reader ever receives `session_id`; a crate with no identifier at all
+        must fail both however the run was launched."""
+        assert self._f1(None) == (False, False)
+
+    def test_no_graph_is_not_assessed(self) -> None:
+        state = CrateState()
+        state.session_id = "20260101_000000"
+        rep = assess_fair_maturity(state)
+        got = {r["id"]: r["passed"] for r in rep.indicator_results}
+        assert got["RDA-F1-01M"] is None and got["RDA-F1-02M"] is None

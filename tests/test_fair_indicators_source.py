@@ -213,7 +213,7 @@ class TestFairIndicatorsDerivedFromRda:
         rep = assess_fair_maturity(state, graph={"@graph": _assemble_graph(state) or []})
         got = {r["id"]: (r.get("passed"), r.get("scope", "")) for r in rep.indicator_results}
         expected = {
-            "RDA-F1-02M": (True, ""),
+            "RDA-F1-02M": (False, ""),
             "RDA-F1-02D": (False, ""),
             "RDA-F1-01M": (False, ""),
             "RDA-F2-01M": (True, ""),
@@ -268,19 +268,22 @@ class TestFairIndicatorsDerivedFromRda:
         rep = assess_fair_maturity(state, graph={"@graph": _assemble_graph(state) or []})
         met = sum(1 for r in rep.indicator_results if r.get("passed") is True)
         failed = sum(1 for r in rep.indicator_results if r.get("passed") is False)
-        # 11/7 is the post-#670 baseline, pinned indicator-by-indicator in the test
-        # above (13/5 before; F1-02D and R1-01M now fail for stated reasons).
+        # 10/8 since #712: F1-02M asks the crate for a globally unique identifier
+        # instead of reading `session_id`, and this crate carries none. 11/7 before
+        # that, 13/5 before #670 (F1-02D and R1-01M fail for stated reasons).
         # R1.3-01D reads False here because no MIT report is passed.
-        assert (met, failed) == (11, 7), "the verdicts moved; only the denominator should"
+        assert (met, failed) == (10, 8), "the verdicts moved; only the denominator should"
         assert len(rep.indicator_results) == 41, "the whole model is reported"
 
     def test_the_graph_is_what_makes_the_score_answerable(self):
-        """#670: ten indicators read the crate, so state alone cannot answer them.
+        """#670: eleven indicators read the crate, so state alone cannot answer them.
 
         Not a redundant restatement of the pin above — it fixes *which* input the
         number belongs to. A caller passing no graph gets "not assessed" for those
-        ten, and 4 met is a smaller, honest claim rather than the same claim guessed
-        from a session object no reader receives.
+        eleven, and 3 met is a smaller, honest claim rather than the same claim guessed
+        from a session object no reader receives. RDA-F1-02M joined them in #712: it
+        used to answer True from `session_id`, which is neither the crate nor an
+        identifier anyone receives.
         """
         from builder.tools.fair_assessment import assess_fair_maturity
         from tests.fixtures.vhps_golden_crates import vhps_fixture_state
@@ -292,4 +295,4 @@ class TestFairIndicatorsDerivedFromRda:
             for r in rep.indicator_results
             if r.get("passed") is None and r.get("scope") != "out_of_scope"
         )
-        assert (met, in_scope_unanswered) == (4, 10)
+        assert (met, in_scope_unanswered) == (3, 11)

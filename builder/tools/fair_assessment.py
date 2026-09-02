@@ -7,9 +7,11 @@ and computes DSM level from fair/dsm_indicators.yaml check results.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from builder.state import CrateState, FAIRReport, MITReport
 
@@ -119,19 +121,86 @@ def _payload_files(graph: Graph) -> tuple[list[dict[str, Any]], set[str]]:
     return found, seen
 
 
-def _root_pid(graph: Graph) -> str:
-    """The persistent identifier the crate claims for itself, or ``""``.
+# Hosts whose operator publishes a standing commitment to keep the identifier
+# resolving — a redirection service, not a web server that happens to be up today.
+# This is what makes an identifier *persistent* rather than merely unique, and it is
+# the only property RDA-F1-01M asks about (10.15497/rda00050 §4.2: "The persistence of
+# an identifier is determined by the commitment of the organisation issuing it").
+_PERSISTENT_HOSTS = frozenset(
+    {
+        "doi.org", "dx.doi.org", "hdl.handle.net", "n2t.net", "identifiers.org",
+        "w3id.org", "purl.org", "purl.oclc.org", "purl.obolibrary.org", "arks.org",
+    }
+)
+# A DOI written without a resolver prefix. The registrant code is 4-9 digits, so
+# "10.happy" is not one — the old `startswith("10.")` accepted it.
+_BARE_DOI = re.compile(r"^10\.\d{4,9}/\S+$")
+# urn:<nid>:<nss> — the NID partitions the namespace across issuers.
+_URN = re.compile(r"^urn:[a-z0-9][a-z0-9-]{0,30}:\S+$", re.IGNORECASE)
+_UUID = re.compile(
+    r"^(urn:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
-    A DOI, or any absolute IRI. A bare accession like ``S-VHPS22`` does not qualify:
-    it is unique inside BioStudies and ambiguous outside it, and the whole point of
-    the indicator is identification that survives leaving the source repository.
+
+def _root_ids(graph: Graph) -> list[str]:
+    """Every identifier the Root Data Entity claims for itself, in priority order.
+
+    ``identifier`` first because it is the assigned one; the ``@id`` only after, since
+    in a packaged crate that is usually ``./`` — a location inside this ZIP.
     """
     root = _root_node(graph)
-    for value in (root.get("identifier"), root.get("@id")):
-        text = _ref_id(value) or str(value or "")
-        if text.startswith(("http://", "https://", "10.")) or "doi" in text.lower():
-            return text
-    return ""
+    out = [
+        text
+        for value in _values(root, "identifier")
+        if (text := _ref_id(value) or str(value or ""))
+    ]
+    if root_id := str(root.get("@id") or ""):
+        out.append(root_id)
+    return out
+
+
+def _is_globally_unique_id(text: str) -> bool:
+    """RDA-F1-02M's question: was this minted in a namespace partitioned across issuers?
+
+    A property of the *mechanism*, not of anyone's intentions — DNS partitions http(s)
+    IRIs by authority, a URN's NID partitions URN space, a DOI prefix partitions the
+    handle system, and a UUID is unique by construction. A bare accession like
+    ``S-VHPS22`` is not: it is unique inside BioStudies and ambiguous the moment it
+    leaves, which is the whole point of the indicator.
+    """
+    if _URN.match(text) or _UUID.match(text) or _BARE_DOI.match(text):
+        return True
+    parts = urlsplit(text)
+    return parts.scheme in ("http", "https") and "." in parts.netloc and " " not in parts.netloc
+
+
+def _is_persistent_id(text: str) -> bool:
+    """RDA-F1-01M's question: has the issuing organisation promised it will resolve?
+
+    Strictly narrower than :func:`_is_globally_unique_id`, and deliberately so: the two
+    indicators are separate rows of the published model, and answering the same
+    question twice would leave one of them carrying no information. A repository
+    landing page is globally unique and persistent only by that repository's goodwill;
+    a DOI, handle, ARK or NBN is minted under a scheme that states the commitment.
+    """
+    if _BARE_DOI.match(text) or text.lower().startswith(("urn:nbn:", "ark:/")):
+        return True
+    parts = urlsplit(text)
+    if parts.scheme not in ("http", "https"):
+        return False
+    host = parts.netloc.lower().removeprefix("www.")
+    return host in _PERSISTENT_HOSTS or parts.path.startswith("/ark:/")
+
+
+def _root_pid(graph: Graph) -> str:
+    """The *persistent* identifier the crate claims for itself, or ``""``.
+
+    Shared by RDA-F1-01M, RDA-F1-02D and DSM-1-C0, all three of which ask for a
+    persistent identifier by name. RDA-F1-02M asks the weaker question and reads
+    :func:`_is_globally_unique_id` instead.
+    """
+    return next((text for text in _root_ids(graph) if _is_persistent_id(text)), "")
 
 
 # ---------------------------------------------------------------------------
@@ -477,9 +546,24 @@ def _column_is_described(column: dict[str, Any], prescribed: set[str]) -> bool:
     )
 
 
-def _check_root_global_id(state: CrateState) -> bool:
-    """Check that the crate has a globally unique identifier (accession or session_id)."""
-    return bool(state.metadata.accession or state.session_id)
+def _check_root_global_id(state: CrateState, graph: Graph = None) -> bool | None:
+    """RDA-F1-02M — the *metadata* is identified by a globally unique identifier.
+
+    Was ``bool(state.metadata.accession or state.session_id)``. ``session_id`` is a
+    timestamp this tool mints for itself and no reader ever receives, and every entry
+    point sets it before anything can be scored, so the check was true of every build
+    that ran (#712) — the same expression :func:`_check_unique_id` already records as
+    discredited.
+
+    It now reads the assembled root, and asks the namespace question rather than the
+    persistence one: :func:`_is_globally_unique_id`, not :func:`_root_pid`. The two F1
+    indicators are separate published rows and must stay separate predicates — a
+    repository landing page answers this one True and RDA-F1-01M False, which is
+    exactly the state a crate is in before it earns a DOI.
+    """
+    if _needs_graph(graph):
+        return None
+    return any(_is_globally_unique_id(text) for text in _root_ids(graph))
 
 
 def _check_every_entity_has_id(state: CrateState, graph: Graph = None) -> bool | None:
@@ -2498,6 +2582,8 @@ def _state_check(fn: Callable[[CrateState], bool]) -> DsmCheck:
 # see #665 for why the licence indicators moved first and what a wider move would cost.
 _GRAPH_AWARE_FAIR_CHECKS: frozenset[str] = frozenset(
     {
+        # #712: was true on `session_id` alone, a handle no reader receives.
+        "root_global_id",
         "license_present",
         "license_standard",
         "license_machine",
