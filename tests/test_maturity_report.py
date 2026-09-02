@@ -444,21 +444,52 @@ class TestHeaderAndCards:
         other = {"@graph": graph["@graph"] + [{"@id": "#x", "@type": "Thing", "name": "x"}]}
         assert _report_id(state, other) != rid
 
-    def test_the_graph_tile_counts_linked_over_total(self) -> None:
+    def test_the_graph_tile_states_where_each_entity_lives(self) -> None:
+        """The tile's four figures are the explorer payload's own residence
+        tally (#720) — pinned to it the way the view chips are held to the
+        coverage blocks — and the orphan ratio it used to headline is gone: the
+        explorer's legend and the coverage blocks already report orphans."""
+        from collections import Counter
+
+        from builder.writers.entity_explorer import build_explorer_payload
+
         graph = {"@graph": [
             {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
-            {"@id": "./", "@type": "Dataset", "name": "T", "hasPart": [{"@id": "#f"}]},
-            {"@id": "#f", "@type": "File", "name": "a.csv"},
+            {"@id": "./", "@type": "Dataset", "name": "T",
+             "hasPart": [{"@id": "data/a.csv"}, {"@id": "#sample"}],
+             "mentions": [{"@id": "https://www.wikidata.org/wiki/Q42"}],
+             "author": [{"@id": "#nobody"}]},
+            {"@id": "data/a.csv", "@type": "File", "name": "a.csv"},
+            {"@id": "#sample", "@type": "Sample", "name": "a record"},
+            {"@id": "https://www.wikidata.org/wiki/Q42", "@type": "DefinedTerm", "name": "Q42"},
             {"@id": "#orphan", "@type": "Sample", "name": "loose"},
         ]}
         page = build_maturity_html(CrateState(), graph=graph)
         tile = re.search(r'<span class="eyebrow">Graph</span></div>(.*?)</article>', page, re.S)
         assert tile
-        m = re.search(r'<b>(\d+)</b><span class="den">/ (\d+)</span>', tile.group(1))
-        assert m
-        linked, total = int(m.group(1)), int(m.group(2))
-        assert total == linked + 1, "exactly the orphan is unlinked"
-        assert "number linked and retrieved entities" in tile.group(1)
+        shown = {
+            key: int(n)
+            for n, key in re.findall(
+                r"<b>(\d+)</b> (carried|record|elsewhere|named)", tile.group(1)
+            )
+        }
+        # The oracle is the shape rule, not the tile: `./` and the file are
+        # carried, the two #fragments records, the IRI elsewhere, the author
+        # nothing describes named — the orphan is a record like any other.
+        assert shown == {"carried": 2, "record": 2, "elsewhere": 1, "named": 1}
+        payload = build_explorer_payload(graph)
+        assert shown == Counter(n["residence"] for n in payload["nodes"])
+        assert f"<b>{len(payload['nodes'])}</b>" in tile.group(1), "the headline is the total"
+        # The bar carries the same four counts as its segment widths, in the
+        # same order, so the figure and its key cannot disagree.
+        assert re.findall(r'<i class="(\w+)" style="flex-grow:(\d+)"', tile.group(1)) == [
+            ("carried", "2"),
+            ("record", "2"),
+            ("elsewhere", "1"),
+            ("named", "1"),
+        ]
+        assert "linked and retrieved" not in tile.group(1)
+        assert '<span class="den">' not in tile.group(1), "no orphan ratio"
         # No graph, no tile — a count nobody measured is not rendered as 0.
         assert '<span class="eyebrow">Graph</span>' not in build_maturity_html(CrateState())
 

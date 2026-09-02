@@ -176,6 +176,16 @@ def _is_uri(value: Any) -> bool:
     return isinstance(value, str) and "://" in value
 
 
+# The four answers to "where does this entity live", each with what it means in
+# words, nearest the crate first — the order a figure stating them draws them in.
+RESIDENCES: dict[str, str] = {
+    "carried": "bytes in the crate directory",
+    "record": "described in the metadata, no bytes",
+    "elsewhere": "described here, resolvable outside the crate",
+    "named": "referenced by id, described nowhere in the crate",
+}
+
+
 def _residence(nid: str) -> str:
     """Where an entity's bytes live, read off its ``@id`` (#687).
 

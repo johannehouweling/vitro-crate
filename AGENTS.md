@@ -2168,7 +2168,8 @@ from a list kept by hand, so only a tier that could have failed is allowed to pa
 outranks that state: one filed at a tier the profile defines no check at still reads ✗, the FAIR ladder (the *next* rung dashed red
 and filled to the ratio of indicators met, so a gated 0 never reads as "nothing done"), the **FAIR
 principle 1.3** rose (one wedge per MIT module: angle = share of the checklist, radius = fill;
-faint full wedges carry the share), a graph tile (linked / total entities) and the AI-readiness
+faint full wedges carry the share), a graph tile (where the entities live: the explorer payload's
+own residence tally, `carried` / `record` / `elsewhere` / `named`, pinned to it by test) and the AI-readiness
 profile (met of assessed, with the seven dimensions as bars; a dimension nothing could be assessed
 in is drawn hollow rather than at zero).
 Each **Entity coverage** block is a fold (#629): the section is an inventory of a whole crate — the

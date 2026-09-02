@@ -45,6 +45,8 @@ from __future__ import annotations
 import html
 import logging
 import re
+from collections import Counter
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -66,6 +68,7 @@ from builder.tools.mit_assessment import (
     mit_was_assessed,
 )
 from builder.writers.provenance_dag import (
+    RESIDENCES,
     category_css,
 )
 
@@ -1054,29 +1057,51 @@ def _render_kpis(
     blockers: list[tuple[str, str, str]],
     mit: MITReport,
     air: AIRReport,
-    graph_counts: tuple[int, int] | None,
+    residence: Mapping[str, int] | None,
     *,
     ceiling: dict[str, Any] | None = None,
     grid: dict[int, dict[str, Any]] | None = None,
     stale: bool = False,
 ) -> str:
     """The KPI grid: the profile × tier conformance matrix, FAIR maturity, the
-    domain-coverage rose (spanning both rows), the graph tile (linked / total
-    entities, only when a graph was supplied) and the AI-readiness profile."""
+    domain-coverage rose (spanning both rows), the graph tile (where the
+    entities live, only when a graph was supplied) and the AI-readiness
+    profile."""
     tiles = _profile_matrix_tile(val, tiers, stale)
     tiles += _fair_tile(fair, blockers, ceiling, grid)
     tiles += _mit_rose_tile(mit)
-    if graph_counts is not None:
-        linked, total = graph_counts
-        tiles += (
-            '<article class="kpi">'
-            '<div class="kpi-h"><span class="eyebrow">Graph</span></div>'
-            f'<div class="kpi-v"><b>{linked}</b><span class="den">/ {total}</span></div>'
-            '<div class="kpi-sub">number linked and retrieved entities</div>'
-            "</article>"
-        )
-    tiles += _air_tile(air, wide=graph_counts is None)
+    if residence is not None:
+        tiles += _graph_tile(residence)
+    tiles += _air_tile(air, wide=residence is None)
     return f'<div class="kgrid">{tiles}</div>\n'
+
+
+def _graph_tile(residence: Mapping[str, int]) -> str:
+    """Where the crate's entities live — the explorer payload's residence tally
+    (#720) — as one bar and its four figures.
+
+    Orphans are the explorer legend's and the coverage blocks' to report; what
+    no other figure states is *where* the entities are. A residence no entity
+    has draws no segment and reads 0, so a crate with nothing looked up says so.
+    """
+    total = sum(residence.values())
+    counts = [(key, residence.get(key, 0)) for key in RESIDENCES]
+    segments = "".join(
+        f'<i class="{key}" style="flex-grow:{n}" title="{n} {key}"></i>' for key, n in counts if n
+    )
+    keys = "".join(
+        f'<span title="{RESIDENCES[key]}"><i class="{key}"></i><b>{n}</b> {key}</span>'
+        for key, n in counts
+    )
+    described = ", ".join(f"{n} {key}" for key, n in counts)
+    return (
+        '<article class="kpi">'
+        '<div class="kpi-h"><span class="eyebrow">Graph</span></div>'
+        f'<div class="kpi-v"><b>{total}</b> <span class="tag-inline">entities</span></div>'
+        f'<div class="res" role="img" aria-label="{total} entities: {described}">{segments}</div>'
+        f'<div class="res-keys">{keys}</div>'
+        "</article>"
+    )
 
 
 # The three profile layers in fix order: base must pass before ISA is
@@ -2870,7 +2895,7 @@ def build_maturity_html(
     explorer_section = ""
     lane_section = ""
     explorer_style = ""
-    graph_counts: tuple[int, int] | None = None
+    residence: Counter[str] | None = None
     if graph is not None:
         from builder.writers.assay_lane import render_assay_lane_section
         from builder.writers.entity_explorer import explorer_css, render_explorer_section
@@ -2890,10 +2915,11 @@ def build_maturity_html(
         # to draw returns nothing rather than an empty heading.
         lane_section = render_assay_lane_section(graph)
         explorer_style = explorer_css()
-        nodes = build_crate_graph(graph).get("nodes", [])
-        total = len(nodes)
-        linked = total - sum(1 for n in nodes if n.get("orphan"))
-        graph_counts = (linked, total)
+        # The same model the explorer's payload is cut from — `all_edges` so the
+        # named-only stubs a secondary edge reaches are counted, as they are there.
+        residence = Counter(
+            n["residence"] for n in build_crate_graph(graph, all_edges=True)["nodes"]
+        )
     from builder.tools.air_assessment import assess_air_readiness
     from builder.tools.fair_assessment import (
         DSM_INDICATORS_PATH,
@@ -2931,7 +2957,7 @@ def build_maturity_html(
         dsm_reach["blocked_by"],
         mit,
         air,
-        graph_counts,
+        residence,
         ceiling=dsm_reach,
         grid=dsm_cells,
         stale=stale,

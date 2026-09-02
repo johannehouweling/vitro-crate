@@ -628,6 +628,23 @@ __CATEGORY_STYLES__
 }
 .mat .airbar i { display:block; width:100%; background:var(--accent); border-radius:2px; }
 .mat .airbar.na { background:none; border:1px dashed var(--na-ink); }
+/* Graph tile (#720): one bar of where the entities live, nearest the crate
+   first and fainter the further away — carried solid, record and elsewhere
+   paler, a named-only id hollow, as the explorer draws an entity it has no
+   record for. The key beneath is the figure's four counts. */
+.mat .res { display:flex; gap:2px; height:8px; margin-top:.45rem; }
+.mat .res i { display:block; min-width:2px; border-radius:2px; background:var(--accent);
+  print-color-adjust:exact; -webkit-print-color-adjust:exact; forced-color-adjust:none; }
+.mat .res .record, .mat .res-keys .record { opacity:.55; }
+.mat .res .elsewhere, .mat .res-keys .elsewhere { opacity:.25; }
+.mat .res .named, .mat .res-keys .named { background:none; border:1px dashed var(--na-ink);
+  box-sizing:border-box; opacity:1; }
+.mat .res-keys { display:flex; flex-wrap:wrap; gap:.15rem .7rem; font-size:.74rem;
+  color:var(--muted); }
+.mat .res-keys b { color:var(--ink); font-weight:650; }
+.mat .res-keys i { display:inline-block; width:.55rem; height:.55rem; border-radius:2px;
+  background:var(--accent); margin-right:.3rem; vertical-align:-.03em; }
+
 .mat .air-grid td:first-of-type + td .dsm-pct { font-weight:650; }
 .mat .air-theirs { color:var(--muted); font-weight:550; }
 .mat .air-na { color:var(--na-ink); font-weight:500; font-style:italic; }
