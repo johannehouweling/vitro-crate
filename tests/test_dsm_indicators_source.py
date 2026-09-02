@@ -45,6 +45,11 @@ def _load_generator():
     return mod
 
 
+_DASH_CELL = (
+    '<td class="dsm-na" title="the model defines no indicators for it">—</td>'
+)
+
+
 def _yaml() -> dict:
     return yaml.safe_load(DSM_YAML.read_text())
 
@@ -349,6 +354,25 @@ class TestTheModelsOwnPercentCompleteGrid:
         # next section's lead that a level counts the levels below it (#732).
         assert "validates to 0" in page
         assert "counts the indicators below it as well as its own" in page
+
+    def test_a_cell_the_sheet_defines_nothing_for_says_so(self):
+        """Level 5 / Hosting is cell ``P28`` and the sheet hardcodes it — no indicator
+        is a member, so there is nothing to assess and nothing to divide by.
+
+        It renders as an em dash, which alone is indistinguishable from 0%, from
+        "not assessed", and from a column this tool chose to skip. The cell carries
+        the reason and the note under the table states it.
+        """
+        from builder.writers.maturity_report import build_maturity_html
+        from tests.fixtures.vhps_golden_crates import vhps_fixture_state
+
+        empty = [c for c in _yaml()["scoring"]["grid"] if not c.get("members")]
+        assert [c["cell"] for c in empty] == ["P28"], "the sheet's one empty cell moved"
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        grid = page[page.index('<table class="dsm-grid">') :].split("</table>", 1)[0]
+        assert grid.count(_DASH_CELL) == len(empty)
+        assert "—</td>" not in grid.replace(_DASH_CELL, ""), "a bare dash remains"
+        assert "the model defines no indicators for it" in page
 
 
 class TestNoGraphMeansUnanswered:
