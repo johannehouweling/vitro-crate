@@ -1636,9 +1636,14 @@ class TestMitModuleColours:
         assert docs_with_two_modules >= 1
         assert docs_with_both_states >= 1
 
-    def test_the_section_carries_one_sentence_of_prose(self, tmp_path: Path) -> None:
-        """The user's call: the bars explain themselves. One lead sentence
-        naming the indicators, no legend, no lead under the sub-heading."""
+    def test_the_section_carries_one_lead_and_no_legend(self, tmp_path: Path) -> None:
+        """The user's call: the bars explain themselves. One lead, no legend, no
+        lead under the sub-heading.
+
+        Two sentences, not one. The bars cannot explain the parameters they are
+        *not* drawn over: the second sentence is what a shortfall means, and
+        without it "7 of 41 mapped" on a row is a number with no referent.
+        """
         from builder.tools.mit_assessment import MIT_INDICATORS_URL
 
         _mit, page = self._scored(tmp_path)
@@ -1646,7 +1651,10 @@ class TestMitModuleColours:
         leads = re.findall(r'<p class="lead">(.*?)</p>', section, re.S)
         assert leads == [
             "Each item is a FAIR maturity indicator as defined in "
-            f'<a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>.'
+            f'<a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>. '
+            "Where a row covers fewer parameters than the checklist defines for it, "
+            "no crate field is mapped to the rest, so nothing in the crate could "
+            "satisfy or fail them and they are outside its denominator."
         ]
         assert 'class="mit-key"' not in section and "<legend" not in section
 
@@ -1760,6 +1768,81 @@ class TestMitModuleColours:
 
         assert set(MIT_STANDARD_SOURCES) <= set(MIT_STANDARD_LABELS)
         assert all(url.startswith("https://") for url in MIT_STANDARD_SOURCES.values())
+
+
+class TestTheMitCardSaysWhatItCouldNotScore:
+    """A bar drawn over fewer parameters than the checklist defines says so ON THE
+    PAGE, and the card says why.
+
+    #714 landed both facts in the bars' ``aria-label`` only. A sighted reader saw
+    "Analysis and Statistics 7/7" — a finished module. The checklist defines 41
+    parameters there; 34 carry no ``crate_slot``, so no crate field is mapped to
+    them and nothing in the crate could satisfy or fail them. The same holds for
+    every guidance document but LINCS (Nature flags 14 and 7 reach the page).
+    """
+
+    @staticmethod
+    def _clause(covered: int, published: int) -> str:
+        return f'<span class="mscope">{covered} of {published} mapped</span>'
+
+    def test_a_module_row_states_how_much_of_its_module_it_covers(
+        self, tmp_path: Path
+    ) -> None:
+        mit, page = TestMitModuleColours._scored(tmp_path)
+        section = TestMitModuleColours._mit_section(page)
+        shown = 0
+        for name, sc in mit.module_scores.items():
+            row = TestMitModuleColours._row(section, name)
+            published = mit.published_total_for(name)
+            if published > sc["total"]:
+                assert self._clause(sc["total"], published) in row, name
+                shown += 1
+            else:
+                assert 'class="mscope"' not in row, name
+        assert shown >= 1, "no module has a shortfall; this test is inert"
+
+    def test_a_guidance_document_row_states_how_much_of_it_it_covers(
+        self, tmp_path: Path
+    ) -> None:
+        from builder.tools.mit_assessment import MIT_STANDARD_LABELS
+
+        mit, page = TestMitModuleColours._scored(tmp_path)
+        section = TestMitModuleColours._docs_section(page)
+        shown = 0
+        for key, sc in mit.standard_scores.items():
+            row = TestMitModuleColours._row(section, MIT_STANDARD_LABELS[key])
+            published = mit.published_total_for_standard(key)
+            if published > sc["total"]:
+                assert self._clause(sc["total"], published) in row, key
+                shown += 1
+            else:
+                assert 'class="mscope"' not in row, key
+        assert shown >= 1, "no document has a shortfall; this test is inert"
+
+    def test_the_card_says_why_those_parameters_are_outside_the_denominator(
+        self, tmp_path: Path
+    ) -> None:
+        """The number alone is not the answer: "44 of 220 have no crate slot" states
+        a fact a reader cannot act on without knowing what a crate slot is."""
+        _mit, page = TestMitModuleColours._scored(tmp_path)
+        section = TestMitModuleColours._mit_section(page)
+        lead = " ".join(re.findall(r'<p class="lead">(.*?)</p>', section, re.S))
+        assert "no crate field is mapped to the rest" in lead
+        assert "satisfy or fail" in lead
+
+    def test_a_report_without_the_published_counts_states_no_shortfall(self) -> None:
+        """A session serialised before the counts existed carries none of them, and
+        an absent count is not a shortfall of zero — the row stays as it was."""
+        from builder.state import MITReport
+        from builder.writers.maturity_report import MIT_MODULE_STYLES, _render_mit_section
+
+        known = next(iter(MIT_MODULE_STYLES))
+        report = MITReport(
+            module_scores={known: {"completed": 1, "total": 4}},
+            overall_score=0.25,
+            standard_scores={"oecd_gd211": {"completed": 1, "total": 4}},
+        )
+        assert 'class="mscope"' not in _render_mit_section(report)
 
 
 class TestUnassessedMITIsNotRenderedAsZero:

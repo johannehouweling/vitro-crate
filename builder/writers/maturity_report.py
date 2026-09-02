@@ -1494,14 +1494,35 @@ def _render_mit_section(mit: MITReport) -> str:
     completed_all, total_all = _mit_totals(mit)
     pct = round(mit.overall_score * 100)
 
-    def mrow(name: str, bar: str, sc: dict[str, int], style: str = "", url: str = "") -> str:
+    def mrow(
+        name: str,
+        bar: str,
+        sc: dict[str, int],
+        style: str = "",
+        url: str = "",
+        scope: str = "",
+    ) -> str:
         label = _lk(url, name) if url else esc(name)
         return (
             f'<div class="mrow"{style}><div class="mname">{label}</div>'
             f'<div class="mbar">{bar}</div>'
             f'<div class="mfrac">{sc.get("completed", 0)}'
-            f'<span class="den">/{sc.get("total", 0)}</span></div></div>'
+            f'<span class="den">/{sc.get("total", 0)}</span>{scope}</div></div>'
         )
+
+    def mscope(covered: int, published: int) -> str:
+        """"7 of 41 mapped" — the visible half of the shortfall the bar's
+        accessible name spells out.
+
+        Without it "Analysis and Statistics 7/7" reads as a finished module when
+        34 of the 41 parameters the checklist defines for it were never scored.
+        Empty when the checklist defines no more than we scored, and for a report
+        serialised before these counts existed (they arrive as 0) — an absent
+        count is not a shortfall.
+        """
+        if published <= covered:
+            return ""
+        return f'<span class="mscope">{covered} of {published} mapped</span>'
 
     def plain_bar(
         sc: dict[str, int], meter_class: str, fill_class: str, extra: str = ""
@@ -1527,6 +1548,7 @@ def _render_mit_section(mit: MITReport) -> str:
             plain_bar(sc, "meter mod", "fill-mod", extra=scoped),
             sc,
             style=f' style="--mod:{_mit_module_colour(name)}"',
+            scope=mscope(sc.get("total", 0), published),
         )
 
     def module_span(name: str, b: dict[str, int], doc_total: int) -> str:
@@ -1564,8 +1586,15 @@ def _render_mit_section(mit: MITReport) -> str:
         # the same way each module's does. Silent, the bar reads as the document.
         published = mit.published_total_for_standard(key)
         scoped = f"; {doc_total} of the {published} it flags" if published > doc_total else ""
+        seen = mscope(doc_total, published)
         if not by_module or not doc_total:
-            return mrow(label, plain_bar(sc, "meter", "fill-cov", extra=scoped), sc, url=url)
+            return mrow(
+                label,
+                plain_bar(sc, "meter", "fill-cov", extra=scoped),
+                sc,
+                url=url,
+                scope=seen,
+            )
         # The scorer's module order (the checklist's), then anything the split
         # names that the module rows do not — kept, not dropped. A bucket with
         # nothing in it draws nothing and is not described either.
@@ -1583,7 +1612,7 @@ def _render_mit_section(mit: MITReport) -> str:
             f'{esc(scoped)}">'
             f"{spans}</div>"
         )
-        return mrow(label, bar, sc, url=url)
+        return mrow(label, bar, sc, url=url, scope=seen)
 
     # Reached only when there ARE module scores — `mit_was_assessed` is exactly
     # "has module scores", so the old empty-scores fallback row is unreachable.
@@ -1594,7 +1623,10 @@ def _render_mit_section(mit: MITReport) -> str:
         f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields'
         f'{_mit_scope_note(mit, total_all)} · {pct}%</span></div>\n'
         '  <p class="lead">Each item is a FAIR maturity indicator as defined in '
-        f'<a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>.</p>\n'
+        f'<a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>. '
+        "Where a row covers fewer parameters than the checklist defines for it, "
+        "no crate field is mapped to the rest, so nothing in the crate could "
+        'satisfy or fail them and they are outside its denominator.</p>\n'
         f'  <div class="mit">{rows}</div>\n'
         "</section>\n"
     )
@@ -1883,12 +1915,15 @@ def _render_dsm_grid_section(
         cells = ""
         for code, _label in cats:
             cell = grid[level].get(code)
-            if not cell or not cell.get("total"):
-                cells += '<td class="dsm-na">—</td>'
-                continue
-            pct = cell.get("published_pct")
-            if pct is None:
-                cells += '<td class="dsm-na">—</td>'
+            pct = cell.get("published_pct") if cell else None
+            # A dash, not a zero and not "not assessed": the sheet publishes no
+            # number here at all. Level 5 / Hosting is cell P28, which it hardcodes
+            # over an empty membership. Bare, the dash reads as any of the three.
+            if not cell or not cell.get("total") or pct is None:
+                cells += (
+                    '<td class="dsm-na" '
+                    'title="the model defines no indicators for it">—</td>'
+                )
                 continue
             assessed, total = cell["assessed"], cell["total"]
             # The sheet's own number, unconditionally: an unanswered indicator
