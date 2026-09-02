@@ -97,7 +97,7 @@ _LEVELS: dict[int, str] = {
 # DSM-3-C1 ("study-level metadata is reported in compliance with relevant Minimum
 # Information Reporting Guidelines") is NOT here, and that is a measurement rather than
 # an oversight. Compliance means a guideline's required items are all reported, and the
-# OECD MIT checklist this tool scores carries no such threshold: every parameter a
+# MIT checklist this tool scores carries no such threshold: every parameter a
 # document flags is flagged equally, and 7 to 24 parameters per document have no crate
 # slot at all, so 100% is unreachable by construction — the best-reported crate on the
 # corpus tops out at 29 of 48 on OHT 201 and 4 of 7 on Nature. Every predicate that

@@ -819,7 +819,7 @@ TOOL_SPECS = [
     {
         "name": "assess_mit_coverage",
         "description": (
-            "Score OECD MIT checklist coverage of the crate. Scores the ASSEMBLED "
+            "Score MIT checklist coverage of the crate. Scores the ASSEMBLED "
             "crate, which it builds in memory when you do not hand it one — the "
             "checklist's slots name schema.org properties on assembled nodes, not "
             "CrateState fields, so a field scan cannot answer them."

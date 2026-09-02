@@ -2159,7 +2159,7 @@ dashboard and covers four axes: profile adherence (rendered from the crate's exi
 `state.validation` — it does **not** re-run the SHACL validator, so the embed adds no validation
 cost to export — validation stays a separate step), FAIR indicators + DSM level
 (`assess_fair_maturity`, with `dsm_ceiling`'s `blocked_by` naming what stands before the next
-level), OECD MIT
+level), MIT
 coverage (`assess_mit_coverage`), and AI-readiness (`assess_air_readiness`).
 
 The page follows the maturity-report design handoff (PR #607 records it): a header whose headline is the **study name** — the root
@@ -2783,7 +2783,7 @@ vitro-crate/
 ├── lookups/                     External API clients
 │   ├── cellosaurus.py, pubchem.py, comptox.py, aopwiki.py, bao.py
 │   └── orcid.py, ror.py, crossref.py, iuclid.py, _http.py
-├── mit/invitro_tox.yaml         Minimum Information Table
+├── mit/invitro_tox.yaml         Minimal Information Table
 ├── fair/                        FAIR indicators (RDA FDMM + FAIRplus DSM, vendored)
 ├── air/                         Bridge2AI AI-readiness criteria (vendored)
 ├── input/                       Example inputs

@@ -12,7 +12,7 @@ assets) covering the four axes from the issue:
   layer inside (#510); a pre-records verdict falls back to the flat list;
 * **FAIR** — the gated FAIRplus Dataset Maturity level on a ladder whose next rung
   shows the DSM grid's own Total for that level, plus what blocks it;
-* **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
+* **MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
 * **AI-readiness** — the NIH Bridge2AI criteria as a seven-dimension profile,
   with the authors' own per-dimension percentage reported beside ours.
 
@@ -899,7 +899,7 @@ def _wrap_label(text: str, width: int = 20) -> list[str]:
 
 def _mit_totals(mit: MITReport) -> tuple[int, int]:
     """``(completed, total)`` over the module buckets — the one sum the rose
-    tile's sub-line, the rose's wedges and the OECD MIT coverage section header
+    tile's sub-line, the rose's wedges and the MIT section header
     all read, so the three cannot disagree. ``overall_score`` is this ratio
     (see ``_score_modules``)."""
     completed = sum(sc.get("completed", 0) for sc in mit.module_scores.values())
@@ -918,7 +918,7 @@ def _mit_rose_svg(mit: MITReport) -> str:
     centred label that CSS reveals while the group is hovered — hovering
     anywhere in a module's slice, filled or not, names it and its numbers.
     The interaction is CSS-only because the report ships with no script, and
-    it is an enhancement, never the only path: the module rows in the OECD MIT
+    it is an enhancement, never the only path: the module rows in the MIT
     coverage section below carry the same numbers as text.
     """
     import math
@@ -1431,7 +1431,7 @@ def _mit_scope_note(mit: MITReport, scored: int) -> str:
     The percentage beside it is of what could be scored: a parameter carrying no
     ``crate_slot`` names nothing a crate field could hold, so it is outside every
     denominator here (`mit_assessment.iter_scorable_params`). Printing only our
-    figure under a heading that names the OECD checklist restates the instrument.
+    figure under this heading restates the instrument.
     A clause rather than a sentence because the section carries one lead and no
     more; the per-module split, which is the sharper number, rides on each bar's
     accessible name. Empty for a report serialised before these counts existed.
@@ -1442,7 +1442,7 @@ def _mit_scope_note(mit: MITReport, scored: int) -> str:
 
 
 def _render_mit_section(mit: MITReport) -> str:
-    """The OECD MIT coverage card — six module rows, each in its own colour —
+    """The MIT coverage card — six module rows, each in its own colour —
     followed by a sibling "Per guidance document" card: one bar per guidance
     document split into those modules. Two adjacent ``<section>``s in one
     string; the second exists only when the report carries document buckets.
@@ -1470,9 +1470,9 @@ def _render_mit_section(mit: MITReport) -> str:
     if not mit_was_assessed(mit):
         return (
             "<section>\n"
-            '  <div class="sec-h"><h2>OECD MIT coverage</h2>'
+            '  <div class="sec-h"><h2>Minimal information table for toxicological assays</h2>'
             f'<span class="sec-meta">{_mk("na")} not assessed</span></div>\n'
-            '  <p class="lead">Coverage of the OECD in-vitro toxicology checklist was not '
+            '  <p class="lead">Coverage was not '
             "measured for this crate — the checklist could not be read, or the crate could "
             "not be assembled to score against. This is not a score of zero.</p>\n"
             "</section>\n"
@@ -1565,12 +1565,11 @@ def _render_mit_section(mit: MITReport) -> str:
     rows = "".join(module_row(name, sc) for name, sc in mit.module_scores.items())
     section = (
         "<section>\n"
-        '  <div class="sec-h"><h2>OECD MIT coverage</h2>'
+        '  <div class="sec-h"><h2>Minimal information table for toxicological assays</h2>'
         f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields'
         f'{_mit_scope_note(mit, total_all)} · {pct}%</span></div>\n'
-        '  <p class="lead">Coverage of the in-vitro toxicology MIT checklist — each item is a '
-        f'FAIR maturity indicator as defined in <a href="{MIT_INDICATORS_URL}">'
-        "tox-maturity-indicators</a>.</p>\n"
+        '  <p class="lead">Each item is a FAIR maturity indicator as defined in '
+        f'<a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>.</p>\n'
         f'  <div class="mit">{rows}</div>\n'
         "</section>\n"
     )
@@ -1797,8 +1796,8 @@ def _render_references() -> str:
         + " &mdash; itself derived from the RDA FAIR Data Maturity Model, "
         + _lk("https://doi.org/10.15497/rda00050", "doi.org/10.15497/rda00050")
         + ".</p>\n"
-        '  <p id="fn-mit"><span class="ref-n">2</span> The Minimum Information for in-vitro '
-        "Toxicology (MIT) checklist: every item is a FAIR maturity indicator under principle "
+        '  <p id="fn-mit"><span class="ref-n">2</span> The in-vitro toxicology Minimal '
+        "Information Table (MIT): every item is a FAIR maturity indicator under principle "
         "R1.3 (domain-relevant community standards), as defined in "
         + _lk(MIT_INDICATORS_URL, "tox-maturity-indicators")
         + ".</p>\n"

@@ -186,7 +186,7 @@ uv run python -m main --graph --view labprocesses -i /path/to/crate/
 
 **What ships inside the crate.** Alongside the metadata and your payload, every
 build embeds a **maturity report** (`ro-crate-metadata-maturity.html`): profile
-conformance, FAIR maturity, OECD MIT coverage, reproducibility readiness — and an
+conformance, FAIR maturity, MIT coverage, reproducibility readiness — and an
 **interactive entity explorer**. The FAIRplus DSM section reproduces the published
 assessment sheet's own percentage grid, cell for cell, so the numbers are ones an
 outside assessor can reach by filling the same sheet in by hand or answering the
