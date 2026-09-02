@@ -15,9 +15,12 @@ rule-set for that layer switches off, and the crate reports conformant precisely
 when its structure is most broken.
 
 The upstream shapes are not ours to restructure, so the invariant is asserted on
-our side instead: a structural entity this crate mints must be referenced by
-something. Local entities only — an entity named by an absolute URI is described
-here but lives elsewhere, the same line #530 draws for the payload.
+our side instead: a structural entity this crate mints must be reachable from the
+root by a directed walk — "referenced by something" is not enough, because an
+island references its own members (#738). An entity named by an absolute URI is
+described here but lives elsewhere, the same line #530 draws for the payload, so
+it is excluded while everything in the crate it links to is reached; one that
+links to an unreached node roots an island.
 """
 
 from __future__ import annotations
@@ -29,7 +32,11 @@ import pytest
 
 from builder.state import CrateState, Entity, ValidationReport
 from builder.tools.builder import export_crate
-from builder.tools.validation import verify_isa_reachability
+from builder.tools.validation import (
+    apply_validation_result,
+    build_and_validate,
+    verify_isa_reachability,
+)
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
 pytestmark = pytest.mark.timeout(120)
@@ -38,7 +45,12 @@ REGRESSION_CRATE = Path("output/svhps26_real_input_crate/ro-crate-metadata.json"
 
 
 def _doc(*entities: dict) -> dict:
-    """A serialized crate document with the descriptor and root already wired."""
+    """A serialized crate document with the descriptor and root already wired.
+
+    Every Dataset passed is a part of the root, as an Assay or Study is in an
+    assembled crate, so the walk from ``./`` reaches it.
+    """
+    parts = [{"@id": e["@id"]} for e in entities if e.get("@type") == "Dataset"]
     return {
         "@context": "https://w3id.org/ro/crate/1.2/context",
         "@graph": [
@@ -47,7 +59,7 @@ def _doc(*entities: dict) -> dict:
                 "@type": "CreativeWork",
                 "about": {"@id": "./"},
             },
-            {"@id": "./", "@type": "Dataset", "name": "Investigation"},
+            {"@id": "./", "@type": "Dataset", "name": "Investigation", "hasPart": parts},
             *entities,
         ],
     }
@@ -55,6 +67,25 @@ def _doc(*entities: dict) -> dict:
 
 def _process(pid: str, **props) -> dict:
     return {"@id": pid, "@type": "LabProcess", "name": pid, **props}
+
+
+def _state_with_a_detached_process(tmp_path: Path) -> CrateState:
+    """A crate carrying a step no Assay is ``about``.
+
+    The generic shape of the defect, not one deposit's: any process that loses
+    its container — created and then cascade-deleted mid-run, as in the session
+    behind #537 — assembles into exactly this.
+    """
+    state = vhps_fixture_state("S-VHPS21")
+    state.metadata.output_path = str(tmp_path / "crate")
+    state.add_entity(
+        Entity(
+            entity_id="proc_orphan",
+            type="LabProcess",
+            fields={"name": "Orphaned step", "description": "nothing points here"},
+        )
+    )
+    return state
 
 
 class TestVerifyIsaReachability:
@@ -112,16 +143,25 @@ class TestVerifyIsaReachability:
     def test_an_entity_named_by_an_absolute_uri_is_not_reported(self) -> None:
         """A Cellosaurus cell line is described here and lives elsewhere.
 
-        Four of the crates in `output/` carry such a Sample with nothing
-        pointing at it. That is a record of an external thing, not a hole in
-        this crate's backbone — the same line #530 draws for the payload.
+        Fifteen of the S-VHPS22 builds in `output/` carry such a Sample with
+        nothing pointing at it. That is a record of an external thing, not a
+        hole in this crate's backbone — the same line #530 draws for the
+        payload. Its one local edge, ``sampleType``, points at the ``cell line``
+        term the walk already reached through the sample in use, so it roots no
+        island; the AOP head, whose KeyEvents nothing else reaches, does (#738).
         """
+        term = "http://purl.obolibrary.org/obo/NCIT_C16403"
         doc = _doc(
+            {"@id": "#assay_1", "@type": "Dataset", "about": [{"@id": "#proc_exposure"}]},
+            _process("#proc_exposure", object={"@id": "#sample_h4"}),
+            {"@id": "#sample_h4", "@type": "Sample", "name": "H4", "sampleType": {"@id": term}},
+            {"@id": term, "@type": "DefinedTerm", "name": "cell line"},
             {
                 "@id": "https://www.cellosaurus.org/CVCL_D357",
                 "@type": "Sample",
                 "name": "MO3.13",
-            }
+                "sampleType": {"@id": term},
+            },
         )
 
         assert verify_isa_reachability(doc) == []
@@ -146,6 +186,52 @@ class TestVerifyIsaReachability:
 
         assert "#proc_exposure" in issues[0]["fix"]
 
+    def test_reachability_is_directed_so_an_island_is_reported_whole(self) -> None:
+        """A protocol only a detached process uses IS referenced — by the island."""
+        doc = _doc(
+            _process("#proc_a", agent={"@id": "#proto_x"}),
+            {"@id": "#proto_x", "@type": "LabProtocol", "name": "x"},
+        )
+
+        assert [i["entity_id"] for i in verify_isa_reachability(doc)] == ["#proc_a", "#proto_x"]
+
+
+class TestAnAopIslandIsDetached:
+    """`materialize_aop_subgraph("610")` with no Study: 36 nodes attached to nothing (#738).
+
+    Every KeyEvent is referenced — by the head, inside the island — and every id
+    is an AOP-Wiki IRI, so "referenced by anything, local ids only" saw nothing.
+    """
+
+    _HEAD = "https://aopwiki.org/aops/610"
+    _EVENTS = [f"https://aopwiki.org/events/{n}" for n in (888, 177, 1234)]
+
+    def _study(self, **props: object) -> dict:
+        return {"@id": "#study_1", "@type": "Dataset", "additionalType": "Study", **props}
+
+    def _island(self) -> list[dict]:
+        return [
+            {
+                "@id": self._HEAD,
+                "@type": ["AdverseOutcomePathway", "DefinedTerm"],
+                "name": "AOP 610",
+                "has_key_event": [{"@id": e} for e in self._EVENTS],
+            },
+            *[{"@id": e, "@type": ["KeyEvent", "DefinedTerm"], "name": e} for e in self._EVENTS],
+        ]
+
+    def test_an_aop_no_study_mentions_is_reported_once_by_its_head(self) -> None:
+        issues = verify_isa_reachability(_doc(self._study(), *self._island()))
+
+        assert [i["entity_id"] for i in issues] == [self._HEAD]
+        assert issues[0]["profile"] == "isa"
+        assert issues[0]["severity"] == "required"
+
+    def test_an_aop_the_study_mentions_is_not_reported(self) -> None:
+        doc = _doc(self._study(mentions=[{"@id": self._HEAD}]), *self._island())
+
+        assert verify_isa_reachability(doc) == []
+
 
 class TestTheCrateThatPassedClean:
     """`output/svhps26_real_input_crate` — three orphaned processes, ISA green."""
@@ -156,14 +242,14 @@ class TestTheCrateThatPassedClean:
 
         issues = verify_isa_reachability(json.loads(REGRESSION_CRATE.read_text()))
 
-        assert sorted(i["entity_id"] for i in issues) == sorted(
-            [
-                "#LabProcess_proc_culture_and_seed_cho_k1_oatp1c1_cells",
-                "#LabProcess_proc_30_minute_co_exposure_for_oatp1c1_t4_uptake_assay",
-                "#LabProcess_proc_normalize_uptake_and_viability_and_fit_"
-                "concentration_response_curves",
-            ]
-        )
+        # A superset: the directed walk also names whatever those three processes
+        # were the only way to — their protocols and samples are islands too.
+        assert {
+            "#LabProcess_proc_culture_and_seed_cho_k1_oatp1c1_cells",
+            "#LabProcess_proc_30_minute_co_exposure_for_oatp1c1_t4_uptake_assay",
+            "#LabProcess_proc_normalize_uptake_and_viability_and_fit_"
+            "concentration_response_curves",
+        } <= {i["entity_id"] for i in issues}
         assert all(i["severity"] == "required" for i in issues)
 
 
@@ -199,32 +285,54 @@ class TestVerdictRecordsWhetherReachabilityWasSeen:
         assert "not checked for detached entities" not in page
 
 
+class TestTheInLoopVerdictCarriesReachability:
+    """The check runs inside `build_and_validate`, so no verdict predates it (#738).
+
+    v21 of S-VHPS22 exported with ``ok: True`` while its own embedded report
+    said "detached from the ISA backbone", and the next in-loop verdict then
+    replaced ``required_issues`` wholesale and recorded zero.
+    """
+
+    def test_build_and_validate_names_the_detached_process_and_is_not_ok(
+        self, tmp_path: Path
+    ) -> None:
+        state = _state_with_a_detached_process(tmp_path)
+
+        result = build_and_validate(state, profile="all")
+
+        assert result["ok"] is False
+        assert any(
+            i["profile"] == "isa" and "proc_orphan" in i["entity_id"] for i in result["issues"]
+        ), result["issues"]
+
+    def test_export_reports_the_detached_backbone_as_not_ok(self, tmp_path: Path) -> None:
+        state = _state_with_a_detached_process(tmp_path)
+
+        result = export_crate(state, str(tmp_path / "crate"))
+
+        assert result["success"], result["error"]
+        assert result["validation"]["ok"] is False
+
+    def test_the_next_in_loop_verdict_keeps_the_finding(self, tmp_path: Path) -> None:
+        state = _state_with_a_detached_process(tmp_path)
+        export_crate(state, str(tmp_path / "crate"))
+
+        result = build_and_validate(state, profile="all")
+        apply_validation_result(state, "build_and_validate", result)
+
+        assert any("proc_orphan" in issue for issue in state.validation.required_issues), (
+            state.validation.required_issues
+        )
+        assert state.validation.isa_reachability_checked is True
+
+
 class TestExportRefusesToCallADetachedBackboneClean:
     """The end-to-end regression: the shipped report must not say Conformant."""
-
-    @staticmethod
-    def _state_with_a_detached_process(tmp_path: Path) -> CrateState:
-        """A crate carrying a step no Assay is ``about``.
-
-        The generic shape of the defect, not one deposit's: any process that
-        loses its container — created and then cascade-deleted mid-run, as in
-        the session behind #537 — assembles into exactly this.
-        """
-        state = vhps_fixture_state("S-VHPS21")
-        state.metadata.output_path = str(tmp_path / "crate")
-        state.add_entity(
-            Entity(
-                entity_id="proc_orphan",
-                type="LabProcess",
-                fields={"name": "Orphaned step", "description": "nothing points here"},
-            )
-        )
-        return state
 
     def test_export_records_the_detached_process_as_a_required_issue(
         self, tmp_path: Path
     ) -> None:
-        state = self._state_with_a_detached_process(tmp_path)
+        state = _state_with_a_detached_process(tmp_path)
 
         result = export_crate(state, str(tmp_path / "crate"))
 
@@ -235,7 +343,7 @@ class TestExportRefusesToCallADetachedBackboneClean:
         assert state.validation.isa_passed is False
 
     def test_the_embedded_report_does_not_headline_conformant(self, tmp_path: Path) -> None:
-        state = self._state_with_a_detached_process(tmp_path)
+        state = _state_with_a_detached_process(tmp_path)
 
         export_crate(state, str(tmp_path / "crate"))
 

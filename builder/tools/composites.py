@@ -725,20 +725,29 @@ def materialize_aop_subgraph(
     comes straight from the AOP-Wiki graph, so nothing is fabricated (D5). The
     nodes are keyed by their resolvable AOP-Wiki IRI, so re-running is idempotent.
 
-    When ``study_id`` names an existing Study, the AOP is wired onto it via the
-    ``aop`` reference (an alias of ``schema:mentions``), connecting the study to
-    the pathway it investigates — mirroring the gold crate (Issue #180).
+    The AOP is wired onto a Study via the ``aop`` reference (an alias of
+    ``schema:mentions``), connecting the study to the pathway it investigates —
+    mirroring the gold crate (Issue #180): the Study ``study_id`` names, or the
+    sole Study in the crate when none is named. With two Studies and no name it
+    refuses to guess and wires nothing; the subgraph is then an island the ISA
+    reachability check reports (#738).
 
     Args:
         state: The crate state to materialise into.
         aop_id: Numeric AOP-Wiki identifier, e.g. ``"610"``.
-        study_id: Optional entity_id of a Study to wire the AOP onto.
+        study_id: entity_id of the Study to wire the AOP onto; defaults to the
+            sole Study when exactly one exists.
 
     Returns:
         On success, ``{"aop_id", "aop_entity_id", "events", "relationships",
         "wired_to_study"}``. On a lookup miss, ``{"ok": False, "error": ...}``.
     """
     from builder.tools.lookups import lookup_aop
+
+    if study_id is None:
+        studies = state.list_entities("Study")
+        if len(studies) == 1:
+            study_id = studies[0].entity_id
 
     result = lookup_aop(str(aop_id))
     if not result.get("found"):
