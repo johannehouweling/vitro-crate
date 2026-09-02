@@ -403,11 +403,25 @@ def _score_modules(
                 mbucket["completed"] += 1
 
     overall_score = total_completed / total_required if total_required > 0 else 0.0
+    # What the checklist defines, beside what could be scored. The gap is the
+    # parameters carrying no `crate_slot`, and it is not spread evenly: it is the
+    # difference between a module's bar meaning "most of this module" and meaning
+    # "the sixth of it we can see". A module with no scorable parameter still has no
+    # row, so it is keyed here only when it is keyed above.
+    published_module_totals = {
+        name: len(unique_module_params(module))
+        for module in mit_data.get("modules", [])
+        if (name := module.get("name", module.get("id", "unknown"))) in module_scores
+    }
     return MITReport(
         module_scores=module_scores,
         overall_score=overall_score,
         standard_scores=standard_scores,
         standard_module_scores=standard_module_scores,
+        published_total=sum(
+            len(unique_module_params(module)) for module in mit_data.get("modules", [])
+        ),
+        published_module_totals=published_module_totals,
     )
 
 

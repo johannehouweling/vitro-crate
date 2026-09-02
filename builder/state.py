@@ -816,6 +816,13 @@ class MITReport:
             ``standards`` keys (e.g. ``oecd_gd211``), same bucket shape.
             Documents overlap — one parameter can be required by several — so
             buckets do not sum to the checklist total.
+        published_total: How many parameters the checklist itself defines, against
+            the ``total`` that was scored. They differ because a parameter with no
+            ``crate_slot`` names nothing a crate field could hold, so it is outside
+            every denominator here (44 of 220 — see ``iter_scorable_params``). The
+            page prints both; reporting only ours would restate the instrument.
+        published_module_totals: The same figure per module, which is where it
+            matters: one module is scored over a sixth of what it defines.
         standard_module_scores: Each document's bucket split by module —
             ``{document_key: {module_name: {"completed", "total"}}}``. A
             document's module buckets partition its ``standard_scores`` bucket
@@ -828,16 +835,29 @@ class MITReport:
     overall_score: float = 0.0
     standard_scores: dict[str, dict[str, int]] = field(default_factory=dict)
     standard_module_scores: dict[str, dict[str, dict[str, int]]] = field(default_factory=dict)
+    published_total: int = 0
+    published_module_totals: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "module_scores": dict(self.module_scores),
             "overall_score": self.overall_score,
+            "published_total": self.published_total,
+            "published_module_totals": dict(self.published_module_totals),
             "standard_scores": dict(self.standard_scores),
             "standard_module_scores": {
                 key: dict(by_module) for key, by_module in self.standard_module_scores.items()
             },
         }
+
+    def published_total_for(self, module_name: str) -> int:
+        """How many parameters the checklist defines for *module_name*.
+
+        Falls back to what was scored, so a report serialised before these counts
+        existed reads as though nothing was dropped rather than as though everything
+        was."""
+        scored = self.module_scores.get(module_name, {}).get("total", 0)
+        return self.published_module_totals.get(module_name, scored)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MITReport:
@@ -846,6 +866,8 @@ class MITReport:
             overall_score=data.get("overall_score", 0.0),
             standard_scores=data.get("standard_scores", {}),
             standard_module_scores=data.get("standard_module_scores", {}),
+            published_total=data.get("published_total", 0),
+            published_module_totals=data.get("published_module_totals", {}),
         )
 
 
