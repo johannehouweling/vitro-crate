@@ -1759,13 +1759,16 @@ def _render_references() -> str:
     )
 
 
-def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, str]) -> str:
+def _render_dsm_grid_section(
+    grid: dict[int, dict[str, Any]], levels: dict[int, str], tool: str = ""
+) -> str:
     """The DSM's own **"% Complete" grid** — the published instrument's only output.
 
     No formula in the assessment workbook computes an achieved maturity level; what it
     computes is this grid, six levels x {content, representation, hosting} plus a total.
     So this is the section a depositor can check: fill the sheet in by hand, or answer
-    the online tool, and these percentages are the ones that come back.
+    the online tool, and these percentages are the ones that come back. The heading's
+    meta links that tool — ``tool`` is the YAML's ``source.assessment_tool``.
 
     **The headline number is the sheet's.** Its validation column is entirely formulas,
     so an unanswered indicator evaluates to 0 and counts against the score — the
@@ -1782,6 +1785,7 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
     if not grid:
         return ""
     esc = html.escape
+    meta = f'<span class="sec-meta">{_lk(tool, tool.split("//", 1)[-1])}</span>' if tool else ""
     # The published tool's own columns, in its own order and wording.
     cats = (("R", "Representation &amp; Format"), ("C", "Content &amp; Context"),
             ("H", "Hosting Environment Capabilities"), ("TOTAL", "Overall Level % Completion"))
@@ -1823,7 +1827,7 @@ def _render_dsm_grid_section(grid: dict[int, dict[str, Any]], levels: dict[int, 
     return (
         "<section>\n"
         '  <div class="sec-h"><h2>FAIRplus Dataset Maturity Model</h2>'
-        '</div>\n'
+        f"{meta}</div>\n"
         '  <div class="tbl-scroll"><table class="dsm-grid">\n'
         f"    <thead><tr><th>Level</th>{head}</tr></thead>\n"
         f"    <tbody>{rows}</tbody>\n"
@@ -2928,7 +2932,11 @@ def build_maturity_html(
     dsm_reach = dsm_ceiling(state, dsm_data, graph, dsm_answers)
     dsm_cells = dsm_grid(state, dsm_data, graph, answers=dsm_answers)
 
-    dsm_section = _render_dsm_grid_section(dsm_cells, dsm_data.get("levels") or {})
+    dsm_section = _render_dsm_grid_section(
+        dsm_cells,
+        dsm_data.get("levels") or {},
+        str((dsm_data.get("source") or {}).get("assessment_tool") or ""),
+    )
     dsm_section += _render_dsm_levels(dsm_data, dsm_answers, dsm_data.get("levels") or {})
     # The indicators standing before the next level, worded as instructions and ranked
     # against the conformance findings in one list — see _render_recommendations.

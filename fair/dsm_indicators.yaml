@@ -30,7 +30,7 @@ source:
     citation: Welter D, Juty N, Rocca-Serra P, et al. FAIR in action - a flexible framework to guide FAIRification.
       Sci Data 10:291 (2023)
     doi: 10.1038/s41597-023-02167-2
-  assessment_tool: https://fairdsm.biospeak.solutions/
+  assessment_tool: https://fairdsm.biospeak.solutions/assess
   derived_from:
     name: RDA FAIR Data Maturity Model
     doi: 10.15497/rda00050
