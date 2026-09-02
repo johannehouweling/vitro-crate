@@ -995,6 +995,34 @@ class TestFairTileAndRose:
             assert '<span class="eyebrow">FAIR principle 1.3' in tile
         assert ".chip-link" not in _CSS_PATH.read_text(encoding="utf-8")
 
+    def test_the_rose_tile_states_what_its_percentage_counts(self) -> None:
+        """The only tile whose number is a bare percentage says what it counts
+        — a `kpi-sub` line in the grid's own shape, summed from the scores —
+        in place of the unsourced scope fragment the note used to open with
+        (#735). The two numbers are the section header's own, so the tile and
+        the OECD MIT coverage `sec-meta` cannot disagree."""
+        from builder.state import MITReport
+        from builder.writers.maturity_report import _mit_rose_tile
+
+        tile = _mit_rose_tile(
+            MITReport(
+                module_scores={
+                    "A": {"completed": 1, "total": 2},
+                    "B": {"completed": 2, "total": 4},
+                },
+                overall_score=0.5,
+            )
+        )
+        assert '<div class="kpi-sub">3 of 6 MIT checklist fields filled</div>' in tile
+        assert "cell-based" not in tile
+        assert "not assessed" in _mit_rose_tile(MITReport())
+
+        body = _body(build_maturity_html(vhps_fixture_state("S-VHPS21")))
+        tile_m = re.search(r'kpi-sub">(\d+) of (\d+) MIT checklist fields filled', body)
+        meta_m = re.search(r'sec-meta"><b>(\d+)/(\d+)</b> fields', body)
+        assert tile_m is not None and meta_m is not None
+        assert tile_m.groups() == meta_m.groups()
+
     def test_the_footnote_superscripts_resolve(self) -> None:
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
         for fn in ("fn-dsm", "fn-mit", "fn-air"):
