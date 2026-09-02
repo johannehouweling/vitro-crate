@@ -16,7 +16,7 @@ from collections import Counter
 from contextvars import ContextVar
 from pathlib import Path
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Sequence, cast, overload
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langgraph.errors import GraphRecursionError
@@ -42,7 +42,12 @@ from builder.agents.react.system_prompt import SYSTEM_PROMPT
 from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
 from builder.tools.document_discovery import looks_like_publication
-from builder.tools.hitl import CONVERSATION_FIELD_TYPE, answers_are_synthetic, is_interactive
+from builder.tools.hitl import (
+    CONVERSATION_FIELD_TYPE,
+    answers_are_synthetic,
+    choice_stance,
+    is_interactive,
+)
 
 if TYPE_CHECKING:
     from typing import cast
@@ -207,6 +212,21 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
 # ---------------------------------------------------------------------------
 
 
+def _list_of(items: dict[str, Any]) -> Any:
+    """The type of a list parameter whose entry shape must reach the model.
+
+    Validated as a bare ``list`` — the entries reach the tool as the plain dicts
+    the model sent — but advertised with the ``items`` schema written in
+    TOOL_SPECS. It rides on the annotation, not the field: LangChain rebuilds
+    its tool-call schema from the annotations alone, so a field-level schema
+    extra never reaches the model, and the ``questions`` of ``present_to_human``
+    were advertised as ``items: {}`` (#596).
+    """
+    from pydantic import WithJsonSchema
+
+    return Annotated[list, WithJsonSchema({"type": "array", "items": items})]
+
+
 def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | None:
     """Dynamically create a pydantic model from a JSON schema dict.
 
@@ -249,6 +269,9 @@ def _build_args_schema(name: str, params: dict[str, Any]) -> type[BaseModel] | N
         py_type = type_map.get(json_type, str)
 
         description = field_schema.get("description", "")
+        items = field_schema.get("items") if json_type == "array" else None
+        if isinstance(items, dict) and items:
+            py_type = _list_of(items)
 
         # If the field has enum values, use a Literal type
         if "enum" in field_schema:
@@ -385,6 +408,15 @@ def _run_validation_escalation(
             options=["yes", "no"],
             purpose=_VALIDATION_ESCALATION_PURPOSE,
         )
+        if response.get("action") == "edited":
+            # Typed at the free-text row (#596): a yes or no in the user's own
+            # words is the answer; anything else is not one, so ask again next
+            # time rather than remember a refusal nobody gave.
+            stance = choice_stance(str(response.get("comments") or ""))
+            if stance is None:
+                return False
+            prefs[tier] = stance
+            return stance
         prefs[tier] = response.get("action") == "approved"
         return prefs[tier]
 
@@ -1594,14 +1626,14 @@ def _idle_nudge(engine: AgentEngine, streak: int, tool_name: str) -> str:
             f"Still nothing changed after {streak} calls. Reading and listing cannot "
             f"advance the crate — only a mutation can.{where} Your NEXT call must be "
             "draft_*, set_fields, link, attach_files, or export_crate. If you genuinely "
-            "cannot proceed, say so in a reply and ask the user the specific question "
-            "you need answered."
+            "cannot proceed, ask the user the specific question you need answered "
+            "through present_to_human."
         )
     return (
         f"Last warning: {streak} calls without a single change.{where} If the next "
         "call is not a mutation or a reply, this turn ends and the user is asked to "
-        "decide. If you are stuck, ending with a question is a better outcome than "
-        "another query."
+        "decide. If you are stuck, a present_to_human question is a better outcome "
+        "than another query."
     )
 
 
@@ -4959,9 +4991,7 @@ def run_interactive_agent(
                     console.print()
                 # The box that follows says what it is for (#596): the reply above
                 # is either a question to answer or work that stopped.
-                prompt_hint = _prompt_hint(
-                    reply, open_work=bool(open_items(engine.state, actionable_only=True))
-                )
+                prompt_hint = _prompt_hint(reply, open_work=not _crate_is_complete(engine))
             except KeyboardInterrupt:
                 # Ctrl+C during a turn / the autonomous run: stop working and return
                 # to the prompt so the user can interject (preserve interruptibility).

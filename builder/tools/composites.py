@@ -34,6 +34,7 @@ from builder.tools.document_discovery import (
     classification_of,
 )
 from builder.tools.drafters import (
+    _ORCID_RE,
     VALID_PROCESS_TYPES,
     _make_entity_id,
     draft_assay,
@@ -1214,7 +1215,13 @@ def _resolve_via_search(
         f"Multiple ORCID candidates for citation author '{given} {family}'. "
         "Pick the correct one (or skip to leave it unresolved):"
     )
-    chosen = _pick_from_human(human.present(context, options), candidates, options)
+    response = human.present(context, options)
+    chosen = _pick_from_human(response, candidates, options)
+    if chosen is None and response.get("action") == "edited":
+        # Typed at the console's free-text row (#596): an ORCID pasted there is
+        # the pick — still verified below (D5). Anything else is not one.
+        typed = _bare_orcid(response.get("comments"))
+        chosen = typed if _ORCID_RE.match(typed) else None
     if chosen is None:
         # Last chance: let the user paste an ORCID directly.
         resp = human.request_input(
