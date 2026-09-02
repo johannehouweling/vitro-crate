@@ -17,6 +17,7 @@ source:
   repository: https://github.com/FAIRplus/Data-Maturity
   distribution: docs/assessment/FAIR-DSM-Assessment-Sheet-v1.2.xlsx (sheet 'MASTER (Levels View)') — vendored
     as fair/fairplus_dsm_v1.2.xlsx
+  distribution_url: https://github.com/FAIRplus/Data-Maturity/blob/master/docs/assessment/FAIR-DSM-Assessment-Sheet-v1.2.xlsx
   version: '1.2'
   license: CC-BY-4.0
   specification:

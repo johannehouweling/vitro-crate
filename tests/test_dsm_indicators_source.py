@@ -188,6 +188,11 @@ class TestProvenanceIsRecorded:
         assert "FAIRplus" in src["name"] and "Dataset Maturity" in src["name"]
         assert "fairplus_dsm_v1.2.xlsx" in src["distribution"]
         assert src["repository"] == "https://github.com/FAIRplus/Data-Maturity"
+        # The report cites the workbook by this link (#732).
+        assert src["distribution_url"] == (
+            "https://github.com/FAIRplus/Data-Maturity/blob/master/docs/assessment/"
+            "FAIR-DSM-Assessment-Sheet-v1.2.xlsx"
+        )
 
     def test_it_records_that_the_model_assesses_a_dataset(self):
         """Guards the misreading that DSM scores an organisation's capability."""
@@ -327,7 +332,7 @@ class TestTheModelsOwnPercentCompleteGrid:
         from tests.fixtures.vhps_golden_crates import vhps_fixture_state
 
         page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
-        assert "FAIRplus Dataset Maturity Model</h2>" in page
+        assert "<h2>FAIRplus Dataset Maturity Model" in page
         # Every level the tool reports is a row label. Level 0 is not one of them.
         for level, name in _yaml()["levels"].items():
             assert (name in page) is (level >= 1), name
@@ -339,10 +344,11 @@ class TestTheModelsOwnPercentCompleteGrid:
         # beside it, so a low number is not mistaken for a measured failure.
         assert "0 of 4 assessed" in page
         assert "not assessed" not in page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
-        # The two properties a reader needs to interpret the numbers are stated.
-        # The two properties a reader needs to interpret the numbers.
-        assert "a blank scores 0" in page
-        assert "higher levels carry lower ones forward" in page
+        # The two properties a reader needs to interpret the numbers are stated:
+        # the grid's note says an unanswered indicator validates to 0, and the
+        # next section's lead that a level counts the levels below it (#732).
+        assert "validates to 0" in page
+        assert "counts the indicators below it as well as its own" in page
 
 
 class TestNoGraphMeansUnanswered:

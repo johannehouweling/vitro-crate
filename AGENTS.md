@@ -2207,7 +2207,10 @@ states the question and never the fix, and the generator refuses to emit an asse
 that has no remedy. The section therefore renders for a crate whose validation is clean and whose
 ladder is not, and the FAIR tile's blocker count links into it rather than restating the list.
 Numbered **References**
-close the page (1: FAIRplus DSM / RDA FDMM; 2: tox-maturity-indicators; 3: the Bridge2AI
+close the page (1: FAIRplus DSM / RDA FDMM, plus the workbook the grid reproduces — name, version,
+sheet, the cells that define its arithmetic, deliverable, licence, paper and tool — read from the
+`source`/`scoring` blocks of `fair/dsm_indicators.yaml`, never literals, so the DSM grid's heading
+and one-sentence note both point at it; 2: tox-maturity-indicators; 3: the Bridge2AI
 AI-readiness criteria, named as a preprint and as quoted verbatim under CC BY-ND). There is no FAIR
 pillar detail section and no header verdict pill; the entity explorer, entity coverage, the
 profile-adherence breakdown, **the DSM "% complete" grid**, MIT
