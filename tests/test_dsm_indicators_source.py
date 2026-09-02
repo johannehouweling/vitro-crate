@@ -730,3 +730,21 @@ class TestTheLadderIsReportedAsTheToolReportsIt:
         known = {i["id"].lower() for i in _yaml()["indicators"]}
         assert found and found <= known, f"unknown ids linked: {found - known}"
         assert "dsm-1-h1" in found, "the hosting statements must link out too"
+
+    def test_every_level_name_links_to_the_models_own_page_for_it(self):
+        """The model publishes one page per level; the grid row and the ladder heading
+        both name the level, so both link to it. Level 0 is not a rung."""
+        page = self._page()
+        grid = page[page.index('<table class="dsm-grid">') :].split("</table>", 1)[0]
+        ladder = page[page.index('id="ladder"') :].split("</section>", 1)[0]
+        for level, name in _yaml()["levels"].items():
+            if level < 1:
+                continue
+            link = (
+                '<a class="lk" href="https://fairplus.github.io/Data-Maturity/docs/Levels/'
+                f'Level{level}/">{html.escape(name)}</a>'
+            )
+            row = f'<th scope="row"><b>{level}</b> <span class="dsm-lvl">{link}</span></th>'
+            assert row in grid, level
+            assert f'<span class="lvl-name">{link}</span>' in ladder, level
+        assert "Levels/Level0/" not in page

@@ -265,6 +265,8 @@ def _load_shell() -> str:
 # site, anchored by the lowercased identifier. Naming an indicator without a route to
 # its definition asks a reader to take our paraphrase of it on trust.
 _DSM_DOCS = "https://fairplus.github.io/Data-Maturity/docs/Indicators/#"
+# The model publishes one page per level, so a level's name links there.
+_DSM_LEVEL_DOCS = "https://fairplus.github.io/Data-Maturity/docs/Levels/Level"
 
 
 def _dsm_lk(ident: str) -> str:
@@ -1789,7 +1791,6 @@ def _render_dsm_grid_section(
     """
     if not grid:
         return ""
-    esc = html.escape
     meta = f'<span class="sec-meta">{_lk(tool, tool.split("//", 1)[-1])}</span>' if tool else ""
     # The published tool's own columns, in its own order and wording.
     cats = (("R", "Representation &amp; Format"), ("C", "Content &amp; Context"),
@@ -1827,7 +1828,8 @@ def _render_dsm_grid_section(
             )
         rows += (
             f'<tr><th scope="row"><b>{level}</b> '
-            f'<span class="dsm-lvl">{esc(levels.get(level, ""))}</span></th>{cells}</tr>'
+            f'<span class="dsm-lvl">{_lk(f"{_DSM_LEVEL_DOCS}{level}/", levels.get(level, ""))}'
+            f"</span></th>{cells}</tr>"
         )
     return (
         "<section>\n"
@@ -1903,7 +1905,7 @@ def _render_dsm_levels(
                 f'<code class="q-id">{_dsm_lk(ident)}</code>'
                 f'<span class="q-txt">{esc(text.get(ident, ""))}</span></li>'
             )
-        name = esc(levels.get(level, ""))
+        name = _lk(f"{_DSM_LEVEL_DOCS}{level}/", levels.get(level, ""))
         tail = (
             f' <span class="lvl-note">{unknown} of them not yet assessed</span>'
             if unknown
