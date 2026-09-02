@@ -11,7 +11,7 @@ assets) covering the four axes from the issue:
   ``issue_records`` each severity row unfolds its own findings, grouped by profile
   layer inside (#510); a pre-records verdict falls back to the flat list;
 * **FAIR** — the gated FAIRplus Dataset Maturity level on a ladder whose next rung
-  shows the ratio of RDA-style indicators already met, plus what blocks the next level;
+  shows the DSM grid's own Total for that level, plus what blocks it;
 * **OECD MIT coverage** — per-module coverage of the in-vitro tox MIT checklist;
 * **AI-readiness** — the NIH Bridge2AI criteria as a seven-dimension profile,
   with the authors' own per-dimension percentage reported beside ours.
@@ -148,9 +148,10 @@ def _severity_tiers(val: ValidationReport) -> list[dict[str, str]]:
     REQUIRED is the build gate, so it is assessed whenever validation has run; it
     passes only when all three profiles pass with no REQUIRED issues. The SHOULD
     and MAY tiers are populated only by a full validation sweep — the fast in-loop
-    path stops at REQUIRED and leaves them empty. An empty SHOULD/MAY tier is
-    therefore reported as "not assessed" (``"na"``), never as a green zero: doing
-    otherwise would be a false pass for a tier that was never evaluated.
+    path stops at REQUIRED and leaves them empty. Emptiness is not the test:
+    ``assessed_tiers`` is. A tier the sweep reached and found clean renders a green
+    "0 issues"; a tier nobody evaluated renders "not assessed" (``"na"``), never a
+    green zero for a tier that was never looked at.
 
     Called only when :func:`_validation_has_signal` is True (otherwise the whole
     section renders the "not yet validated" branch).
@@ -824,9 +825,8 @@ def _fair_tile(
     of that level the sheet already scores as complete (a gated 0 must not read as
     "nothing done"), and — in red — how many indicators stand before it.
 
-    The rung is filled from the DSM grid's own Total for the level in question. It used
-    to be filled from the RDA indicator set, so a DSM-labelled bar reported a number
-    from a different instrument entirely.
+    The rung is filled from the DSM grid's own Total for the level in question: every
+    number on a DSM-labelled bar is the DSM's, never the RDA indicator set's.
     """
     # The denominator is the highest level a crate can REACH, not the model's top
     # rung: Level 5 is scored entirely on hosting and enterprise data governance, so
@@ -1916,7 +1916,8 @@ def _render_dsm_levels(
         '  <p class="lead">Each level counts the indicators below it as well as its own, '
         "so a statement can appear at more than one level. Every identifier links to the "
         "model&rsquo;s definition of it. A <b>?</b> marks an indicator no crate can "
-        "evidence &mdash; the hosting environment and enterprise-governance statements the "
+        "evidence &mdash; the hosting environment, enterprise governance, and compliance "
+        "with a Minimum Information Reporting Guideline &mdash; which the "
         "published tool puts to a person; answer those in a YAML file "
         "(<code>DSM-1-H1: true</code>, one per line) and pass it as "
         "<code>--dsm-answers</code>.</p>\n"

@@ -575,9 +575,10 @@ def _check_every_entity_has_id(state: CrateState, graph: Graph = None) -> bool |
 
     A File is globally identified when its own ``@id`` or ``contentUrl`` is an
     absolute IRI, or when the root carries a PID the crate-relative paths compose
-    against. On this corpus that is false everywhere, because nothing writes a DOI to
-    the root — the same root cause as RDA-F1-01M, and the two flip together when it is
-    fixed. False for a stated reason is a finding; true for no reason is not.
+    against. The second limb is the one that usually decides: this and RDA-F1-01M read
+    the same :func:`_root_pid`, so a deposit declaring a DOI turns both True together
+    and a deposit declaring none leaves both False. False for a stated reason is a
+    finding; true for no reason is not.
     """
     if _needs_graph(graph):
         return None
@@ -972,21 +973,24 @@ def _check_unique_id(state: CrateState, graph: Graph = None) -> Verdict | None:
     The old check was ``bool(state.session_id or state.metadata.accession)`` — a session
     handle no reader receives, true of every build that ran.
 
-    **Reachable, and false today.** No crate on hand reaches it: 62 of 62 roots carry a
-    minted slug or a bare accession, none an IRI. It is not *unreachable*.
-    ``_populate_isa_backbone`` copies ``inv.fields["identifier"]`` onto the root verbatim
-    and ``readers.existing_crate`` copies an ingested root ``identifier`` into
-    ``metadata.accession``, so an Investigation — or an input crate — declaring a DOI
-    produces a root PID with no code change (measured: True).
+    **What makes it true.** The root's persistent identifier is the DOI the deposit
+    declares: ``engine._read_declared_doi`` reads it from the deposit's own descriptor
+    and ``_crate_mapping._populate_root_and_conformance`` writes it to the root
+    ``identifier``, where a DOI outranks a bare accession because only the DOI still
+    identifies the deposit outside the repository it came from (#682). A deposit that
+    declares none leaves this False, and the evidence string says which limb failed.
 
-    It gates Level 1, so until something mints one the DSM ladder reads 0 for every
-    crate, and :func:`dsm_ceiling` reports DSM-1-C0 as the blocker. That is the finding
-    RDA-F1-01M and RDA-F1-02D already publish; what changes is that the two axes stop
-    contradicting each other, where before the DSM awarded Level 2 on the strength of a
-    ``session_id``. The route out is one the tool owns: 15 of these crates carry the real
-    BioStudies accession ``S-VHPS22``, and emitting it as
-    ``https://www.ebi.ac.uk/biostudies/studies/S-VHPS22`` — the identifier it already
-    has, written so it resolves — would satisfy this with no depositor action.
+    It gates Level 1, so a crate with no root PID cannot reach the first rung and
+    :func:`dsm_ceiling` names DSM-1-C0 among its blockers. RDA-F1-01M and RDA-F1-02D
+    publish the same finding from the same :func:`_root_pid`, which is the point of
+    sharing it: the two axes must not contradict each other about whether this crate is
+    identified.
+
+    Composing a landing page from an accession is not a substitute.
+    ``https://www.ebi.ac.uk/biostudies/studies/S-VHPS22`` is globally unique but not
+    persistent (:func:`_is_persistent_id`), so it answers RDA-F1-02M and not this one;
+    and writing it at all means inferring which repository issued the accession, the
+    repository-dialect special-casing AGENTS.md §Input Formats forbids.
 
     **Stated limitations, all measured.** :func:`_root_pid` accepts any text containing
     ``doi`` or starting with ``10.``, so ``10.happy`` reads as a persistent identifier;
@@ -2582,12 +2586,12 @@ def _state_check(fn: Callable[[CrateState], bool]) -> DsmCheck:
 # see #665 for why the licence indicators moved first and what a wider move would cost.
 _GRAPH_AWARE_FAIR_CHECKS: frozenset[str] = frozenset(
     {
-        # #712: was true on `session_id` alone, a handle no reader receives.
-        "root_global_id",
         "license_present",
         "license_standard",
         "license_machine",
-        # #670: these four asked their question of CrateState and could not fail. They
+        # #712: was true on `session_id` alone, a handle no reader receives.
+        "root_global_id",
+        # #670: these five asked their question of CrateState and could not fail. They
         # now read the crate a reader receives, and answer "not assessed" rather than
         # guess when no graph was supplied.
         "pid_form",
@@ -2642,14 +2646,16 @@ DSM_CHECKS: dict[str, DsmCheck] = {
     "standard_identifiers": _check_standard_identifiers,
     "linked_data": _check_linked_data,
     "machine_interpretable": _check_machine_interpretable,
+    # DSM-1-C3 left the burn-down below when it stopped passing on `session_id` (#706);
+    # it reads the crate like everything above it.
+    "access_info": _check_access_info,
     # --- still scored from CrateState: the rewrites #670 could not land honestly ---
-    # Nine refuted rewrites over these eight entries — ``domain_model`` backs both
+    # Eight refuted rewrites over these seven entries — ``domain_model`` backs both
     # DSM-2-C1 and DSM-2-R1, and both proposals for it were rejected. Each resisted two
     # rounds of adversarial review, and each was refuted by an edit that carries no
     # information: deleting a declaration, retyping a node, or truncating an IRI raised
     # the score. ``test_every_dsm_check_reads_the_crate`` pins the list with the reason
     # for each; it is a burn-down, so the number may only go down.
-    "access_info": _check_access_info,
     "has_descriptor": _state_check(_check_has_descriptor),
     "context_fields": _state_check(_check_context_fields),
     "value_level_metadata": _state_check(_check_value_level_metadata),
@@ -2895,10 +2901,14 @@ def load_dsm_answers(path: Path | str) -> dict[str, bool]:
 def pre_verdicts(state: CrateState) -> dict[str, Verdict]:
     """The stored as-received verdicts — the sheet's "Pre-FAIRification" column.
 
-    Captured once by ``AgentEngine.initialize`` and carried in the session, so a report
-    rendered days later still states what the deposit looked like on arrival. Empty for
-    a session written before the baseline existed, and for a run given no input to scan;
-    callers render the post column alone rather than inventing a baseline.
+    Captured once by ``AgentEngine.initialize`` and carried in the session, because
+    ``crate_state.json`` is overwritten on every save and the deposit's arrival state is
+    otherwise unrecoverable. Empty for a session written before the baseline existed,
+    and for a run given no input to scan.
+
+    No page reads it: the maturity report draws the post column alone, pinned by
+    ``test_the_baseline_is_captured_but_not_drawn``. This is the read path for a paper
+    or an eval, not for the report (#711).
     """
     return {
         ident: Verdict(stored.get("value"), str(stored.get("evidence", "")))
