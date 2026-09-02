@@ -1401,6 +1401,22 @@ def _mit_module_colour(name: str) -> str:
     return MIT_MODULE_STYLES.get(name, MIT_MODULE_FALLBACK_COLOUR)
 
 
+def _mit_scope_note(mit: MITReport, scored: int) -> str:
+    """"44 of 220 have no crate slot", when the two denominators differ.
+
+    The percentage beside it is of what could be scored: a parameter carrying no
+    ``crate_slot`` names nothing a crate field could hold, so it is outside every
+    denominator here (`mit_assessment.iter_scorable_params`). Printing only our
+    figure under a heading that names the OECD checklist restates the instrument.
+    A clause rather than a sentence because the section carries one lead and no
+    more; the per-module split, which is the sharper number, rides on each bar's
+    accessible name. Empty for a report serialised before these counts existed.
+    """
+    if not mit.published_total or mit.published_total <= scored:
+        return ""
+    return f" · {mit.published_total - scored} of {mit.published_total} have no crate slot"
+
+
 def _render_mit_section(mit: MITReport) -> str:
     """The OECD MIT coverage card — six module rows, each in its own colour —
     followed by a sibling "Per guidance document" card: one bar per guidance
@@ -1449,18 +1465,28 @@ def _render_mit_section(mit: MITReport) -> str:
             f'<span class="den">/{sc.get("total", 0)}</span></div></div>'
         )
 
-    def plain_bar(sc: dict[str, int], meter_class: str, fill_class: str) -> str:
+    def plain_bar(
+        sc: dict[str, int], meter_class: str, fill_class: str, extra: str = ""
+    ) -> str:
         width = round(sc.get("completed", 0) / sc["total"] * 100) if sc.get("total") else 0
         return (
             f'<div class="{meter_class}" role="img" '
-            f'aria-label="{sc.get("completed", 0)} of {sc.get("total", 0)}">'
+            f'aria-label="{sc.get("completed", 0)} of {sc.get("total", 0)}{esc(extra)}">'
             f'<i class="{fill_class}" style="width:{width}%"></i></div>'
         )
 
     def module_row(name: str, sc: dict[str, int]) -> str:
+        # The bar is drawn over what could be scored; where that is less than the
+        # module the checklist defines, its accessible name says so. Two modules'
+        # bars are otherwise indistinguishable when one covers 98% of its module
+        # and the other 17%.
+        published = mit.published_total_for(name)
+        scoped = ""
+        if published > sc.get("total", 0):
+            scoped = f'; {sc.get("total", 0)} of the checklist\'s {published} for this module'
         return mrow(
             name,
-            plain_bar(sc, "meter mod", "fill-mod"),
+            plain_bar(sc, "meter mod", "fill-mod", extra=scoped),
             sc,
             style=f' style="--mod:{_mit_module_colour(name)}"',
         )
@@ -1516,7 +1542,8 @@ def _render_mit_section(mit: MITReport) -> str:
     section = (
         "<section>\n"
         '  <div class="sec-h"><h2>OECD MIT coverage</h2>'
-        f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields · {pct}%</span></div>\n'
+        f'<span class="sec-meta"><b>{completed_all}/{total_all}</b> fields'
+        f'{_mit_scope_note(mit, total_all)} · {pct}%</span></div>\n'
         '  <p class="lead">Coverage of the in-vitro toxicology MIT checklist — each item is a '
         f'FAIR maturity indicator as defined in <a href="{MIT_INDICATORS_URL}">'
         "tox-maturity-indicators</a>.</p>\n"

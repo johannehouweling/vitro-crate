@@ -1447,13 +1447,23 @@ class TestMitModuleColours:
             row = self._row(section, name)
             assert f'<div class="mrow" style="--mod:{MIT_MODULE_STYLES[name]}">' in row, name
             fill = re.search(
-                r'<div class="meter mod" role="img" aria-label="(\d+) of (\d+)">'
+                r'<div class="meter mod" role="img" aria-label="(\d+) of (\d+)([^"]*)">'
                 r'<i class="fill-mod" style="width:([\d.]+)%"></i></div>',
                 row,
             )
             assert fill, name
             assert (int(fill.group(1)), int(fill.group(2))) == (sc["completed"], sc["total"])
-            assert abs(float(fill.group(3)) - sc["completed"] / sc["total"] * 100) < 0.6, name
+            assert abs(float(fill.group(4)) - sc["completed"] / sc["total"] * 100) < 0.6, name
+            # The bar is drawn over what could be scored. Where the checklist defines
+            # more for this module, the accessible name says so — otherwise a bar over
+            # a sixth of its module reads exactly like one over all of another (#714).
+            published = mit.published_total_for(name)
+            if published > sc["total"]:
+                assert f"of the checklist&#x27;s {published} for this module" in fill.group(3), (
+                    name
+                )
+            else:
+                assert fill.group(3) == "", name
             seen_at.append(section.index(row))
         assert seen_at == sorted(seen_at), "module rows are not in the scorer's order"
 
