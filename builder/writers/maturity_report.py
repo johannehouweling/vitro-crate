@@ -894,6 +894,16 @@ def _wrap_label(text: str, width: int = 20) -> list[str]:
     return [line for line in lines if line]
 
 
+def _mit_totals(mit: MITReport) -> tuple[int, int]:
+    """``(completed, total)`` over the module buckets — the one sum the rose
+    tile's sub-line, the rose's wedges and the OECD MIT coverage section header
+    all read, so the three cannot disagree. ``overall_score`` is this ratio
+    (see ``_score_modules``)."""
+    completed = sum(sc.get("completed", 0) for sc in mit.module_scores.values())
+    total = sum(sc.get("total", 0) for sc in mit.module_scores.values())
+    return completed, total
+
+
 def _mit_rose_svg(mit: MITReport) -> str:
     """The MIT coverage rose: one wedge per module, angle = the module's share
     of the checklist, radius = how much of that module is filled. A faint
@@ -910,7 +920,7 @@ def _mit_rose_svg(mit: MITReport) -> str:
     """
     import math
 
-    total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
+    _, total_all = _mit_totals(mit)
     if not total_all:
         return ""
     cx = cy = 87.0
@@ -982,9 +992,9 @@ def _mit_rose_tile(mit: MITReport) -> str:
             "</article>"
         )
     pct = round(mit.overall_score * 100)
+    completed, total = _mit_totals(mit)
     note = (
-        '<div class="tile-note">for in vitro toxicology research datasets, assays, as well '
-        "as cell-based toxicity test methods.<br>NB: this score does not ensure data quality "
+        '<div class="tile-note">NB: this score does not ensure data quality '
         "or assess whether the science is right. It does measure how completely the domain "
         "reporting fields are filled.</div>"
     )
@@ -993,6 +1003,7 @@ def _mit_rose_tile(mit: MITReport) -> str:
         + head
         + f'<div class="kpi-v"><b>{pct}</b><span class="den">%</span></div>'
         f'<div class="rose-wrap">{_mit_rose_svg(mit)}</div>'
+        f'<div class="kpi-sub">{completed} of {total} MIT checklist fields filled</div>'
         f"{note}"
         "</article>"
     )
@@ -1425,8 +1436,7 @@ def _render_mit_section(mit: MITReport) -> str:
             "not be assembled to score against. This is not a score of zero.</p>\n"
             "</section>\n"
         )
-    completed_all = sum(sc.get("completed", 0) for sc in mit.module_scores.values())
-    total_all = sum(sc.get("total", 0) for sc in mit.module_scores.values())
+    completed_all, total_all = _mit_totals(mit)
     pct = round(mit.overall_score * 100)
 
     def mrow(name: str, bar: str, sc: dict[str, int], style: str = "") -> str:
