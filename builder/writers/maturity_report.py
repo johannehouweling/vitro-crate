@@ -62,6 +62,7 @@ from builder.tools.fair_assessment import assess_fair_maturity
 from builder.tools.mit_assessment import (
     MIT_INDICATORS_URL,
     MIT_STANDARD_LABELS,
+    MIT_STANDARD_SOURCES,
     assess_mit_coverage,
     mit_was_assessed,
 )
@@ -1439,9 +1440,10 @@ def _render_mit_section(mit: MITReport) -> str:
     completed_all, total_all = _mit_totals(mit)
     pct = round(mit.overall_score * 100)
 
-    def mrow(name: str, bar: str, sc: dict[str, int], style: str = "") -> str:
+    def mrow(name: str, bar: str, sc: dict[str, int], style: str = "", url: str = "") -> str:
+        label = _lk(url, name) if url else esc(name)
         return (
-            f'<div class="mrow"{style}><div class="mname">{esc(name)}</div>'
+            f'<div class="mrow"{style}><div class="mname">{label}</div>'
             f'<div class="mbar">{bar}</div>'
             f'<div class="mfrac">{sc.get("completed", 0)}'
             f'<span class="den">/{sc.get("total", 0)}</span></div></div>'
@@ -1484,10 +1486,12 @@ def _render_mit_section(mit: MITReport) -> str:
             f'flex-grow:{total}">{segments}</span>'
         )
 
-    def document_row(label: str, sc: dict[str, int], by_module: dict[str, dict[str, int]]) -> str:
+    def document_row(
+        label: str, sc: dict[str, int], by_module: dict[str, dict[str, int]], url: str = ""
+    ) -> str:
         doc_total = sc.get("total", 0)
         if not by_module or not doc_total:
-            return mrow(label, plain_bar(sc, "meter", "fill-cov"), sc)
+            return mrow(label, plain_bar(sc, "meter", "fill-cov"), sc, url=url)
         # The scorer's module order (the checklist's), then anything the split
         # names that the module rows do not — kept, not dropped. A bucket with
         # nothing in it draws nothing and is not described either.
@@ -1504,7 +1508,7 @@ def _render_mit_section(mit: MITReport) -> str:
             f'aria-label="{sc.get("completed", 0)} of {doc_total}: {esc(described)}">'
             f"{spans}</div>"
         )
-        return mrow(label, bar, sc)
+        return mrow(label, bar, sc, url=url)
 
     # Reached only when there ARE module scores — `mit_was_assessed` is exactly
     # "has module scores", so the old empty-scores fallback row is unreachable.
@@ -1529,6 +1533,7 @@ def _render_mit_section(mit: MITReport) -> str:
                 MIT_STANDARD_LABELS.get(k, k),
                 mit.standard_scores[k],
                 mit.standard_module_scores.get(k) or {},
+                url=MIT_STANDARD_SOURCES.get(k, ""),
             )
             for k in ordered
         )

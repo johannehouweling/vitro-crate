@@ -57,6 +57,19 @@ MIT_STANDARD_LABELS: dict[str, str] = {
     "oecd_oht201": "IUCLID OHT 201",
 }
 
+# Where each guidance document lives, keyed like MIT_STANDARD_LABELS. Copied
+# verbatim from the `identifier_to_hash` of upstream tox-maturity-indicators'
+# `source/standards.yaml` (the _PROFILE_SPEC_URLS precedent): the package's
+# runtime data ships no source URLs, so the vendored YAML cannot carry them.
+# A column absent here (upstream has dropped it) renders as plain text.
+MIT_STANDARD_SOURCES: dict[str, str] = {
+    "oecd_gd211": "https://doi.org/10.1787/9789264274730-en",
+    "toxtemp": "https://doi.org/10.14573/altex.1909271",
+    "oecd_gd34": "https://doi.org/10.1787/e1f1244b-en",
+    "oecd_gd417": "https://doi.org/10.1787/8d49ec1d-en",
+    "oecd_oht201": "https://www.oecd.org/en/topics/assessment-of-chemicals/harmonised-templates-intermediate-effects.html",
+}
+
 
 def load_mit_yaml() -> dict[str, Any] | None:
     """Load and parse the MIT YAML file.
