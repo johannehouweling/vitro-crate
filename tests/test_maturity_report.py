@@ -281,7 +281,7 @@ class TestEmbeddedInCrate:
 
 
 class TestHeaderAndCards:
-    """#607 design handoff: accession headline, subhead, and the two header cards."""
+    """#607 design handoff: study-name headline, subhead, and the two header cards."""
 
     def _state(self) -> CrateState:
         state = vhps_fixture_state("S-VHPS21")
@@ -293,12 +293,36 @@ class TestHeaderAndCards:
         state.generator.ended_at = "2026-08-19T20:14:00+00:00"
         return state
 
-    def test_the_headline_is_the_accession_and_the_subhead_the_title(self) -> None:
-        page = build_maturity_html(self._state())
-        assert "<h1>S-VHPS21</h1>" in page
-        assert '<p class="subhead">' in page
+    def test_a_named_root_headlines_over_an_empty_state(self) -> None:
+        """The pipeline never writes ``state.metadata``; the crate's root carries
+        the name and the identifier, and the writer is handed that graph (#719).
+        The name headlines and the tab; the identifier sits in the study card."""
+        graph = {"@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "Neural cell screening models",
+             "identifier": "S-VHPS22"},
+        ]}
+
+        page = build_maturity_html(CrateState(), graph=graph)
+
+        assert "<h1>Neural cell screening models</h1>" in page
+        assert "<title>Neural cell screening models — vitro-crate maturity report</title>" in page
+        card = page.split('<div class="hcard-h">About this study</div>', 1)[1]
+        card = card.split("</div>\n", 1)[0]
+        assert '<span class="hlabel">Identifier</span>S-VHPS22' in card
+        assert "<h1>RO-Crate</h1>" not in page
+        assert "<title>RO-Crate" not in page
+
+    def test_the_headline_and_tab_are_the_study_name(self) -> None:
+        """The accession is the study card's to state (#719); a subhead that
+        would repeat the headline is not rendered."""
+        state = self._state()
+        page = build_maturity_html(state)
+        assert f"<h1>{state.metadata.title}</h1>" in page
+        assert f"<title>{state.metadata.title} — vitro-crate maturity report</title>" in page
+        assert '<p class="subhead">' not in page
         assert "vitro-crate maturity report</span>" in page
-        assert "<title>S-VHPS21 — vitro-crate maturity report</title>" in page
+        assert '<span class="hlabel">Identifier</span>S-VHPS21' in page
 
     def test_a_crate_without_accession_headlines_the_title_without_subhead(self) -> None:
         state = CrateState()
@@ -349,22 +373,21 @@ class TestHeaderAndCards:
 
         assert "<h1>The real title</h1>" in page
 
-    def test_a_real_accession_still_leads(self) -> None:
-        """The rule refuses a slug, not an identifier. `S-VHPS21` is what people
-        cite this deposit by, and it stays the headline."""
-        page = build_maturity_html(self._state())
-
-        assert "<h1>S-VHPS21</h1>" in page
-
-    def test_a_doi_still_leads(self) -> None:
-        """Long, but a citable identifier — the bound is not merely "short"."""
+    @pytest.mark.parametrize(
+        "accession", ["S-VHPS21", "https://doi.org/10.1007/s00204-024-03787-2"]
+    )
+    def test_a_citable_accession_stays_in_the_card(self, accession: str) -> None:
+        """What a reader cites is stated where the deposit's DOI already is; the
+        headline is the study's name whatever the identifier's shape (#719)."""
         state = CrateState()
         state.metadata.title = "A study"
-        state.metadata.accession = "https://doi.org/10.1007/s00204-024-03787-2"
+        state.metadata.accession = accession
 
         page = build_maturity_html(state)
 
-        assert f"<h1>{state.metadata.accession}</h1>" in page
+        assert "<h1>A study</h1>" in page
+        assert f"<h1>{accession}</h1>" not in page
+        assert f'<span class="hlabel">Identifier</span>{accession}' in page
 
     def test_an_identifier_that_does_not_headline_is_still_reported(self) -> None:
         """Demoted, never dropped: it is what the crate claims to be identified
@@ -543,13 +566,11 @@ class TestStudyCardReadsTheGraph:
         assert "doi.org/10.21945/S-VHPS22" in cell.group(1)
 
     def test_the_subhead_prefers_the_publication_name(self) -> None:
-        state = CrateState()
-        state.metadata.title = "The study title"
-        page = build_maturity_html(state, graph=self._graph())
+        page = build_maturity_html(CrateState(), graph=self._graph())
+        assert "<h1>T</h1>" in page
+        # The SUBHEAD is the publication, never a second copy of the name.
         assert '<p class="subhead">Thyroid disruption in vitro</p>' in page
-        # The h1 is the title only because this state has no accession; the
-        # SUBHEAD is the publication, never a second copy of the title.
-        assert page.count("The study title") == 2  # <title> and <h1>
+        assert page.count('<p class="subhead">') == 1
 
     def test_a_bare_string_contact_is_not_reported_as_not_stated(self) -> None:
         graph = {"@graph": [
