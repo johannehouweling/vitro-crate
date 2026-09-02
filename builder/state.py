@@ -823,6 +823,9 @@ class MITReport:
             page prints both; reporting only ours would restate the instrument.
         published_module_totals: The same figure per module, which is where it
             matters: one module is scored over a sixth of what it defines.
+        published_standard_totals: And per guidance document — how many parameters
+            that document flags, against the ``standard_scores`` total we could
+            score. Every document but LINCS is short, by 7 to 24 parameters.
         standard_module_scores: Each document's bucket split by module —
             ``{document_key: {module_name: {"completed", "total"}}}``. A
             document's module buckets partition its ``standard_scores`` bucket
@@ -837,6 +840,7 @@ class MITReport:
     standard_module_scores: dict[str, dict[str, dict[str, int]]] = field(default_factory=dict)
     published_total: int = 0
     published_module_totals: dict[str, int] = field(default_factory=dict)
+    published_standard_totals: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -844,11 +848,21 @@ class MITReport:
             "overall_score": self.overall_score,
             "published_total": self.published_total,
             "published_module_totals": dict(self.published_module_totals),
+            "published_standard_totals": dict(self.published_standard_totals),
             "standard_scores": dict(self.standard_scores),
             "standard_module_scores": {
                 key: dict(by_module) for key, by_module in self.standard_module_scores.items()
             },
         }
+
+    def published_total_for_standard(self, key: str) -> int:
+        """How many parameters *key*'s guidance document flags.
+
+        Falls back to what was scored, so a report serialised before these counts
+        existed reads as though nothing was dropped rather than as though everything
+        was."""
+        scored = self.standard_scores.get(key, {}).get("total", 0)
+        return self.published_standard_totals.get(key, scored)
 
     def published_total_for(self, module_name: str) -> int:
         """How many parameters the checklist defines for *module_name*.
@@ -868,6 +882,7 @@ class MITReport:
             standard_module_scores=data.get("standard_module_scores", {}),
             published_total=data.get("published_total", 0),
             published_module_totals=data.get("published_module_totals", {}),
+            published_standard_totals=data.get("published_standard_totals", {}),
         )
 
 

@@ -33,6 +33,18 @@ MIT_YAML = REPO / "mit" / "invitro_tox.yaml"
 # The vendored bytes. Change this only with the counts below, in the same commit.
 MIT_YAML_MD5 = "e7d649b1792e979ab1fb0ce99a8b4aa3"
 
+# guidance document -> (parameters we can score, parameters the document flags).
+# Every one of these bars is drawn over the left number under a label naming the right.
+DOCUMENT_SHAPE = {
+    "oecd_gd211": (33, 42),
+    "toxtemp": (34, 41),
+    "oecd_gd34": (64, 88),
+    "oecd_gd417": (81, 98),
+    "oecd_oht201": (48, 55),
+    "lincs": (40, 40),
+    "nature": (7, 14),
+}
+
 # module name -> (parameters carrying a parseable crate_slot, parameters defined)
 MODULE_SHAPE = {
     "General Information": (21, 28),
@@ -135,3 +147,47 @@ class TestTheReportSaysWhatItLeftOut:
         html = _render_mit_section(self._report())
         assert "176" in html and "220" in html, "both denominators on the page"
         assert "41" in html, "the module whose bar is mostly unmeasurable"
+
+
+class TestTheDocumentBarsSayWhatTheyAreDrawnOver:
+    """Each "per guidance document" bar intersects the document's parameter list with
+    the parameters we curated a slot for, and printed the result under the document's
+    name. Nature reads 7 where the document flags 14 — half — and nothing said so.
+
+    Same defect as the section header's, three places over, and the same fix: the
+    instrument's denominator beside ours.
+    """
+
+    def _report(self):
+        from builder.state import CrateState
+        from builder.tools.mit_assessment import assess_mit_coverage
+
+        return assess_mit_coverage(CrateState(), graph={"@graph": []})
+
+    def test_the_scored_denominators_are_what_the_page_draws(self) -> None:
+        scored = {k: v["total"] for k, v in self._report().standard_scores.items()}
+        assert scored == {k: s for k, (s, _p) in DOCUMENT_SHAPE.items()}
+
+    def test_the_report_carries_each_documents_own_total(self) -> None:
+        published = self._report().published_standard_totals
+        assert published == {k: p for k, (_s, p) in DOCUMENT_SHAPE.items()}
+
+    def test_only_one_document_is_fully_curated(self) -> None:
+        """LINCS is 40 of 40; every other bar is short, by 7 to 24 parameters."""
+        short = {k: p - s for k, (s, p) in DOCUMENT_SHAPE.items() if p > s}
+        assert set(DOCUMENT_SHAPE) - set(short) == {"lincs"}
+        assert max(short.values()) == 24 and min(short.values()) == 7
+
+    def test_the_bar_says_it_on_the_page(self) -> None:
+        from builder.writers.maturity_report import _render_mit_section
+
+        html = _render_mit_section(self._report())
+        assert "of the 14 it flags" in html, "Nature's bar states the document's own total"
+
+    def test_a_deserialised_report_keeps_them(self) -> None:
+        from builder.state import MITReport
+
+        report = self._report()
+        assert MITReport.from_dict(report.to_dict()).published_standard_totals == (
+            report.published_standard_totals
+        )
