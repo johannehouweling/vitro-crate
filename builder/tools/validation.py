@@ -236,10 +236,12 @@ def verify_payload(crate: Any) -> list[dict[str, Any]]:
     return issues
 
 
-# The ISA classes this crate MINTS a structural entity for. Each carries a
-# rule-set in the upstream profile that only applies once something references
-# the entity, so each is a class whose whole rule-set can go silent (#537).
-_ISA_STRUCTURAL_TYPES = frozenset({"LabProcess", "Sample", "LabProtocol"})
+# The classes this crate MINTS a structural entity for. Each carries a rule-set
+# in the upstream profile that only applies once something references the
+# entity, so each is a class whose whole rule-set can go silent (#537). The AOP
+# head is the root of a subgraph `materialize_aop_subgraph` mints whole, so it
+# stands for its KeyEvents and relationships: one finding names the island (#738).
+_ISA_STRUCTURAL_TYPES = frozenset({"LabProcess", "Sample", "LabProtocol", "AdverseOutcomePathway"})
 
 # Keys that describe the node rather than point away from it. `@type`'s values
 # are class names, and a class name is not a reference to another entity.
@@ -249,7 +251,7 @@ _NON_REFERENCE_KEYS = frozenset({"@id", "@type", "@context"})
 def verify_isa_reachability(
     metadata: dict[str, Any] | list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Report every ISA structural entity the crate mints and then references from nowhere.
+    """Report every structural entity the crate mints that a walk from its root never reaches.
 
     The ISA shapes infer their target class from the very edge whose absence is
     the defect. ``FindISAProcesses`` mints ``isa-ro-crate:Process`` only for a
@@ -262,20 +264,28 @@ def verify_isa_reachability(
     the crate reports conformant precisely when its structure is most broken.
 
     The upstream shapes are not ours to restructure, so the invariant is
-    asserted here instead, and asserted the only way that cannot be gamed by an
-    absent edge: an entity nothing points at is detached, whatever the profile
-    was able to evaluate.
-
-    Reachability is DIRECTED. ``provenance_dag.build_crate_graph`` already flags
-    orphans, but over an undirected walk, where a process that points at the
-    files it produced counts as connected even though nothing points at it —
-    which is why it reports 19 orphans for the crate in #537 and none of them
-    are its three detached processes.
+    asserted here instead, and asserted the only way an absent edge cannot game:
+    a DIRECTED walk from ``./`` over every reference in the graph, and a
+    structural entity it never visits is detached, whatever the profile was
+    able to evaluate. "Referenced by something" is a weaker test that an island
+    passes — an AOP subgraph minted without a Study references its own
+    KeyEvents, so all 36 of its nodes counted as attached while none was (#738).
+    Directed, because a process that points at the files it produced is not
+    thereby connected to anything: ``provenance_dag.build_crate_graph`` flags
+    orphans over an undirected walk, which is why it reports 19 orphans for
+    the crate in #537 and none of them are its three detached processes.
 
     Entities identified by an absolute URI are described here and live
     elsewhere — a Cellosaurus cell line is a record of an external thing, not a
-    hole in this crate's backbone — so they are not reported, the same line
-    :func:`verify_payload` draws for the payload.
+    hole in this crate's backbone — so one that links to nothing the walk left
+    unreached is not reported, the same line :func:`verify_payload` draws for
+    the payload: a cell-line Sample whose one local edge is ``sampleType`` to
+    the ``cell line`` term every sample in use already reaches. One that links
+    to an unreached node is the root of an island (the AOP head, to its
+    KeyEvents) and is reported like any local entity.
+
+    Runs inside :func:`build_and_validate` beside the ISA pass, so every
+    verdict that ran the pass carries the answer (#738). O(V+E).
 
     Args:
         metadata: The ``crate.metadata.generate()`` document, the parsed
@@ -288,70 +298,47 @@ def verify_isa_reachability(
     from builder.writers.provenance_dag import _refs, _types
 
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    nodes = [node for node in graph if isinstance(node, dict) and node.get("@id")]
+    nodes = {str(node["@id"]): node for node in graph if isinstance(node, dict) and node.get("@id")}
 
-    referenced: set[str] = set()
-    for node in nodes:
+    def _local_refs(node: dict[str, Any]) -> list[str]:
         keys = tuple(key for key in node if key not in _NON_REFERENCE_KEYS)
-        referenced.update(ref for ref in _refs(node, keys) if ref != node.get("@id"))
+        return [ref for ref in _refs(node, keys) if ref in nodes and ref != node.get("@id")]
+
+    reached = {"./"}
+    frontier = ["./"]
+    while frontier:
+        for ref in _local_refs(nodes.get(frontier.pop(), {})):
+            if ref not in reached:
+                reached.add(ref)
+                frontier.append(ref)
 
     issues: list[dict[str, Any]] = []
-    for node in nodes:
-        entity_id = str(node["@id"])
-        if entity_id.startswith(("http://", "https://")):
+    for entity_id, node in nodes.items():
+        kinds = _types(node) & _ISA_STRUCTURAL_TYPES
+        if not kinds or entity_id in reached:
             continue
-        if not (_types(node) & _ISA_STRUCTURAL_TYPES):
+        if entity_id.startswith(("http://", "https://")) and reached.issuperset(_local_refs(node)):
             continue
-        if entity_id in referenced:
-            continue
-        kind = ", ".join(sorted(_types(node) & _ISA_STRUCTURAL_TYPES))
+        kind = ", ".join(sorted(kinds))
         issues.append(
             {
                 "entity_id": entity_id,
                 "property": "about",
                 "message": (
-                    f"Nothing in the crate references the {kind} {entity_id!r}, so it is "
-                    "detached from the ISA backbone and every profile rule for its class "
-                    "is skipped rather than passed"
+                    f"Nothing the crate's root reaches references the {kind} "
+                    f"{entity_id!r}, so it is detached from the ISA backbone and every "
+                    "profile rule for its class is skipped rather than passed"
                 ),
                 "fix": (
                     f"Reference `{entity_id}` from the entity it belongs to — a process "
                     "from its Assay's `about`, a protocol or sample from the process that "
-                    "uses it — or drop it so the crate stops describing a step it does "
-                    "not connect."
+                    "uses it, a pathway from its Study's `aop` — or drop it so the crate "
+                    "stops describing a step it does not connect."
                 ),
                 "severity": "required",
                 "profile": "isa",
             }
         )
-    return issues
-
-
-def record_isa_reachability_check(state: CrateState, crate: Any) -> list[dict[str, Any]]:
-    """Fold :func:`verify_isa_reachability` into ``state.validation`` (#537).
-
-    A detached structural entity is a REQUIRED failure of the ISA profile — the
-    profile simply cannot say so itself — so it is filed through the same shape
-    every other finding uses, and the header verdict flips off "Conformant"
-    without the report needing to know this check exists.
-
-    Marks the verdict ``isa_reachability_checked`` either way: a connected
-    backbone is a result, and the distinction that matters downstream is
-    "looked and found nothing" versus "never looked".
-
-    Returns the issues found, for the caller to log or report.
-    """
-    issues = verify_isa_reachability(crate.metadata.generate())
-    report = state.validation
-    existing = set(report.required_issues)
-    for issue, text in zip(issues, order_issues(issues, "required"), strict=True):
-        if text not in existing:
-            report.required_issues.append(text)
-            report.issue_records.extend(_issue_records([issue], "required"))
-    if issues:
-        report.isa_passed = False
-    report.assessed_tiers.add("required")
-    report.isa_reachability_checked = True
     return issues
 
 
@@ -631,6 +618,9 @@ def build_and_validate(
         where each issue is ``{entity_id, property, message, fix, severity,
         profile}``. ``conformance`` reports REQUIRED-level pass/fail per layer
         validated; ``ok`` is True when there are no issues at the gate severity.
+        Whenever the ISA pass runs, its issues and verdict also carry
+        :func:`verify_isa_reachability` — the one REQUIRED question the ISA
+        shapes cannot ask of themselves (#738).
     """
     # Weak models (e.g. DeepSeek-flash) emit explicit nulls for optional tool
     # args instead of omitting them, so the function defaults never apply and a
@@ -696,6 +686,16 @@ def build_and_validate(
             "%d finding(s) are about vocabulary this crate cites, not about the crate",
             len(citations),
         )
+
+    # Asked beside the ISA pass, never after it: a verdict reached here is the
+    # one the loop acts on, the write-back records, and the export gate serves
+    # from the memo below, so there is no `ok` that predates the answer (#738).
+    # After the citation split on purpose — a detached entity is one the crate
+    # describes, by construction, so the finding is never vocabulary.
+    if "isa" in conformance:
+        detached = verify_isa_reachability(metadata_doc)
+        issues.extend(detached)
+        conformance["isa"] = conformance["isa"] and not detached
 
     if memo_key:
         _remember_sweep(memo_key, profile, severity, conformance, issues, citations)
@@ -930,7 +930,9 @@ def apply_validation_result(
     per-layer ``conformance`` onto the report and record the issues for the tier
     that was gated. Layers absent from ``conformance`` (a scoped ``profile=``
     call) keep their prior value, and an errored result is left untouched so a
-    transient failure never wipes known issues.
+    transient failure never wipes known issues. An ISA verdict always asked
+    about reachability (see :func:`build_and_validate`), so its presence marks
+    ``isa_reachability_checked``.
 
     Shared by the engine's tool write-back and by ``export_crate``, so a verdict
     reached either way carries the same shape and the same freshness stamp.
@@ -959,6 +961,8 @@ def apply_validation_result(
     for layer, attr in (("base", "base_passed"), ("isa", "isa_passed"), ("tox", "tox_passed")):
         if layer in conformance:
             setattr(report, attr, bool(conformance[layer]))
+    if "isa" in conformance:
+        report.isa_reachability_checked = True
     issues = result.get("issues") or []
     # The caller's kwarg wins; fall back to the severity the validator stamped on
     # its own result before assuming "required", so a recommended/optional result
@@ -1040,9 +1044,12 @@ def ensure_validated(
     in-loop sweep already ran at this gate, :func:`build_and_validate` serves it
     from the per-state memo and the extra sweep costs nothing.
 
-    Freshness now accounts for tier coverage as well as content: a verdict whose
+    Freshness accounts for coverage as well as content: a verdict whose
     fingerprint matches but that only ever assessed REQUIRED is not sufficient
-    for an OPTIONAL-gated caller, and is re-run rather than adopted.
+    for an OPTIONAL-gated caller, and one that never asked whether the ISA
+    backbone reaches what the crate mints (a report adopted from the disk
+    validator) is not sufficient for a caller running the ISA pass. Either is
+    re-run rather than adopted.
 
     Never raises: a validator failure is reported in the return value so the
     caller (``export_crate``) can still write the crate and say so.
@@ -1064,8 +1071,9 @@ def ensure_validated(
     )
     wanted_tiers = set(tiers_covered(severity))
     missing_tiers = wanted_tiers - set(report.assessed_tiers)
+    never_asked = "isa" in _PROFILE_SCOPES.get(profile, ()) and not report.isa_reachability_checked
     if has_verdict and not report.is_stale_for(state):
-        if not missing_tiers:
+        if not missing_tiers and not never_asked:
             return {
                 "ran": False,
                 "reason": "fresh",

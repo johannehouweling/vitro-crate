@@ -4,8 +4,8 @@
 and wires it deterministically: an ``AdverseOutcomePathway`` node with its
 MIE/KE/AO and KeyEventRelationship link arrays, one ``KeyEvent`` node per event
 (discriminated only by ``eventType``), one ``KeyEventRelationship`` per relation,
-and — when a ``study_id`` is supplied — the AOP wired onto that Study via the
-``aop`` / ``mentions`` reference.
+and the AOP wired onto the Study named by ``study_id`` — or onto the sole Study
+when none is named — via the ``aop`` / ``mentions`` reference.
 
 The only model-supplied input is the numeric ``aop_id``; everything else is the
 deterministic AOP-Wiki graph (D5: never fabricate ids). Tests never hit the
@@ -274,6 +274,31 @@ class TestMaterializeStudyWiring:
         # No study exists; passing a bogus id must not raise.
         result = materialize_aop_subgraph(state, "610", study_id="nonexistent")
         assert result["aop_id"] == "610"
+
+    def test_the_sole_study_is_wired_without_being_named(self):
+        # (#738) 2 of the 28 recorded sessions called this without `study_id`
+        # and shipped 36 nodes attached to nothing. One Study is not a guess.
+        state = CrateState()
+        inv = draft_investigation(state, {"name": "Inv"})
+        study = draft_study(state, inv.entity_id, {"name": "Study"})
+
+        result = materialize_aop_subgraph(state, "610")
+
+        assert result["wired_to_study"] == study.entity_id
+        ids = [r.get("@id") if isinstance(r, dict) else r for r in study.fields["aop"]]
+        assert "https://aopwiki.org/aops/610" in ids
+
+    def test_two_studies_are_not_guessed_between(self):
+        state = CrateState()
+        inv = draft_investigation(state, {"name": "Inv"})
+        uptake = draft_study(state, inv.entity_id, {"name": "Uptake"})
+        viability = draft_study(state, inv.entity_id, {"name": "Viability"})
+
+        result = materialize_aop_subgraph(state, "610")
+
+        assert result["wired_to_study"] is None
+        assert "aop" not in uptake.fields
+        assert "aop" not in viability.fields
 
 
 class TestTheSubgraphSurvivesExport:

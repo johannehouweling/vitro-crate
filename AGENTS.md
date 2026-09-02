@@ -949,7 +949,7 @@ this section (Issue #145).
 ### Entity Drafting Tools
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent-WITH-merge: a reused layer's EMPTY fields are filled from the supplied hints, fill-don't-clobber), the fast path to a BASE-passing crate
-materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
+materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; wired onto the Study named, or the sole Study when none is named — with several Studies and no name it wires nothing and the ISA reachability check names the island
 link_assay_to_key_event(assay_id: str, event_name: str | list[str]) → {ok, assay_id, key_event_ids, matched_names, unmatched?} | {ok: False, error, candidates}  # composite: link an Assay to the AOP Key Event(s) it MEASURES (schema:mentions via keyEvent), each name matched INDEPENDENTLY against the KeyEvents already in state; commits the in-state AOP-Wiki id, never one built from the name, and writes NOTHING for a name matching zero or several Key Events because which Key Event an assay measures is a scientific claim (D5); links ACCUMULATE deduplicated rather than replace — removing one is `set_fields`' job (`key_event_id`/`matched_name` are kept as the first match for callers written against the one-event form)
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
 resolve_cell_line(name: str, hints: dict | None = None, catalog_name: str | None = None, verify=None) → {entity_id, name, accession, match, query, verifications, verified, source}  # composite: cell-line name → lookup_cell_line_by_name (full name, then catalog_name) → draft_cell_line_sample → lookup_cell_line (which IS the verification), in one idempotent call; a miss is NOT a failure (no `ok` key) — the Sample is always minted and the accession is enrichment; `hints.source_kind="primary cells"` skips Cellosaurus
@@ -990,8 +990,11 @@ discriminated only by the `eventType` string), and one
 so all wiring is deterministic and idempotent and no id is ever fabricated (D5).
 These three types live in the shared `aop_entities` CrateState collection and
 build via `_crate_mapping` as `ContextEntity` nodes typed by their own AOP class.
-With `study_id`, the AOP is wired onto that Study via the `aop` reference (an
-alias of `schema:mentions`), closing the largest gold-crate fidelity gap.
+The AOP is wired onto a Study via the `aop` reference (an alias of
+`schema:mentions`) — the one `study_id` names, or the sole Study in the crate
+when none is named; with several Studies and no name it refuses to guess and
+wires nothing, and the subgraph is then an island `verify_isa_reachability`
+reports (#738). The wiring closes the largest gold-crate fidelity gap.
 
 `resolve_compound` (Issue #179, task 3) is the chemistry counterpart of
 `scaffold_isa_backbone`: from the single model-supplied compound `name` it fuses
@@ -1453,7 +1456,11 @@ which a cell-line `CellLineSample` materialises as a `cell line` `DefinedTerm`).
 crate from `CrateState` **in memory** and validates the generated JSON-LD
 document directly via `rocrate_validator.services.validate_metadata_as_dict` —
 **no crate is written to disk and nothing is re-read** (the old
-`build_crate`→`validate` round-trip touched disk on every ReAct iteration). It
+`build_crate`→`validate` round-trip touched disk on every ReAct iteration).
+Whenever the ISA pass runs, `verify_isa_reachability` runs beside it: its
+findings sit in `issues` under profile `isa` and fail `conformance["isa"]`, so
+the in-loop `ok`, the write-back and the export gate all carry the one REQUIRED
+question the ISA shapes cannot ask of themselves (#738, see §11). It
 returns issues keyed to the entity/property that failed so the agent can route
 a fix to a specific field:
 
@@ -2397,12 +2404,20 @@ way, and our `tox/7_assay_key_event.ttl` rides on `isa-ro-crate:Assay`, so the b
 general: a missing structural edge switches off the whole rule-set for that layer, and the crate
 reports conformant precisely when its structure is most broken. The upstream shapes are not ours to
 restructure, so `verify_isa_reachability` asserts the invariant on our side, the one way an absent
-edge cannot game — an entity nothing points at is detached, whatever the profile could evaluate.
-Reachability here is **directed**: `provenance_dag.build_crate_graph` already flags orphans, but
-over an *undirected* walk, where a process pointing at the files it produced counts as connected
-though nothing points at it. Entities named by an absolute URI are described here and live
-elsewhere, the same line `verify_payload` draws. `isa_reachability_checked` records that something
-asked.
+edge cannot game: a **directed** walk from `./` over every reference in the graph, and a structural
+entity — a `LabProcess`, `Sample`, `LabProtocol`, or an `AdverseOutcomePathway` head standing for
+the subgraph minted with it — the walk never visits is detached, whatever the profile could
+evaluate. "Referenced by something" is not that test: an AOP subgraph minted without a Study
+references its own KeyEvents, and all 36 of its nodes passed it while none was attached (#738).
+Neither is `provenance_dag.build_crate_graph`'s *undirected* orphan flag, where a process pointing
+at the files it produced counts as connected though nothing points at it. Entities named by an
+absolute URI are described here and live elsewhere, the same line `verify_payload` draws, and are
+excluded while everything in the crate they link to is reached (a cell-line Sample's `sampleType`
+term is, through the samples in use); one that links to an unreached node, as the AOP head does to
+its KeyEvents, is the root of an island. The check runs inside `build_and_validate` beside the ISA
+pass, so the in-loop verdict, the write-back and `export_crate`'s `validation.ok` all carry it and
+no verdict predates it; `isa_reachability_checked` records that something asked, and
+`ensure_validated` re-runs a verdict that never did.
 
 **Every finding folds out of the severity row it belongs to** (#510). Severity is the primary axis
 because it is the fix order — REQUIRED blocks the build, the advisory tiers do not — so a tier row

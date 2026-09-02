@@ -585,9 +585,10 @@ def export_crate(
                 ``reason`` is ``"fresh"`` (skipped, the recorded verdict still
                 describes this crate and covers every tier),
                 ``"tiers-incomplete"``, ``"never-validated"`` or ``"stale"``.
-                ``ok`` is REQUIRED conformance; RECOMMENDED/OPTIONAL findings
-                appear in ``issue_counts`` and never mark the export not-ok.
-                Absent when ``validate=False``.
+                ``ok`` is REQUIRED conformance, the ISA backbone's reachability
+                included (#738); RECOMMENDED/OPTIONAL findings appear in
+                ``issue_counts`` and never mark the export not-ok. Absent when
+                ``validate=False``.
     """
     try:
         if not output_path:
@@ -677,19 +678,6 @@ def export_crate(
             record_payload_check(state, crate)
         except Exception as payload_err:  # noqa: BLE001 — never fail the write
             logger.warning("Could not verify the crate payload: %s", payload_err)
-
-        # Answer the one REQUIRED question the ISA profile cannot ask of itself:
-        # does its backbone actually reach the entities the crate mints (#537)?
-        # Its rules target a class inferred from the very edge whose absence is
-        # the defect, so a detached process is skipped rather than failed and the
-        # silence ships as a pass. Runs here for the same reason as the payload
-        # check above: the report is rendered from `state.validation` below.
-        try:
-            from builder.tools.validation import record_isa_reachability_check
-
-            record_isa_reachability_check(state, crate)
-        except Exception as reach_err:  # noqa: BLE001 — never fail the write
-            logger.warning("Could not verify the ISA backbone's reachability: %s", reach_err)
 
         # Embed the standard ro-crate-py preview (ro-crate-preview.html, a
         # CreativeWork about ./) so the written crate is browsable without

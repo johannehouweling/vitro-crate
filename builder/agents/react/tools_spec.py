@@ -193,7 +193,7 @@ TOOL_SPECS = [
     },
     {
         "name": "materialize_aop_subgraph",
-        "description": "Turn ONE AOP-Wiki id into the full crate subgraph in one call: an AdverseOutcomePathway node plus every KeyEvent (MIE/KE/AO, discriminated by eventType) and KeyEventRelationship, all cross-linked deterministically from AOP-Wiki (never fabricated). Pass only the numeric aop_id; optionally pass study_id to wire the AOP onto that Study (schema:mentions). Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting when you want the whole pathway in the crate. Example: materialize_aop_subgraph(aop_id='610', study_id='study_silychristin_exposure').",
+        "description": "Turn ONE AOP-Wiki id into the full crate subgraph in one call: an AdverseOutcomePathway node plus every KeyEvent (MIE/KE/AO, discriminated by eventType) and KeyEventRelationship, all cross-linked deterministically from AOP-Wiki (never fabricated). Pass only the numeric aop_id. The AOP is wired onto a Study (schema:mentions): the one study_id names, or the sole Study in the crate when you pass none — with two Studies you must name one, or the pathway stays detached and build_and_validate reports it. Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting when you want the whole pathway in the crate. Example: materialize_aop_subgraph(aop_id='610', study_id='study_silychristin_exposure').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -203,7 +203,7 @@ TOOL_SPECS = [
                 },
                 "study_id": {
                     "type": "string",
-                    "description": "Optional entity_id of a Study to wire the AOP onto (via the aop/mentions reference).",
+                    "description": "entity_id of the Study to wire the AOP onto (via the aop/mentions reference). Defaults to the sole Study when exactly one exists; required when there are several.",
                 },
             },
             "required": ["aop_id"],
