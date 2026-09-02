@@ -1024,6 +1024,22 @@ class TestFairTileAndRose:
         assert f'href="{MIT_INDICATORS_URL}"' in refs
         assert "principle R1.3" in refs
 
+    def test_the_dsm_heading_links_the_published_assessment_tool(self) -> None:
+        """The grid mirrors the tool's output; its heading leads to the tool.
+
+        The URL is the one the YAML records under ``source.assessment_tool`` — the
+        same discipline reference 1 is held to — and the h2 itself stays plain text.
+        """
+        from builder.tools.fair_assessment import DSM_INDICATORS_PATH, _load_yaml
+
+        tool = (_load_yaml(DSM_INDICATORS_PATH) or {})["source"]["assessment_tool"]
+        assert tool == "https://fairdsm.biospeak.solutions/assess"
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"))
+        assert "FAIRplus Dataset Maturity Model</h2>" in page
+        sec_h = page[page.index("FAIRplus Dataset Maturity Model</h2>") :].split("</div>", 1)[0]
+        assert f'<a class="lk" href="{tool}">' in sec_h
+        assert "<h2><a" not in sec_h
+
 
 class TestStaleValidation:
     """A verdict recorded against a DIFFERENT crate is never reported as a pass.

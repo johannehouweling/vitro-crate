@@ -2202,7 +2202,9 @@ any sheet of the assessment workbook computes an achieved maturity level. The re
 therefore leads with the grid the sheet computes — level x {content, representation,
 hosting, total} (`fair_assessment.dsm_grid`) — and carries the gated level beside it
 labelled **derived**, because "how far up the ladder" is the question depositors ask and
-it is deliberately harsh: one failing level-1 indicator hides everything above it.
+it is deliberately harsh: one failing level-1 indicator hides everything above it. The
+section heading links the published assessment tool; its URL is recorded once, as the
+YAML's `source.assessment_tool`, and the writer reads it from there.
 
 **The grid is the sheet's arithmetic, read from the sheet.** `scripts/gen_dsm_indicators.py`
 carries the workbook's own scoring into `fair/dsm_indicators.yaml` under `scoring` —

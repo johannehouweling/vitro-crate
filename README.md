@@ -189,7 +189,8 @@ build embeds a **maturity report** (`ro-crate-metadata-maturity.html`): profile
 conformance, FAIR maturity, OECD MIT coverage, reproducibility readiness — and an
 **interactive entity explorer**. The FAIRplus DSM section reproduces the published
 assessment sheet's own percentage grid, cell for cell, so the numbers are ones an
-outside assessor can reach by filling the same sheet in by hand. The explorer draws the crate's whole entity graph,
+outside assessor can reach by filling the same sheet in by hand or answering the
+online tool its heading links. The explorer draws the crate's whole entity graph,
 with views you turn on and off and combine (Researcher, Files, Assays,
 LabProcesses, Chemicals, Biological models, Persons & Organisations,
 Citations), a search box, and a panel that shows any entity's properties, its

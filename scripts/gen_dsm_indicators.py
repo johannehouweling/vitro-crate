@@ -407,7 +407,7 @@ SOURCE: dict[str, Any] = {
         ),
         "doi": "10.1038/s41597-023-02167-2",
     },
-    "assessment_tool": "https://fairdsm.biospeak.solutions/",
+    "assessment_tool": "https://fairdsm.biospeak.solutions/assess",
     # The DSM is built on the RDA FAIR Data Maturity Model: the workbook ships an
     # "RDA indicators" sheet and 27 of the 83 indicators carry an explicit
     # `REF RDA indicator(s)` cross-reference, surfaced per indicator as `rda_ref`.
