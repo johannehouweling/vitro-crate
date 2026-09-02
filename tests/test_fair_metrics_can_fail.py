@@ -985,87 +985,24 @@ class TestTheInputIsScoredWithoutBeingFlattered:
         )
 
 
-class TestTheBaselineIsTakenBeforeAnythingIsBuilt:
-    """A baseline captured late is a baseline of the tool's own work."""
+class TestThePageDrawsNoIntakeColumn:
+    """The published sheet has a "Pre-FAIRification" column; this page does not.
 
-    def _engine(self, tmp_path):
-        from builder.engine import AgentEngine
+    Both were drawn for a while — two percentages per cell, and a summary line on the
+    FAIR tile — and both were removed on review: what a reader wants from that grid is
+    where the crate *is*. The capture behind them went with #711, since nothing read
+    the stored verdicts back. `as_received_graph` stays, because it is what the guard
+    above scores; it is built on demand, not carried in the session.
+    """
 
-        deposit = tmp_path / "deposit"
-        (deposit / "data").mkdir(parents=True)
-        (deposit / "data" / "plate1.csv").write_text("well,value\nA1,0.5\n")
-        (deposit / "protocol.txt").write_text("Cells were exposed for 24h.\n")
-        engine = AgentEngine()
-        engine.initialize(str(deposit))
-        return engine
-
-    def test_it_is_captured_with_no_entity_in_existence(self, tmp_path) -> None:
-        engine = self._engine(tmp_path)
-        assert engine.state.pre_assessment, "the deposit was scanned but never scored"
-        assert engine.state.list_entities() == [], (
-            "the baseline must be taken before the first entity is drafted, or it "
-            "measures the builder rather than the deposit"
-        )
-
-    def test_a_second_initialize_does_not_overwrite_it(self, tmp_path) -> None:
-        engine = self._engine(tmp_path)
-        first = dict(engine.state.pre_assessment)
-        engine.state.add_entity(
-            Entity(entity_id="e1", type="Study", fields={"name": "later"},
-                   _provenance=EntityProvenance(created_by="llm"))
-        )
-        engine._capture_pre_assessment()
-        assert engine.state.pre_assessment == first
-
-    def test_it_survives_a_session_round_trip(self, tmp_path) -> None:
-        from builder.tools.fair_assessment import pre_verdicts
-
-        engine = self._engine(tmp_path)
-        restored = CrateState.from_json(engine.state.to_json())
-        assert restored.pre_assessment == engine.state.pre_assessment
-        assert pre_verdicts(restored) == pre_verdicts(engine.state)
-
-    def test_a_session_from_before_the_baseline_renders_without_one(self) -> None:
-        from builder.tools.fair_assessment import pre_verdicts
-
-        assert CrateState.from_dict({}).pre_assessment == {}
-        assert pre_verdicts(CrateState()) == {}
-
-
-class TestTheReportShowsBothColumns:
-    """The number this tool exists to move is only legible next to where it started."""
-
-    def _state_with_baseline(self):
-        from builder.engine import AgentEngine
-
-        state = _as_received_state()
-        engine = AgentEngine()
-        engine.state = state
-        engine._capture_pre_assessment()
-        return state
-
-    def test_the_baseline_is_captured_but_not_drawn(self) -> None:
-        """The deposit-as-received score is still measured and carried in the session —
-        it is what a paper or an eval reads — but the page does not draw it. Two
-        percentages per cell buried the one the grid exists to show, and a summary line
-        was no clearer; what the reader wants from that table is where the crate is."""
-        from builder.tools.fair_assessment import pre_verdicts
-        from builder.writers.maturity_report import build_maturity_html
-
-        state = self._state_with_baseline()
-        assert state.pre_assessment, "the baseline must still be captured"
-        assert pre_verdicts(state), "and still readable"
-        page = build_maturity_html(state)
-        assert "at intake" not in page
-        grid = page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
-        assert "was " not in grid
-
-    def test_without_a_baseline_the_page_is_exactly_as_before(self) -> None:
+    def test_no_intake_number_anywhere(self) -> None:
         from builder.writers.maturity_report import build_maturity_html
 
         page = build_maturity_html(_as_received_state())
         assert "Pre-FAIRification" not in page
-        assert "at intake:" not in page
+        assert "at intake" not in page
+        grid = page.split('class="dsm-grid"', 1)[-1].split("</table>", 1)[0]
+        assert "was " not in grid, "the second per-cell number is gone"
 
 
 class TestTheDepositorCanAnswerWhatTheCrateCannot:

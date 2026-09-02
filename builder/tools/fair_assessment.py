@@ -2898,24 +2898,6 @@ def load_dsm_answers(path: Path | str) -> dict[str, bool]:
     return answers
 
 
-def pre_verdicts(state: CrateState) -> dict[str, Verdict]:
-    """The stored as-received verdicts — the sheet's "Pre-FAIRification" column.
-
-    Captured once by ``AgentEngine.initialize`` and carried in the session, because
-    ``crate_state.json`` is overwritten on every save and the deposit's arrival state is
-    otherwise unrecoverable. Empty for a session written before the baseline existed,
-    and for a run given no input to scan.
-
-    No page reads it: the maturity report draws the post column alone, pinned by
-    ``test_the_baseline_is_captured_but_not_drawn``. This is the read path for a paper
-    or an eval, not for the report (#711).
-    """
-    return {
-        ident: Verdict(stored.get("value"), str(stored.get("evidence", "")))
-        for ident, stored in (state.pre_assessment or {}).items()
-    }
-
-
 def _apply_promotion(verdicts: dict[str, Verdict], rules: list[dict[str, str]]) -> None:
     """Apply the sheet's ``=IF(J{source}=1,1,H{own})`` rules to *verdicts*, in place.
 

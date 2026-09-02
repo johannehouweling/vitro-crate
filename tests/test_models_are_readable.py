@@ -12,7 +12,7 @@ properties dict bound to that parameter and the entity was built with ``name``
 set to a whole JSON-LD dict, dying as ``ValueError: no @id in {...}``.
 
 Importing ``profiles.models`` is enough to arm it, so this affected
-``read_existing_crate`` and every build→read→build round trip. External
+any code that opens one with ro-crate-py inside this process. External
 consumers were never affected — without those imports ``pick_type`` falls back
 to plain ``ContextEntity`` — which is why #532's guard reads a crate in a
 SUBPROCESS and this one reads it in-process. Two different claims, two tests.

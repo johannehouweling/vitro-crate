@@ -276,22 +276,47 @@ class TestMaterializeStudyWiring:
         assert result["aop_id"] == "610"
 
 
-class TestMaterializeRoundTrip:
-    def test_subgraph_survives_build_read_build(self, tmp_path):
-        from builder.readers.existing_crate import read_existing_crate
+class TestTheSubgraphSurvivesExport:
+    """Read the bytes, not a reader.
+
+    This asserted build → read → build through ``readers.existing_crate``, which had
+    no production caller and did not round-trip a real crate (#711). What the test was
+    really for is that the subgraph reaches the file a third party opens, so it now
+    reads ``ro-crate-metadata.json`` itself — the same claim, one layer closer to it,
+    and it fails if export drops a node rather than if a private reader does.
+    """
+
+    @staticmethod
+    def _nodes(graph: list[dict], type_name: str) -> list[dict]:
+        """Nodes of *type_name*, tolerating a list ``@type`` and a prefixed term."""
+        out = []
+        for node in graph:
+            raw = node.get("@type")
+            values = raw if isinstance(raw, list) else [raw]
+            if any(str(v).split(":")[-1] == type_name for v in values if v):
+                out.append(node)
+        return out
+
+    def test_the_written_crate_carries_the_whole_subgraph(self, tmp_path):
+        import json
+
         from builder.tools.builder import export_crate
 
         state = CrateState()
         materialize_aop_subgraph(state, "610")
         export_crate(state, str(tmp_path / "crate"))
 
-        reread = read_existing_crate(str(tmp_path / "crate"))
-        assert len(_by_type(reread, "AdverseOutcomePathway")) == 1
-        assert len(_by_type(reread, "KeyEvent")) == 4
-        assert len(_by_type(reread, "KeyEventRelationship")) == 3
-        # The AOP node keeps its resolvable IRI as the entity_id (no '#' prefix).
-        aop = _by_type(reread, "AdverseOutcomePathway")[0]
-        assert aop.entity_id == "https://aopwiki.org/aops/610"
+        doc = json.loads((tmp_path / "crate" / "ro-crate-metadata.json").read_text())
+        graph = doc["@graph"]
+        # The AOP-610 fixture is 1 MIE + 2 KE + 1 AO + 3 relationships.
+        assert len(self._nodes(graph, "AdverseOutcomePathway")) == 1
+        assert len(self._nodes(graph, "KeyEvent")) == 4
+        assert len(self._nodes(graph, "KeyEventRelationship")) == 3
+        # The AOP keeps its resolvable IRI as its @id — not a minted '#' anchor, which
+        # is what makes it citable outside this crate.
+        assert self._nodes(graph, "AdverseOutcomePathway")[0]["@id"] == (
+            "https://aopwiki.org/aops/610"
+        )
 
 
 class TestLinkAssayToKeyEvent:

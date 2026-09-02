@@ -114,7 +114,7 @@ The agent's `scan_files` tool is restricted to directories the user has explicit
 2. If `approved_scan_roots` is empty (or the scanner receives `None`/empty `approved_roots`), the scan is **refused without walking** — the agent's own scan call never auto-approves a new root
 3. It is checked against the approved set — if the target is not equal to, nor a subdirectory of, an approved root, scanning is denied
 4. A hard denylist (`_is_forbidden_root`) refuses the filesystem root `/`, the user's home directory itself, and OS/system trees (`/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, `/Volumes`) **even if such a path appears in `approved_scan_roots`**. Legitimate *subdirectories* (e.g. `~/Desktop/project`) are still allowed — only the bare roots are blocked
-5. New roots are added **only** from a user-provided input path (`AgentEngine.initialize()` / `read_directory()`) or an explicit real approval — never from the agent's own scan call. The non-interactive `SimulatedHumanInterface` **denies** any `present(..., purpose="scan_root")` escalation, so it can never widen filesystem access on its own
+5. New roots are added **only** from a user-provided input path (`AgentEngine.initialize()`) or an explicit real approval — never from the agent's own scan call. The non-interactive `SimulatedHumanInterface` **denies** any `present(..., purpose="scan_root")` escalation, so it can never widen filesystem access on its own
 
 The **same boundary now covers the file *read* and *write* tools** (#167), not just `scan_files`:
 - **Reads.** `AgentEngine.run_tool` gates every file-reading tool — `read_file`, `read_excel`, `read_docx`, `read_file_sample`, `read_multiple_files`, `extract_pdf_text`, `preview_archive`, `unzip_file` — through the shared `scanner._contain(path, approved_roots)` helper. A path outside an approved root is refused before the file is opened; with no approved roots **every** read is refused (fail-closed). `read_multiple_files` filters out-of-root paths into its `skipped` list so an in-tree batch still works. This closes the prompt-injection vector where an injected metadata file made the agent read `~/.ssh/id_rsa`, `/etc/passwd`, or a `.env` of secrets.
@@ -1943,7 +1943,7 @@ Every tool call, state change, and reasoning step is recorded in `CrateState.che
 The reasoning log is persisted with the session and survives resume. A future web UI can tail or stream this log without changing the builder's internals — the data structure is already there.
 
 ### D9: Approved Scan Roots (Security Guard Rail)
-The `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set. When the agent calls `scan_files(path)`, the path is resolved to an absolute canonical form and checked against approved roots — if not found or within a subdirectory of one, scanning is denied. New roots are added only through user approval (a user-provided input path at `initialize()`/`read_directory()`, or a real HITL approval). This prevents the LLM agent from accessing arbitrary filesystem locations and provides a clear audit trail. On macOS, this same mechanism protects user files. On Linux, it prevents scanning into `/proc`, `/sys`, or other system paths.
+The `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set. When the agent calls `scan_files(path)`, the path is resolved to an absolute canonical form and checked against approved roots — if not found or within a subdirectory of one, scanning is denied. New roots are added only through user approval (a user-provided input path at `initialize()`, or a real HITL approval). This prevents the LLM agent from accessing arbitrary filesystem locations and provides a clear audit trail. On macOS, this same mechanism protects user files. On Linux, it prevents scanning into `/proc`, `/sys`, or other system paths.
 
 **Fail-closed (#197).** Nothing is walked unless an approved root says so:
 - The engine always passes a concrete allowlist (an empty `set()`, never `None`); the scanner refuses (returns `[]` without walking) whenever `approved_roots` is `None` or empty. `None` must never be reintroduced as the "no roots" value — a nullable allowlist is what a reader treats as "no guard".
@@ -2111,15 +2111,10 @@ discount the entity by id, so an unstated licence never reads as filled — see 
   `hasPart` — same move as result Files, so the gold-crate JSON keys round-trip (`_wire_dataset_aliases`,
   #180 Lane C).
 
-`read_existing_crate` (`builder/readers/existing_crate.py`) reads a built crate back into a
-`CrateState`: it recovers the **bare** entity_id (stripping the type-qualifier so
-`#Study_study_1` → `study_1`, not the unbounded `#Study_Study_…` double-prefix), reconstructs the
-`study_id`/`assay_id` linkages the crate encodes structurally via `hasPart`/`about`, and folds the
-root back into an Investigation entity. `_build_process` reads the `input`/`output` aliases as well
-as `object`/`result`. It has **no production caller** — no build arm, no CLI flag, no tool — and the
-round trip is **not** idempotent on a real crate: measured on a built S-VHPS22, build → read → build
-recovers 180 of 329 node ids and does not reach a fixed point. Treat it as a test-only helper until
-something wires it up or it goes (#711).
+**There is no crate reader.** This tool writes crates and scores them; nothing reads one back
+into a `CrateState`. `builder/readers/` used to, with no production caller and a round trip that
+recovered 180 of 329 node ids on a real crate, and it went with #711. A future reader — for an
+index, or an MCP query server — starts from the crate a third party opens, not from that one.
 
 ### D14: Entity-Graph Visualization (`builder/writers/provenance_dag.py`, Issue #130)
 
@@ -2801,7 +2796,6 @@ vitro-crate/
 │   │   ├── field_kinds.py        Shared field-kind vocabulary (both arms)
 │   │   ├── registry.py, _crate_mapping.py, dashboard.py, provenance.py
 │   │   ├── profiler.py, reachability.py, _resolve_cache.py
-│   ├── readers/                 Input readers
 │   │   ├── directory.py, existing_crate.py, metadata_files.py
 │   ├── writers/                 Output writers
 │   │   ├── rocrate_writer.py
