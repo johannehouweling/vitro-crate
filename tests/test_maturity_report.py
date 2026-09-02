@@ -313,6 +313,35 @@ class TestHeaderAndCards:
         assert "<h1>RO-Crate</h1>" not in page
         assert "<title>RO-Crate" not in page
 
+    @pytest.mark.parametrize(
+        "root_ids",
+        [
+            {"identifier": "https://doi.org/10.6019/S-VHPS22", "accession": "S-VHPS22"},
+            {"identifier": ["https://doi.org/10.6019/S-VHPS22", "S-VHPS22"]},
+            {"identifier": ["S-VHPS22", "https://doi.org/10.6019/S-VHPS22"]},
+        ],
+        ids=["accession-key", "doi-first", "doi-last"],
+    )
+    def test_the_card_states_the_accession_beside_the_dataset_doi(
+        self, root_ids: dict[str, Any]
+    ) -> None:
+        """A built crate keeps the deposit DOI in ``identifier`` and the
+        accession in ``accession`` — both ``schema:identifier`` under the
+        crate's context — and a list may put the DOI first (#757)."""
+        graph = {"@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "name": "Neural cell screening models",
+             **root_ids},
+        ]}
+
+        page = build_maturity_html(CrateState(), graph=graph)
+
+        assert "<h1>Neural cell screening models</h1>" in page
+        card = page.split('<div class="hcard-h">About this study</div>', 1)[1]
+        card = card.split('<div class="kgrid">', 1)[0]
+        assert '<span class="hlabel">Identifier</span>S-VHPS22' in card
+        assert 'href="https://doi.org/10.6019/S-VHPS22"' in card
+
     def test_the_headline_and_tab_are_the_study_name(self) -> None:
         """The accession is the study card's to state (#719); a subhead that
         would repeat the headline is not rendered."""

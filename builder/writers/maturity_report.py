@@ -442,16 +442,21 @@ def _study_facts(
         facts["licence"] = (name or ref.rstrip("/").rsplit("/", 1)[-1], url or None)
         break
 
-    for value in _ref_ids(root, "identifier"):
+    # ``accession`` is ``schema:identifier`` under the crate's context; the
+    # deposit DOI takes ``identifier`` (#682), so the citable token may sit in
+    # either key, in either order (#757). Root only — never the Study node's.
+    token = None
+    for value in _ref_ids(root, "identifier") + _ref_ids(root, "accession"):
         raw = value
         if raw in nodes:  # a PropertyValue entity
             raw = str(nodes[raw].get("value") or "")
         doi = _doi_url(raw)
         if doi:
-            facts["dataset_doi"] = doi
-            break
-        if raw:  # not a DOI: the accession the crate states (#719)
-            facts["accession"] = raw
+            facts["dataset_doi"] = facts["dataset_doi"] or doi
+        elif raw:  # not a DOI: the accession the crate states (#719)
+            token = token or raw
+    if token:
+        facts["accession"] = token
 
     articles = build_citation_inventory(graph)["articles"]
     cited = [a for a in articles if a["state"] == "cited"] or articles
