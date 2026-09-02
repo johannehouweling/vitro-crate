@@ -680,6 +680,19 @@ output and to the source workbook.
 Note the DSM model text is **CC-BY-4.0**; the FAIRplus repository's MIT `LICENSE.txt`
 covers only its Jekyll theme and does not license the model.
 
+**Where an instrument's own arithmetic is not reproduced, the YAML says so.** The RDA
+workbook computes a maturity level per FAIR area (`calc!C13:F13`, Level 0-5 gated on
+essential / important / useful thresholds); this tool publishes a met/failed count and
+no level. `fair/indicators.yaml`'s `scoring:` block records both, with the formulas
+**read from the sheet** rather than restated, and states the reason: every level above
+0 requires all of an area's essential indicators to be met, an `out_of_scope` indicator
+can never be met, and Accessibility is 12 of 12 `out_of_scope` — so the ladder would
+report the hosting repository's properties as the crate's failure. The per-indicator
+boolean is a different case and the block says so too: the sheet's own column J
+collapses its five-way metric all-or-nothing, so met/failed *is* the instrument's, not
+a coarsening of it. AIR carries the same shape of declaration; the DSM reproduces its
+instrument's grid outright and needs none.
+
 **A check reads the crate, not the session.** An indicator is scored against the
 assembled `@graph` — the bytes a reader receives — so a third party scoring the
 published crate reaches our published number. Given no graph a check answers *not

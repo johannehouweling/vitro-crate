@@ -17,10 +17,17 @@ import openpyxl
 import pytest
 import yaml
 
+from builder.state import CrateState
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 INDICATORS_YAML = REPO / "fair" / "indicators.yaml"
 RDA_XLSX = REPO / "fair" / "rda_fdmm.xlsx"
 GEN = REPO / "scripts" / "gen_fair_indicators.py"
+
+
+def _yaml_data() -> dict:
+    """The committed indicators.yaml."""
+    return yaml.safe_load(INDICATORS_YAML.read_text())
 
 
 def _load_generator():
@@ -296,3 +303,74 @@ class TestFairIndicatorsDerivedFromRda:
             if r.get("passed") is None and r.get("scope") != "out_of_scope"
         )
         assert (met, in_scope_unanswered) == (3, 11)
+
+
+class TestTheWorkbooksOwnScoringIsRecorded:
+    """The RDA workbook computes something, and this tool computes something else.
+
+    Until #715 the YAML carried no `scoring` block at all, so the substitution was
+    visible only as a missing key — and the generator's stated reason (third-party
+    evaluators need a resolvable URL) is about services, not about the instrument
+    vendored beside it. The block now records what the sheet does, read from its own
+    cells, and these tests are what keep the record true.
+    """
+
+    @staticmethod
+    def _sheet(name: str):
+        return openpyxl.load_workbook(RDA_XLSX, data_only=False)[name]
+
+    def test_the_per_indicator_formula_is_the_workbooks(self) -> None:
+        """Not a hand-copied literal: byte-for-byte the cell it names."""
+        block = _yaml_data()["scoring"]["per_indicator"]
+        assert block["formula"] == self._sheet("FAIR Indicators_v0.05")["J2"].value
+
+    def test_the_ladder_formula_is_the_workbooks(self) -> None:
+        block = _yaml_data()["scoring"]["ladder"]
+        assert block["formula"] == self._sheet("calc")["C13"].value
+
+    def test_the_level_definitions_are_the_workbooks_own_words(self) -> None:
+        levels = _yaml_data()["scoring"]["ladder"]["levels"]
+        sheet = self._sheet("LEVELS")
+        assert [lvl["definition"] for lvl in levels] == [
+            sheet.cell(row=r, column=5).value for r in range(5, 11)
+        ]
+        assert levels[0]["definition"] == "Not FAIR"
+
+    def test_our_boolean_is_the_sheets_own_column_not_a_coarsening(self) -> None:
+        """The sheet's native answer is a five-way metric, and it collapses it itself:
+        column J scores 1 only for "fully implemented" and 0 for every partial state
+        and for a blank. So met/failed is the instrument's, and the `scoring` block
+        must not claim otherwise."""
+        scoring = _yaml_data()["scoring"]
+        assert len(scoring["metric"]) == 5, "the published metric is 0-4"
+        formula = scoring["per_indicator"]["formula"]
+        assert formula.endswith(",0,1)"), "1 only when none of the sub-4 states match"
+        assert "$H2=0" in formula, "a blank scores 0 — the sheet has no unanswered state"
+
+    def test_the_deviation_note_measures_what_it_claims(self) -> None:
+        """The note says the ladder would report the repository's properties as the
+        crate's failure. That rests on two counts over the model as carried, and if
+        either changes the note is wrong and must be rewritten."""
+        data = _yaml_data()
+        by_dim: dict[str, list[dict]] = {}
+        for ind in data["indicators"]:
+            by_dim.setdefault(ind["dimension"], []).append(ind)
+        out = {
+            dim: [i for i in inds if i.get("scope") == "out_of_scope"]
+            for dim, inds in by_dim.items()
+        }
+        assert len(out["A"]) == len(by_dim["A"]) == 12, "Accessibility is wholly out of scope"
+        f_essential = [i["id"] for i in out["F"] if i["priority"] == "essential"]
+        assert sorted(f_essential) == ["RDA-F1-01D", "RDA-F4-01M"], (
+            "Findability's two out-of-scope essentials are what put Level 1 out of reach"
+        )
+        note = data["scoring"]["deviation_note"]
+        assert "12 of 12" in note and "RDA-F1-01D" in note
+
+    def test_no_level_is_published(self) -> None:
+        """The declaration has to match the code: this tool reports counts, not levels."""
+        from builder.tools.fair_assessment import assess_fair_maturity
+
+        rep = assess_fair_maturity(CrateState())
+        assert not hasattr(rep, "area_levels") and not hasattr(rep, "rda_level")
+        assert _yaml_data()["scoring"]["local_output"].startswith("a met / failed")

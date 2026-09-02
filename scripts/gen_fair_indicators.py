@@ -8,9 +8,12 @@ so they cannot silently drift. The *local* decision — which indicators this to
 assess intrinsically from a single RO-Crate, and with which check function — lives in
 :data:`LOCAL_SCOPE` below; that is inherently repo-specific and stays here.
 
-FAIR *scoring* stays local and offline: every automated FAIR evaluator (F-UJI, the
-FAIR Evaluator, FAIROS) needs a published, resolvable URL and cannot score a local,
-pre-publication crate. Only the indicator definitions are externalised.
+The workbook's own **scoring** is now read too, into a ``scoring:`` block — not to
+compute it, but so that what this tool substitutes is stated rather than implied.
+That third-party FAIR evaluators (F-UJI, the FAIR Evaluator, FAIROS) need a published,
+resolvable URL and cannot score a pre-publication crate is true and irrelevant: the
+instrument vendored two directories away needs neither, and :func:`_load_scoring`
+records what it computes and why this tool does not.
 
 The FAIRplus DSM ladder (``fair/dsm_indicators.yaml``) is generated from its own
 vendored assessment workbook by ``scripts/gen_dsm_indicators.py`` — not touched here.
@@ -46,6 +49,10 @@ OUT = REPO / "fair" / "indicators.yaml"
 # RDA indicator sheet: header row 0; columns PRINCIPLE(3), INDICATOR_ID(4),
 # INDICATORS/text(5), PRIORITY(6).
 _SHEET = "FAIR Indicators_v0.05"
+# The workbook's other three sheets, all of which the scoring model spans.
+_CALC_SHEET = "calc"
+_LEVELS_SHEET = "LEVELS"
+_DATA_SHEET = "DATA"
 
 # Every published indicator is carried, in report order: indicator id ->
 # (check-function name, reason-it-is-not-checked). Exactly one of the pair is set.
@@ -211,6 +218,86 @@ def _load_rda() -> dict[str, dict[str, str]]:
     return out
 
 
+def _load_scoring() -> dict[str, Any]:
+    """What the workbook computes from the 41 answers — read from its cells, not restated.
+
+    Two things, and this tool reproduces exactly one of them.
+
+    **The per-indicator boolean is the workbook's own.** Its native answer is a five-way
+    maturity metric (column H, a dropdown over ``DATA!L1:L5``), but column J collapses it
+    all-or-nothing: ``1`` only for "4 - fully implemented", ``0`` for every partial state
+    *and* for a blank. That is precisely what a met/failed verdict here means, so the
+    boolean is not a coarsening of the instrument — it is the instrument's own column.
+    The 0-4 shading survives only in the workbook's radar pictures.
+
+    **The ladder is not reproduced.** ``calc!C13:F13`` computes a maturity level per FAIR
+    area from the met/total counts per priority tier, and this tool publishes no level at
+    all. Recording the formula verbatim rather than a parsed threshold table is
+    deliberate: one fact stated twice is how a generated file and its source drift.
+    """
+    wb = openpyxl.load_workbook(RDA_XLSX, data_only=False)
+    ind, calc = wb[_SHEET], wb[_CALC_SHEET]
+    levels_sheet, data = wb[_LEVELS_SHEET], wb[_DATA_SHEET]
+
+    metric = [str(data.cell(row=r, column=12).value) for r in range(1, 6)]
+    priorities = [str(data.cell(row=r, column=3).value) for r in range(1, 4)]
+    areas = [str(calc.cell(row=5, column=c).value) for c in range(3, 7)]
+    levels = [
+        {
+            "name": str(data.cell(row=r, column=5).value),
+            "definition": str(levels_sheet.cell(row=r + 4, column=5).value),
+        }
+        for r in range(1, 7)
+    ]
+    per_indicator, ladder = str(ind["J2"].value), str(calc["C13"].value)
+
+    # Generation fails loudly rather than emitting a model the sheet does not hold.
+    if not all(f"DATA!$L${n}" in per_indicator for n in (1, 2, 3, 4)):
+        raise ValueError(f"J2 no longer collapses the four sub-4 metrics: {per_indicator}")
+    if not all(f"DATA!$E${n}" in ladder for n in range(1, 7)):
+        raise ValueError(f"calc!C13 no longer names all six levels: {ladder}")
+    if [lvl["name"] for lvl in levels] != [f"Level {n}" for n in range(6)]:
+        raise ValueError(f"DATA!E1:E6 is not the six levels: {levels}")
+    if len(metric) != 5 or len(priorities) != 3 or len(areas) != 4:
+        raise ValueError("the sheet's metric / priority / area vocabularies changed")
+
+    return {
+        "metric": metric,
+        "per_indicator": {
+            "cell": f"'{_SHEET}'!J2",
+            "formula": per_indicator,
+            "note": (
+                "Only '4 - fully implemented' scores 1. Every partial state scores 0, and "
+                "so does a blank — the trailing $H2=0 term. This tool's met/failed verdict "
+                "is this column, not a coarsening of it."
+            ),
+        },
+        "ladder": {
+            "cell": f"{_CALC_SHEET}!C13:F13",
+            "formula": ladder,
+            "areas": areas,
+            "priorities": priorities,
+            "levels": levels,
+        },
+        "published_output": (
+            "one maturity level per FAIR area, from the met and total counts per priority "
+            "tier within that area (calc!C6:F11)"
+        ),
+        "local_output": "a met / failed / not-assessed count over all 41 indicators, and no level",
+        "deviation_note": (
+            "The ladder gates every level above 0 on ALL essential indicators in the area "
+            "being met, and an indicator this tool reports out_of_scope can never be met. "
+            "Measured on the model as carried: Accessibility is 12 of 12 out_of_scope, so "
+            "its level would read 0 on every crate forever; Findability carries two "
+            "out_of_scope essentials (RDA-F1-01D, RDA-F4-01M), so it could not reach Level "
+            "1 on a perfect crate. Publishing the ladder would report the hosting "
+            "repository's properties as the crate's failure, which is the reading this "
+            "tool refuses everywhere else. The substitution is a flat count — declared "
+            "here rather than left to be inferred from a missing key."
+        ),
+    }
+
+
 def build_data() -> dict[str, Any]:
     """The full ``indicators.yaml`` payload: sources + all 41 RDA indicators."""
     rda = _load_rda()
@@ -248,7 +335,7 @@ def build_data() -> dict[str, Any]:
             entry["reason"] = reason
         entry["text"] = d["text"]
         indicators.append(entry)
-    return {"sources": SOURCES, "indicators": indicators}
+    return {"sources": SOURCES, "scoring": _load_scoring(), "indicators": indicators}
 
 
 def format_report(data: dict[str, Any]) -> str:

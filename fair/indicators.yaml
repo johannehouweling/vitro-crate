@@ -43,6 +43,53 @@ sources:
     name: Nanosafety data reusability (NSDRA)
     citation: Ammar, Evelo & Willighagen 2024, Scientific Data 11:503
     doi: 10.1038/s41597-024-03324-x
+scoring:
+  metric:
+  - 0 – not applicable
+  - 1 – not being considered this yet
+  - 2 – under consideration or in planning phase
+  - 3 – in implementation phase
+  - 4 – fully implemented
+  per_indicator:
+    cell: '''FAIR Indicators_v0.05''!J2'
+    formula: =IF(OR($H2=DATA!$L$1,$H2=DATA!$L$2,$H2=DATA!$L$3,$H2=DATA!$L$4,$H2=0),0,1)
+    note: Only '4 - fully implemented' scores 1. Every partial state scores 0, and so does a blank — the
+      trailing $H2=0 term. This tool's met/failed verdict is this column, not a coarsening of it.
+  ladder:
+    cell: calc!C13:F13
+    formula: =IF(AND(C$7=C$6,C$9=C8,C$11=C$10),DATA!$E$6,IF(AND(C$7=C$6,C$9=C$8,C$11>=C$10/2),DATA!$E$5,IF(AND(C$7=C$6,C$9=C$8),DATA!$E$4,IF(AND(C$7=C$6,C$9>=C$8/2),DATA!$E$3,IF(C$7=C$6,DATA!$E$2,DATA!$E$1)))))
+    areas:
+    - FINDABLE
+    - ACCESSIBLE
+    - INTEROPERABLE
+    - REUSABLE
+    priorities:
+    - Essential
+    - Important
+    - Useful
+    levels:
+    - name: Level 0
+      definition: Not FAIR
+    - name: Level 1
+      definition: FAIR essential criteria only
+    - name: Level 2
+      definition: FAIR essential criteria + 50 % of important criteria
+    - name: Level 3
+      definition: FAIR essential criteria + 100% of important criteria
+    - name: Level 4
+      definition: FAIR essential criteria + 100% of important criteria + 50% of useful criteria
+    - name: Level 5
+      definition: FAIR essential criteria + 100% of important criteria + 100% of useful criteria
+  published_output: one maturity level per FAIR area, from the met and total counts per priority tier
+    within that area (calc!C6:F11)
+  local_output: a met / failed / not-assessed count over all 41 indicators, and no level
+  deviation_note: 'The ladder gates every level above 0 on ALL essential indicators in the area being
+    met, and an indicator this tool reports out_of_scope can never be met. Measured on the model as carried:
+    Accessibility is 12 of 12 out_of_scope, so its level would read 0 on every crate forever; Findability
+    carries two out_of_scope essentials (RDA-F1-01D, RDA-F4-01M), so it could not reach Level 1 on a perfect
+    crate. Publishing the ladder would report the hosting repository''s properties as the crate''s failure,
+    which is the reading this tool refuses everywhere else. The substitution is a flat count — declared
+    here rather than left to be inferred from a missing key.'
 indicators:
 - id: RDA-F1-01M
   dimension: F
