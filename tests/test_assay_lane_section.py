@@ -313,6 +313,22 @@ class TestTheLegendIsTheExplorersOwn:
             assert "legend_title" in source
             assert ".legend" in source
 
+    def test_a_style_key_reads_the_inspector_s_tag_for_that_node(self) -> None:
+        """The hollow swatch already draws the pattern, so the label says only
+        what it means — in the words the inspector uses for the same node."""
+        from builder.writers.entity_explorer import _app_js as explorer_app
+        from builder.writers.entity_explorer import _inspector_js
+
+        inspector = _inspector_js()
+        assert "'unreachable from the root'" in inspector
+        assert "'described outside the crate'" in inspector
+
+        for source in (explorer_app(), _app_js()):
+            assert "['orphan', 'unreachable from the root']" in source
+            assert "['outside', 'described outside the crate']" in source
+            assert "dashed:" not in source
+            assert "dotted:" not in source
+
 
 class TestOneInspectorForBothViewers:
     """A reader who clicks an entity wants the same answer whichever picture they

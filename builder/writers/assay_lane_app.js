@@ -533,8 +533,8 @@
     // not run together in one strip — and a style key shows only when the lane
     // holds a box drawn that way.
     var styles = [];
-    if (orphaned) styles.push(['orphan', 'dashed: unreachable from the root']);
-    if (outside) styles.push(['outside', 'dotted: described outside the crate']);
+    if (orphaned) styles.push(['orphan', 'unreachable from the root']);
+    if (outside) styles.push(['outside', 'described outside the crate']);
     if (styles.length) {
       var sep = tag('span', 'ex-sep');
       sep.setAttribute('aria-hidden', 'true');
