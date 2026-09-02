@@ -304,7 +304,7 @@ Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.
 ([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent the processing pipeline that turns the
 raw endpoint measurements into the reported results. It consumes the [Endpoint Readout](#labprocess---endpoint-readout)'s
 raw-data File(s) and emits the processed-data File(s) along the derivation graph. It corresponds to the *Analysis and
-Statistics* module of the Minimum Information Table.
+Statistics* module of the Minimal Information Table.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|

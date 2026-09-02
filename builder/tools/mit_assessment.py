@@ -1,4 +1,4 @@
-"""Tool that assesses OECD MIT coverage against ``mit/invitro_tox.yaml``.
+"""Tool that assesses MIT coverage against ``mit/invitro_tox.yaml``.
 
 For each module in the MIT YAML, maps ``crate_slot`` patterns to crate entities
 and computes per-module completion scores.
@@ -430,7 +430,7 @@ def assess_mit_coverage(
     *,
     graph: dict[str, Any] | list[dict[str, Any]] | None = None,
 ) -> MITReport:
-    """Assess OECD MIT coverage of *state* against the MIT YAML checklist.
+    """Assess MIT coverage of *state* against the MIT YAML checklist.
 
     **THE one scoring owner** (#311): coverage is always measured against an
     assembled ``@graph``, never against ``CrateState`` fields. A caller that

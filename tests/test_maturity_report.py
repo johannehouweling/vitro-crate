@@ -106,7 +106,7 @@ class TestBuildMaturityHtml:
         state = vhps_fixture_state("S-VHPS21")
         page = build_maturity_html(state)
         assert "<html" in page.lower()
-        for heading in ("Profile adherence", "FAIR", "OECD MIT", "AI-readiness"):
+        for heading in ("Profile adherence", "FAIR", "Minimal information table for toxicological assays", "AI-readiness"):
             assert heading in page, f"missing section: {heading}"
         # Computed scores, not just the static labels:
         # "of N", not a hard-coded "of 5": the denominator is the highest level a
@@ -187,7 +187,7 @@ class TestBuildMaturityHtml:
         # The aggregate stays the headline, summed over the MODULE buckets —
         # not inflated by the overlapping per-document ones.
         head = re.search(
-            r'OECD MIT coverage</h2><span class="sec-meta"><b>(\d+)/(\d+)</b> fields',
+            r'Minimal information table for toxicological assays</h2><span class="sec-meta"><b>(\d+)/(\d+)</b> fields',
             page,
         )
         assert head, "aggregate headline fraction not found"
@@ -221,11 +221,11 @@ class TestBuildMaturityHtml:
         page = build_maturity_html(state, graph=graph)
 
         mit_card = re.search(
-            r'<section>\s*<div class="sec-h"><h2>OECD MIT coverage</h2>.*?</section>',
+            r'<section>\s*<div class="sec-h"><h2>Minimal information table for toxicological assays</h2>.*?</section>',
             page,
             re.S,
         )
-        assert mit_card, "no OECD MIT coverage card"
+        assert mit_card, "no MIT card"
         assert "Per guidance document" not in mit_card.group(0)
         docs_card = re.search(
             r'<section>\s*<div class="sec-h"><h2>Per guidance document</h2></div>.*?</section>',
@@ -1103,6 +1103,12 @@ class TestFairTileAndRose:
         assert "RDA FAIR Data Maturity Model" in refs
         assert f'href="{MIT_INDICATORS_URL}"' in refs
         assert "principle R1.3" in refs
+        # The instrument's own name (its package: "Minimal Information Table"),
+        # not the repo's expansion, and no OECD credit — OECD documents are
+        # four of the seven standards its rows are tagged with, not its owner.
+        assert "Minimal Information Table (MIT)" in refs
+        assert "Minimum Information for" not in page
+        assert "OECD MIT" not in page
 
     def test_the_dsm_heading_links_the_published_assessment_tool(self) -> None:
         """The grid mirrors the tool's output; its heading leads to the tool.
@@ -1323,7 +1329,7 @@ class TestMitModuleColours:
 
     @staticmethod
     def _mit_section(page: str) -> str:
-        m = re.search(r"<h2>OECD MIT coverage</h2>.*?</section>", page, re.S)
+        m = re.search(r"<h2>Minimal information table for toxicological assays</h2>.*?</section>", page, re.S)
         assert m, "no MIT section"
         return m.group(0)
 
@@ -1600,8 +1606,8 @@ class TestMitModuleColours:
         section = self._mit_section(page)
         leads = re.findall(r'<p class="lead">(.*?)</p>', section, re.S)
         assert leads == [
-            "Coverage of the in-vitro toxicology MIT checklist — each item is a FAIR maturity "
-            f'indicator as defined in <a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>.'
+            "Each item is a FAIR maturity indicator as defined in "
+            f'<a href="{MIT_INDICATORS_URL}">tox-maturity-indicators</a>.'
         ]
         assert 'class="mit-key"' not in section and "<legend" not in section
 

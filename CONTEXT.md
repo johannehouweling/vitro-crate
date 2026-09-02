@@ -13,7 +13,7 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 - **RO-Crate** — a packaging format for research data with structured metadata (JSON-LD based).
 - **ISA-Tox** — an extension of the ISA (Investigation-Study-Assay) framework for toxicology data.
 - **CrateState** — the central data model that tracks entities, completion status, and validation results.
-- **MIT (Minimum Information for in-vitro Toxicology)** — a checklist of required/recommended fields for reporting toxicology data; each item is a FAIR maturity indicator of the [tox-maturity-indicators](https://github.com/invitro-crate/tox-maturity-indicators) package (vendored copy in `mit/invitro_tox.yaml`; #313 tracks importing it).
+- **MIT (in-vitro toxicology Minimal Information Table)** — a checklist of required/recommended fields for reporting toxicology data; each item is a FAIR maturity indicator of the [tox-maturity-indicators](https://github.com/invitro-crate/tox-maturity-indicators) package (vendored copy in `mit/invitro_tox.yaml`; #313 tracks importing it).
 - **FAIR indicators** — metrics for Findability, Accessibility, Interoperability, and Reusability. FAIR maturity here is two-part: the RDA FDMM indicators in `fair/indicators.yaml` (generated — do not edit by hand) and the FAIRplus Data Stewardship Maturity (DSM) ladder in `fair/dsm_indicators.yaml`.
 
 ## Stakeholders
@@ -43,7 +43,7 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 - `AGENTS.md` — system design document (architecture, components, tools)
 - `profiles/` — domain profiles (ISA, ISA-Tox) with schemas and SHACL shapes
 - `lookups/` — external API clients (PubChem, Cellosaurus, AOP-Wiki, etc.)
-- `mit/invitro_tox.yaml` — Minimum Information for in-vitro Toxicology checklist
+- `mit/invitro_tox.yaml` — in-vitro toxicology Minimal Information Table
 - `fair/indicators.yaml` — RDA FDMM FAIR indicators. Generated from the vendored `fair/rda_fdmm.xlsx`: never edit it by hand, regenerate with `uv run python scripts/gen_fair_indicators.py`
 - `fair/dsm_indicators.yaml` — FAIRplus Data Stewardship Maturity (DSM) ladder (hand-curated; no machine-readable upstream)
 - `builder/state.py` — CrateState dataclass (the central data model)

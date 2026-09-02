@@ -123,7 +123,7 @@ LOCAL_SCOPE: dict[str, tuple[str | None, str | None]] = {
     ),
     "RDA-R1.3-01M": ("conforms_to_profile", None),
     "RDA-R1.3-02M": ("conforms_to_profile", None),
-    # R1.3-01D delegates to OECD MIT in-vitro coverage (the community reporting
+    # R1.3-01D delegates to MIT in-vitro coverage (the community reporting
     # standard); see builder/tools/mit_assessment.py and issue #313.
     "RDA-R1.3-01D": ("mit_coverage", None),
     "RDA-R1.3-02D": (
@@ -191,7 +191,7 @@ _HEADER = """\
 # doi:10.15497/rda00050, CC-BY-4.0). The local scope/check mapping (which indicators
 # are assessed intrinsically from one RO-Crate, and with which check) lives in
 # scripts/gen_fair_indicators.py. Accessibility indicators are protocol/repository
-# level and reported out-of-scope, not failed. R1.3-01D delegates to OECD MIT
+# level and reported out-of-scope, not failed. R1.3-01D delegates to MIT
 # in-vitro coverage. The FAIRplus DSM ladder is generated separately into
 # fair/dsm_indicators.yaml by scripts/gen_dsm_indicators.py.
 #
