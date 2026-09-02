@@ -2952,20 +2952,34 @@ class TestTheBoxSaysWhatItIsWaitingFor:
     ``continue``) while work is open, or a change once nothing is left.
     """
 
+    BOX = "<the box>"
+
     def _transcript(self, monkeypatch, *, replies, stdin_lines, **kw) -> str:
+        """The console transcript, with every ❯ box read marked by ``BOX``."""
         import io
 
         from rich.console import Console
 
         h = _LoopHarness(monkeypatch, replies=replies, stdin_lines=stdin_lines, **kw)
         buf = io.StringIO()
-        monkeypatch.setattr(
-            h.agent_loop.ui,
-            "get_console",
-            lambda: Console(file=buf, width=200, force_terminal=False, color_system=None),
+        console = Console(file=buf, width=200, force_terminal=False, color_system=None)
+        monkeypatch.setattr(h.agent_loop.ui, "get_console", lambda: console)
+        h.install()
+        real_box = h.agent_loop.ui.boxed_input
+
+        def marked_box(console, label="❯", **kwargs):
+            console.print(self.BOX)
+            return real_box(console, label, **kwargs)
+
+        monkeypatch.setattr(h.agent_loop.ui, "boxed_input", marked_box)
+        h.agent_loop.run_interactive_agent(
+            h.engine, initial_prompt=h.initial_prompt, interactive=h.interactive
         )
-        h.run()
         return buf.getvalue()
+
+    def _line_above_the_last_box(self, out: str) -> str:
+        lines = [line.strip() for line in out.splitlines() if line.strip()]
+        return lines[len(lines) - 1 - lines[::-1].index(self.BOX) - 1]
 
     def test_a_prose_question_asks_for_an_answer(self, monkeypatch):
         out = self._transcript(
@@ -2973,7 +2987,7 @@ class TestTheBoxSaysWhatItIsWaitingFor:
             replies=["Which cell line did you use?"],
             stdin_lines=["start", "quit"],
         )
-        assert "Answer the question above" in out
+        assert self._line_above_the_last_box(out) == "Answer the question above."
 
     def test_a_stop_with_open_work_offers_continue(self, monkeypatch):
         from builder.agents.react import agent_loop
@@ -2986,7 +3000,23 @@ class TestTheBoxSaysWhatItIsWaitingFor:
             replies=["Working."] * (agent_loop._MAX_AUTONOMOUS_TURNS + 1),
             stdin_lines=["start", "quit"],
         )
-        assert "or 'continue'" in out
+        assert "or 'continue'" in self._line_above_the_last_box(out)
+
+    def test_open_required_issues_are_open_work_even_with_an_empty_checklist(
+        self, monkeypatch
+    ):
+        """Completion is the gates AND the checklist, as the loop itself decides
+        it — a crate that still fails REQUIRED is never 'nothing left to do'."""
+        from builder.agents.react import agent_loop
+
+        monkeypatch.setattr(agent_loop, "open_items", lambda state, **kw: [])
+        out = self._transcript(
+            monkeypatch,
+            replies=["Working."] * (agent_loop._MAX_AUTONOMOUS_TURNS + 1),
+            stdin_lines=["start", "quit"],
+        )
+        assert "or 'continue'" in self._line_above_the_last_box(out)
+        assert "Nothing left to do" not in out
 
     def test_a_finished_crate_says_so(self, monkeypatch):
         out = self._transcript(
@@ -2995,7 +3025,7 @@ class TestTheBoxSaysWhatItIsWaitingFor:
             stdin_lines=["start", "quit"],
             complete_after=1,
         )
-        assert "Nothing left to do" in out
+        assert self._line_above_the_last_box(out).startswith("Nothing left to do")
 
     def test_the_first_prompt_carries_no_hint(self, monkeypatch):
         """Before any turn there is nothing to answer or continue."""
@@ -3003,3 +3033,100 @@ class TestTheBoxSaysWhatItIsWaitingFor:
         assert "Answer the question above" not in out
         assert "or 'continue'" not in out
         assert "Nothing left to do" not in out
+
+
+class TestArgsSchemaAdvertisesArrayItems:
+    """#596: the shape of a list parameter's entries reaches the model.
+
+    The wrapper validates a list as a bare ``list`` (entries arrive as the plain
+    dicts the model sent), so pydantic used to advertise ``items: {}`` and the
+    ``questions`` entries of ``present_to_human`` had no shape at all.
+    """
+
+    def _tool(self, engine):
+        from builder.agents.react.agent_loop import _build_langchain_tools
+
+        return {t.name: t for t in _build_langchain_tools(engine)}["present_to_human"]
+
+    def test_the_entry_shape_is_in_the_advertised_schema(self):
+        from builder.engine import AgentEngine
+
+        questions = self._tool(AgentEngine()).args["questions"]
+        array = next(b for b in questions.get("anyOf", [questions]) if b.get("type") == "array")
+        assert array["items"]["required"] == ["question"]
+        assert array["items"]["properties"]["options"]["items"] == {"type": "string"}
+
+    def test_entries_still_reach_the_engine_as_plain_dicts(self):
+        from builder.engine import AgentEngine
+
+        class _Spy:
+            def __init__(self):
+                self.inputs: list[tuple[str, str]] = []
+
+            def present(self, context, options=None, purpose=None):
+                return {"action": "approved", "comments": None, "edits": None}
+
+            def request_input(self, prompt, field_type="text"):
+                self.inputs.append((prompt, field_type))
+                return {"value": "DMEM", "skipped": False}
+
+        spy = _Spy()
+        engine = AgentEngine(human_interface=spy)
+        result = self._tool(engine).invoke(
+            {"context": "One thing.", "questions": [{"question": "Medium?"}]}
+        )
+
+        assert spy.inputs == [("One thing.\n\nMedium?", "text")]
+        assert result["answers"] == [{"question": "Medium?", "answer": "DMEM"}]
+
+
+class TestATypedAnswerAtTheValidationTierPrompt:
+    """#596: the "run the recommended checks?" prompt now ends with the free-text
+    row. A yes or no typed there is the standing answer; anything else is no
+    answer, so the tier is not run now and the question is asked again later —
+    never remembered as a refusal nobody gave."""
+
+    def _escalate(self, monkeypatch, typed: list[str]):
+        from builder.agents.react.agent_loop import _run_validation_escalation
+        from builder.engine import AgentEngine
+
+        class _Types:
+            is_interactive = True
+
+            def __init__(self) -> None:
+                self.asked = 0
+
+            def present(self, context, options=None, purpose=None):
+                self.asked += 1
+                text = typed.pop(0)
+                return {"action": "edited", "comments": text, "edits": {"value": text}}
+
+            def request_input(self, prompt, field_type="text"):
+                return {"value": None, "skipped": True}
+
+        human = _Types()
+        engine = AgentEngine(human_interface=human)
+        engine.state.add_entity(Entity(entity_id="e0", type="Investigation"))
+        ran: list[str] = []
+
+        def fake_run_tool(tool_name, **kwargs):
+            ran.append(str(kwargs.get("severity")))
+            return {"ok": True, "issues": [], "conformance": {"base": True}}
+
+        monkeypatch.setattr(engine, "run_tool", fake_run_tool)
+        summary = _run_validation_escalation(engine, {"ok": True})
+        return summary, engine.state.validation_preferences, ran, human
+
+    def test_a_typed_yes_is_the_standing_answer(self, monkeypatch):
+        _summary, prefs, ran, human = self._escalate(monkeypatch, ["yes please", "no thanks"])
+
+        assert prefs == {"recommended": True, "optional": False}
+        assert ran == ["recommended"]
+        assert human.asked == 2
+
+    def test_typed_prose_is_no_answer_and_is_not_remembered(self, monkeypatch):
+        summary, prefs, ran, _human = self._escalate(monkeypatch, ["later, once it builds"])
+
+        assert summary is not None and summary["recommended"]["status"] == "declined_by_user"
+        assert prefs == {}, "no refusal is recorded for an answer that was not one"
+        assert ran == []

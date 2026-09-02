@@ -267,7 +267,7 @@ _AFFIRMATIVE = {"y", "yes", "approve", "approved", "ok", "okay", "confirm", "con
 _NEGATIVE = {"n", "no", "reject", "rejected", "deny", "decline", "cancel"}
 
 
-def _choice_stance(choice: str) -> bool | None:
+def choice_stance(choice: str) -> bool | None:
     """Whether *choice* is a plain yes (True) / no (False), else ``None``.
 
     Recognises both a bare word (the ``["yes", "no"]`` options callers pass) and
@@ -296,7 +296,7 @@ def _default_choice_index(choices: list[str], *, deny_by_default: bool) -> int:
     if not deny_by_default:
         return 0
     for index, choice in enumerate(choices):
-        if _choice_stance(choice) is False:
+        if choice_stance(choice) is False:
             return index
     return len(choices) - 1
 
@@ -311,7 +311,7 @@ def _decision_from_choice(answer: str, *, deny_by_default: bool) -> HumanRespons
     the same way — most of all the ``deny_by_default`` line, where anything that
     is not an explicit affirmative must deny (#197).
     """
-    stance = _choice_stance(answer)
+    stance = choice_stance(answer)
     if stance is not None:
         # A plain yes/no choice is a decision, not a payload: returning "no"
         # as comments used to read as an APPROVAL carrying the text "no".
@@ -341,10 +341,10 @@ def match_choice(raw: str, choices: list[str], default: int) -> int | None:
         return default
     if answer.isdigit() and 1 <= int(answer) <= len(choices):
         return int(answer) - 1
-    stance = _choice_stance(answer)
+    stance = choice_stance(answer)
     if stance is not None:
         for index, choice in enumerate(choices):
-            if _choice_stance(choice) is stance:
+            if choice_stance(choice) is stance:
                 return index
     for index, choice in enumerate(choices):
         if choice.strip().casefold().startswith(answer):
@@ -730,7 +730,7 @@ class SmokeTestHumanInterface:
 
         choices = list(options or []) or list(_APPROVE_CHOICES)
         answer = choices[_default_choice_index(choices, deny_by_default=False)]
-        if _choice_stance(answer) is None:
+        if choice_stance(answer) is None:
             # Not a yes/no: this is a menu of alternatives (candidate authors,
             # say), and no row is pre-selected in any meaningful sense. Returning
             # row 1 would make the harness assert something — which candidate is
@@ -960,6 +960,7 @@ __all__ = [
     "SimulatedHumanInterface",
     "SmokeTestHumanInterface",
     "answers_are_synthetic",
+    "choice_stance",
     "is_interactive",
     "present_to_human",
     "request_input",

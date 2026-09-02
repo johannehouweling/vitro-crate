@@ -933,7 +933,7 @@ TOOL_SPECS = [
     },
     {
         "name": "present_to_human",
-        "description": "Ask the user to decide something. context states what you found; options are the answers they choose between — put the expected answer first, it is pre-selected, so one key confirms it. One decision per prompt. The user can always type an answer of their own, so never add an 'Other' or catch-all option. With several open items, pass questions instead — one entry per item, each with its own options (omit them for a free-text value such as a culture medium) — and they are asked one after another; never bundle them into one context. Ask through this tool, never by ending your reply with a question: a prose question leaves the user a blank box with nothing to confirm.",
+        "description": "Ask the user to decide something. context states what you found; options are the answers they choose between — put the expected answer first, it is pre-selected, so one key confirms it. Rows are the answers themselves (a person, a licence, a file); a plain yes/no has exactly two rows and comes back as approved or rejected. One decision per prompt. The user can always type an answer of their own, so never add an 'Other' or catch-all option. With several open items, pass questions instead — one entry per item, each with its own options (omit them for a free-text value such as a culture medium) — and they are asked one after another; never bundle them into one context. Ask through this tool, never by ending your reply with a question: a prose question leaves the user a blank box with nothing to confirm.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -944,7 +944,7 @@ TOOL_SPECS = [
                 "options": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "The answers to choose between, expected answer first. Omitted: a plain yes/no.",
+                    "description": "The answers to choose between, expected answer first. Omitted here (not inside questions): a plain yes/no.",
                 },
                 "questions": {
                     "type": "array",
@@ -952,11 +952,15 @@ TOOL_SPECS = [
                         "type": "object",
                         "properties": {
                             "question": {"type": "string", "description": "One question."},
-                            "options": {"type": "array", "items": {"type": "string"}},
+                            "options": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "The rows for this question; omitted, the question is a free-text box.",
+                            },
                         },
                         "required": ["question"],
                     },
-                    "description": "Several questions, asked one after another, each with its own options; omit the options for a free-text value. Use this instead of packing several questions into context.",
+                    "description": "Several questions, asked one after another; each entry is an object {question, options}. Give an entry its own options, or omit them for a free-text value. Use this instead of packing several questions into context.",
                 },
             },
             "required": ["context"],

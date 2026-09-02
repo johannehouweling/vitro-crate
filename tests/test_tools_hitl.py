@@ -549,20 +549,50 @@ class TestPresentToHumanAsksSeveralQuestionsInTurn:
 
         assert result["answers"] == [{"question": "Record Dr X?", "answer": "approved"}]
 
-    def test_blank_entries_are_dropped_and_an_empty_list_is_the_single_prompt(self):
+    def test_a_malformed_entry_is_an_error_and_nothing_is_asked(self):
+        """A silent skip would come back looking answered while the user was
+        never asked — so the model is told, before any prompt is shown."""
         mock = MockHumanInterface()
         engine = AgentEngine(human_interface=mock)
 
-        engine.run_tool(
-            "present_to_human",
-            context="Ctx",
-            questions=[{"question": "   "}, {"question": "Real one?", "options": ["A"]}],
-        )
-        assert mock.present_calls == [("Ctx\n\nReal one?", ["A"])]
+        for bad in (
+            ["Which medium?"],  # a bare string, not an object
+            [{"question": "Real one?", "options": ["A"]}, {"text": "wrong key"}],
+            [{"question": "   "}],  # blank
+            [{"question": "Medium?", "options": "DMEM"}],  # a scalar, not rows
+        ):
+            result = engine.run_tool("present_to_human", context="Ctx", questions=bad)
+            assert "error" in result and "answers" not in result, bad
+        assert mock.present_calls == [] and mock.input_calls == []
+        assert engine.state.user_answers == []
 
-        mock.present_calls.clear()
+    def test_an_empty_list_is_the_single_prompt(self):
+        mock = MockHumanInterface()
+        engine = AgentEngine(human_interface=mock)
+
         result = engine.run_tool(
             "present_to_human", context="Ctx", options=["A", "B"], questions=[]
         )
         assert mock.present_calls == [("Ctx", ["A", "B"])]
         assert result["action"] == "edited"
+
+    def test_a_skipped_choice_is_reported_but_not_remembered(self):
+        """A skip is not something the user told us, in either form."""
+
+        class _Skips:
+            def present(self, context, options=None, purpose=None):
+                return {"action": "skipped", "comments": None, "edits": None}
+
+            def request_input(self, prompt, field_type="text"):
+                return {"value": None, "skipped": True}
+
+        engine = AgentEngine(human_interface=_Skips())
+
+        result = engine.run_tool(
+            "present_to_human", context="Ctx", questions=[{"question": "Q?", "options": ["A"]}]
+        )
+        assert result["answers"] == [{"question": "Q?", "answer": "skipped"}]
+        assert engine.state.user_answers == []
+
+        engine.run_tool("present_to_human", context="Single?", options=["A", "B"])
+        assert engine.state.user_answers == []

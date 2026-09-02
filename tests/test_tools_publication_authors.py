@@ -747,3 +747,50 @@ class TestRegistration:
 
         # The engine routed the injected interface through to the tool.
         assert human.present_calls, "engine should have injected the HITL adapter"
+
+
+class TestAnOrcidTypedAtTheCandidateMenu:
+    """#596: the console's free-text row is a third way to answer the candidate
+    menu. An ORCID typed there is the pick — verified like any other (D5) — and
+    the user is not asked to paste it a second time."""
+
+    def _search(self, typed: str, looked_up: list[str]):
+        from builder.tools.composites import _resolve_via_search
+
+        class _Types:
+            def __init__(self) -> None:
+                self.inputs: list[str] = []
+
+            def present(self, context, options=None, purpose=None):
+                return {"action": "edited", "comments": typed, "edits": {"value": typed}}
+
+            def request_input(self, prompt, field_type="text"):
+                self.inputs.append(prompt)
+                return {"value": None, "skipped": True}
+
+        def by_name(given, family, affiliation=None):
+            return [
+                {"given": "A.", "family": family, "orcid": "0000-0001-0000-0001"},
+                {"given": "Alice", "family": family, "orcid": "0000-0002-0000-0002"},
+            ]
+
+        def lookup(orcid_id):
+            looked_up.append(orcid_id)
+            return {"found": True, "data": {"familyName": "Smith", "givenNames": "Alice"}}
+
+        human = _Types()
+        return _resolve_via_search("Alice", "Smith", None, human, lookup, by_name), human
+
+    def test_a_typed_orcid_is_the_pick_and_is_verified(self):
+        looked_up: list[str] = []
+        chosen, human = self._search("https://orcid.org/0000-0003-0000-0003", looked_up)
+
+        assert chosen == "0000-0003-0000-0003"
+        assert looked_up == ["0000-0003-0000-0003"], "a typed ORCID is verified before use"
+        assert human.inputs == [], "no second prompt for what was just typed"
+
+    def test_typed_prose_still_falls_back_to_the_paste_prompt(self):
+        chosen, human = self._search("the second one I think", [])
+
+        assert chosen is None
+        assert len(human.inputs) == 1

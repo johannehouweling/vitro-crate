@@ -1038,29 +1038,36 @@ class AgentEngine:
 
         The ``questions`` form of ``present_to_human``: an entry with ``options``
         is a choice prompt, one without is a free-text field, and *context* is
-        shown once, ahead of the first question. Every exchange is recorded with
-        :meth:`CrateState.record_user_answer` the way the single-prompt form
-        records its one answer — a choice as the row picked (or the decision
-        word for a plain yes/no), a free-text field only when it was answered.
-        The result carries each question with its answer, ``"skipped"`` for a
-        free-text field left empty, so the model sees what it did and did not
-        get.
+        shown once, ahead of the first question. Every answered exchange is
+        recorded with :meth:`CrateState.record_user_answer` the way the
+        single-prompt form records its one answer — a choice as the row picked
+        (or the decision word for a plain yes/no), a skip never. The result
+        carries each question with its answer, ``"skipped"`` for a free-text
+        field left empty, so the model sees what it did and did not get. An
+        entry that is not ``{question: str, options?: [str]}`` is an error and
+        nothing is asked: a silent skip would come back looking answered.
         """
+        entries: list[tuple[str, list[str]]] = []
+        for entry in questions:
+            question = str(entry.get("question") or "").strip() if isinstance(entry, dict) else ""
+            raw = entry.get("options") if isinstance(entry, dict) else None
+            if not question or (raw is not None and not isinstance(raw, list)):
+                return {
+                    "error": "each questions entry must be an object "
+                    "{question: str, options?: [str]} — nothing was asked"
+                }
+            entries.append((question, [str(o).strip() for o in raw or [] if str(o).strip()]))
+
         answers: list[dict[str, Any]] = []
         preamble = str(context or "").strip()
-        for entry in questions:
-            if not isinstance(entry, dict):
-                continue
-            question = str(entry.get("question") or "").strip()
-            if not question:
-                continue
+        for question, options in entries:
             shown = f"{preamble}\n\n{question}" if preamble else question
             preamble = ""
-            options = [str(o).strip() for o in (entry.get("options") or []) if str(o).strip()]
             if options:
                 decision = self.human_interface.present(shown, options)
                 answer = str(decision.get("comments") or decision.get("action") or "")
-                self.state.record_user_answer(question, answer)
+                if decision.get("action") != "skipped":
+                    self.state.record_user_answer(question, answer)
             else:
                 response = self.human_interface.request_input(shown, "text")
                 if response.get("skipped"):
@@ -1224,8 +1231,9 @@ class AgentEngine:
                     kwargs.get("context", ""), kwargs.get("options")
                 )
                 # Persist the answer: it is otherwise only a tool result inside
-                # the graph checkpoint, which a rotated thread discards.
-                if isinstance(result, dict):
+                # the graph checkpoint, which a rotated thread discards. A skip
+                # is not an answer, so it is not one to hold the user to.
+                if isinstance(result, dict) and result.get("action") != "skipped":
                     spoken = result.get("comments") or result.get("action") or ""
                     self.state.record_user_answer(kwargs.get("context", ""), str(spoken))
         elif tool_name == "request_input":

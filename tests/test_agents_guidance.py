@@ -466,7 +466,90 @@ class TestDraftable:
 
         assert _get(engine, "st1").fields.get("description") == typed
         assert human.inputs == [], "a typed answer must not fall through to ask-user"
-        assert any(r.get("via") == "draft-edited" for r in summary["resolved"])
+        assert summary["resolved"], "the gap counts as resolved"
+
+    def test_an_edit_that_carries_no_value_falls_through_to_ask_user(self, monkeypatch):
+        """A frontend may answer "edited" with field-keyed edits and no value; that
+        is not the user's value, so the draft is not committed under its name."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        draft_gap = Gap(
+            tier="SHOULD",
+            source="mit",
+            entity_id="st1",
+            entity_type="Study",
+            property="description",
+            message="Draftable description.",
+            suggestion="hint",
+            fix_hint="draft",
+            auto_fixable=False,
+        )
+        reports = iter(
+            [
+                GapReport(
+                    gaps=[draft_gap],
+                    counts={"must_open": 0, "should_open": 1, "may_open": 0},
+                ),
+                GapReport(gaps=[], counts={"must_open": 0, "should_open": 0, "may_open": 0}),
+            ]
+        )
+        monkeypatch.setattr(guidance, "assess_gaps", lambda _state: next(reports))
+        monkeypatch.setattr(
+            guidance,
+            "draft_entity_fields",
+            lambda *_a, **_k: {"description": "A drafted value."},
+        )
+
+        human = ScriptedHuman(
+            present_answers=[{"action": "edited", "comments": None, "edits": {"name": "X"}}],
+            input_answers=[_value("Typed at the follow-up.")],
+        )
+        run_guidance(engine, human, max_rounds=5)
+
+        assert human.inputs, "an empty edit must fall through to ask-user"
+        assert _get(engine, "st1").fields.get("description") == "Typed at the follow-up."
+
+    def test_a_skip_at_the_draft_dialog_skips_the_gap(self, monkeypatch):
+        """A stop word or Ctrl+D at the dialog ends the exchange; it is not
+        followed by the same question in prose."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = AgentEngine(state=_backbone())
+        draft_gap = Gap(
+            tier="SHOULD",
+            source="mit",
+            entity_id="st1",
+            entity_type="Study",
+            property="description",
+            message="Draftable description.",
+            suggestion="hint",
+            fix_hint="draft",
+            auto_fixable=False,
+        )
+        monkeypatch.setattr(
+            guidance,
+            "assess_gaps",
+            lambda _state: GapReport(
+                gaps=[draft_gap], counts={"must_open": 0, "should_open": 1, "may_open": 0}
+            ),
+        )
+        monkeypatch.setattr(
+            guidance,
+            "draft_entity_fields",
+            lambda *_a, **_k: {"description": "A drafted value."},
+        )
+
+        before = _get(engine, "st1").fields.get("description")
+        human = ScriptedHuman(
+            present_answers=[{"action": "skipped", "comments": None, "edits": None}]
+        )
+        run_guidance(engine, human, max_rounds=2)
+
+        assert human.inputs == [], "a skip must not be re-asked as a free-text question"
+        assert _get(engine, "st1").fields.get("description") == before
 
 
 # ---------------------------------------------------------------------------

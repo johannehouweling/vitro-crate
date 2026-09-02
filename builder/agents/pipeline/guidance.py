@@ -1780,14 +1780,18 @@ def _resolve_gap(
                 options=["approve", "reject"],
             )
             action = decision.get("action")
-            if action in ("approved", "edited"):
-                # The user's own value (the console's "let me type an answer"
-                # row, #596) rides in `edits`; a plain approval takes the draft.
-                edits = decision.get("edits") or {}
-                value = str(edits.get("value")) if edits.get("value") else candidate
-                if _apply_value(engine, gap, value, human):
-                    via = "draft-edited" if action == "edited" else "draft-confirmed"
-                    resolved.append({**record, "via": via})
+            if action == "skipped":
+                # A stop word or Ctrl+D at the dialog (#596): the gap is skipped,
+                # not asked again in prose.
+                return False
+            # The user's own value (the console's "let me type an answer" row,
+            # #596) rides in `edits` or `comments`; a plain approval takes the
+            # draft. An edit that carries no value is not one.
+            edits = decision.get("edits") or {}
+            own = str(edits.get("value") or decision.get("comments") or "").strip()
+            if action == "approved" or (action == "edited" and own):
+                if _apply_value(engine, gap, own or candidate, human):
+                    resolved.append({**record, "via": "draft-edited" if own else "draft-confirmed"})
                     return True
                 return False
         # No usable draft, or the user rejected it -> fall through to ask-user.

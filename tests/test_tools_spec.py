@@ -563,6 +563,7 @@ def test_present_to_human_can_carry_several_questions_each_with_its_own_options(
     assert entry["type"] == "object"
     assert entry["required"] == ["question"]
     assert entry["properties"]["question"]["type"] == "string"
-    assert entry["properties"]["options"] == {"type": "array", "items": {"type": "string"}}
+    assert entry["properties"]["options"]["type"] == "array"
+    assert entry["properties"]["options"]["items"]["type"] == "string"
     # A prompt without `questions` is still the single decision it always was.
     assert params["required"] == ["context"]

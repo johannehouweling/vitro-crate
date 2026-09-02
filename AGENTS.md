@@ -1517,7 +1517,8 @@ substituting ours silently would misstate the instrument.
 
 ### Session & HITL Tools
 ```
-present_to_human(context: str, options: [str], questions: [{question: str, options: [str]}]) → HumanResponse
+present_to_human(context: str, options: [str]) → HumanResponse
+present_to_human(context: str, questions: [{question: str, options: [str]}]) → {action: "answered", answers: [{question, answer}]}
 request_input(prompt: str, field_type: str | None = None) → InputResponse
 save_session(label: str) → SessionInfo
 list_sessions() → [SessionInfo]
@@ -1531,9 +1532,10 @@ console appends a final "Something else — let me type an answer" row to every
 prompt except a scan-root escalation, so an answer the caller did not foresee is
 still possible; it comes back as `action: "edited"` with the text in `comments`
 and `edits.value`. With `questions` the tool asks several in turn — each with its
-own `options`, or as a free-text field when it has none — records every exchange
-in `state.user_answers`, and returns `{action: "answered", answers: [{question,
-answer}]}`. `request_input` asks the human for a single free-form value (e.g. a
+own `options`, or as a free-text field when it has none — records every answered
+exchange in `state.user_answers` (a skip is reported, not recorded), and returns
+`{action: "answered", answers: [{question, answer}]}`; an entry not of that shape
+is an error and nothing is asked. `request_input` asks the human for a single free-form value (e.g. a
 compound name, CAS number, or cell line accession) when a lookup needs a missing
 identifier. `list_sessions` and `load_session` drive the resume flow (§7);
 `present_to_human`/`request_input` are engine-routed HITL tools (not in
@@ -1689,9 +1691,7 @@ nothing is reconstructed from a crate's `ro-crate-metadata.json`.
 ### Interaction Model
 1. Agent presents content and a question
 2. User can: **Approve**, **Edit**, **Reject with explanation**, or **Skip**. On
-   the console, **Edit** is the last row of every choice prompt ("Something else
-   — let me type an answer"), which opens the free-text box; a scan-root
-   escalation has no such row (#197)
+   the console, **Edit** is the free-text row every choice prompt ends with (§5)
 3. Agent incorporates feedback and continues
 4. Feedback is applied to the entity in place; a standing answer to a validation
    escalation is recorded on `state.validation_preferences` and asked at most once
