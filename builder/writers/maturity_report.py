@@ -1967,8 +1967,7 @@ def _render_air_section(air: AIRReport) -> str:
         )
     return (
         "<section>\n"
-        '  <div class="sec-h"><h2>AI-readiness &mdash; the Bridge2AI profile</h2>'
-        '<span class="sec-meta">seven dimensions, no overall score</span></div>\n'
+        '  <div class="sec-h"><h2>AI-readiness &mdash; the Bridge2AI profile</h2></div>\n'
         '  <div class="tbl-scroll"><table class="dsm-grid air-grid">\n'
         "    <thead><tr><th>Dimension</th><th>of assessed</th><th>published</th>"
         "<th>met</th></tr></thead>\n"
