@@ -156,8 +156,9 @@ class ProfilingLogger:
         args:
             Stringified call arguments (truncated, see ``log_event``).
         result:
-            Stringified tool return value (truncated to 500 chars to
-            avoid bloating the profile file).
+            Stringified tool return value (capped by the caller at 20000
+            chars, so a validation issue list survives intact — see
+            :meth:`builder.engine.AgentEngine.run_tool`).
         """
         self.log_event(
             event="tool_call",

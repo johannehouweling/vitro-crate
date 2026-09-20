@@ -1362,12 +1362,18 @@ class AgentEngine:
                 _args_str = _compact_tool_kwargs(tool_name, kwargs)
             except Exception:
                 pass
-            # Truncate result string to avoid bloating profile
+            # Cap the result string, but high enough that it stays EVIDENCE.
+            # `build_and_validate` returns the `issues` list — the action points
+            # a run raises, resolves automatically, or resolves from researcher
+            # input — and the former 500-char cap cut it off entirely, so no
+            # completed session could be audited for them (#768). profile.ndjson
+            # is append-only NDJSON read offline, where a few hundred KB per
+            # session costs nothing; 20k holds a full issue list.
             _result_str: str | None = None
             try:
                 res_text = str(result)
-                if len(res_text) > 500:
-                    res_text = res_text[:497] + "..."
+                if len(res_text) > 20000:
+                    res_text = res_text[:19997] + "..."
                 _result_str = res_text if result is not None else "None"
             except Exception:
                 _result_str = "<unprintable>"
