@@ -238,8 +238,8 @@ class TestMakeUsageLogger:
         totals = {"input_tokens": 0, "output_tokens": 0}
 
         sink = make_usage_logger(engine, totals)
-        sink(120, 35, "gpt-4o-mini")
-        sink(80, 5, "gpt-4o-mini")
+        sink(120, 35, "gpt-4o-mini", None)
+        sink(80, 5, "gpt-4o-mini", None)
 
         assert totals == {"input_tokens": 200, "output_tokens": 40}
         # The exact shape ``ui._read_token_totals`` / the dashboard / the eval
@@ -279,13 +279,13 @@ class TestMakeUsageLogger:
         engine = _DuckEngine(profiler)
 
         make_usage_logger(engine, {"input_tokens": 0, "output_tokens": 0})(
-            120, 35, "claude-opus-4"
+            120, 35, "claude-opus-4", None
         )
 
         assert "system_fingerprint" not in profiler.events[0]
 
     def test_unknown_usage_coerces_to_zero(self) -> None:
-        """``(None, None, None)`` is what ``_extract_token_usage`` reports for an
+        """An all-``None`` report is what ``_extract_token_usage`` yields for an
         offline/fake model — it must record a clean zero, never crash or guess.
         """
         from builder.agents.llm import make_usage_logger
@@ -294,7 +294,7 @@ class TestMakeUsageLogger:
         engine = _DuckEngine(profiler)
         totals = {"input_tokens": 0, "output_tokens": 0}
 
-        make_usage_logger(engine, totals)(None, None, None)
+        make_usage_logger(engine, totals)(None, None, None, None)
 
         assert totals == {"input_tokens": 0, "output_tokens": 0}
         assert profiler.events[0]["input_tokens"] == 0
@@ -309,7 +309,7 @@ class TestMakeUsageLogger:
         engine = _DuckEngine(profiler=None)
         totals = {"input_tokens": 0, "output_tokens": 0}
 
-        make_usage_logger(engine, totals)(11, 7, "gpt-4o-mini")
+        make_usage_logger(engine, totals)(11, 7, "gpt-4o-mini", None)
 
         assert totals == {"input_tokens": 11, "output_tokens": 7}
 

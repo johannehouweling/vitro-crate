@@ -691,9 +691,10 @@ class TestExtractPlanD5StripsFabricatedIdentifiers:
 # instrumentation their token usage is discarded and the eval `--arch pipeline`
 # arm records 0. The leaves accept an optional `usage_sink` callback: when given,
 # the leaf binds structured output with `include_raw=True`, mines
-# `(input_tokens, output_tokens, model_name)` off the raw AIMessage (the SAME
-# provider-agnostic source the ReAct model node uses), and reports it through the
-# sink. With no sink the behaviour is unchanged (the legacy bare-parsed contract).
+# `(input_tokens, output_tokens, model_name, system_fingerprint)` off the raw
+# AIMessage (the SAME provider-agnostic source the ReAct model node uses), and
+# reports it through the sink. With no sink the behaviour is unchanged (the
+# legacy bare-parsed contract).
 # ---------------------------------------------------------------------------
 
 
@@ -710,7 +711,7 @@ class TestDraftEntityFieldsUsageCapture:
         out = leaves.draft_entity_fields(
             "MolecularEntity",
             "context",
-            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
+            usage_sink=lambda i, o, m, f: captured.append((i, o, m, f)),
         )
 
         assert out["name"] == "Acetaminophen"
@@ -754,7 +755,7 @@ class TestExtractPlanUsageCapture:
 
         plan = leaves.extract_plan(
             _DOC_CONTEXT,
-            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
+            usage_sink=lambda i, o, m, f: captured.append((i, o, m, f)),
         )
 
         assert plan["study"]["name"] == "S"
@@ -1177,7 +1178,7 @@ class TestGuidanceLeavesUsageCapture:
 
         question = leaves.phrase_gap_question(
             _GAP_CONTEXT,
-            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
+            usage_sink=lambda i, o, m, f: captured.append((i, o, m, f)),
         )
 
         assert question == "What does this study examine?", "capture must not alter the result"
@@ -1199,7 +1200,7 @@ class TestGuidanceLeavesUsageCapture:
             "What does this study examine?",
             "A dose-response cytotoxicity study.",
             _GAP_CONTEXT,
-            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
+            usage_sink=lambda i, o, m, f: captured.append((i, o, m, f)),
         )
 
         assert decision["action"] == "commit"
@@ -1225,7 +1226,7 @@ class TestGuidanceLeavesUsageCapture:
             "description",
             "Protocol: the cells were exposed for 24h then read out.",
             {"property": "description", "entity_type": "LabProtocol"},
-            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
+            usage_sink=lambda i, o, m, f: captured.append((i, o, m, f)),
         )
 
         assert value == "A viability assay protocol."

@@ -43,7 +43,7 @@ Every line in `profile.ndjson` is a JSON object with **required fields**:
 |-------|----------------|--------------|
 | `tool_call` | `tool`, `duration_ms`, `iteration`, `args`, `result` | After each tool execution completes. `result` is the stringified return value, truncated to 500 characters. |
 | `node_start` | `node`, `iteration` | When a graph node begins execution |
-| `node_end` | `node`, `duration_ms`, `iteration`, `messages_in`, `messages_out`, `produced_tool_calls`, `tools`, `input_tokens`, `output_tokens`, `model_name`, `response_text` | When a graph node finishes execution. For `"node": "model"` events, `input_tokens`, `output_tokens`, `model_name`, and `response_text` are populated from the LLM response (when available). `response_text` is truncated to ~2000 characters. |
+| `node_end` | `node`, `duration_ms`, `iteration`, `messages_in`, `messages_out`, `produced_tool_calls`, `tools`, `input_tokens`, `output_tokens`, `model_name`, `system_fingerprint`, `response_text` | When a graph node finishes execution. For `"node": "model"` events, `input_tokens`, `output_tokens`, `model_name`, and `response_text` are populated from the LLM response (when available). `response_text` is truncated to ~2000 characters. `system_fingerprint` is the provider's serving-backend handle; the key is **omitted** (never `null`) for providers that publish none, such as Anthropic (issue #771). |
 | `tool_start` | `tool`, `iteration`, `args` | *Before* a tool begins executing, so a long call is visible while it runs; the matching `tool_call` follows on return. |
 | `tool_failed` | `tool`, `iteration`, `args`, `error` | When a tool raises. A raising tool writes no `tool_call`, so this is its only record. `error` is truncated to 300 characters. |
 | `tool_suppressed` | `tool`, `iteration`, `args`, `reason` | When a ReAct guard refuses a tool call before dispatch. No `tool_start` or `tool_call` follows, so without this the model bouncing off a guard is indistinguishable from idle time. |
@@ -66,7 +66,8 @@ display or analysis time.
 {"event": "node_end", "node": "model", "duration_ms": 1200.5,
  "timestamp": "2026-06-21T12:30:47", "iteration": 3,
  "messages_in": 5, "messages_out": 1, "produced_tool_calls": true,
- "input_tokens": 350, "output_tokens": 240, "model_name": "gpt-4o"}
+ "input_tokens": 350, "output_tokens": 240, "model_name": "gpt-4o",
+ "system_fingerprint": "fp_abc123"}
 
 {"event": "tool_failed", "tool": "lookup_compound", "iteration": 4,
  "timestamp": "2026-06-21T12:30:48",

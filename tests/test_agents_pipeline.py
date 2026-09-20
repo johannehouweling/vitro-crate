@@ -970,7 +970,7 @@ class TestMaterializePlan:
         pipeline_mod._scaffold_backbone(engine)
         pinned = ModelOverrides(model="pinned")
 
-        def sink(i, o, m) -> None:
+        def sink(i, o, m, f) -> None:
             return None
 
         pipeline_mod._materialize_plan(engine, usage_sink=sink, overrides=pinned)
@@ -2525,11 +2525,11 @@ class TestTokenAccounting:
         # There is deliberately NO matching assertion for the ``UsageSink`` TYPE,
         # because it would be vacuous: ``typing`` memoizes subscriptions
         # (``_tp_cache``), so two modules that each independently declare
-        # ``Callable[[int | None, int | None, str | None], None]`` are handed the
-        # SAME object and ``is`` succeeds either way. That assertion would stay
-        # green after someone re-forked the alias — exactly the drift it would
-        # claim to catch — so it is omitted rather than written to look
-        # reassuring.
+        # ``Callable[[int | None, int | None, str | None, str | None], None]``
+        # are handed the SAME object and ``is`` succeeds either way. That
+        # assertion would stay green after someone re-forked the alias —
+        # exactly the drift it would claim to catch — so it is omitted rather
+        # than written to look reassuring.
 
 
 class TestDeterminism:
